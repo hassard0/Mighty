@@ -25,19 +25,28 @@
 - 217 files
 - ~7.0k lines of Rust
 
-## Deferred to slice 2
+## Deferred to slice 2 — closed by v0.2.0-phase1-polish
 
-- Real per-node formatter (currently identity-passthrough)
-- Type checker
-- Borrow / ownership / affine checking
-- Effect / capability checking
-- Lambda expressions (LAMBDA_EXPR kind exists, no parser production)
+The following slice-1 deferrals shipped in slice 2:
+
+- Real per-node formatter (Wadler/Lindig)
+- Lambda expressions
 - `if let` patterns
-- Generic args in expression position (turbofish)
-- Keyword-tolerant method/field names (e.g. `.on(...)`)
-- Lexer support for `1k`/`1m` size suffixes
+- Generic args in expression position (turbofish `::[T]`)
+- Keyword-tolerant method/field names (e.g. `dom.on(...)`)
+- Keyword-tolerant effect names (e.g. `effect spawn`)
+- Lexer support for decimal size suffixes (`1k`, `2M`)
 - Sandbox body `run <expr>` keyword form
 
-## Known parser-spec divergences
+## Still deferred to slice 3+
 
-Examples 19 and 20 contain inline `// Note:` comments documenting where they diverged from the source spec (`stardust_language_spec_v0_1.md` §34, §35) to fit the slice-1 grammar. All divergences are slice-2 work.
+- Type checker (slice 3)
+- Borrow / ownership / affine checking (slice 3)
+- Effect / capability checking (slice 3)
+- Top-level `sandbox` items per spec §16.1 (slice 3)
+
+## Known parser-spec divergences — resolved
+
+The slice-1 `// Note:` divergence comments in examples 19 and 20 are
+removed in slice 2. Example 18 keeps the fn-wrapper around the sandbox
+(top-level sandbox items are slice 3).

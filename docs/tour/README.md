@@ -35,8 +35,10 @@ tour chapters; read them directly under
 for f in examples/*.sd; do sdust check "$f"; done
 ```
 
-Every shipped example parses, format-roundtrips, and HIR-lowers cleanly
-in slice 1.
+Every shipped example parses, format-roundtrips, and HIR-lowers
+cleanly as of slice 2 (`v0.2.0-phase1-polish`). Slice 2 restored
+examples 19 and 20 to their spec-original syntax using lambdas,
+turbofish, and `if let`; see `docs/spec/v0.1-amendments.md`.
 
 ## Reading order
 

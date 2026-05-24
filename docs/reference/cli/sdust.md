@@ -16,6 +16,7 @@ sdust <COMMAND>
 | [`fmt`](sdust-fmt.md) | Format `.sd` files (or stdin) |
 | [`check`](sdust-check.md) | Parse + HIR-lower; emit diagnostics |
 | [`dump`](sdust-dump.md) | Dump intermediate representations |
+| [`explain`](sdust-explain.md) | Print a human-readable explanation of a diagnostic code |
 | `help` | Print help for `sdust` or a subcommand |
 
 ## Global options
@@ -35,8 +36,9 @@ sdust <COMMAND>
 
 Individual subcommands document any additional codes.
 
-## Scope in slice 1
+## Scope through slice 2
 
-Slice 1 ships only `new`, `fmt`, `check`, and `dump`. The longer
-toolchain in [spec §29](../../spec/v0.1.md) — `build`, `run`, `test`,
-`lint`, `doc`, `bench`, `pkg`, `lsp` — lands in later slices.
+Slice 1 shipped `new`, `fmt`, `check`, and `dump`. Slice 2 adds
+`explain`. The longer toolchain in [spec §29](../../spec/v0.1.md) —
+`build`, `run`, `test`, `lint`, `doc`, `bench`, `pkg`, `lsp` — lands
+in later slices.

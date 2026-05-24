@@ -6,6 +6,17 @@ once and never renumbered. This page is the authoritative registry.
 The codes live in
 [`crates/sdust-diagnostics/src/codes.rs`](../../crates/sdust-diagnostics/src/codes.rs).
 
+## Discovering explanations
+
+For any assigned code, [`sdust explain <CODE>`](cli/sdust-explain.md)
+prints a short paragraph describing the diagnostic and suggested
+fixes. Example:
+
+```sh
+$ sdust explain SD0001
+SD0001: Unexpected token. ...
+```
+
 ## Ranges
 
 | Range | Category |

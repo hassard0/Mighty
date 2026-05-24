@@ -1,8 +1,10 @@
 # 03 — Generics
 
 Generic parameters use square brackets, not angle brackets — this keeps
-the syntax unambiguous with comparison operators and avoids the
-turbofish.
+the syntax unambiguous with comparison operators. In **type** position
+no turbofish is needed (`Result[T, E]`, `Option[T]`). In **expression**
+position a `::` disambiguator separates generic arguments from index
+access — see "Turbofish" below.
 
 ## The program
 
@@ -31,11 +33,20 @@ fn first[T](xs: &[T]) -> Option[&T] {
 sdust check examples/03_generic_fn.sd
 ```
 
-## Note on syntax limits in slice 1
+## Turbofish — expression-position generics
 
-Generic arguments at expression position (the turbofish form,
-`Vec[Str]::new()`) are not yet parsed; only generics in type position
-work. See `examples/19_backend_service.sd` for a worked-around case.
+In expression position, generic arguments require a `::` separator to
+disambiguate from index expressions (where `Map[k]` already means
+"index into `Map`"):
+
+```sd
+let m = Map::[Str, Json]{}      // struct literal with explicit types
+let s = Some::[I32](42)         // constructor call with type arg
+let v = Vec::[T].new()          // method call on a generic path
+```
+
+This is documented in `docs/spec/v0.1-amendments.md` A2. Type-position
+generics remain bracket-only as above.
 
 ## Next
 
