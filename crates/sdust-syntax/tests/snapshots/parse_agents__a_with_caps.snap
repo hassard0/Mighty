@@ -1,0 +1,72 @@
+---
+source: crates/sdust-syntax/tests/parse_agents.rs
+expression: "dump(\"agent Fetcher(net, clock): Fetch {\\n  on Page(url) -> net.get(url) @2s?\\n}\")"
+---
+FILE@0..72
+  AGENT_DECL@0..72
+    AGENT_KW@0..5 "agent"
+    WHITESPACE@5..6 " "
+    NAME@6..13
+      IDENT@6..13 "Fetcher"
+    AGENT_CTOR_PARAMS@13..25
+      L_PAREN@13..14 "("
+      NAME@14..17
+        IDENT@14..17 "net"
+      COMMA@17..18 ","
+      WHITESPACE@18..19 " "
+      NAME@19..24
+        IDENT@19..24 "clock"
+      R_PAREN@24..25 ")"
+    COLON@25..26 ":"
+    WHITESPACE@26..27 " "
+    AGENT_PROTOCOL_LIST@27..33
+      TYPE_PATH@27..33
+        PATH@27..33
+          PATH_SEGMENT@27..32
+            NAME_REF@27..32
+              IDENT@27..32 "Fetch"
+          WHITESPACE@32..33 " "
+    L_BRACE@33..34 "{"
+    WHITESPACE@34..37 "\n  "
+    ON_HANDLER@37..71
+      ON_KW@37..39 "on"
+      WHITESPACE@39..40 " "
+      NAME@40..44
+        IDENT@40..44 "Page"
+      L_PAREN@44..45 "("
+      NAME@45..48
+        IDENT@45..48 "url"
+      R_PAREN@48..49 ")"
+      WHITESPACE@49..50 " "
+      THIN_ARROW@50..52 "->"
+      WHITESPACE@52..53 " "
+      QUESTION_EXPR@53..70
+        DEADLINE_EXPR@53..69
+          CALL_EXPR@53..66
+            PATH_EXPR@53..60
+              PATH@53..60
+                PATH_SEGMENT@53..56
+                  NAME_REF@53..56
+                    IDENT@53..56 "net"
+                DOT@56..57 "."
+                PATH_SEGMENT@57..60
+                  NAME_REF@57..60
+                    IDENT@57..60 "get"
+            ARG_LIST@60..66
+              L_PAREN@60..61 "("
+              ARG@61..64
+                PATH_EXPR@61..64
+                  PATH@61..64
+                    PATH_SEGMENT@61..64
+                      NAME_REF@61..64
+                        IDENT@61..64 "url"
+              R_PAREN@64..65 ")"
+              WHITESPACE@65..66 " "
+          AT@66..67 "@"
+          LITERAL_EXPR@67..69
+            DURATION_LITERAL@67..69 "2s"
+        QUESTION@69..70 "?"
+      WHITESPACE@70..71 "\n"
+    R_BRACE@71..72 "}"
+
+errors: []

@@ -1,0 +1,50 @@
+---
+source: crates/sdust-syntax/tests/parse_agents.rs
+expression: "dump(\"protocol Fetch v1 {\\n  Page(url: Url) -> Page!FetchErr\\n}\")"
+---
+FILE@0..55
+  PROTOCOL_DECL@0..55
+    PROTOCOL_KW@0..8 "protocol"
+    WHITESPACE@8..9 " "
+    NAME@9..14
+      IDENT@9..14 "Fetch"
+    WHITESPACE@14..15 " "
+    NAME@15..17
+      IDENT@15..17 "v1"
+    WHITESPACE@17..18 " "
+    L_BRACE@18..19 "{"
+    WHITESPACE@19..22 "\n  "
+    PROTOCOL_MSG@22..54
+      NAME@22..26
+        IDENT@22..26 "Page"
+      L_PAREN@26..27 "("
+      FN_PARAM@27..35
+        NAME@27..30
+          IDENT@27..30 "url"
+        COLON@30..31 ":"
+        WHITESPACE@31..32 " "
+        TYPE_PATH@32..35
+          PATH@32..35
+            PATH_SEGMENT@32..35
+              NAME_REF@32..35
+                IDENT@32..35 "Url"
+      R_PAREN@35..36 ")"
+      WHITESPACE@36..37 " "
+      THIN_ARROW@37..39 "->"
+      WHITESPACE@39..40 " "
+      TYPE_RESULT_SUGAR@40..54
+        TYPE_PATH@40..44
+          PATH@40..44
+            PATH_SEGMENT@40..44
+              NAME_REF@40..44
+                IDENT@40..44 "Page"
+        BANG@44..45 "!"
+        TYPE_PATH@45..54
+          PATH@45..54
+            PATH_SEGMENT@45..53
+              NAME_REF@45..53
+                IDENT@45..53 "FetchErr"
+            WHITESPACE@53..54 "\n"
+    R_BRACE@54..55 "}"
+
+errors: []

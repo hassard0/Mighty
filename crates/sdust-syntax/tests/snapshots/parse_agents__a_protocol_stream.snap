@@ -1,0 +1,66 @@
+---
+source: crates/sdust-syntax/tests/parse_agents.rs
+expression: "dump(\"protocol Stream[T] {\\n  Next() -> Option[T]!StreamErr\\n  Close() -> Unit\\n}\")"
+---
+FILE@0..72
+  PROTOCOL_DECL@0..72
+    PROTOCOL_KW@0..8 "protocol"
+    WHITESPACE@8..9 " "
+    NAME@9..15
+      IDENT@9..15 "Stream"
+    GENERIC_PARAM_LIST@15..19
+      L_BRACK@15..16 "["
+      GENERIC_PARAM@16..17
+        NAME@16..17
+          IDENT@16..17 "T"
+      R_BRACK@17..18 "]"
+      WHITESPACE@18..19 " "
+    L_BRACE@19..20 "{"
+    WHITESPACE@20..23 "\n  "
+    PROTOCOL_MSG@23..55
+      NAME@23..27
+        IDENT@23..27 "Next"
+      L_PAREN@27..28 "("
+      R_PAREN@28..29 ")"
+      WHITESPACE@29..30 " "
+      THIN_ARROW@30..32 "->"
+      WHITESPACE@32..33 " "
+      TYPE_RESULT_SUGAR@33..55
+        TYPE_PATH@33..42
+          PATH@33..39
+            PATH_SEGMENT@33..39
+              NAME_REF@33..39
+                IDENT@33..39 "Option"
+          GENERIC_ARG_LIST@39..42
+            L_BRACK@39..40 "["
+            GENERIC_ARG@40..41
+              TYPE_PATH@40..41
+                PATH@40..41
+                  PATH_SEGMENT@40..41
+                    NAME_REF@40..41
+                      IDENT@40..41 "T"
+            R_BRACK@41..42 "]"
+        BANG@42..43 "!"
+        TYPE_PATH@43..55
+          PATH@43..55
+            PATH_SEGMENT@43..52
+              NAME_REF@43..52
+                IDENT@43..52 "StreamErr"
+            WHITESPACE@52..55 "\n  "
+    PROTOCOL_MSG@55..71
+      NAME@55..60
+        IDENT@55..60 "Close"
+      L_PAREN@60..61 "("
+      R_PAREN@61..62 ")"
+      WHITESPACE@62..63 " "
+      THIN_ARROW@63..65 "->"
+      WHITESPACE@65..66 " "
+      TYPE_PATH@66..71
+        PATH@66..71
+          PATH_SEGMENT@66..70
+            NAME_REF@66..70
+              IDENT@66..70 "Unit"
+          WHITESPACE@70..71 "\n"
+    R_BRACE@71..72 "}"
+
+errors: []

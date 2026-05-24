@@ -1,0 +1,122 @@
+---
+source: crates/sdust-syntax/tests/parse_agents.rs
+expression: "dump(\"supervisor SearchFlow(strategy: one_for_one) {\\n  child planner = spawn Planner()\\n  child fetcher = spawn Fetcher(net)\\n  on_fail(planner) { restart up_to 3 in 30s }\\n  on_fail(fetcher) { backoff 100ms..2s; restart }\\n}\")"
+---
+FILE@0..215
+  SUPERVISOR_DECL@0..215
+    IDENT@0..10 "supervisor"
+    WHITESPACE@10..11 " "
+    NAME@11..21
+      IDENT@11..21 "SearchFlow"
+    L_PAREN@21..22 "("
+    NAMED_ARG@22..43
+      NAME@22..30
+        IDENT@22..30 "strategy"
+      COLON@30..31 ":"
+      WHITESPACE@31..32 " "
+      PATH_EXPR@32..43
+        PATH@32..43
+          PATH_SEGMENT@32..43
+            NAME_REF@32..43
+              IDENT@32..43 "one_for_one"
+    R_PAREN@43..44 ")"
+    WHITESPACE@44..45 " "
+    L_BRACE@45..46 "{"
+    WHITESPACE@46..49 "\n  "
+    SUP_CHILD@49..83
+      CHILD_KW@49..54 "child"
+      WHITESPACE@54..55 " "
+      NAME@55..62
+        IDENT@55..62 "planner"
+      WHITESPACE@62..63 " "
+      EQ@63..64 "="
+      WHITESPACE@64..65 " "
+      SPAWN_EXPR@65..83
+        SPAWN_KW@65..70 "spawn"
+        WHITESPACE@70..71 " "
+        CALL_EXPR@71..83
+          PATH_EXPR@71..78
+            PATH@71..78
+              PATH_SEGMENT@71..78
+                NAME_REF@71..78
+                  IDENT@71..78 "Planner"
+          ARG_LIST@78..83
+            L_PAREN@78..79 "("
+            R_PAREN@79..80 ")"
+            WHITESPACE@80..83 "\n  "
+    SUP_CHILD@83..120
+      CHILD_KW@83..88 "child"
+      WHITESPACE@88..89 " "
+      NAME@89..96
+        IDENT@89..96 "fetcher"
+      WHITESPACE@96..97 " "
+      EQ@97..98 "="
+      WHITESPACE@98..99 " "
+      SPAWN_EXPR@99..120
+        SPAWN_KW@99..104 "spawn"
+        WHITESPACE@104..105 " "
+        CALL_EXPR@105..120
+          PATH_EXPR@105..112
+            PATH@105..112
+              PATH_SEGMENT@105..112
+                NAME_REF@105..112
+                  IDENT@105..112 "Fetcher"
+          ARG_LIST@112..120
+            L_PAREN@112..113 "("
+            ARG@113..116
+              PATH_EXPR@113..116
+                PATH@113..116
+                  PATH_SEGMENT@113..116
+                    NAME_REF@113..116
+                      IDENT@113..116 "net"
+            R_PAREN@116..117 ")"
+            WHITESPACE@117..120 "\n  "
+    ON_FAIL_CLAUSE@120..166
+      ON_FAIL_KW@120..127 "on_fail"
+      L_PAREN@127..128 "("
+      NAME@128..135
+        IDENT@128..135 "planner"
+      R_PAREN@135..136 ")"
+      WHITESPACE@136..137 " "
+      L_BRACE@137..138 "{"
+      WHITESPACE@138..139 " "
+      RESTART_KW@139..146 "restart"
+      WHITESPACE@146..147 " "
+      UP_TO_KW@147..152 "up_to"
+      WHITESPACE@152..153 " "
+      LITERAL_EXPR@153..154
+        INT_LITERAL@153..154 "3"
+      WHITESPACE@154..155 " "
+      IN_KW@155..157 "in"
+      WHITESPACE@157..158 " "
+      LITERAL_EXPR@158..161
+        DURATION_LITERAL@158..161 "30s"
+      WHITESPACE@161..162 " "
+      R_BRACE@162..163 "}"
+      WHITESPACE@163..166 "\n  "
+    ON_FAIL_CLAUSE@166..214
+      ON_FAIL_KW@166..173 "on_fail"
+      L_PAREN@173..174 "("
+      NAME@174..181
+        IDENT@174..181 "fetcher"
+      R_PAREN@181..182 ")"
+      WHITESPACE@182..183 " "
+      L_BRACE@183..184 "{"
+      WHITESPACE@184..185 " "
+      BACKOFF_KW@185..192 "backoff"
+      WHITESPACE@192..193 " "
+      BINARY_EXPR@193..202
+        LITERAL_EXPR@193..198
+          DURATION_LITERAL@193..198 "100ms"
+        DOT_DOT@198..200 ".."
+        LITERAL_EXPR@200..202
+          DURATION_LITERAL@200..202 "2s"
+      SEMI@202..203 ";"
+      WHITESPACE@203..204 " "
+      RESTART_KW@204..211 "restart"
+      WHITESPACE@211..212 " "
+      R_BRACE@212..213 "}"
+      WHITESPACE@213..214 "\n"
+    R_BRACE@214..215 "}"
+
+errors: []

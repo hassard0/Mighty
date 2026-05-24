@@ -56,6 +56,22 @@ pub fn item(p: &mut Parser) -> bool {
             const_decl(p, cp);
             true
         }
+        AGENT_KW => {
+            super::agents::agent_decl(p, cp);
+            true
+        }
+        PROTOCOL_KW => {
+            super::agents::protocol_decl(p, cp);
+            true
+        }
+        SUP_KW => {
+            super::agents::supervisor_decl(p, cp);
+            true
+        }
+        IDENT if p.tokens[p.pos].text == "supervisor" => {
+            super::agents::supervisor_decl(p, cp);
+            true
+        }
         _ => false,
     }
 }

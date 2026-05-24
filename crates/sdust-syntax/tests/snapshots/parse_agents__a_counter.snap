@@ -1,0 +1,69 @@
+---
+source: crates/sdust-syntax/tests/parse_agents.rs
+expression: "dump(\"agent Counter: Count {\\n  n = 0\\n  on Inc() -> { n += 1; n }\\n}\")"
+---
+FILE@0..60
+  AGENT_DECL@0..60
+    AGENT_KW@0..5 "agent"
+    WHITESPACE@5..6 " "
+    NAME@6..13
+      IDENT@6..13 "Counter"
+    COLON@13..14 ":"
+    WHITESPACE@14..15 " "
+    AGENT_PROTOCOL_LIST@15..21
+      TYPE_PATH@15..21
+        PATH@15..21
+          PATH_SEGMENT@15..20
+            NAME_REF@15..20
+              IDENT@15..20 "Count"
+          WHITESPACE@20..21 " "
+    L_BRACE@21..22 "{"
+    WHITESPACE@22..25 "\n  "
+    AGENT_STATE_DECL@25..33
+      NAME@25..26
+        IDENT@25..26 "n"
+      WHITESPACE@26..27 " "
+      EQ@27..28 "="
+      WHITESPACE@28..29 " "
+      LITERAL_EXPR@29..30
+        INT_LITERAL@29..30 "0"
+      WHITESPACE@30..33 "\n  "
+    ON_HANDLER@33..59
+      ON_KW@33..35 "on"
+      WHITESPACE@35..36 " "
+      NAME@36..39
+        IDENT@36..39 "Inc"
+      L_PAREN@39..40 "("
+      R_PAREN@40..41 ")"
+      WHITESPACE@41..42 " "
+      THIN_ARROW@42..44 "->"
+      WHITESPACE@44..45 " "
+      BLOCK@45..59
+        L_BRACE@45..46 "{"
+        WHITESPACE@46..47 " "
+        EXPR_STMT@47..55
+          BINARY_EXPR@47..53
+            PATH_EXPR@47..49
+              PATH@47..49
+                PATH_SEGMENT@47..48
+                  NAME_REF@47..48
+                    IDENT@47..48 "n"
+                WHITESPACE@48..49 " "
+            PLUS_EQ@49..51 "+="
+            WHITESPACE@51..52 " "
+            LITERAL_EXPR@52..53
+              INT_LITERAL@52..53 "1"
+          SEMI@53..54 ";"
+          WHITESPACE@54..55 " "
+        EXPR_STMT@55..57
+          PATH_EXPR@55..57
+            PATH@55..57
+              PATH_SEGMENT@55..56
+                NAME_REF@55..56
+                  IDENT@55..56 "n"
+              WHITESPACE@56..57 " "
+        R_BRACE@57..58 "}"
+        WHITESPACE@58..59 "\n"
+    R_BRACE@59..60 "}"
+
+errors: []
