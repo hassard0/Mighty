@@ -14,7 +14,10 @@ COMMANDS:
     update     Re-resolve dependencies (optionally just one)
     fetch      Materialise all locked dependencies on disk
     list       Print the resolved dependency tree
-    publish    Bundle the current package for publishing (registry not yet live)
+    search     Substring-match cached registry indexes
+    info       Show metadata for a published package
+    login      Store a GitHub token for a registry
+    publish    Bundle the current package and (when authed) upload it
 
 GLOBAL OPTIONS:
     --manifest-dir <DIR>   Override the package root (default: cwd)
@@ -73,12 +76,14 @@ Removes the dep from `star.toml` and re-runs the resolver so
 
 ```text
 USAGE:
-    sdust pkg update [NAME]
+    sdust pkg update [NAME] [--refresh]
 ```
 
-Re-resolves the manifest end-to-end. With the registry offline in
-v0.2 this is mostly useful for path / git deps; for registry deps the
-result is the requirement floor either way.
+Re-resolves the manifest end-to-end. With `--refresh`, every
+configured registry's cached index is re-pulled from GitHub Releases
+**before** resolution runs — pick this when you want to catch newly
+published versions. Without `--refresh`, resolution is offline-only
+(the local cache is the source of truth, TTL 1 hour).
 
 ## `sdust pkg fetch`
 
@@ -119,6 +124,74 @@ app v0.1.0
 └── std v0.1.0 (registry)
 ```
 
+## `sdust pkg search`
+
+```text
+USAGE:
+    sdust pkg search <QUERY>
+```
+
+Substring-matches `<QUERY>` against the name and version of every
+release in the cached registry indexes. With no cached indexes,
+prints a "no results" message that hints at
+`sdust pkg update --refresh`.
+
+Example:
+
+```text
+$ sdust pkg search otel
+otel@0.1.0    [stardust-pkg/registry]
+otel-rt@0.3.5 [stardust-pkg/registry]
+```
+
+## `sdust pkg info`
+
+```text
+USAGE:
+    sdust pkg info <NAME>[@<VERSION>]
+```
+
+Shows release metadata (URLs, sha256-sidecar URL, manifest body) for
+a published package. Without `@<version>`, picks the highest known
+version across the configured registries.
+
+Example:
+
+```text
+$ sdust pkg info otel@0.1.0
+otel@0.1.0    [stardust-pkg/registry]
+  release : https://github.com/stardust-pkg/registry/releases/tag/otel-0.1.0
+  tarball : https://github.com/stardust-pkg/registry/releases/download/otel-0.1.0/otel-0.1.0.tar.gz
+  manifest:
+    [package]
+    name = "otel"
+    version = "0.1.0"
+    edition = "2026"
+```
+
+## `sdust pkg login`
+
+```text
+USAGE:
+    SDUST_PKG_LOGIN_TOKEN=<token> sdust pkg login [REGISTRY]
+```
+
+Stores a GitHub token for a registry slug in
+`~/.config/sdust/auth.toml` (mode `0600` on Unix). The token must be
+passed via the `SDUST_PKG_LOGIN_TOKEN` env-var — v0.4 disables
+interactive prompts so the same path drives both human use and CI.
+
+`REGISTRY` defaults to the `[registry].default` configured in
+`star.toml`, falling back to the official Stardust registry slug.
+
+Auth-token lookup precedence at fetch / publish time:
+
+1. `~/.config/sdust/auth.toml` `[tokens]` entry for the slug.
+2. `GITHUB_TOKEN` env-var.
+
+See [`docs/reference/registry.md`](../registry.md#authentication) for
+the auth-store schema and security tradeoffs.
+
 ## `sdust pkg publish`
 
 ```text
@@ -126,10 +199,21 @@ USAGE:
     sdust pkg publish
 ```
 
-Produces `.stardust/publish/<name>-<version>.tar.gz` and prints its
-sha256. v0.2 stops here — the Stardust registry is not yet live, so
-upload is deferred to a later slice. The on-disk bundle is
-deterministic (re-running produces a byte-identical file).
+Builds a deterministic `tar.gz` of the package contents plus a
+`.tar.gz.sha256` sidecar under `.stardust/publish/`. When a token is
+available for the configured default registry (per the lookup
+precedence above), it then:
+
+1. Creates a GitHub Release on `<owner>/<repo>` tagged
+   `<name>-<version>`.
+2. Uploads the `tar.gz` + sidecar as release assets.
+3. Prints the release page URL.
+
+Without a token, the local artefacts are still written and the
+output explains how to set `GITHUB_TOKEN` or `sdust pkg login` plus
+the manual drag-and-drop fallback. Exit code is 0 in the
+"bundle-only, no upload" case — the bundle is a useful artefact in
+its own right (e.g. for air-gapped distribution).
 
 ## Exit codes
 
@@ -140,10 +224,18 @@ deterministic (re-running produces a byte-identical file).
 
 ## Environment
 
-- `RUST_LOG` — not consumed in v0.2; package operations are quiet by
-  default. A later slice may add a verbose flag for fetch progress.
+- `GITHUB_TOKEN` — used (a) to lift the GitHub Releases API rate
+  limit from 60/hr to 5000/hr for all registries, and (b) as a
+  fallback when no per-slug token is present in
+  `~/.config/sdust/auth.toml`. Required scopes: `repo` for private
+  registries or `publish`.
+- `SDUST_PKG_LOGIN_TOKEN` — token-source for the non-interactive
+  `sdust pkg login` flow.
+- `RUST_LOG` — not consumed in v0.4; package operations are quiet by
+  default.
 
 ## See also
 
 - [Manifest schema](../manifest.md)
+- [Registry concept + storage convention](../registry.md)
 - [Package manager internals](../../internals/package-manager.md)
