@@ -1,0 +1,208 @@
+#![allow(non_camel_case_types)]
+
+use logos::Logos;
+
+/// SyntaxKind is the universal tag for tokens AND CST nodes.
+/// Token variants are produced by the lexer; node variants are produced by the parser.
+#[derive(Logos, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(u16)]
+pub enum SyntaxKind {
+    // ---- Trivia (tokens) ----
+    #[regex(r"[ \t\r\n]+")]
+    WHITESPACE,
+    #[regex(r"//[^\n]*")]
+    LINE_COMMENT,
+    #[regex(r"/\*([^*]|\*[^/])*\*/")]
+    BLOCK_COMMENT,
+    #[regex(r"///[^\n]*")]
+    DOC_COMMENT,
+
+    // ---- Literals (tokens) ----
+    #[regex(r"[0-9][0-9_]*(?:[iuf](?:8|16|32|64|128))?")]
+    INT_LITERAL,
+    #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*(?:f(?:32|64))?")]
+    FLOAT_LITERAL,
+    #[regex(r"[0-9]+(?:ns|us|ms|s|m|h)")]
+    DURATION_LITERAL,
+    #[regex(r"[0-9]+(?:B|KiB|MiB|GiB)")]
+    SIZE_LITERAL,
+    #[regex(r#""([^"\\]|\\.)*""#)]
+    STRING_LITERAL,
+    #[regex(r"'([^'\\]|\\.)*'")]
+    CHAR_LITERAL,
+    #[regex(r#"html"([^"\\]|\\.)*""#)]
+    HTML_LITERAL,
+    #[token("true")]
+    TRUE_KW,
+    #[token("false")]
+    FALSE_KW,
+
+    // ---- Keywords (spec §3.3) ----
+    #[token("agent")] AGENT_KW,
+    #[token("arena")] ARENA_KW,
+    #[token("as")] AS_KW,
+    #[token("async")] ASYNC_KW,
+    #[token("await")] AWAIT_KW,
+    #[token("budget")] BUDGET_KW,
+    #[token("cap")] CAP_KW,
+    #[token("const")] CONST_KW,
+    #[token("effect")] EFFECT_KW,
+    #[token("else")] ELSE_KW,
+    #[token("enum")] ENUM_KW,
+    #[token("extern")] EXTERN_KW,
+    #[token("fn")] FN_KW,
+    #[token("for")] FOR_KW,
+    #[token("if")] IF_KW,
+    #[token("impl")] IMPL_KW,
+    #[token("import")] IMPORT_KW,
+    #[token("in")] IN_KW,
+    #[token("let")] LET_KW,
+    #[token("loop")] LOOP_KW,
+    #[token("match")] MATCH_KW,
+    #[token("mod")] MOD_KW,
+    #[token("move")] MOVE_KW,
+    #[token("mut")] MUT_KW,
+    #[token("on")] ON_KW,
+    #[token("package")] PACKAGE_KW,
+    #[token("protocol")] PROTOCOL_KW,
+    #[token("pub")] PUB_KW,
+    #[token("ref")] REF_KW,
+    #[token("return")] RETURN_KW,
+    #[token("self")] SELF_KW,
+    #[token("spawn")] SPAWN_KW,
+    #[token("state")] STATE_KW,
+    #[token("struct")] STRUCT_KW,
+    #[token("task")] TASK_KW,
+    #[token("trait")] TRAIT_KW,
+    #[token("type")] TYPE_KW,
+    #[token("unsafe")] UNSAFE_KW,
+    #[token("use")] USE_KW,
+    #[token("where")] WHERE_KW,
+    #[token("while")] WHILE_KW,
+    #[token("with")] WITH_KW,
+    #[token("yield")] YIELD_KW,
+    #[token("export")] EXPORT_KW,
+    #[token("sup")] SUP_KW,
+    #[token("sandbox")] SANDBOX_KW,
+    #[token("child")] CHILD_KW,
+    #[token("on_fail")] ON_FAIL_KW,
+    #[token("restart")] RESTART_KW,
+    #[token("backoff")] BACKOFF_KW,
+    #[token("up_to")] UP_TO_KW,
+    #[token("detach")] DETACH_KW,
+    #[token("requires")] REQUIRES_KW,
+    #[token("macro")] MACRO_KW,
+    #[token("run")] RUN_KW,
+    #[token("join")] JOIN_KW,
+    #[token("scope")] SCOPE_KW,
+
+    // ---- Identifiers ----
+    #[regex(r"[A-Za-z_][A-Za-z0-9_]*", priority = 2)]
+    IDENT,
+
+    // ---- Punctuation ----
+    #[token("(")] L_PAREN,
+    #[token(")")] R_PAREN,
+    #[token("{")] L_BRACE,
+    #[token("}")] R_BRACE,
+    #[token("[")] L_BRACK,
+    #[token("]")] R_BRACK,
+    #[token(",")] COMMA,
+    #[token(";")] SEMI,
+    #[token(":")] COLON,
+    #[token("::")] COLON_COLON,
+    #[token(".")] DOT,
+    #[token("..")] DOT_DOT,
+    #[token("..=")] DOT_DOT_EQ,
+    #[token("=>")] FAT_ARROW,
+    #[token("->")] THIN_ARROW,
+    #[token("@")] AT,
+    #[token("?")] QUESTION,
+    #[token("!")] BANG,
+    #[token("&")] AMP,
+    #[token("&&")] AMP_AMP,
+    #[token("|")] PIPE,
+    #[token("||")] PIPE_PIPE,
+    #[token("^")] CARET,
+    #[token("=")] EQ,
+    #[token("==")] EQ_EQ,
+    #[token("!=")] BANG_EQ,
+    #[token("<")] LT,
+    #[token("<=")] LT_EQ,
+    #[token(">")] GT,
+    #[token(">=")] GT_EQ,
+    #[token("<<")] SHL,
+    #[token(">>")] SHR,
+    #[token("+")] PLUS,
+    #[token("-")] MINUS,
+    #[token("*")] STAR,
+    #[token("/")] SLASH,
+    #[token("%")] PERCENT,
+    #[token("+=")] PLUS_EQ,
+    #[token("-=")] MINUS_EQ,
+    #[token("*=")] STAR_EQ,
+    #[token("/=")] SLASH_EQ,
+    #[token("%=")] PERCENT_EQ,
+    #[token("&=")] AMP_EQ,
+    #[token("|=")] PIPE_EQ,
+    #[token("^=")] CARET_EQ,
+    #[token("<<=")] SHL_EQ,
+    #[token(">>=")] SHR_EQ,
+    #[token("#")] HASH,
+
+    // ---- Special ----
+    ERROR,
+    EOF,
+
+    // ---- Node kinds (produced by parser, never by lexer) ----
+    FILE,
+    USE_DECL, MOD_DECL, PACKAGE_DECL,
+    FN_DECL, FN_PARAM, FN_PARAM_LIST, RET_TYPE, EFFECT_CLAUSE,
+    STRUCT_DECL, STRUCT_FIELD, STRUCT_FIELD_LIST,
+    ENUM_DECL, ENUM_VARIANT, ENUM_VARIANT_LIST,
+    TYPE_ALIAS, IMPL_BLOCK, TRAIT_DECL, TRAIT_METHOD,
+    AGENT_DECL, AGENT_CTOR_PARAMS, AGENT_PROTOCOL_LIST, AGENT_STATE_DECL, ON_HANDLER,
+    PROTOCOL_DECL, PROTOCOL_MSG,
+    SUPERVISOR_DECL, SUP_CHILD, ON_FAIL_CLAUSE,
+    BUDGET_BLOCK, BUDGET_ENTRY,
+    SANDBOX_BLOCK, SANDBOX_ENTRY,
+    ARENA_BLOCK,
+    TASK_SCOPE, TASK_SPAWN, DETACH_EXPR, JOIN_EXPR,
+    EXTERN_BLOCK, EXTERN_FN, EXPORT_DECL,
+    MACRO_DECL, UNSAFE_BLOCK,
+    GENERIC_PARAM_LIST, GENERIC_PARAM, GENERIC_ARG_LIST, GENERIC_ARG, WHERE_CLAUSE,
+    PATH, PATH_SEGMENT, NAME, NAME_REF,
+    TYPE_PATH, TYPE_REF, TYPE_BORROW, TYPE_TUPLE, TYPE_ARRAY, TYPE_FN, TYPE_DYN, TYPE_RESULT_SUGAR, TYPE_UNION,
+    BLOCK, LET_STMT, EXPR_STMT,
+    LITERAL_EXPR, PATH_EXPR, BINARY_EXPR, UNARY_EXPR, POSTFIX_EXPR,
+    CALL_EXPR, METHOD_CALL_EXPR, INDEX_EXPR, FIELD_EXPR, CAST_EXPR,
+    IF_EXPR, MATCH_EXPR, MATCH_ARM, MATCH_GUARD,
+    FOR_EXPR, WHILE_EXPR, LOOP_EXPR, RETURN_EXPR, BREAK_EXPR, CONTINUE_EXPR, YIELD_EXPR,
+    TUPLE_EXPR, ARRAY_EXPR, STRUCT_EXPR, STRUCT_FIELD_EXPR, MAP_EXPR, MAP_ENTRY, LAMBDA_EXPR,
+    SEND_EXPR, ASK_EXPR, DEADLINE_EXPR, QUESTION_EXPR,
+    HTML_EXPR, MOVE_EXPR, BORROW_EXPR, SPAWN_EXPR,
+    LITERAL_PAT, IDENT_PAT, WILDCARD_PAT, TUPLE_PAT, STRUCT_PAT, ENUM_PAT, RANGE_PAT, BINDING_PAT, REF_PAT,
+    ARG_LIST, ARG, NAMED_ARG,
+    ATTR, VISIBILITY,
+    CONST_DECL,
+}
+
+impl SyntaxKind {
+    pub fn is_trivia(self) -> bool {
+        matches!(self,
+            SyntaxKind::WHITESPACE
+            | SyntaxKind::LINE_COMMENT
+            | SyntaxKind::BLOCK_COMMENT
+            | SyntaxKind::DOC_COMMENT
+        )
+    }
+    pub fn is_keyword(self) -> bool {
+        (SyntaxKind::AGENT_KW as u16..=SyntaxKind::SCOPE_KW as u16).contains(&(self as u16))
+    }
+}
+
+impl From<SyntaxKind> for rowan::SyntaxKind {
+    fn from(kind: SyntaxKind) -> Self {
+        rowan::SyntaxKind(kind as u16)
+    }
+}
