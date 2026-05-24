@@ -28,6 +28,9 @@ fn let_stmt(p: &mut Parser) {
     p.start_node(LET_STMT);
     p.bump(LET_KW);
     p.skip_trivia();
+    // Optional `mut` makes the binding mutable.
+    p.eat(MUT_KW);
+    p.skip_trivia();
     patterns::pattern(p);
     if p.eat(COLON) {
         types::type_expr(p);

@@ -229,18 +229,23 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
         }
     }
 
-    // Agents: declare and register methods.
+    // Agents: register methods. The ADT itself was already declared in
+    // pass 1 (declare_item) so fn signatures resolve `AgentRef[Foo]`.
+    let mut agent_method_ids: Vec<(AdtId, sdust_hir::FnId, FnDefId)> = vec![];
     for item_id in &pkg.top_level {
         let item = &pkg.items[*item_id];
         if let HirItem::Agent(aid) = item {
             let hir_agent = &pkg.agents[*aid];
-            let adt_id = defs.alloc_adt(AdtDef {
-                name: hir_agent.name.clone(),
-                kind: AdtKind::Opaque,
-                generics: vec![],
-                param_ids: vec![],
-                variants: vec![],
-            });
+            let adt_id = match defs.lookup(&hir_agent.name) {
+                Some(DefRef::Adt(id)) => id,
+                _ => defs.alloc_adt(AdtDef {
+                    name: hir_agent.name.clone(),
+                    kind: AdtKind::Opaque,
+                    generics: vec![],
+                    param_ids: vec![],
+                    variants: vec![],
+                }),
+            };
             defs.by_name
                 .entry(hir_agent.name.clone())
                 .or_insert(DefRef::Adt(adt_id));
@@ -260,9 +265,118 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
                 };
                 let id = defs.alloc_fn(fdef);
                 defs.hir_fn_to_def.insert(*mfid, id);
+                agent_method_ids.push((adt_id, *mfid, id));
+                defs.impl_methods.insert((adt_id, hf.name.clone()), id);
             }
         }
     }
+
+    // Impl-block method indexing (slice 4, Task 11). For each `impl T { fn m() ... }`
+    // (and `impl Trait for T { fn m() ... }`), register each method's FnDef so
+    // method dispatch on user `Adt(T, _)` receivers can find it.
+    for item_id in &pkg.top_level {
+        let item = &pkg.items[*item_id];
+        if let HirItem::Impl(impl_block) = item {
+            // Resolve self_ty to an AdtId.
+            let self_adt = match &pkg.types[impl_block.self_ty] {
+                sdust_hir::HirType::Path { segments, .. } if segments.len() == 1 => {
+                    match defs.lookup(&segments[0]) {
+                        Some(DefRef::Adt(aid)) => Some(aid),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            for mfid in &impl_block.methods {
+                let hf = &pkg.fns[*mfid];
+                // Build a FnDef with the resolved signature.
+                let mut param_scope = ParamScope::default();
+                let mut generics_def = vec![];
+                let mut method_param_ids = vec![];
+                for g in &hf.generics {
+                    let pid = defs.alloc_param(ParamDef {
+                        name: g.clone(),
+                        bounds: vec![],
+                    });
+                    param_scope.push(g.clone(), pid);
+                    method_param_ids.push(pid);
+                    generics_def.push(ParamDef {
+                        name: g.clone(),
+                        bounds: vec![],
+                    });
+                }
+                let params: Vec<(String, TyId)> = hf
+                    .params
+                    .iter()
+                    .map(|p| {
+                        let ty = match p.ty {
+                            Some(t) => resolve_hir_type(
+                                t,
+                                pkg,
+                                &defs,
+                                arena,
+                                &param_scope,
+                                &mut diagnostics,
+                            ),
+                            None => arena.error,
+                        };
+                        (p.name.clone(), ty)
+                    })
+                    .collect();
+                let ret = match hf.ret {
+                    Some(t) => {
+                        resolve_hir_type(t, pkg, &defs, arena, &param_scope, &mut diagnostics)
+                    }
+                    None => arena.unit,
+                };
+                let fdef_id = defs.alloc_fn(FnDef {
+                    name: hf.name.clone(),
+                    generics: generics_def,
+                    param_ids: method_param_ids,
+                    params,
+                    ret,
+                    effects: vec![],
+                    is_pub: hf.is_pub,
+                    body: hf.body,
+                    hir_fn: Some(*mfid),
+                });
+                defs.hir_fn_to_def.insert(*mfid, fdef_id);
+                if let Some(aid) = self_adt {
+                    defs.impl_methods.insert((aid, hf.name.clone()), fdef_id);
+                }
+            }
+        }
+    }
+
+    // Protocol message index (slice 4, Task 12). For each protocol's
+    // declared message, store the parameter types so agent handlers can
+    // look them up.
+    for item_id in &pkg.top_level {
+        let item = &pkg.items[*item_id];
+        if let HirItem::Protocol(pid) = item {
+            let proto = &pkg.protocols[*pid];
+            for msg in &proto.messages {
+                let ptys: Vec<TyId> = msg
+                    .params
+                    .iter()
+                    .map(|p| match p.ty {
+                        Some(t) => resolve_hir_type(
+                            t,
+                            pkg,
+                            &defs,
+                            arena,
+                            &ParamScope::default(),
+                            &mut diagnostics,
+                        ),
+                        None => arena.error,
+                    })
+                    .collect();
+                defs.protocol_msgs
+                    .insert((proto.name.clone(), msg.name.clone()), ptys);
+            }
+        }
+    }
+    let _ = agent_method_ids;
 
     // Map struct_ids / enum_ids into the def map's HIR lookup tables.
     for (sid, aid) in struct_ids {
@@ -371,17 +485,56 @@ fn declare_item(
                 fn_ids.push((*fid, fdef_id));
             }
         }
+        HirItem::Agent(aid) => {
+            // Declare the agent's type-namespace ADT in pass 1 so fn
+            // signatures (e.g. `r: AgentRef[Foo]`) can resolve it.
+            let hir_agent = &pkg.agents[*aid];
+            let adt_id = defs.alloc_adt(AdtDef {
+                name: hir_agent.name.clone(),
+                kind: AdtKind::Opaque,
+                generics: vec![],
+                param_ids: vec![],
+                variants: vec![],
+            });
+            defs.by_name
+                .entry(hir_agent.name.clone())
+                .or_insert(DefRef::Adt(adt_id));
+        }
+        HirItem::Use(u) => {
+            // `use std.http` binds the last path segment (`http`) as a
+            // module-reference value in scope. This makes single-segment
+            // references like `http.serve(...)` resolve (the leading
+            // `http` is a Module, slice-4 synth_path then makes the
+            // chain opaque-permissive).
+            if let Some(last) = u.path.last() {
+                let dotted = u.path.join(".");
+                // If we have a module by full dotted path, use it.
+                if let Some(DefRef::Module(mid)) = defs.lookup(&dotted) {
+                    defs.by_name
+                        .entry(last.clone())
+                        .or_insert(DefRef::Module(mid));
+                } else {
+                    // Else allocate an opaque module of the dotted name.
+                    let mid = defs.alloc_module(dotted.clone());
+                    defs.by_name
+                        .entry(last.clone())
+                        .or_insert(DefRef::Module(mid));
+                    defs.by_name.entry(dotted).or_insert(DefRef::Module(mid));
+                }
+            }
+            // Plus any leaf aliases (`use std.json::Json`-style; the
+            // parser may not produce these yet for slice 4, so we leave
+            // the leaf path for slice 5+).
+        }
         HirItem::Protocol(_)
         | HirItem::Supervisor(_)
-        | HirItem::Use(_)
         | HirItem::Mod(_)
         | HirItem::ExportDecl(_)
         | HirItem::Macro(_)
         | HirItem::Impl(_)
         | HirItem::Trait(_)
-        | HirItem::Const(_)
-        | HirItem::Agent(_) => {
-            // Agents handled separately.
+        | HirItem::Const(_) => {
+            // Handled separately or unsupported in slice 4.
         }
     }
 }

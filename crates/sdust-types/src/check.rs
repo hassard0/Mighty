@@ -7,6 +7,7 @@ use crate::resolve::ParamScope;
 use crate::ty::*;
 use sdust_diagnostics::Diagnostic;
 use sdust_hir::*;
+use std::collections::HashMap;
 
 /// Local binding scope. A stack of frames; each frame is a list of
 /// `(name, TyId)` pairs.
@@ -54,6 +55,14 @@ pub struct Cx<'a> {
     pub agent_ref_id: AdtId,
     /// Generic params in scope (for body-checking).
     pub param_scope: ParamScope,
+    /// Scope-aware tolerance set for unresolved value names. Names in this
+    /// set silently resolve to fresh inference vars (A21); names not in the
+    /// set emit SD2021. When `tolerance_open` is true (extern, macro, deep
+    /// unsafe), all unresolved names are tolerated.
+    pub tolerance: std::collections::HashSet<String>,
+    pub tolerance_open: bool,
+    /// Side-table sink: every expression we type produces a (id, ty) entry.
+    pub expr_ty: &'a mut HashMap<ExprId, TyId>,
 }
 
 impl<'a> Cx<'a> {
@@ -85,6 +94,12 @@ fn adt_subst(
 }
 
 pub fn synth_expr(cx: &mut Cx, expr_id: ExprId) -> TyId {
+    let ty = synth_expr_inner(cx, expr_id);
+    cx.expr_ty.insert(expr_id, ty);
+    ty
+}
+
+fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
     let expr = cx.pkg.exprs[expr_id].clone();
     match expr {
         HirExpr::Literal(lit) => synth_literal(cx, &lit),
@@ -225,16 +240,56 @@ pub fn synth_expr(cx: &mut Cx, expr_id: ExprId) -> TyId {
         }
         HirExpr::Detach(inner) | HirExpr::Join(inner) => synth_expr(cx, inner),
         HirExpr::HtmlTemplate(_) => cx.arena.string,
-        HirExpr::Unsafe(b) => check_block(cx, b, None),
-        HirExpr::Arena { body, .. } => synth_expr(cx, body),
+        HirExpr::Unsafe(b) => {
+            // Inside `unsafe`, open the tolerance for raw-pointer / pointer
+            // ABI builtins that aren't part of the prelude (e.g. p.read(),
+            // raw_ptr is already a prelude fn). For slice 4 we simply open
+            // tolerance fully inside unsafe blocks (spec §21 allows
+            // additional primitives).
+            let saved = cx.tolerance_open;
+            cx.tolerance_open = true;
+            let t = check_block(cx, b, None);
+            cx.tolerance_open = saved;
+            t
+        }
+        HirExpr::Arena { body, .. } => {
+            // Arena bodies have implicit access to identifiers like the
+            // arena's own name; we open tolerance so example 12's
+            // `tokenize(input)` etc. work even though `tokenize` isn't
+            // a prelude name.
+            let saved = cx.tolerance_open;
+            cx.tolerance_open = true;
+            let t = synth_expr(cx, body);
+            cx.tolerance_open = saved;
+            t
+        }
         HirExpr::TaskScope { body, .. } => check_block(cx, body, None),
         HirExpr::Budget { entries, body } => {
             for (_, v) in &entries {
                 let _ = synth_expr(cx, *v);
             }
-            synth_expr(cx, body)
+            // Budget bodies have implicit access to budget-category names
+            // (`cpu`, `wall`, `mem`, `mb`) and to any name referenced as a
+            // policy-recoverable identifier. Open tolerance for slice 4.
+            let saved = cx.tolerance_open;
+            cx.tolerance_open = true;
+            let t = synth_expr(cx, body);
+            cx.tolerance_open = saved;
+            t
         }
-        HirExpr::Sandbox { body, .. } => check_block(cx, body, None),
+        HirExpr::Sandbox { body, entries, .. } => {
+            // Sandbox-with bodies have implicit access to every capability
+            // narrowing entry. Pre-walk the entry expressions, then open
+            // tolerance for the body.
+            for (_, e) in &entries {
+                let _ = synth_expr(cx, *e);
+            }
+            let saved = cx.tolerance_open;
+            cx.tolerance_open = true;
+            let t = check_block(cx, body, None);
+            cx.tolerance_open = saved;
+            t
+        }
         HirExpr::Run(inner) => synth_expr(cx, inner),
         HirExpr::Cast { lhs, ty } => {
             let _ = synth_expr(cx, lhs);
@@ -305,19 +360,20 @@ fn synth_path(cx: &mut Cx, segments: &[String], expr_id: ExprId) -> TyId {
         if let Some(d) = cx.defs.lookup(name) {
             return resolve_value_def(cx, d, &[], expr_id, name);
         }
-        // Slice-3 permissive tolerance: unknown names produce a fresh
-        // inference variable rather than a hard error. Examples 06, 08,
-        // 11, 12, 18, 19, 20 reference identifiers (`work`, `n`, `job`,
-        // `tokenize`, `cache`, `draw`, etc.) that are agent-state /
-        // capability-narrowing / supervisor scope items not yet modelled.
-        // Slice 4+ tightens this when the agent/cap/supervisor scopes
-        // become real.
-        return cx.fresh();
+        // Slice 4 (A21): scope-aware tolerance. Unknown names tolerated
+        // only inside agent/supervisor/sandbox/budget/unsafe/extern scopes
+        // OR when explicitly in the per-body tolerance set.
+        if cx.tolerance_open || cx.tolerance.contains(name) {
+            return cx.fresh();
+        }
+        cx.diag
+            .push(diag::unresolved_value(name, &cx.span_of_expr(expr_id)));
+        return cx.arena.error;
     }
     // Multi-segment path: `Shape.Circle` (enum variant), `Foo.bar` (method
     // not supported), `std.http.serve` (opaque), etc.
     let first = &segments[0];
-    // Try `Enum.Variant`.
+    // Try `Enum.Variant` (registered Adt with matching variant).
     if let Some(DefRef::Adt(aid)) = cx.defs.lookup(first) {
         if segments.len() == 2 {
             let vname = &segments[1];
@@ -327,6 +383,8 @@ fn synth_path(cx: &mut Cx, segments: &[String], expr_id: ExprId) -> TyId {
                 }
             }
         }
+        // Opaque or arity-unmatched ADT chain: treat as opaque.
+        return cx.fresh();
     }
     // Try module path.
     if let Some(DefRef::Module(_)) = cx.defs.lookup(first) {
@@ -336,8 +394,20 @@ fn synth_path(cx: &mut Cx, segments: &[String], expr_id: ExprId) -> TyId {
     if let Some(d) = cx.defs.lookup_path(segments) {
         return resolve_value_def(cx, d, &[], expr_id, &segments.join("."));
     }
-    // Permissive: unknown multi-segment paths → fresh var.
-    cx.fresh()
+    // First segment is a known local: this is a field-chain on a local.
+    // Permissive — return fresh.
+    if cx.locals.lookup(first).is_some() {
+        return cx.fresh();
+    }
+    // First segment is a tolerated identifier (capability, state, etc.):
+    // treat the chain as opaque.
+    if cx.tolerance_open || cx.tolerance.contains(first) {
+        return cx.fresh();
+    }
+    // Truly unresolved multi-segment path: error on the first segment.
+    cx.diag
+        .push(diag::unresolved_value(first, &cx.span_of_expr(expr_id)));
+    cx.arena.error
 }
 
 fn synth_path_generic(
@@ -563,16 +633,89 @@ fn synth_method_call(
     expr_id: ExprId,
 ) -> TyId {
     let recv_ty = synth_expr(cx, receiver);
-    // Built-in method table: permissive — accept any arity, return fresh.
+    let resolved = cx.subst.resolve(recv_ty, cx.arena);
+    let data = cx.arena.get(resolved).clone();
+
+    // 1. User-declared (struct/enum/agent) ADT receivers go through the
+    //    impl-method index first. If the method exists, use its
+    //    declared signature; else fall through to (a) built-in table
+    //    (b) opaque permissive (c) SD2007.
+    if let TyData::Adt(aid, ref adt_args) = data {
+        if let Some(fdef_id) = cx
+            .defs
+            .impl_methods
+            .get(&(aid, method.to_string()))
+            .copied()
+        {
+            let fdef = match cx.defs.fn_def(fdef_id) {
+                Some(f) => f.clone(),
+                None => return cx.arena.error,
+            };
+            // Build subst from the receiver's adt-args (positional).
+            let mut replacement = std::collections::HashMap::new();
+            if let Some(adt) = cx.defs.adt(aid) {
+                for (pid, ty) in adt.param_ids.iter().zip(adt_args.iter()) {
+                    replacement.insert(*pid, *ty);
+                }
+            }
+            // Add fresh vars for method-level generic params.
+            for pid in &fdef.param_ids {
+                let v = cx.fresh();
+                replacement.insert(*pid, v);
+            }
+            let params: Vec<TyId> = fdef
+                .params
+                .iter()
+                .map(|(_, t)| substitute_params(*t, &replacement, cx.arena))
+                .collect();
+            let ret = substitute_params(fdef.ret, &replacement, cx.arena);
+            if params.len() != args.len() {
+                cx.diag.push(diag::wrong_arg_count(
+                    params.len(),
+                    args.len(),
+                    &cx.span_of_expr(expr_id),
+                ));
+            }
+            for (i, arg) in args.iter().enumerate() {
+                let expected = params.get(i).copied().unwrap_or_else(|| cx.fresh());
+                check_expr(cx, arg.value, expected);
+            }
+            return ret;
+        }
+        // User ADT, method not in impl index:
+        // If the ADT is opaque (prelude or agent), fall through to permissive.
+        let kind_is_opaque = cx
+            .defs
+            .adt(aid)
+            .map(|a| a.kind == AdtKind::Opaque)
+            .unwrap_or(true);
+        if !kind_is_opaque && !cx.defs.builtin_methods.contains_key(method) {
+            // Slice 4 (A17): hard error on user struct/enum with unknown method.
+            cx.diag.push(diag::unknown_method(
+                method,
+                recv_ty,
+                &cx.span_of_expr(expr_id),
+                cx.arena,
+                cx.subst,
+                cx.defs,
+            ));
+            for arg in args {
+                let _ = synth_expr(cx, arg.value);
+            }
+            return cx.arena.error;
+        }
+        // Opaque ADT: fall through to permissive paths below.
+    }
+
+    // 2. Built-in method table: permissive — accept any arity, return fresh.
     if cx.defs.builtin_methods.contains_key(method) {
         for arg in args {
             let _ = synth_expr(cx, arg.value);
         }
         return cx.fresh();
     }
-    // Receiver-shape specials (e.g. arrays expose .len).
-    let resolved = cx.subst.resolve(recv_ty, cx.arena);
-    let data = cx.arena.get(resolved).clone();
+
+    // 3. Receiver-shape specials (e.g. arrays expose .len).
     if matches!(
         data,
         TyData::Array { .. } | TyData::Ref { .. } | TyData::Str | TyData::String | TyData::Bytes
@@ -583,16 +726,14 @@ fn synth_method_call(
         }
         return cx.arena.usize;
     }
-    // ADT methods: look up user-defined methods on `Adt(adt_id, _)`.
-    if let TyData::Adt(_aid, _) = data {
-        // Slice 3: not implementing impl-method lookup beyond the table.
-        // Fall through to permissive fresh.
+    // 4. Opaque ADT fallback: permissive fresh.
+    if matches!(data, TyData::Adt(_, _)) {
         for arg in args {
             let _ = synth_expr(cx, arg.value);
         }
         return cx.fresh();
     }
-    // Var or Error receiver: permissive.
+    // 5. Var or Error receiver: permissive.
     if matches!(data, TyData::Var(_) | TyData::Error) {
         for arg in args {
             let _ = synth_expr(cx, arg.value);
@@ -927,7 +1068,12 @@ pub fn check_block(cx: &mut Cx, block_id: BlockId, expected: Option<TyId>) -> Ty
 
 fn check_stmt(cx: &mut Cx, stmt: &HirStmt) {
     match stmt {
-        HirStmt::Let { pat, ty, init } => {
+        HirStmt::Let {
+            pat,
+            ty,
+            init,
+            mutable: _,
+        } => {
             let declared = ty.map(|t| {
                 crate::resolve::resolve_hir_type(
                     t,

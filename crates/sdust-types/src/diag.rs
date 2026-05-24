@@ -193,15 +193,27 @@ pub fn duplicate_struct_field(field: &str, span: &SourceSpan) -> Diagnostic {
 }
 
 pub fn non_exhaustive_match(span: &SourceSpan, missing: &[String]) -> Diagnostic {
-    let mut d = Diagnostic::error(
-        NON_EXHAUSTIVE_MATCH,
-        label(span, "non-exhaustive match (warning)"),
-    );
-    d.severity = Severity::Warning;
+    // Slice 4 (A16): non-exhaustive match is an error (was warning in slice 3).
+    let mut d = Diagnostic::error(NON_EXHAUSTIVE_MATCH, label(span, "non-exhaustive match"));
     if !missing.is_empty() {
         d.notes
             .push(format!("missing pattern(s): {}", missing.join(", ")));
     }
+    d
+}
+
+pub fn protocol_msg_unknown(msg: &str, span: &SourceSpan) -> Diagnostic {
+    let mut d = Diagnostic::error(
+        PROTOCOL_MSG_UNKNOWN,
+        label(
+            span,
+            format!(
+                "handler message `{}` is not declared by any implemented protocol",
+                msg
+            ),
+        ),
+    );
+    d.severity = Severity::Warning;
     d
 }
 

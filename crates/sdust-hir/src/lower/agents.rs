@@ -92,13 +92,20 @@ pub fn lower_agent(ctx: &mut LoweringCtx, a: AgentDecl) -> AgentId {
         })
         .collect();
 
+    // Collect agent methods: any FN_DECL appearing inside the agent body.
+    let methods: Vec<FnId> =
+        a.0.descendants()
+            .filter_map(sdust_ast::FnDecl::cast)
+            .map(|f| super::items::lower_fn_public(ctx, f))
+            .collect();
+
     let ha = HirAgent {
         name,
         ctor_params,
         protocols,
         state,
         handlers,
-        methods: vec![],
+        methods,
         span: span_of(&a.0),
     };
     ctx.package.agents.alloc(ha)

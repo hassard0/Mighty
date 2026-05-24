@@ -48,3 +48,18 @@ pub fn lower(p: &ParsedFile) -> (Package, Vec<Diagnostic>) {
 pub fn type_check(pkg: &Package) -> Vec<Diagnostic> {
     sdust_types::check_package(pkg)
 }
+
+/// Type-check + borrow-check a lowered package. The borrow check runs
+/// only if type-check produced no *errors* (warnings are tolerated).
+/// Returns the union of both diagnostic lists.
+pub fn type_and_borrow_check(pkg: &Package) -> Vec<Diagnostic> {
+    let typed = sdust_types::check_package_typed(pkg);
+    let mut diags = typed.diagnostics.clone();
+    let any_type_err = diags
+        .iter()
+        .any(|d| matches!(d.severity, sdust_diagnostics::Severity::Error));
+    if !any_type_err {
+        diags.extend(sdust_borrow::check_package(&typed, pkg));
+    }
+    diags
+}

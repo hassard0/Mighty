@@ -26,10 +26,17 @@ pub fn lower_item(ctx: &mut LoweringCtx, node: SyntaxNode) -> Option<ItemId> {
         )),
         SyntaxKind::USE_DECL => Item::Use(lower_use(UseDecl::cast(node)?)),
         SyntaxKind::MOD_DECL => Item::Mod(lower_mod(ModDecl::cast(node)?)),
-        // EXTERN_BLOCK, EXPORT_DECL, MACRO_DECL, IMPL_BLOCK, TRAIT_DECL, CONST_DECL — Task 22+
+        SyntaxKind::EXTERN_BLOCK => Item::ExternBlock(lower_extern_block(ctx, node)),
+        // EXPORT_DECL, MACRO_DECL, IMPL_BLOCK, TRAIT_DECL, CONST_DECL — Task 22+
         _ => return None,
     };
     Some(ctx.package.items.alloc(item))
+}
+
+/// Same as `lower_fn` but with public visibility (for use from other
+/// lowering modules — e.g. agent-method collection).
+pub fn lower_fn_public(ctx: &mut LoweringCtx, f: FnDecl) -> FnId {
+    lower_fn(ctx, f)
 }
 
 fn lower_fn(ctx: &mut LoweringCtx, f: FnDecl) -> FnId {
@@ -219,6 +226,72 @@ fn lower_mod(m: ModDecl) -> HirMod {
         path,
         span: span_of(&m.0),
     }
+}
+
+fn lower_extern_block(ctx: &mut LoweringCtx, node: SyntaxNode) -> HirExternBlock {
+    let span = span_of(&node);
+    // Optional ABI tag is the first NAME child (only if present).
+    let abi = node
+        .children()
+        .find(|c| c.kind() == SyntaxKind::NAME)
+        .and_then(|n| n.first_token())
+        .map(|t| t.text().to_string());
+    let mut fns: Vec<FnId> = vec![];
+    for child in node.children() {
+        if child.kind() != SyntaxKind::EXTERN_FN {
+            continue;
+        }
+        // EXTERN_FN: parse like fn_decl but with no body.
+        let name = child
+            .children()
+            .find_map(sdust_ast::Name::cast)
+            .map(|n| n.text())
+            .unwrap_or_default();
+        let params = child
+            .children()
+            .find(|c| c.kind() == SyntaxKind::FN_PARAM_LIST)
+            .map(|pl| {
+                pl.children()
+                    .filter_map(sdust_ast::FnParam::cast)
+                    .map(|p| {
+                        let pname =
+                            p.0.children()
+                                .find_map(sdust_ast::Name::cast)
+                                .map(|n| n.text())
+                                .unwrap_or_default();
+                        let ty =
+                            p.0.children()
+                                .find(|c| is_type_node(c.kind()))
+                                .map(|n| super::types::lower_type(ctx, n));
+                        HirParam {
+                            name: pname,
+                            ty,
+                            span: span_of(&p.0),
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let ret = child
+            .children()
+            .find(|c| c.kind() == SyntaxKind::RET_TYPE)
+            .and_then(|r| r.children().next())
+            .map(|t| super::types::lower_type(ctx, t));
+        let hf = HirFn {
+            name,
+            is_pub: true,
+            is_unsafe: false,
+            generics: vec![],
+            params,
+            ret,
+            effects: vec![],
+            body: None,
+            span: span_of(&child),
+        };
+        let fid = ctx.package.fns.alloc(hf);
+        fns.push(fid);
+    }
+    HirExternBlock { abi, fns, span }
 }
 
 pub fn is_type_node(k: SyntaxKind) -> bool {

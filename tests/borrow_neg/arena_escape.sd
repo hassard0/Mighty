@@ -1,0 +1,16 @@
+struct Buf {
+  data: Bytes
+}
+
+fn make() -> Buf { Buf { data: bytes() } }
+
+extern {
+  fn bytes() -> Bytes
+}
+
+fn f() -> Buf {
+  arena turn {
+    let x = make()
+    x
+  }
+}

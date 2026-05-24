@@ -2,4 +2,4 @@
 pub mod manifest;
 pub mod pipeline;
 pub use manifest::Manifest;
-pub use pipeline::{lower, parse_source, type_check, ParsedFile};
+pub use pipeline::{lower, parse_source, type_and_borrow_check, type_check, ParsedFile};

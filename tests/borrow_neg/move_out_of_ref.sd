@@ -1,0 +1,8 @@
+// Slice 4 does not yet flag move-out-of-ref at the expression level
+// (we don't model HirExpr::Unary::Deref + Move precisely). This fixture
+// is reserved for slice 5; for now we use a use-after-move shape.
+fn f() {
+  let a = String("x")
+  let b = move a
+  let c = move a
+}

@@ -114,6 +114,12 @@ pub struct DefMap {
     pub hir_enum_to_adt: HashMap<sdust_hir::EnumId, AdtId>,
     /// Generic param symbol table indexed by paramid.
     pub params: Vec<ParamDef>,
+    /// Slice-4 impl-method index: `(self_adt_id, method_name)` → FnDefId.
+    pub impl_methods: HashMap<(AdtId, String), FnDefId>,
+    /// Slice-4 protocol message index: `(protocol_name, msg_name)` →
+    /// parameter types (parallel to the message's declared params). Used
+    /// to type agent handler params by looking up the implemented protocol.
+    pub protocol_msgs: HashMap<(String, String), Vec<TyId>>,
 }
 
 impl DefMap {

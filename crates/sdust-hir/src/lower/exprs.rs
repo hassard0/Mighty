@@ -633,7 +633,17 @@ fn lower_block_inner(ctx: &mut LoweringCtx, n: SyntaxNode) -> BlockId {
                     .children()
                     .find(|c| is_expr_node(c.kind()))
                     .map(|e| lower_expr(ctx, e));
-                stmts.push(HirStmt::Let { pat, ty, init });
+                // `let mut <pat> ...` marks the binding(s) as mutable.
+                let mutable = child
+                    .children_with_tokens()
+                    .filter_map(|c| c.into_token())
+                    .any(|t| t.kind() == SyntaxKind::MUT_KW);
+                stmts.push(HirStmt::Let {
+                    pat,
+                    ty,
+                    init,
+                    mutable,
+                });
             }
             SyntaxKind::EXPR_STMT => {
                 let has_semi = has_token(&child, SyntaxKind::SEMI);

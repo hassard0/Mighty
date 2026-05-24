@@ -1,4 +1,8 @@
-fn run_job(input: Bytes) -> Result!RunErr {
+extern {
+  fn job(input: Bytes) -> Unit!RunErr
+}
+
+fn run_job(input: Bytes) -> Unit!RunErr {
   budget {
     cpu 150ms
     wall 2s
@@ -6,5 +10,6 @@ fn run_job(input: Bytes) -> Result!RunErr {
     mb 1k
   } run {
     job(input)?
+    Ok(())
   }
 }

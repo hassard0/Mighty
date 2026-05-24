@@ -1,4 +1,11 @@
-fn process(items: &[I32]) {
+extern {
+  fn work(item: I32) -> Unit!WorkErr
+  fn ready() -> Bool
+  fn step() -> Unit
+  fn tick() -> Unit
+}
+
+fn process(items: &[I32]) -> Unit!WorkErr {
   for item in items {
     work(item)?
   }

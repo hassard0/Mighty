@@ -1,0 +1,11 @@
+protocol Msg {
+  Send(s: &String) -> Unit
+}
+
+agent Receiver: Msg {
+  on Send(s) -> {}
+}
+
+fn caller(r: AgentRef[Receiver], buf: &String) {
+  r!Send(buf)
+}

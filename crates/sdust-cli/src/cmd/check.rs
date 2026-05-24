@@ -1,6 +1,6 @@
 use sdust_diagnostics::render::ariadne::render_all;
 use sdust_diagnostics::Severity;
-use sdust_driver::{lower, parse_source, type_check};
+use sdust_driver::{lower, parse_source, type_and_borrow_check};
 use std::fs;
 use std::path::Path;
 
@@ -14,10 +14,10 @@ pub fn run(path: &Path) -> i32 {
     };
     let parsed = parse_source(src.clone(), path.display().to_string());
     let (pkg, mut diags) = lower(&parsed);
-    // Only run the type checker if lowering produced no hard errors.
+    // Run type + borrow check only if lowering produced no hard errors.
     let lower_errors = diags.iter().any(|d| matches!(d.severity, Severity::Error));
     if !lower_errors {
-        diags.extend(type_check(&pkg));
+        diags.extend(type_and_borrow_check(&pkg));
     }
     let has_error = diags.iter().any(|d| matches!(d.severity, Severity::Error));
     if !diags.is_empty() {

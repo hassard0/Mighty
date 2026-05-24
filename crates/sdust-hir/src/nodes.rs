@@ -480,6 +480,8 @@ pub enum HirStmt {
         pat: PatId,
         ty: Option<TypeId>,
         init: Option<ExprId>,
+        /// `let mut ...` declares the binding(s) as mutable.
+        mutable: bool,
     },
     Expr(ExprId),
 }

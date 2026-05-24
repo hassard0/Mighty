@@ -1,0 +1,12 @@
+fn f() {
+  let a = String("x")
+  let r = &a
+  let b = move a
+  use_ref(r)
+  use_owned(b)
+}
+
+extern {
+  fn use_ref(r: &String)
+  fn use_owned(s: String)
+}

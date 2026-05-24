@@ -398,6 +398,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdust-borrow"
+version = "0.1.0"
+dependencies = [
+ "sdust-ast",
+ "sdust-diagnostics",
+ "sdust-driver",
+ "sdust-hir",
+ "sdust-syntax",
+ "sdust-types",
+]
+
+[[package]]
 name = "sdust-cli"
 version = "0.1.0"
 dependencies = [
@@ -425,6 +437,7 @@ version = "0.1.0"
 dependencies = [
  "rowan",
  "sdust-ast",
+ "sdust-borrow",
  "sdust-diagnostics",
  "sdust-fmt",
  "sdust-hir",

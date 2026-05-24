@@ -54,6 +54,24 @@ pub const NOT_A_STRUCT: DiagCode = DiagCode::new(2022);
 pub const GENERIC_ARG_MISMATCH: DiagCode = DiagCode::new(2023);
 pub const LAMBDA_ARITY_MISMATCH: DiagCode = DiagCode::new(2024);
 pub const CANNOT_TAKE_REF: DiagCode = DiagCode::new(2025);
+pub const PROTOCOL_MSG_UNKNOWN: DiagCode = DiagCode::new(2026);
+
+// Borrow checker: SD3001..SD3099
+pub const USE_AFTER_MOVE: DiagCode = DiagCode::new(3001);
+pub const MOVE_OUT_OF_BORROW: DiagCode = DiagCode::new(3002);
+pub const BORROW_AFTER_MOVE: DiagCode = DiagCode::new(3003);
+pub const MUT_BORROW_WHILE_SHARED: DiagCode = DiagCode::new(3004);
+pub const SHARED_BORROW_WHILE_MUT: DiagCode = DiagCode::new(3005);
+pub const TWO_MUT_BORROWS: DiagCode = DiagCode::new(3006);
+pub const BORROW_OUTLIVES_OWNER: DiagCode = DiagCode::new(3007);
+pub const CANNOT_MOVE_BORROWED: DiagCode = DiagCode::new(3008);
+pub const MOVE_OUT_OF_REF: DiagCode = DiagCode::new(3009);
+pub const ARENA_ESCAPE: DiagCode = DiagCode::new(3010);
+pub const NON_SENDABLE_MESSAGE_ARG: DiagCode = DiagCode::new(3011);
+pub const DROP_IN_CONST_CONTEXT: DiagCode = DiagCode::new(3012);
+pub const MUT_BORROW_OF_IMMUT_LOCAL: DiagCode = DiagCode::new(3013);
+pub const ASSIGN_TO_IMMUT_LOCAL: DiagCode = DiagCode::new(3014);
+pub const USE_OF_UNINITIALIZED: DiagCode = DiagCode::new(3015);
 
 /// Returns a 2-4 sentence human-readable explanation for a diagnostic
 /// code, suitable for `sdust explain SDxxxx`. Returns None for codes
@@ -195,9 +213,9 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  field twice. Remove the duplicate."
         }
         2015 => {
-            "SD2015: Non-exhaustive match (warning). The match does not cover \
-                 every possible value of the scrutinee. Slice 3 issues this \
-                 as a warning; slice 5 will promote it to an error."
+            "SD2015: Non-exhaustive match. The match does not cover every \
+                 possible value of the scrutinee. Slice 4 made this an \
+                 error; add the missing arm(s) or a wildcard `_ => ...`."
         }
         2016 => {
             "SD2016: Unreachable match arm (warning). A later arm cannot be \
@@ -242,6 +260,84 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
         2025 => {
             "SD2025: Cannot take reference. The expression is not a place \
                  (l-value), so `&` cannot apply."
+        }
+        2026 => {
+            "SD2026: Protocol message unknown (warning). An `on Msg(...)` \
+                 handler refers to a message that no implemented protocol \
+                 declares. Handler params will be typed as fresh inference \
+                 variables; declare the message in a protocol or use \
+                 protocol composition to bring it in."
+        }
+        3001 => {
+            "SD3001: Use after move. The value was moved earlier and cannot \
+                 be used again. Add `.clone()` before the move site if you \
+                 need both, or restructure the code so each owner has a \
+                 single move."
+        }
+        3002 => {
+            "SD3002: Move out of borrowed value. A reference (`&` or \
+                 `&mut`) to the value is still live, so the value cannot be \
+                 moved. Wait for the borrow's scope to end, or copy the \
+                 value."
+        }
+        3003 => {
+            "SD3003: Borrow after move. The value was already moved and no \
+                 longer owns its storage; a borrow is not permitted."
+        }
+        3004 => {
+            "SD3004: Mutable borrow while shared borrows exist. Stardust \
+                 forbids creating a `&mut T` while any `&T` to the same \
+                 value is live."
+        }
+        3005 => {
+            "SD3005: Shared borrow while a mutable borrow exists. Stardust \
+                 forbids creating a `&T` while a `&mut T` to the same \
+                 value is live."
+        }
+        3006 => {
+            "SD3006: Two mutable borrows of the same value. Only one \
+                 `&mut T` may exist at a time."
+        }
+        3007 => {
+            "SD3007: Borrow outlives its owner. The borrowed value's \
+                 owner goes out of scope before the borrow's lexical \
+                 region ends."
+        }
+        3008 => {
+            "SD3008: Cannot move a borrowed value. A reference to the \
+                 value is still live."
+        }
+        3009 => {
+            "SD3009: Cannot move out of a reference. Dereferencing `&T` \
+                 or `&mut T` does not transfer ownership; you may only \
+                 read or write through it."
+        }
+        3010 => {
+            "SD3010: Value escapes its arena. A value bound inside an \
+                 `arena name { ... }` cannot leave the arena's scope unless \
+                 explicitly promoted via `move` to an ancestor scope."
+        }
+        3011 => {
+            "SD3011: Non-Sendable cross-agent message argument. Every \
+                 argument to a `!Msg(...)` or `?Msg(...)` call must be \
+                 Sendable: a Copy type or an owned value (references and \
+                 managed handles cannot cross agent boundaries)."
+        }
+        3012 => {
+            "SD3012: Drop in const context. A value requiring deterministic \
+                 cleanup cannot live in a `const` slot."
+        }
+        3013 => {
+            "SD3013: Cannot mutably borrow an immutable local. The binding \
+                 was declared without `mut`."
+        }
+        3014 => {
+            "SD3014: Assignment to immutable local. The binding was \
+                 declared without `mut`."
+        }
+        3015 => {
+            "SD3015: Use of uninitialised binding. The binding was \
+                 declared but never assigned before its first read."
         }
         _ => return None,
     })
