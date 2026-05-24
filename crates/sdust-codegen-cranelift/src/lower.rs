@@ -268,8 +268,7 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 let size = type_size(&lty, &self.prog.adts);
                 let slot_sz = slot_size(size);
                 let align = type_align(&lty, &self.prog.adts).max(8);
-                let log2_align =
-                    (align.next_power_of_two().trailing_zeros()).min(16) as u8;
+                let log2_align = (align.next_power_of_two().trailing_zeros()).min(16) as u8;
                 let slot = self.b.create_sized_stack_slot(StackSlotData::new(
                     StackSlotKind::ExplicitSlot,
                     slot_sz,
@@ -297,7 +296,7 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
             // If this local is a *parameter*, the entry-block seeding
             // already def_var'd it with the caller-supplied address.
             // Don't overwrite that.
-            let is_param = self.f.params.iter().any(|p| *p == l);
+            let is_param = self.f.params.contains(&l);
             if !is_param {
                 let addr = self.agg_slot_addr(l)?;
                 self.b.def_var(var, addr);
@@ -308,7 +307,10 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
 
     /// Materialise the address of a *place* (local + projections).
     /// Returns (base_addr, terminal_type).
-    fn place_addr(&mut self, place: &Place) -> CompileResult<(cranelift_codegen::ir::Value, SirTy)> {
+    fn place_addr(
+        &mut self,
+        place: &Place,
+    ) -> CompileResult<(cranelift_codegen::ir::Value, SirTy)> {
         let local_ty = self.f.locals[place.local.0 as usize].ty.clone();
         let mut cur_addr = if is_aggregate(&local_ty) {
             self.agg_addr(place.local)?
@@ -340,10 +342,13 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                                     CodegenError::Module(format!("missing adt {:?}", id))
                                 })?
                                 .clone();
-                            let (off, _l) =
-                                struct_field_offset(&adt, *idx, &self.prog.adts).ok_or_else(
-                                    || CodegenError::Module(format!("bad field {} in {}", idx, adt.name)),
-                                )?;
+                            let (off, _l) = struct_field_offset(&adt, *idx, &self.prog.adts)
+                                .ok_or_else(|| {
+                                    CodegenError::Module(format!(
+                                        "bad field {} in {}",
+                                        idx, adt.name
+                                    ))
+                                })?;
                             cur_addr = self.b.ins().iadd_imm(cur_addr, off as i64);
                             cur_ty = adt.variants[0].fields[*idx].ty.clone();
                         }
@@ -361,14 +366,11 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                     let elems = match &cur_ty {
                         SirTy::Tuple(elems) => elems.clone(),
                         _ => {
-                            return Err(CodegenError::Unsupported(
-                                "tuple proj on non-tuple".into(),
-                            ))
+                            return Err(CodegenError::Unsupported("tuple proj on non-tuple".into()))
                         }
                     };
-                    let (off, _l) = tuple_offset(&elems, *idx, &self.prog.adts).ok_or_else(
-                        || CodegenError::Module(format!("bad tuple idx {}", idx)),
-                    )?;
+                    let (off, _l) = tuple_offset(&elems, *idx, &self.prog.adts)
+                        .ok_or_else(|| CodegenError::Module(format!("bad tuple idx {}", idx)))?;
                     cur_addr = self.b.ins().iadd_imm(cur_addr, off as i64);
                     cur_ty = elems[*idx].clone();
                 }
@@ -666,10 +668,7 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                     sdust_sir::sir::EffectOp::GenericCall { path: _, method } => method.clone(),
                 };
                 let id = self.mod_ctx.intern_string(&method)?;
-                let gv = self
-                    .mod_ctx
-                    .module
-                    .declare_data_in_func(id, self.b.func);
+                let gv = self.mod_ctx.module.declare_data_in_func(id, self.b.func);
                 let nptr = self.b.ins().symbol_value(ct::I64, gv);
                 let nlen = self.b.ins().iconst(ct::I64, method.len() as i64);
                 let nargs = self.b.ins().iconst(ct::I64, 0);
@@ -758,8 +757,7 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 // Allocate a fresh stack slot for the result.
                 let size = type_size(&ret_ty, &self.prog.adts).max(8);
                 let align = type_align(&ret_ty, &self.prog.adts).max(8);
-                let log2_align =
-                    (align.next_power_of_two().trailing_zeros()).min(16) as u8;
+                let log2_align = (align.next_power_of_two().trailing_zeros()).min(16) as u8;
                 let slot = self.b.create_sized_stack_slot(StackSlotData::new(
                     StackSlotKind::ExplicitSlot,
                     slot_size(size),
@@ -856,8 +854,7 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 // locals) are accepted: their value is used directly.
                 let addr = match discr {
                     Operand::Copy(p) | Operand::Move(p) => {
-                        if p.proj.is_empty()
-                            && !is_aggregate(&self.f.locals[p.local.0 as usize].ty)
+                        if p.proj.is_empty() && !is_aggregate(&self.f.locals[p.local.0 as usize].ty)
                         {
                             let var = self.ensure_var(p.local);
                             let v = self.b.use_var(var);
@@ -882,11 +879,10 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 for (val, target) in arms {
                     let next = self.b.create_block();
                     let lit = self.b.ins().iconst(ct::I32, *val as i64);
-                    let cmp = self.b.ins().icmp(
-                        cranelift_codegen::ir::condcodes::IntCC::Equal,
-                        tag,
-                        lit,
-                    );
+                    let cmp =
+                        self.b
+                            .ins()
+                            .icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, tag, lit);
                     let tgt = self.ensure_block(*target);
                     self.b.ins().brif(cmp, tgt, &[], next, &[]);
                     self.b.switch_to_block(next);
@@ -928,9 +924,8 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                     _ => return Err(CodegenError::Unsupported("non-tuple TupleInit".into())),
                 };
                 for (i, el) in elems.iter().enumerate() {
-                    let (off, _l) = tuple_offset(&elem_tys, i, &self.prog.adts).ok_or_else(
-                        || CodegenError::Module(format!("bad tuple init idx {}", i)),
-                    )?;
+                    let (off, _l) = tuple_offset(&elem_tys, i, &self.prog.adts)
+                        .ok_or_else(|| CodegenError::Module(format!("bad tuple init idx {}", i)))?;
                     let field_addr = self.b.ins().iadd_imm(addr, off as i64);
                     let v = self.eval_operand(el)?;
                     self.store_scalar(field_addr, v, &elem_tys[i])?;
@@ -954,21 +949,19 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
         // source might be a scalar field of an aggregate, which falls
         // through to the scalar def_var path below).
         if agg_target {
-            if let Rvalue::Use(op) = rv {
-                if let Operand::Copy(src) | Operand::Move(src) = op {
-                    let src_ty = self.place_type(src);
-                    if is_aggregate(&src_ty) && src.proj.is_empty() {
-                        let (src_addr, _src_ty2) = self.place_addr(src)?;
-                        let _ = self.ensure_var(place.local);
-                        let dst_addr = self.agg_slot_addr(place.local)?;
-                        let dst_size = type_size(&local_ty, &self.prog.adts);
-                        let src_size = type_size(&src_ty, &self.prog.adts);
-                        let size = dst_size.min(src_size).max(1);
-                        self.memcpy_bytes(dst_addr, src_addr, size);
-                        let var = self.vars[&place.local];
-                        self.b.def_var(var, dst_addr);
-                        return Ok(());
-                    }
+            if let Rvalue::Use(Operand::Copy(src) | Operand::Move(src)) = rv {
+                let src_ty = self.place_type(src);
+                if is_aggregate(&src_ty) && src.proj.is_empty() {
+                    let (src_addr, _src_ty2) = self.place_addr(src)?;
+                    let _ = self.ensure_var(place.local);
+                    let dst_addr = self.agg_slot_addr(place.local)?;
+                    let dst_size = type_size(&local_ty, &self.prog.adts);
+                    let src_size = type_size(&src_ty, &self.prog.adts);
+                    let size = dst_size.min(src_size).max(1);
+                    self.memcpy_bytes(dst_addr, src_addr, size);
+                    let var = self.vars[&place.local];
+                    self.b.def_var(var, dst_addr);
+                    return Ok(());
                 }
             }
         }
@@ -1067,10 +1060,16 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
         // mis-resolved). The bytes are preserved so subsequent reads
         // through projection still get the right scalar.
         if have.is_int() && want.is_float() && have.bits() == want.bits() {
-            return self.b.ins().bitcast(want, cranelift_codegen::ir::MemFlags::new(), val);
+            return self
+                .b
+                .ins()
+                .bitcast(want, cranelift_codegen::ir::MemFlags::new(), val);
         }
         if have.is_float() && want.is_int() && have.bits() == want.bits() {
-            return self.b.ins().bitcast(want, cranelift_codegen::ir::MemFlags::new(), val);
+            return self
+                .b
+                .ins()
+                .bitcast(want, cranelift_codegen::ir::MemFlags::new(), val);
         }
         // Different-bit-width float/int: extend or reduce to bit-width,
         // then bitcast. Don't try too hard — slice 8 codegen returns
@@ -1078,10 +1077,10 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
         if have.is_float() && want.is_int() {
             // round-trip through bits
             let intermediate = if have.bits() == 32 { ct::I32 } else { ct::I64 };
-            let bits = self
-                .b
-                .ins()
-                .bitcast(intermediate, cranelift_codegen::ir::MemFlags::new(), val);
+            let bits =
+                self.b
+                    .ins()
+                    .bitcast(intermediate, cranelift_codegen::ir::MemFlags::new(), val);
             return self.coerce_to(bits, want);
         }
         if have.is_int() && want.is_float() {
@@ -1143,12 +1142,10 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
             Rvalue::Deref(op) => {
                 // Load a single pointer-width value from the operand.
                 let v = self.eval_operand(op)?;
-                Ok(self.b.ins().load(
-                    ct::I64,
-                    cranelift_codegen::ir::MemFlags::trusted(),
-                    v,
-                    0,
-                ))
+                Ok(self
+                    .b
+                    .ins()
+                    .load(ct::I64, cranelift_codegen::ir::MemFlags::trusted(), v, 0))
             }
             Rvalue::AdtInit {
                 adt,
@@ -1164,8 +1161,7 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 let sty = SirTy::Adt(*adt, vec![]);
                 let size = type_size(&sty, &self.prog.adts).max(8);
                 let align = type_align(&sty, &self.prog.adts).max(8);
-                let log2_align =
-                    (align.next_power_of_two().trailing_zeros()).min(16) as u8;
+                let log2_align = (align.next_power_of_two().trailing_zeros()).min(16) as u8;
                 let slot = self.b.create_sized_stack_slot(StackSlotData::new(
                     StackSlotKind::ExplicitSlot,
                     slot_size(size),
@@ -1176,15 +1172,11 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 Ok(addr)
             }
             Rvalue::TupleInit(elems) => {
-                let tys: Vec<SirTy> = elems
-                    .iter()
-                    .map(|_| SirTy::Int(IntKind::I64))
-                    .collect();
+                let tys: Vec<SirTy> = elems.iter().map(|_| SirTy::Int(IntKind::I64)).collect();
                 let sty = SirTy::Tuple(tys.clone());
                 let size = type_size(&sty, &self.prog.adts).max(8);
                 let align = type_align(&sty, &self.prog.adts).max(8);
-                let log2_align =
-                    (align.next_power_of_two().trailing_zeros()).min(16) as u8;
+                let log2_align = (align.next_power_of_two().trailing_zeros()).min(16) as u8;
                 let slot = self.b.create_sized_stack_slot(StackSlotData::new(
                     StackSlotKind::ExplicitSlot,
                     slot_size(size),
@@ -1192,9 +1184,8 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 ));
                 let addr = self.b.ins().stack_addr(ct::I64, slot, 0);
                 for (i, op) in elems.iter().enumerate() {
-                    let (off, _l) = tuple_offset(&tys, i, &self.prog.adts).ok_or_else(
-                        || CodegenError::Module(format!("bad tuple init {}", i)),
-                    )?;
+                    let (off, _l) = tuple_offset(&tys, i, &self.prog.adts)
+                        .ok_or_else(|| CodegenError::Module(format!("bad tuple init {}", i)))?;
                     let field_addr = self.b.ins().iadd_imm(addr, off as i64);
                     let v = self.eval_operand(op)?;
                     self.store_scalar(field_addr, v, &tys[i])?;
@@ -1218,12 +1209,10 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 let idx_i64 = self.coerce_to(idx, ct::I64);
                 let off = self.b.ins().imul_imm(idx_i64, 8);
                 let addr = self.b.ins().iadd(base, off);
-                Ok(self.b.ins().load(
-                    ct::I64,
-                    cranelift_codegen::ir::MemFlags::trusted(),
-                    addr,
-                    0,
-                ))
+                Ok(self
+                    .b
+                    .ins()
+                    .load(ct::I64, cranelift_codegen::ir::MemFlags::trusted(), addr, 0))
             }
             Rvalue::MethodCall { method, .. } => {
                 // Slice-8 stub: route through the extern bridge as a
@@ -1231,15 +1220,11 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 // trait resolution from the typechecker.
                 let nstr = method.clone();
                 let id = self.mod_ctx.intern_string(&nstr)?;
-                let gv = self
-                    .mod_ctx
-                    .module
-                    .declare_data_in_func(id, self.b.func);
+                let gv = self.mod_ctx.module.declare_data_in_func(id, self.b.func);
                 let nptr = self.b.ins().symbol_value(ct::I64, gv);
                 let nlen = self.b.ins().iconst(ct::I64, nstr.len() as i64);
                 let nargs = self.b.ins().iconst(ct::I64, 0);
-                let r = self
-                    .call_rt("stardust_runtime_extern_call", &[nptr, nlen, nargs], None)?;
+                let r = self.call_rt("stardust_runtime_extern_call", &[nptr, nlen, nargs], None)?;
                 Ok(r.unwrap_or_else(|| self.b.ins().iconst(ct::I64, 0)))
             }
             Rvalue::AgentSpawn { agent, .. } => {
@@ -1474,8 +1459,7 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                     .filter(|t| !matches!(t, SirTy::Unit | SirTy::Never))
                     .collect();
                 let expected = callee_param_tys.len();
-                let mut arg_vals: Vec<cranelift_codegen::ir::Value> =
-                    Vec::with_capacity(expected);
+                let mut arg_vals: Vec<cranelift_codegen::ir::Value> = Vec::with_capacity(expected);
                 for a in args {
                     if arg_vals.len() >= expected {
                         break;
@@ -1555,8 +1539,7 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 };
                 let size = type_size(&ret_ty, &self.prog.adts).max(16);
                 let align = type_align(&ret_ty, &self.prog.adts).max(8);
-                let log2_align =
-                    (align.next_power_of_two().trailing_zeros()).min(16) as u8;
+                let log2_align = (align.next_power_of_two().trailing_zeros()).min(16) as u8;
                 let slot = self.b.create_sized_stack_slot(StackSlotData::new(
                     StackSlotKind::ExplicitSlot,
                     slot_size(size),
@@ -1601,15 +1584,11 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 // Push the name onto the stack as (ptr, len) and call.
                 let nstr = name.to_string();
                 let id = self.mod_ctx.intern_string(&nstr)?;
-                let gv = self
-                    .mod_ctx
-                    .module
-                    .declare_data_in_func(id, self.b.func);
+                let gv = self.mod_ctx.module.declare_data_in_func(id, self.b.func);
                 let nptr = self.b.ins().symbol_value(ct::I64, gv);
                 let nlen = self.b.ins().iconst(ct::I64, nstr.len() as i64);
                 let nargs = self.b.ins().iconst(ct::I64, 0);
-                let r = self
-                    .call_rt("stardust_runtime_extern_call", &[nptr, nlen, nargs], None)?;
+                let r = self.call_rt("stardust_runtime_extern_call", &[nptr, nlen, nargs], None)?;
                 Ok(r.unwrap_or_else(|| self.b.ins().iconst(ct::I64, 0)))
             }
             FnRef::Builtin(BuiltinId::Spawn)

@@ -101,27 +101,54 @@ linker resolve against `libsdust_runtime.so` / `.dylib` / `.lib`
 
 ## Conservative-by-default lowering
 
-The `FnLower` consciously fails on shapes it can't handle, raising
-`CodegenError::Unsupported(reason)`. The driver catches Unsupported
-in `sdust run` and falls back to the interpreter, so the user sees
-correct behaviour transparently — slower, but correct. Slice 8's
-covered surface:
+The `FnLower` raises `CodegenError::Unsupported(reason)` when a SIR
+shape can't be lowered. The driver catches Unsupported in `sdust run`
+and falls back to the interpreter, so the user sees correct behaviour
+transparently. v0.2 closed the major SIR-coverage gaps:
 
-- integer / bool / float arithmetic & comparisons
-- `let` / `=` / `if` / `goto` / `return` / `unreachable`
-- direct fn-to-fn calls (no method dispatch, no traits)
-- `log("...")` / `print("...")` (string literal arg)
+- integer / bool / float / char arithmetic & comparisons (incl. float-int
+  bitcast for SIR-typeck mismatches)
+- `let` / `=` / `if` / `goto` / `return` / `unreachable` / `panic`
+- direct fn-to-fn calls (with unit-arg filtering + per-param coercion)
+- `log` / `print` / `panic` via the runtime ABI bridge
 - string constants via the literal pool
+- **ADT construct + destructure** (struct + enum literals; field reads;
+  variant-field reads; switch-variant lowered as load-tag + brif chain)
+- **`?` propagation** — `Term::TryReturnErr` materialises `Result::Err`
+  in a fresh stack slot and returns its address
+- **Tuple init + read**
+- **Agent `send`/`ask`/`spawn`** route through runtime stubs
+  (compiled handlers are a v0.2.x follow-up; the runtime still drives
+  dispatch through the interpreter for now)
+- **`EffectInvoke`** routes through `extern_call` stub
+- **`MethodCall` / `IndexRead`** lower to best-effort runtime calls
+- **Result constructor extern fns** (`Ok` / `Err`) emit ADT init
 
-Out-of-scope (interp fallback):
+Out-of-scope (still interp fallback):
 
-- aggregate construction / projection (struct / tuple / enum / array)
-- `?` propagation
-- `match` over enums (only `if`-trees work)
-- agent `spawn` / `send` / `ask`
-- capabilities / `dyn` / effect calls
+- `dyn Trait` vtables
+- closure capture (lambdas-with-environment)
+- inline cap dispatch (cap method calls)
+- arbitrary `extern { fn }` resolution (requires shared-lib symbol
+  resolution beyond the slice-8 stub)
 
-These all land as v0.2 backend coverage.
+## Aggregate ABI
+
+| Shape | Cranelift representation |
+|-------|--------------------------|
+| Bool / Int(small) / Char / Float | passed by value |
+| Aggregate (struct/enum/tuple/array) | passed by pointer (i64 address) |
+| `Str`/`String`/`Bytes` | `(ptr, len)` pair, passed as pointer |
+| Reference / RawPtr | i64 pointer |
+
+The function signature is built from the SIR types; the lowerer adds
+stack slots lazily when a SIR local is first written to via
+`AdtInit`/`TupleInit`. Parameters that are aggregate-typed keep the
+caller's pointer untouched.
+
+Enum layout: `[u32 tag][padding to max-payload-align][payload bytes]`,
+matching the `layout` module's natural-alignment scheme. Struct layout:
+same minus the tag. See [`aggregate.rs`](../../crates/sdust-codegen-cranelift/src/aggregate.rs).
 
 ## JIT driver
 
@@ -141,14 +168,28 @@ let obj = compile_object(&prog, &obj_path)?;
 let exe = link_executable(&obj, &exe_path, BuildMode::Release)?;
 ```
 
-Linker discovery (A52):
+Linker discovery (A52, extended in v0.2):
 1. `$STARDUST_LINKER` if set.
-2. `clang` / `gcc` / `cc` (preferred — speak both GNU and MSVC arg
-   syntax via the C frontends).
-3. Skips `/usr/bin/link.exe` on MSYS (it's a coreutils shim).
+2. **Windows**: `clang.exe`, `clang`, `gcc.exe`, `gcc`, `cc.exe`, then
+   `lld-link.exe`, `lld-link`. (We deliberately do *not* probe bare
+   `link` on Windows because the MSYS coreutils `/usr/bin/link.exe`
+   shim shadows MSVC's real linker.)
+3. **Unix**: `cc`, `gcc`, `clang`, then `ld.lld`, `lld`. `clang` is
+   preferred because it can drive both GNU and macOS link lines via
+   the same frontend.
+4. The MSYS/Git-Bash `/usr/bin/link.exe` (hardlink helper) is actively
+   skipped if found in `PATH`.
 
 If none found, `compile_object` succeeds but `link_executable` is
 skipped and the caller is told to set `$STARDUST_LINKER`.
+
+### Why `clang` first
+
+`clang` (and `lld` underneath it) speaks every host's linker line:
+on Linux it drives `ld.bfd`/`ld.gold`/`ld.lld` directly; on macOS it
+hands off to the system `ld64`; on Windows it embeds `lld-link` which
+honours MSVC arg syntax. That makes the cranelift backend's link
+step a single code path across hosts.
 
 ## Monomorphization (A49)
 

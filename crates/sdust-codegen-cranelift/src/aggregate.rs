@@ -36,10 +36,7 @@ pub const TAG_SIZE: u32 = 4;
 /// True if a SIR type should be passed by *pointer* (i64 address) instead
 /// of by value. Anything aggregate, plus strings (`(ptr, len)`).
 pub fn is_aggregate(t: &SirTy) -> bool {
-    matches!(
-        t,
-        SirTy::Tuple(_) | SirTy::Array { .. } | SirTy::Adt(_, _)
-    )
+    matches!(t, SirTy::Tuple(_) | SirTy::Array { .. } | SirTy::Adt(_, _))
 }
 
 /// Compute layout for a SIR type (delegates to `layout_with_adts` for
@@ -85,11 +82,7 @@ pub fn variant_field_offset(
 }
 
 /// Field offset for a struct (single-variant ADT).
-pub fn struct_field_offset(
-    adt: &AdtRef,
-    field: usize,
-    adts: &[AdtRef],
-) -> Option<(u32, Layout)> {
+pub fn struct_field_offset(adt: &AdtRef, field: usize, adts: &[AdtRef]) -> Option<(u32, Layout)> {
     variant_field_offset(adt, 0, field, adts)
 }
 
@@ -101,8 +94,8 @@ pub fn tuple_offset(elems: &[SirTy], idx: usize, adts: &[AdtRef]) -> Option<(u32
     let elem_ty = &elems[idx];
     let elem_layout = type_layout(elem_ty, adts);
     let mut off: u32 = 0;
-    for ei in 0..idx {
-        let l = type_layout(&elems[ei], adts);
+    for prev in &elems[..idx] {
+        let l = type_layout(prev, adts);
         off = align_up(off, l.align);
         off += l.size;
     }
@@ -205,12 +198,9 @@ mod tests {
 
     #[test]
     fn struct_field_offsets_pack_naturally() {
-        let s = make_struct(
-            "P",
-            &[SirTy::Int(IntKind::I32), SirTy::Int(IntKind::I32)],
-        );
-        let (o0, _) = struct_field_offset(&s, 0, &[s.clone()]).unwrap();
-        let (o1, _) = struct_field_offset(&s, 1, &[s.clone()]).unwrap();
+        let s = make_struct("P", &[SirTy::Int(IntKind::I32), SirTy::Int(IntKind::I32)]);
+        let (o0, _) = struct_field_offset(&s, 0, std::slice::from_ref(&s)).unwrap();
+        let (o1, _) = struct_field_offset(&s, 1, std::slice::from_ref(&s)).unwrap();
         assert_eq!(o0, 0);
         assert_eq!(o1, 4);
     }

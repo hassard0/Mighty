@@ -11,9 +11,11 @@ description = "Stardust LLVM codegen backend — scaffold only in slice 8 (A46).
 [features]
 default = []
 # Enable inkwell to build a real LLVM backend. Requires LLVM 17
-# headers/libs available via llvm-config. See A46 — the slice-8 build
+# headers/libs available via llvm-config. See A46 — the v0.2 build
 # host did not have LLVM installed, so this feature is OFF by default
-# and Cranelift is the v0.1 native backend.
+# and Cranelift remains the default native backend. With LLVM 17
+# installed on the host, `cargo build --features llvm` enables real
+# IR emission and the LLVM PassBuilder optimizer pipeline.
 llvm = ["dep:inkwell"]
 
 [dependencies]
@@ -22,4 +24,4 @@ sdust-types = { path = "../sdust-types" }
 sdust-hir = { path = "../sdust-hir" }
 sdust-diagnostics = { path = "../sdust-diagnostics" }
 thiserror = { workspace = true }
-inkwell = { version = "0.4", features = ["llvm17-0"], optional = true }
+inkwell = { workspace = true, optional = true }

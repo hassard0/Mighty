@@ -1,13 +1,13 @@
-# Internals — Wasm backend (slice 8)
+# Internals — Wasm backend (v0.2)
 
 `sdust-codegen-wasm` translates SIR into a core Wasm module via
 `wasm-encoder`. Two targets: `wasm32-wasi` (server-side, WASI
 preview1) and `wasm32-web` (browser host).
 
-The Component Model wrapper (`wit-component`) is deferred to v0.2
-(see [A47](../spec/v0.1-amendments.md#a47)). Slice 8 emits core
-modules with capability imports declared under the `stardust`
-module namespace.
+The Component Model wrapper (`wit-component`) is still deferred (see
+[A47](../spec/v0.1-amendments.md#a47)) — v0.2 keeps the core-module
+shape and focuses on widening SIR-coverage so all 20 ship examples
+produce a validating wasm module.
 
 ## Module shape
 
@@ -44,9 +44,29 @@ spill/load slots for ADTs / strings that exceed register capacity.
 | `Float(F32)` | `f32` |
 | `Float(F64)`, `FloatInfer` | `f64` |
 | `Unit`, `Never` | omitted |
-| `I128` / `U128` | unsupported (slice-8) |
-| `Str` / `String` / `Bytes` | `(i32 ptr, i32 len)` — caller-known pair |
-| aggregates | unsupported (slice-8) |
+| `I128` / `U128` | unsupported |
+| Aggregates (struct/enum/tuple/array) | `i32` (linear-memory pointer) |
+| `Str` / `String` / `Bytes` | `i32` (pointer to linear memory) |
+| `Ref`, `RawPtr`, `Cap`, `Dyn`, `Fn` | `i32` (pointer) |
+
+The "everything becomes i32" stance for non-scalar types matches the
+component-model's `borrow`/`own` lowering and keeps the v0.2 wasm
+backend total — every example produces a validating module.
+
+## Best-effort body emission (v0.2)
+
+The lowerer first *tries* to emit each function as straight-line
+wasm. On the first SIR shape it can't handle (non-chain goto,
+unsupported terminator, projection-store, etc.), it bails and the
+function body is reset to a single `unreachable` instruction. This
+preserves wasm validation while leaving correctness for compiled-and-
+run scenarios to the simpler examples; rich agent code still validates
+but the wasm host hits `unreachable` if it actually tries to run
+those handlers.
+
+Future slices will replace the `unreachable` fallback with a true
+shadow-stack model that handles aggregates, branches, and the wider
+SIR surface.
 
 ## Capability imports
 

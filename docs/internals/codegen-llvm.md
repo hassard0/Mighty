@@ -1,74 +1,144 @@
-# Internals — LLVM backend (scaffold, slice 8)
+# Internals — LLVM backend (v0.2)
 
-`sdust-codegen-llvm` is **a scaffold only** in v0.1. The slice-8
-build host had no LLVM / `llvm-config` installed, so the slice
-leader degraded to Cranelift-only for the v0.1 native backend
-(see [A46](../spec/v0.1-amendments.md#a46)).
-
-The crate is wired into the workspace so:
-
-- Future build hosts with LLVM 17 can enable it via
-  `cargo build --features llvm`.
-- The eventual lowering work has a place to land.
-
-## Current behaviour
+`sdust-codegen-llvm` provides an opt-in LLVM 17 backend behind the
+`llvm` cargo feature flag. v0.1 shipped a *scaffold only* (A46) because
+the slice-8 build host had no LLVM/`llvm-config` installed; v0.2 keeps
+the opt-in stance — the host is still LLVM-free — but lands a real
+SIR→LLVM IR lowerer that activates whenever the feature compiles.
 
 ```rust
-pub fn compile(_prog: &Program) -> Result<(), LlvmError> {
-    #[cfg(not(feature = "llvm"))] Err(LlvmError::FeatureDisabled)
-    #[cfg(feature = "llvm")] Err(LlvmError::NotYetImplemented)
-}
+use sdust_codegen_llvm::{compile, LlvmError, LlvmOptLevel, OutputKind};
 
-pub const fn enabled() -> bool { cfg!(feature = "llvm") }
+let prog: sdust_sir::sir::Program = /* lowered from your Stardust source */;
+compile(&prog)?;                                     // verify only
+compile_to_path(&prog, Path::new("out.o"),
+    OutputKind::Object, LlvmOptLevel::O2)?;          // emit object
 ```
 
-`LlvmError` has two variants: `FeatureDisabled` (the feature is off)
-and `NotYetImplemented` (the feature is on but lowering hasn't been
-written yet). Both are returned without panic so the driver can
-fall back to Cranelift cleanly.
+## Build prerequisites
 
-## Why scaffolded, not real
+The crate's `llvm` feature depends on `inkwell`, which depends on
+`llvm-sys 170.x`. `llvm-sys` insists on locating a matching LLVM 17
+installation at build time. Install it per platform:
 
-`inkwell 0.4` requires `llvm-config --version` to succeed at build
-time and locate matching LLVM 17 libs. On a host without LLVM, the
-build fails before any Rust code is compiled — that would have
-broken the entire workspace, including the parts that have nothing
-to do with codegen. Gating behind a feature flag preserves the
-"workspace builds cleanly out of the box" property while leaving a
-clear extension point.
+### macOS
 
-## When to enable it
+```bash
+brew install llvm@17
+export LLVM_SYS_170_PREFIX=$(brew --prefix llvm@17)
+cargo build -p sdust-codegen-llvm --features llvm
+```
 
-Once Stardust v0.2 begins the native-optimization push, the LLVM
-backend becomes attractive because:
+### Ubuntu / Debian
 
-- LLVM's IR is far richer than Cranelift IR (slice 8 does
-  hand-rolled bounds-check elision; LLVM does it for free)
-- LLVM has GlobalISel + the legacy backends → way more target
-  triples than Cranelift currently supports
-- ThinLTO / PGO live in the LLVM ecosystem
+```bash
+# LLVM apt repo
+sudo apt install llvm-17-dev libpolly-17-dev
+export LLVM_SYS_170_PREFIX=/usr/lib/llvm-17
+cargo build -p sdust-codegen-llvm --features llvm
+```
 
-The expected sequence:
+### Windows
 
-1. v0.2 starts. Install LLVM 17 on the build host.
-2. Toggle `default = ["llvm"]` in `sdust-codegen-llvm/Cargo.toml`.
-3. Port the `lower.rs` shape from Cranelift to inkwell. The SIR
-   surface is the same; mostly mechanical.
-4. Add LLVM-specific optimization passes (inlining, mem2reg, GVN,
-   DCE, loop unrolling).
-5. Make Cranelift the `--debug` backend (it's faster to JIT) and
-   LLVM the `--release` backend (it produces better code).
+The simplest path is the official LLVM 17 Windows installer (from
+[releases.llvm.org](https://releases.llvm.org/)):
 
-## Future LLVM ABI bridge
+1. Install LLVM 17 (with `Add to PATH` checked).
+2. Set `LLVM_SYS_170_PREFIX` to the install root (e.g.
+   `C:\Program Files\LLVM`).
+3. Build:
 
-The runtime ABI (`stardust_runtime_*` symbols) is identical for
-LLVM and Cranelift — they both link against the same C-ABI fns.
-The `runtime_imports::RUNTIME_IMPORTS` table is the shared schema.
+```powershell
+$env:LLVM_SYS_170_PREFIX = "C:\Program Files\LLVM"
+cargo build -p sdust-codegen-llvm --features llvm
+```
 
-## Why we don't `cfg`-gate the *crate*
+If `cargo build --features llvm` fails with
+`No suitable version of LLVM was found system-wide or pointed to by
+LLVM_SYS_170_PREFIX`, that's the documented condition — the feature
+stays off and the driver falls back to Cranelift cleanly.
 
-Workspace tooling (cargo, IDEs, clippy) handles feature flags
-better than out-of-tree crates. Keeping `sdust-codegen-llvm` always
-in the workspace means `cargo check --workspace` still type-checks
-the LLVM scaffold's public API, even when the feature is off — so
-nobody can land a refactor that breaks it without noticing.
+## Backend coverage
+
+The LLVM lowerer mirrors what the Cranelift backend supports (so the
+two backends ship the same source-language surface):
+
+- integer / float / bool / char arithmetic
+- locals → LLVM `alloca`s; loads/stores go through them
+- aggregates lower to pointer-sized values (i64 indirection into a
+  caller-allocated buffer), matching the Cranelift ABI
+- direct fn-to-fn calls (monomorphized; see [monomorphization](#monomorphization))
+- ADT construction (struct + enum tag+payload via Rvalue::AdtInit)
+- struct destructuring (FieldRead, TupleRead)
+- enum destructuring (VariantField projection)
+- `if` / `goto` / `return` / `unreachable`
+- `SwitchInt` / `SwitchVariant` lowered as native LLVM `switch`
+- `?` propagation via `Term::TryReturnErr`
+- `log` / `print` / `panic` via C-ABI runtime calls
+- agent send / ask / spawn route through runtime stubs
+- arena push/pop via runtime calls
+- best-effort fallback for `MethodCall`, `IndexRead`, and unresolved
+  externs (return zero / null pointer)
+
+Out of scope (same as Cranelift):
+
+- effect-system call dispatch (compiled inline)
+- `dyn Trait` vtables
+- closure capture (lambdas-with-environment)
+
+## Optimization
+
+The LLVM `PassBuilder` runs at the chosen `LlvmOptLevel`:
+
+| Level | Meaning | Pipeline |
+|-------|---------|----------|
+| `O0`  | no optimization (fast compile) | `default<O0>` |
+| `O2`  | release standard | `default<O2>` |
+| `O3`  | aggressive | `default<O3>` |
+
+The default for `sdust build --release` is `O2`. Custom pipelines
+(PGO, ThinLTO) are post-v0.2 work.
+
+## Verification
+
+Each function is verified with `FunctionValue::verify(true)` after
+lowering; the whole module is verified with `Module::verify()` before
+optimization. Verifier failures bubble up as
+`LlvmError::VerifierFailed` so the driver can surface them as
+diagnostics instead of crashing.
+
+## Runtime ABI
+
+The runtime ABI (`stardust_runtime_*` symbols) is identical for LLVM
+and Cranelift — they both link against the same C-ABI fns provided by
+`sdust-runtime::codegen_abi`. The `runtime_imports::RUNTIME_IMPORTS`
+table in the Cranelift crate is the canonical source of truth; the
+LLVM lowerer declares the same set with matching signatures.
+
+## When to choose LLVM over Cranelift
+
+| Use case | Recommended |
+|----------|-------------|
+| `sdust run` JIT | Cranelift (faster compile, lower mem) |
+| `sdust build --debug` | Cranelift |
+| `sdust build --release` (host with LLVM 17) | LLVM (better code gen) |
+| `sdust build --release` (host without LLVM) | Cranelift (the only option) |
+| Targeting an exotic triple Cranelift doesn't support | LLVM |
+
+## Monomorphization
+
+The LLVM backend reuses the same monomorphization pass as Cranelift
+(`sdust_codegen_cranelift::mono::Monomorphizer`). For each
+(fn, type-args) tuple, a specialized SIR function is produced; the
+LLVM lowerer then treats each specialization as ordinary monomorphic
+code.
+
+Name mangling: `<fn>__<T1>_<T2>_...`. Cached to avoid duplicate
+emission.
+
+## Future work
+
+- LLVM-specific PassBuilder pipelines (ThinLTO, PGO, AutoFDO).
+- Cross-compilation triples (currently hardcoded to host).
+- Debug info (LLVM `DWARF` emission via `inkwell::debug_info`).
+- LLVM JIT mode (currently object-file emission only).

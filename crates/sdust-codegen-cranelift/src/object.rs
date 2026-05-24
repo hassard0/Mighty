@@ -109,17 +109,27 @@ pub fn find_linker() -> Option<String> {
             return Some(env);
         }
     }
+    // v0.2 search order: clang first (works everywhere; drives lld),
+    // then platform-conventional Cs, then lld variants by themselves.
     let candidates: &[&str] = if cfg!(windows) {
-        &["clang.exe", "clang", "gcc.exe", "gcc", "cc.exe"]
+        &[
+            "clang.exe",
+            "clang",
+            "gcc.exe",
+            "gcc",
+            "cc.exe",
+            "lld-link.exe",
+            "lld-link",
+        ]
     } else {
-        &["cc", "gcc", "clang"]
+        &["cc", "gcc", "clang", "ld.lld", "lld"]
     };
     for cand in candidates {
         if let Ok(path) = which::which(cand) {
+            let s = path.to_string_lossy();
             // Skip the coreutils `link.exe` shim that ships with
             // MSYS/Git-Bash on Windows — it's a hardlink helper, not
             // a linker.
-            let s = path.to_string_lossy();
             if s.contains("/usr/bin/link") || s.contains("\\usr\\bin\\link") {
                 continue;
             }
