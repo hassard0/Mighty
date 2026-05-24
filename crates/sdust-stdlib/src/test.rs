@@ -183,6 +183,10 @@ pub fn run_dir(dir: &Path) -> TestRunSummary {
                 Err(RunResult::BudgetExceeded) => {
                     ("FAILED", TestOutcome::Fail("step budget exceeded".into()))
                 }
+                Err(RunResult::MemBudgetExceeded { used, limit }) => (
+                    "FAILED",
+                    TestOutcome::Fail(format!("mem budget exceeded: {used} B > {limit} B")),
+                ),
                 Err(RunResult::NoMain) => (
                     "FAILED",
                     TestOutcome::Fail(format!("test fn {} not found", test_fn.name)),

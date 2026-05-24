@@ -184,6 +184,13 @@ pub fn run_one_turn_with_shared_reply(
             }
             Err(err)
         }
+        sdust_sir::interp::run::RunResult::MemBudgetExceeded { used, limit } => {
+            let err = RuntimeError::BudgetExceeded(format!("mem {} B > {} B", used, limit));
+            if let Some(tx) = shared_reply.lock().take() {
+                let _ = tx.send(Err(err.clone()));
+            }
+            Err(err)
+        }
         sdust_sir::interp::run::RunResult::NoMain => {
             let err = RuntimeError::HandlerNotFound {
                 agent: desc.name.clone(),

@@ -5,8 +5,19 @@
 //! Rust layer the cap is represented as a `FsCap` newtype carrying the
 //! allowed roots; we reuse the runtime's `BudgetTracker::check_*_path`
 //! semantics so policy stays in one place.
+//!
+//! ## v0.5 dogfood Gap-5 — process-wide default caps
+//!
+//! Stardust source code today calls `std.fs.read("./in")` without
+//! constructing an explicit `Fs` cap value (the lowerer doesn't yet
+//! materialise per-call caps from the agent's sandbox manifest). To
+//! still enforce the manifest's `fs.read = [...]` allow-list, the
+//! driver installs a process-wide [`FsCap`] via
+//! [`install_default_read_cap`] / [`install_default_write_cap`]. The
+//! `host` dispatcher consults that cap on every `fs.*` call.
 
 use std::path::{Path, PathBuf};
+use std::sync::{OnceLock, RwLock};
 
 #[derive(Debug, thiserror::Error)]
 pub enum IoErr {
@@ -14,6 +25,12 @@ pub enum IoErr {
     Io(#[from] std::io::Error),
     #[error("denied: path {0} outside capability roots")]
     Denied(String),
+    /// v0.5 Gap-5 — symmetric with `Denied` but emitted when the cap
+    /// is the process-wide default installed from a sandbox manifest.
+    /// `Denied` historically came from in-source cap narrowing;
+    /// keeping both lets older tests pattern-match on either.
+    #[error("forbidden: path {0} outside sandbox allow-list")]
+    Forbidden(String),
     #[error("not utf-8: {0}")]
     Utf8(String),
 }
@@ -36,6 +53,11 @@ impl FsCap {
             allowed: roots.into_iter().map(Into::into).collect(),
         }
     }
+    /// v0.5 Gap-5 — public allowlist query used by callers that want
+    /// to short-circuit before touching the filesystem.
+    pub fn allows(&self, path: &Path) -> bool {
+        self.check(path).is_ok()
+    }
     fn check(&self, path: &Path) -> Result<(), IoErr> {
         if self.allowed.is_empty() {
             return Ok(());
@@ -44,9 +66,57 @@ impl FsCap {
         if ok {
             Ok(())
         } else {
-            Err(IoErr::Denied(path.display().to_string()))
+            Err(IoErr::Forbidden(path.display().to_string()))
         }
     }
+}
+
+// ----- v0.5 Gap-5 process-wide default caps ----------------------------
+
+static DEFAULT_READ_CAP: OnceLock<RwLock<FsCap>> = OnceLock::new();
+static DEFAULT_WRITE_CAP: OnceLock<RwLock<FsCap>> = OnceLock::new();
+
+fn default_read_slot() -> &'static RwLock<FsCap> {
+    DEFAULT_READ_CAP.get_or_init(|| RwLock::new(FsCap::unrestricted()))
+}
+fn default_write_slot() -> &'static RwLock<FsCap> {
+    DEFAULT_WRITE_CAP.get_or_init(|| RwLock::new(FsCap::unrestricted()))
+}
+
+/// Install the process-wide default read cap, returning the previous
+/// one (so tests can save+restore around a scoped override). The
+/// `host::fs_read` / `fs_list_dir` / `fs_exists` dispatchers consult
+/// this cap when the call shape doesn't carry an explicit one.
+pub fn install_default_read_cap(cap: FsCap) -> FsCap {
+    let mut g = default_read_slot()
+        .write()
+        .expect("DEFAULT_READ_CAP poisoned");
+    std::mem::replace(&mut *g, cap)
+}
+
+/// Install the process-wide default write cap. Companion to
+/// [`install_default_read_cap`].
+pub fn install_default_write_cap(cap: FsCap) -> FsCap {
+    let mut g = default_write_slot()
+        .write()
+        .expect("DEFAULT_WRITE_CAP poisoned");
+    std::mem::replace(&mut *g, cap)
+}
+
+/// Snapshot the current default read cap (clone; the lock is not held
+/// across the host's actual fs call).
+pub fn current_default_read_cap() -> FsCap {
+    default_read_slot()
+        .read()
+        .expect("DEFAULT_READ_CAP poisoned")
+        .clone()
+}
+
+pub fn current_default_write_cap() -> FsCap {
+    default_write_slot()
+        .read()
+        .expect("DEFAULT_WRITE_CAP poisoned")
+        .clone()
 }
 
 /// Read a file as bytes.

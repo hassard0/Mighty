@@ -205,6 +205,7 @@ fn run_program(case: &CaseSpec) -> Result<(i32, String, Vec<String>), String> {
         RunResult::Ok { exit } => (exit, vec![]),
         RunResult::Trap { code, .. } => (1, vec![code.to_string()]),
         RunResult::BudgetExceeded => (3, vec!["SD5009".to_string()]),
+        RunResult::MemBudgetExceeded { .. } => (4, vec!["SD5009".to_string()]),
         RunResult::NoMain => (2, vec![]),
     };
     // Surface trap codes alongside any check-time codes for diag-assertion

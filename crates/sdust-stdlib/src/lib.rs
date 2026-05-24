@@ -25,6 +25,7 @@
 pub mod fs;
 pub mod host;
 pub mod http;
+pub mod http_server;
 pub mod json;
 pub mod test;
 pub mod time;

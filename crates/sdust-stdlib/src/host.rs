@@ -43,6 +43,9 @@ pub fn dispatch(path: &[String], method: &str, args: &[Value]) -> Value {
         // -------- http (sync wrapper around tokio runtime) --------
         ("std.http", "get") => http_get(args),
         ("std.http", "post") => http_post(args),
+        // v0.5 dogfood Gap-1: real socket-binding server.
+        ("std.http", "serve") => http_serve(args),
+        ("std.http", "shutdown") => http_shutdown(args),
         _ => Value::Unit,
     }
 }
@@ -117,9 +120,17 @@ fn fs_read(args: &[Value]) -> Value {
             _ => return Value::Unit,
         },
     };
-    let cap = crate::fs::FsCap::unrestricted();
+    // v0.5 Gap-5: consult the process-wide default read cap installed
+    // from the sandbox manifest. Tests + the unsandboxed CLI default
+    // to unrestricted (matches v0.4 behaviour).
+    let cap = crate::fs::current_default_read_cap();
     match crate::fs::read(&cap, std::path::Path::new(&path)) {
         Ok(bytes) => Value::Str(String::from_utf8_lossy(&bytes).into_owned()),
+        Err(crate::fs::IoErr::Forbidden(_)) | Err(crate::fs::IoErr::Denied(_)) => Value::Enum {
+            adt: sdust_types::AdtId(0),
+            variant: 1,
+            payload: vec![Value::Str(format!("forbidden: {}", path))],
+        },
         Err(_) => Value::Unit,
     }
 }
@@ -132,9 +143,16 @@ fn fs_write(args: &[Value]) -> Value {
             _ => return Value::Unit,
         },
     };
-    let cap = crate::fs::FsCap::unrestricted();
-    let _ = crate::fs::write(&cap, std::path::Path::new(&path), data.as_bytes());
-    Value::Unit
+    let cap = crate::fs::current_default_write_cap();
+    match crate::fs::write(&cap, std::path::Path::new(&path), data.as_bytes()) {
+        Ok(_) => Value::Unit,
+        Err(crate::fs::IoErr::Forbidden(_)) | Err(crate::fs::IoErr::Denied(_)) => Value::Enum {
+            adt: sdust_types::AdtId(0),
+            variant: 1,
+            payload: vec![Value::Str(format!("forbidden: {}", path))],
+        },
+        Err(_) => Value::Unit,
+    }
 }
 
 fn fs_exists(args: &[Value]) -> Value {
@@ -145,7 +163,7 @@ fn fs_exists(args: &[Value]) -> Value {
             _ => return Value::Bool(false),
         },
     };
-    let cap = crate::fs::FsCap::unrestricted();
+    let cap = crate::fs::current_default_read_cap();
     Value::Bool(crate::fs::exists(&cap, std::path::Path::new(&path)))
 }
 
@@ -157,7 +175,7 @@ fn fs_list_dir(args: &[Value]) -> Value {
             _ => return Value::Array(vec![]),
         },
     };
-    let cap = crate::fs::FsCap::unrestricted();
+    let cap = crate::fs::current_default_read_cap();
     match crate::fs::list_dir(&cap, std::path::Path::new(&path)) {
         Ok(entries) => Value::Array(
             entries
@@ -167,6 +185,37 @@ fn fs_list_dir(args: &[Value]) -> Value {
         ),
         Err(_) => Value::Array(vec![]),
     }
+}
+
+// ----- v0.5 Gap-1: real-socket HTTP server bridge ----------------------
+
+/// v0.5 dogfood Gap-1 — bind a real HTTP listener on `addr`. Returns
+/// a `Str` of the form `"<handle_id>|<bound_addr>"` so the calling
+/// agent can keep a stable handle while also seeing the OS-assigned
+/// port. Pass the leading `<handle_id>` to [`http_shutdown`] to stop
+/// the server.
+fn http_serve(args: &[Value]) -> Value {
+    let addr = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Value::Unit,
+    };
+    match crate::http_server::start_blocking(&addr) {
+        Ok((handle_id, bound)) => Value::Str(format!("{}|{}", handle_id, bound)),
+        Err(e) => Value::Str(format!("ERR:{}", e)),
+    }
+}
+
+fn http_shutdown(args: &[Value]) -> Value {
+    let handle_id = match args.first() {
+        Some(Value::Str(s)) => s
+            .split('|')
+            .next()
+            .and_then(|p| p.parse::<u64>().ok())
+            .unwrap_or(0),
+        Some(Value::Int(n, _)) => *n as u64,
+        _ => return Value::Bool(false),
+    };
+    Value::Bool(crate::http_server::shutdown(handle_id))
 }
 
 // --- http ---

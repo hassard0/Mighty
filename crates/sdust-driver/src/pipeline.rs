@@ -159,6 +159,13 @@ pub fn run_file_with_runtime(src: String, source_id: String) -> i32 {
                     1
                 }
                 Err(RunResult::BudgetExceeded) => 3,
+                Err(RunResult::MemBudgetExceeded { used, limit }) => {
+                    eprintln!(
+                        "trap SD5009: memory budget exceeded: {} B > {} B",
+                        used, limit
+                    );
+                    4
+                }
                 Err(RunResult::NoMain) => 2,
                 Err(RunResult::Ok { exit }) => exit,
             }

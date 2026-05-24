@@ -110,6 +110,14 @@ pub fn emit_wit(prog: &Program, pkg_name: &str, target: WasmTarget) -> CompileRe
         WasmTarget::Web => "stardust:web/log",
     };
     writeln!(user_body, "  import {};", log_iface).unwrap();
+    // v0.5 dogfood Gap-2 — web target also imports the real DOM
+    // interface so user code can call `dom.set_text`, `dom.get_text`,
+    // `dom.on_click`, `dom.query`. The companion JS shim
+    // (`demos/02_counter_web/web/dom-shim.js`) implements the imports
+    // against `document.*`.
+    if matches!(target, WasmTarget::Web) {
+        writeln!(user_body, "  import stardust:web/dom;").unwrap();
+    }
     for cap in &caps {
         writeln!(user_body, "  import stardust:caps/{};", cap).unwrap();
     }
@@ -185,9 +193,19 @@ fn append_host_stubs(out: &mut String, target: WasmTarget) {
             out.push_str("  interface log {\n");
             out.push_str("    log: func(msg: string);\n");
             out.push_str("  }\n");
+            // v0.5 dogfood Gap-2: expanded DOM surface. The JS shim
+            // (`demos/02_counter_web/web/dom-shim.js`) implements each
+            // of these against `document.*` so Stardust code can drive
+            // the page directly instead of parsing log lines.
             out.push_str("  interface dom {\n");
+            out.push_str("    set-text: func(id: string, text: string);\n");
+            out.push_str("    get-text: func(id: string) -> string;\n");
+            out.push_str("    on-click: func(id: string, callback-tag: string);\n");
+            out.push_str("    query: func(selector: string) -> option<string>;\n");
+            out.push_str("    // legacy v0.4 ops, kept for back-compat with the\n");
+            out.push_str("    // existing JS host wrapper.\n");
             out.push_str("    get-element-by-id: func(id: string) -> option<u32>;\n");
-            out.push_str("    set-text: func(handle: u32, text: string);\n");
+            out.push_str("    set-text-handle: func(handle: u32, text: string);\n");
             out.push_str("  }\n");
             out.push_str("}\n");
         }
