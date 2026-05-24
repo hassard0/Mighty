@@ -1,0 +1,32 @@
+// v0.3 (A40 closure): slab-pool mailbox preserves FIFO when slots
+// are reused. We send 16 distinct asks against an agent whose
+// mailbox holds at most 4 frames at a time, forcing the slab to
+// reuse slots 4 times. Replies must come back in input order.
+
+protocol Echo {
+  Say(s: Str) -> Str
+}
+
+agent Echoer: Echo {
+  on Say(s) -> s
+}
+
+fn main() {
+  let h = spawn Echoer()
+  let a = h?Say("01")
+  let b = h?Say("02")
+  let c = h?Say("03")
+  let d = h?Say("04")
+  let e = h?Say("05")
+  let f = h?Say("06")
+  let g = h?Say("07")
+  let i = h?Say("08")
+  log(a)
+  log(b)
+  log(c)
+  log(d)
+  log(e)
+  log(f)
+  log(g)
+  log(i)
+}

@@ -1,0 +1,14 @@
+// v0.3: CPU step budget shape. The slice-6 SIR interp counts each
+// stmt + terminator as one step; the default budget is 1 000 000.
+// This case is a shape-only placeholder for v0.3 follow-on work
+// where the runtime applies per-turn CPU budgets; the SIR interp
+// itself only enforces the step budget on `run` (not on individual
+// agent handlers, which always reset the counter).
+//
+// Compiles and runs through the SIR-interp-driven harness as a
+// trivial main; the real positive-fire path lives at the runtime
+// layer (see crates/sdust-runtime/tests/cancellation_mid_turn.rs).
+
+fn main() {
+  log("noop")
+}

@@ -12,11 +12,19 @@ sdust-types = { path = "../sdust-types" }
 sdust-hir = { path = "../sdust-hir" }
 sdust-diagnostics = { path = "../sdust-diagnostics" }
 tokio.workspace = true
+tokio-util = { workspace = true, features = ["time", "rt"] }
 parking_lot.workspace = true
 dashmap.workspace = true
 thiserror.workspace = true
 bumpalo.workspace = true
 libloading.workspace = true
+opentelemetry = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+
+[features]
+default = ["otlp"]
+otlp = ["dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk"]
 
 [dev-dependencies]
 sdust-driver = { path = "../sdust-driver" }

@@ -1,0 +1,23 @@
+// v0.3 (A41 closure): wall budget cancels mid-turn.
+//
+// Driven through the SIR interp this looks just like 03_wall_timeout
+// — the deadline-fire path requires the runtime crate (sdust-runtime)
+// because the SIR interp has no concept of wall-clock cancellation.
+// The harness is sdust-driver based and consequently this case is
+// `#[ignore]`-tagged; a real runtime-driven harness lands in v0.3
+// follow-on work. The shape is preserved here so the spec → test
+// mapping stays explicit.
+
+protocol P {
+  Hit() -> Str
+}
+
+agent A: P {
+  on Hit() -> "ok"
+}
+
+fn main() {
+  let h = spawn A()
+  let r = h?Hit() @50ms
+  log(r)
+}

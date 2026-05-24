@@ -1,15 +1,28 @@
 //! Runtime + RuntimeBuilder.
+//!
+//! v0.3 changes (vs slice 7):
+//!
+//! - per-agent shutdown [`CancellationToken`] (children of a
+//!   runtime-wide root) so `Runtime::shutdown` co-operatively
+//!   interrupts in-flight turns.
+//! - per-turn wall-budget timer wired through
+//!   [`crate::agent::run_one_turn_async`].
+//! - mailbox capacity defaults to the slab-pool default
+//!   ([`crate::slab_pool::DEFAULT_POOL_SIZE`]).
 
-use crate::agent::{run_one_turn, AgentDescriptor, AgentHandle, AgentRegistry};
+use crate::agent::{run_one_turn_async, AgentDescriptor, AgentHandle, AgentRegistry, TurnOutcome};
 use crate::budget::{Budget, BudgetTracker};
+use crate::cancel::{CancelReason, CancellationToken};
 use crate::error::{RuntimeError, RuntimeResult};
 use crate::host_std::StdHost;
 use crate::mailbox::{Mailbox, MessageFrame, SendPolicy, SmallPayload};
 use crate::scheduler::Scheduler;
+use crate::slab_pool::DEFAULT_POOL_SIZE;
 use crate::supervisor::SupervisorRegistry;
 use crate::telemetry::{TelemetryEvent, TelemetrySink};
 use crate::timer::with_deadline;
 use parking_lot::Mutex;
+use sdust_sir::interp::host::Host;
 use sdust_sir::interp::value::Value;
 use sdust_sir::sir::{Agent as SirAgent, Program};
 use std::sync::atomic::AtomicU64;
@@ -80,6 +93,7 @@ impl RuntimeBuilder {
             telemetry: Arc::new(self.telemetry),
             default_budget: self.default_budget,
             tasks: Mutex::new(Vec::new()),
+            shutdown_token: CancellationToken::new(),
         }
     }
 }
@@ -92,6 +106,9 @@ pub struct Runtime {
     pub telemetry: Arc<TelemetrySink>,
     pub default_budget: Budget,
     pub tasks: Mutex<Vec<JoinHandle<()>>>,
+    /// Runtime-wide root cancellation token. Per-agent loops listen
+    /// for this; `shutdown` fires it with `CancelReason::Shutdown`.
+    pub shutdown_token: CancellationToken,
 }
 
 impl std::fmt::Debug for Runtime {
@@ -110,7 +127,11 @@ impl Runtime {
             .ok_or_else(|| RuntimeError::AgentNotFound(name.into()))?
             .clone();
         let id = self.registry.next_id();
-        let mailbox_capacity = self.default_budget.mailbox.unwrap_or(1024) as usize;
+        let mailbox_capacity = self
+            .default_budget
+            .mailbox
+            .map(|n| n as usize)
+            .unwrap_or(DEFAULT_POOL_SIZE);
         let mailbox = Arc::new(Mailbox::new(mailbox_capacity, SendPolicy::Block));
         let budget = Arc::new(BudgetTracker::new(self.default_budget.clone()));
         let state = build_initial_state(&self.prog, &agent);
@@ -179,10 +200,15 @@ impl Runtime {
     }
 
     pub async fn shutdown(self) -> RunOutcome {
+        // Co-operative shutdown: cancel the root token first so any
+        // in-flight turn sees its child token fire. Then abort any
+        // remaining JoinHandles.
+        self.shutdown_token.cancel(CancelReason::Shutdown);
         for t in self.tasks.lock().drain(..) {
             t.abort();
         }
         self.telemetry.emit(&TelemetryEvent::Shutdown);
+        self.telemetry.flush();
         RunOutcome::Ok
     }
 }
@@ -202,20 +228,54 @@ fn spawn_agent_loop(rt: &Runtime, desc: Arc<AgentDescriptor>) -> JoinHandle<()> 
     let prog = rt.prog.clone();
     let telemetry = rt.telemetry.clone();
     let registry = rt.registry.clone();
+    let shutdown = rt.shutdown_token.clone();
+    let wall_budget = rt.default_budget.wall;
     let mut rx = desc
         .mailbox
         .take_receiver()
         .expect("mailbox receiver already taken");
     rt.scheduler.rt.spawn(async move {
-        let mut host = StdHost::new(desc.budget.clone());
+        let host: Arc<Mutex<Box<dyn Host + Send>>> =
+            Arc::new(Mutex::new(Box::new(StdHost::new(desc.budget.clone()))));
         while let Some(frame) = rx.recv().await {
-            let res = run_one_turn(&prog, &desc, frame, &mut host, &telemetry);
-            if let Err(e) = res {
-                telemetry.emit(&TelemetryEvent::BudgetBreach {
-                    agent: desc.name.clone(),
-                    kind: e.diag_code().into(),
-                });
-                registry.remove(desc.id);
+            // Per-turn cancellation token is a child of the runtime
+            // shutdown token. If shutdown fires, every per-turn token
+            // is automatically cancelled.
+            let per_turn = shutdown.child();
+            let (res, outcome) = run_one_turn_async(
+                prog.clone(),
+                desc.clone(),
+                frame,
+                host.clone(),
+                telemetry.clone(),
+                per_turn,
+                wall_budget,
+            )
+            .await;
+            match (res, outcome) {
+                (Ok(()), TurnOutcome::Completed) => {
+                    // happy path
+                }
+                (Err(e), _outcome) => {
+                    telemetry.emit(&TelemetryEvent::BudgetBreach {
+                        agent: desc.name.clone(),
+                        kind: e.diag_code().into(),
+                    });
+                    registry.remove(desc.id);
+                    break;
+                }
+                (Ok(()), TurnOutcome::Cancelled(reason)) => {
+                    // Cancellation without an error (shouldn't happen
+                    // under current code paths, but record for safety).
+                    telemetry.emit(&TelemetryEvent::BudgetBreach {
+                        agent: desc.name.clone(),
+                        kind: reason.diag_code().into(),
+                    });
+                    registry.remove(desc.id);
+                    break;
+                }
+            }
+            if shutdown.is_cancelled() {
                 break;
             }
         }

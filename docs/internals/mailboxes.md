@@ -74,8 +74,101 @@ budget entries.
 3. Ask/reply round-trip via the oneshot.
 4. Drop policy silently discards on full.
 
+## v0.3 slab-pool backing (closes A40)
+
+Slice 7 let `tokio::sync::mpsc` own every `MessageFrame` on the
+heap. v0.3 adds a per-mailbox **slab pool** of fixed-size payload
+slots that the mpsc channel borrows from on each `send`. The mpsc
+backbone still owns ordering; the slab pool caps in-flight memory
+and gives slots a stable index for cache-friendly reuse.
+
+```text
+  ┌──────────────────────────────────────────────────────────────┐
+  │ Mailbox                                                      │
+  │                                                              │
+  │   slab : SlabPool (1024 × 64-byte slots by default)          │
+  │   tx   : mpsc::Sender<MessageFrame>  (cap == slab.capacity)  │
+  │   rx   : mpsc::Receiver<MessageFrame>                        │
+  │                                                              │
+  │   send(frame):                                               │
+  │     1. encode frame metadata into a pool slot (acquire)      │
+  │     2. attach the PooledFrame handle to `frame._slab`        │
+  │     3. push frame onto the mpsc channel                      │
+  └──────────────────────────────────────────────────────────────┘
+```
+
+### Slot layout
+
+Each slot is
+
+```rust
+pub struct Slot {
+    pub inline:   Vec<u8>,             // capacity == inline_bytes (default 64)
+    pub overflow: Option<Box<[u8]>>,    // present when payload > inline_bytes
+    pub used:     usize,                // filled bytes
+}
+```
+
+Payloads up to `inline_bytes` live entirely on the pre-allocated
+inline buffer — no per-send allocation. Larger payloads spill into
+a one-shot `Box<[u8]>` per slot; the slot still tracks the size so
+backpressure accounting is accurate.
+
+### Tunables
+
+| Constant                    | Default | Description                          |
+|-----------------------------|--------:|--------------------------------------|
+| `DEFAULT_POOL_SIZE`         |   1024  | slots per `SlabPool::default()`      |
+| `DEFAULT_INLINE_BYTES`      |     64  | inline bytes per slot                |
+| `Mailbox::new(cap, policy)` |       — | pool size == `cap` (channel cap too) |
+
+Explicit layout: `SlabPool::with_layout(capacity, inline_bytes)`
+followed by `Mailbox::with_pool(cap, policy, pool)`.
+
+### Reuse semantics
+
+The pool's free-list is **LIFO** for cache locality: the most-
+recently-released slot is the next one handed out. This does **not**
+reorder messages — message order is owned by the mpsc channel; the
+slab indices are non-observable from user programs.
+
+When the pool is exhausted (every slot in use), `acquire_or_overflow`
+returns a *standalone* `PooledFrame` whose payload bytes live
+outside the pool — no backpressure on the slot side, but the channel
+itself still bounds depth.
+
+### Send policies (unchanged from slice 7)
+
+| Policy   | Pool full + Channel full behaviour                    |
+|----------|-------------------------------------------------------|
+| `Block`  | Sender awaits both: overflow slot + channel capacity. |
+| `Drop`   | Best-effort `try_send`; failure silently discards.    |
+| `Fail`   | Returns SD5012 `MailboxFull`.                         |
+
+### Statistics + introspection
+
+`Mailbox::introspect()` returns a `MailboxStats { capacity,
+channel_used, slab_used, slab_capacity }` snapshot. `SlabPool::stats()`
+exposes lifetime (acquired, released) counters; tests assert no
+leaks by checking `acquired == released` after teardown.
+
+### Migration
+
+The public `Mailbox` API is unchanged. Existing callers see the
+same `send` / `try_send` / `take_receiver` semantics; the slab pool
+is an internal implementation detail attached via the new
+`MessageFrame::_slab` field (`pub(crate)`-only).
+
+### Tests
+
+- `crates/sdust-runtime/tests/mailbox_slab_pool.rs` — FIFO under
+  reuse, Block backpressure, Fail SD5012, overflow path, slot
+  leak-detection via `pool.stats()`.
+- `crates/sdust-runtime/tests/mailbox_basic.rs` — slice-7 surface
+  contracts (unchanged).
+
 ## See also
 
 - `docs/internals/runtime.md` — how the agent loop drains the mailbox
 - `docs/internals/budgets.md` — `mb` budget controls the capacity
-- `docs/spec/v0.1-amendments.md` — A40
+- `docs/spec/v0.1-amendments.md` — A40, A70+ (v0.3)

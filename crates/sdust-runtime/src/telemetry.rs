@@ -1,4 +1,17 @@
-//! Telemetry JSON line emitter (OTLP-flavoured, see A38).
+//! Telemetry JSON line emitter + OTLP wire-format bridge.
+//!
+//! Slice 7 shipped JSON lines only (A38). v0.3 adds [`TelemetrySink::Otlp`]
+//! which forwards every event to an OpenTelemetry collector via the
+//! `opentelemetry-otlp` crate (see [`crate::otlp`]). The legacy JSON
+//! sinks remain so tests and local dev work without a collector
+//! running.
+//!
+//! Selection precedence in `from_env()`:
+//!
+//! 1. `STARDUST_OTLP_ENDPOINT=<url>` → `TelemetrySink::Otlp` (or
+//!    fallback to `Discard` if OTLP init fails — never breaks runtime).
+//! 2. `STARDUST_TRACE=stderr|file:<p>` → JSON line emitter.
+//! 3. Otherwise `Discard`.
 
 use parking_lot::Mutex;
 use std::io::Write;
@@ -139,6 +152,12 @@ pub enum TelemetrySink {
     Stderr,
     File(std::path::PathBuf),
     Buffer(Arc<Mutex<Vec<String>>>),
+    /// OTLP wire-format export (v0.3, A38 closure). Active when the
+    /// `otlp` feature is enabled AND `STARDUST_OTLP_ENDPOINT` is set;
+    /// otherwise we fall back to one of the other sinks at
+    /// construction time.
+    #[cfg(feature = "otlp")]
+    Otlp(Arc<crate::otlp::OtlpHandle>),
 }
 
 impl TelemetrySink {
@@ -147,7 +166,21 @@ impl TelemetrySink {
         (TelemetrySink::Buffer(buf.clone()), buf)
     }
 
+    /// Build the sink from environment variables:
+    ///
+    /// - `STARDUST_OTLP_ENDPOINT=<url>` → OTLP exporter (best effort).
+    /// - `STARDUST_TRACE=stderr`        → JSON to stderr.
+    /// - `STARDUST_TRACE=file:<path>`   → JSON appended to file.
+    /// - (anything else)                → Discard.
     pub fn from_env() -> Self {
+        #[cfg(feature = "otlp")]
+        {
+            if let Ok(ep) = std::env::var("STARDUST_OTLP_ENDPOINT") {
+                if let Some(h) = crate::otlp::OtlpHandle::try_init(&ep) {
+                    return TelemetrySink::Otlp(h);
+                }
+            }
+        }
         match std::env::var("STARDUST_TRACE").as_deref() {
             Ok("stderr") => TelemetrySink::Stderr,
             Ok(v) if v.starts_with("file:") => {
@@ -180,6 +213,19 @@ impl TelemetrySink {
             TelemetrySink::Buffer(buf) => {
                 buf.lock().push(line);
             }
+            #[cfg(feature = "otlp")]
+            TelemetrySink::Otlp(h) => {
+                h.emit(ev);
+            }
+        }
+    }
+
+    /// Force-flush pending records, where the sink supports it.
+    pub fn flush(&self) {
+        match self {
+            #[cfg(feature = "otlp")]
+            TelemetrySink::Otlp(h) => h.flush(),
+            _ => {}
         }
     }
 }

@@ -129,11 +129,82 @@ parse → HIR → typeck → borrowck → SIR-lower → ┬─ sdust-runtime (de
 `--legacy-interp` to fall back to the slice-6 synchronous
 interpreter for diagnostic comparison.
 
+## v0.3 cooperative cancellation (closes A41)
+
+Slice-7 deadlines fired only *between* turns: the SIR interpreter
+ran synchronously on a worker thread, so a handler stuck in an
+unbounded loop only finished when its step budget gave out. v0.3
+adds in-turn cooperative cancellation:
+
+```text
+  spawn_agent_loop():
+    per_turn = shutdown_token.child()     // child of runtime root
+    timer    = per_turn.arm_wall_budget(D) // tokio::spawn(sleep + cancel)
+    select! {
+      _ = per_turn.cancelled()        => detach blocking, reply Err(SD5xxx)
+      r = spawn_blocking(run_turn)    => return r
+    }
+```
+
+Specifically:
+
+1. `Runtime` owns a root `CancellationToken` (`shutdown_token`).
+2. Each per-turn invocation gets a **child token** (`per_turn`) so
+   `Runtime::shutdown` cancels all in-flight turns by firing the
+   root once.
+3. The SIR interpreter call (`run_handler_isolated`) is dispatched
+   via `tokio::task::spawn_blocking`, so the async parent can race
+   the blocking thread against `per_turn.cancelled()`.
+4. When the wall-budget timer expires, the child token is fired
+   with `CancelReason::WallBudget`; the parent emits a
+   `BudgetBreach` telemetry event (SD5009) and notifies the
+   `ask`-side `reply` oneshot with the error.
+5. The blocking thread is **detached** — never joined. Worst-case
+   wall time on its end is bounded by the SIR interpreter's
+   per-handler step budget (default 1 000 000 steps).
+
+The shared reply slot guarantees exactly-once notification:
+
+```rust
+type SharedReply = Arc<Mutex<Option<oneshot::Sender<RuntimeResult<Value>>>>>;
+```
+
+Both the blocking shim and the async cancellation arm race to
+`.take()` it. Whoever wins sends the reply; the other side
+no-ops. This eliminates the slice-7 hang where an `ask` against a
+runaway handler would block until the channel was dropped.
+
+### Reasons → diag codes
+
+| `CancelReason`  | SD5xxx | When fired                            |
+|-----------------|--------|---------------------------------------|
+| `WallBudget`    | SD5009 | per-turn wall budget elapsed          |
+| `CpuBudget`     | SD5009 | (reserved) per-agent CPU sum          |
+| `AskDeadline`   | SD5011 | caller's `?Msg @D` deadline           |
+| `Shutdown`      | SD5020 | `Runtime::shutdown` fired the root    |
+
+### Concurrency contract
+
+- The runtime never `await`s the blocking thread directly — the
+  blocking call is the right side of a `select!` and is *aborted*
+  (the join handle is dropped) on the cancellation branch.
+- The `Host` impl handed to the blocking shim must therefore be
+  `Send` (it crosses the spawn_blocking boundary). `StdHost` and
+  `BufferHost` both satisfy this.
+- Per-turn state read/write is unchanged: the descriptor's
+  `Mutex<Value>` is read into a clone before the blocking call and
+  written back synchronously on success.
+
+See `crates/sdust-runtime/src/agent.rs::run_one_turn_async` for the
+implementation, and the test fixtures in
+`crates/sdust-runtime/tests/cancellation_mid_turn.rs`.
+
 ## See also
 
 - `docs/internals/scheduler.md` — tokio executor wrapper
-- `docs/internals/mailboxes.md` — bounded MPSC + MessageFrame
+- `docs/internals/mailboxes.md` — bounded MPSC + MessageFrame + slab pool
 - `docs/internals/supervisors.md` — strategies + restart limits
 - `docs/internals/budgets.md` — counters + sandbox allowlists
-- `docs/internals/telemetry.md` — JSON event schema
-- `docs/spec/v0.1-amendments.md` — A36..A43
+- `docs/internals/telemetry.md` — JSON event schema (legacy fallback)
+- `docs/internals/telemetry-otlp.md` — v0.3 OTLP wire format
+- `docs/spec/v0.1-amendments.md` — A36..A43, A70+ (v0.3)

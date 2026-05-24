@@ -1,0 +1,27 @@
+// v0.3 (A40 closure): Block-policy backpressure. A sender that
+// exceeds the mailbox capacity waits until the handler drains.
+// Under Block policy, the system never drops or fails on overflow.
+//
+// In the SIR-interp-driven harness the sends are synchronous so no
+// real backpressure is observable; the case shape is preserved so
+// the spec-to-test mapping is explicit and the runtime-level
+// invariant is in `crates/sdust-runtime/tests/mailbox_slab_pool.rs
+// ::block_policy_backpressures_until_drained`.
+
+protocol P {
+  Push(n: I32) -> I32
+}
+
+agent Pusher: P {
+  on Push(n) -> n + 1
+}
+
+fn main() {
+  let h = spawn Pusher()
+  let a = h?Push(0)
+  let b = h?Push(1)
+  let c = h?Push(2)
+  log(a)
+  log(b)
+  log(c)
+}
