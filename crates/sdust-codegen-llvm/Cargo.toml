@@ -1,0 +1,25 @@
+[package]
+name = "sdust-codegen-llvm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Stardust LLVM codegen backend — scaffold only in slice 8 (A46)."
+
+[features]
+default = []
+# Enable inkwell to build a real LLVM backend. Requires LLVM 17
+# headers/libs available via llvm-config. See A46 — the slice-8 build
+# host did not have LLVM installed, so this feature is OFF by default
+# and Cranelift is the v0.1 native backend.
+llvm = ["dep:inkwell"]
+
+[dependencies]
+sdust-sir = { path = "../sdust-sir" }
+sdust-types = { path = "../sdust-types" }
+sdust-hir = { path = "../sdust-hir" }
+sdust-diagnostics = { path = "../sdust-diagnostics" }
+thiserror = { workspace = true }
+inkwell = { version = "0.4", features = ["llvm17-0"], optional = true }

@@ -1,4 +1,8 @@
 [toolchain]
-channel = "1.82.0"
+# Slice 8 (codegen) requires Rust >= 1.85 (edition2024) because the
+# cranelift 0.132 dependency chain pulls in indexmap 2.14, which is
+# edition2024-only. We pin the latest stable available at slice-8
+# time. See A46 / RELEASE-v0.1.md.
+channel = "1.95.0"
 components = ["rustfmt", "clippy"]
 profile = "minimal"

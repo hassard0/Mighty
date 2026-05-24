@@ -9,6 +9,9 @@ members = [
     "crates/sdust-borrow",
     "crates/sdust-sir",
     "crates/sdust-runtime",
+    "crates/sdust-codegen-cranelift",
+    "crates/sdust-codegen-wasm",
+    "crates/sdust-codegen-llvm",
     "crates/sdust-fmt",
     "crates/sdust-driver",
     "crates/sdust-cli",
@@ -17,7 +20,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.85"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/hassard0/stardust"
 authors = ["Ian Hassard <ihassard@gmail.com>"]
@@ -35,6 +38,17 @@ insta = { version = "1", features = ["yaml"] }
 tokio = { version = "1", features = ["rt-multi-thread", "rt", "macros", "time", "net", "io-util", "sync", "fs"] }
 parking_lot = "0.12"
 dashmap = "5"
+cranelift-codegen = "0.132"
+cranelift-frontend = "0.132"
+cranelift-module = "0.132"
+cranelift-jit = "0.132"
+cranelift-object = "0.132"
+cranelift-native = "0.132"
+target-lexicon = "0.13"
+wasm-encoder = "0.250"
+wasmparser = "0.250"
+bumpalo = "3"
+libloading = "0.9"
 
 [profile.dev]
 opt-level = 0

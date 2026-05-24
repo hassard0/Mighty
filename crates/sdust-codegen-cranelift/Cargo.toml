@@ -1,0 +1,23 @@
+[package]
+name = "sdust-codegen-cranelift"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Stardust Cranelift codegen backend (JIT + AOT object) — slice 8."
+
+[dependencies]
+sdust-sir = { path = "../sdust-sir" }
+sdust-types = { path = "../sdust-types" }
+sdust-hir = { path = "../sdust-hir" }
+sdust-diagnostics = { path = "../sdust-diagnostics" }
+cranelift-codegen = { workspace = true }
+cranelift-frontend = { workspace = true }
+cranelift-module = { workspace = true }
+cranelift-jit = { workspace = true }
+cranelift-object = { workspace = true }
+cranelift-native = { workspace = true }
+target-lexicon = { workspace = true }
+thiserror = { workspace = true }
