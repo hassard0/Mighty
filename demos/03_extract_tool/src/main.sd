@@ -1,0 +1,144 @@
+// demo 03_extract_tool — a CLI extractor running inside a top-level
+// `sandbox` block with budget caps.
+//
+// What this exercises:
+//   * Top-level `sandbox Name with { ... } { body }` (spec §16.1 / A27,
+//     A43, A34)
+//   * Per-sandbox capability allow-lists (fs.read / fs.write)
+//   * cpu / wall / memory / mailbox budget entries (spec §16.2)
+//   * Agent + protocol shape for the extractor itself
+//
+// v0.4 caveats (see ../README.md):
+//   * The slice-7 / v0.3 runtime enforces caps for *capability-marked*
+//     calls (net.* / fs.* with a `Cap` handle). The default
+//     `std.fs.read` host bridge uses an unrestricted cap (see
+//     `crates/sdust-stdlib/src/host.rs::fs_read`), so the path allow-
+//     list is *recorded* but not yet checked against this bridge.
+//   * The slice-6 interpreter's `eval_method` table binds `len`,
+//     `to_str`, `is_empty` and a handful of Result helpers; string
+//     pattern methods (`contains`, `find`, `char_at`, `slice`) are
+//     permissive stubs in v0.4 (see
+//     `crates/sdust-sir/src/interp/run.rs`). The extractor therefore
+//     drives off **string equality**: the caller hands the agent each
+//     candidate token; the agent checks it against an in-process
+//     entity vocabulary using `==`. The shape — sandbox + protocol +
+//     budget + per-message dispatch — is what a real extractor will
+//     carry; the per-token classifier sharpens once pattern methods
+//     bind in v0.5.
+
+package extract_tool
+
+use std.json
+
+// ---------------------------------------------------------------------
+// Extractor agent. Takes a single candidate token per message and
+// returns 1 if it is a known entity, 0 otherwise. Also exposes a
+// Snapshot message that emits the running total. Running totals
+// persist across turns because the agent owns its own state.
+// ---------------------------------------------------------------------
+
+protocol Extract {
+  Classify(token: Str) -> I32
+  Snapshot() -> Str
+}
+
+agent Extractor: Extract {
+  hits = 0
+
+  on Classify(token) {
+    if is_known_entity(token) {
+      hits += 1
+      1
+    } else {
+      0
+    }
+  }
+
+  on Snapshot() {
+    "{\"hits\":" + hits.to_str() + "}"
+  }
+}
+
+// ---------------------------------------------------------------------
+// Vocabulary check. Real implementations would consult a trained
+// model or a gazetteer; this v0.4 stand-in keeps the list tiny and
+// inlines it so the demo is fully deterministic.
+// ---------------------------------------------------------------------
+
+fn is_known_entity(t: Str) -> Bool {
+  t == "Alice"
+    || t == "Bob"
+    || t == "Charlie"
+    || t == "Paris"
+    || t == "Tokyo"
+    || t == "Tuesday"
+    || t == "Stardust"
+}
+
+// ---------------------------------------------------------------------
+// Token feeder. The caller (main_body) pre-splits the input into
+// candidate tokens at compile time — slice-6 has no runtime string
+// splitter to draw on (see file header). The smoke script feeds the
+// same tokens through the same agent and checks the running total.
+// ---------------------------------------------------------------------
+
+fn classify_and_log(e: AgentRef[Extractor], token: Str) -> Unit {
+  let hit = e?Classify(token)
+  if hit == 1 {
+    log("hit: " + token)
+  } else {
+    log("miss: " + token)
+  }
+}
+
+// ---------------------------------------------------------------------
+// Sandbox-wrapped run. The cap allow-lists + budget caps below are
+// recorded by the runtime; see file header for v0.4 enforcement
+// scope.
+// ---------------------------------------------------------------------
+
+sandbox Extract with {
+  fs.read = ["./inputs"]
+  fs.write = ["./outputs"]
+  cpu = 200ms
+  wall = 3s
+  memory = 128MiB
+  mailbox = 1k
+} {
+  run main_body()
+}
+
+fn main_body() {
+  let e = spawn Extractor()
+
+  log("== sample-1 ==")
+  classify_and_log(e, "Alice")
+  classify_and_log(e, "met")
+  classify_and_log(e, "Bob")
+  classify_and_log(e, "in")
+  classify_and_log(e, "Paris")
+  classify_and_log(e, "on")
+  classify_and_log(e, "Tuesday")
+  classify_and_log(e, "Charlie")
+  classify_and_log(e, "called")
+  classify_and_log(e, "from")
+  classify_and_log(e, "Tokyo")
+
+  log("== sample-2 ==")
+  classify_and_log(e, "the")
+  classify_and_log(e, "quick")
+  classify_and_log(e, "brown")
+  classify_and_log(e, "fox")
+
+  log("== sample-3 ==")
+  classify_and_log(e, "Built")
+  classify_and_log(e, "with")
+  classify_and_log(e, "Stardust")
+
+  log("== snapshot ==")
+  log(e?Snapshot())
+}
+
+fn main() {
+  main_body()
+}

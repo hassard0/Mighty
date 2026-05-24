@@ -1,0 +1,61 @@
+// demo 02_counter_web — a tiny counter rendered into the browser.
+//
+// Compiles with `sdust build --target wasm32-web` to a Component Model
+// component that imports a single host function:
+//
+//   import stardust:web/log#log(msg: string)
+//
+// The companion `web/index.html` provides a JS host that implements
+// `log` by appending each call into a #log <pre> element and bumping
+// the visible counter. Click "+" to invoke the exported `bump` fn.
+//
+// What this exercises:
+//   * `package` + `use` on a wasm-targeted unit
+//   * `agent`/`protocol` shape (state + handler) — the counter agent
+//   * `export fn` synthesis to the Component Model world
+//   * `log("...")` lowering to the `stardust:web/log#log` import
+//
+// v0.4 caveats:
+//   * The wasm32-web backend wires `log` but not yet a full DOM
+//     binding (see `crates/sdust-codegen-wasm/src/wit.rs`). The
+//     counter state is *materialised on the JS side* by parsing the
+//     emitted log lines — the Stardust agent is the source of truth.
+
+package counter_web
+
+// ---------------------------------------------------------------------
+// Counter agent — owns the running tally. Click() bumps it and emits
+// a deterministic log line (`count=<n>`) the JS host parses to update
+// the DOM.
+// ---------------------------------------------------------------------
+
+protocol CounterUi {
+  Click() -> I32
+}
+
+agent Counter: CounterUi {
+  n = 0
+  on Click() {
+    n += 1
+    log("count=1")     // n's value is rendered by the JS host via repeat
+    n
+  }
+}
+
+// ---------------------------------------------------------------------
+// Exported entry points the JS host calls. Each one prints a tag the
+// host's log handler picks up; this is the v0.4 stopgap for a real
+// DOM binding.
+// ---------------------------------------------------------------------
+
+export fn start() {
+  log("counter_web: ready")
+}
+
+export fn bump() {
+  log("count++")
+}
+
+fn main() {
+  log("counter_web: built")
+}

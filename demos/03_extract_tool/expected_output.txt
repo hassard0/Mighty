@@ -1,0 +1,23 @@
+== sample-1 ==
+hit: Alice
+miss: met
+hit: Bob
+miss: in
+hit: Paris
+miss: on
+hit: Tuesday
+hit: Charlie
+miss: called
+miss: from
+hit: Tokyo
+== sample-2 ==
+miss: the
+miss: quick
+miss: brown
+miss: fox
+== sample-3 ==
+miss: Built
+miss: with
+hit: Stardust
+== snapshot ==
+{"hits":7}

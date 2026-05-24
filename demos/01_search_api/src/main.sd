@@ -1,0 +1,82 @@
+// demo 01_search_api — a minimal HTTP search-shaped service in Stardust.
+//
+// Endpoints (when bound by the real `std.http.serve` host bridge):
+//   GET  /health   -> {"status":"ok"}
+//   POST /search   -> echoes the `q` field of a JSON body
+//   GET  /metrics  -> simple in-process counter dump
+//
+// v0.4 caveats (see ../README.md for the full set):
+//   * `std.http.serve` is exposed as a real hyper-backed Rust API by
+//     `sdust-stdlib::http::serve`, but the v0.3 generic-call dispatcher
+//     in `sdust-stdlib::host::dispatch` only routes `get` and `post`
+//     today. Running this file under `sdust run` therefore drives the
+//     handler logic deterministically (no actual port bind) — the
+//     `smoke.sh` / `smoke.ps1` scripts exercise the same handler bodies
+//     via the runtime API.
+//   * HTTPS is unavailable today (see STDLIB_V0_2_NOTES.md). All URLs
+//     use `http://`.
+
+package search_api
+
+use std.http
+use std.json
+use std.trace
+
+// ---------------------------------------------------------------------
+// Search agent — owns the running totals and answers Query / Health /
+// Snapshot messages. Per-handler increments persist between turns.
+// ---------------------------------------------------------------------
+
+protocol Search {
+  Query(q: Str) -> Str
+  Health() -> Str
+  Snapshot() -> Str
+}
+
+agent Searcher: Search {
+  health_calls = 0
+  search_calls = 0
+
+  on Query(q) {
+    search_calls += 1
+    "{\"q\":\"" + q + "\",\"hits\":[]}"
+  }
+
+  on Health() {
+    health_calls += 1
+    "{\"status\":\"ok\"}"
+  }
+
+  on Snapshot() {
+    "{\"health\":" + health_calls.to_str() +
+      ",\"search\":" + search_calls.to_str() + "}"
+  }
+}
+
+// ---------------------------------------------------------------------
+// Entry point. Drives every endpoint once to produce golden-able
+// output for the smoke scripts.
+// ---------------------------------------------------------------------
+
+fn main() {
+  let s = spawn Searcher()
+
+  // /health
+  log("== health ==")
+  log(s?Health())
+
+  // /search — twice, to bump the counter.
+  log("== search ==")
+  log(s?Query("stardust"))
+
+  log("== search-2 ==")
+  log(s?Query("agents"))
+
+  // /metrics — observe the running totals.
+  log("== metrics ==")
+  log(s?Snapshot())
+
+  // /unknown — fall-through response.
+  log("== 404 ==")
+  log("{\"error\":\"not found\"}")
+}

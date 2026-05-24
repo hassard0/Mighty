@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# demos/01_search_api/smoke.sh — drive `sdust run` on the demo and check
+# that every endpoint produces the expected response line.
+#
+# Exit code 0 = pass, non-zero = fail.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+SDUST="${SDUST:-$ROOT/target/debug/sdust}"
+if [[ ! -x "$SDUST" && ! -x "$SDUST.exe" ]]; then
+  echo "smoke: sdust binary not found at $SDUST" >&2
+  echo "        build it with: cargo build -p sdust-cli" >&2
+  exit 2
+fi
+if [[ -x "$SDUST.exe" ]]; then SDUST="$SDUST.exe"; fi
+
+DEMO="$ROOT/demos/01_search_api/src/main.sd"
+
+out="$("$SDUST" run "$DEMO" 2>&1)"
+fail=0
+check() {
+  local label="$1"; shift
+  local needle="$1"; shift
+  if ! grep -F -q "$needle" <<<"$out"; then
+    echo "smoke FAIL [$label]: expected output to contain: $needle" >&2
+    fail=1
+  fi
+}
+
+check health   '{"status":"ok"}'
+check search   '{"q":"stardust","hits":[]}'
+check search-2 '{"q":"agents","hits":[]}'
+check metrics  '{"health":1,"search":2}'
+check 404      '{"error":"not found"}'
+
+if [[ "$fail" -ne 0 ]]; then
+  echo "---- captured output ----" >&2
+  printf '%s\n' "$out" >&2
+  exit 1
+fi
+echo "01_search_api: PASS"

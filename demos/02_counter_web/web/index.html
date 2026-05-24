@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Stardust Counter Web Demo</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, sans-serif; max-width: 36rem; margin: 2rem auto; padding: 0 1rem; }
+    h1   { font-size: 1.4rem; }
+    .row { display: flex; gap: 0.5rem; align-items: center; margin: 1rem 0; }
+    #count { font-size: 2rem; font-variant-numeric: tabular-nums; min-width: 3ch; text-align: right; }
+    button { font-size: 1rem; padding: 0.4rem 0.9rem; }
+    pre { background: #111; color: #b4f; padding: 0.5rem; height: 12rem; overflow: auto; font-size: 0.8rem; }
+    code { background: #eef; padding: 0 0.2rem; }
+  </style>
+</head>
+<body>
+  <h1>Stardust v0.4 Counter Web Demo</h1>
+  <p>
+    The button below calls the exported <code>bump</code> function on the
+    Stardust-compiled wasm Component. Each call lowers (in the running
+    component) to a <code>log(&quot;count++&quot;)</code> import call. The
+    page&rsquo;s JS host counts those events and renders the running total.
+  </p>
+
+  <div class="row">
+    <button id="inc">+1</button>
+    <span id="count">0</span>
+  </div>
+
+  <p>Imported log stream:</p>
+  <pre id="log"></pre>
+
+  <script type="module">
+    // ---- v0.4 stopgap module loader ----------------------------------
+    // The Stardust wasm32-web backend emits a Component Model component
+    // (see crates/sdust-codegen-wasm/src/component.rs). The browser
+    // doesn't run components natively today; production users would
+    // transpile with `jco transpile main.wasm`. For a zero-dep demo we
+    // load the *core* module the slice-8 backend embeds inside the
+    // component wrapper. We strip the component preamble (8 bytes:
+    // `\0asm\x0d\0\x01\0`) and skip the type/import/export section
+    // wrappers to reach the embedded core module bytes, which start
+    // with `\0asm\x01\0\0\0`.
+    //
+    // A real deployment would do:
+    //     npx @bytecodealliance/jco@latest transpile main.wasm
+    // and import the generated ESM. That requires a network install
+    // which this demo avoids.
+
+    function findCoreModule(bytes) {
+      // Walk forward looking for the canonical core-wasm preamble.
+      // 0x00 0x61 0x73 0x6d 0x01 0x00 0x00 0x00
+      for (let i = 0; i < bytes.length - 8; i++) {
+        if (bytes[i] === 0x00 && bytes[i+1] === 0x61 &&
+            bytes[i+2] === 0x73 && bytes[i+3] === 0x6d &&
+            bytes[i+4] === 0x01 && bytes[i+5] === 0x00 &&
+            bytes[i+6] === 0x00 && bytes[i+7] === 0x00) {
+          return bytes.subarray(i);
+        }
+      }
+      return null;
+    }
+
+    const logEl = document.getElementById('log');
+    const countEl = document.getElementById('count');
+    let count = 0;
+
+    function appendLog(line) {
+      const ts = new Date().toLocaleTimeString();
+      logEl.textContent += `[${ts}] ${line}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function handleLog(msg) {
+      appendLog(`log: ${msg}`);
+      // Parse our deterministic emitted tags. See src/main.sd.
+      if (msg === 'count++') {
+        count++;
+        countEl.textContent = String(count);
+      }
+    }
+
+    function decodeStringFromMemory(memory, ptr, len) {
+      const view = new Uint8Array(memory.buffer, ptr, len);
+      return new TextDecoder('utf-8').decode(view);
+    }
+
+    async function boot() {
+      appendLog('boot: fetching wasm');
+      const resp = await fetch('main.wasm');
+      const buf = new Uint8Array(await resp.arrayBuffer());
+      const core = findCoreModule(buf);
+      if (!core) {
+        appendLog('error: could not find embedded core wasm module.');
+        appendLog('Tip: run `npx jco transpile main.wasm` for production.');
+        return;
+      }
+      appendLog(`boot: core module ${core.length} bytes`);
+
+      // The core module imports a single function: stardust:web/log#log
+      // The slice-8 wasm lowerer collapses this to a 2-arg
+      // (ptr: i32, len: i32) -> () import named just `log` under the
+      // canonical module namespace. We provide BOTH common names so
+      // future backend changes don't break this loader.
+      const imports = {};
+      let memory = null;
+      const logShim = (ptr, len) => {
+        if (!memory) return;
+        try {
+          handleLog(decodeStringFromMemory(memory, ptr, len));
+        } catch (e) {
+          appendLog(`log decode error: ${e}`);
+        }
+      };
+      for (const ns of ['stardust:web/log', 'stardust', 'env', 'wasi:cli/log']) {
+        imports[ns] = { log: logShim };
+      }
+      let instance;
+      try {
+        const result = await WebAssembly.instantiate(core, imports);
+        instance = result.instance;
+      } catch (e) {
+        appendLog(`instantiate failed: ${e.message}`);
+        appendLog('See README.md "what this demo does NOT do" for the explanation.');
+        return;
+      }
+      memory = instance.exports.memory;
+      appendLog(`boot: instantiated, exports: ${Object.keys(instance.exports).join(', ')}`);
+
+      // Wire the button to the exported `bump` fn (if present).
+      const bump = instance.exports.bump || instance.exports['counter-web#bump'];
+      const start = instance.exports.start || instance.exports['counter-web#start'];
+      if (start) try { start(); } catch (e) { appendLog(`start trap: ${e.message}`); }
+
+      document.getElementById('inc').addEventListener('click', () => {
+        if (!bump) {
+          // Fallback: bump locally so the UI still demos.
+          count++;
+          countEl.textContent = String(count);
+          appendLog('local bump (no exported `bump` fn found)');
+          return;
+        }
+        try { bump(); } catch (e) { appendLog(`bump trap: ${e.message}`); }
+      });
+    }
+
+    boot();
+  </script>
+</body>
+</html>

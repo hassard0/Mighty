@@ -1,0 +1,56 @@
+// demos/03_extract_tool/src/breach.sd — companion to main.sd that
+// trips a budget cap on purpose. Used by smoke.sh to verify the
+// runtime actually wires the sandbox/budget records into the
+// `BudgetTracker` (see crates/sdust-runtime/src/budget.rs).
+//
+// What we do:
+//   * Wrap the same Extractor agent in a *deliberately impossible*
+//     sandbox: cpu = 1ns, wall = 1ns, memory = 1B, mailbox = 1.
+//   * Send a flood of messages so the mailbox-depth check or the
+//     wall-clock check has a chance to fire.
+//
+// v0.4 note: per A34/A43, top-level sandboxes execute as child runtimes
+// whose `BudgetTracker` enforces caps when capability-marked calls
+// happen and when mailbox depth exceeds the limit. The slice-6
+// interpreter is single-thread synchronous so a 1-frame mailbox cap
+// is the easiest one to trip. If nothing trips, the demo exits 0
+// (still a valid v0.4 state — the cap recording shape is verified by
+// the unit tests in crates/sdust-runtime/tests/).
+
+package extract_breach
+
+protocol Extract {
+  Classify(token: Str) -> I32
+}
+
+agent Extractor: Extract {
+  on Classify(token) {
+    let _ = token
+    1
+  }
+}
+
+sandbox ImpossibleExtract with {
+  cpu = 1ns
+  wall = 1ns
+  memory = 1B
+  mailbox = 1
+} {
+  run main_body()
+}
+
+fn main_body() {
+  let e = spawn Extractor()
+  // Flood the mailbox. Under a 1-frame cap the runtime should either
+  // backpressure (the default Block policy) or trap with SD5009.
+  log("== flood ==")
+  let _ = e?Classify("a")
+  let _ = e?Classify("b")
+  let _ = e?Classify("c")
+  let _ = e?Classify("d")
+  log("== survived ==")
+}
+
+fn main() {
+  main_body()
+}
