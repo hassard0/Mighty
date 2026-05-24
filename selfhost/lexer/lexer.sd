@@ -175,16 +175,32 @@ pub enum SyntaxKind {
 
 // ---- Host bridge -------------------------------------------------------
 //
-// The bootstrap host (a Rust impl of `Host::extern_call`) services
+// The bootstrap host (a Rust impl of `Host::effect_call`) services
 // these. They are the *only* place the lexer learns about the source.
-
-extern {
-  fn lex_init(src: Str) -> Unit
-  fn lex_len() -> USize
-  fn lex_byte_at(i: USize) -> U32
-  fn lex_slice(start: USize, end: USize) -> Str
-  fn lex_emit(kind_name: Str, start: USize, end: USize) -> Unit
-}
+//
+// We call them as method invocations on the registered prelude module
+// `std.io`. The HIR->SIR lowerer recognises a module-typed receiver
+// and rewrites `std.io.lex_init(src)` into
+//
+//   Stmt::EffectInvoke {
+//     effect: io,
+//     op: EffectOp::GenericCall { path: ["std", "io"], method: "lex_init" },
+//     args: [src],
+//   }
+//
+// which the interpreter routes through `Host::effect_call`. (An
+// `extern { fn lex_init(...) }` declaration would instead resolve to
+// a body-less user fn that returns Unit, because `Item::ExternBlock`
+// lowering installs a trivial-return shell for each extern fn — see
+// SELFHOST_V0_4_NOTES.md "extern blocks short-circuit to Unit".)
+//
+// The five call sites:
+//
+//   std.io.lex_init(src)              caches source on the host
+//   std.io.lex_len()                  returns USize length
+//   std.io.lex_byte_at(i)             byte at offset, or 256 for OOB
+//   std.io.lex_slice(start, end)      substring as Str
+//   std.io.lex_emit(kind, s, e)       token sink
 
 // ---- ASCII helpers -----------------------------------------------------
 
@@ -202,17 +218,17 @@ fn is_ident_cont(b: U32) -> Bool { is_ident_start(b) || is_digit(b) }
 // ---- Token sink --------------------------------------------------------
 
 fn emit(kind_name: Str, start: USize, end: USize) -> Unit {
-  lex_emit(kind_name, start, end)
+  std.io.lex_emit(kind_name, start, end)
 }
 
 // ---- Scanner primitives ------------------------------------------------
 
 fn scan_whitespace(start: USize) -> USize {
   let mut i = start
-  let n = lex_len()
+  let n = std.io.lex_len()
   loop {
     if i >= n { break }
-    let b = lex_byte_at(i)
+    let b = std.io.lex_byte_at(i)
     let space = is_space(b)
     if space == false { break }
     i = i + 1
@@ -224,17 +240,17 @@ fn scan_whitespace(start: USize) -> USize {
 fn scan_line_comment(start: USize) -> USize {
   // Caller already saw `//`. Determine doc-vs-line by peeking the 3rd
   // byte: `///` is DOC_COMMENT, `//` is LINE_COMMENT.
-  let n = lex_len()
+  let n = std.io.lex_len()
   let mut is_doc = false
   if start + 2 < n {
-    let third = lex_byte_at(start + 2)
+    let third = std.io.lex_byte_at(start + 2)
     if third == 47 { is_doc = true }
   }
   let mut i = start + 2
   if is_doc { i = i + 1 } // skip the third '/'
   loop {
     if i >= n { break }
-    let b = lex_byte_at(i)
+    let b = std.io.lex_byte_at(i)
     if b == 10 { break } // '\n' — keep newline as whitespace next round
     i = i + 1
   }
@@ -248,15 +264,15 @@ fn scan_line_comment(start: USize) -> USize {
 
 fn scan_block_comment(start: USize) -> USize {
   // Caller already saw `/*`. Block comments do not nest in v0.1.
-  let n = lex_len()
+  let n = std.io.lex_len()
   let mut i = start + 2
   loop {
     if i + 1 >= n {
       i = n
       break
     }
-    let a = lex_byte_at(i)
-    let c = lex_byte_at(i + 1)
+    let a = std.io.lex_byte_at(i)
+    let c = std.io.lex_byte_at(i + 1)
     if a == 42 && c == 47 { // '*' '/'
       i = i + 2
       break
@@ -269,16 +285,16 @@ fn scan_block_comment(start: USize) -> USize {
 
 fn scan_ident_or_keyword(start: USize) -> USize {
   // Caller already verified first byte is is_ident_start.
-  let n = lex_len()
+  let n = std.io.lex_len()
   let mut i = start + 1
   loop {
     if i >= n { break }
-    let b = lex_byte_at(i)
+    let b = std.io.lex_byte_at(i)
     let cont = is_ident_cont(b)
     if cont == false { break }
     i = i + 1
   }
-  let text = lex_slice(start, i)
+  let text = std.io.lex_slice(start, i)
   let kind_str = ident_kind_name(text)
   emit(kind_str, start, i)
   i
@@ -286,12 +302,12 @@ fn scan_ident_or_keyword(start: USize) -> USize {
 
 fn scan_number(start: USize) -> USize {
   // INT, FLOAT, DURATION, or SIZE — distinguished by the suffix.
-  let n = lex_len()
+  let n = std.io.lex_len()
   let mut i = start
   // Mantissa.
   loop {
     if i >= n { break }
-    let b = lex_byte_at(i)
+    let b = std.io.lex_byte_at(i)
     let d = is_digit(b)
     let und = b == 95
     if d == false {
@@ -302,8 +318,8 @@ fn scan_number(start: USize) -> USize {
   // Fraction? `.` followed by digit, else stop (so `1..10` stays an int).
   let mut is_float = false
   if i + 1 < n {
-    let dot = lex_byte_at(i)
-    let next = lex_byte_at(i + 1)
+    let dot = std.io.lex_byte_at(i)
+    let next = std.io.lex_byte_at(i + 1)
     if dot == 46 {
       let nd = is_digit(next)
       if nd == true {
@@ -311,7 +327,7 @@ fn scan_number(start: USize) -> USize {
         i = i + 1
         loop {
           if i >= n { break }
-          let b = lex_byte_at(i)
+          let b = std.io.lex_byte_at(i)
           let d = is_digit(b)
           let und = b == 95
           if d == false {
@@ -326,7 +342,7 @@ fn scan_number(start: USize) -> USize {
   let suffix_start = i
   loop {
     if i >= n { break }
-    let b = lex_byte_at(i)
+    let b = std.io.lex_byte_at(i)
     let a = is_alpha(b)
     let d = is_digit(b)
     if a == false {
@@ -334,7 +350,7 @@ fn scan_number(start: USize) -> USize {
     }
     i = i + 1
   }
-  let suffix = lex_slice(suffix_start, i)
+  let suffix = std.io.lex_slice(suffix_start, i)
   let kind_str = number_kind_name(suffix, is_float)
   emit(kind_str, start, i)
   i
@@ -378,11 +394,11 @@ fn number_kind_name(suffix: Str, is_float: Bool) -> Str {
 fn scan_string(start: USize) -> USize {
   // Caller saw the opening `"`. Reads through the closing `"`, honoring
   // `\\` escapes (so `\"` doesn't end the string).
-  let n = lex_len()
+  let n = std.io.lex_len()
   let mut i = start + 1
   loop {
     if i >= n { break }
-    let b = lex_byte_at(i)
+    let b = std.io.lex_byte_at(i)
     if b == 92 { // '\\' — skip next byte
       i = i + 2
     } else if b == 34 { // '"'
@@ -398,11 +414,11 @@ fn scan_string(start: USize) -> USize {
 
 fn scan_char(start: USize) -> USize {
   // Caller saw the opening `'`. Same escape rules as strings.
-  let n = lex_len()
+  let n = std.io.lex_len()
   let mut i = start + 1
   loop {
     if i >= n { break }
-    let b = lex_byte_at(i)
+    let b = std.io.lex_byte_at(i)
     if b == 92 {
       i = i + 2
     } else if b == 39 { // '\''
@@ -419,11 +435,11 @@ fn scan_char(start: USize) -> USize {
 fn scan_html_string(start: USize) -> USize {
   // Caller saw `html"` (5 bytes already classified). Consume through
   // the closing `"`, honoring `\\` escapes.
-  let n = lex_len()
+  let n = std.io.lex_len()
   let mut i = start + 5
   loop {
     if i >= n { break }
-    let b = lex_byte_at(i)
+    let b = std.io.lex_byte_at(i)
     if b == 92 {
       i = i + 2
     } else if b == 34 {
@@ -440,12 +456,12 @@ fn scan_html_string(start: USize) -> USize {
 // ---- Punctuation longest-match -----------------------------------------
 
 fn scan_punct(start: USize) -> USize {
-  let n = lex_len()
-  let b0 = lex_byte_at(start)
+  let n = std.io.lex_len()
+  let b0 = std.io.lex_byte_at(start)
   let mut b1: U32 = 256
   let mut b2: U32 = 256
-  if start + 1 < n { b1 = lex_byte_at(start + 1) }
-  if start + 2 < n { b2 = lex_byte_at(start + 2) }
+  if start + 1 < n { b1 = std.io.lex_byte_at(start + 1) }
+  if start + 2 < n { b2 = std.io.lex_byte_at(start + 2) }
 
   // Three-byte prefixes first (..= <<= >>=).
   if b0 == 46 && b1 == 46 && b2 == 61 {
@@ -601,13 +617,13 @@ fn ident_kind_name(s: Str) -> Str {
 // Returns the number of tokens emitted (including the trailing EOF).
 
 pub fn lex(src: Str) -> USize {
-  lex_init(src)
-  let n = lex_len()
+  std.io.lex_init(src)
+  let n = std.io.lex_len()
   let mut i: USize = 0
   let mut count: USize = 0
   loop {
     if i >= n { break }
-    let b = lex_byte_at(i)
+    let b = std.io.lex_byte_at(i)
     let space = is_space(b)
     let id_start = is_ident_start(b)
     let dig = is_digit(b)
@@ -621,10 +637,10 @@ pub fn lex(src: Str) -> USize {
       let mut is_html = false
       if b == 104 {
         if i + 4 < n {
-          if lex_byte_at(i + 1) == 116 {
-            if lex_byte_at(i + 2) == 109 {
-              if lex_byte_at(i + 3) == 108 {
-                if lex_byte_at(i + 4) == 34 {
+          if std.io.lex_byte_at(i + 1) == 116 {
+            if std.io.lex_byte_at(i + 2) == 109 {
+              if std.io.lex_byte_at(i + 3) == 108 {
+                if std.io.lex_byte_at(i + 4) == 34 {
                   is_html = true
                 }
               }
@@ -649,7 +665,7 @@ pub fn lex(src: Str) -> USize {
       count = count + 1
     } else if b == 47 { // '/' — comment or division
       let mut nxt: U32 = 256
-      if i + 1 < n { nxt = lex_byte_at(i + 1) }
+      if i + 1 < n { nxt = std.io.lex_byte_at(i + 1) }
       if nxt == 47 {
         i = scan_line_comment(i)
       } else if nxt == 42 {
