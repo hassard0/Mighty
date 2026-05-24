@@ -33,7 +33,11 @@ enum Cmd {
         cst: bool,
         #[arg(long)]
         hir: bool,
+        #[arg(long)]
+        sir: bool,
     },
+    /// Run a Stardust source file under the slice-6 interpreter.
+    Run { path: std::path::PathBuf },
     /// Print a human-readable explanation of a diagnostic code.
     Explain {
         /// e.g. SD0001, sd0001, 0001, 1
@@ -56,7 +60,9 @@ fn main() {
             ast,
             cst,
             hir,
-        } => cmd::dump::run(&path, ast, cst, hir),
+            sir,
+        } => cmd::dump::run(&path, ast, cst, hir, sir),
+        Cmd::Run { path } => cmd::run::run(&path),
         Cmd::Explain { code } => cmd::explain::run(&code),
     };
     std::process::exit(code);

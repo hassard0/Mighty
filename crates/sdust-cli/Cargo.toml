@@ -20,3 +20,6 @@ sdust-ast = { path = "../sdust-ast" }
 sdust-hir = { path = "../sdust-hir" }
 sdust-diagnostics = { path = "../sdust-diagnostics" }
 sdust-fmt = { path = "../sdust-fmt" }
+sdust-sir = { path = "../sdust-sir" }
+sdust-types = { path = "../sdust-types" }
+sdust-borrow = { path = "../sdust-borrow" }

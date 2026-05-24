@@ -416,11 +416,14 @@ dependencies = [
  "ariadne",
  "clap",
  "sdust-ast",
+ "sdust-borrow",
  "sdust-diagnostics",
  "sdust-driver",
  "sdust-fmt",
  "sdust-hir",
+ "sdust-sir",
  "sdust-syntax",
+ "sdust-types",
 ]
 
 [[package]]
@@ -441,6 +444,7 @@ dependencies = [
  "sdust-diagnostics",
  "sdust-fmt",
  "sdust-hir",
+ "sdust-sir",
  "sdust-syntax",
  "sdust-types",
  "serde",
@@ -467,6 +471,19 @@ dependencies = [
  "sdust-ast",
  "sdust-diagnostics",
  "sdust-syntax",
+]
+
+[[package]]
+name = "sdust-sir"
+version = "0.1.0"
+dependencies = [
+ "la-arena",
+ "sdust-ast",
+ "sdust-borrow",
+ "sdust-diagnostics",
+ "sdust-hir",
+ "sdust-syntax",
+ "sdust-types",
 ]
 
 [[package]]

@@ -3,3 +3,4 @@ pub mod dump;
 pub mod explain;
 pub mod fmt;
 pub mod new;
+pub mod run;

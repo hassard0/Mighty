@@ -1,0 +1,4 @@
+fn main() {
+  let n = 5
+  if n > 3 { log("big") } else { log("small") }
+}

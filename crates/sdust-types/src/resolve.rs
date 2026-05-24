@@ -72,13 +72,11 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
             let mut sigs: Vec<TraitMethodSig> = vec![];
             for mfid in &t.methods {
                 let hf = &pkg.fns[*mfid];
-                let has_self_ty = hf.params.iter().any(|p| match p.ty {
-                    Some(t) => is_self_type(&pkg.types[t]),
-                    None => false,
-                }) || hf
-                    .ret
-                    .map(|t| is_self_type(&pkg.types[t]))
-                    .unwrap_or(false);
+                let has_self_ty =
+                    hf.params.iter().any(|p| match p.ty {
+                        Some(t) => is_self_type(&pkg.types[t]),
+                        None => false,
+                    }) || hf.ret.map(|t| is_self_type(&pkg.types[t])).unwrap_or(false);
                 sigs.push(TraitMethodSig {
                     name: hf.name.clone(),
                     has_self_ty,

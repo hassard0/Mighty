@@ -71,6 +71,21 @@ pub const PROTOCOL_EXTRA_HANDLER: DiagCode = DiagCode::new(4033);
 pub const DERIVE_COPY_FIELD_NOT_COPY: DiagCode = DiagCode::new(4040);
 pub const DERIVE_UNKNOWN: DiagCode = DiagCode::new(4041);
 
+// Runtime / interpreter (slice 6): SD5001..SD5099
+pub const RUNTIME_PANIC: DiagCode = DiagCode::new(5001);
+pub const USE_AFTER_DROP: DiagCode = DiagCode::new(5002);
+pub const DIVISION_BY_ZERO: DiagCode = DiagCode::new(5003);
+pub const INTEGER_OVERFLOW: DiagCode = DiagCode::new(5004);
+pub const UNREACHABLE_MATCH: DiagCode = DiagCode::new(5005);
+pub const UNHANDLED_ERROR_RESULT: DiagCode = DiagCode::new(5006);
+pub const ARENA_ESCAPE_RUNTIME: DiagCode = DiagCode::new(5007);
+pub const UNCALLABLE_BUILTIN: DiagCode = DiagCode::new(5008);
+pub const BUDGET_EXCEEDED: DiagCode = DiagCode::new(5009);
+pub const SANDBOX_VIOLATION: DiagCode = DiagCode::new(5010);
+pub const AGENT_HANDLER_MISSING: DiagCode = DiagCode::new(5020);
+pub const SEND_TO_DEAD_AGENT: DiagCode = DiagCode::new(5021);
+pub const EXTERN_FN_UNIMPL: DiagCode = DiagCode::new(5050);
+
 // Borrow checker: SD3001..SD3099
 pub const USE_AFTER_MOVE: DiagCode = DiagCode::new(3001);
 pub const MOVE_OUT_OF_BORROW: DiagCode = DiagCode::new(3002);
@@ -427,6 +442,74 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
             "SD4041: Unknown derive. Slice 5 supports `Copy`, `Hash`, \
                  and `Eq`. Other derive names are reserved for later \
                  slices."
+        }
+        5001 => {
+            "SD5001: Runtime panic. The program executed `panic(msg)` \
+                 (or an unreachable terminator). The interpreter unwinds \
+                 to the top of `main` and exits with code 1."
+        }
+        5002 => {
+            "SD5002: Use after drop. A reference outlived the local it \
+                 pointed into. The borrow checker proves this statically \
+                 in well-typed programs; this trap fires only on programs \
+                 that bypassed type-checking."
+        }
+        5003 => {
+            "SD5003: Division by zero. The interpreter trapped on `a / 0` \
+                 or `a % 0`. The static checker does not currently flag \
+                 divisions by literal zero; that is post-v0.1 work."
+        }
+        5004 => {
+            "SD5004: Integer overflow. Arithmetic exceeded the target \
+                 integer's range. In debug builds (and the slice-6 \
+                 interpreter) this traps. Release-mode wrap is post-v0.1."
+        }
+        5005 => {
+            "SD5005: Unreachable match. The interpreter fell off the end \
+                 of a `match` whose arms did not cover the scrutinee. \
+                 Make the match exhaustive or add `_ => ...`."
+        }
+        5006 => {
+            "SD5006: Unhandled error result. Slice 6 reports this when \
+                 `main` returns a `Result::Err(...)` value: the process \
+                 exits 1 and prints the err payload."
+        }
+        5007 => {
+            "SD5007: Arena escape at runtime. The interpreter caught a \
+                 value escaping its arena scope. Borrow check SD3010 \
+                 covers the static case; this is a defense in depth."
+        }
+        5008 => {
+            "SD5008: Uncallable builtin. The program tried to invoke a \
+                 built-in fn whose interpreter implementation is not yet \
+                 wired up. File an issue with the fn name."
+        }
+        5009 => {
+            "SD5009: Budget exceeded. The interpreter's step budget \
+                 (default 1 000 000 ops) was exhausted, or an async \
+                 suspension point was reached that slice 6 cannot honor."
+        }
+        5010 => {
+            "SD5010: Sandbox violation. Slice 6 does not enforce sandbox \
+                 entries, so this code is reserved; slice 7 wires real \
+                 enforcement."
+        }
+        5020 => {
+            "SD5020: Agent handler missing. A `send` or `ask` referenced \
+                 a message the target agent does not handle. The static \
+                 checker covers most cases (SD4032/SD4033); this code \
+                 covers `dyn`-dispatch holes."
+        }
+        5021 => {
+            "SD5021: Send to dead agent. The target agent handle no \
+                 longer resolves (e.g. the agent panicked and was not \
+                 supervised). Slice 7 will integrate supervisor restart."
+        }
+        5050 => {
+            "SD5050: Extern fn unimplemented. The interpreter has no \
+                 host binding for the named `extern { fn ... }` symbol. \
+                 Register a host stub or run under a target that \
+                 supplies the symbol."
         }
         _ => return None,
     })

@@ -3,7 +3,7 @@ use sdust_syntax::SyntaxNode;
 use std::fs;
 use std::path::Path;
 
-pub fn run(path: &Path, ast: bool, cst: bool, hir: bool) -> i32 {
+pub fn run(path: &Path, ast: bool, cst: bool, hir: bool, sir: bool) -> i32 {
     let src = match fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
@@ -26,8 +26,14 @@ pub fn run(path: &Path, ast: bool, cst: bool, hir: bool) -> i32 {
         let (pkg, _) = lower(&parsed);
         println!("{}", sdust_hir::dump::dump_package(&pkg));
     }
-    if !ast && !cst && !hir {
-        eprintln!("specify one of --ast --cst --hir");
+    if sir {
+        let (pkg, _) = lower(&parsed);
+        let typed = sdust_types::check_package_typed(&pkg);
+        let prog = sdust_sir::lower_package(&pkg, &typed);
+        println!("{}", sdust_sir::dump_program(&prog));
+    }
+    if !ast && !cst && !hir && !sir {
+        eprintln!("specify one of --ast --cst --hir --sir");
         return 2;
     }
     0
