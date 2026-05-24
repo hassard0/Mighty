@@ -5,22 +5,25 @@ written in Stardust itself**. It is a long-standing credibility
 threshold for any language: until the language can describe its own
 compilation, claims about its expressiveness rest on testimony.
 
-This page tracks the Stardust self-hosting roadmap. v0.4 ships the
-**lexer** as Stardust source. Parser, HIR lowering, and codegen are
-queued for v0.5 / v0.6 / v0.7.
+This page tracks the Stardust self-hosting roadmap. v0.4 shipped the
+**lexer** as Stardust source; v0.5 unblocked it end-to-end; v0.6 ships
+the **parser**. HIR lowering and codegen are queued for v0.7 / v0.8.
 
 ## Roadmap
 
 | Version | Phase | Status | Reference impl |
 |---------|-------|--------|---------------|
 | v0.4 | Lexer | SUBSET — source compiles, runtime gated on v0.5 loop fix | `crates/sdust-syntax/src/lexer.rs` |
-| v0.5 | Parser | future | `crates/sdust-syntax/src/parser/*` |
-| v0.6 | HIR lowering | future | `crates/sdust-hir/src/lower/*` |
-| v0.7 | Codegen | future | `crates/sdust-codegen-cranelift/*` |
+| v0.5 | Lexer runtime | DONE — full byte-for-byte diff against Rust lexer passes | (same) |
+| v0.6 | Parser | **SHIPPED-SUBSET — 13 bootstrap tests pass against Rust parser** | `crates/sdust-syntax/src/parser/*` |
+| v0.7 | HIR lowering | future | `crates/sdust-hir/src/lower/*` |
+| v0.8 | Codegen | future | `crates/sdust-codegen-cranelift/*` |
 
-"SUBSET" means the Stardust source `sdust check`s clean and demonstrates
-the full token surface, but the v0.3 interpreter cannot execute the
-state machine end-to-end (see "Known gaps" below).
+"SUBSET" means the Stardust source `sdust check`s clean and exercises
+the documented production set, but defers a handful of advanced grammars
+(agents, supervisors, sandbox blocks, etc.) to a future release. See
+`SELFHOST_PARSER_V0_6_NOTES.md` for the v0.6 production matrix +
+gap catalog and `SELFHOST_V0_4_NOTES.md` for the v0.4 lexer catalog.
 
 ## Where the lexer lives
 
@@ -119,34 +122,77 @@ Highlights that any reader of this page should know:
    file at a time. `lib.sd` / `syntax_kind.sd` are scaffolding; v0.4
    `sdust check selfhost/lexer/lexer.sd` is the live target.
 
-## Extending to the parser
+## The parser (v0.6)
 
-v0.5 will add `selfhost/parser/` with the same shape:
+v0.6 added `selfhost/parser/` shipping ~1930 LOC of Stardust source:
 
 ```
 selfhost/parser/
-  lib.sd
-  parser.sd        # the rowan-style event-driven parser
-  events.sd        # OpenNode / CloseNode / Token event ADT
+  lib.sd            # v0.7 module-layout scaffolding (currently doc-only)
+  parser.sd         # the consolidated event-driven parser (one file)
 ```
 
-The parser will consume the token stream from `selfhost/lexer/lexer.sd`
-(once the runtime gap closes) and emit a sequence of CST events. The
-trusted Rust parser in `crates/sdust-syntax/src/parser/*` is the diff
-target.
+The parser consumes the token stream from the trusted Rust lexer
+(seeded into the host by the test) and emits a sequence of CST events
+through the same `std.io.<method>` bridge pattern the v0.5 lexer
+established. The bootstrap test
+(`crates/sdust-driver/tests/selfhost_parser.rs`) rebuilds a CST tree
+from the events and diffs it BFS against the Rust parser's output.
 
-The parser is much larger than the lexer (~1500 LOC across 13 files)
-and will exercise more of the language: nested matches over
-SyntaxKind enums, mutable accumulator structs, recursive descent with
-backtracking checkpoints. Several language features the lexer didn't
-need will become load-bearing for the parser:
+### Parser status table
 
-* Real iterative loops (already required by the lexer; will become
-  unavoidable for the parser's recovery passes).
-* `Vec[T].push` / `pop` with persistent mutation across loop iterations.
-* `Option[T]` chained with `?`.
-* Disjoint field borrows on the parser state struct (v0.3 borrow
-  checker supports this — see `EFFECTS_V0_3_NOTES.md`).
+| Production group        | v0.6 |
+|-------------------------|------|
+| `fn` / `struct` / `enum` / `type` decls | shipped |
+| `use` / `mod` / `package` decls | shipped |
+| `impl` / `trait` / `const` / `extern` | shipped |
+| Attributes (`#[derive(...)]` + `derive Copy`) | shipped |
+| Types (path, borrow, tuple, array, fn, dyn, generics, `T!E` sugar) | shipped |
+| Patterns (literal, binding, wildcard, enum, struct, tuple, range, `&`) | shipped |
+| Blocks + `let` + `if`/`else`/`match`/`for`/`while`/`loop` | shipped |
+| Pratt expressions (all operators + binding power) | shipped |
+| Postfix `()` / `[]` / `.field` / `.method()` / `?` | shipped |
+| Macro calls `Path!(...)` | shipped |
+| Lambda `fn() { ... }` | shipped |
+| Effects clause + `requires` | shipped |
+| Send sugar `!Msg(args)`, ask sugar `?Msg(args)`, deadlines `@dur` | deferred to v0.7 |
+| `agent` / `protocol` / `supervisor` / `sandbox` / `arena` / `task` / `budget` | deferred to v0.7 |
+| `unsafe` / `detach` / `join` / `run` / macro decls / HTML literals | deferred to v0.7 |
+| Error recovery (sync_to) | deferred to v0.7 |
+
+Every Stardust example in `examples/01_hello.sd` through
+`examples/05_match_expr.sd` parses identically (BFS-kind shape) to
+the trusted Rust parser. See `SELFHOST_PARSER_V0_6_NOTES.md` for the
+production matrix in more detail and the language-gap catalog the
+port surfaced.
+
+### Parser bootstrap technique
+
+Same shape as the v0.5 lexer:
+
+* The parser source talks to the host via `std.io.<method>` effect
+  calls. The HIR -> SIR lowerer rewrites `std.io.tok_kind(i)` etc. as
+  `EffectOp::GenericCall { path: ["std","io"], method: "tok_kind" }`.
+* The bootstrap test installs a `SelfhostParserHost` that:
+  1. seeds the token stream from `sdust_syntax::lex(input)`
+  2. services the read-only cursor methods (`tok_count`, `tok_kind`,
+     `tok_text`, etc.)
+  3. records each `ev_start` / `ev_finish` / `ev_token` / `ev_error`
+     call as an event
+  4. resolves checkpoints (`ev_checkpoint` / `ev_start_at`) into
+     retroactive node openings at the saved positions
+* After the run, the test rebuilds a CST tree from the event stream
+  and compares its BFS-kind shape against the Rust parser's output.
+
+The checkpoint protocol deserves a note: when the Stardust parser
+calls `start_node_at(cp, KIND)`, the host records an
+`EnterAt(recorded_idx, KIND)` event. The rebuilder walks the event
+stream forwards and emits an `Enter(KIND)` at each `recorded_idx`
+before processing that input event. When multiple `start_node_at`
+calls share a checkpoint (e.g. `expr_bp` chaining `CALL_EXPR` and
+then `QUESTION_EXPR` around the same primary), the later-added
+wrapper opens FIRST in the output stream so it ends up on the outside
+— matching rowan's `start_node_at` semantics for stacked checkpoints.
 
 ## See also
 

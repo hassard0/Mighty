@@ -7,12 +7,12 @@ for the full architectural story.
 
 ## Status
 
-| Phase | Location | v0.4 status | Bootstrap test |
+| Phase | Location | Latest status | Bootstrap test |
 |---|---|---|---|
-| Lexer | `lexer/` | SUBSET — source compiles, runtime gated on v0.5 loop fix | `crates/sdust-driver/tests/selfhost_lexer.rs` |
-| Parser | `parser/` | future (v0.5) | — |
-| HIR lowering | `hir/` | future (v0.6) | — |
-| Codegen | `codegen/` | future (v0.7) | — |
+| Lexer | `lexer/` | v0.5: DONE — full byte-for-byte diff against Rust lexer | `crates/sdust-driver/tests/selfhost_lexer.rs` |
+| Parser | `parser/` | **v0.6: SHIPPED-SUBSET — 13 bootstrap tests pass** | `crates/sdust-driver/tests/selfhost_parser.rs` |
+| HIR lowering | `hir/` | future (v0.7) | — |
+| Codegen | `codegen/` | future (v0.8) | — |
 
 ## What "SUBSET" means in v0.4
 
@@ -80,16 +80,64 @@ all in `lexer.sd` because the v0.4 driver compiles one file at a time.
 ## v0.4 language gaps the lexer revealed
 
 Catalogued in [`../SELFHOST_V0_4_NOTES.md`](../SELFHOST_V0_4_NOTES.md).
-The headline gaps are:
+The headline gaps were:
 
-1. Loops execute exactly one iteration (the dominant blocker)
+1. Loops execute exactly one iteration (the dominant blocker) — **fixed in v0.5**
 2. `!fn(args)` parses as `(!fn)(args)` — workaround `let b = fn(args); if b == false`
 3. `extern { fn ... }` short-circuits to `return Unit` instead of
    hitting the host extern table
 4. No cross-file module resolution (single-file compile)
 5. Permissive Str method stubs (`.contains` always false, etc.)
 
-Each gap has a v0.5 plan in the notes file.
+## v0.6 language gaps the parser revealed
+
+Catalogued in [`../SELFHOST_PARSER_V0_6_NOTES.md`](../SELFHOST_PARSER_V0_6_NOTES.md).
+The headline gaps are:
+
+1. `if X { foo() } else { let y = ... }` triggers SD2001 when the
+   if-branch ends with a Bool call and the else-branch ends with a
+   Unit statement (workaround: return Unit from helper fns when
+   possible, or `let _ = ...` to discard)
+2. No first-class `SyntaxKind` enum across files — the parser passes
+   kinds as Strings because v0.6 still compiles one file at a time
+3. `Option[T]` chained with `?` not yet practical at the host-bridge
+   boundary; sentinel values used instead
+4. String concatenation `"foo " + bar` works in the interpreter but
+   not in AOT backends; v0.7 should formalize via `Str + Str` trait
+5. Unreachable trailing expressions after `loop { ... }` blocks
+   silently type-check (minor; works correctly, no lint)
+
+Each gap has a v0.7+ plan in the parser notes file.
+
+## Running the parser bootstrap test
+
+```bash
+cargo test -p sdust-driver --test selfhost_parser
+```
+
+13 live tests pass (no `#[ignore]` markers):
+
+```
+test rust_parser_baseline_hello ............ ok
+test selfhost_parser_compiles .............. ok
+test selfhost_parser_empty_input_yields_file_root ... ok
+test selfhost_parser_event_protocol_smoke .. ok
+test selfhost_parser_hello_world ........... ok
+test selfhost_parser_struct ................ ok
+test selfhost_parser_pratt_arith ........... ok
+test selfhost_parser_match_simple .......... ok
+test selfhost_parser_example_01 ............ ok
+test selfhost_parser_example_02 ............ ok
+test selfhost_parser_example_03 ............ ok
+test selfhost_parser_example_04 ............ ok
+test selfhost_parser_example_05 ............ ok
+```
+
+## Compiling the parser source directly
+
+```bash
+sdust check selfhost/parser/parser.sd
+```
 
 ## Why ship a subset?
 
