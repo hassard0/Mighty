@@ -123,6 +123,24 @@ fn parse_run_expr_in_block() {
 }
 
 #[test]
+fn parse_method_with_keyword_name() {
+    use sdust_syntax::{parse, SyntaxKind, SyntaxNode};
+    let r = parse("fn f() { dom.on(\"click\", h) }");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::METHOD_CALL_EXPR));
+}
+
+#[test]
+fn parse_field_with_keyword_name() {
+    use sdust_syntax::parse;
+    let r = parse("fn f() { let _ = x.match }");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+}
+
+#[test]
 fn parse_run_expr_with_propagate() {
     use sdust_syntax::{parse, SyntaxKind, SyntaxNode};
     let src = "fn f() { run job(input)? }";

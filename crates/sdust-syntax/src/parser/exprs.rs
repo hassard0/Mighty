@@ -360,23 +360,28 @@ fn try_postfix(p: &mut Parser, cp: rowan::Checkpoint) -> bool {
     p.skip_trivia();
     match p.peek() {
         DOT => {
-            // method call vs field access: if followed by IDENT then L_PAREN, it's a method call
+            // Method-call vs field-access. After `.`, accept either an IDENT
+            // or any keyword in name position so library APIs can use
+            // reserved words (`dom.on(...)`, `x.match`, etc.).
             let after_dot = next_nontrivia_index(p, p.pos + 1);
             let name_kind = next_nontrivia_kind(p, p.pos + 1);
-            let is_method_call =
-                name_kind == IDENT && next_nontrivia_kind(p, after_dot + 1) == L_PAREN;
+            let name_is_word = name_kind == IDENT || name_kind.is_keyword();
+            if !name_is_word {
+                return false;
+            }
+            let is_method_call = next_nontrivia_kind(p, after_dot + 1) == L_PAREN;
             if is_method_call {
                 p.start_node_at(cp, METHOD_CALL_EXPR);
                 p.bump(DOT);
                 p.skip_trivia();
-                paths::name(p);
+                paths::name_or_keyword(p);
                 args(p);
                 p.finish_node();
             } else {
                 p.start_node_at(cp, FIELD_EXPR);
                 p.bump(DOT);
                 p.skip_trivia();
-                paths::name(p);
+                paths::name_or_keyword(p);
                 p.finish_node();
             }
             true

@@ -30,3 +30,10 @@ fn package_decl() {
 fn pub_use() {
     assert_snapshot!(dump("pub use std.io"));
 }
+
+#[test]
+fn parse_effect_with_keyword_name() {
+    // `spawn` is a keyword but is a legitimate effect name per spec §10.
+    let r = sdust_syntax::parse("fn f() effect net, model, spawn {}");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+}

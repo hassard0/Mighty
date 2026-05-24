@@ -184,9 +184,11 @@ pub fn effect_clause(p: &mut Parser) {
     p.start_node(EFFECT_CLAUSE);
     p.bump(EFFECT_KW);
     p.skip_trivia();
-    paths::name(p);
+    // Allow keyword names so `effect net, model, spawn` parses (spec §10
+    // doesn't restrict effect names to non-reserved words).
+    paths::name_or_keyword(p);
     while p.eat(COMMA) {
-        paths::name(p);
+        paths::name_or_keyword(p);
     }
     p.finish_node();
     p.skip_trivia();
