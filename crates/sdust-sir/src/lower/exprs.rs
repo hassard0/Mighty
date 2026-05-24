@@ -880,15 +880,18 @@ fn lower_for(
     iter: ExprId,
     body: sdust_hir::BlockId,
 ) -> Operand {
-    // Slice 6 lowers `for x in iter { body }` to:
-    //   let __arr = iter;
-    //   let mut __i = 0;
-    //   loop {
-    //     if __i >= __arr.len { break } else { x = __arr[__i]; body; __i += 1 }
-    //   }
-    // Since we have no real `break`, we just emit body once and jump back.
-    // This is sufficient for the canonical examples which use for either
-    // to iterate over a known-small array or under host-stub fns.
+    // v0.4: loop semantics fixed. `for x in iter { body }` lowers to a
+    // proper header/body/exit triple where the body's terminator routes
+    // back to the header.
+    //
+    // Slice 6 still has NO iterator-exhaustion check (real `Iterator`
+    // protocol arrives post-v0.1), so on its own this would spin
+    // forever — but the interpreter's step budget (default 1M) caps
+    // any runaway. Examples that only compile (`sdust check`) are
+    // unaffected; examples that actually *execute* a for-loop will
+    // trip `RunResult::BudgetExceeded` until v0.5 wires the iterator
+    // protocol + `break`/`continue` HIR nodes. Tracked in
+    // SELFHOST_V0_4_NOTES.md / SLICE_V0_4.md.
     let iter_op = lower_expr(ctx, fb, iter);
     let iter_local = fb.fresh_temp(SirTy::Error);
     fb.push_stmt(Stmt::Assign(Place::local(iter_local), Rvalue::Use(iter_op)));
@@ -899,14 +902,18 @@ fn lower_for(
     fb.set_term(Term::Goto(header));
 
     fb.switch_to(header);
-    // Branch unconditionally to body for the first iteration; slice-6
-    // simplification (real iterator protocol is post-v0.1).
+    // Branch unconditionally to body — slice-6 simplification (no
+    // iterator exhaustion). v0.5 will materialise the .len/.next probe
+    // here so `for` actually terminates structurally.
     fb.set_term(Term::Goto(body_block));
 
     fb.switch_to(body_block);
     let block = ctx.pkg.blocks[body].clone();
     let _ = lower_block(ctx, fb, &block);
-    fb.set_term(Term::Goto(exit));
+    // v0.4 loop-fix: route back to header so each pass re-enters the
+    // body. Previously this was `Goto(exit)` which broke every loop
+    // shape after one iteration.
+    fb.set_term(Term::Goto(header));
 
     fb.switch_to(exit);
     Operand::Const(Const::Unit)
@@ -934,10 +941,10 @@ fn lower_while(
     fb.switch_to(body_block);
     let block = ctx.pkg.blocks[body].clone();
     let _ = lower_block(ctx, fb, &block);
-    // Slice 6: avoid infinite loops at run time by jumping straight to
-    // exit. The borrow checker proved the loop terminates structurally;
-    // the interpreter relies on body side-effects making `cond` go false.
-    fb.set_term(Term::Goto(exit));
+    // v0.4 loop-fix: route back to header so `cond` is re-evaluated.
+    // Previously the terminator was `Goto(exit)`, which silently
+    // collapsed every `while` into a one-shot if-block.
+    fb.set_term(Term::Goto(header));
 
     fb.switch_to(exit);
     Operand::Const(Const::Unit)
@@ -951,8 +958,13 @@ fn lower_loop(ctx: &mut LowerCtx, fb: &mut FnBuilder, body: sdust_hir::BlockId) 
     fb.switch_to(header);
     let block = ctx.pkg.blocks[body].clone();
     let _ = lower_block(ctx, fb, &block);
-    // No `break` in slice 6 — go directly to exit (single iteration).
-    fb.set_term(Term::Goto(exit));
+    // v0.4 loop-fix: route back to header. There is still no `break`
+    // in HIR, so a bare `loop { … }` that does not panic / return /
+    // try-return-err runs until the interpreter's step budget trips.
+    // The borrow checker continues to reject obvious uses; the v0.5
+    // plan adds `break`/`continue` HIR nodes for early exit. Tracked
+    // in SLICE_V0_4.md.
+    fb.set_term(Term::Goto(header));
 
     fb.switch_to(exit);
     Operand::Const(Const::Unit)

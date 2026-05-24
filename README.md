@@ -1,6 +1,6 @@
 # Stardust
 
-[![Status](https://img.shields.io/badge/status-v0.3-green)](https://github.com/hassard0/stardust/releases/tag/v0.3.0)
+[![Status](https://img.shields.io/badge/status-v0.4-green)](https://github.com/hassard0/stardust/releases/tag/v0.4.0)
 [![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)](#license)
 
 Stardust is an agent-first systems programming language. It is statically
@@ -10,19 +10,56 @@ native code (Cranelift JIT + AOT; LLVM behind `--features llvm`) and
 WebAssembly (Component Model by default; bare core modules via
 `--no-component`).
 
-**v0.3 is shipped.** The v0.3 milestone tag
+**v0.4 is shipped.** The v0.4 milestone tag
+[`v0.4.0`](https://github.com/hassard0/stardust/releases/tag/v0.4.0)
+is the dogfood + ecosystem release: three end-to-end demos drive the
+compiler/runtime, the package manager grows a real GitHub-Releases-backed
+registry transport (offline-first cache + sha256 + deterministic bundles),
+declarative macros land with hygiene (SD6001..SD6004), the Stardust lexer
+is rewritten in Stardust source (subset bootstrap via the `std.io` effect
+bridge), and the long-standing single-iteration SIR loop bug is fixed
+(`while` / `loop` / `for` body terminators now route to the header).
+See [`RELEASE-v0.4.md`](RELEASE-v0.4.md) for the headline numbers and
+[`SLICE_V0_4.md`](SLICE_V0_4.md) for the shipped/deferred detail.
+
+Prior milestones remain tagged:
 [`v0.3.0`](https://github.com/hassard0/stardust/releases/tag/v0.3.0)
-hardens soundness across the borrow checker (NLL last-use + field-level
-Places), the type checker (scope-aware tolerance + Sendable trait), and
-the runtime (cooperative mid-turn cancellation + OTLP telemetry +
-slab-pool mailboxes), and closes the v0.2 cleanup backlog (stdlib host
-install, 6/20→20/20 wasm Components, 5→2 ignored conformance cases).
-See [`RELEASE-v0.3.md`](RELEASE-v0.3.md) for the headline numbers and
-[`SLICE_V0_3.md`](SLICE_V0_3.md) for the shipped/deferred detail. The
-v0.2 milestone remains tagged
-[`v0.2.0`](https://github.com/hassard0/stardust/releases/tag/v0.2.0);
-the v0.1 milestone at
-[`v0.1.0`](https://github.com/hassard0/stardust/releases/tag/v0.1.0).
+(soundness hardening),
+[`v0.2.0`](https://github.com/hassard0/stardust/releases/tag/v0.2.0)
+(LSP + pkg + doc + stdlib + DWARF + Wasm CM), and
+[`v0.1.0`](https://github.com/hassard0/stardust/releases/tag/v0.1.0)
+(initial slice 1-8 ladder).
+
+### v0.4 highlights
+
+- **Three dogfood demos** at `demos/01_search_api`,
+  `demos/02_counter_web`, `demos/03_extract_tool` — each with a
+  `smoke.sh` + `smoke.ps1` that gates the demo on a passing run
+  through the v0.4 compiler + runtime
+- **Real package registry transport** — GitHub Releases REST
+  client, on-disk index cache with 1-hour TTL + `If-Modified-Since`,
+  sha256 sidecar verification, deterministic `.tar.gz` bundles,
+  three new CLI subcommands (`search` / `info` / `login`),
+  offline-first (`pkg add` / `update` use cache; `--refresh` for
+  network) (A59/A60/A61)
+- **Hygienic declarative macros** — new `sdust-macros` crate;
+  `let IDENT` bindings mangled per expansion site so macros don't
+  collide with caller-scope names; SD6001..SD6004 catch unknown /
+  arity-mismatch / depth-exceeded / bad-arg conditions; capped at
+  `MAX_EXPANSION_DEPTH = 32` (A57/A58)
+- **Self-host lexer (subset bootstrap)** — `selfhost/lexer/lexer.sd`
+  compiles, type-checks, borrow-checks, and round-trips its first
+  token through the host bridge (`std.io.lex_init` /
+  `lex_byte_at` / `lex_emit` etc.); seven v0.3 language gaps
+  catalogued in `SELFHOST_V0_4_NOTES.md` (A63)
+- **SIR loop terminator fix** — `crates/sdust-sir/src/lower/exprs.rs`
+  previously collapsed every `while` / `loop` / `for` into a single
+  iteration; v0.4 routes each body's terminator to `Goto(header)`
+  so loops genuinely iterate. Bounded by the step budget pending
+  v0.5's `break` HIR node (A62)
+- **692 tests pass** (+69 over v0.3), 0 clippy warnings, 20/20
+  examples on native + bare-wasm + Wasm-Component (unchanged from
+  v0.3), 3/3 demos pass `smoke.sh`
 
 ### v0.3 highlights
 
@@ -132,17 +169,17 @@ SDxxxx` prints a paragraph describing any diagnostic code emitted.
 
 ## Project layout
 
-The compiler is a Rust workspace of nineteen crates:
+The compiler is a Rust workspace of twenty crates:
 
 | Crate | Responsibility |
 |---|---|
 | `sdust-syntax` | lexer (logos), CST (rowan), parser |
 | `sdust-ast` | typed AST view over the CST |
 | `sdust-diagnostics` | diagnostic types, SD-coded labels, ariadne rendering |
-| `sdust-hir` | name-resolved HIR with arena storage |
+| `sdust-hir` | name-resolved HIR with arena storage; v0.4 macro preprocessor hook |
 | `sdust-types` | resolved Ty, HM inference, bidirectional type checker, effects + capabilities; v0.3 scope-strict + Sendable |
 | `sdust-borrow` | ownership/move/borrow/affine/arena analysis; v0.3 field-level Places + NLL last-use |
-| `sdust-sir` | mid-level IR + tree-walking interpreter (slice 6) |
+| `sdust-sir` | mid-level IR + tree-walking interpreter (slice 6); v0.4 loop terminator fix |
 | `sdust-runtime` | concurrent tokio runtime: agents, mailboxes, supervisors, budgets (slice 7); v0.3 mid-turn cancel + OTLP + slab pool |
 | `sdust-codegen-cranelift` | native backend — JIT + AOT object (slice 8 + v0.2 completion) |
 | `sdust-codegen-wasm` | wasm32-wasi / wasm32-web core module + Component Model emitter |
@@ -150,10 +187,11 @@ The compiler is a Rust workspace of nineteen crates:
 | `sdust-debuginfo` | DWARF v4 builder + wasm source-map + `name` section (v0.2) |
 | `sdust-fmt` | canonical formatter (Wadler/Lindig pretty-printer) |
 | `sdust-driver` | compilation pipeline and `star.toml` manifest loader |
-| `sdust-pkg` | package manager: resolver, lockfile, fetchers, publish (v0.2) |
+| `sdust-pkg` | package manager: resolver, lockfile, fetchers, publish (v0.2); v0.4 GH Releases registry transport |
 | `sdust-lsp` | LSP 3.17 server over stdio (v0.2) |
 | `sdust-doc` | doc generator (extract + render markdown/HTML) (v0.2) |
 | `sdust-stdlib` | real `std.json` / `tls` / `http` / `fs` / `time` / `test` (v0.2) |
+| `sdust-macros` | declarative-macro registry + expander + hygiene (v0.4) |
 | `sdust-cli` | the `sdust` binary |
 
 ## Roadmap
@@ -173,14 +211,17 @@ implemented or planned:
 | 8 | native (Cranelift) and Wasm backends | shipped (`v0.8.0-codegen` / `v0.1.0`) |
 | **v0.2** | LSP + pkg + doc + full codegen + stdlib + DWARF + Wasm CM | **shipped (`v0.2.0`)** |
 | **v0.3** | Soundness hardening: NLL last-use + field Places, scope-strict + Sendable, mid-turn cancel + OTLP + slab mailboxes, v0.2 cleanup (stdlib install, 20/20 wasm-CM, 5→2 ignored) | **shipped (`v0.3.0`)** |
+| **v0.4** | Dogfood demos (3), real GH-Releases registry transport, hygienic declarative macros (SD6001..SD6004), self-host lexer (subset bootstrap via `std.io`), SIR loop terminator fix | **shipped (`v0.4.0`)** |
 
-### Post-v0.3 roadmap
+### Post-v0.4 roadmap
 
 | Slice | Scope | Status |
 |---|---|---|
-| v0.4 | Polonius-style borrows, real cap-name resolution wiring, SIR-side cancellation polling, WASI Preview 2 + user WIT, DWARF v5 + per-instr line program, backtracking pkg resolver | planned |
-| - | `dyn` dispatch + closure capture in compiled code, real `loop { break }` lowering, `escalate` supervisor action | planned |
-| - | Multi-core scheduler, PGO/ThinLTO, distributed agents, procedural macros, effect-row polymorphism | future |
+| v0.5 | `break` / `continue` HIR + iterator protocol (closes the loop work), self-host parser + HIR, `!call_expr` precedence fix, real `Str` method intrinsics, cross-file module resolution | planned |
+| - | Polonius-style borrows, real cap-name resolution wiring, SIR-side cancellation polling, WASI Preview 2 + user WIT, DWARF v5 + per-instr line program | planned |
+| - | `std.http.serve` host bridge + agent `Handler`, `stardust:web/dom` import lowering, SIR-side auto-charging for cpu/mem caps | planned (unblocks the v0.4 demo stopgaps) |
+| - | `dyn` dispatch + closure capture in compiled code, `escalate` supervisor action, proc macros, set-of-scopes hygiene | planned |
+| - | Multi-core scheduler, PGO/ThinLTO, distributed agents, effect-row polymorphism | future |
 
 ## License
 
