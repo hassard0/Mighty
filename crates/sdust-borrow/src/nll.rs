@@ -202,6 +202,12 @@ impl<'a> Pre<'a> {
                     self.visit_expr(x);
                 }
             }
+            HirExpr::Break(e) => {
+                if let Some(x) = e {
+                    self.visit_expr(x);
+                }
+            }
+            HirExpr::Continue => {}
             HirExpr::Struct { fields, .. } => {
                 for (_, e) in fields {
                     self.visit_expr(e);

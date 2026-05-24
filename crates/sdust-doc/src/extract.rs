@@ -1167,6 +1167,7 @@ fn visit_expr(
                 visit_expr(pkg, *el, owner, names, accum);
             }
         }
-        Literal(_) | HtmlTemplate(_) | Return(None) | Error => {}
+        Break(Some(e)) => visit_expr(pkg, *e, owner, names, accum),
+        Literal(_) | HtmlTemplate(_) | Return(None) | Break(None) | Continue | Error => {}
     }
 }

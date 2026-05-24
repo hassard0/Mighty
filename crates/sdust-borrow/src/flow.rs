@@ -276,6 +276,40 @@ impl<'a> BorrowCx<'a> {
         self.pop_frame();
     }
 
+    /// v0.5 (loop back-edge analysis): run `body_walker` against the loop's
+    /// body until the per-local ledger state converges, conservatively
+    /// merged with each prior iteration's snapshot. Bounded at 16
+    /// iterations so a divergent body still terminates; if convergence
+    /// hasn't happened by then we fall back to a final pass and exit.
+    ///
+    /// The borrow ledger is monotonic in the join (`join_ledgers` keeps
+    /// records present in either branch), so successive iterations only
+    /// add records; convergence is when the ledger record count stays
+    /// the same.
+    fn loop_fixed_point(&mut self, mut body_walker: impl FnMut(&mut Self)) {
+        let pre_locals = self.locals.clone();
+        let pre_ledger = self.ledger.clone();
+        let mut prev_records = pre_ledger.records.len();
+        for _i in 0..16 {
+            body_walker(self);
+            // Conservatively join post-body state with pre-body baseline so
+            // borrows opened mid-body and conditionally dropped before the
+            // back-edge still constrain the next iteration.
+            self.locals = join_states(pre_locals.clone(), &self.locals);
+            self.ledger = join_ledgers(&pre_ledger, &self.ledger);
+            if self.ledger.records.len() == prev_records {
+                return;
+            }
+            prev_records = self.ledger.records.len();
+        }
+        // Final pass after the cap: the conservative join above already
+        // covered the back-edge state, so just emit any borrow-conflict
+        // diagnostics the body would raise on a final iteration.
+        body_walker(self);
+        self.locals = join_states(pre_locals, &self.locals);
+        self.ledger = join_ledgers(&pre_ledger, &self.ledger);
+    }
+
     fn walk_stmt(&mut self, stmt: &HirStmt) {
         match stmt {
             HirStmt::Let {
@@ -761,19 +795,28 @@ impl<'a> BorrowCx<'a> {
                     },
                     _ => self.typed.ty_arena.unit,
                 };
-                self.push_frame(None);
-                self.bind_pattern(pat, elem_ty);
-                self.walk_block(body);
-                self.pop_frame();
+                // v0.5 (loop back-edge): run the body until the per-local
+                // ledger converges (or a 16-iteration safety cap fires).
+                // Patterns are re-bound on each iteration.
+                self.loop_fixed_point(|this| {
+                    this.push_frame(None);
+                    this.bind_pattern(pat, elem_ty);
+                    this.walk_block(body);
+                    this.pop_frame();
+                });
                 None
             }
             HirExpr::While { cond, body } => {
                 let _ = self.walk_expr(cond, Position::Use);
-                self.walk_block(body);
+                self.loop_fixed_point(|this| {
+                    this.walk_block(body);
+                });
                 None
             }
             HirExpr::Loop { body } => {
-                self.walk_block(body);
+                self.loop_fixed_point(|this| {
+                    this.walk_block(body);
+                });
                 None
             }
             HirExpr::Return(inner) => {
@@ -783,6 +826,14 @@ impl<'a> BorrowCx<'a> {
                 }
                 None
             }
+            HirExpr::Break(inner) => {
+                if let Some(e) = inner {
+                    // `break value` moves the value out of the loop.
+                    let _ = self.walk_expr(e, Position::Move);
+                }
+                None
+            }
+            HirExpr::Continue => None,
             HirExpr::Struct { fields, .. } => {
                 for (_, e) in fields {
                     let _ = self.walk_expr(e, Position::Use);

@@ -99,6 +99,21 @@ pub struct FnBuilder {
     pub locals_by_name: HashMap<String, Local>,
     /// Arena scope counter, for synthesizing fresh ArenaIds.
     pub next_arena: u32,
+    /// v0.5: stack of `(continue_target, exit_target, result_local)` for
+    /// the currently-enclosing loops. `result_local` holds the loop's
+    /// value (written by `break <value>`); for `loop`/`for`/`while` it
+    /// is always allocated so `lower_loop` can return it. Empty when
+    /// not inside any loop — bare `break`/`continue` in that case is a
+    /// no-op (the borrow checker / type checker have already reported
+    /// the misuse).
+    pub loop_stack: Vec<LoopFrame>,
+}
+
+#[derive(Clone, Copy)]
+pub struct LoopFrame {
+    pub continue_target: BlockId,
+    pub exit_target: BlockId,
+    pub result_local: Local,
 }
 
 impl FnBuilder {
@@ -121,9 +136,20 @@ impl FnBuilder {
             cur: entry,
             locals_by_name: HashMap::new(),
             next_arena: 0,
+            loop_stack: Vec::new(),
         };
         s.cur = entry;
         s
+    }
+
+    pub fn push_loop(&mut self, frame: LoopFrame) {
+        self.loop_stack.push(frame);
+    }
+    pub fn pop_loop(&mut self) {
+        self.loop_stack.pop();
+    }
+    pub fn current_loop(&self) -> Option<LoopFrame> {
+        self.loop_stack.last().copied()
     }
 
     pub fn new_block(&mut self) -> BlockId {

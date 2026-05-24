@@ -8,6 +8,18 @@ use sdust_types::IntKind;
 /// Default step budget — each stmt + each terminator counts as one step.
 pub const DEFAULT_STEP_BUDGET: u64 = 1_000_000;
 
+/// Default per-step CPU budget translated into "instructions". The
+/// runtime's `BudgetTracker::cpu` is a `Duration`; the SIR interpreter
+/// translates that into a step count via `cpu_ns / DEFAULT_STEP_NS` (see
+/// `crate::interp::value::Frame`). Surfaced here as a constant so tests
+/// can pin the trip point deterministically.
+pub const DEFAULT_STEP_NS: u64 = 1_000;
+
+/// Default memory ceiling (bytes) when no caller-provided cap is set.
+/// `0` means "unlimited" — Gap-4 charging only trips when a finite
+/// `mem_budget` is supplied via [`run_fn_with_resource_budget`].
+pub const DEFAULT_MEM_BUDGET: u64 = 0;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunResult {
     /// Program ran to completion. `exit` is the suggested process exit
@@ -19,6 +31,8 @@ pub enum RunResult {
     NoMain,
     /// Step budget exceeded.
     BudgetExceeded,
+    /// Memory budget exceeded (Gap-4 v0.5).
+    MemBudgetExceeded { used: u64, limit: u64 },
 }
 
 impl RunResult {
@@ -28,6 +42,7 @@ impl RunResult {
             RunResult::Trap { .. } => 1,
             RunResult::NoMain => 2,
             RunResult::BudgetExceeded => 3,
+            RunResult::MemBudgetExceeded { .. } => 4,
         }
     }
 }
@@ -86,6 +101,34 @@ pub fn run_fn_with_budget(
         None => return Err(RunResult::NoMain),
     };
     let mut interp = Interp::new(prog, step_budget);
+    let initial_locals = initial_locals_for(f, &args);
+    let scope = interp.fresh_scope();
+    let frame = Frame::new(f.id, initial_locals, scope, f.entry);
+    interp.stack.push(frame);
+    match interp.run(host) {
+        RunResult::Ok { .. } => Ok(interp.last_return),
+        r => Err(r),
+    }
+}
+
+/// v0.5 dogfood Gap-4: run with a paired step + memory budget. Returns
+/// [`RunResult::MemBudgetExceeded`] on alloc-over-cap and
+/// [`RunResult::BudgetExceeded`] on step-over-cap. `mem_budget == 0`
+/// means "no memory cap" (same as [`run_fn_with_budget`]).
+pub fn run_fn_with_resource_budget(
+    prog: &Program,
+    name: &str,
+    args: Vec<Value>,
+    host: &mut dyn Host,
+    step_budget: u64,
+    mem_budget: u64,
+) -> Result<Value, RunResult> {
+    let f = match prog.fn_by_name(name) {
+        Some(f) => f,
+        None => return Err(RunResult::NoMain),
+    };
+    let mut interp = Interp::new(prog, step_budget);
+    interp.mem_budget = mem_budget;
     let initial_locals = initial_locals_for(f, &args);
     let scope = interp.fresh_scope();
     let frame = Frame::new(f.id, initial_locals, scope, f.entry);
@@ -213,6 +256,11 @@ struct Interp<'a> {
     last_return: Value,
     /// Step budget remaining.
     budget: u64,
+    /// v0.5 Gap-4: cumulative bytes of "allocation-shape" rvalues
+    /// (Struct / Tuple / Array / Str literal payload) charged so far.
+    mem_used: u64,
+    /// v0.5 Gap-4: ceiling for `mem_used`. `0` = unlimited.
+    mem_budget: u64,
     /// Slice-7 hook: snapshot of the outermost frame's locals at the
     /// moment it returns. Used by [`run_handler_isolated`] to recover
     /// the post-handler state value out of the synthesized state-holder
@@ -230,8 +278,28 @@ impl<'a> Interp<'a> {
             next_agent: 0,
             last_return: Value::Unit,
             budget,
+            mem_used: 0,
+            mem_budget: 0,
             last_frame_locals: None,
         }
+    }
+
+    /// Charge `bytes` against the memory budget. Returns Err with the
+    /// over-cap message when the call would exceed `mem_budget` (no-op
+    /// when `mem_budget == 0`).
+    fn charge_mem(&mut self, bytes: u64) -> Result<(), (&'static str, String)> {
+        let new = self.mem_used.saturating_add(bytes);
+        self.mem_used = new;
+        if self.mem_budget > 0 && new > self.mem_budget {
+            return Err((
+                "SD5009",
+                format!(
+                    "memory budget exceeded: used {} B > cap {} B",
+                    new, self.mem_budget
+                ),
+            ));
+        }
+        Ok(())
     }
 
     fn fresh_scope(&mut self) -> ScopeId {
@@ -246,6 +314,16 @@ impl<'a> Interp<'a> {
                 return RunResult::BudgetExceeded;
             }
             self.budget -= 1;
+            // v0.5 Gap-4: surface MemBudgetExceeded between steps so
+            // a charge inside `eval_rvalue` propagates as a typed
+            // RunResult (instead of being smuggled through the trap
+            // channel — which keeps the SD5009 trap message intact).
+            if self.mem_budget > 0 && self.mem_used > self.mem_budget {
+                return RunResult::MemBudgetExceeded {
+                    used: self.mem_used,
+                    limit: self.mem_budget,
+                };
+            }
             match self.step(host) {
                 StepOutcome::Continue => {}
                 StepOutcome::FrameReturned(value) => {
@@ -482,6 +560,14 @@ impl<'a> Interp<'a> {
                 fields,
             } => {
                 let vals: Vec<Value> = fields.iter().map(|f| self.eval_operand(f)).collect();
+                // v0.5 Gap-4: charge memory roughly proportional to the
+                // value footprint. We treat each scalar field as 16 B
+                // (matches `size_of::<Value>` on 64-bit) plus a 24 B
+                // header for the Struct/Enum wrapper itself.
+                let bytes = 24 + estimate_payload_bytes(&vals);
+                if let Err((c, m)) = self.charge_mem(bytes) {
+                    return EvalOutcome::Trap(c, m);
+                }
                 // Slice 6: pick Struct vs Enum based on the program's
                 // AdtRef record.
                 if let Some(adt_ref) = self.prog.adt_by_id(*adt) {
@@ -500,10 +586,18 @@ impl<'a> Interp<'a> {
             }
             Rvalue::TupleInit(xs) => {
                 let vals: Vec<Value> = xs.iter().map(|x| self.eval_operand(x)).collect();
+                let bytes = 16 + estimate_payload_bytes(&vals);
+                if let Err((c, m)) = self.charge_mem(bytes) {
+                    return EvalOutcome::Trap(c, m);
+                }
                 EvalOutcome::Value(Value::Tuple(vals))
             }
             Rvalue::ArrayInit(xs) => {
                 let vals: Vec<Value> = xs.iter().map(|x| self.eval_operand(x)).collect();
+                let bytes = 24 + estimate_payload_bytes(&vals);
+                if let Err((c, m)) = self.charge_mem(bytes) {
+                    return EvalOutcome::Trap(c, m);
+                }
                 EvalOutcome::Value(Value::Array(vals))
             }
             Rvalue::FieldRead { receiver, field } => {
@@ -962,6 +1056,37 @@ enum EvalOutcome {
     ConsumedReturn(Value),
 }
 
+/// v0.5 Gap-4 helper: rough byte size of a [`Value`] for memory
+/// budget charging. Numbers are deliberately approximate — the goal
+/// is "deterministic, monotonic charging that catches runaway
+/// allocations", not bit-perfect accounting.
+fn estimate_payload_bytes(vs: &[Value]) -> u64 {
+    let mut total: u64 = 0;
+    for v in vs {
+        total = total.saturating_add(estimate_value_bytes(v));
+    }
+    total
+}
+
+fn estimate_value_bytes(v: &Value) -> u64 {
+    match v {
+        Value::Unit | Value::Void => 8,
+        Value::Bool(_) | Value::Char(_) => 8,
+        Value::Int(_, _) | Value::Float(_, _) | Value::Duration(_) | Value::Size(_) => 16,
+        Value::Str(s) => 24 + s.len() as u64,
+        Value::Tuple(xs) | Value::Array(xs) => {
+            24 + xs.iter().map(estimate_value_bytes).sum::<u64>()
+        }
+        Value::Struct { fields, .. } => {
+            24 + fields.iter().map(estimate_value_bytes).sum::<u64>()
+        }
+        Value::Enum { payload, .. } => {
+            24 + payload.iter().map(estimate_value_bytes).sum::<u64>()
+        }
+        Value::Ref(_) | Value::Fn(_) | Value::Agent(_) | Value::Cap { .. } => 16,
+    }
+}
+
 fn write_proj(target: &mut Value, proj: &[Projection], v: Value) {
     if proj.is_empty() {
         *target = v;
@@ -1182,7 +1307,79 @@ fn eval_unop(op: UnOp, v: &Value) -> Value {
 
 fn eval_method(receiver: &Value, name: &str, args: &[Value]) -> Value {
     use Value::*;
+    // --- helpers that pull a borrowed &str out of receiver / args ---
+    fn arg_str(args: &[Value], i: usize) -> Option<String> {
+        match args.get(i)? {
+            Str(s) => Some(s.clone()),
+            Char(c) => Some(c.to_string()),
+            other => Some(other.as_str()),
+        }
+    }
+    fn arg_usize(args: &[Value], i: usize) -> Option<usize> {
+        args.get(i)
+            .and_then(|v| v.as_int())
+            .filter(|n| *n >= 0)
+            .map(|n| n as usize)
+    }
+    fn some(v: Value) -> Value {
+        Enum {
+            adt: sdust_types::AdtId(0),
+            variant: 0,
+            payload: vec![v],
+        }
+    }
+    fn none() -> Value {
+        Enum {
+            adt: sdust_types::AdtId(0),
+            variant: 1,
+            payload: vec![],
+        }
+    }
+
     match name {
+        // ---------------- v0.5 iterator protocol ----------------
+        //
+        // Caller (the SIR `for`-loop lowering) passes the current index
+        // in `args[0]`. Returns `(exhausted: Bool, element: Value)`.
+        // The lowering bumps the index between calls and tests field 0
+        // to decide whether to enter the body or exit. Supported
+        // iterables:
+        //   * `Tuple(lo, hi, inclusive_marker)` from range lowering
+        //     (`lo..hi` => exclusive, `lo..=hi` => inclusive)
+        //   * `Array(...)` for slice/Vec iteration
+        // Anything else returns `(true, Unit)` so the loop exits
+        // immediately rather than spinning forever.
+        "__sdust_iter_next" => {
+            let idx = args.first().and_then(|v| v.as_int()).unwrap_or(0);
+            return match receiver {
+                Tuple(parts) if parts.len() == 3 => {
+                    let lo = parts[0].as_int().unwrap_or(0);
+                    let hi = parts[1].as_int().unwrap_or(0);
+                    let inclusive = matches!(&parts[2], Bool(true));
+                    let cur = lo + idx;
+                    let exhausted = if inclusive { cur > hi } else { cur >= hi };
+                    let kind = match &parts[0] {
+                        Int(_, k) => *k,
+                        _ => IntKind::I32,
+                    };
+                    Tuple(vec![
+                        Bool(exhausted),
+                        if exhausted { Unit } else { Int(cur, kind) },
+                    ])
+                }
+                Array(xs) => {
+                    let i = idx.max(0) as usize;
+                    if i >= xs.len() {
+                        Tuple(vec![Bool(true), Unit])
+                    } else {
+                        Tuple(vec![Bool(false), xs[i].clone()])
+                    }
+                }
+                _ => Tuple(vec![Bool(true), Unit]),
+            };
+        }
+
+        // ---------------- length / emptiness ----------------
         "len" => match receiver {
             Str(s) => Int(s.chars().count() as i128, IntKind::USize),
             Array(xs) => Int(xs.len() as i128, IntKind::USize),
@@ -1195,6 +1392,8 @@ fn eval_method(receiver: &Value, name: &str, args: &[Value]) -> Value {
             Array(xs) => Bool(xs.is_empty()),
             _ => Bool(false),
         },
+
+        // ---------------- Result/Option helpers ----------------
         "unwrap" => match receiver {
             Enum {
                 variant, payload, ..
@@ -1236,14 +1435,186 @@ fn eval_method(receiver: &Value, name: &str, args: &[Value]) -> Value {
             },
         },
         "ro" | "rw" | "path" | "host" => receiver.clone(),
-        // Permissive defaults — return Unit / a Str / a Bool depending
-        // on the name. The interpreter's job is to keep running.
-        "get" | "query" => Enum {
-            adt: sdust_types::AdtId(0),
-            variant: 1,
-            payload: vec![],
+
+        // ---------------- Str methods (v0.5 dogfood gap #3) ----------------
+        "contains" => match (receiver, arg_str(args, 0)) {
+            (Str(s), Some(needle)) => Bool(s.contains(needle.as_str())),
+            (Array(xs), Some(needle)) => Bool(xs.iter().any(|v| v.as_str() == needle)),
+            _ => Bool(false),
         },
-        "contains" | "starts_with" | "ends_with" => Bool(false),
+        "starts_with" => match (receiver, arg_str(args, 0)) {
+            (Str(s), Some(p)) => Bool(s.starts_with(p.as_str())),
+            _ => Bool(false),
+        },
+        "ends_with" => match (receiver, arg_str(args, 0)) {
+            (Str(s), Some(p)) => Bool(s.ends_with(p.as_str())),
+            _ => Bool(false),
+        },
+        "find" => match (receiver, arg_str(args, 0)) {
+            (Str(s), Some(needle)) => {
+                // Return byte-index of first match as Option[USize].
+                match s.find(needle.as_str()) {
+                    Some(idx) => some(Int(idx as i128, IntKind::USize)),
+                    None => none(),
+                }
+            }
+            _ => none(),
+        },
+        "char_at" => match (receiver, arg_usize(args, 0)) {
+            (Str(s), Some(i)) => match s.chars().nth(i) {
+                Some(c) => some(Char(c)),
+                None => none(),
+            },
+            _ => none(),
+        },
+        "slice" => match (receiver, arg_usize(args, 0), arg_usize(args, 1)) {
+            (Str(s), Some(start), Some(end)) => {
+                // start/end are char indices (Stardust spec §11 strings
+                // are char-indexed). Skip + take.
+                if start > end {
+                    return none();
+                }
+                let sliced: String = s.chars().skip(start).take(end - start).collect();
+                some(Str(sliced))
+            }
+            _ => none(),
+        },
+        "to_lower" | "to_lowercase" => match receiver {
+            Str(s) => Str(s.to_lowercase()),
+            Char(c) => Str(c.to_lowercase().collect()),
+            _ => receiver.clone(),
+        },
+        "to_upper" | "to_uppercase" => match receiver {
+            Str(s) => Str(s.to_uppercase()),
+            Char(c) => Str(c.to_uppercase().collect()),
+            _ => receiver.clone(),
+        },
+        "trim" => match receiver {
+            Str(s) => Str(s.trim().to_string()),
+            _ => receiver.clone(),
+        },
+        "trim_start" => match receiver {
+            Str(s) => Str(s.trim_start().to_string()),
+            _ => receiver.clone(),
+        },
+        "trim_end" => match receiver {
+            Str(s) => Str(s.trim_end().to_string()),
+            _ => receiver.clone(),
+        },
+        "split" => match (receiver, arg_str(args, 0)) {
+            (Str(s), Some(sep)) if !sep.is_empty() => {
+                Array(s.split(sep.as_str()).map(|p| Str(p.to_string())).collect())
+            }
+            (Str(s), Some(_)) => {
+                // Empty separator → single-element array (mirrors Rust's
+                // panic case, but we keep determinism here).
+                Array(vec![Str(s.clone())])
+            }
+            _ => Array(vec![]),
+        },
+        "chars" => match receiver {
+            Str(s) => Array(s.chars().map(Char).collect()),
+            _ => Array(vec![]),
+        },
+        "bytes" => match receiver {
+            Str(s) => Array(
+                s.as_bytes()
+                    .iter()
+                    .map(|b| Int(*b as i128, IntKind::U8))
+                    .collect(),
+            ),
+            _ => Array(vec![]),
+        },
+        "replace" => match (receiver, arg_str(args, 0), arg_str(args, 1)) {
+            (Str(s), Some(from), Some(to)) if !from.is_empty() => {
+                Str(s.replace(from.as_str(), to.as_str()))
+            }
+            (Str(s), _, _) => Str(s.clone()),
+            _ => receiver.clone(),
+        },
+        "repeat" => match (receiver, arg_usize(args, 0)) {
+            (Str(s), Some(n)) => Str(s.repeat(n)),
+            _ => receiver.clone(),
+        },
+
+        // ---------------- String (mutable) helpers ----------------
+        // Stardust spec treats `String` as the owned, mutable form; the
+        // interpreter stores both `String` and `Str` as `Value::Str(_)`,
+        // so push/push_str/clear behave the same. These return Unit and
+        // (best-effort) mutate via the deref-write path when the call
+        // is `Stmt::Assign((*self).field, MethodCall { ... })`. Inside
+        // this pure helper they can only return the new value — the
+        // caller is responsible for storing it back. To make
+        // `s.push_str("x")` work in user code we additionally support
+        // returning the new string on the value channel.
+        "push" => match (receiver, args.first()) {
+            (Str(s), Some(Char(c))) => {
+                let mut out = s.clone();
+                out.push(*c);
+                Str(out)
+            }
+            (Array(xs), Some(v)) => {
+                let mut out = xs.clone();
+                out.push(v.clone());
+                Array(out)
+            }
+            _ => receiver.clone(),
+        },
+        "push_str" => match (receiver, arg_str(args, 0)) {
+            (Str(s), Some(t)) => {
+                let mut out = s.clone();
+                out.push_str(&t);
+                Str(out)
+            }
+            _ => receiver.clone(),
+        },
+        "clear" => match receiver {
+            Str(_) => Str(String::new()),
+            Array(_) => Array(vec![]),
+            _ => receiver.clone(),
+        },
+        "pop" => match receiver {
+            Str(s) => {
+                let mut t = s.clone();
+                match t.pop() {
+                    Some(c) => some(Char(c)),
+                    None => none(),
+                }
+            }
+            Array(xs) => match xs.last() {
+                Some(v) => some(v.clone()),
+                None => none(),
+            },
+            _ => none(),
+        },
+
+        // ---------------- Vec[T] helpers ----------------
+        "get" => match (receiver, arg_usize(args, 0)) {
+            (Array(xs), Some(i)) => match xs.get(i) {
+                Some(v) => some(v.clone()),
+                None => none(),
+            },
+            _ => none(),
+        },
+        "first" => match receiver {
+            Array(xs) => match xs.first() {
+                Some(v) => some(v.clone()),
+                None => none(),
+            },
+            _ => none(),
+        },
+        "last" => match receiver {
+            Array(xs) => match xs.last() {
+                Some(v) => some(v.clone()),
+                None => none(),
+            },
+            _ => none(),
+        },
+        "iter" => receiver.clone(),
+
+        // ---------------- still-stubbed / permissive ----------------
+        "query" => none(),
+
         _ => Unit,
     }
 }

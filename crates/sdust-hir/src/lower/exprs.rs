@@ -333,6 +333,16 @@ pub fn lower_expr(ctx: &mut LoweringCtx, n: SyntaxNode) -> ExprId {
                 .map(|c| lower_expr(ctx, c));
             HirExpr::Return(inner)
         }
+        SyntaxKind::BREAK_EXPR => {
+            // `break <value>?` — unlabelled in v0.5. The value, when
+            // present, becomes the value of the enclosing `loop` expr.
+            let inner = n
+                .children()
+                .find(|c| is_expr_node(c.kind()))
+                .map(|c| lower_expr(ctx, c));
+            HirExpr::Break(inner)
+        }
+        SyntaxKind::CONTINUE_EXPR => HirExpr::Continue,
         SyntaxKind::BLOCK => HirExpr::Block(lower_block_node(ctx, n)),
         SyntaxKind::TUPLE_EXPR => HirExpr::Tuple(
             child_exprs(&n)
@@ -723,6 +733,8 @@ pub fn is_expr_node(k: SyntaxKind) -> bool {
             | WHILE_EXPR
             | LOOP_EXPR
             | RETURN_EXPR
+            | BREAK_EXPR
+            | CONTINUE_EXPR
             | TUPLE_EXPR
             | ARRAY_EXPR
             | STRUCT_EXPR

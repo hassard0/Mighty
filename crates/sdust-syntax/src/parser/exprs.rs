@@ -196,6 +196,25 @@ fn primary(p: &mut Parser) -> bool {
             p.finish_node();
             true
         }
+        BREAK_KW => {
+            // `break` or `break <expr>`. v0.5 ships without label support;
+            // labelled-break (`break 'outer value`) is deferred to v0.6.
+            p.start_node(BREAK_EXPR);
+            p.bump(BREAK_KW);
+            p.skip_trivia();
+            if can_start_expr(p.peek()) {
+                expr(p);
+            }
+            p.finish_node();
+            true
+        }
+        CONTINUE_KW => {
+            // Unlabelled `continue`. v0.6 will add label support.
+            p.start_node(CONTINUE_EXPR);
+            p.bump(CONTINUE_KW);
+            p.finish_node();
+            true
+        }
         UNSAFE_KW => super::unsafe_::unsafe_block(p),
         ARENA_KW => super::concurrency::arena_block(p),
         TASK_KW => super::concurrency::task_scope_or_call(p),
@@ -337,6 +356,17 @@ fn path_expr_or_call(p: &mut Parser) -> bool {
     paths::path(p);
     p.finish_node();
     p.skip_trivia();
+    // v0.5 macros: `Path!(args)` invocation. Peek for BANG immediately
+    // followed by L_PAREN (no newline between them — guards against the
+    // postfix `!Msg(args)` send-sugar which requires same-line IDENT).
+    if p.at(BANG) && next_nontrivia_kind(p, p.pos + 1) == L_PAREN {
+        p.start_node_at(cp, MACRO_CALL);
+        p.bump(BANG);
+        p.skip_trivia();
+        token_tree(p);
+        p.finish_node();
+        return true;
+    }
     // struct literal: Path { field: expr, ... }
     // Suppress when parsing control-flow conditions (`if`/`while`/`for`) so
     // `if x { ... }` parses as condition + body, not as a struct literal.
@@ -548,6 +578,8 @@ pub fn can_start_expr(k: SyntaxKind) -> bool {
             | WHILE_KW
             | LOOP_KW
             | RETURN_KW
+            | BREAK_KW
+            | CONTINUE_KW
             | UNSAFE_KW
             | ARENA_KW
             | TASK_KW
@@ -594,4 +626,47 @@ fn run_expr(p: &mut Parser) -> bool {
     expr(p);
     p.finish_node();
     true
+}
+
+/// v0.5: a paren-balanced opaque token tree, used as the arguments of a
+/// `Path!(...)` macro invocation. Tokens are stored verbatim under the
+/// TOKEN_TREE node; the macro expander interprets them. Nested parens,
+/// brackets, and braces are tracked for depth but their contents are
+/// otherwise unparsed.
+pub(crate) fn token_tree(p: &mut Parser) {
+    p.start_node(TOKEN_TREE);
+    if !p.at(L_PAREN) {
+        p.error("expected '(' to start macro argument token tree");
+        p.finish_node();
+        return;
+    }
+    p.bump(L_PAREN);
+    let mut depth: i32 = 1;
+    while depth > 0 && !p.at(EOF) {
+        match p.peek() {
+            L_PAREN | L_BRACK | L_BRACE => {
+                depth += 1;
+                p.bump_any();
+            }
+            R_PAREN => {
+                depth -= 1;
+                if depth == 0 {
+                    p.bump(R_PAREN);
+                } else {
+                    p.bump_any();
+                }
+            }
+            R_BRACK | R_BRACE => {
+                depth -= 1;
+                p.bump_any();
+            }
+            _ => {
+                p.bump_any();
+            }
+        }
+    }
+    if depth > 0 {
+        p.error("unterminated macro argument token tree (missing ')')");
+    }
+    p.finish_node();
 }

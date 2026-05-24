@@ -361,6 +361,8 @@ fn walk_expr_effects(
         HirExpr::Loop { body } => walk_block_effects(*body, pkg, defs, arena, known, out, callees),
         HirExpr::Return(Some(e)) => walk_expr_effects(*e, pkg, defs, arena, known, out, callees),
         HirExpr::Return(None) => {}
+        HirExpr::Break(Some(e)) => walk_expr_effects(*e, pkg, defs, arena, known, out, callees),
+        HirExpr::Break(None) | HirExpr::Continue => {}
         HirExpr::Struct { fields, .. } => {
             for (_, e) in fields {
                 walk_expr_effects(*e, pkg, defs, arena, known, out, callees);

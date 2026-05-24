@@ -305,6 +305,14 @@ pub enum HirExpr {
         body: BlockId,
     },
     Return(Option<ExprId>),
+    /// `break` or `break <value>` — unwinds to the nearest enclosing
+    /// loop/while/for. v0.5 ships without labels (`'outer: loop { break
+    /// 'outer; }` is deferred to v0.6); v0.6 will replace this with
+    /// `Break { label: Option<String>, value: Option<ExprId> }`.
+    Break(Option<ExprId>),
+    /// `continue` — re-enters the loop header without executing the
+    /// rest of the body. v0.5 ships unlabelled only.
+    Continue,
     Block(BlockId),
     Tuple(Vec<ExprId>),
     Array(Vec<ExprId>),

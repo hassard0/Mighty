@@ -192,6 +192,95 @@ pub fn lower_pat_match(
     }
 }
 
+/// v0.5 (for-loop binding): bind `pat`'s names to the operand without
+/// emitting any tests. Used by `for x in iter { ... }` where the
+/// iterator protocol has already determined the element is present.
+pub fn lower_pat_bind(
+    ctx: &mut LowerCtx,
+    fb: &mut FnBuilder,
+    pat_id: PatId,
+    rhs: Operand,
+) {
+    let pat = ctx.pkg.pats[pat_id].clone();
+    bind_pat_recursive(ctx, fb, &pat, rhs);
+}
+
+fn bind_pat_recursive(
+    ctx: &mut LowerCtx,
+    fb: &mut FnBuilder,
+    pat: &HirPat,
+    rhs: Operand,
+) {
+    match pat {
+        HirPat::Binding { name, sub } => {
+            let l = fb.new_local(name.clone(), SirTy::Error, true, LocalSource::UserLet);
+            fb.push_stmt(Stmt::Assign(Place::local(l), Rvalue::Use(rhs)));
+            if let Some(sp) = sub {
+                let sub_pat = ctx.pkg.pats[*sp].clone();
+                bind_pat_recursive(ctx, fb, &sub_pat, Operand::Copy(Place::local(l)));
+            }
+        }
+        HirPat::Wildcard | HirPat::Literal(_) | HirPat::Range { .. } => {
+            // No bindings; nothing to write.
+        }
+        HirPat::Tuple(parts) => {
+            // Stash rhs in a temp; project each element.
+            let temp = fb.fresh_temp(SirTy::Error);
+            fb.push_stmt(Stmt::Assign(Place::local(temp), Rvalue::Use(rhs)));
+            for (i, sp) in parts.iter().enumerate() {
+                let elt = fb.fresh_temp(SirTy::Error);
+                fb.push_stmt(Stmt::Assign(
+                    Place::local(elt),
+                    Rvalue::TupleRead {
+                        receiver: Place::local(temp),
+                        idx: i,
+                    },
+                ));
+                let sub_pat = ctx.pkg.pats[*sp].clone();
+                bind_pat_recursive(ctx, fb, &sub_pat, Operand::Move(Place::local(elt)));
+            }
+        }
+        HirPat::Ref { inner, .. } => {
+            let sub_pat = ctx.pkg.pats[*inner].clone();
+            bind_pat_recursive(ctx, fb, &sub_pat, rhs);
+        }
+        HirPat::Struct { fields, .. } => {
+            let temp = fb.fresh_temp(SirTy::Error);
+            fb.push_stmt(Stmt::Assign(Place::local(temp), Rvalue::Use(rhs)));
+            for (idx, (_name, sub)) in fields.iter().enumerate() {
+                if let Some(sp) = sub {
+                    let f = fb.fresh_temp(SirTy::Error);
+                    fb.push_stmt(Stmt::Assign(
+                        Place::local(f),
+                        Rvalue::FieldRead {
+                            receiver: Place::local(temp),
+                            field: idx,
+                        },
+                    ));
+                    let sub_pat = ctx.pkg.pats[*sp].clone();
+                    bind_pat_recursive(ctx, fb, &sub_pat, Operand::Move(Place::local(f)));
+                }
+            }
+        }
+        HirPat::Enum { args, .. } => {
+            let temp = fb.fresh_temp(SirTy::Error);
+            fb.push_stmt(Stmt::Assign(Place::local(temp), Rvalue::Use(rhs)));
+            for (i, sp) in args.iter().enumerate() {
+                let f = fb.fresh_temp(SirTy::Error);
+                fb.push_stmt(Stmt::Assign(
+                    Place::local(f),
+                    Rvalue::TupleRead {
+                        receiver: Place::local(temp),
+                        idx: i,
+                    },
+                ));
+                let sub_pat = ctx.pkg.pats[*sp].clone();
+                bind_pat_recursive(ctx, fb, &sub_pat, Operand::Move(Place::local(f)));
+            }
+        }
+    }
+}
+
 fn local_ty(fb: &FnBuilder, p: &Place) -> SirTy {
     // Take the underlying local's type. Projections are slice-6
     // permissive: tuple/enum projections retain the parent type

@@ -144,6 +144,10 @@ pub enum SyntaxKind {
     RESTART_KW,
     #[token("backoff")]
     BACKOFF_KW,
+    #[token("break")]
+    BREAK_KW,
+    #[token("continue")]
+    CONTINUE_KW,
     #[token("up_to")]
     UP_TO_KW,
     #[token("detach")]
@@ -386,6 +390,16 @@ pub enum SyntaxKind {
     ATTR,
     VISIBILITY,
     CONST_DECL,
+    // v0.5 macros: `name!(args)` invocation + proc-macro declaration.
+    // MACRO_CALL is an expression node with a Path callee and a TOKEN_TREE
+    // containing the raw paren-balanced argument tokens. The macro expander
+    // splits the tree on commas at depth 0 to recover individual argument
+    // source slices.
+    MACRO_CALL,
+    TOKEN_TREE,
+    // `proc macro name(input: TokenStream) -> TokenStream { body }`.
+    // Stored alongside MACRO_DECL but flagged in the registry as procedural.
+    PROC_MACRO_DECL,
 }
 
 impl SyntaxKind {

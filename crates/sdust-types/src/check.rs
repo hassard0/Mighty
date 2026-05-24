@@ -281,6 +281,17 @@ fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
             }
             cx.arena.never
         }
+        HirExpr::Break(inner) => {
+            // `break <value>` contributes the value's type to the enclosing
+            // `loop`'s result type. v0.5 doesn't yet unify those across
+            // breaks (loops still synth to `never`), but we still synth the
+            // inner expression so its type info lands in the side table.
+            if let Some(e) = inner {
+                let _ = synth_expr(cx, e);
+            }
+            cx.arena.never
+        }
+        HirExpr::Continue => cx.arena.never,
         HirExpr::Struct { path, fields } => synth_struct(cx, &path, &fields, expr_id),
         HirExpr::Map(_) => {
             // Slice 3: Map literals (e.g. `Map::[Str, Json]{}`) check the

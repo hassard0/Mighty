@@ -2,7 +2,7 @@
 //! terminators, return the final operand carrying the expression's
 //! result.
 
-use super::ctx::*;
+use super::ctx::{FnBuilder, LoopFrame, LowerCtx};
 use super::pats;
 use crate::sir::*;
 use sdust_hir::{
@@ -207,6 +207,39 @@ pub fn lower_expr(ctx: &mut LowerCtx, fb: &mut FnBuilder, eid: ExprId) -> Operan
                 None => Operand::Const(Const::Unit),
             };
             fb.set_term(Term::Return(v));
+            let dead = fb.new_block();
+            fb.switch_to(dead);
+            Operand::Const(Const::Unit)
+        }
+        HirExpr::Break(opt) => {
+            // v0.5: `break <value>?` unwinds to the nearest enclosing
+            // loop. The value (if present) is stored in the loop's
+            // result local before jumping to the exit BB.
+            let v = match opt {
+                Some(e) => lower_expr(ctx, fb, e),
+                None => Operand::Const(Const::Unit),
+            };
+            if let Some(frame) = fb.current_loop() {
+                fb.push_stmt(Stmt::Assign(
+                    Place::local(frame.result_local),
+                    Rvalue::Use(v),
+                ));
+                fb.set_term(Term::Goto(frame.exit_target));
+            } else {
+                // Stray `break` outside a loop: treat as Unreachable.
+                // The type / borrow checker should have flagged it.
+                fb.set_term(Term::Unreachable);
+            }
+            let dead = fb.new_block();
+            fb.switch_to(dead);
+            Operand::Const(Const::Unit)
+        }
+        HirExpr::Continue => {
+            if let Some(frame) = fb.current_loop() {
+                fb.set_term(Term::Goto(frame.continue_target));
+            } else {
+                fb.set_term(Term::Unreachable);
+            }
             let dead = fb.new_block();
             fb.switch_to(dead);
             Operand::Const(Const::Unit)
@@ -717,14 +750,17 @@ fn lower_binop(
     ) {
         return lower_assign(ctx, fb, op, lhs, rhs);
     }
-    // Range -> array placeholder. Real Range type is post-v0.1.
+    // Range -> Tuple(lo, hi, inclusive_marker). The marker (Bool) lets
+    // the iterator protocol (`__sdust_iter_next`) distinguish exclusive
+    // (`1..5` yields 1..=4) from inclusive (`1..=5` yields 1..=5).
     if matches!(op, Range | RangeEq) {
         let lo = lower_expr(ctx, fb, lhs);
         let hi = lower_expr(ctx, fb, rhs);
+        let inclusive = matches!(op, RangeEq);
         let temp = fb.fresh_temp(SirTy::Error);
         fb.push_stmt(Stmt::Assign(
             Place::local(temp),
-            Rvalue::TupleInit(vec![lo, hi]),
+            Rvalue::TupleInit(vec![lo, hi, Operand::Const(Const::Bool(inclusive))]),
         ));
         return Operand::Move(Place::local(temp));
     }
@@ -876,47 +912,118 @@ fn lower_match(
 fn lower_for(
     ctx: &mut LowerCtx,
     fb: &mut FnBuilder,
-    _pat: sdust_hir::PatId,
+    pat: sdust_hir::PatId,
     iter: ExprId,
     body: sdust_hir::BlockId,
 ) -> Operand {
-    // v0.4: loop semantics fixed. `for x in iter { body }` lowers to a
-    // proper header/body/exit triple where the body's terminator routes
-    // back to the header.
+    // v0.5: real iterator protocol (range + slice/array). `for x in iter`
+    // lowers to:
     //
-    // Slice 6 still has NO iterator-exhaustion check (real `Iterator`
-    // protocol arrives post-v0.1), so on its own this would spin
-    // forever — but the interpreter's step budget (default 1M) caps
-    // any runaway. Examples that only compile (`sdust check`) are
-    // unaffected; examples that actually *execute* a for-loop will
-    // trip `RunResult::BudgetExceeded` until v0.5 wires the iterator
-    // protocol + `break`/`continue` HIR nodes. Tracked in
-    // SELFHOST_V0_4_NOTES.md / SLICE_V0_4.md.
+    //   iter_local := <iter>
+    //   header:
+    //     idx_local := iter_idx_next(iter_local, idx_local)
+    //     if exhausted -> exit
+    //     else         -> bind(pat); body
+    //   body:
+    //     ... ; goto continue_tgt
+    //   continue_tgt:
+    //     goto header
+    //   exit:
+    //     result_local
+    //
+    // For ranges (`lo..hi`) we use the iterator's internal counter; for
+    // arrays/slices we index by `i`. Both shapes go through a single
+    // `Stmt::Assign` with an `Rvalue::MethodCall` of "next" so the
+    // interpreter's permissive method table can service both. The
+    // result is a tuple `(Bool exhausted, Value element)`.
     let iter_op = lower_expr(ctx, fb, iter);
     let iter_local = fb.fresh_temp(SirTy::Error);
     fb.push_stmt(Stmt::Assign(Place::local(iter_local), Rvalue::Use(iter_op)));
 
+    // Counter local for sequential iteration. The interpreter's
+    // `__sdust_iter_next` method below uses this to walk ranges/arrays.
+    let idx_local = fb.fresh_temp(SirTy::Int(sdust_types::IntKind::USize));
+    fb.push_stmt(Stmt::Assign(
+        Place::local(idx_local),
+        Rvalue::Use(Operand::Const(Const::Int(
+            0,
+            sdust_types::IntKind::USize,
+        ))),
+    ));
+
     let header = fb.new_block();
     let body_block = fb.new_block();
+    let continue_tgt = fb.new_block();
     let exit = fb.new_block();
+    let result_local = fb.fresh_temp(SirTy::Unit);
     fb.set_term(Term::Goto(header));
 
+    // Header: probe the iterator. The result is a tuple
+    // `(exhausted: Bool, element: T)` — we test `exhausted` and either
+    // bind the element to `pat` or fall through to the exit.
     fb.switch_to(header);
-    // Branch unconditionally to body — slice-6 simplification (no
-    // iterator exhaustion). v0.5 will materialise the .len/.next probe
-    // here so `for` actually terminates structurally.
-    fb.set_term(Term::Goto(body_block));
+    let probe_temp = fb.fresh_temp(SirTy::Error);
+    fb.push_stmt(Stmt::Assign(
+        Place::local(probe_temp),
+        Rvalue::MethodCall {
+            receiver: Operand::Copy(Place::local(iter_local)),
+            method: "__sdust_iter_next".into(),
+            args: vec![Operand::Copy(Place::local(idx_local))],
+        },
+    ));
+    // Bump the counter for the next iteration.
+    fb.push_stmt(Stmt::Assign(
+        Place::local(idx_local),
+        Rvalue::BinOp(
+            BinOp::Add,
+            Operand::Copy(Place::local(idx_local)),
+            Operand::Const(Const::Int(1, sdust_types::IntKind::USize)),
+        ),
+    ));
+    // Field 0 of the probe tuple is the "exhausted" Bool.
+    let exhausted_temp = fb.fresh_temp(SirTy::Bool);
+    fb.push_stmt(Stmt::Assign(
+        Place::local(exhausted_temp),
+        Rvalue::TupleRead {
+            receiver: Place::local(probe_temp),
+            idx: 0,
+        },
+    ));
+    fb.set_term(Term::If {
+        cond: Operand::Copy(Place::local(exhausted_temp)),
+        then: exit,
+        else_: body_block,
+    });
 
     fb.switch_to(body_block);
+    // Bind the pattern to field 1 of the probe tuple.
+    let elem_temp = fb.fresh_temp(SirTy::Error);
+    fb.push_stmt(Stmt::Assign(
+        Place::local(elem_temp),
+        Rvalue::TupleRead {
+            receiver: Place::local(probe_temp),
+            idx: 1,
+        },
+    ));
+    super::pats::lower_pat_bind(ctx, fb, pat, Operand::Move(Place::local(elem_temp)));
+
+    fb.push_loop(LoopFrame {
+        continue_target: continue_tgt,
+        exit_target: exit,
+        result_local,
+    });
     let block = ctx.pkg.blocks[body].clone();
     let _ = lower_block(ctx, fb, &block);
-    // v0.4 loop-fix: route back to header so each pass re-enters the
-    // body. Previously this was `Goto(exit)` which broke every loop
-    // shape after one iteration.
+    fb.pop_loop();
+    // Natural fall-through goes to the continue target, which then
+    // routes back to the header.
+    fb.set_term(Term::Goto(continue_tgt));
+
+    fb.switch_to(continue_tgt);
     fb.set_term(Term::Goto(header));
 
     fb.switch_to(exit);
-    Operand::Const(Const::Unit)
+    Operand::Move(Place::local(result_local))
 }
 
 fn lower_while(
@@ -927,7 +1034,9 @@ fn lower_while(
 ) -> Operand {
     let header = fb.new_block();
     let body_block = fb.new_block();
+    let continue_tgt = fb.new_block();
     let exit = fb.new_block();
+    let result_local = fb.fresh_temp(SirTy::Unit);
     fb.set_term(Term::Goto(header));
 
     fb.switch_to(header);
@@ -939,35 +1048,53 @@ fn lower_while(
     });
 
     fb.switch_to(body_block);
+    fb.push_loop(LoopFrame {
+        continue_target: continue_tgt,
+        exit_target: exit,
+        result_local,
+    });
     let block = ctx.pkg.blocks[body].clone();
     let _ = lower_block(ctx, fb, &block);
-    // v0.4 loop-fix: route back to header so `cond` is re-evaluated.
-    // Previously the terminator was `Goto(exit)`, which silently
-    // collapsed every `while` into a one-shot if-block.
+    fb.pop_loop();
+    fb.set_term(Term::Goto(continue_tgt));
+
+    fb.switch_to(continue_tgt);
     fb.set_term(Term::Goto(header));
 
     fb.switch_to(exit);
-    Operand::Const(Const::Unit)
+    Operand::Move(Place::local(result_local))
 }
 
 fn lower_loop(ctx: &mut LowerCtx, fb: &mut FnBuilder, body: sdust_hir::BlockId) -> Operand {
     let header = fb.new_block();
+    let continue_tgt = fb.new_block();
     let exit = fb.new_block();
+    let result_local = fb.fresh_temp(SirTy::Unit);
+    // Initialise the result to Unit so an exit via budget / panic still
+    // has a defined value (the interpreter never reads it in that
+    // case, but the SIR shape stays well-formed).
+    fb.push_stmt(Stmt::Assign(
+        Place::local(result_local),
+        Rvalue::Use(Operand::Const(Const::Unit)),
+    ));
     fb.set_term(Term::Goto(header));
 
     fb.switch_to(header);
+    fb.push_loop(LoopFrame {
+        continue_target: continue_tgt,
+        exit_target: exit,
+        result_local,
+    });
     let block = ctx.pkg.blocks[body].clone();
     let _ = lower_block(ctx, fb, &block);
-    // v0.4 loop-fix: route back to header. There is still no `break`
-    // in HIR, so a bare `loop { … }` that does not panic / return /
-    // try-return-err runs until the interpreter's step budget trips.
-    // The borrow checker continues to reject obvious uses; the v0.5
-    // plan adds `break`/`continue` HIR nodes for early exit. Tracked
-    // in SLICE_V0_4.md.
+    fb.pop_loop();
+    fb.set_term(Term::Goto(continue_tgt));
+
+    fb.switch_to(continue_tgt);
     fb.set_term(Term::Goto(header));
 
     fb.switch_to(exit);
-    Operand::Const(Const::Unit)
+    Operand::Move(Place::local(result_local))
 }
 
 fn lower_question(ctx: &mut LowerCtx, fb: &mut FnBuilder, inner: ExprId) -> Operand {
