@@ -1,0 +1,57 @@
+---
+source: crates/sdust-syntax/tests/parse_stmts.rs
+expression: "dump_expr(\"match n { x if x > 0 => x, _ => 0 }\")"
+---
+FILE@0..35
+  MATCH_EXPR@0..35
+    MATCH_KW@0..5 "match"
+    WHITESPACE@5..6 " "
+    PATH_EXPR@6..8
+      PATH@6..8
+        PATH_SEGMENT@6..7
+          NAME_REF@6..7
+            IDENT@6..7 "n"
+        WHITESPACE@7..8 " "
+    L_BRACE@8..9 "{"
+    WHITESPACE@9..10 " "
+    MATCH_ARM@10..27
+      BINDING_PAT@10..12
+        NAME@10..11
+          IDENT@10..11 "x"
+        WHITESPACE@11..12 " "
+      IF_KW@12..14 "if"
+      WHITESPACE@14..15 " "
+      MATCH_GUARD@15..21
+        BINARY_EXPR@15..21
+          PATH_EXPR@15..17
+            PATH@15..17
+              PATH_SEGMENT@15..16
+                NAME_REF@15..16
+                  IDENT@15..16 "x"
+              WHITESPACE@16..17 " "
+          GT@17..18 ">"
+          WHITESPACE@18..19 " "
+          LITERAL_EXPR@19..20
+            INT_LITERAL@19..20 "0"
+          WHITESPACE@20..21 " "
+      FAT_ARROW@21..23 "=>"
+      WHITESPACE@23..24 " "
+      PATH_EXPR@24..25
+        PATH@24..25
+          PATH_SEGMENT@24..25
+            NAME_REF@24..25
+              IDENT@24..25 "x"
+      COMMA@25..26 ","
+      WHITESPACE@26..27 " "
+    MATCH_ARM@27..34
+      WILDCARD_PAT@27..28
+        IDENT@27..28 "_"
+      WHITESPACE@28..29 " "
+      FAT_ARROW@29..31 "=>"
+      WHITESPACE@31..32 " "
+      LITERAL_EXPR@32..33
+        INT_LITERAL@32..33 "0"
+      WHITESPACE@33..34 " "
+    R_BRACE@34..35 "}"
+
+errors: []

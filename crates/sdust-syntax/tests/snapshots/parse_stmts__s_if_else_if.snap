@@ -1,0 +1,55 @@
+---
+source: crates/sdust-syntax/tests/parse_stmts.rs
+expression: "dump_expr(\"if a { 1 } else if b { 2 } else { 3 }\")"
+---
+FILE@0..37
+  IF_EXPR@0..37
+    IF_KW@0..2 "if"
+    WHITESPACE@2..3 " "
+    PATH_EXPR@3..5
+      PATH@3..5
+        PATH_SEGMENT@3..4
+          NAME_REF@3..4
+            IDENT@3..4 "a"
+        WHITESPACE@4..5 " "
+    BLOCK@5..11
+      L_BRACE@5..6 "{"
+      WHITESPACE@6..7 " "
+      EXPR_STMT@7..9
+        LITERAL_EXPR@7..8
+          INT_LITERAL@7..8 "1"
+        WHITESPACE@8..9 " "
+      R_BRACE@9..10 "}"
+      WHITESPACE@10..11 " "
+    ELSE_KW@11..15 "else"
+    WHITESPACE@15..16 " "
+    IF_EXPR@16..37
+      IF_KW@16..18 "if"
+      WHITESPACE@18..19 " "
+      PATH_EXPR@19..21
+        PATH@19..21
+          PATH_SEGMENT@19..20
+            NAME_REF@19..20
+              IDENT@19..20 "b"
+          WHITESPACE@20..21 " "
+      BLOCK@21..27
+        L_BRACE@21..22 "{"
+        WHITESPACE@22..23 " "
+        EXPR_STMT@23..25
+          LITERAL_EXPR@23..24
+            INT_LITERAL@23..24 "2"
+          WHITESPACE@24..25 " "
+        R_BRACE@25..26 "}"
+        WHITESPACE@26..27 " "
+      ELSE_KW@27..31 "else"
+      WHITESPACE@31..32 " "
+      BLOCK@32..37
+        L_BRACE@32..33 "{"
+        WHITESPACE@33..34 " "
+        EXPR_STMT@34..36
+          LITERAL_EXPR@34..35
+            INT_LITERAL@34..35 "3"
+          WHITESPACE@35..36 " "
+        R_BRACE@36..37 "}"
+
+errors: []

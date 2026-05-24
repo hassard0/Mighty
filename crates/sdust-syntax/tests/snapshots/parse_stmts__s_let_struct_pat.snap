@@ -1,0 +1,47 @@
+---
+source: crates/sdust-syntax/tests/parse_stmts.rs
+expression: "dump_expr(\"{ let User { id, name } = u; id }\")"
+---
+FILE@0..33
+  BLOCK@0..33
+    L_BRACE@0..1 "{"
+    WHITESPACE@1..2 " "
+    LET_STMT@2..29
+      LET_KW@2..5 "let"
+      WHITESPACE@5..6 " "
+      STRUCT_PAT@6..24
+        PATH@6..11
+          PATH_SEGMENT@6..10
+            NAME_REF@6..10
+              IDENT@6..10 "User"
+          WHITESPACE@10..11 " "
+        L_BRACE@11..12 "{"
+        WHITESPACE@12..13 " "
+        NAME@13..15
+          IDENT@13..15 "id"
+        COMMA@15..16 ","
+        WHITESPACE@16..17 " "
+        NAME@17..21
+          IDENT@17..21 "name"
+        WHITESPACE@21..22 " "
+        R_BRACE@22..23 "}"
+        WHITESPACE@23..24 " "
+      EQ@24..25 "="
+      WHITESPACE@25..26 " "
+      PATH_EXPR@26..27
+        PATH@26..27
+          PATH_SEGMENT@26..27
+            NAME_REF@26..27
+              IDENT@26..27 "u"
+      SEMI@27..28 ";"
+      WHITESPACE@28..29 " "
+    EXPR_STMT@29..32
+      PATH_EXPR@29..32
+        PATH@29..32
+          PATH_SEGMENT@29..31
+            NAME_REF@29..31
+              IDENT@29..31 "id"
+          WHITESPACE@31..32 " "
+    R_BRACE@32..33 "}"
+
+errors: []

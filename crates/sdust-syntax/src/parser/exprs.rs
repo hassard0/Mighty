@@ -285,30 +285,7 @@ fn block_or_map_or_struct(p: &mut Parser) -> bool {
         p.expect(R_BRACE);
         p.finish_node();
     } else {
-        // TODO(task-11): replace with stmts::block
-        // minimal inline block: consume up to matching R_BRACE
-        p.start_node(BLOCK);
-        p.bump(L_BRACE);
-        let mut depth = 1;
-        while !p.at(EOF) && depth > 0 {
-            match p.peek() {
-                L_BRACE => {
-                    depth += 1;
-                    p.bump_any();
-                }
-                R_BRACE => {
-                    depth -= 1;
-                    if depth == 0 {
-                        p.bump(R_BRACE);
-                        break;
-                    } else {
-                        p.bump_any();
-                    }
-                }
-                _ => p.bump_any(),
-            }
-        }
-        p.finish_node();
+        super::stmts::block(p);
     }
     true
 }
