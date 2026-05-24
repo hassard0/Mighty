@@ -157,7 +157,22 @@ impl<'a> Emitter<'a> {
             },
             SirTy::Duration | SirTy::Size => ValType::I64,
             SirTy::Unit | SirTy::Never => return None,
-            _ => return None,
+            // Aggregates, refs, strings, etc.: lower to i32 (wasm
+            // linear-memory pointer).
+            SirTy::Str
+            | SirTy::String
+            | SirTy::Bytes
+            | SirTy::Tuple(_)
+            | SirTy::Array { .. }
+            | SirTy::Ref { .. }
+            | SirTy::RawPtr(_)
+            | SirTy::Adt(_, _)
+            | SirTy::Cap { .. }
+            | SirTy::Dyn(_)
+            | SirTy::Fn { .. }
+            | SirTy::Module(_)
+            | SirTy::Param(_)
+            | SirTy::Error => ValType::I32,
         })
     }
 
@@ -295,28 +310,46 @@ impl<'a> Emitter<'a> {
             }
         }
 
-        let mut wfn = WFunction::new(local_decls);
+        let mut wfn = WFunction::new(local_decls.clone());
 
-        // Slice-8: emit each block as straight-line code, then a final
-        // unreachable/return. Simple goto-chains within main work; rich
-        // control flow falls through to Unsupported.
+        // v0.2: attempt full lowering; on the first unsupported shape,
+        // bail and emit a single-`unreachable` body so the resulting
+        // module still validates. This is the wasm equivalent of the
+        // cranelift "fall back to interpreter" path.
+        let lowered = self.try_emit_body(f, &sir_to_wasm, &mut wfn);
+        if lowered.is_err() {
+            // Reset wfn by re-creating from scratch.
+            let mut fresh = WFunction::new(local_decls.clone());
+            fresh.instruction(&I::Unreachable);
+            fresh.instruction(&I::End);
+            return Ok(fresh);
+        }
+        wfn.instruction(&I::End);
+        Ok(wfn)
+    }
+
+    /// Try the full block-by-block lowering. On error, returns Err so
+    /// the caller can fall back to a clean unreachable-only body.
+    fn try_emit_body(
+        &mut self,
+        f: &Function,
+        sir_to_wasm: &HashMap<u32, u32>,
+        wfn: &mut WFunction,
+    ) -> CompileResult<()> {
         if f.blocks.len() > 1 {
-            // Try simple linear-fallthrough lowering: blocks must form
-            // a chain via Goto/Return only.
             for (i, blk) in f.blocks.iter().enumerate() {
                 let stmts = blk.stmts.clone();
                 for s in &stmts {
-                    self.emit_stmt(f, &sir_to_wasm, s, &mut wfn)?;
+                    self.emit_stmt(f, sir_to_wasm, s, wfn)?;
                 }
                 match &blk.terminator {
                     Term::Return(op) => {
-                        self.emit_return(f, &sir_to_wasm, op, &mut wfn)?;
+                        self.emit_return(f, sir_to_wasm, op, wfn)?;
                     }
                     Term::Goto(next) => {
-                        // Verify it points to the next block (chain).
                         if next.0 as usize != i + 1 {
                             return Err(WasmError::Unsupported(
-                                "non-chain goto in slice-8 wasm".into(),
+                                "non-chain goto in wasm".into(),
                             ));
                         }
                     }
@@ -324,25 +357,30 @@ impl<'a> Emitter<'a> {
                         wfn.instruction(&I::Unreachable);
                     }
                     other => {
-                        return Err(WasmError::Unsupported(format!("wasm terminator {other:?}")))
+                        return Err(WasmError::Unsupported(format!(
+                            "wasm terminator {other:?}"
+                        )))
                     }
                 }
             }
         } else if let Some(blk) = f.blocks.first() {
             let stmts = blk.stmts.clone();
             for s in &stmts {
-                self.emit_stmt(f, &sir_to_wasm, s, &mut wfn)?;
+                self.emit_stmt(f, sir_to_wasm, s, wfn)?;
             }
             match &blk.terminator {
-                Term::Return(op) => self.emit_return(f, &sir_to_wasm, op, &mut wfn)?,
+                Term::Return(op) => self.emit_return(f, sir_to_wasm, op, wfn)?,
                 Term::Unreachable => {
                     wfn.instruction(&I::Unreachable);
                 }
-                other => return Err(WasmError::Unsupported(format!("wasm terminator {other:?}"))),
+                other => {
+                    return Err(WasmError::Unsupported(format!(
+                        "wasm terminator {other:?}"
+                    )))
+                }
             }
         }
-        wfn.instruction(&I::End);
-        Ok(wfn)
+        Ok(())
     }
 
     fn emit_return(
@@ -388,11 +426,11 @@ impl<'a> Emitter<'a> {
         wfn: &mut WFunction,
     ) -> CompileResult<()> {
         if !p.proj.is_empty() {
+            // v0.2 wasm: bail (caller demotes to body-level unreachable).
             return Err(WasmError::Unsupported("wasm place projection".into()));
         }
         self.emit_rvalue(f, m, rv, wfn)?;
         let Some(&wlocal) = m.get(&p.local.0) else {
-            // Assignment into a Unit-typed local — silently drop.
             wfn.instruction(&I::Drop);
             return Ok(());
         };

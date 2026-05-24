@@ -1,0 +1,24 @@
+struct Point {
+  x: I32
+  y: I32
+}
+
+enum Shape {
+  Circle(F64)
+  Rect(F64, F64)
+}
+
+fn make_point() -> Point {
+  Point { x: 3, y: 4 }
+}
+
+fn area(s: Shape) -> F64 {
+  match s {
+    Shape.Circle(r) => 3.14159 * r * r
+    Shape.Rect(w, h) => w * h
+  }
+}
+
+fn main() {
+  log("adt ok")
+}

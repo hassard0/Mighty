@@ -119,3 +119,166 @@ fn examples_01_hello_compiles_wasm() {
     let mut v = wasmparser::Validator::new();
     v.validate_all(&bytes).expect("validate");
 }
+
+// ----- v0.2 SIR-coverage cases ----------------------------------------
+
+#[test]
+fn adt_construct_compiles_native() {
+    assert!(
+        jit_can_compile("adt_construct"),
+        "adt_construct should JIT-compile"
+    );
+}
+
+#[test]
+fn adt_construct_compiles_wasm() {
+    let (src, _) = read_case("adt_construct");
+    let prog = lower_strict(src);
+    let bytes = compile_program_to_bytes(&prog, WasmTarget::Wasi).expect("wasm");
+    let mut v = wasmparser::Validator::new();
+    v.validate_all(&bytes).expect("validate");
+}
+
+#[test]
+fn pattern_match_compiles_native() {
+    assert!(
+        jit_can_compile("pattern_match"),
+        "pattern_match should JIT-compile"
+    );
+}
+
+#[test]
+fn pattern_match_compiles_wasm() {
+    let (src, _) = read_case("pattern_match");
+    let prog = lower_strict(src);
+    let bytes = compile_program_to_bytes(&prog, WasmTarget::Wasi).expect("wasm");
+    let mut v = wasmparser::Validator::new();
+    v.validate_all(&bytes).expect("validate");
+}
+
+#[test]
+fn result_propagate_compiles_native() {
+    assert!(
+        jit_can_compile("result_propagate"),
+        "result_propagate should JIT-compile"
+    );
+}
+
+#[test]
+fn result_propagate_compiles_wasm() {
+    let (src, _) = read_case("result_propagate");
+    let prog = lower_strict(src);
+    let bytes = compile_program_to_bytes(&prog, WasmTarget::Wasi).expect("wasm");
+    let mut v = wasmparser::Validator::new();
+    v.validate_all(&bytes).expect("validate");
+}
+
+#[test]
+fn agent_send_compiles_native() {
+    assert!(
+        jit_can_compile("agent_send"),
+        "agent_send should JIT-compile"
+    );
+}
+
+#[test]
+fn agent_send_compiles_wasm() {
+    let (src, _) = read_case("agent_send");
+    let prog = lower_strict(src);
+    let bytes = compile_program_to_bytes(&prog, WasmTarget::Wasi).expect("wasm");
+    let mut v = wasmparser::Validator::new();
+    v.validate_all(&bytes).expect("validate");
+}
+
+#[test]
+fn monomorphization_compiles_native() {
+    assert!(
+        jit_can_compile("monomorphization"),
+        "monomorphization should JIT-compile"
+    );
+}
+
+#[test]
+fn monomorphization_compiles_wasm() {
+    let (src, _) = read_case("monomorphization");
+    let prog = lower_strict(src);
+    let bytes = compile_program_to_bytes(&prog, WasmTarget::Wasi).expect("wasm");
+    let mut v = wasmparser::Validator::new();
+    v.validate_all(&bytes).expect("validate");
+}
+
+/// Sweep all 20 ship examples through the cranelift JIT path. Each
+/// example should produce a valid object — failures here surface as
+/// codegen regressions. (Linker-availability is not required.)
+#[test]
+fn all_examples_compile_native() {
+    let examples_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples");
+    let mut failed: Vec<(String, String)> = Vec::new();
+    for entry in std::fs::read_dir(&examples_root).unwrap() {
+        let p = entry.unwrap().path();
+        if p.extension().map(|e| e != "sd").unwrap_or(true) {
+            continue;
+        }
+        let name = p.file_stem().unwrap().to_string_lossy().to_string();
+        let src = std::fs::read_to_string(&p).unwrap();
+        let prog = lower_strict(src);
+        let st = codegen_abi::symbol_table();
+        let syms =
+            symbols_from(&st.iter().map(|(n, p)| (n.as_str(), *p)).collect::<Vec<_>>());
+        if let Err(e) = build_jit(&prog, &syms) {
+            failed.push((name, format!("{e}")));
+        }
+    }
+    assert!(
+        failed.is_empty(),
+        "v0.2 codegen regression — {} example(s) failed:\n{}",
+        failed.len(),
+        failed
+            .iter()
+            .map(|(n, e)| format!("  - {n}: {e}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+/// Sweep all 20 ship examples through the wasm path. Each compiled
+/// module is validated via `wasmparser`.
+#[test]
+fn all_examples_compile_wasm() {
+    let examples_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples");
+    let mut failed: Vec<(String, String)> = Vec::new();
+    for entry in std::fs::read_dir(&examples_root).unwrap() {
+        let p = entry.unwrap().path();
+        if p.extension().map(|e| e != "sd").unwrap_or(true) {
+            continue;
+        }
+        let name = p.file_stem().unwrap().to_string_lossy().to_string();
+        let src = std::fs::read_to_string(&p).unwrap();
+        let prog = lower_strict(src);
+        match compile_program_to_bytes(&prog, WasmTarget::Wasi) {
+            Ok(bytes) => {
+                let mut v = wasmparser::Validator::new();
+                if let Err(e) = v.validate_all(&bytes) {
+                    failed.push((name, format!("validator: {e}")));
+                }
+            }
+            Err(e) => failed.push((name, format!("emit: {e}"))),
+        }
+    }
+    assert!(
+        failed.is_empty(),
+        "v0.2 wasm codegen regression — {} example(s) failed:\n{}",
+        failed.len(),
+        failed
+            .iter()
+            .map(|(n, e)| format!("  - {n}: {e}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}

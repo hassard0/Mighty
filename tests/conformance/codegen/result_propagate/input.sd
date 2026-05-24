@@ -1,0 +1,13 @@
+fn parse(s: Str) -> I32!ParseErr {
+  Ok(0)
+}
+
+fn load(url: Url) -> Page!{NetErr, ParseErr} {
+  let body = fetch(url)?
+  parse(body)?
+  Ok(Page {})
+}
+
+fn main() {
+  log("propagate ok")
+}

@@ -1,0 +1,7 @@
+fn first[T](xs: [T]) -> T {
+  xs[0]
+}
+
+fn main() {
+  log("mono ok")
+}
