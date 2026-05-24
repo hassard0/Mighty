@@ -50,8 +50,21 @@ log_len(r2)
 // r1 and r2 decay at end of scope; buf is owned again
 ```
 
-Borrows are lexical (slice 4 has no NLL). They decay at the end of the
-innermost enclosing block.
+Borrows deactivate at the **last use of the borrower binding** (NLL,
+v0.3 / A55). Programs that were once rejected for lexical reasons now
+work — for example:
+
+```sd
+let mut buf = String("data")
+let r = &buf
+log_len(r)                   // r's last use; the shared borrow ends here
+let m = &mut buf             // OK — no live shared borrow
+push(m, "!")
+```
+
+Pre-v0.3 this would have errored with SD3004 because `r`'s borrow was
+"live" until the end of the enclosing block. v0.3 sees that `r` is
+last used at `log_len(r)`, so the borrow ends there.
 
 ## Mutable borrows: `&mut T`
 
@@ -71,6 +84,48 @@ Errors you might trip:
 - `SD3005 shared_borrow_while_mut` — created `&` while `&mut` was live
 - `SD3006 two_mut_borrows` — created a second `&mut`
 - `SD3013 mut_borrow_of_immut_local` — used `&mut` on a `let` without `mut`
+
+## Field-level borrows (v0.3 / A54)
+
+Borrows of disjoint fields of the same struct don't conflict:
+
+```sd
+struct Pair { a: String, b: String, }
+
+let mut s = Pair { a: String("x"), b: String("y") }
+let ra = &mut s.a              // borrow of place s.a
+let rb = &s.b                  // borrow of place s.b — disjoint
+push(ra, "!")
+log_len(rb)                    // both succeed
+```
+
+The checker tracks borrows at **Place** granularity — a rooted
+projection path like `s.a` or `arr[_]`. Two borrows conflict iff
+their Places overlap (one is a prefix of the other). v0.3 truncates
+projection chains at depth 1, so `&s.a.x` and `&s.a.y` still conflict
+(folded to `&s.a`); v0.4 will deepen.
+
+## Moves through references (v0.3 / A56)
+
+Dereferencing a reference does NOT transfer ownership. For a non-Copy
+type, this errors with `SD3009 move_out_of_ref`:
+
+```sd
+let s = String("x")
+let r = &s
+let x = *r                     // SD3009 — can't move out of &String
+```
+
+For Copy types (primitives, references, function pointers), `*r` is
+just a load:
+
+```sd
+let n: I32 = 42
+let r = &n
+let m = *r                     // OK — I32 is Copy
+```
+
+Fix: clone, take ownership, or work with the borrow directly.
 
 ## Calls and parameters
 
@@ -149,6 +204,7 @@ Pass owned data, copies, or convert to a Sendable form first.
 | `&` while `&mut` is live         | SD3005 | Same                                             |
 | Two `&mut` to same value         | SD3006 | Sequence them; only one mut borrow at a time     |
 | Moved a borrowed value           | SD3008 | Move only after the borrow ends                  |
+| Moved out of a reference         | SD3009 | Clone or borrow; don't `*ref` a non-Copy value   |
 | Arena-local escapes              | SD3010 | Copy out, or restructure to return a derived val |
 | Cross-agent arg is not Sendable  | SD3011 | Pass owned data; don't ship references           |
 | `&mut x` but `x` not `mut`       | SD3013 | `let mut x = ...`                                |

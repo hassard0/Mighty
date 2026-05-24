@@ -1,0 +1,10 @@
+fn f() {
+  let a = 42
+  let r = &a
+  let x = *r
+  use_copy(x)
+}
+
+extern {
+  fn use_copy(v: I32)
+}

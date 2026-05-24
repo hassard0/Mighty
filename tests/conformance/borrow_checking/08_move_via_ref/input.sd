@@ -1,0 +1,10 @@
+fn f() {
+  let a = String("x")
+  let r = &a
+  let x = *r
+  use_owned(x)
+}
+
+extern {
+  fn use_owned(s: String)
+}

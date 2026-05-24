@@ -1,5 +1,13 @@
 //! Per-local ownership/borrow state tracked by the linear walker.
+//!
+//! v0.3 (A54/A55) extends slice 4 with:
+//! - **Place-keyed borrow tracking** so `&mut s.a` and `&s.b` coexist
+//!   (see `place.rs`).
+//! - **Borrow ledger** mapping each borrower binding → the borrow it
+//!   created. When the borrower binding reaches its last-use point,
+//!   the corresponding entry on the source Place is decremented (NLL).
 
+use crate::place::Place;
 use sdust_hir::SourceSpan;
 use sdust_types::TyId;
 use std::collections::HashMap;
@@ -47,6 +55,85 @@ pub struct ScopeFrame {
     pub arena_region: Option<ArenaRegionId>,
 }
 
+/// Kind of a live borrow (v0.3 / A54).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BorrowKind {
+    Shared,
+    Mut,
+}
+
+/// A live borrow record (v0.3 / A54). Indexed by `Place` (the borrowed
+/// location). The borrower binding is recorded so NLL can decay the
+/// borrow when that binding hits its last-use point.
+#[derive(Clone, Debug)]
+pub struct BorrowRecord {
+    pub place: Place,
+    pub kind: BorrowKind,
+    /// The local name holding the `&T` / `&mut T` value (e.g. `r` in
+    /// `let r = &x`). `None` for temporary borrows that don't bind a
+    /// name (e.g. `use_ref(&x)` directly).
+    pub borrower: Option<String>,
+    pub at: SourceSpan,
+}
+
+/// The ledger of active borrows. Indexed positionally; entries are
+/// removed when they decay (last-use of `borrower`) or on scope-end.
+#[derive(Default, Clone, Debug)]
+pub struct BorrowLedger {
+    pub records: Vec<BorrowRecord>,
+}
+
+impl BorrowLedger {
+    pub fn push(&mut self, r: BorrowRecord) {
+        self.records.push(r);
+    }
+
+    /// Remove every active borrow whose `borrower` is `name`. Returns
+    /// the removed records so callers can update per-Place counters.
+    pub fn decay_borrower(&mut self, name: &str) -> Vec<BorrowRecord> {
+        let mut removed = vec![];
+        self.records.retain(|r| {
+            let drop = r.borrower.as_deref() == Some(name);
+            if drop {
+                removed.push(r.clone());
+            }
+            !drop
+        });
+        removed
+    }
+
+    /// Remove every active borrow whose `borrower` is in `names`. Used
+    /// on scope-end.
+    pub fn decay_borrowers<I, S>(&mut self, names: I) -> Vec<BorrowRecord>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut removed = vec![];
+        let names: Vec<String> = names.into_iter().map(|s| s.as_ref().to_string()).collect();
+        self.records.retain(|r| {
+            let drop = match &r.borrower {
+                Some(b) => names.iter().any(|n| n == b),
+                None => false,
+            };
+            if drop {
+                removed.push(r.clone());
+            }
+            !drop
+        });
+        removed
+    }
+
+    /// Iterate over the records that conflict with `place` (i.e. share
+    /// an overlapping Place).
+    pub fn conflicts_with<'a>(
+        &'a self,
+        place: &'a Place,
+    ) -> impl Iterator<Item = &'a BorrowRecord> + 'a {
+        self.records.iter().filter(move |r| r.place.overlaps(place))
+    }
+}
+
 /// Join two state maps. For each key present in both, intersect the
 /// states; if either side has `Moved`, both sides are considered Moved
 /// after the join (we only require the local to be definitely moved on
@@ -85,6 +172,7 @@ pub fn join_states(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::place::Place;
     use sdust_types::TyArena;
 
     fn mk(name: &str, ty: TyId, state: Ownership) -> LocalState {
@@ -131,5 +219,41 @@ mod tests {
             Ownership::Borrowed { count } => assert_eq!(count, 3),
             _ => panic!("expected Borrowed"),
         }
+    }
+
+    #[test]
+    fn ledger_decay_by_borrower() {
+        let mut l = BorrowLedger::default();
+        l.push(BorrowRecord {
+            place: Place::root("x"),
+            kind: BorrowKind::Shared,
+            borrower: Some("r".into()),
+            at: SourceSpan { start: 0, end: 0 },
+        });
+        l.push(BorrowRecord {
+            place: Place::root("y"),
+            kind: BorrowKind::Mut,
+            borrower: Some("m".into()),
+            at: SourceSpan { start: 0, end: 0 },
+        });
+        let removed = l.decay_borrower("r");
+        assert_eq!(removed.len(), 1);
+        assert_eq!(l.records.len(), 1);
+        assert_eq!(l.records[0].borrower.as_deref(), Some("m"));
+    }
+
+    #[test]
+    fn ledger_conflicts_detect_disjoint_fields() {
+        let mut l = BorrowLedger::default();
+        l.push(BorrowRecord {
+            place: Place::root("s").with_field("a"),
+            kind: BorrowKind::Mut,
+            borrower: None,
+            at: SourceSpan { start: 0, end: 0 },
+        });
+        let probe_b = Place::root("s").with_field("b");
+        let probe_a_b = Place::root("s").with_field("a").with_field("b");
+        assert_eq!(l.conflicts_with(&probe_b).count(), 0);
+        assert_eq!(l.conflicts_with(&probe_a_b).count(), 1);
     }
 }

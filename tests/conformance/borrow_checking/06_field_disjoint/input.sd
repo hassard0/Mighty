@@ -1,0 +1,17 @@
+struct Pair {
+  a: String,
+  b: String,
+}
+
+fn f() {
+  let mut s = Pair { a: String("x"), b: String("y") }
+  let ra = &mut s.a
+  let rb = &s.b
+  use_mut(ra)
+  use_ref(rb)
+}
+
+extern {
+  fn use_ref(r: &String)
+  fn use_mut(m: &mut String)
+}

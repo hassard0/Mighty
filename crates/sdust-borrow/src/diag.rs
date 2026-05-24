@@ -99,6 +99,62 @@ pub fn move_out_of_ref(span: &SourceSpan) -> Diagnostic {
     )
 }
 
+/// v0.3 (A56): precise SD3009 with the ref expression's pretty name.
+pub fn move_out_of_ref_named(name: &str, span: &SourceSpan) -> Diagnostic {
+    Diagnostic::error(
+        MOVE_OUT_OF_REF,
+        label(
+            span,
+            format!(
+                "cannot move out of `*{}`: dereferencing a reference does not transfer ownership",
+                name
+            ),
+        ),
+    )
+}
+
+/// v0.3 (A54): conflict with field-level resolution.
+pub fn mut_borrow_while_shared_place(place: &str, span: &SourceSpan) -> Diagnostic {
+    Diagnostic::error(
+        MUT_BORROW_WHILE_SHARED,
+        label(
+            span,
+            format!(
+                "cannot borrow `{}` as mutable while shared borrows of an overlapping place exist",
+                place
+            ),
+        ),
+    )
+}
+
+/// v0.3 (A54): conflict with field-level resolution.
+pub fn shared_borrow_while_mut_place(place: &str, span: &SourceSpan) -> Diagnostic {
+    Diagnostic::error(
+        SHARED_BORROW_WHILE_MUT,
+        label(
+            span,
+            format!(
+                "cannot borrow `{}` as shared while a mutable borrow of an overlapping place is live",
+                place
+            ),
+        ),
+    )
+}
+
+/// v0.3 (A54): two-mut conflict with field-level resolution.
+pub fn two_mut_borrows_place(place: &str, span: &SourceSpan) -> Diagnostic {
+    Diagnostic::error(
+        TWO_MUT_BORROWS,
+        label(
+            span,
+            format!(
+                "`{}` (or an overlapping place) is already mutably borrowed",
+                place
+            ),
+        ),
+    )
+}
+
 pub fn arena_escape(name: &str, span: &SourceSpan) -> Diagnostic {
     Diagnostic::error(
         ARENA_ESCAPE,

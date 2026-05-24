@@ -1,0 +1,21 @@
+struct Outer {
+  a: Inner,
+  b: String,
+}
+
+struct Inner {
+  x: String,
+  y: String,
+}
+
+fn f() {
+  let mut s = Outer { a: Inner { x: String("x"), y: String("y") }, b: String("z") }
+  let r1 = &mut s.a
+  let r2 = &mut s.a.x
+  use_mut(r1)
+  use_mut(r2)
+}
+
+extern {
+  fn use_mut(m: &mut String)
+}

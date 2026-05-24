@@ -1,11 +1,13 @@
-# Borrow Checker Internals (Slice 4)
+# Borrow Checker Internals (Slice 4 + v0.3 hardening)
 
 Stardust's ownership / borrow / affine / arena analysis lives in the
 **`sdust-borrow`** crate. It runs after `sdust-types` and consumes the
 typed-HIR side tables produced by `sdust_types::check_package_typed`.
 
 This document mirrors `docs/internals/typeck.md` and is the load-bearing
-reference for slice 4's design choices.
+reference for slice 4's design choices. Sections 1–16 describe the
+slice-4 baseline; sections 17–19 cover the v0.3 hardening (A54/A55/A56,
+see also `docs/spec/borrow-model-v0.3.md`).
 
 ## 1. Place in the pipeline
 
@@ -270,11 +272,13 @@ Tracked as out-of-scope for slice 4:
 - `crates/sdust-borrow/src/lib.rs` — entry points (`check_package`,
   `type_and_borrow_check`)
 - `crates/sdust-borrow/src/state.rs` — `Ownership`, `LocalState`,
-  `ScopeFrame`, `join_states`
+  `ScopeFrame`, `join_states`, `BorrowLedger`/`BorrowRecord` (v0.3)
+- `crates/sdust-borrow/src/place.rs` — `Place`/`Proj` algebra (v0.3)
+- `crates/sdust-borrow/src/nll.rs` — `LastUseMap`/`compute_last_use` (v0.3)
 - `crates/sdust-borrow/src/copy.rs` — `is_copy`
 - `crates/sdust-borrow/src/sendable.rs` — `is_sendable`
 - `crates/sdust-borrow/src/flow.rs` — `BorrowCx`, walker, per-position
-  state updates
+  state updates, `try_place_borrow`, `check_deref_move`
 - `crates/sdust-borrow/src/arena_region.rs` — `ArenaCounter`
 - `crates/sdust-borrow/src/drop_plan.rs` — `DropPlan`, `DropEntry`
 - `crates/sdust-borrow/src/diag.rs` — SD3xxx constructors
@@ -286,3 +290,79 @@ Tracked as out-of-scope for slice 4:
   method dispatch
 - `crates/sdust-types/src/resolve.rs` — `impl_methods` + `protocol_msgs`
   indexing
+
+## 17. v0.3 / A54 — Place algebra and field-level borrows
+
+The slice-4 checker stored a single `Ownership` per local. v0.3 adds
+`BorrowLedger` — a positional list of `BorrowRecord { place, kind,
+borrower, at }` — and tracks borrows at **Place** granularity:
+
+```text
+Place := { root: String, projs: Vec<Proj> }
+Proj  := Field(name) | Index | Deref
+```
+
+Two Places overlap iff one is a structural prefix of the other.
+Disjoint fields (`s.a` and `s.b`) coexist; overlapping projections
+conflict per the slice-4 SD3004/3005/3006 rules.
+
+`flow.rs::expr_as_place` maps a `HirExpr` to an `Option<Place>`,
+peeling `Path`, `Field`, `Unary{Deref}`, `Index`. v0.3 **truncates**
+the Place to depth 1 (`Place::truncate_for_v0_3`) before insertion —
+deeper paths fold to their first projection. Sound but
+over-conservative; v0.4 will lift.
+
+The borrow ledger maintains the legacy `Ownership::Borrowed*` state on
+the root local in lockstep, so existing diagnostic pathways and the
+slice-4 conformance cases still trigger.
+
+## 18. v0.3 / A55 — NLL last-use deactivation
+
+Each fn body runs a pre-pass (`nll::compute_last_use`) that walks the
+typed HIR in source order, assigning a monotone `ProgramPoint` to
+every `Path` expression and recording the highest point at which each
+name is referenced.
+
+The main walker advances the same counter in the same order. After
+each Path read of `name`, it calls `maybe_decay_after_use(name)`: if
+the just-used point `>=` `LastUseMap[name]`, every ledger record
+whose `borrower == name` is removed, and the root local's
+`Borrowed*` state is recomputed from the surviving records.
+
+The borrower binding is captured via a `pending_borrower` slot set
+in `walk_stmt(HirStmt::Let)` before walking the init. The `Borrow {
+.. }` handler stamps the new record with `pending_borrower.clone()`.
+
+**Branch handling**: `if`/`if let`/`match` snapshot the ledger before
+each arm and union the per-arm ledgers afterwards via `join_ledgers`.
+This is conservative — a borrow held on one arm remains live after
+the join.
+
+What v0.3 deliberately doesn't do (deferred to v0.4):
+- Two-phase borrows
+- Loop back-edge borrow rotation
+- Borrow held on one branch only
+- Partial-move tracking on Place(root, [field, ..])
+
+See `docs/spec/borrow-model-v0.3.md` for the formal algorithm and
+`BORROW_V0_3_NOTES.md` for the rationale per design call.
+
+## 19. v0.3 / A56 — Precise SD3009
+
+`*ref` of a non-Copy type is fundamentally unsound (references don't
+own). `flow.rs::check_deref_move` detects:
+
+- `HirExpr::Unary { op: Deref, rhs }` in `Position::Use`
+- `HirExpr::Move(Unary { op: Deref, rhs })`
+
+If `expr_ty[rhs] = Ref { inner: T, .. }` and T is non-Copy, SD3009
+fires with a named diagnostic (`cannot move out of *r: ...`). If T
+is Copy, the deref is a load and no diagnostic is produced.
+
+Trichotomy with neighbouring codes:
+
+| Code   | Cause                                       |
+|--------|---------------------------------------------|
+| SD3001 | Use of a value already moved                |
+| SD3008 | Move out of a currently-borrowed value      |
+| SD3009 | Move via deref of a reference (non-Copy)    |

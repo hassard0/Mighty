@@ -2,9 +2,14 @@
 //! analysis. Runs after the type checker (`sdust-types::check_package_typed`)
 //! and consumes the typed-HIR side tables.
 //!
-//! The slice 4 implementation is a **lexical, linear** walker — no CFG,
-//! no fixpoint, no NLL/Polonius. It tracks per-local [`state::Ownership`]
-//! state through `if`/`match` arms by snapshot-and-intersect.
+//! v0.1 slice 4 shipped a **lexical, linear** walker. v0.3 (A54/A55/A56)
+//! hardens it with:
+//!
+//! - **Field-level Place tracking** (`place::Place`) so `&mut s.a` and
+//!   `&s.b` coexist (A54).
+//! - **NLL last-use** (`nll::LastUseMap`) so `let r = &x; use(r); let m
+//!   = &mut x` is accepted (A55).
+//! - **Precise SD3009** for `move *ref` of non-Copy ref'd values (A56).
 //!
 //! Public surface: [`check_package`] returns a `Vec<Diagnostic>` carrying
 //! borrow-checker errors. The [`drop_plan::DropPlan`] is also produced
@@ -15,6 +20,8 @@ pub mod copy;
 pub mod diag;
 pub mod drop_plan;
 pub mod flow;
+pub mod nll;
+pub mod place;
 pub mod sendable;
 pub mod state;
 
