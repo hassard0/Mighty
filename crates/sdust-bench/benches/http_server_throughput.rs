@@ -20,9 +20,8 @@ fn bench_http(c: &mut Criterion) {
 
     // Single-shot request — measures per-request latency.
     g.bench_function("stardust_http_single_get", |b| {
-        let (handle, port) = rt.block_on(async {
-            serve_in_memory(|_req| (200u16, "ok".to_string())).await
-        });
+        let (handle, port) =
+            rt.block_on(async { serve_in_memory(|_req| (200u16, "ok".to_string())).await });
         let addr = format!("127.0.0.1:{port}");
         b.iter(|| {
             rt.block_on(async {
@@ -35,9 +34,8 @@ fn bench_http(c: &mut Criterion) {
 
     // Batch of 100 sequential GETs — exercises the accept loop more.
     g.bench_function("stardust_http_seq_100", |b| {
-        let (handle, port) = rt.block_on(async {
-            serve_in_memory(|_req| (200u16, "ok".to_string())).await
-        });
+        let (handle, port) =
+            rt.block_on(async { serve_in_memory(|_req| (200u16, "ok".to_string())).await });
         let addr = format!("127.0.0.1:{port}");
         b.iter(|| {
             rt.block_on(async {

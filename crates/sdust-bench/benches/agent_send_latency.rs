@@ -23,8 +23,7 @@ fn bench_latency(c: &mut Criterion) {
             rt.block_on(async {
                 let mb = Mailbox::new(8, SendPolicy::Block);
                 let mut rx = mb.take_receiver().unwrap();
-                let frame =
-                    MessageFrame::fire_and_forget("Ping", SmallPayload::Empty);
+                let frame = MessageFrame::fire_and_forget("Ping", SmallPayload::Empty);
                 mb.send(frame).await.unwrap();
                 let r = rx.recv().await.unwrap();
                 black_box(r);
@@ -37,8 +36,7 @@ fn bench_latency(c: &mut Criterion) {
             rt.block_on(async {
                 let mb = Mailbox::new(8, SendPolicy::Fail);
                 let mut rx = mb.take_receiver().unwrap();
-                let frame =
-                    MessageFrame::fire_and_forget("Ping", SmallPayload::Empty);
+                let frame = MessageFrame::fire_and_forget("Ping", SmallPayload::Empty);
                 mb.try_send(frame).unwrap();
                 let r = rx.recv().await.unwrap();
                 black_box(r);

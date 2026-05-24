@@ -31,12 +31,7 @@ fn bench_compile(c: &mut Criterion) {
                 binary_name: format!("c{counter}"),
                 no_component: true,
             };
-            let outcome = build_wasm(
-                src.clone(),
-                "compile.sd".into(),
-                &opts,
-                WasmTarget::Wasi,
-            );
+            let outcome = build_wasm(src.clone(), "compile.sd".into(), &opts, WasmTarget::Wasi);
             black_box(outcome);
         })
     });

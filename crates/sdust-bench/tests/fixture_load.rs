@@ -24,8 +24,5 @@ fn ten_kloc_parses_without_errors() {
 fn echo_program_lowers_to_sir() {
     let prog = echo_sir_program();
     // Has at least one agent + the Ping handler fn.
-    assert!(
-        !prog.agents.is_empty(),
-        "echo program should have an agent"
-    );
+    assert!(!prog.agents.is_empty(), "echo program should have an agent");
 }

@@ -28,10 +28,7 @@ fn bench_mailbox(c: &mut Criterion) {
                     let mb = mb.clone();
                     tokio::spawn(async move {
                         for _ in 0..N {
-                            let f = MessageFrame::fire_and_forget(
-                                "M",
-                                SmallPayload::Empty,
-                            );
+                            let f = MessageFrame::fire_and_forget("M", SmallPayload::Empty);
                             mb.send(f).await.unwrap();
                         }
                     })

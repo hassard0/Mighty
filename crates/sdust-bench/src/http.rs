@@ -15,9 +15,7 @@ use tokio::net::TcpStream;
 pub async fn single_get(addr: &str, path: &str) -> std::io::Result<Duration> {
     let t0 = Instant::now();
     let mut sock = TcpStream::connect(addr).await?;
-    let req = format!(
-        "GET {path} HTTP/1.1\r\nHost: bench\r\nConnection: close\r\n\r\n"
-    );
+    let req = format!("GET {path} HTTP/1.1\r\nHost: bench\r\nConnection: close\r\n\r\n");
     sock.write_all(req.as_bytes()).await?;
     let mut buf = [0u8; 1024];
     loop {

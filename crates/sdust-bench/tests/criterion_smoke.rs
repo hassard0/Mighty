@@ -14,9 +14,10 @@ fn parse_one_iter_runs() {
     let parsed = sdust_driver::parse_source(src, "smoke.sd".into());
     let dur = t0.elapsed();
     assert!(dur.as_millis() < 60_000, "parse took too long: {dur:?}");
-    assert!(parsed.diagnostics.iter().all(|d| {
-        !matches!(d.severity, sdust_diagnostics::Severity::Error)
-    }));
+    assert!(parsed
+        .diagnostics
+        .iter()
+        .all(|d| { !matches!(d.severity, sdust_diagnostics::Severity::Error) }));
 }
 
 #[tokio::test(flavor = "current_thread")]

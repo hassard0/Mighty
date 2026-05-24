@@ -27,12 +27,16 @@ fn bench_parse(c: &mut Criterion) {
         },
     );
 
-    g.bench_with_input(BenchmarkId::new("stardust_lex_only", bytes), &src, |b, src| {
-        b.iter(|| {
-            let tokens = sdust_syntax::lex(black_box(src));
-            black_box(tokens);
-        })
-    });
+    g.bench_with_input(
+        BenchmarkId::new("stardust_lex_only", bytes),
+        &src,
+        |b, src| {
+            b.iter(|| {
+                let tokens = sdust_syntax::lex(black_box(src));
+                black_box(tokens);
+            })
+        },
+    );
 
     g.finish();
 }
