@@ -1,0 +1,371 @@
+// selfhost/lexer/syntax_kind.sd
+//
+// Stardust mirror of crates/sdust-syntax/src/syntax_kind.rs.
+//
+// Variant names are kept identical to the Rust SyntaxKind so the diff
+// between the trusted Rust lexer and the self-hosted Stardust lexer
+// can be compared by name (see crates/sdust-driver/tests/selfhost_lexer.rs).
+//
+// Only the *token* variants of SyntaxKind are mirrored here. Node kinds
+// (FILE, USE_DECL, BINARY_EXPR, …) are produced by the parser, which is
+// out of scope for v0.4 self-hosting — see docs/internals/self-hosting.md.
+
+package selfhost_lexer
+
+// ---- SyntaxKind --------------------------------------------------------
+//
+// Every variant the lexer can emit, plus the two specials (ERROR, EOF).
+// Order matches syntax_kind.rs.
+
+pub enum SyntaxKind {
+  // ---- Trivia ----
+  WHITESPACE
+  LINE_COMMENT
+  BLOCK_COMMENT
+  DOC_COMMENT
+
+  // ---- Literals ----
+  INT_LITERAL
+  FLOAT_LITERAL
+  DURATION_LITERAL
+  SIZE_LITERAL
+  STRING_LITERAL
+  CHAR_LITERAL
+  HTML_LITERAL
+  TRUE_KW
+  FALSE_KW
+
+  // ---- Keywords (spec §3.3) ----
+  AGENT_KW
+  ARENA_KW
+  AS_KW
+  ASYNC_KW
+  AWAIT_KW
+  BUDGET_KW
+  CAP_KW
+  CONST_KW
+  EFFECT_KW
+  ELSE_KW
+  ENUM_KW
+  EXTERN_KW
+  FN_KW
+  FOR_KW
+  IF_KW
+  IMPL_KW
+  IMPORT_KW
+  IN_KW
+  LET_KW
+  LOOP_KW
+  MATCH_KW
+  MOD_KW
+  MOVE_KW
+  MUT_KW
+  ON_KW
+  PACKAGE_KW
+  PROTOCOL_KW
+  PUB_KW
+  REF_KW
+  RETURN_KW
+  SELF_KW
+  SPAWN_KW
+  STATE_KW
+  STRUCT_KW
+  TASK_KW
+  TRAIT_KW
+  TYPE_KW
+  UNSAFE_KW
+  USE_KW
+  WHERE_KW
+  WHILE_KW
+  WITH_KW
+  YIELD_KW
+  EXPORT_KW
+  SUP_KW
+  SANDBOX_KW
+  CHILD_KW
+  ON_FAIL_KW
+  RESTART_KW
+  BACKOFF_KW
+  UP_TO_KW
+  DETACH_KW
+  REQUIRES_KW
+  MACRO_KW
+  RUN_KW
+  JOIN_KW
+  SCOPE_KW
+  DYN_KW
+  DERIVE_KW
+
+  // ---- Identifiers ----
+  IDENT
+
+  // ---- Punctuation ----
+  L_PAREN
+  R_PAREN
+  L_BRACE
+  R_BRACE
+  L_BRACK
+  R_BRACK
+  COMMA
+  SEMI
+  COLON
+  COLON_COLON
+  DOT
+  DOT_DOT
+  DOT_DOT_EQ
+  FAT_ARROW
+  THIN_ARROW
+  AT
+  QUESTION
+  BANG
+  AMP
+  AMP_AMP
+  PIPE
+  PIPE_PIPE
+  CARET
+  EQ
+  EQ_EQ
+  BANG_EQ
+  LT
+  LT_EQ
+  GT
+  GT_EQ
+  SHL
+  SHR
+  PLUS
+  MINUS
+  STAR
+  SLASH
+  PERCENT
+  PLUS_EQ
+  MINUS_EQ
+  STAR_EQ
+  SLASH_EQ
+  PERCENT_EQ
+  AMP_EQ
+  PIPE_EQ
+  CARET_EQ
+  SHL_EQ
+  SHR_EQ
+  HASH
+
+  // ---- Special ----
+  ERROR
+  EOF
+}
+
+// ---- Canonical name table ----------------------------------------------
+//
+// Returns the canonical UPPER_SNAKE_CASE name for a SyntaxKind. Used by
+// the bootstrap test diff (the Rust side derives the same names via
+// the auto-derived `Debug` impl on the Rust enum). Keep in lockstep with
+// the variants above.
+
+pub fn kind_name(k: SyntaxKind) -> Str {
+  match k {
+    SyntaxKind.WHITESPACE => "WHITESPACE"
+    SyntaxKind.LINE_COMMENT => "LINE_COMMENT"
+    SyntaxKind.BLOCK_COMMENT => "BLOCK_COMMENT"
+    SyntaxKind.DOC_COMMENT => "DOC_COMMENT"
+
+    SyntaxKind.INT_LITERAL => "INT_LITERAL"
+    SyntaxKind.FLOAT_LITERAL => "FLOAT_LITERAL"
+    SyntaxKind.DURATION_LITERAL => "DURATION_LITERAL"
+    SyntaxKind.SIZE_LITERAL => "SIZE_LITERAL"
+    SyntaxKind.STRING_LITERAL => "STRING_LITERAL"
+    SyntaxKind.CHAR_LITERAL => "CHAR_LITERAL"
+    SyntaxKind.HTML_LITERAL => "HTML_LITERAL"
+    SyntaxKind.TRUE_KW => "TRUE_KW"
+    SyntaxKind.FALSE_KW => "FALSE_KW"
+
+    SyntaxKind.AGENT_KW => "AGENT_KW"
+    SyntaxKind.ARENA_KW => "ARENA_KW"
+    SyntaxKind.AS_KW => "AS_KW"
+    SyntaxKind.ASYNC_KW => "ASYNC_KW"
+    SyntaxKind.AWAIT_KW => "AWAIT_KW"
+    SyntaxKind.BUDGET_KW => "BUDGET_KW"
+    SyntaxKind.CAP_KW => "CAP_KW"
+    SyntaxKind.CONST_KW => "CONST_KW"
+    SyntaxKind.EFFECT_KW => "EFFECT_KW"
+    SyntaxKind.ELSE_KW => "ELSE_KW"
+    SyntaxKind.ENUM_KW => "ENUM_KW"
+    SyntaxKind.EXTERN_KW => "EXTERN_KW"
+    SyntaxKind.FN_KW => "FN_KW"
+    SyntaxKind.FOR_KW => "FOR_KW"
+    SyntaxKind.IF_KW => "IF_KW"
+    SyntaxKind.IMPL_KW => "IMPL_KW"
+    SyntaxKind.IMPORT_KW => "IMPORT_KW"
+    SyntaxKind.IN_KW => "IN_KW"
+    SyntaxKind.LET_KW => "LET_KW"
+    SyntaxKind.LOOP_KW => "LOOP_KW"
+    SyntaxKind.MATCH_KW => "MATCH_KW"
+    SyntaxKind.MOD_KW => "MOD_KW"
+    SyntaxKind.MOVE_KW => "MOVE_KW"
+    SyntaxKind.MUT_KW => "MUT_KW"
+    SyntaxKind.ON_KW => "ON_KW"
+    SyntaxKind.PACKAGE_KW => "PACKAGE_KW"
+    SyntaxKind.PROTOCOL_KW => "PROTOCOL_KW"
+    SyntaxKind.PUB_KW => "PUB_KW"
+    SyntaxKind.REF_KW => "REF_KW"
+    SyntaxKind.RETURN_KW => "RETURN_KW"
+    SyntaxKind.SELF_KW => "SELF_KW"
+    SyntaxKind.SPAWN_KW => "SPAWN_KW"
+    SyntaxKind.STATE_KW => "STATE_KW"
+    SyntaxKind.STRUCT_KW => "STRUCT_KW"
+    SyntaxKind.TASK_KW => "TASK_KW"
+    SyntaxKind.TRAIT_KW => "TRAIT_KW"
+    SyntaxKind.TYPE_KW => "TYPE_KW"
+    SyntaxKind.UNSAFE_KW => "UNSAFE_KW"
+    SyntaxKind.USE_KW => "USE_KW"
+    SyntaxKind.WHERE_KW => "WHERE_KW"
+    SyntaxKind.WHILE_KW => "WHILE_KW"
+    SyntaxKind.WITH_KW => "WITH_KW"
+    SyntaxKind.YIELD_KW => "YIELD_KW"
+    SyntaxKind.EXPORT_KW => "EXPORT_KW"
+    SyntaxKind.SUP_KW => "SUP_KW"
+    SyntaxKind.SANDBOX_KW => "SANDBOX_KW"
+    SyntaxKind.CHILD_KW => "CHILD_KW"
+    SyntaxKind.ON_FAIL_KW => "ON_FAIL_KW"
+    SyntaxKind.RESTART_KW => "RESTART_KW"
+    SyntaxKind.BACKOFF_KW => "BACKOFF_KW"
+    SyntaxKind.UP_TO_KW => "UP_TO_KW"
+    SyntaxKind.DETACH_KW => "DETACH_KW"
+    SyntaxKind.REQUIRES_KW => "REQUIRES_KW"
+    SyntaxKind.MACRO_KW => "MACRO_KW"
+    SyntaxKind.RUN_KW => "RUN_KW"
+    SyntaxKind.JOIN_KW => "JOIN_KW"
+    SyntaxKind.SCOPE_KW => "SCOPE_KW"
+    SyntaxKind.DYN_KW => "DYN_KW"
+    SyntaxKind.DERIVE_KW => "DERIVE_KW"
+
+    SyntaxKind.IDENT => "IDENT"
+
+    SyntaxKind.L_PAREN => "L_PAREN"
+    SyntaxKind.R_PAREN => "R_PAREN"
+    SyntaxKind.L_BRACE => "L_BRACE"
+    SyntaxKind.R_BRACE => "R_BRACE"
+    SyntaxKind.L_BRACK => "L_BRACK"
+    SyntaxKind.R_BRACK => "R_BRACK"
+    SyntaxKind.COMMA => "COMMA"
+    SyntaxKind.SEMI => "SEMI"
+    SyntaxKind.COLON => "COLON"
+    SyntaxKind.COLON_COLON => "COLON_COLON"
+    SyntaxKind.DOT => "DOT"
+    SyntaxKind.DOT_DOT => "DOT_DOT"
+    SyntaxKind.DOT_DOT_EQ => "DOT_DOT_EQ"
+    SyntaxKind.FAT_ARROW => "FAT_ARROW"
+    SyntaxKind.THIN_ARROW => "THIN_ARROW"
+    SyntaxKind.AT => "AT"
+    SyntaxKind.QUESTION => "QUESTION"
+    SyntaxKind.BANG => "BANG"
+    SyntaxKind.AMP => "AMP"
+    SyntaxKind.AMP_AMP => "AMP_AMP"
+    SyntaxKind.PIPE => "PIPE"
+    SyntaxKind.PIPE_PIPE => "PIPE_PIPE"
+    SyntaxKind.CARET => "CARET"
+    SyntaxKind.EQ => "EQ"
+    SyntaxKind.EQ_EQ => "EQ_EQ"
+    SyntaxKind.BANG_EQ => "BANG_EQ"
+    SyntaxKind.LT => "LT"
+    SyntaxKind.LT_EQ => "LT_EQ"
+    SyntaxKind.GT => "GT"
+    SyntaxKind.GT_EQ => "GT_EQ"
+    SyntaxKind.SHL => "SHL"
+    SyntaxKind.SHR => "SHR"
+    SyntaxKind.PLUS => "PLUS"
+    SyntaxKind.MINUS => "MINUS"
+    SyntaxKind.STAR => "STAR"
+    SyntaxKind.SLASH => "SLASH"
+    SyntaxKind.PERCENT => "PERCENT"
+    SyntaxKind.PLUS_EQ => "PLUS_EQ"
+    SyntaxKind.MINUS_EQ => "MINUS_EQ"
+    SyntaxKind.STAR_EQ => "STAR_EQ"
+    SyntaxKind.SLASH_EQ => "SLASH_EQ"
+    SyntaxKind.PERCENT_EQ => "PERCENT_EQ"
+    SyntaxKind.AMP_EQ => "AMP_EQ"
+    SyntaxKind.PIPE_EQ => "PIPE_EQ"
+    SyntaxKind.CARET_EQ => "CARET_EQ"
+    SyntaxKind.SHL_EQ => "SHL_EQ"
+    SyntaxKind.SHR_EQ => "SHR_EQ"
+    SyntaxKind.HASH => "HASH"
+
+    SyntaxKind.ERROR => "ERROR"
+    SyntaxKind.EOF => "EOF"
+  }
+}
+
+// ---- Keyword recognition -----------------------------------------------
+//
+// Maps an identifier string to a keyword SyntaxKind, or IDENT if it
+// isn't a keyword. Mirrors the `#[token("foo")]` table in syntax_kind.rs.
+//
+// Note: `true`/`false` are technically literals (TRUE_KW / FALSE_KW)
+// in the Rust grammar, not keywords. They go through this lookup so a
+// single identifier-vs-keyword decision point handles all reserved words.
+
+pub fn ident_to_kind(s: Str) -> SyntaxKind {
+  match s {
+    "true" => SyntaxKind.TRUE_KW
+    "false" => SyntaxKind.FALSE_KW
+    "agent" => SyntaxKind.AGENT_KW
+    "arena" => SyntaxKind.ARENA_KW
+    "as" => SyntaxKind.AS_KW
+    "async" => SyntaxKind.ASYNC_KW
+    "await" => SyntaxKind.AWAIT_KW
+    "budget" => SyntaxKind.BUDGET_KW
+    "cap" => SyntaxKind.CAP_KW
+    "const" => SyntaxKind.CONST_KW
+    "effect" => SyntaxKind.EFFECT_KW
+    "else" => SyntaxKind.ELSE_KW
+    "enum" => SyntaxKind.ENUM_KW
+    "extern" => SyntaxKind.EXTERN_KW
+    "fn" => SyntaxKind.FN_KW
+    "for" => SyntaxKind.FOR_KW
+    "if" => SyntaxKind.IF_KW
+    "impl" => SyntaxKind.IMPL_KW
+    "import" => SyntaxKind.IMPORT_KW
+    "in" => SyntaxKind.IN_KW
+    "let" => SyntaxKind.LET_KW
+    "loop" => SyntaxKind.LOOP_KW
+    "match" => SyntaxKind.MATCH_KW
+    "mod" => SyntaxKind.MOD_KW
+    "move" => SyntaxKind.MOVE_KW
+    "mut" => SyntaxKind.MUT_KW
+    "on" => SyntaxKind.ON_KW
+    "package" => SyntaxKind.PACKAGE_KW
+    "protocol" => SyntaxKind.PROTOCOL_KW
+    "pub" => SyntaxKind.PUB_KW
+    "ref" => SyntaxKind.REF_KW
+    "return" => SyntaxKind.RETURN_KW
+    "self" => SyntaxKind.SELF_KW
+    "spawn" => SyntaxKind.SPAWN_KW
+    "state" => SyntaxKind.STATE_KW
+    "struct" => SyntaxKind.STRUCT_KW
+    "task" => SyntaxKind.TASK_KW
+    "trait" => SyntaxKind.TRAIT_KW
+    "type" => SyntaxKind.TYPE_KW
+    "unsafe" => SyntaxKind.UNSAFE_KW
+    "use" => SyntaxKind.USE_KW
+    "where" => SyntaxKind.WHERE_KW
+    "while" => SyntaxKind.WHILE_KW
+    "with" => SyntaxKind.WITH_KW
+    "yield" => SyntaxKind.YIELD_KW
+    "export" => SyntaxKind.EXPORT_KW
+    "sup" => SyntaxKind.SUP_KW
+    "sandbox" => SyntaxKind.SANDBOX_KW
+    "child" => SyntaxKind.CHILD_KW
+    "on_fail" => SyntaxKind.ON_FAIL_KW
+    "restart" => SyntaxKind.RESTART_KW
+    "backoff" => SyntaxKind.BACKOFF_KW
+    "up_to" => SyntaxKind.UP_TO_KW
+    "detach" => SyntaxKind.DETACH_KW
+    "requires" => SyntaxKind.REQUIRES_KW
+    "macro" => SyntaxKind.MACRO_KW
+    "run" => SyntaxKind.RUN_KW
+    "join" => SyntaxKind.JOIN_KW
+    "scope" => SyntaxKind.SCOPE_KW
+    "dyn" => SyntaxKind.DYN_KW
+    "derive" => SyntaxKind.DERIVE_KW
+    _ => SyntaxKind.IDENT
+  }
+}
