@@ -1,6 +1,6 @@
 # Stardust
 
-[![Status](https://img.shields.io/badge/status-v0.5-green)](https://github.com/hassard0/stardust/releases/tag/v0.5.0)
+[![Status](https://img.shields.io/badge/status-v0.6-green)](https://github.com/hassard0/stardust/releases/tag/v0.6.0)
 [![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)](#license)
 
 Stardust is an agent-first systems programming language. It is statically
@@ -10,24 +10,27 @@ native code (Cranelift JIT + AOT; LLVM behind `--features llvm`) and
 WebAssembly (Component Model by default; bare core modules via
 `--no-component`).
 
-**v0.5 is shipped.** The v0.5 milestone tag
-[`v0.5.0`](https://github.com/hassard0/stardust/releases/tag/v0.5.0)
-is the self-hosting + dogfood-completion release: the Stardust
-source lexer now round-trips byte-for-byte against the Rust lexer
-(loop control flow + iterator protocol unblock it), every v0.4
-demo stopgap has its real implementation (`std.http.serve` binds
-a real socket, `stardust:web/dom` ships as a Wasm Component
-import, the `Str` method table has real impls, mem-budget violations
-trap deterministically, `FsCap` rejects out-of-allowlist paths),
-declarative macros gain `name!(args)` invocation + extended hygiene
-+ cross-file `pub macro` + a proc-macro skeleton (SD6005/SD6006),
-and the LSP grows seven advanced features (semantic tokens,
-rename, inlay hints, code actions, signature help, workspace
-folders, semantic completion). See [`RELEASE-v0.5.md`](RELEASE-v0.5.md)
-for the headline numbers and [`SLICE_V0_5.md`](SLICE_V0_5.md) for
-the shipped/deferred detail.
+**v0.6 is shipped.** The v0.6 milestone tag
+[`v0.6.0`](https://github.com/hassard0/stardust/releases/tag/v0.6.0)
+is the multi-core + benchmarks + self-host-parser release: the
+runtime defaults to one worker per available core with per-worker
+tokio runtimes + crossbeam-deque work-stealing (A101..A106), the
+first honest cross-language benchmarks ship as a new `sdust-bench`
+crate spanning six categories (parse / agent send / mailbox / HTTP /
+native compile / wasm size), the Stardust source parser is itself
+ported to Stardust at ~1930 LOC and bootstraps examples 01-05
+clean through a host bridge, and three v0.5 loose ends land inline:
+`BuiltinId::DomOp` + DOM SIR lowering closes the v0.5
+`emit_dom_call` `#[allow(dead_code)]` (A108), the SD6001-SD6006
+macro codes merge into the central `sdust_diagnostics::codes`
+catalog (A107), and per-call `FsCap` isolation gains a contract
+test (A109). See [`RELEASE-v0.6.md`](RELEASE-v0.6.md) for the
+headline numbers and [`SLICE_V0_6.md`](SLICE_V0_6.md) for the
+shipped/deferred detail.
 
 Prior milestones remain tagged:
+[`v0.5.0`](https://github.com/hassard0/stardust/releases/tag/v0.5.0)
+(self-hosting + dogfood-completion),
 [`v0.4.0`](https://github.com/hassard0/stardust/releases/tag/v0.4.0)
 (dogfood + ecosystem),
 [`v0.3.0`](https://github.com/hassard0/stardust/releases/tag/v0.3.0)
@@ -36,6 +39,48 @@ Prior milestones remain tagged:
 (LSP + pkg + doc + stdlib + DWARF + Wasm CM), and
 [`v0.1.0`](https://github.com/hassard0/stardust/releases/tag/v0.1.0)
 (initial slice 1-8 ladder).
+
+### v0.6 highlights
+
+- **Multi-core scheduler** — `RuntimeBuilder` defaults to
+  `available_parallelism()` workers (A106); each worker owns its own
+  tokio current-thread runtime + crossbeam-deque with work-stealing
+  across siblings (A101); driver runtime separated from worker
+  runtimes so `block_on(user_main)` doesn't deadlock (A105); agent
+  affinity hints (`AffinityHint::Sticky` / `Sticky(worker_id)`,
+  A102); lightweight migration via routing-table retargeting on next
+  spawn (A103); per-worker telemetry via `Scheduler::stats()` (A104).
+  23 new runtime tests + 2 new conformance cases under
+  `mailbox_ordering/06_multicore_fifo` + `07_multicore_throughput_smoke`.
+- **First honest benchmarks** — new `sdust-bench` workspace crate
+  covers six categories (parse_throughput, agent_send_latency,
+  mailbox_throughput, http_server_throughput, compile_to_native,
+  wasm_size) with criterion harness + a CLI runner + per-category
+  docs under `docs/benchmarks/`. Cross-language comparators ship
+  as code for Rust (`tokio mpsc`, `logos`, `hyper`, `rustc`,
+  `wasm32-rust`), Go (`chan`, `net/http`, `TinyGo`), and C++
+  (`asio coro`, `cpp-httplib`, `clang`, `Emscripten`).
+- **Self-host parser subset** — `selfhost/parser/parser.sd` at
+  ~1930 LOC parses Stardust source through the SIR interpreter via
+  a `SelfhostParserHost` bootstrap bridge; the v0.6 production
+  matrix covers everything examples 01-05 reach (fn/struct/enum
+  decls, all type shapes, Pratt expressions, generics, lambdas,
+  macro calls, …) with 13/13 bootstrap tests passing.
+- **DOM SIR lowering** — `BuiltinId::DomOp(name)` SIR variant
+  + lowerer + wasm32-web `emit_dom_call` dispatch (A108) — Stardust
+  source `d.set_text(...)` on a `Dom` cap now lowers to a real
+  `stardust:web/dom` import call instead of an opaque MethodCall.
+- **Central SD catalog** — SD6001-SD6006 (macro band) move to
+  `sdust_diagnostics::codes`; `sdust_macros::diag` re-exports the
+  `u16`s for compat (A107). `sdust explain SDxxxx` is single-sourced.
+- **FsCap per-call isolation** — contract test pins that two
+  `FsCap` values with disjoint allowlists in one process never leak
+  across the divide on read/write/exists/list_dir (A109).
+- **885 tests pass** (+46 over v0.5), 0 clippy warnings, 20/20
+  examples on native + wasm32-web Component, 3/3 demos pass
+  `smoke.sh`.
+
+### v0.5 highlights
 
 ### v0.5 highlights
 
@@ -256,18 +301,19 @@ implemented or planned:
 | **v0.3** | Soundness hardening: NLL last-use + field Places, scope-strict + Sendable, mid-turn cancel + OTLP + slab mailboxes, v0.2 cleanup (stdlib install, 20/20 wasm-CM, 5→2 ignored) | **shipped (`v0.3.0`)** |
 | **v0.4** | Dogfood demos (3), real GH-Releases registry transport, hygienic declarative macros (SD6001..SD6004), self-host lexer (subset bootstrap via `std.io`), SIR loop terminator fix | **shipped (`v0.4.0`)** |
 | **v0.5** | `break` / `continue` HIR + iterator protocol + bounded-fixed-point loop borrows, self-host lexer full diff, dogfood completion (5 gaps: real http.serve, Wasm DOM imports, full Str methods, mem-budget auto-charge, FsCap allowlist), macros completion (`name!(args)`, extended hygiene, cross-file `pub macro`, proc-macro skeleton, stdlib macros), LSP advanced (semantic tokens, rename, inlay hints, code actions, signature help, workspace folders, semantic completion) | **shipped (`v0.5.0`)** |
+| **v0.6** | Multi-core scheduler (per-worker tokio runtimes + crossbeam-deque work-stealing + affinity hints + lightweight migration + per-worker stats), first honest benchmarks (sdust-bench crate + 6 categories with Rust/Go/C++ comparators), self-host parser subset (~1930 LOC, 13/13 bootstrap tests, examples 01-05 covered), DOM SIR lowering (`BuiltinId::DomOp` end-to-end), central SD6001-SD6006 catalog merge, per-call FsCap isolation contract | **shipped (`v0.6.0`)** |
 
-### Post-v0.5 roadmap
+### Post-v0.6 roadmap
 
 | Slice | Scope | Status |
 |---|---|---|
-| v0.6 | Labelled break/continue + `Iter[T]` trait, self-host parser + HIR + typeck, `!call_expr` precedence fix, cross-file module resolution for non-macro symbols | planned |
-| - | Proc-macro execution (sandboxed SIR sub-context), set-of-scopes hygiene, `format!`-style variadic macros, central SD6xxx catalog merge | planned |
-| - | `BuiltinId::Dom` SIR lowering + canonical-ABI return-area bridge, `install_agent_dispatch` runtime wiring, per-call FsCap materialisation from sandbox manifest | planned (finishes the v0.5 dogfood end-to-end) |
-| - | Multi-file LSP rename + go-to-def, receiver-chain + method-call-receiver completion, borrow check in the LSP pipeline | planned |
+| v0.7 | Self-host HIR + typeck + borrow checker (next ladder rung after the v0.6 parser), self-host parser productions deferred from v0.6 (send sugar, deadlines, HTML literals, agent/protocol/supervisor, arena/task/budget/sandbox, unsafe, detach/join, run, macro decls), error-recovery in self-host parser | planned |
+| - | Lossless live migration, per-message work-stealing, OTLP exporter wiring for `Scheduler::stats()` gauges, `agent X with affinity = sticky` front-end syntax | planned |
+| - | Proc-macro sandboxed execution, set-of-scopes hygiene, `format!`-style variadic macros, canonical-ABI return-area bridge for `get-text` / `query`, `install_agent_dispatch` runtime wiring, per-call FsCap materialisation from sandbox manifest | planned (finishes the v0.5/v0.6 dogfood end-to-end) |
+| - | LSP workspace resolve map (cross-file rename / go-to-def), receiver-chain + method-call-receiver completion, borrow check in the LSP pipeline | planned |
 | - | Polonius-style borrows, real cap-name resolution wiring, SIR-side cancellation polling, WASI Preview 2 + user WIT, DWARF v5 + per-instr line program | planned |
 | - | `dyn` dispatch + closure capture in compiled code, `escalate` supervisor action | planned |
-| - | Multi-core scheduler, PGO/ThinLTO, distributed agents, effect-row polymorphism | future |
+| - | PGO/ThinLTO, distributed agents, effect-row polymorphism | future |
 
 ## License
 
