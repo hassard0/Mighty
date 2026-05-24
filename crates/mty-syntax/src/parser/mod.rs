@@ -26,6 +26,25 @@ pub struct ParseResult {
     pub errors: Vec<ParseError>,
 }
 
+/// Parser knobs that callers (LSP, formatter, build driver) can use
+/// to bound resource usage on adversarial inputs. v0.8 adds
+/// `max_diagnostics` so a 10 KLOC file with a stray brace can't emit
+/// 50 000 diagnostics and freeze the IDE.
+#[derive(Debug, Clone, Copy)]
+pub struct ParseOpts {
+    /// Cap the number of diagnostics emitted. Defaults to `usize::MAX`
+    /// (no cap). Set to e.g. 256 for the LSP path.
+    pub max_diagnostics: usize,
+}
+
+impl Default for ParseOpts {
+    fn default() -> Self {
+        Self {
+            max_diagnostics: usize::MAX,
+        }
+    }
+}
+
 pub struct Parser<'src> {
     pub(crate) tokens: Vec<LexedToken<'src>>,
     pub(crate) pos: usize,
@@ -36,16 +55,24 @@ pub struct Parser<'src> {
     /// conditions (`if`, `while`, `for`) so `if x { ... }` parses as
     /// "condition `x`, body `{ ... }`" rather than "struct literal `x { ... }`".
     pub(crate) no_struct_literal: bool,
+    /// v0.8: maximum diagnostics this parser will emit. Reached via
+    /// [`ParseOpts`]. Once hit, further `error_at` calls become no-ops.
+    pub(crate) max_diagnostics: usize,
 }
 
 impl<'src> Parser<'src> {
     pub fn new(src: &'src str) -> Self {
+        Self::with_opts(src, ParseOpts::default())
+    }
+
+    pub fn with_opts(src: &'src str, opts: ParseOpts) -> Self {
         Self {
             tokens: crate::lex(src),
             pos: 0,
             builder: GreenNodeBuilder::new(),
             errors: Vec::new(),
             no_struct_literal: false,
+            max_diagnostics: opts.max_diagnostics,
         }
     }
 
@@ -141,6 +168,12 @@ impl<'src> Parser<'src> {
     }
 
     pub(crate) fn error_at(&mut self, message: String, start: usize, end: usize) {
+        // v0.8 diag throttle: silently drop additional diagnostics
+        // once the per-parse cap is reached. The first N still surface
+        // so the user sees the prefix of error spam, not none of it.
+        if self.errors.len() >= self.max_diagnostics {
+            return;
+        }
         self.errors.push(ParseError {
             message,
             start,
@@ -178,6 +211,51 @@ impl<'src> Parser<'src> {
 
 pub fn parse(src: &str) -> ParseResult {
     Parser::new(src).parse_file()
+}
+
+/// Parse with caller-supplied options. v0.8 entry point.
+pub fn parse_with_opts(src: &str, opts: ParseOpts) -> ParseResult {
+    Parser::with_opts(src, opts).parse_file()
+}
+
+#[cfg(test)]
+mod opts_tests {
+    use super::*;
+
+    #[test]
+    fn diag_throttle_caps_emitted_errors() {
+        // Garbage input: hundreds of unrecognised tokens. Default cap
+        // would emit hundreds of diagnostics.
+        let mut s = String::new();
+        for _ in 0..500 {
+            s.push_str("@ ");
+        }
+        // Uncapped: many errors.
+        let uncapped = parse(&s);
+        assert!(
+            uncapped.errors.len() > 10,
+            "expected lots of errors, got {}",
+            uncapped.errors.len()
+        );
+        // Capped: at most 16.
+        let capped = parse_with_opts(
+            &s,
+            ParseOpts {
+                max_diagnostics: 16,
+            },
+        );
+        assert!(
+            capped.errors.len() <= 16,
+            "diag throttle leaked: {}",
+            capped.errors.len()
+        );
+    }
+
+    #[test]
+    fn diag_throttle_default_uncapped() {
+        let opts = ParseOpts::default();
+        assert_eq!(opts.max_diagnostics, usize::MAX);
+    }
 }
 
 pub fn parse_type(src: &str) -> ParseResult {

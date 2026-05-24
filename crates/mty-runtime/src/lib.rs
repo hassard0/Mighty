@@ -32,7 +32,7 @@ pub use agent::{AgentDescriptor, AgentHandle, AgentId};
 pub use budget::{Budget, BudgetBreach, BudgetTracker};
 pub use cancel::{CancelReason, CancellationToken};
 pub use error::{RuntimeError, RuntimeResult};
-pub use mailbox::{Mailbox, MessageFrame, SendPolicy, SmallPayload};
+pub use mailbox::{try_recv_many, Mailbox, MessageFrame, SendPolicy, SmallPayload};
 pub use runtime::{RunOutcome, Runtime, RuntimeBuilder};
 pub use scheduler::{Affinity, LoadMonitor, Scheduler, WorkerStatsSnapshot};
 pub use slab_pool::{SlabPool, DEFAULT_INLINE_BYTES, DEFAULT_POOL_SIZE};

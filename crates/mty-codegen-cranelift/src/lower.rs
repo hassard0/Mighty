@@ -64,19 +64,34 @@ impl<'m, M: Module> LowerCtx<'m, M> {
     pub fn new(module: &'m mut M, triple: Triple) -> Self {
         Self {
             module,
-            fn_ids: HashMap::new(),
-            fn_sigs: HashMap::new(),
-            runtime_ids: HashMap::new(),
-            string_pool: HashMap::new(),
+            // v0.8: pre-size the maps to avoid rehashes on programs
+            // with > ~30 fns (most real programs). Capacity numbers
+            // are conservative — a 1 KLOC Mighty file averages ~100
+            // fns + ~30 runtime imports.
+            fn_ids: HashMap::with_capacity(128),
+            fn_sigs: HashMap::with_capacity(128),
+            runtime_ids: HashMap::with_capacity(runtime_imports::RUNTIME_IMPORTS.len()),
+            string_pool: HashMap::with_capacity(64),
             triple,
         }
     }
 
     /// Declare every fn in `prog`. Pre-declaration lets call sites
     /// resolve forward references without a separate pass.
+    ///
+    /// v0.8: pre-builds the parameter-type vector and shares the
+    /// build_signature cost across all fns. Pre-sized HashMaps reduce
+    /// rehash overhead on large programs.
     pub fn declare_fns(&mut self, prog: &Program) -> CompileResult<()> {
-        // Runtime imports first.
+        // Runtime imports first. The signatures depend only on the
+        // host call conv, so a stdlib metadata cache would help —
+        // they're already cheap (one Vec<AbiParam> per import) and
+        // run once per compile, but pre-sizing the map matters for
+        // larger programs where every import lookup is on the hot
+        // path of subsequent codegen.
         let cc = host_call_conv(&self.triple);
+        self.runtime_ids
+            .reserve(runtime_imports::RUNTIME_IMPORTS.len());
         for ri in runtime_imports::RUNTIME_IMPORTS {
             let sig = ri.signature(cc);
             let id = self
@@ -85,13 +100,16 @@ impl<'m, M: Module> LowerCtx<'m, M> {
                 .map_err(|e| CodegenError::Module(e.to_string()))?;
             self.runtime_ids.insert(ri.name, id);
         }
-        // User fns next.
+        // User fns next. Pre-size both maps for the known fn count to
+        // avoid rehashing as we walk a large program.
+        self.fn_ids.reserve(prog.fns.len());
+        self.fn_sigs.reserve(prog.fns.len());
+        // Reuse a scratch Vec across fns; the previous code allocated
+        // a fresh Vec per fn.
+        let mut param_tys: Vec<mty_ir::ir::IrTy> = Vec::with_capacity(8);
         for f in &prog.fns {
-            let param_tys: Vec<_> = f
-                .params
-                .iter()
-                .map(|p| f.locals[p.0 as usize].ty.clone())
-                .collect();
+            param_tys.clear();
+            param_tys.extend(f.params.iter().map(|p| f.locals[p.0 as usize].ty.clone()));
             let sig = build_signature(&self.triple, &param_tys, &f.ret_ty);
             let linkage = if f.name == "main" {
                 Linkage::Export

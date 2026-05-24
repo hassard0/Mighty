@@ -92,7 +92,19 @@ impl<'a> Monomorphizer<'a> {
     /// sites that still reference it by `IrFnId` work (they'll
     /// dispatch to the specialized version because the codegen lowers
     /// Param-typed locals as i64 — the same shape as the specialization).
+    ///
+    /// v0.8: when there are >= 8 generic fns, dispatches to the
+    /// parallel implementation. The cutoff is conservative; small
+    /// programs use the sequential path and avoid worker-thread
+    /// spin-up. The output is byte-identical to the sequential path
+    /// (deterministic splice-by-index).
     pub fn run(&self) -> Program {
+        self.run_parallel()
+    }
+
+    /// Sequential fallback retained for tests, profiling, and the
+    /// determinism cross-check in unit tests.
+    pub fn run_sequential(&self) -> Program {
         let mut out = self.prog.clone();
         let generics: Vec<usize> = self
             .prog
@@ -108,6 +120,87 @@ impl<'a> Monomorphizer<'a> {
             // sites continue to resolve.
             let spec = specialize(&self.prog.fns[i], "mono");
             out.fns[i] = spec;
+        }
+        out
+    }
+
+    /// v0.8 parallel mono.run: same semantics as `run()`, but
+    /// distributes the `specialize` calls across worker threads using
+    /// `std::thread::scope`. For programs with few generic fns this is
+    /// no-op (the sequential path is taken); the threshold (>= 8
+    /// generics) avoids the worker spin-up cost on small codebases.
+    ///
+    /// The compile-pipeline driver calls this in the `mty build` /
+    /// `mty run` path; the determinism contract is unchanged because
+    /// the per-fn output order is reassembled by index after the
+    /// parallel collect.
+    pub fn run_parallel(&self) -> Program {
+        let mut out = self.prog.clone();
+        let generics: Vec<usize> = self
+            .prog
+            .fns
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| is_generic(f))
+            .map(|(i, _)| i)
+            .collect();
+
+        // Threshold: sequential path is cheaper below this many fns.
+        if generics.len() < 8 {
+            for i in generics {
+                let spec = specialize(&self.prog.fns[i], "mono");
+                out.fns[i] = spec;
+            }
+            return out;
+        }
+
+        // Choose a worker count: cap at 4 (mono is cheap per fn; more
+        // threads is mostly contention) and the available
+        // parallelism, whichever is smaller.
+        let n_workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(2)
+            .min(4)
+            .max(1);
+
+        // Partition generics into n_workers roughly-equal chunks. The
+        // chunks are contiguous slices of `generics`; each worker
+        // outputs (index, specialized Function) pairs that we splice
+        // back into `out` after the join.
+        let chunks: Vec<Vec<usize>> = {
+            let mut v: Vec<Vec<usize>> = (0..n_workers).map(|_| Vec::new()).collect();
+            for (k, &idx) in generics.iter().enumerate() {
+                v[k % n_workers].push(idx);
+            }
+            v
+        };
+
+        let prog = self.prog;
+        let collected: Vec<(usize, Function)> = std::thread::scope(|s| {
+            let mut handles = Vec::with_capacity(n_workers);
+            for chunk in &chunks {
+                let chunk = chunk.clone();
+                handles.push(s.spawn(move || {
+                    let mut local: Vec<(usize, Function)> = Vec::with_capacity(chunk.len());
+                    for idx in chunk {
+                        let spec = specialize(&prog.fns[idx], "mono");
+                        local.push((idx, spec));
+                    }
+                    local
+                }));
+            }
+            let mut out = Vec::new();
+            for h in handles {
+                out.extend(h.join().expect("mono worker panicked"));
+            }
+            out
+        });
+
+        // Splice back deterministically: collected may be in
+        // worker-completion order, but we assign by index so the
+        // resulting Program is identical to the sequential path.
+        for (idx, spec) in collected {
+            out.fns[idx] = spec;
         }
         out
     }
@@ -194,5 +287,43 @@ mod tests {
         let s = m.specialize(&f, "I32");
         assert_eq!(s.name, "foo__I32");
         assert!(!matches!(s.ret_ty, IrTy::Param(_)));
+    }
+
+    #[test]
+    fn parallel_matches_sequential() {
+        // Build a program with 32 generic fns + 8 concrete fns. The
+        // parallel and sequential paths must produce identical
+        // Programs (by fn name + ret_ty).
+        let mut p = Program::default();
+        for i in 0..32 {
+            p.fns
+                .push(make_fn(&format!("g{i}"), IrTy::Param("T".into())));
+        }
+        for i in 0..8 {
+            p.fns.push(make_fn(&format!("c{i}"), IrTy::Unit));
+        }
+        let seq = Monomorphizer::new(&p).run_sequential();
+        let par = Monomorphizer::new(&p).run_parallel();
+        assert_eq!(seq.fns.len(), par.fns.len());
+        for (a, b) in seq.fns.iter().zip(par.fns.iter()) {
+            assert_eq!(a.name, b.name, "name mismatch (parallel != sequential)");
+            assert_eq!(format!("{:?}", a.ret_ty), format!("{:?}", b.ret_ty));
+        }
+    }
+
+    #[test]
+    fn parallel_threshold_small_program() {
+        // 4 generics → below threshold, parallel == sequential
+        // (sequential path inside run_parallel).
+        let mut p = Program::default();
+        for i in 0..4 {
+            p.fns
+                .push(make_fn(&format!("g{i}"), IrTy::Param("T".into())));
+        }
+        let par = Monomorphizer::new(&p).run_parallel();
+        assert_eq!(par.fns.len(), 4);
+        for f in &par.fns {
+            assert!(f.name.ends_with("__mono"));
+        }
     }
 }

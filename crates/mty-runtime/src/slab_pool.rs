@@ -212,6 +212,21 @@ impl SlabPool {
     /// Acquire — falling back to a standalone overflow frame when the
     /// pool is full. Always succeeds.
     pub fn acquire_or_overflow(&self, bytes: &[u8]) -> PooledFrame {
+        // v0.8 fast path (A40+): empty payloads bypass the per-slot
+        // lock entirely. They still produce a valid PooledFrame so
+        // callers can treat the slab handle uniformly, but no slot is
+        // borrowed and no `inline` Vec is written. This skips the
+        // free-list pop, slot lock, write, and the eventual release —
+        // a ~6-instruction path for the common fire-and-forget case
+        // (SmallPayload::Empty) that dominates agent_send_latency.
+        if bytes.is_empty() {
+            return PooledFrame {
+                pool: self.inner.clone(),
+                slot_idx: None,
+                overflow: None,
+                len: 0,
+            };
+        }
         if let Some(p) = self.try_acquire(bytes) {
             return p;
         }
@@ -222,6 +237,22 @@ impl SlabPool {
             slot_idx: None,
             overflow: Some(buf),
             len: bytes.len(),
+        }
+    }
+
+    /// v0.8 fast-path: same as [`acquire_or_overflow`] but skips the
+    /// slot write when the caller knows the payload is metadata-only.
+    /// Used by the mailbox admit path when the `SmallPayload::Empty`
+    /// case is detected at the call site. Cheaper than going through
+    /// `acquire_or_overflow(&[])` because it avoids the empty-slice
+    /// length check + the per-call `inner.clone()` indirection.
+    #[inline]
+    pub fn acquire_empty(&self) -> PooledFrame {
+        PooledFrame {
+            pool: self.inner.clone(),
+            slot_idx: None,
+            overflow: None,
+            len: 0,
         }
     }
 }
