@@ -1,0 +1,22 @@
+---
+source: crates/sdust-syntax/tests/parse_patterns.rs
+expression: "dump(\"(a, b, _)\")"
+---
+FILE@0..9
+  TUPLE_PAT@0..9
+    L_PAREN@0..1 "("
+    BINDING_PAT@1..2
+      NAME@1..2
+        IDENT@1..2 "a"
+    COMMA@2..3 ","
+    WHITESPACE@3..4 " "
+    BINDING_PAT@4..5
+      NAME@4..5
+        IDENT@4..5 "b"
+    COMMA@5..6 ","
+    WHITESPACE@6..7 " "
+    WILDCARD_PAT@7..8
+      IDENT@7..8 "_"
+    R_PAREN@8..9 ")"
+
+errors: []

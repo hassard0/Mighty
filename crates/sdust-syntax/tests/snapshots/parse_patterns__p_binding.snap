@@ -1,0 +1,10 @@
+---
+source: crates/sdust-syntax/tests/parse_patterns.rs
+expression: "dump(\"x\")"
+---
+FILE@0..1
+  BINDING_PAT@0..1
+    NAME@0..1
+      IDENT@0..1 "x"
+
+errors: []

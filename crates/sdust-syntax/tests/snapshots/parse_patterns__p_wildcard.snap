@@ -1,0 +1,9 @@
+---
+source: crates/sdust-syntax/tests/parse_patterns.rs
+expression: "dump(\"_\")"
+---
+FILE@0..1
+  WILDCARD_PAT@0..1
+    IDENT@0..1 "_"
+
+errors: []

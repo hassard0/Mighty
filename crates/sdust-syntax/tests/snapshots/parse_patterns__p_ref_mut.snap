@@ -1,0 +1,14 @@
+---
+source: crates/sdust-syntax/tests/parse_patterns.rs
+expression: "dump(\"&mut buf\")"
+---
+FILE@0..8
+  REF_PAT@0..8
+    AMP@0..1 "&"
+    MUT_KW@1..4 "mut"
+    WHITESPACE@4..5 " "
+    BINDING_PAT@5..8
+      NAME@5..8
+        IDENT@5..8 "buf"
+
+errors: []

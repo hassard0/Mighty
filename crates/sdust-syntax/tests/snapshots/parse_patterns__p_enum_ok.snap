@@ -1,0 +1,17 @@
+---
+source: crates/sdust-syntax/tests/parse_patterns.rs
+expression: "dump(\"Ok(v)\")"
+---
+FILE@0..5
+  ENUM_PAT@0..5
+    PATH@0..2
+      PATH_SEGMENT@0..2
+        NAME_REF@0..2
+          IDENT@0..2 "Ok"
+    L_PAREN@2..3 "("
+    BINDING_PAT@3..4
+      NAME@3..4
+        IDENT@3..4 "v"
+    R_PAREN@4..5 ")"
+
+errors: []

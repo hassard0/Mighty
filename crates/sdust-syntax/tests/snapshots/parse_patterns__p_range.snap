@@ -1,0 +1,13 @@
+---
+source: crates/sdust-syntax/tests/parse_patterns.rs
+expression: "dump(\"1..5\")"
+---
+FILE@0..4
+  RANGE_PAT@0..4
+    LITERAL_PAT@0..1
+      INT_LITERAL@0..1 "1"
+    DOT_DOT@1..3 ".."
+    LITERAL_PAT@3..4
+      INT_LITERAL@3..4 "5"
+
+errors: []

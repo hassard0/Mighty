@@ -1,0 +1,9 @@
+---
+source: crates/sdust-syntax/tests/parse_patterns.rs
+expression: "dump(\"42\")"
+---
+FILE@0..2
+  LITERAL_PAT@0..2
+    INT_LITERAL@0..2 "42"
+
+errors: []
