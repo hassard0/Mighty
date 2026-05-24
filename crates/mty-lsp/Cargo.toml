@@ -1,0 +1,33 @@
+[package]
+name = "mty-lsp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Language Server Protocol implementation for Stardust (.sd)."
+
+[dependencies]
+tower-lsp.workspace = true
+# NOTE: `tower-lsp 0.20` is pinned to `lsp-types 0.94` internally and
+# re-exports it as `tower_lsp::lsp_types`. We use the re-export so the
+# types we hand to the server match the trait bounds tower-lsp expects.
+# (The workspace's `lsp-types = "0.97"` slot is reserved for whatever
+# next-version LSP work upgrades to once tower-lsp catches up.)
+tokio = { workspace = true, features = ["rt-multi-thread", "rt", "macros", "time", "net", "io-util", "io-std", "sync", "fs"] }
+dashmap.workspace = true
+serde.workspace = true
+serde_json = "1"
+rowan.workspace = true
+mty-driver = { path = "../mty-driver" }
+mty-diagnostics = { path = "../mty-diagnostics" }
+mty-syntax = { path = "../mty-syntax" }
+mty-ast = { path = "../mty-ast" }
+mty-hir = { path = "../mty-hir" }
+mty-types = { path = "../mty-types" }
+mty-fmt = { path = "../mty-fmt" }
+
+[dev-dependencies]
+serde_json = "1"
+tower = "0.4"

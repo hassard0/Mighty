@@ -1,0 +1,33 @@
+[package]
+name = "mty-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+mty-ir = { path = "../mty-ir" }
+mty-types = { path = "../mty-types" }
+mty-hir = { path = "../mty-hir" }
+mty-diagnostics = { path = "../mty-diagnostics" }
+tokio.workspace = true
+tokio-util = { workspace = true, features = ["time", "rt"] }
+parking_lot.workspace = true
+dashmap.workspace = true
+thiserror.workspace = true
+bumpalo.workspace = true
+libloading.workspace = true
+crossbeam-deque.workspace = true
+crossbeam-utils.workspace = true
+opentelemetry = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+
+[features]
+default = ["otlp"]
+otlp = ["dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk"]
+
+[dev-dependencies]
+mty-driver = { path = "../mty-driver" }
+tokio = { workspace = true, features = ["test-util"] }

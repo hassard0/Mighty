@@ -1,0 +1,12 @@
+[package]
+name = "mty-diagnostics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+ariadne.workspace = true
+thiserror.workspace = true

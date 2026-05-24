@@ -1,0 +1,25 @@
+[package]
+name = "mty-codegen-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Mighty Wasm core-module codegen backend — slice 8."
+
+[dependencies]
+mty-ir = { path = "../mty-ir" }
+mty-types = { path = "../mty-types" }
+mty-hir = { path = "../mty-hir" }
+mty-diagnostics = { path = "../mty-diagnostics" }
+mty-debuginfo = { path = "../mty-debuginfo" }
+wasm-encoder = { workspace = true }
+wasmparser = { workspace = true }
+wit-component = { workspace = true }
+wit-parser = { workspace = true }
+thiserror = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

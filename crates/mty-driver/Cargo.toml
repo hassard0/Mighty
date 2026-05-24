@@ -1,0 +1,29 @@
+[package]
+name = "mty-driver"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+rowan = { workspace = true }
+mty-syntax = { path = "../mty-syntax" }
+mty-ast = { path = "../mty-ast" }
+mty-hir = { path = "../mty-hir" }
+mty-diagnostics = { path = "../mty-diagnostics" }
+mty-fmt = { path = "../mty-fmt" }
+mty-types = { path = "../mty-types" }
+mty-borrow = { path = "../mty-borrow" }
+mty-ir = { path = "../mty-ir" }
+mty-runtime = { path = "../mty-runtime" }
+mty-codegen-cranelift = { path = "../mty-codegen-cranelift" }
+mty-codegen-wasm = { path = "../mty-codegen-wasm" }
+
+[dev-dependencies]
+tempfile = "3"
+wasmparser = { workspace = true }

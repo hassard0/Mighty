@@ -1,0 +1,60 @@
+[package]
+name = "mty-bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+description = "Mighty v0.6 benchmarks (criterion) and reference comparators."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "mty-bench-runner"
+path = "src/bin/mty-bench-runner.rs"
+
+[dependencies]
+mty-syntax    = { path = "../mty-syntax" }
+mty-driver    = { path = "../mty-driver" }
+mty-runtime   = { path = "../mty-runtime", default-features = false }
+mty-ir       = { path = "../mty-ir" }
+mty-types     = { path = "../mty-types" }
+mty-codegen-wasm = { path = "../mty-codegen-wasm" }
+mty-codegen-cranelift = { path = "../mty-codegen-cranelift" }
+mty-diagnostics = { path = "../mty-diagnostics" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+tempfile = "3"
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "parse_throughput"
+harness = false
+
+[[bench]]
+name = "agent_send_latency"
+harness = false
+
+[[bench]]
+name = "mailbox_throughput"
+harness = false
+
+[[bench]]
+name = "http_server_throughput"
+harness = false
+
+[[bench]]
+name = "compile_to_native"
+harness = false
+
+[[bench]]
+name = "wasm_size"
+harness = false

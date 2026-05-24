@@ -1,0 +1,42 @@
+//! mty-macros: declarative macro registry + expander.
+//!
+//! v0.5 ships:
+//!
+//!   * `macro Name(p1, p2) => { body tokens }` — declarative macros
+//!     parsed by mty-syntax as a `MACRO_DECL`. v0.4 baseline.
+//!   * `proc macro Name(input: TokenStream) -> TokenStream { body }` —
+//!     procedural macros parsed by mty-syntax as a `PROC_MACRO_DECL`.
+//!     v0.5 parses + stores; execution gated by SD6006 until v0.6.
+//!   * `Path!(args)` invocation syntax — `MACRO_CALL` node with an
+//!     opaque `TOKEN_TREE` argument list.
+//!   * Extended hygiene mangling for tuple/struct/ref/binding `let`
+//!     patterns (v0.4 only covered `let IDENT`).
+//!   * `pub macro …` cross-file visibility via [`PackageMacros`].
+//!
+//! No I/O, no procedural-macro execution yet — fully compile-time,
+//! sandboxed-by-shape.
+
+pub mod diag;
+pub mod expand;
+pub mod proc;
+pub mod registry;
+pub mod stdlib;
+pub mod token;
+
+pub use diag::{
+    MACRO_ARITY_MISMATCH, MACRO_BODY_PARSE_FAILED, PROC_MACRO_IMPURE, PROC_MACRO_UNSUPPORTED_V0_5,
+    RECURSIVE_MACRO_TOO_DEEP, UNKNOWN_MACRO,
+};
+pub use expand::{expand, expand_to_source, ExpandError, MacroContext};
+pub use proc::{
+    check_proc_macro_purity, expand_proc, ImpurityReason, ProcMacroResult, PROC_MACRO_MEM_BYTES,
+    PROC_MACRO_STEPS, PROC_MACRO_WALL_MS,
+};
+pub use registry::{MacroDef, MacroKind, MacroRegistry, PackageMacros};
+pub use token::{tokens_from_body_node, tokens_to_source, Tok};
+
+/// v0.5 macro-expansion depth limit. Recursive macro definitions are
+/// rejected after this many nested expansions to prevent runaway
+/// compilation. The integer is intentionally generous for hand-written
+/// macros; lift it only with a corresponding spec amendment.
+pub const MAX_EXPANSION_DEPTH: u32 = 32;

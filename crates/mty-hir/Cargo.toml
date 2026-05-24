@@ -1,0 +1,18 @@
+[package]
+name = "mty-hir"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+la-arena.workspace = true
+mty-syntax = { path = "../mty-syntax" }
+mty-ast = { path = "../mty-ast" }
+mty-diagnostics = { path = "../mty-diagnostics" }
+mty-macros = { path = "../mty-macros" }
+
+[dev-dependencies]
+insta.workspace = true

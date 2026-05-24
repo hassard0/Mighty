@@ -1,0 +1,37 @@
+[package]
+name = "mty-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "mty"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+ariadne.workspace = true
+mty-driver = { path = "../mty-driver" }
+mty-syntax = { path = "../mty-syntax" }
+mty-ast = { path = "../mty-ast" }
+mty-hir = { path = "../mty-hir" }
+mty-diagnostics = { path = "../mty-diagnostics" }
+mty-fmt = { path = "../mty-fmt" }
+mty-ir = { path = "../mty-ir" }
+mty-types = { path = "../mty-types" }
+mty-borrow = { path = "../mty-borrow" }
+mty-codegen-cranelift = { path = "../mty-codegen-cranelift" }
+mty-codegen-wasm = { path = "../mty-codegen-wasm" }
+mty-lsp = { path = "../mty-lsp" }
+mty-doc = { path = "../mty-doc" }
+mty-pkg = { path = "../mty-pkg" }
+# v0.3 Task 1: install the stdlib host dispatcher at CLI startup so
+# `sdust run` programs that call `std.*` get the real implementations
+# (json/fs/time/http) instead of `Value::Unit`. We disable the `runner`
+# feature here to avoid the mty-stdlib → mty-driver dep cycle that
+# blocked v0.2 (see STDLIB_V0_2_NOTES.md).
+mty-stdlib = { path = "../mty-stdlib", default-features = false }
+mty-runtime = { path = "../mty-runtime" }

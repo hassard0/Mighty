@@ -1,0 +1,27 @@
+[package]
+name = "mty-codegen-llvm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Mighty LLVM codegen backend — scaffold only in slice 8 (A46)."
+
+[features]
+default = []
+# Enable inkwell to build a real LLVM backend. Requires LLVM 17
+# headers/libs available via llvm-config. See A46 — the v0.2 build
+# host did not have LLVM installed, so this feature is OFF by default
+# and Cranelift remains the default native backend. With LLVM 17
+# installed on the host, `cargo build --features llvm` enables real
+# IR emission and the LLVM PassBuilder optimizer pipeline.
+llvm = ["dep:inkwell"]
+
+[dependencies]
+mty-ir = { path = "../mty-ir" }
+mty-types = { path = "../mty-types" }
+mty-hir = { path = "../mty-hir" }
+mty-diagnostics = { path = "../mty-diagnostics" }
+thiserror = { workspace = true }
+inkwell = { workspace = true, optional = true }

@@ -1,0 +1,32 @@
+[package]
+name = "mty-codegen-cranelift"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Mighty Cranelift codegen backend (JIT + AOT object) — slice 8."
+
+[dependencies]
+mty-ir = { path = "../mty-ir" }
+mty-types = { path = "../mty-types" }
+mty-hir = { path = "../mty-hir" }
+mty-diagnostics = { path = "../mty-diagnostics" }
+mty-debuginfo = { path = "../mty-debuginfo" }
+cranelift-codegen = { workspace = true }
+cranelift-frontend = { workspace = true }
+cranelift-module = { workspace = true }
+cranelift-jit = { workspace = true }
+cranelift-object = { workspace = true }
+cranelift-native = { workspace = true }
+target-lexicon = { workspace = true }
+thiserror = { workspace = true }
+# Match the `object` version cranelift-object 0.132 uses internally
+# (its ObjectProduct.object is from object-0.39), not the workspace
+# pin of 0.36 — those are separate copies and won't unify types.
+object = { version = "0.39", default-features = false, features = ["write", "std", "coff", "elf", "macho", "pe"] }
+
+[dev-dependencies]
+gimli = { workspace = true, features = ["read", "std"] }
+tempfile = "3"
