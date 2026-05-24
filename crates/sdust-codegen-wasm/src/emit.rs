@@ -8,9 +8,11 @@
 //! `Int`) with bodies that are arithmetic + `log("...")` + return.
 //! Anything richer raises [`WasmError::Unsupported`].
 
-use crate::artifact::WasmArtifact;
+use crate::artifact::{WasmArtifact, WasmFormat};
+use crate::component::wrap_as_component;
 use crate::error::{CompileResult, WasmError};
 use crate::target::WasmTarget;
+use crate::wit::emit_wit;
 use sdust_sir::sir::{
     BinOp, BlockId, BuiltinId, Const, FnRef, Function, Operand, Place, Program, Rvalue, SirFnId,
     SirTy, Stmt, Term, UnOp,
@@ -24,23 +26,62 @@ use wasm_encoder::{
     TypeSection, ValType,
 };
 
-/// Compile a SIR program to a Wasm binary.
+/// Per-build options controlling the v0.2 Component Model wrapper.
+#[derive(Debug, Clone)]
+pub struct BuildOptions {
+    /// Package name (used to derive the WIT `package` id; usually
+    /// the source-file stem).
+    pub pkg_name: String,
+    /// When `true`, skip Component Model wrapping and emit only the
+    /// bare core Wasm module. The CLI flag is `--no-component`.
+    pub core_only: bool,
+}
+
+impl BuildOptions {
+    pub fn new(pkg_name: impl Into<String>) -> Self {
+        Self {
+            pkg_name: pkg_name.into(),
+            core_only: false,
+        }
+    }
+
+    pub fn core_only(pkg_name: impl Into<String>) -> Self {
+        Self {
+            pkg_name: pkg_name.into(),
+            core_only: true,
+        }
+    }
+}
+
+/// Compile a SIR program to a *core* Wasm binary. Component Model
+/// wrapping is performed at a higher level (see
+/// [`compile_program_to_file_with_options`]).
 pub fn compile_program_to_bytes(prog: &Program, target: WasmTarget) -> CompileResult<Vec<u8>> {
     let mut emitter = Emitter::new(prog, target)?;
     emitter.emit()
 }
 
-/// Compile a SIR program to a Wasm binary and wrap in an artifact.
+/// Compile a SIR program to a core Wasm binary and wrap in an artifact.
+///
+/// Note: this is the legacy entry point retained for back-compat with
+/// the slice-8 callers. New callers should use
+/// [`compile_program_to_file_with_options`], which emits Component
+/// Model output by default.
 pub fn compile_program(prog: &Program, target: WasmTarget) -> CompileResult<WasmArtifact> {
     let bytes = compile_program_to_bytes(prog, target)?;
     Ok(WasmArtifact {
         bytes,
         path: None,
         target,
+        format: WasmFormat::CoreModule,
+        sidecar_core_path: None,
+        wit_text: None,
     })
 }
 
-/// Compile a SIR program and write to disk.
+/// Back-compat wrapper around the slice-8 surface: writes a *core*
+/// Wasm module to `out`. The Component Model wrapper is not run; for
+/// that use [`compile_program_to_file_with_options`].
 pub fn compile_program_to_file(
     prog: &Program,
     target: WasmTarget,
@@ -53,6 +94,58 @@ pub fn compile_program_to_file(
         bytes,
         path: Some(out.to_path_buf()),
         target,
+        format: WasmFormat::CoreModule,
+        sidecar_core_path: None,
+        wit_text: None,
+    })
+}
+
+/// v0.2 main entry point: compile a SIR program, generate a WIT
+/// contract, and wrap the result as a Component Model component
+/// (unless `opts.core_only` is set, in which case only the core
+/// module is written but the WIT is still attached to the artifact).
+///
+/// The primary `out` path receives either:
+/// - the component bytes (default), or
+/// - the core module bytes (when `opts.core_only`).
+///
+/// When `opts.core_only` is set, a sidecar `<out>.core.wasm` is *not*
+/// written separately — `out` itself is the core module. The
+/// `sidecar_core_path` field is left `None`.
+pub fn compile_program_to_file_with_options(
+    prog: &Program,
+    target: WasmTarget,
+    out: &Path,
+    opts: &BuildOptions,
+) -> CompileResult<WasmArtifact> {
+    let core_bytes = compile_program_to_bytes(prog, target)?;
+    let wit_doc = emit_wit(prog, &opts.pkg_name, target)?;
+
+    if opts.core_only {
+        std::fs::write(out, &core_bytes)
+            .map_err(|e| WasmError::Io(format!("write {}: {}", out.display(), e)))?;
+        return Ok(WasmArtifact {
+            bytes: core_bytes,
+            path: Some(out.to_path_buf()),
+            target,
+            format: WasmFormat::CoreModule,
+            sidecar_core_path: None,
+            wit_text: Some(wit_doc.text),
+        });
+    }
+
+    // Wrap as component.
+    let component_bytes = wrap_as_component(&core_bytes, &wit_doc)?;
+    std::fs::write(out, &component_bytes)
+        .map_err(|e| WasmError::Io(format!("write {}: {}", out.display(), e)))?;
+
+    Ok(WasmArtifact {
+        bytes: component_bytes,
+        path: Some(out.to_path_buf()),
+        target,
+        format: WasmFormat::Component,
+        sidecar_core_path: None,
+        wit_text: Some(wit_doc.text),
     })
 }
 
@@ -121,14 +214,23 @@ impl<'a> Emitter<'a> {
 
     fn declare_imports(&mut self) -> CompileResult<()> {
         // log(ptr: i32, len: i32) -> ()
+        //
+        // For the v0.2 Component Model wrapper we emit the core
+        // module import using the canonical
+        // "<interface-fqn>"."<func-name>" name pair so that
+        // `wit-component::ComponentEncoder` can wire it up to the
+        // WIT world we generated.
+        //
+        // - wasm32-wasi: `wasi:cli/log#log`
+        // - wasm32-web : `stardust:web/log#log`
         let log_sig = TySig {
             params: vec![ValType::I32, ValType::I32],
             results: vec![],
         };
         let log_ty = self.intern_sig(log_sig);
         let (mod_name, fn_name) = match self.target {
-            WasmTarget::Wasi => ("stardust", "log"),
-            WasmTarget::Web => ("stardust", "log"),
+            WasmTarget::Wasi => ("wasi:cli/log", "log"),
+            WasmTarget::Web => ("stardust:web/log", "log"),
         };
         self.import_section
             .import(mod_name, fn_name, EntityType::Function(log_ty));

@@ -5,7 +5,7 @@ Compile a Stardust source file to a runnable artifact (slice 8).
 ## Synopsis
 
 ```
-sdust build <PATH> [--debug | --release] [--target TARGET] [--out-dir DIR]
+sdust build <PATH> [--debug | --release] [--target TARGET] [--out-dir DIR] [--no-component]
 ```
 
 ## Description
@@ -29,10 +29,11 @@ flag.
 | Flag | Description |
 |------|-------------|
 | `<PATH>` | Path to a `.sd` source file. |
-| `--debug` | Build in debug mode (default). Smaller compile time, no optimization. |
-| `--release` | Build in release mode. Cranelift `opt_level = speed`. |
+| `--debug` | Build in debug mode (default). Smaller compile time, no optimization, *debug info emitted* (DWARF on native; `name` + `.wasm.map` on wasm). |
+| `--release` | Build in release mode. Cranelift `opt_level = speed`. Debug info stripped. |
 | `--target <TARGET>` | One of `native` (default), `wasm32-wasi`, `wasm32-web`. |
 | `--out-dir <DIR>` | Output directory. Default `target/`. |
+| `--no-component` | Wasm targets only: emit a bare core wasm module instead of a Component Model component. Useful for runtimes that don't yet support the Component Model, or for debugging the lowering. Default = Component Model output (v0.2 wave-2, closes [A47](../../spec/v0.1-amendments.md#a47)). |
 
 ## Output
 
@@ -40,6 +41,15 @@ Native target: writes `<DIR>/<name>` (or `<name>.exe` on Windows).
 Intermediate object preserved at `<DIR>/<name>.o`.
 
 Wasm target: writes `<DIR>/<name>.wasm`. No linker step.
+
+By default the emitted bytes are a Component Model component
+(preamble `\0asm\x0d\x00\x01\x00`). With `--no-component`, a bare
+core wasm module is written instead (preamble
+`\0asm\x01\x00\x00\x00`).
+
+`WasmArtifact::wit_text` carries the generated WIT contract in
+both modes — downstream tools can read it from the artifact
+metadata.
 
 The binary's name is derived from the source file's stem
 (`examples/01_hello.sd` → `01_hello`).
@@ -79,14 +89,57 @@ sdust build examples/01_hello.sd
 # Native release build with a custom out dir:
 sdust build --release --out-dir dist/ src/main.sd
 
-# Wasm preview1 build:
+# Wasm WASI build → Component Model component (v0.2 default):
 sdust build --target wasm32-wasi examples/01_hello.sd
-wasmtime target/01_hello.wasm
+# Wasmtime requires the component-model flag:
+wasmtime --wasm component-model target/01_hello.wasm
 
-# Browser-targeted Wasm:
+# Bare core wasm module (skip component wrapper):
+sdust build --no-component --target wasm32-wasi examples/01_hello.sd
+wasmtime target/01_hello.wasm                          # works without --wasm component-model
+
+# Browser-targeted Wasm → Component Model, transpile via jco:
 sdust build --target wasm32-web src/widget.sd
-# load target/widget.wasm in a <script type="module"> Worker
+jco transpile target/widget.wasm -o dist/widget       # emits ESM glue + .wasm core
+# then load dist/widget/widget.js as a module in your page
 ```
+
+## Debug info
+
+`--debug` builds embed debug info into the artifact (the flag is on by
+default; pass `--release` to strip):
+
+- **Native objects** carry standard DWARF v4 sections (`.debug_info`,
+  `.debug_abbrev`, `.debug_line`, `.debug_str`). Use `lldb`, `gdb`, or
+  `objdump --dwarf=info` to inspect.
+- **Wasm modules** gain a `name` custom section (function names) plus
+  a `sourceMappingURL` custom section pointing at the sidecar
+  `<binary>.wasm.map` (source-map v3 JSON). DevTools / Chrome load
+  the sidecar automatically; the Component Model wrapper preserves
+  both custom sections.
+
+See [docs/internals/debug-info.md](../../internals/debug-info.md) for
+the v0.2 coverage matrix, format details, and known limitations
+(coarse line table, no `.debug_loc` location lists yet).
+
+```bash
+sdust build --debug examples/01_hello.sd
+objdump --dwarf=info target/01_hello.o   # native DWARF
+
+sdust build --debug --target wasm32-wasi examples/01_hello.sd
+ls target/01_hello.wasm target/01_hello.wasm.map
+```
+
+### Wasm runtime compatibility
+
+| Runtime | Component default | `--no-component` core module |
+|---------|--------------------|------------------------------|
+| `wasmtime --wasm component-model` | ✅ | n/a |
+| `wasmtime` (plain) | ❌ — need flag | ✅ |
+| `wasmer` ≥ 4.3 | ✅ | ✅ |
+| `wasmer` < 4.3 | ❌ | ✅ |
+| Browser via `jco transpile` | ✅ | n/a (use component) |
+| `wasm-tools component validate` | ✅ | n/a (it's not a component) |
 
 ## Exit codes
 
