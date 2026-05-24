@@ -6,24 +6,31 @@ pub fn path(p: &mut Parser) -> bool {
         return false;
     }
     p.start_node(PATH);
-    p.start_node(PATH_SEGMENT);
-    p.start_node(NAME_REF);
-    p.bump(IDENT);
-    p.finish_node();
-    p.finish_node();
+    segment(p);
     p.skip_trivia();
     while p.at(DOT) && p.peek_n(1) == IDENT {
         p.bump(DOT);
         p.skip_trivia();
-        p.start_node(PATH_SEGMENT);
-        p.start_node(NAME_REF);
-        p.bump(IDENT);
-        p.finish_node();
-        p.finish_node();
+        segment(p);
         p.skip_trivia();
     }
     p.finish_node();
     true
+}
+
+/// One path segment: `IDENT` optionally followed by a turbofish
+/// `::[T1, T2]` generic-args list. The `::` disambiguates from
+/// `IDENT[index]` (index expression).
+fn segment(p: &mut Parser) {
+    p.start_node(PATH_SEGMENT);
+    p.start_node(NAME_REF);
+    p.bump(IDENT);
+    p.finish_node();
+    if p.at(COLON_COLON) && p.peek_n(1) == L_BRACK {
+        p.bump(COLON_COLON);
+        super::types::generic_args(p);
+    }
+    p.finish_node();
 }
 
 pub fn name(p: &mut Parser) -> bool {

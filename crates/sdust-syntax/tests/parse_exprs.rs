@@ -123,6 +123,35 @@ fn parse_run_expr_in_block() {
 }
 
 #[test]
+fn parse_turbofish_method_call() {
+    use sdust_syntax::{parser::parse_expr, SyntaxKind, SyntaxNode};
+    let r = parse_expr("Map::[Str, Json].new()");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::GENERIC_ARG_LIST));
+}
+
+#[test]
+fn parse_turbofish_constructor() {
+    use sdust_syntax::parser::parse_expr;
+    let r = parse_expr("Some::[I32](42)");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+}
+
+#[test]
+fn parse_turbofish_struct_literal() {
+    use sdust_syntax::{parser::parse_expr, SyntaxKind, SyntaxNode};
+    let r = parse_expr("Map::[Str, Json]{}");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::STRUCT_EXPR));
+}
+
+#[test]
 fn parse_method_with_keyword_name() {
     use sdust_syntax::{parse, SyntaxKind, SyntaxNode};
     let r = parse("fn f() { dom.on(\"click\", h) }");
