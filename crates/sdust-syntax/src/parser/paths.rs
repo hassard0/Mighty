@@ -2,7 +2,9 @@ use super::Parser;
 use crate::SyntaxKind::*;
 
 pub fn path(p: &mut Parser) -> bool {
-    if !p.at(IDENT) { return false; }
+    if !p.at(IDENT) {
+        return false;
+    }
     p.start_node(PATH);
     p.start_node(PATH_SEGMENT);
     p.start_node(NAME_REF);
@@ -25,7 +27,9 @@ pub fn path(p: &mut Parser) -> bool {
 }
 
 pub fn name(p: &mut Parser) -> bool {
-    if !p.at(IDENT) { return false; }
+    if !p.at(IDENT) {
+        return false;
+    }
     p.start_node(NAME);
     p.bump(IDENT);
     p.finish_node();

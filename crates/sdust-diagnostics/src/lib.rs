@@ -3,4 +3,4 @@ pub mod codes;
 pub mod diagnostic;
 pub mod render;
 pub use codes::DiagCode;
-pub use diagnostic::{Diagnostic, Severity, Label};
+pub use diagnostic::{Diagnostic, Label, Severity};

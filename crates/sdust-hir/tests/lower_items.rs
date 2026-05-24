@@ -1,5 +1,5 @@
+use sdust_ast::{AstNode, File};
 use sdust_syntax::{parse, SyntaxNode};
-use sdust_ast::{File, AstNode};
 
 fn lower(src: &str) -> sdust_hir::Package {
     let r = parse(src);
@@ -8,7 +8,8 @@ fn lower(src: &str) -> sdust_hir::Package {
     pkg
 }
 
-#[test] fn lowers_fn() {
+#[test]
+fn lowers_fn() {
     let p = lower("fn add(a: I32, b: I32) -> I32 = a + b");
     assert_eq!(p.fns.len(), 1);
     let f = p.fns.values().next().unwrap();
@@ -16,7 +17,8 @@ fn lower(src: &str) -> sdust_hir::Package {
     assert_eq!(f.params.len(), 2);
 }
 
-#[test] fn lowers_struct() {
+#[test]
+fn lowers_struct() {
     let p = lower("struct User { id: U64, name: String }");
     assert_eq!(p.structs.len(), 1);
     let s = p.structs.values().next().unwrap();
@@ -25,24 +27,28 @@ fn lower(src: &str) -> sdust_hir::Package {
     assert_eq!(s.fields[0].name, "id");
 }
 
-#[test] fn lowers_enum() {
+#[test]
+fn lowers_enum() {
     let p = lower("enum Result[T, E] { Ok(T), Err(E) }");
     assert_eq!(p.enums.len(), 1);
     let e = p.enums.values().next().unwrap();
     assert_eq!(e.variants.len(), 2);
 }
 
-#[test] fn lowers_type_alias() {
+#[test]
+fn lowers_type_alias() {
     let p = lower("type UserId = U64");
     assert_eq!(p.type_aliases.len(), 1);
 }
 
-#[test] fn lowers_use() {
+#[test]
+fn lowers_use() {
     let p = lower("use std.io");
     assert_eq!(p.top_level.len(), 1);
 }
 
-#[test] fn lowers_agent() {
+#[test]
+fn lowers_agent() {
     let p = lower("agent Counter: Count { n = 0\n on Inc() -> { n += 1; n } }");
     assert_eq!(p.agents.len(), 1);
     let a = p.agents.values().next().unwrap();
@@ -51,7 +57,8 @@ fn lower(src: &str) -> sdust_hir::Package {
     assert_eq!(a.handlers.len(), 1);
 }
 
-#[test] fn lowers_protocol() {
+#[test]
+fn lowers_protocol() {
     let p = lower("protocol Echo { Ping(msg: Str) -> Str }");
     assert_eq!(p.protocols.len(), 1);
     let pr = p.protocols.values().next().unwrap();
@@ -59,7 +66,8 @@ fn lower(src: &str) -> sdust_hir::Package {
     assert_eq!(pr.messages.len(), 1);
 }
 
-#[test] fn lowers_arena_short() {
+#[test]
+fn lowers_arena_short() {
     let p = lower("fn main() { arena turn: tokenize(input) }");
     assert_eq!(p.fns.len(), 1);
     let f = p.fns.values().next().unwrap();

@@ -24,12 +24,7 @@ pub fn pattern(p: &mut Parser) -> bool {
             true
         }
         // Path-headed: struct/enum disambiguation by lookahead past trivia.
-        IDENT
-            if matches!(
-                next_nontrivia_kind(p, p.pos + 1),
-                L_PAREN | L_BRACE | DOT
-            ) =>
-        {
+        IDENT if matches!(next_nontrivia_kind(p, p.pos + 1), L_PAREN | L_BRACE | DOT) => {
             path_headed(p);
             true
         }

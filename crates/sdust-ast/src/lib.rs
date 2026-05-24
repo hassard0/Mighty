@@ -1,5 +1,5 @@
 //! Typed AST view over the rowan CST.
-pub use sdust_syntax::{SyntaxNode, SyntaxToken, SyntaxKind};
+pub use sdust_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
 pub trait AstNode: Sized {
     fn can_cast(kind: SyntaxKind) -> bool;
@@ -12,11 +12,19 @@ macro_rules! ast_node {
         #[derive(Debug, Clone)]
         pub struct $name(pub SyntaxNode);
         impl AstNode for $name {
-            fn can_cast(kind: SyntaxKind) -> bool { kind == SyntaxKind::$kind }
-            fn cast(node: SyntaxNode) -> Option<Self> {
-                if Self::can_cast(node.kind()) { Some(Self(node)) } else { None }
+            fn can_cast(kind: SyntaxKind) -> bool {
+                kind == SyntaxKind::$kind
             }
-            fn syntax(&self) -> &SyntaxNode { &self.0 }
+            fn cast(node: SyntaxNode) -> Option<Self> {
+                if Self::can_cast(node.kind()) {
+                    Some(Self(node))
+                } else {
+                    None
+                }
+            }
+            fn syntax(&self) -> &SyntaxNode {
+                &self.0
+            }
         }
     };
 }

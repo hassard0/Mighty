@@ -69,9 +69,7 @@ impl Doc {
 
     /// Concatenate an iterator of docs left-to-right.
     pub fn concat_all(parts: impl IntoIterator<Item = Doc>) -> Self {
-        parts
-            .into_iter()
-            .fold(Doc::nil(), |acc, d| Doc::concat(acc, d))
+        parts.into_iter().fold(Doc::nil(), Doc::concat)
     }
 
     /// Join an iterator of docs with `sep` between adjacent elements.

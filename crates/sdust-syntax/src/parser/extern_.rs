@@ -110,5 +110,8 @@ fn next_nontrivia_kind(p: &Parser, from: usize) -> crate::SyntaxKind {
     while i < p.tokens.len() && p.tokens[i].kind.is_trivia() {
         i += 1;
     }
-    p.tokens.get(i).map(|t| t.kind).unwrap_or(crate::SyntaxKind::EOF)
+    p.tokens
+        .get(i)
+        .map(|t| t.kind)
+        .unwrap_or(crate::SyntaxKind::EOF)
 }

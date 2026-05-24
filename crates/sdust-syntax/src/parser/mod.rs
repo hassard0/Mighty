@@ -1,17 +1,17 @@
 use crate::{lexer::LexedToken, SyntaxKind};
 use rowan::GreenNodeBuilder;
 
-pub mod recovery;
-pub mod paths;
-pub mod items;
-pub mod types;
-pub mod patterns;
-pub mod exprs;
-pub mod stmts;
 pub mod agents;
 pub mod concurrency;
+pub mod exprs;
 pub mod extern_;
+pub mod items;
 pub mod macros;
+pub mod paths;
+pub mod patterns;
+pub mod recovery;
+pub mod stmts;
+pub mod types;
 pub mod unsafe_;
 
 #[derive(Debug, Clone)]
@@ -57,7 +57,10 @@ impl<'src> Parser<'src> {
             }
         }
         self.builder.finish_node();
-        ParseResult { green: self.builder.finish(), errors: self.errors }
+        ParseResult {
+            green: self.builder.finish(),
+            errors: self.errors,
+        }
     }
 
     // ---- cursor primitives ----
@@ -66,10 +69,18 @@ impl<'src> Parser<'src> {
         self.tokens[self.pos].kind
     }
     pub(crate) fn peek_n(&self, n: usize) -> SyntaxKind {
-        self.tokens.get(self.pos + n).map(|t| t.kind).unwrap_or(SyntaxKind::EOF)
+        self.tokens
+            .get(self.pos + n)
+            .map(|t| t.kind)
+            .unwrap_or(SyntaxKind::EOF)
     }
-    pub(crate) fn at(&self, kind: SyntaxKind) -> bool { self.peek() == kind }
-    pub(crate) fn at_set(&self, set: &[SyntaxKind]) -> bool { set.contains(&self.peek()) }
+    pub(crate) fn at(&self, kind: SyntaxKind) -> bool {
+        self.peek() == kind
+    }
+    #[allow(dead_code)] // used by upcoming parser productions in slice-2
+    pub(crate) fn at_set(&self, set: &[SyntaxKind]) -> bool {
+        set.contains(&self.peek())
+    }
 
     pub(crate) fn bump_any(&mut self) {
         let t = &self.tokens[self.pos];
@@ -83,10 +94,18 @@ impl<'src> Parser<'src> {
         self.bump_any();
     }
     pub(crate) fn eat(&mut self, kind: SyntaxKind) -> bool {
-        if self.at(kind) { self.bump_any(); self.skip_trivia(); true } else { false }
+        if self.at(kind) {
+            self.bump_any();
+            self.skip_trivia();
+            true
+        } else {
+            false
+        }
     }
     pub(crate) fn expect(&mut self, kind: SyntaxKind) -> bool {
-        if self.eat(kind) { true } else {
+        if self.eat(kind) {
+            true
+        } else {
             let t_text = self.tokens[self.pos].text.to_string();
             let s = self.tokens[self.pos].start;
             let e = self.tokens[self.pos].end;
@@ -96,19 +115,31 @@ impl<'src> Parser<'src> {
     }
 
     pub(crate) fn skip_trivia(&mut self) {
-        while self.peek().is_trivia() { self.bump_any(); }
+        while self.peek().is_trivia() {
+            self.bump_any();
+        }
     }
 
-    pub(crate) fn start_node(&mut self, kind: SyntaxKind) { self.builder.start_node(kind.into()); }
-    pub(crate) fn finish_node(&mut self) { self.builder.finish_node(); }
+    pub(crate) fn start_node(&mut self, kind: SyntaxKind) {
+        self.builder.start_node(kind.into());
+    }
+    pub(crate) fn finish_node(&mut self) {
+        self.builder.finish_node();
+    }
 
-    pub(crate) fn checkpoint(&self) -> rowan::Checkpoint { self.builder.checkpoint() }
+    pub(crate) fn checkpoint(&self) -> rowan::Checkpoint {
+        self.builder.checkpoint()
+    }
     pub(crate) fn start_node_at(&mut self, cp: rowan::Checkpoint, kind: SyntaxKind) {
         self.builder.start_node_at(cp, kind.into());
     }
 
     pub(crate) fn error_at(&mut self, message: String, start: usize, end: usize) {
-        self.errors.push(ParseError { message, start, end });
+        self.errors.push(ParseError {
+            message,
+            start,
+            end,
+        });
     }
 
     pub(crate) fn error(&mut self, message: impl Into<String>) {
@@ -128,7 +159,10 @@ pub fn parse_type(src: &str) -> ParseResult {
     p.skip_trivia();
     types::type_expr(&mut p);
     p.builder.finish_node();
-    ParseResult { green: p.builder.finish(), errors: p.errors }
+    ParseResult {
+        green: p.builder.finish(),
+        errors: p.errors,
+    }
 }
 
 pub fn parse_pattern(src: &str) -> ParseResult {
@@ -137,7 +171,10 @@ pub fn parse_pattern(src: &str) -> ParseResult {
     p.skip_trivia();
     patterns::pattern(&mut p);
     p.builder.finish_node();
-    ParseResult { green: p.builder.finish(), errors: p.errors }
+    ParseResult {
+        green: p.builder.finish(),
+        errors: p.errors,
+    }
 }
 
 pub fn parse_expr(src: &str) -> ParseResult {
@@ -146,5 +183,8 @@ pub fn parse_expr(src: &str) -> ParseResult {
     p.skip_trivia();
     exprs::expr(&mut p);
     p.builder.finish_node();
-    ParseResult { green: p.builder.finish(), errors: p.errors }
+    ParseResult {
+        green: p.builder.finish(),
+        errors: p.errors,
+    }
 }

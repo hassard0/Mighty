@@ -356,8 +356,8 @@ fn try_postfix(p: &mut Parser, cp: rowan::Checkpoint) -> bool {
             // method call vs field access: if followed by IDENT then L_PAREN, it's a method call
             let after_dot = next_nontrivia_index(p, p.pos + 1);
             let name_kind = next_nontrivia_kind(p, p.pos + 1);
-            let is_method_call = name_kind == IDENT
-                && next_nontrivia_kind(p, after_dot + 1) == L_PAREN;
+            let is_method_call =
+                name_kind == IDENT && next_nontrivia_kind(p, after_dot + 1) == L_PAREN;
             if is_method_call {
                 p.start_node_at(cp, METHOD_CALL_EXPR);
                 p.bump(DOT);

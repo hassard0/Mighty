@@ -325,7 +325,10 @@ pub fn lower_expr(ctx: &mut LoweringCtx, n: SyntaxNode) -> ExprId {
             HirExpr::Map(entries)
         }
         SyntaxKind::HTML_EXPR => {
-            let text = n.first_token().map(|t| t.text().to_string()).unwrap_or_default();
+            let text = n
+                .first_token()
+                .map(|t| t.text().to_string())
+                .unwrap_or_default();
             HirExpr::HtmlTemplate(text)
         }
         SyntaxKind::UNSAFE_BLOCK => {
@@ -774,12 +777,18 @@ pub fn lower_literal_token(tok: &SyntaxToken) -> HirLiteral {
         SyntaxKind::FLOAT_LITERAL => parse_float_literal(tok.text()),
         SyntaxKind::STRING_LITERAL => {
             let raw = tok.text();
-            let inner = raw.strip_prefix('"').and_then(|s| s.strip_suffix('"')).unwrap_or(raw);
+            let inner = raw
+                .strip_prefix('"')
+                .and_then(|s| s.strip_suffix('"'))
+                .unwrap_or(raw);
             HirLiteral::Str(decode_str_escapes(inner))
         }
         SyntaxKind::CHAR_LITERAL => {
             let raw = tok.text();
-            let inner = raw.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')).unwrap_or(raw);
+            let inner = raw
+                .strip_prefix('\'')
+                .and_then(|s| s.strip_suffix('\''))
+                .unwrap_or(raw);
             let decoded = decode_str_escapes(inner);
             HirLiteral::Char(decoded.chars().next().unwrap_or('\0'))
         }
@@ -830,7 +839,9 @@ fn parse_float_literal(text: &str) -> HirLiteral {
 }
 
 fn parse_duration_literal(text: &str) -> HirLiteral {
-    let split = text.find(|c: char| c.is_ascii_alphabetic()).unwrap_or(text.len());
+    let split = text
+        .find(|c: char| c.is_ascii_alphabetic())
+        .unwrap_or(text.len());
     let (num, unit) = text.split_at(split);
     let value: u64 = num.parse().unwrap_or(0);
     HirLiteral::Duration {
@@ -840,7 +851,9 @@ fn parse_duration_literal(text: &str) -> HirLiteral {
 }
 
 fn parse_size_literal(text: &str) -> HirLiteral {
-    let split = text.find(|c: char| c.is_ascii_alphabetic()).unwrap_or(text.len());
+    let split = text
+        .find(|c: char| c.is_ascii_alphabetic())
+        .unwrap_or(text.len());
     let (num, unit) = text.split_at(split);
     let value: u64 = num.parse().unwrap_or(0);
     HirLiteral::Size {

@@ -1,6 +1,6 @@
 //! HIR S-expression dump — for snapshot testing.
 
-use crate::{Package, Item, HirExpr, HirType, HirLiteral, HirBlock, HirStmt};
+use crate::{HirBlock, HirExpr, HirLiteral, HirStmt, HirType, Item, Package};
 use std::fmt::Write;
 
 pub fn dump_package(pkg: &Package) -> String {
@@ -118,7 +118,13 @@ fn dump_item(out: &mut String, pkg: &Package, item: &Item, depth: usize) {
         Item::TypeAlias(id) => {
             let t = &pkg.type_aliases[*id];
             ind(out, depth);
-            writeln!(out, "(type-alias {} {})", t.name, dump_type(pkg, &pkg.types[t.ty])).unwrap();
+            writeln!(
+                out,
+                "(type-alias {} {})",
+                t.name,
+                dump_type(pkg, &pkg.types[t.ty])
+            )
+            .unwrap();
         }
         Item::Supervisor(id) => {
             let s = &pkg.supervisors[*id];

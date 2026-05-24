@@ -29,17 +29,23 @@ fn x_export_c_fn() {
 
 #[test]
 fn x_export_fn() {
-    assert_snapshot!(dump("export fn mount(dom: Dom) { let c = spawn Counter(dom) }"));
+    assert_snapshot!(dump(
+        "export fn mount(dom: Dom) { let c = spawn Counter(dom) }"
+    ));
 }
 
 #[test]
 fn x_macro() {
-    assert_snapshot!(dump("macro assert_eq(a, b) => {\n  if a != b { panic(\"assert_eq failed\") }\n}"));
+    assert_snapshot!(dump(
+        "macro assert_eq(a, b) => {\n  if a != b { panic(\"assert_eq failed\") }\n}"
+    ));
 }
 
 #[test]
 fn x_unsafe_block() {
-    assert_snapshot!(dump_expr("unsafe {\n  let p = raw_ptr(addr)\n  p.read()\n}"));
+    assert_snapshot!(dump_expr(
+        "unsafe {\n  let p = raw_ptr(addr)\n  p.read()\n}"
+    ));
 }
 
 #[test]

@@ -1,7 +1,7 @@
-use sdust_syntax::parse;
-use sdust_ast::{File, AstNode};
+use sdust_ast::{AstNode, File};
+use sdust_diagnostics::{codes::UNEXPECTED_TOKEN, Diagnostic, Label};
 use sdust_hir::Package;
-use sdust_diagnostics::{Diagnostic, Label, codes::UNEXPECTED_TOKEN};
+use sdust_syntax::parse;
 
 pub struct ParsedFile {
     pub source: String,
@@ -35,8 +35,7 @@ pub fn parse_source(source: String, source_id: String) -> ParsedFile {
 }
 
 pub fn lower(p: &ParsedFile) -> (Package, Vec<Diagnostic>) {
-    let file = File::cast(sdust_syntax::SyntaxNode::new_root(p.green.clone()))
-        .expect("FILE root");
+    let file = File::cast(sdust_syntax::SyntaxNode::new_root(p.green.clone())).expect("FILE root");
     let (pkg, diag) = sdust_hir::lower::LoweringCtx::new().lower_file(file);
     let mut all = p.diagnostics.clone();
     all.extend(diag);

@@ -1,5 +1,5 @@
 use crate::{ast_node, AstNode};
-use sdust_syntax::{SyntaxNode, SyntaxKind};
+use sdust_syntax::{SyntaxKind, SyntaxNode};
 
 ast_node!(File, FILE);
 ast_node!(PackageDecl, PACKAGE_DECL);
@@ -63,7 +63,10 @@ impl File {
 
 impl Name {
     pub fn text(&self) -> String {
-        self.0.first_token().map(|t| t.text().to_string()).unwrap_or_default()
+        self.0
+            .first_token()
+            .map(|t| t.text().to_string())
+            .unwrap_or_default()
     }
 }
 
@@ -71,7 +74,9 @@ impl Path {
     pub fn segments(&self) -> impl Iterator<Item = PathSegment> + '_ {
         self.0.children().filter_map(PathSegment::cast)
     }
-    pub fn text(&self) -> String { self.0.text().to_string() }
+    pub fn text(&self) -> String {
+        self.0.text().to_string()
+    }
 }
 
 impl FnDecl {
@@ -91,19 +96,28 @@ impl FnDecl {
         self.0.children().find_map(Block::cast)
     }
     pub fn is_pub(&self) -> bool {
-        self.0.children().any(|c| c.kind() == SyntaxKind::VISIBILITY)
+        self.0
+            .children()
+            .any(|c| c.kind() == SyntaxKind::VISIBILITY)
     }
     pub fn is_unsafe(&self) -> bool {
-        self.0.children_with_tokens()
+        self.0
+            .children_with_tokens()
             .filter_map(|e| e.into_token())
             .any(|t| t.kind() == SyntaxKind::UNSAFE_KW)
     }
 }
 
 impl AgentDecl {
-    pub fn name(&self) -> Option<Name> { self.0.children().find_map(Name::cast) }
-    pub fn ctor_params(&self) -> Option<AgentCtorParams> { self.0.children().find_map(AgentCtorParams::cast) }
-    pub fn protocols(&self) -> Option<AgentProtocolList> { self.0.children().find_map(AgentProtocolList::cast) }
+    pub fn name(&self) -> Option<Name> {
+        self.0.children().find_map(Name::cast)
+    }
+    pub fn ctor_params(&self) -> Option<AgentCtorParams> {
+        self.0.children().find_map(AgentCtorParams::cast)
+    }
+    pub fn protocols(&self) -> Option<AgentProtocolList> {
+        self.0.children().find_map(AgentProtocolList::cast)
+    }
     pub fn handlers(&self) -> impl Iterator<Item = OnHandler> + '_ {
         self.0.descendants().filter_map(OnHandler::cast)
     }

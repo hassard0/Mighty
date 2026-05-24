@@ -18,7 +18,9 @@ fn d_fn_pub() {
 
 #[test]
 fn d_fn_effect() {
-    assert_snapshot!(dump("pub fn fetch(url: Url) -> Page!FetchErr effect net,time"));
+    assert_snapshot!(dump(
+        "pub fn fetch(url: Url) -> Page!FetchErr effect net,time"
+    ));
 }
 
 #[test]
@@ -43,7 +45,9 @@ fn d_type_alias() {
 
 #[test]
 fn d_impl() {
-    assert_snapshot!(dump("impl Hash for UserId { fn hash(self) -> U64 = self.value }"));
+    assert_snapshot!(dump(
+        "impl Hash for UserId { fn hash(self) -> U64 = self.value }"
+    ));
 }
 
 #[test]
@@ -58,5 +62,7 @@ fn d_const() {
 
 #[test]
 fn d_multi() {
-    assert_snapshot!(dump("pub fn a() = 1\n\nstruct B { x: I32 }\n\nconst C: I32 = 0\n"));
+    assert_snapshot!(dump(
+        "pub fn a() = 1\n\nstruct B { x: I32 }\n\nconst C: I32 = 0\n"
+    ));
 }

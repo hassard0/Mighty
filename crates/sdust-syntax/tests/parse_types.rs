@@ -6,10 +6,31 @@ fn dump(src: &str) -> String {
     format!("{:#?}\nerrors: {:?}", node, r.errors)
 }
 
-#[test] fn t_borrow()      { assert_snapshot!(dump("&Str")); }
-#[test] fn t_borrow_mut()  { assert_snapshot!(dump("&mut Bytes")); }
-#[test] fn t_tuple()       { assert_snapshot!(dump("(I32, Str)")); }
-#[test] fn t_array()       { assert_snapshot!(dump("[U8; 16]")); }
-#[test] fn t_path_generic(){ assert_snapshot!(dump("Map[Str, Json]")); }
-#[test] fn t_result_sugar(){ assert_snapshot!(dump("Bytes!IoErr")); }
-#[test] fn t_result_union(){ assert_snapshot!(dump("Page!{NetErr, ParseErr}")); }
+#[test]
+fn t_borrow() {
+    assert_snapshot!(dump("&Str"));
+}
+#[test]
+fn t_borrow_mut() {
+    assert_snapshot!(dump("&mut Bytes"));
+}
+#[test]
+fn t_tuple() {
+    assert_snapshot!(dump("(I32, Str)"));
+}
+#[test]
+fn t_array() {
+    assert_snapshot!(dump("[U8; 16]"));
+}
+#[test]
+fn t_path_generic() {
+    assert_snapshot!(dump("Map[Str, Json]"));
+}
+#[test]
+fn t_result_sugar() {
+    assert_snapshot!(dump("Bytes!IoErr"));
+}
+#[test]
+fn t_result_union() {
+    assert_snapshot!(dump("Page!{NetErr, ParseErr}"));
+}

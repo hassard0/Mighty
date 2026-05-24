@@ -1,9 +1,24 @@
 use crate::SyntaxKind::{self, *};
 
 pub const ITEM_START: &[SyntaxKind] = &[
-    FN_KW, AGENT_KW, PROTOCOL_KW, STRUCT_KW, ENUM_KW, TYPE_KW,
-    IMPL_KW, TRAIT_KW, USE_KW, MOD_KW, PACKAGE_KW, PUB_KW,
-    CONST_KW, EXTERN_KW, EXPORT_KW, MACRO_KW, SUP_KW, UNSAFE_KW,
+    FN_KW,
+    AGENT_KW,
+    PROTOCOL_KW,
+    STRUCT_KW,
+    ENUM_KW,
+    TYPE_KW,
+    IMPL_KW,
+    TRAIT_KW,
+    USE_KW,
+    MOD_KW,
+    PACKAGE_KW,
+    PUB_KW,
+    CONST_KW,
+    EXTERN_KW,
+    EXPORT_KW,
+    MACRO_KW,
+    SUP_KW,
+    UNSAFE_KW,
 ];
 
 pub const STMT_START: &[SyntaxKind] = &[
@@ -11,8 +26,12 @@ pub const STMT_START: &[SyntaxKind] = &[
 ];
 
 impl crate::parser::Parser<'_> {
+    #[allow(dead_code)] // recovery hook used by upcoming slice-2 parser productions
     pub(crate) fn sync_to(&mut self, set: &[SyntaxKind]) {
-        while !self.at(SyntaxKind::EOF) && !set.contains(&self.peek()) && !self.at(SyntaxKind::R_BRACE) {
+        while !self.at(SyntaxKind::EOF)
+            && !set.contains(&self.peek())
+            && !self.at(SyntaxKind::R_BRACE)
+        {
             self.bump_any();
         }
         self.skip_trivia();

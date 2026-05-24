@@ -31,10 +31,16 @@ pub fn render(diag: &Diagnostic, source_id: &str, source: &str) -> String {
     }
     let report = builder.finish();
     let mut buf = Vec::new();
-    report.write((source_id, Source::from(source)), &mut buf).unwrap();
+    report
+        .write((source_id, Source::from(source)), &mut buf)
+        .unwrap();
     String::from_utf8(buf).unwrap()
 }
 
 pub fn render_all(diags: &[Diagnostic], source_id: &str, source: &str) -> String {
-    diags.iter().map(|d| render(d, source_id, source)).collect::<Vec<_>>().join("\n")
+    diags
+        .iter()
+        .map(|d| render(d, source_id, source))
+        .collect::<Vec<_>>()
+        .join("\n")
 }

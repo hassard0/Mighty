@@ -1,4 +1,4 @@
-use sdust_ast::{AstNode, File, FnDecl, AgentDecl};
+use sdust_ast::{AgentDecl, AstNode, File, FnDecl};
 use sdust_syntax::{parse, SyntaxNode};
 
 fn root(src: &str) -> File {

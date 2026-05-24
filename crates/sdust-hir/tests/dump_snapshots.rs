@@ -1,5 +1,5 @@
 use insta::assert_snapshot;
-use sdust_ast::{File, AstNode};
+use sdust_ast::{AstNode, File};
 use sdust_syntax::{parse, SyntaxNode};
 
 fn dump(src: &str) -> String {

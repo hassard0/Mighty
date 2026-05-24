@@ -66,8 +66,7 @@ fn agent_member(p: &mut Parser) {
         return;
     }
     if p.at(STATE_KW)
-        || (p.at(IDENT)
-            && (next_nontrivia_kind(p, 1) == EQ || next_nontrivia_kind(p, 1) == COLON))
+        || (p.at(IDENT) && (next_nontrivia_kind(p, 1) == EQ || next_nontrivia_kind(p, 1) == COLON))
     {
         state_decl(p, cp);
         return;

@@ -28,7 +28,9 @@ fn s_if_else_if() {
 
 #[test]
 fn s_match() {
-    assert_snapshot!(dump_expr("match res { Ok(v) => v, Err(e) => return Err(e) }"));
+    assert_snapshot!(dump_expr(
+        "match res { Ok(v) => v, Err(e) => return Err(e) }"
+    ));
 }
 
 #[test]

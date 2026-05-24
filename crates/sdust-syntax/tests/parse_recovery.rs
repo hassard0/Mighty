@@ -1,4 +1,4 @@
-use sdust_syntax::{parse, SyntaxNode, SyntaxKind};
+use sdust_syntax::{parse, SyntaxKind, SyntaxNode};
 
 fn parse_ok_shape(src: &str) {
     let r = parse(src);
@@ -59,7 +59,10 @@ fn recovers_after_error() {
         .descendants()
         .filter(|n| n.kind() == SyntaxKind::FN_DECL)
         .collect();
-    assert!(fns.len() >= 1, "should recover and parse at least the second fn");
+    assert!(
+        fns.len() >= 1,
+        "should recover and parse at least the second fn"
+    );
 }
 
 #[test]

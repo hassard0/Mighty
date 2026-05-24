@@ -44,10 +44,7 @@ otel = "0.1"
 
 #[test]
 fn pipeline_parses_and_lowers() {
-    let parsed = sdust_driver::parse_source(
-        "fn main() {}".to_string(),
-        "test.sd".to_string(),
-    );
+    let parsed = sdust_driver::parse_source("fn main() {}".to_string(), "test.sd".to_string());
     assert_eq!(parsed.diagnostics.len(), 0);
     let (pkg, diags) = sdust_driver::lower(&parsed);
     assert_eq!(diags.len(), 0);
