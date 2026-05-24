@@ -197,6 +197,21 @@ fn primary(p: &mut Parser) -> bool {
             true
         }
         IDENT => path_expr_or_call(p),
+        SELF_KW => {
+            // `self` parses as a single-segment path expression so postfix `.field`,
+            // method calls, etc. work uniformly.
+            p.start_node(PATH_EXPR);
+            p.start_node(PATH);
+            p.start_node(PATH_SEGMENT);
+            p.start_node(NAME_REF);
+            p.bump(SELF_KW);
+            p.finish_node();
+            p.finish_node();
+            p.finish_node();
+            p.finish_node();
+            p.skip_trivia();
+            true
+        }
         _ => false,
     }
 }
@@ -481,6 +496,7 @@ pub fn can_start_expr(k: SyntaxKind) -> bool {
             | SIZE_LITERAL
             | HTML_LITERAL
             | IDENT
+            | SELF_KW
             | L_PAREN
             | L_BRACK
             | L_BRACE

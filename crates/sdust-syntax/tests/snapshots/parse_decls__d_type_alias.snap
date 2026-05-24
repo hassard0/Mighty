@@ -1,0 +1,20 @@
+---
+source: crates/sdust-syntax/tests/parse_decls.rs
+expression: "dump(\"type UserId = U64\")"
+---
+FILE@0..17
+  TYPE_ALIAS@0..17
+    TYPE_KW@0..4 "type"
+    WHITESPACE@4..5 " "
+    NAME@5..11
+      IDENT@5..11 "UserId"
+    WHITESPACE@11..12 " "
+    EQ@12..13 "="
+    WHITESPACE@13..14 " "
+    TYPE_PATH@14..17
+      PATH@14..17
+        PATH_SEGMENT@14..17
+          NAME_REF@14..17
+            IDENT@14..17 "U64"
+
+errors: []

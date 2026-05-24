@@ -1,0 +1,68 @@
+---
+source: crates/sdust-syntax/tests/parse_decls.rs
+expression: "dump(\"fn first[T](xs: &[T]) -> Option[&T] { None }\")"
+---
+FILE@0..44
+  FN_DECL@0..44
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    NAME@3..8
+      IDENT@3..8 "first"
+    GENERIC_PARAM_LIST@8..11
+      L_BRACK@8..9 "["
+      GENERIC_PARAM@9..10
+        NAME@9..10
+          IDENT@9..10 "T"
+      R_BRACK@10..11 "]"
+    FN_PARAM_LIST@11..22
+      L_PAREN@11..12 "("
+      FN_PARAM@12..20
+        NAME@12..14
+          IDENT@12..14 "xs"
+        COLON@14..15 ":"
+        WHITESPACE@15..16 " "
+        TYPE_BORROW@16..20
+          AMP@16..17 "&"
+          TYPE_ARRAY@17..20
+            L_BRACK@17..18 "["
+            TYPE_PATH@18..19
+              PATH@18..19
+                PATH_SEGMENT@18..19
+                  NAME_REF@18..19
+                    IDENT@18..19 "T"
+            R_BRACK@19..20 "]"
+      R_PAREN@20..21 ")"
+      WHITESPACE@21..22 " "
+    THIN_ARROW@22..24 "->"
+    WHITESPACE@24..25 " "
+    RET_TYPE@25..36
+      TYPE_PATH@25..36
+        PATH@25..31
+          PATH_SEGMENT@25..31
+            NAME_REF@25..31
+              IDENT@25..31 "Option"
+        GENERIC_ARG_LIST@31..36
+          L_BRACK@31..32 "["
+          GENERIC_ARG@32..34
+            TYPE_BORROW@32..34
+              AMP@32..33 "&"
+              TYPE_PATH@33..34
+                PATH@33..34
+                  PATH_SEGMENT@33..34
+                    NAME_REF@33..34
+                      IDENT@33..34 "T"
+          R_BRACK@34..35 "]"
+          WHITESPACE@35..36 " "
+    BLOCK@36..44
+      L_BRACE@36..37 "{"
+      WHITESPACE@37..38 " "
+      EXPR_STMT@38..43
+        PATH_EXPR@38..43
+          PATH@38..43
+            PATH_SEGMENT@38..42
+              NAME_REF@38..42
+                IDENT@38..42 "None"
+            WHITESPACE@42..43 " "
+      R_BRACE@43..44 "}"
+
+errors: []

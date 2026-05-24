@@ -1,0 +1,24 @@
+---
+source: crates/sdust-syntax/tests/parse_decls.rs
+expression: "dump(\"const PAGE: USize = 4096\")"
+---
+FILE@0..24
+  CONST_DECL@0..24
+    CONST_KW@0..5 "const"
+    WHITESPACE@5..6 " "
+    NAME@6..10
+      IDENT@6..10 "PAGE"
+    COLON@10..11 ":"
+    WHITESPACE@11..12 " "
+    TYPE_PATH@12..18
+      PATH@12..18
+        PATH_SEGMENT@12..17
+          NAME_REF@12..17
+            IDENT@12..17 "USize"
+        WHITESPACE@17..18 " "
+    EQ@18..19 "="
+    WHITESPACE@19..20 " "
+    LITERAL_EXPR@20..24
+      INT_LITERAL@20..24 "4096"
+
+errors: []

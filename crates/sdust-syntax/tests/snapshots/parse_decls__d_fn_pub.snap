@@ -1,0 +1,70 @@
+---
+source: crates/sdust-syntax/tests/parse_decls.rs
+expression: "dump(\"pub fn add(a: I32, b: I32) -> I32 { a + b }\")"
+---
+FILE@0..43
+  FN_DECL@0..43
+    VISIBILITY@0..3
+      PUB_KW@0..3 "pub"
+    WHITESPACE@3..4 " "
+    FN_KW@4..6 "fn"
+    WHITESPACE@6..7 " "
+    NAME@7..10
+      IDENT@7..10 "add"
+    FN_PARAM_LIST@10..27
+      L_PAREN@10..11 "("
+      FN_PARAM@11..17
+        NAME@11..12
+          IDENT@11..12 "a"
+        COLON@12..13 ":"
+        WHITESPACE@13..14 " "
+        TYPE_PATH@14..17
+          PATH@14..17
+            PATH_SEGMENT@14..17
+              NAME_REF@14..17
+                IDENT@14..17 "I32"
+      COMMA@17..18 ","
+      WHITESPACE@18..19 " "
+      FN_PARAM@19..25
+        NAME@19..20
+          IDENT@19..20 "b"
+        COLON@20..21 ":"
+        WHITESPACE@21..22 " "
+        TYPE_PATH@22..25
+          PATH@22..25
+            PATH_SEGMENT@22..25
+              NAME_REF@22..25
+                IDENT@22..25 "I32"
+      R_PAREN@25..26 ")"
+      WHITESPACE@26..27 " "
+    THIN_ARROW@27..29 "->"
+    WHITESPACE@29..30 " "
+    RET_TYPE@30..34
+      TYPE_PATH@30..34
+        PATH@30..34
+          PATH_SEGMENT@30..33
+            NAME_REF@30..33
+              IDENT@30..33 "I32"
+          WHITESPACE@33..34 " "
+    BLOCK@34..43
+      L_BRACE@34..35 "{"
+      WHITESPACE@35..36 " "
+      EXPR_STMT@36..42
+        BINARY_EXPR@36..42
+          PATH_EXPR@36..38
+            PATH@36..38
+              PATH_SEGMENT@36..37
+                NAME_REF@36..37
+                  IDENT@36..37 "a"
+              WHITESPACE@37..38 " "
+          PLUS@38..39 "+"
+          WHITESPACE@39..40 " "
+          PATH_EXPR@40..42
+            PATH@40..42
+              PATH_SEGMENT@40..41
+                NAME_REF@40..41
+                  IDENT@40..41 "b"
+              WHITESPACE@41..42 " "
+      R_BRACE@42..43 "}"
+
+errors: []

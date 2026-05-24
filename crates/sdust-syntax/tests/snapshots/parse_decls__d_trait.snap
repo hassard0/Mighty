@@ -1,0 +1,37 @@
+---
+source: crates/sdust-syntax/tests/parse_decls.rs
+expression: "dump(\"trait Hash { fn hash(self) -> U64 }\")"
+---
+FILE@0..35
+  TRAIT_DECL@0..35
+    TRAIT_KW@0..5 "trait"
+    WHITESPACE@5..6 " "
+    NAME@6..10
+      IDENT@6..10 "Hash"
+    WHITESPACE@10..11 " "
+    L_BRACE@11..12 "{"
+    WHITESPACE@12..13 " "
+    TRAIT_METHOD@13..34
+      FN_DECL@13..34
+        FN_KW@13..15 "fn"
+        WHITESPACE@15..16 " "
+        NAME@16..20
+          IDENT@16..20 "hash"
+        FN_PARAM_LIST@20..27
+          L_PAREN@20..21 "("
+          FN_PARAM@21..25
+            SELF_KW@21..25 "self"
+          R_PAREN@25..26 ")"
+          WHITESPACE@26..27 " "
+        THIN_ARROW@27..29 "->"
+        WHITESPACE@29..30 " "
+        RET_TYPE@30..34
+          TYPE_PATH@30..34
+            PATH@30..34
+              PATH_SEGMENT@30..33
+                NAME_REF@30..33
+                  IDENT@30..33 "U64"
+              WHITESPACE@33..34 " "
+    R_BRACE@34..35 "}"
+
+errors: []

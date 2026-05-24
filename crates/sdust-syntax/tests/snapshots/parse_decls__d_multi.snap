@@ -1,0 +1,64 @@
+---
+source: crates/sdust-syntax/tests/parse_decls.rs
+expression: "dump(\"pub fn a() = 1\\n\\nstruct B { x: I32 }\\n\\nconst C: I32 = 0\\n\")"
+---
+FILE@0..54
+  FN_DECL@0..16
+    VISIBILITY@0..3
+      PUB_KW@0..3 "pub"
+    WHITESPACE@3..4 " "
+    FN_KW@4..6 "fn"
+    WHITESPACE@6..7 " "
+    NAME@7..8
+      IDENT@7..8 "a"
+    FN_PARAM_LIST@8..11
+      L_PAREN@8..9 "("
+      R_PAREN@9..10 ")"
+      WHITESPACE@10..11 " "
+    EQ@11..12 "="
+    WHITESPACE@12..13 " "
+    LITERAL_EXPR@13..14
+      INT_LITERAL@13..14 "1"
+    WHITESPACE@14..16 "\n\n"
+  STRUCT_DECL@16..37
+    STRUCT_KW@16..22 "struct"
+    WHITESPACE@22..23 " "
+    NAME@23..24
+      IDENT@23..24 "B"
+    WHITESPACE@24..25 " "
+    L_BRACE@25..26 "{"
+    WHITESPACE@26..27 " "
+    STRUCT_FIELD_LIST@27..34
+      STRUCT_FIELD@27..34
+        NAME@27..28
+          IDENT@27..28 "x"
+        COLON@28..29 ":"
+        WHITESPACE@29..30 " "
+        TYPE_PATH@30..34
+          PATH@30..34
+            PATH_SEGMENT@30..33
+              NAME_REF@30..33
+                IDENT@30..33 "I32"
+            WHITESPACE@33..34 " "
+    R_BRACE@34..35 "}"
+    WHITESPACE@35..37 "\n\n"
+  CONST_DECL@37..54
+    CONST_KW@37..42 "const"
+    WHITESPACE@42..43 " "
+    NAME@43..44
+      IDENT@43..44 "C"
+    COLON@44..45 ":"
+    WHITESPACE@45..46 " "
+    TYPE_PATH@46..50
+      PATH@46..50
+        PATH_SEGMENT@46..49
+          NAME_REF@46..49
+            IDENT@46..49 "I32"
+        WHITESPACE@49..50 " "
+    EQ@50..51 "="
+    WHITESPACE@51..52 " "
+    LITERAL_EXPR@52..53
+      INT_LITERAL@52..53 "0"
+    WHITESPACE@53..54 "\n"
+
+errors: []

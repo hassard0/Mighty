@@ -1,0 +1,40 @@
+---
+source: crates/sdust-syntax/tests/parse_decls.rs
+expression: "dump(\"struct User { id: U64, name: String }\")"
+---
+FILE@0..37
+  STRUCT_DECL@0..37
+    STRUCT_KW@0..6 "struct"
+    WHITESPACE@6..7 " "
+    NAME@7..11
+      IDENT@7..11 "User"
+    WHITESPACE@11..12 " "
+    L_BRACE@12..13 "{"
+    WHITESPACE@13..14 " "
+    STRUCT_FIELD_LIST@14..36
+      STRUCT_FIELD@14..21
+        NAME@14..16
+          IDENT@14..16 "id"
+        COLON@16..17 ":"
+        WHITESPACE@17..18 " "
+        TYPE_PATH@18..21
+          PATH@18..21
+            PATH_SEGMENT@18..21
+              NAME_REF@18..21
+                IDENT@18..21 "U64"
+      COMMA@21..22 ","
+      WHITESPACE@22..23 " "
+      STRUCT_FIELD@23..36
+        NAME@23..27
+          IDENT@23..27 "name"
+        COLON@27..28 ":"
+        WHITESPACE@28..29 " "
+        TYPE_PATH@29..36
+          PATH@29..36
+            PATH_SEGMENT@29..35
+              NAME_REF@29..35
+                IDENT@29..35 "String"
+            WHITESPACE@35..36 " "
+    R_BRACE@36..37 "}"
+
+errors: []
