@@ -1,0 +1,29 @@
+// v0.6 conformance: under the multi-worker scheduler, an agent's
+// mailbox still preserves FIFO order for back-to-back asks from the
+// same caller. Cross-worker dispatch must not reorder.
+//
+// The SIR-level runner just exercises the spec semantics; the
+// `crates/sdust-runtime/tests/multicore_fifo.rs` integration test
+// exercises the same shape under the actual multi-worker runtime
+// with 4 workers.
+
+protocol Acc {
+  Add(n: I64) -> I64
+}
+
+agent Accumulator: Acc {
+  total = 0
+  on Add(n) -> { total += n; total }
+}
+
+fn main() {
+  let h = spawn Accumulator()
+  let a = h?Add(1)
+  let b = h?Add(2)
+  let c = h?Add(3)
+  let d = h?Add(4)
+  log(a.to_str())
+  log(b.to_str())
+  log(c.to_str())
+  log(d.to_str())
+}

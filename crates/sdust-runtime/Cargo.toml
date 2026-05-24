@@ -18,6 +18,8 @@ dashmap.workspace = true
 thiserror.workspace = true
 bumpalo.workspace = true
 libloading.workspace = true
+crossbeam-deque.workspace = true
+crossbeam-utils.workspace = true
 opentelemetry = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }

@@ -9,6 +9,21 @@
 //!   [`crate::agent::run_one_turn_async`].
 //! - mailbox capacity defaults to the slab-pool default
 //!   ([`crate::slab_pool::DEFAULT_POOL_SIZE`]).
+//!
+//! v0.6 changes:
+//!
+//! - The single tokio runtime is replaced by an `Arc<Scheduler>` that
+//!   owns N **worker threads**, each with its own tokio current-thread
+//!   runtime and a crossbeam-deque local LIFO + global injector +
+//!   sibling stealing (see [`crate::scheduler`]).
+//! - Each spawned agent is pinned to a worker via [`Affinity`] (round-
+//!   robin elastic by default; sticky agents pin to worker 0).
+//! - A background load monitor migrates elastic agents away from
+//!   overloaded workers every ~100 ms (best-effort).
+//! - `RuntimeBuilder::workers(n)` controls worker count (default
+//!   `num_cpus::get()`-equivalent via `std::thread::available_parallelism`).
+//!   `workers(1)` + `deterministic(seed)` reproduces v0.5 behavior
+//!   exactly.
 
 use crate::agent::{run_one_turn_async, AgentDescriptor, AgentHandle, AgentRegistry, TurnOutcome};
 use crate::budget::{Budget, BudgetTracker};
@@ -16,7 +31,7 @@ use crate::cancel::{CancelReason, CancellationToken};
 use crate::error::{RuntimeError, RuntimeResult};
 use crate::host_std::StdHost;
 use crate::mailbox::{Mailbox, MessageFrame, SendPolicy, SmallPayload};
-use crate::scheduler::Scheduler;
+use crate::scheduler::{Affinity, LoadMonitor, Scheduler};
 use crate::slab_pool::DEFAULT_POOL_SIZE;
 use crate::supervisor::SupervisorRegistry;
 use crate::telemetry::{TelemetryEvent, TelemetrySink};
@@ -25,7 +40,7 @@ use parking_lot::Mutex;
 use sdust_sir::interp::host::Host;
 use sdust_sir::interp::value::Value;
 use sdust_sir::sir::{Agent as SirAgent, Program};
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
@@ -37,24 +52,36 @@ pub enum RunOutcome {
     Timeout,
 }
 
+/// How many worker threads to spin up by default. We prefer
+/// `std::thread::available_parallelism` over `num_cpus` to avoid a new
+/// workspace dep, and fall back to 1 when the platform refuses to tell us.
+fn default_worker_count() -> usize {
+    // Deterministic-mode callers always override via .workers(1), so a
+    // multi-core default is safe.
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+}
+
 #[derive(Debug)]
 pub struct RuntimeBuilder {
     deterministic_seed: Option<u64>,
     telemetry: TelemetrySink,
     default_budget: Budget,
-    threads: usize,
+    workers: usize,
 }
 
 impl Default for RuntimeBuilder {
     fn default() -> Self {
+        let env_workers = std::env::var("STARDUST_RUNTIME_THREADS")
+            .ok()
+            .and_then(|s| s.parse().ok());
+        let workers = env_workers.unwrap_or_else(default_worker_count);
         Self {
             deterministic_seed: None,
             telemetry: TelemetrySink::from_env(),
             default_budget: Budget::default(),
-            threads: std::env::var("STARDUST_RUNTIME_THREADS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(1),
+            workers,
         }
     }
 }
@@ -75,25 +102,41 @@ impl RuntimeBuilder {
         self.default_budget = b;
         self
     }
-    pub fn threads(mut self, n: usize) -> Self {
-        self.threads = n;
+    /// Set worker thread count (v0.6). The slice-7 `.threads(n)` alias
+    /// is kept for backwards-compat.
+    pub fn workers(mut self, n: usize) -> Self {
+        self.workers = n.max(1);
         self
+    }
+    /// Slice-7 alias; same semantics as [`Self::workers`].
+    pub fn threads(self, n: usize) -> Self {
+        self.workers(n)
     }
     pub fn build(self, prog: Arc<Program>) -> Runtime {
         let scheduler = if self.deterministic_seed.is_some() {
-            Scheduler::current_thread()
+            Scheduler::deterministic_single()
         } else {
-            Scheduler::multi_thread(self.threads)
+            Scheduler::multi_worker(self.workers)
+        };
+        let scheduler = Arc::new(scheduler);
+        // Spin up the load monitor unless we're in deterministic mode.
+        let monitor = if scheduler.deterministic || scheduler.worker_count() < 2 {
+            None
+        } else {
+            Some(Arc::new(LoadMonitor::new(scheduler.clone())))
         };
         Runtime {
             prog,
-            scheduler: Arc::new(scheduler),
+            scheduler,
             registry: Arc::new(AgentRegistry::new()),
             supervisors: Arc::new(SupervisorRegistry::new()),
             telemetry: Arc::new(self.telemetry),
             default_budget: self.default_budget,
             tasks: Mutex::new(Vec::new()),
             shutdown_token: CancellationToken::new(),
+            monitor,
+            monitor_thread: Mutex::new(None),
+            monitor_stop: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -109,18 +152,73 @@ pub struct Runtime {
     /// Runtime-wide root cancellation token. Per-agent loops listen
     /// for this; `shutdown` fires it with `CancelReason::Shutdown`.
     pub shutdown_token: CancellationToken,
+    /// Best-effort load monitor that migrates elastic agents between
+    /// workers when imbalance crosses the threshold. `None` in
+    /// deterministic mode or single-worker.
+    pub monitor: Option<Arc<LoadMonitor>>,
+    monitor_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    monitor_stop: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for Runtime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Runtime")
             .field("agents", &self.registry.len())
+            .field("workers", &self.scheduler.worker_count())
             .finish()
     }
 }
 
 impl Runtime {
-    pub async fn spawn_agent(&self, name: &str, _args: Vec<Value>) -> RuntimeResult<AgentHandle> {
+    /// Start any background services (load monitor). Idempotent.
+    pub fn start_monitor(&self) {
+        if self.monitor.is_none() {
+            return;
+        }
+        let mut slot = self.monitor_thread.lock();
+        if slot.is_some() {
+            return;
+        }
+        let monitor = self.monitor.as_ref().unwrap().clone();
+        let stop = self.monitor_stop.clone();
+        let interval = monitor.interval;
+        let scheduler = self.scheduler.clone();
+        let telemetry = self.telemetry.clone();
+        let thread = std::thread::Builder::new()
+            .name("sdust-monitor".into())
+            .spawn(move || {
+                while !stop.load(Ordering::Acquire) {
+                    if let Some((from, to, agent_id)) = monitor.sample_once() {
+                        // Migrate. We can't kill the agent's current loop
+                        // mid-recv without losing buffered messages, so the
+                        // migration just retargets *future* spawns and
+                        // updates the routing table. The next time the
+                        // agent loop is respawned (e.g. supervisor restart)
+                        // it will land on `to`.
+                        scheduler.update_route_worker(agent_id, to);
+                        telemetry.emit(&TelemetryEvent::Spawn {
+                            name: format!("(migrate agent #{} {}->{})", agent_id, from, to),
+                            agent_id,
+                        });
+                    }
+                    std::thread::sleep(interval);
+                }
+            })
+            .expect("spawn monitor thread");
+        *slot = Some(thread);
+    }
+
+    pub async fn spawn_agent(&self, name: &str, args: Vec<Value>) -> RuntimeResult<AgentHandle> {
+        self.spawn_agent_with_affinity(name, args, Affinity::Elastic).await
+    }
+
+    /// v0.6: spawn with an explicit affinity hint.
+    pub async fn spawn_agent_with_affinity(
+        &self,
+        name: &str,
+        _args: Vec<Value>,
+        affinity: Affinity,
+    ) -> RuntimeResult<AgentHandle> {
         let agent = self
             .prog
             .agent_by_name(name)
@@ -146,11 +244,14 @@ impl Runtime {
             mailbox_depth: AtomicU64::new(0),
         });
         self.registry.insert(desc.clone());
+        // Pick worker + register route.
+        let worker = self.scheduler.assign_worker(affinity);
+        self.scheduler.register_route(id.0, worker, affinity);
         self.telemetry.emit(&TelemetryEvent::Spawn {
             name: name.into(),
             agent_id: id.0,
         });
-        let task = spawn_agent_loop(self, desc.clone());
+        let task = spawn_agent_loop(self, desc.clone(), worker);
         self.tasks.lock().push(task);
         Ok(AgentHandle {
             id,
@@ -207,8 +308,13 @@ impl Runtime {
         for t in self.tasks.lock().drain(..) {
             t.abort();
         }
+        self.monitor_stop.store(true, Ordering::Release);
+        if let Some(t) = self.monitor_thread.lock().take() {
+            let _ = t.join();
+        }
         self.telemetry.emit(&TelemetryEvent::Shutdown);
         self.telemetry.flush();
+        // Scheduler `Drop` joins worker threads.
         RunOutcome::Ok
     }
 }
@@ -224,7 +330,11 @@ fn build_initial_state(prog: &Program, agent: &SirAgent) -> Value {
     }
 }
 
-fn spawn_agent_loop(rt: &Runtime, desc: Arc<AgentDescriptor>) -> JoinHandle<()> {
+fn spawn_agent_loop(
+    rt: &Runtime,
+    desc: Arc<AgentDescriptor>,
+    worker: usize,
+) -> JoinHandle<()> {
     let prog = rt.prog.clone();
     let telemetry = rt.telemetry.clone();
     let registry = rt.registry.clone();
@@ -234,7 +344,8 @@ fn spawn_agent_loop(rt: &Runtime, desc: Arc<AgentDescriptor>) -> JoinHandle<()> 
         .mailbox
         .take_receiver()
         .expect("mailbox receiver already taken");
-    rt.scheduler.rt.spawn(async move {
+    let handle = rt.scheduler.handle_for(worker);
+    handle.spawn(async move {
         let host: Arc<Mutex<Box<dyn Host + Send>>> =
             Arc::new(Mutex::new(Box::new(StdHost::new(desc.budget.clone()))));
         while let Some(frame) = rx.recv().await {

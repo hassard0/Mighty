@@ -1,0 +1,23 @@
+// v0.6 throughput smoke: a single accumulator gets a small batch of
+// asks and the result is the sum. The companion Rust integration test
+// in `crates/sdust-runtime/tests/multicore_throughput_smoke.rs`
+// stresses the same shape with 4 workers x 4 agents x 10k messages
+// under the multi-worker runtime.
+
+protocol Acc {
+  Add(n: I64) -> I64
+}
+
+agent Accumulator: Acc {
+  total = 0
+  on Add(n) -> { total += n; total }
+}
+
+fn main() {
+  let h = spawn Accumulator()
+  let mut last = 0
+  for _i in 1..11 {
+    last = h?Add(1)
+  }
+  log(last.to_str())
+}
