@@ -1,0 +1,17 @@
+// v0.5 conformance: break only exits the innermost loop.
+// Outer runs 3 times, inner runs 2 times each => total = 6.
+fn main() -> I32 {
+  let mut outer = 0
+  let mut total = 0
+  loop {
+    if outer >= 3 { break }
+    let mut inner = 0
+    loop {
+      if inner >= 2 { break }
+      total = total + 1
+      inner = inner + 1
+    }
+    outer = outer + 1
+  }
+  total
+}

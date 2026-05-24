@@ -366,3 +366,41 @@ Trichotomy with neighbouring codes:
 | SD3001 | Use of a value already moved                |
 | SD3008 | Move out of a currently-borrowed value      |
 | SD3009 | Move via deref of a reference (non-Copy)    |
+
+## 20. v0.5 / A82 — Loop back-edges
+
+Slice 4 walked each loop body exactly once, leaving the borrow ledger
+at the bottom of the body. That state is wrong for any borrow whose
+constraints have to hold across the back-edge: a borrow opened in the
+body and dropped before the next iteration could falsely conflict
+with a re-take, and a borrow held past the back-edge could escape the
+checker entirely.
+
+`BorrowCx::loop_fixed_point(body_walker)` (called by `Loop`, `While`,
+and `For` arms of `walk_expr`):
+
+1. Snapshot the pre-body `locals` map + `BorrowLedger`.
+2. Walk the body. Conservatively join the post-body state into the
+   pre-body baseline using the same `join_states` + `join_ledgers`
+   primitives that handle `if` / `match`. The ledger join keeps
+   records present in EITHER branch (slice 4 §17).
+3. Convergence: when `self.ledger.records.len()` is stable across two
+   passes, return. The join is monotonic in the records, so equal
+   counts mean equal joined ledgers.
+4. Bounded at 16 iterations (a fail-safe so a divergent body still
+   terminates analysis). After the cap, do one last pass + join and
+   exit.
+
+The combination of (a) the fixed-point and (b) the conservative join
+means a borrow taken inside the body is "live across the back-edge"
+for the duration of every subsequent iteration that the analysis
+examines — which is sound, if occasionally over-restrictive. The
+v0.6 plan is to add a finer-grained NLL-style liveness for borrow
+records taken inside the body; for v0.5 the bounded join is enough
+to support real loops without spinning the checker.
+
+`break <value>` flows the value at `Position::Move`; `continue` is a
+no-op for the walker — its only role is to truncate the body's
+remaining statements at the SIR level, which the borrow check doesn't
+need to see because the join already covers every possible post-body
+state.

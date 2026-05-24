@@ -3,7 +3,9 @@
 Per Stardust v0.1 spec §37. Each subdirectory holds tests for one category.
 
 Slice-1 categories (populated): `lexical/`, `parser/`, `formatter_idempotence/`.
-Other categories are placeholders; later slices fill them.
+v0.5 additions: `control_flow/` (break, continue, iterator protocol — see
+`control_flow/README.md`). Other categories are placeholders; later
+slices fill them.
 
 ## Running
 

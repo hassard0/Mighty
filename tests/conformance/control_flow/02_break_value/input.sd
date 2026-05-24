@@ -1,0 +1,5 @@
+// v0.5 conformance: `let x = loop { break 42 }` evaluates to 42.
+fn main() -> I32 {
+  let x = loop { break 42 }
+  x
+}
