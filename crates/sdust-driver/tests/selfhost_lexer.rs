@@ -245,59 +245,29 @@ fn selfhost_lexer_compiles() {
 
 #[test]
 fn selfhost_lexer_first_token_matches() {
-    // v0.4 PARTIAL bootstrap, post loop-fix: the Stardust lexer reaches
-    // the host via the std.io effect bridge — `lex_init` runs (so the
-    // host caches the source) and `lex_len` is queried — but the
-    // scanning loops don't terminate yet because HIR has no `break`
-    // node. The lexer's `loop { if cond { break } … }` pattern parses
-    // `break` as an identifier expression that has no effect, so each
-    // sub-scanner's inner loop (the very first one entered:
-    // `scan_ident_or_keyword`'s ident-continuation walk for the lead
-    // `f` in `fn`) spins until the interpreter trips
-    // `RunResult::BudgetExceeded`. No `emit` call lands.
-    //
-    // What v0.4 verifies:
-    //   * the lexer source compiles, types and borrow-checks (see
-    //     `selfhost_lexer_compiles`)
-    //   * the SIR loop terminator fix is live: previously the outer
-    //     `loop` collapsed after one iteration and the run finished
-    //     with `Ok` after emitting only the trailing EOF. Now every
-    //     loop body genuinely iterates, demonstrated by tripping the
-    //     step budget rather than exiting cleanly.
-    //   * the std.io host bridge is wired (lex_init + lex_len + first
-    //     lex_byte_at calls happen — proved by the run consuming
-    //     budget rather than no-op-ing).
-    //
-    // The full token diff is gated on the v0.5 `break`/`continue` HIR
-    // nodes + iterator protocol (see `selfhost_lexer_full_diff_against_rust`).
+    // v0.5 (post break + iterator protocol): the lexer now terminates.
+    // We assert that the first emitted token is `FN_KW` covering bytes
+    // 0..2 of the input — the canonical "fn ..." opening shape. The
+    // full token-stream diff is `selfhost_lexer_full_diff_against_rust`
+    // below; this is the quick smoke test.
     let input = "fn main() { log(\"hi\") }";
     let SelfhostRun { tokens, result } =
         run_selfhost_lexer(input).expect("Stardust lexer compile should succeed");
 
-    // v0.4 expected outcome: the inner scanning loops iterate (loop
-    // fix is live) and run to step-budget exhaustion because `break`
-    // is not yet an HIR node.
     assert!(
-        matches!(result, RunResult::BudgetExceeded),
-        "v0.4 expects the self-hosted lexer to trip the step budget \
-         (loops iterate, but `break` is not yet HIR-supported); \
-         got: {:?} after {} emits",
-        result,
-        tokens.len()
+        matches!(result, RunResult::Ok { .. }),
+        "self-hosted lexer should now terminate cleanly: {:?}",
+        result
     );
-    // No emits land — see the note above. When v0.5 wires `break`,
-    // this assertion becomes "first token == FN_KW" and the test
-    // graduates into the full-diff acceptance below.
-    assert!(
-        tokens.is_empty(),
-        "v0.4 expects zero emits (scan_* never returns); \
-         saw {} tokens — does the lexer now have working break?",
-        tokens.len()
-    );
+    let first = tokens
+        .first()
+        .expect("at least one token (FN_KW) should be emitted");
+    assert_eq!(first.kind, "FN_KW", "first token kind: {:?}", first);
+    assert_eq!(first.start, 0, "first token starts at 0");
+    assert_eq!(first.end, 2, "first token ends at byte 2");
 }
 
 #[test]
-#[ignore = "v0.5 — gated on `break`/`continue` HIR nodes + iterator protocol (SELFHOST_V0_4_NOTES.md / SLICE_V0_4.md)"]
 fn selfhost_lexer_full_diff_against_rust() {
     // Full v0.5 acceptance: every emitted token (kind + start + end)
     // matches the Rust reference impl byte-for-byte. v0.4 unblocked

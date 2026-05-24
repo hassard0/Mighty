@@ -945,10 +945,7 @@ fn lower_for(
     let idx_local = fb.fresh_temp(SirTy::Int(sdust_types::IntKind::USize));
     fb.push_stmt(Stmt::Assign(
         Place::local(idx_local),
-        Rvalue::Use(Operand::Const(Const::Int(
-            0,
-            sdust_types::IntKind::USize,
-        ))),
+        Rvalue::Use(Operand::Const(Const::Int(0, sdust_types::IntKind::USize))),
     ));
 
     let header = fb.new_block();
@@ -960,9 +957,11 @@ fn lower_for(
 
     // Header: probe the iterator. The result is a tuple
     // `(exhausted: Bool, element: T)` — we test `exhausted` and either
-    // bind the element to `pat` or fall through to the exit.
+    // bind the element to `pat` or fall through to the exit. The temp
+    // is typed as a 2-tuple (Bool, Error) so the AOT backends can
+    // compute tuple offsets; the interpreter ignores the element type.
     fb.switch_to(header);
-    let probe_temp = fb.fresh_temp(SirTy::Error);
+    let probe_temp = fb.fresh_temp(SirTy::Tuple(vec![SirTy::Bool, SirTy::Error]));
     fb.push_stmt(Stmt::Assign(
         Place::local(probe_temp),
         Rvalue::MethodCall {
