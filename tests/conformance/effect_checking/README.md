@@ -6,14 +6,14 @@ they (transitively) perform. The `core` profile additionally bans
 
 ## Cases
 
-- `01_undeclared_net` — SD4001: `pub fn` uses `net.get` but doesn't
+- `01_undeclared_net` — MT4001: `pub fn` uses `net.get` but doesn't
   declare `!{net}`.
 - `02_declared_ok` — positive: same shape, but with `!{net}`
   declaration, check is clean.
-- `03_undeclared_fs` — SD4001 against `fs.read`.
+- `03_undeclared_fs` — MT4001 against `fs.read`.
 
-ALLOC_IN_CORE (SD4002) requires a `star.toml` with `profile = "core"`
+ALLOC_IN_CORE (MT4002) requires a `star.toml` with `profile = "core"`
 on disk at the time of check. Because the conformance driver runs in
-the workspace root (which does not have such a manifest), the SD4002
+the workspace root (which does not have such a manifest), the MT4002
 case is documented in `CONFORMANCE_V0_2_FINDINGS.md` rather than
 populated here.

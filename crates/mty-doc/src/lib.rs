@@ -7,11 +7,11 @@
 //!
 //! Entry points:
 //!
-//! - [`build_doc_package`] — parse a `.sd` source and produce a
+//! - [`build_doc_package`] — parse a `.mty` source and produce a
 //!   [`DocPackage`] IR.
-//! - [`render::text`] — Go-style stdout output (`sdust doc`).
+//! - [`render::text`] — Go-style stdout output (`mty doc`).
 //! - [`render::item_text`] — single-item Go-style output
-//!   (`sdust doc Item`).
+//!   (`mty doc Item`).
 //! - [`render::markdown`] — full markdown tree (one file per module).
 //! - [`render::html`] — full HTML site (per-module pages + index +
 //!   embedded CSS + search index).

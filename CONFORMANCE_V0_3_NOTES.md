@@ -40,11 +40,11 @@ passes.
 The v0.2 entry said:
 
 > SIR slice-6 lowers `loop` as single-iteration (no `break` codegen
-> yet) so the case never trips SD5009
+> yet) so the case never trips MT5009
 
 That's a real interpreter limitation that we can't fix without
 touching `sdust-sir` (another agent's crate). But the *intent* of the
-case — "exceed the step budget → trap with SD5009 → exit 3" — is
+case — "exceed the step budget → trap with MT5009 → exit 3" — is
 realisable with a different unbounded shape. We rewrote
 `input.sd` to use recursion:
 
@@ -64,10 +64,10 @@ interpreter's default budget — so with the 1M default, the test
 process overflows its stack instead of trapping cleanly. To work
 around this, the harness gained a `step_budget.txt` per-case knob
 (read by `load_case`, threaded into `run_fn_with_budget` when
-present). This case sets it to `500` so SD5009 fires well before
+present). This case sets it to `500` so MT5009 fires well before
 the Rust stack runs out.
 
-Result: case runs, traps with SD5009, exit 3, matching
+Result: case runs, traps with MT5009, exit 3, matching
 `expected_diagnostics.txt` + `expected_exit_code.txt`.
 
 ## Still ignored in v0.3 (2)
@@ -88,7 +88,7 @@ fn driver(fs: Fs) -> Bytes!IoErr {
 ```
 
 `expected_diagnostics.txt` is empty → type-check should pass clean.
-Today the harness reports two SD2001 type mismatches (one on each
+Today the harness reports two MT2001 type mismatches (one on each
 `fs.read(p)` / `read_only_user(ro, ...)` call). The narrowed `Fs.ro`
 capability returns an opaque `Cap` that the checker can't equate
 with the parameter `Fs` type — that's the slice-8 cap-narrowing impl
@@ -112,7 +112,7 @@ supervisor Critical(strategy: one_for_one) {
 
 `sdust-syntax`'s `agents::sup_action` parser only accepts `restart`
 and `backoff` actions; `escalate` is a planned A60+ addition that
-hasn't landed. Today the case panics with `SD0001` (parse error).
+hasn't landed. Today the case panics with `MT0001` (parse error).
 
 Fix is a ~5-line addition to `crates/sdust-syntax/src/parser/agents.rs`
 + the matching `SyntaxKind::ESCALATE_KW` definition + an AST node.

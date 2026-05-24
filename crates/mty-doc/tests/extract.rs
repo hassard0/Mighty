@@ -21,7 +21,7 @@ pub fn add(a: I32, b: I32) -> I32 {
 /// # Since
 /// 0.2.0
 ///
-/// ```sd
+/// ```mty
 /// let u = User { id: 1, name: "ada" }
 /// ```
 pub struct User {
@@ -40,7 +40,7 @@ pub fn undocumented() {}
 
 #[test]
 fn extracts_package_doc() {
-    let (doc, diags) = build_doc_package(FIXTURE, "fixture.sd", "fixture");
+    let (doc, diags) = build_doc_package(FIXTURE, "fixture.mty", "fixture");
     assert!(
         diags
             .iter()
@@ -59,7 +59,7 @@ fn extracts_package_doc() {
 
 #[test]
 fn extracts_fn_with_synopsis_and_body() {
-    let (doc, _) = build_doc_package(FIXTURE, "fixture.sd", "fixture");
+    let (doc, _) = build_doc_package(FIXTURE, "fixture.mty", "fixture");
     let add = doc.items.iter().find(|i| i.name == "add").expect("add");
     assert_eq!(add.kind, DocItemKind::Fn);
     assert_eq!(add.visibility, DocVisibility::Public);
@@ -71,13 +71,13 @@ fn extracts_fn_with_synopsis_and_body() {
 
 #[test]
 fn extracts_struct_with_since_and_example() {
-    let (doc, _) = build_doc_package(FIXTURE, "fixture.sd", "fixture");
+    let (doc, _) = build_doc_package(FIXTURE, "fixture.mty", "fixture");
     let user = doc.items.iter().find(|i| i.name == "User").expect("User");
     assert_eq!(user.kind, DocItemKind::Struct);
     assert_eq!(user.visibility, DocVisibility::Public);
     assert_eq!(user.since.as_deref(), Some("0.2.0"));
     assert_eq!(user.examples.len(), 1);
-    assert_eq!(user.examples[0].language, "sd");
+    assert_eq!(user.examples[0].language, "mty");
     assert!(user.examples[0].code.contains("User { id: 1"));
     assert!(user.signature.plain.contains("pub struct User"));
     assert!(user.signature.plain.contains("id: I32"));
@@ -85,14 +85,14 @@ fn extracts_struct_with_since_and_example() {
 
 #[test]
 fn private_items_are_marked_private() {
-    let (doc, _) = build_doc_package(FIXTURE, "fixture.sd", "fixture");
+    let (doc, _) = build_doc_package(FIXTURE, "fixture.mty", "fixture");
     let greet = doc.items.iter().find(|i| i.name == "greet").expect("greet");
     assert_eq!(greet.visibility, DocVisibility::Private);
 }
 
 #[test]
 fn undocumented_item_has_empty_synopsis() {
-    let (doc, _) = build_doc_package(FIXTURE, "fixture.sd", "fixture");
+    let (doc, _) = build_doc_package(FIXTURE, "fixture.mty", "fixture");
     let u = doc
         .items
         .iter()
@@ -111,7 +111,7 @@ fn comment_separated_by_blank_line_does_not_attach() {
 
 pub fn foo() {}
 "#;
-    let (doc, _) = build_doc_package(src, "blank.sd", "blank");
+    let (doc, _) = build_doc_package(src, "blank.mty", "blank");
     let foo = doc.items.iter().find(|i| i.name == "foo").expect("foo");
     assert_eq!(foo.synopsis, "");
 }
@@ -126,7 +126,7 @@ pub fn inner() -> I32 { 1 }
 /// Outer caller — invokes [inner].
 pub fn outer() -> I32 { inner() }
 "#;
-    let (doc, _) = build_doc_package(src, "bl.sd", "bl");
+    let (doc, _) = build_doc_package(src, "bl.mty", "bl");
     let inner = doc.items.iter().find(|i| i.name == "inner").expect("inner");
     assert!(
         inner.used_by.iter().any(|s| s == "outer"),

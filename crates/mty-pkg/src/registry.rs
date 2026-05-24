@@ -9,7 +9,7 @@
 //!   package source) plus `<package-name>-<version>.tar.gz.sha256`
 //!   (single line, lowercase hex of the tarball's sha256).
 //! - **Body** (release description): a copy of the package's
-//!   `star.toml` manifest.
+//!   `mighty.toml` manifest.
 //!
 //! The index is the list of releases from GitHub's REST API; the
 //! fetcher caches it locally with a 1-hour TTL.
@@ -46,7 +46,7 @@ pub const DEFAULT_REGISTRY_SLUG: &str = "stardust-pkg/registry";
 /// In-package cache TTL for a fetched registry index (1 hour).
 pub const INDEX_TTL_SECS: u64 = 60 * 60;
 
-/// `[registry]` section of `star.toml`.
+/// `[registry]` section of `mighty.toml`.
 ///
 /// Parsed independently of the `Manifest` struct (which lives in
 /// `mty-driver`) so this slice doesn't have to touch the driver.
@@ -79,7 +79,7 @@ impl RegistryConfig {
     }
 }
 
-/// Read `[registry]` from a `star.toml` at `path`. Missing section
+/// Read `[registry]` from a `mighty.toml` at `path`. Missing section
 /// returns the default config (which still includes the default slug).
 pub fn load_registry_config(path: &Path) -> Result<RegistryConfig, RegistryError> {
     if !path.exists() {
@@ -207,10 +207,10 @@ pub struct RegistryRelease {
 }
 
 /// Compute the cache file path for a registry slug under
-/// `<repo_root>/.stardust/registry/<owner>__<repo>/index.json`.
+/// `<repo_root>/.mighty/registry/<owner>__<repo>/index.json`.
 pub fn cache_path(repo_root: &Path, slug: &str) -> PathBuf {
     repo_root
-        .join(".stardust")
+        .join(".mighty")
         .join("registry")
         .join(slug_to_cache_key(slug))
         .join("index.json")
@@ -329,7 +329,7 @@ pub fn make_tag(name: &str, version: &str) -> String {
 }
 
 /// Source URL helper for the new `registry+gh://<owner>/<repo>` scheme
-/// emitted into `star.lock`.
+/// emitted into `mighty.lock`.
 pub fn gh_source(slug: &str) -> String {
     format!("registry+gh://{slug}")
 }
@@ -557,7 +557,7 @@ edition = "2026"
     #[test]
     fn cache_path_shape() {
         let p = cache_path(Path::new("/tmp/r"), "foo/bar");
-        assert!(p.ends_with(".stardust/registry/foo__bar/index.json"));
+        assert!(p.ends_with(".mighty/registry/foo__bar/index.json"));
     }
 
     #[test]

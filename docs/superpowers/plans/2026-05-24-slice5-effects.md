@@ -24,7 +24,7 @@ clean, `v0.5.0-effects` tag pushed.
    call sites (so `fs.ro(p)` returns `Cap { Fs, And([ReadOnly, Path(p)]) }`).
 4. **Capability subsumption** — `cap_narrower_or_eq(actual, expected)`
    helper. Plug into `synth_call` and `synth_method_call` parameter
-   matching. Emit `SD4010 capability_too_broad` on failure.
+   matching. Emit `MT4010 capability_too_broad` on failure.
 
 ### Part B — Effect inference
 
@@ -34,9 +34,9 @@ clean, `v0.5.0-effects` tag pushed.
    builds an initial empty effect map, then iterates body walks until
    no set changes. Bound by O(N × E).
 7. **Public-fn declared vs inferred check** — `validate_pub_effects(...)`
-   emits `SD4001 effect_undeclared` listing missing effects.
+   emits `MT4001 effect_undeclared` listing missing effects.
 8. **Strict profile (`profile = "core"`) check** — load `star.toml`,
-   read `profile` field. If `"core"`, emit `SD4002 alloc_in_core` for
+   read `profile` field. If `"core"`, emit `MT4002 alloc_in_core` for
    any inferred `alloc`.
 9. **TypedPackage extension** — add `fn_effects: HashMap<FnId, Vec<EffectId>>`
    (deterministic order). Driver pipeline wires inference between
@@ -51,11 +51,11 @@ clean, `v0.5.0-effects` tag pushed.
 12. **Impl block lowering** — `lower_impl` for `HirImpl` (currently the
     only declared variant; just not lowered). Register methods in
     `impl_methods` AND, when `trait_for` is present, populate
-    `by_method` + `impl_keys`. Emit `SD4022 trait_coherence_violation`
+    `by_method` + `impl_keys`. Emit `MT4022 trait_coherence_violation`
     if a duplicate `(trait, self_adt)` pair is added.
 13. **Method dispatch upgrade** — replace the slice-4 permissive fallback
-    for user ADT receivers. Emit `SD4020 method_ambiguous` (multiple
-    matches) and `SD4021 method_not_found` (no matches). Inherent
+    for user ADT receivers. Emit `MT4020 method_ambiguous` (multiple
+    matches) and `MT4021 method_not_found` (no matches). Inherent
     `impl_methods` wins.
 
 ### Part D — `dyn Trait`
@@ -67,9 +67,9 @@ clean, `v0.5.0-effects` tag pushed.
     `dyn TraitName`.
 17. **Object-safety check** — when resolving `HirType::Dyn`, look up the
     trait; if any method has `Self` in its signature or has its own
-    generics, emit `SD4023 dyn_requires_object_safe`.
+    generics, emit `MT4023 dyn_requires_object_safe`.
 18. **Coercion check at let** — `let h: dyn Hash = user_id` requires
-    `(Hash, type(user_id)) ∈ trait_table.impl_keys`. Else SD4023.
+    `(Hash, type(user_id)) ∈ trait_table.impl_keys`. Else MT4023.
 19. **Method call on dyn** — look up the trait's method, return its
     declared type; record dyn-coercion in a side table for codegen.
 
@@ -82,9 +82,9 @@ clean, `v0.5.0-effects` tag pushed.
 22. **HIR carries derives** — `HirStruct.derives`, `HirEnum.derives`.
 23. **Apply derives in resolve** — `Copy` adds to `defs.user_copy`;
     `Hash` / `Eq` synthesize an implicit `TraitImpl` entry. Unknown
-    name: SD4041.
+    name: MT4041.
 24. **`is_copy` checks user_copy + field-recursion** — if `aid` is in
-    `user_copy`, walk every field and require Copy; else SD4040.
+    `user_copy`, walk every field and require Copy; else MT4040.
 
 ### Part F — Top-level `sandbox`
 
@@ -97,21 +97,21 @@ clean, `v0.5.0-effects` tag pushed.
 
 ### Part G — Strict protocol checks
 
-28. **SD4030 arity mismatch** — at handler binding time, count handler
+28. **MT4030 arity mismatch** — at handler binding time, count handler
     params vs protocol message params. Error on mismatch.
-29. **SD4032 missing handler** — for each implemented protocol, ensure
+29. **MT4032 missing handler** — for each implemented protocol, ensure
     every declared message has a handler.
-30. **SD4033 extra handler** — convert SD2026 warning into SD4033 error
+30. **MT4033 extra handler** — convert MT2026 warning into MT4033 error
     when the message name isn't in any implemented protocol.
 
 ### Part H — Slice 4 polish
 
-31. **SD3009 `move *ref` modelling** — extend the borrow walker's `move`
+31. **MT3009 `move *ref` modelling** — extend the borrow walker's `move`
     visitor: if the moved expression is a `Unary { Deref, ... }` whose
-    inner is a `Ref { .. }`, emit SD3009.
-32. **SD3002 vs SD3008 split** — flow.rs's "move while borrow live"
+    inner is a `Ref { .. }`, emit MT3009.
+32. **MT3002 vs MT3008 split** — flow.rs's "move while borrow live"
     diagnostic chooses based on whether the move appears in argument
-    position (SD3008) or in let/return position (SD3002).
+    position (MT3008) or in let/return position (MT3002).
 33. **Field-level borrow tracking** — `LocalState` grows `field_borrows`
     map. `&[mut] place.field` records the field; cross-field doesn't
     conflict. Stretch — defer if time tight.
@@ -160,7 +160,7 @@ If any gate fails, the slice-leader fixes before moving on.
   mutually recursive fns. Mitigation: bound iterations at 32 and
   treat further changes as a bug.
 - **Trait coherence over re-checks**: if examples accidentally define
-  duplicate impls, SD4022 will block. Mitigation: examples don't use
+  duplicate impls, MT4022 will block. Mitigation: examples don't use
   traits today; trait coverage starts in slice 5 with the new tour
   chapter.
 - **`dyn` parsing collision with `derive`**: both are recognized as

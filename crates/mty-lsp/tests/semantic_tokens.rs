@@ -10,7 +10,7 @@ use mty_lsp::semantic_tokens::{full, legend, range, LEGEND_TYPES};
 use tower_lsp::lsp_types::{Position, Range, SemanticTokensRangeResult, SemanticTokensResult};
 
 fn analyze(src: &str) -> DocAnalysis {
-    DocAnalysis::analyze(src.to_string(), "test://main.sd".to_string(), 1)
+    DocAnalysis::analyze(src.to_string(), "test://main.mty".to_string(), 1)
 }
 
 #[test]

@@ -34,11 +34,11 @@ earlier ones.
 - Re-export `CapFamily`/`CapConstraint` from `sdust-types`
 - Add Display impls behind `dump.rs`
 
-### T3. Add SIR-specific diagnostic codes SD5001..SD5050
+### T3. Add SIR-specific diagnostic codes MT5001..MT5050
 
 - Edit `crates/sdust-diagnostics/src/codes.rs`: add constants from D17
 - Add explain() arms for each code
-- Add a `// Runtime: SD5001..SD5099` section comment
+- Add a `// Runtime: MT5001..MT5099` section comment
 
 ---
 
@@ -141,7 +141,7 @@ earlier ones.
 - Per Stmt: dispatch Assign, Drop, ArenaPush/Pop, EffectInvoke
 - Per Term: Goto, If, SwitchInt, SwitchVariant, Return, Panic, TryReturnErr,
   Unreachable
-- Step budget: configurable (default 1M); exceeded → SD5009 placeholder
+- Step budget: configurable (default 1M); exceeded → MT5009 placeholder
 
 ### T13. Rvalue evaluation (`interp/eval.rs`)
 
@@ -164,13 +164,13 @@ earlier ones.
   `&mut state` + message args; ignore reply
 - Ask (`?`): same as Send but return the reply value
 - Deadline: discarded in slice 6 (recorded in trace for tests)
-- Missing handler: SD5020
+- Missing handler: MT5020
 
 ### T15. Built-in fns (`interp/builtins.rs`)
 
 - `log(s)` → host.println(s)
 - `print(s)` → host.print(s)
-- `panic(msg)` → SD5001 trap
+- `panic(msg)` → MT5001 trap
 - `spawn(x)` → wrap x in an AgentHandle (synthesized agent for user fn)
 - `move(x)` → identity
 - `fetch(url)` → host.extern_call("fetch", ...) (default Ok(""))

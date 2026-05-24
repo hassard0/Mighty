@@ -1,12 +1,12 @@
 //! v0.3 (A56) — `move *ref` (and `let x = *ref` of a non-Copy type)
-//! must emit SD3009.
+//! must emit MT3009.
 
 use mty_diagnostics::Severity;
 use mty_driver::{lower, parse_source};
 use mty_types::check_package_typed;
 
 fn check(src: &str) -> Vec<mty_diagnostics::Diagnostic> {
-    let parsed = parse_source(src.into(), "test.sd".into());
+    let parsed = parse_source(src.into(), "test.mty".into());
     let (pkg, mut diags) = lower(&parsed);
     let any_err = diags.iter().any(|d| matches!(d.severity, Severity::Error));
     if !any_err {
@@ -39,8 +39,8 @@ fn deref_of_string_ref_is_sd3009() {
     ";
     let d = check(src);
     assert!(
-        has_code(&d, "SD3009"),
-        "deref of &String → SD3009, got {:?}",
+        has_code(&d, "MT3009"),
+        "deref of &String → MT3009, got {:?}",
         d.iter().map(|d| d.code.as_str()).collect::<Vec<_>>()
     );
 }
@@ -58,8 +58,8 @@ fn explicit_move_deref_string_is_sd3009() {
     ";
     let d = check(src);
     assert!(
-        has_code(&d, "SD3009"),
-        "move *r of &String → SD3009, got {:?}",
+        has_code(&d, "MT3009"),
+        "move *r of &String → MT3009, got {:?}",
         d.iter().map(|d| d.code.as_str()).collect::<Vec<_>>()
     );
 }

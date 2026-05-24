@@ -14,7 +14,7 @@ fn workspace_root() -> PathBuf {
 }
 
 fn run_src(src: &str) -> (RunResult, String) {
-    let parsed = parse_source(src.to_string(), "test.sd".into());
+    let parsed = parse_source(src.to_string(), "test.mty".into());
     let (pkg, _) = lower(&parsed);
     let (prog, _) = lower_to_sir(&pkg);
     let mut host = BufferHost::default();
@@ -24,7 +24,7 @@ fn run_src(src: &str) -> (RunResult, String) {
 
 #[test]
 fn hello_world_prints() {
-    let path = workspace_root().join("examples/01_hello.sd");
+    let path = workspace_root().join("examples/01_hello.mty");
     let src = std::fs::read_to_string(path).unwrap();
     let (res, out) = run_src(&src);
     assert_eq!(res, RunResult::Ok { exit: 0 });

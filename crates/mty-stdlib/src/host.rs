@@ -14,7 +14,7 @@ use mty_ir::interp::value::Value;
 /// Register this crate as the runtime's `std.*` dispatcher. Idempotent
 /// — safe to call from every test or once at driver start. Once the
 /// driver wires this in v0.3, user code that does `use std.json` and
-/// calls `json.parse(...)` through `sdust run` will hit the real
+/// calls `json.parse(...)` through `mty run` will hit the real
 /// parser instead of the slice-7 no-op.
 pub fn install() {
     mty_runtime::host_std::install_dispatcher(dispatch);

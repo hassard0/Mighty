@@ -3,7 +3,7 @@
 //! Walks `tests/conformance/<category>/<NN_name>/` and runs the case
 //! described by `command.txt`. Each case is a directory containing:
 //!
-//! - `input.sd` — the source under test
+//! - `input.mty` — the source under test
 //! - `command.txt` — one of: `check`, `run`
 //! - `expected_diagnostics.txt` — optional, one SDxxxx code per line.
 //!   The harness asserts every listed code is present in the produced
@@ -93,7 +93,7 @@ struct CaseSpec {
     expected_exit_code: i32,
     /// Optional override for the interpreter step budget (default = 1M).
     /// Set via `step_budget.txt` per-case. v0.3 added this so the
-    /// budget-violation cases can trip SD5009 without overflowing the
+    /// budget-violation cases can trip MT5009 without overflowing the
     /// real Rust stack (recursion grows the host stack faster than the
     /// default 1M-step budget exhausts).
     step_budget: Option<u64>,
@@ -108,10 +108,10 @@ fn load_case(category: &str, dir: &Path) -> Result<CaseSpec, String> {
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let input_path = dir.join("input.sd");
+    let input_path = dir.join("input.mty");
     let command_path = dir.join("command.txt");
     let input_src = std::fs::read_to_string(&input_path)
-        .map_err(|e| format!("[{}/{}] read input.sd: {}", category, name, e))?;
+        .map_err(|e| format!("[{}/{}] read input.mty: {}", category, name, e))?;
     let command_raw = std::fs::read_to_string(&command_path)
         .map_err(|e| format!("[{}/{}] read command.txt: {}", category, name, e))?;
     let command =
@@ -151,7 +151,7 @@ fn load_case(category: &str, dir: &Path) -> Result<CaseSpec, String> {
 fn check_diagnostics(case: &CaseSpec) -> Result<(i32, Vec<String>), String> {
     let parsed = parse_source(
         case.input_src.clone(),
-        case.dir.join("input.sd").display().to_string(),
+        case.dir.join("input.mty").display().to_string(),
     );
     let (pkg, mut diags) = lower(&parsed);
     let lower_err = diags.iter().any(|d| matches!(d.severity, Severity::Error));
@@ -170,7 +170,7 @@ fn check_diagnostics(case: &CaseSpec) -> Result<(i32, Vec<String>), String> {
 fn run_program(case: &CaseSpec) -> Result<(i32, String, Vec<String>), String> {
     let parsed = parse_source(
         case.input_src.clone(),
-        case.dir.join("input.sd").display().to_string(),
+        case.dir.join("input.mty").display().to_string(),
     );
     let (pkg, mut diags) = lower(&parsed);
     let lower_err = diags.iter().any(|d| matches!(d.severity, Severity::Error));
@@ -191,7 +191,7 @@ fn run_program(case: &CaseSpec) -> Result<(i32, String, Vec<String>), String> {
     // Per-case step budget override (default = run with the interp's
     // built-in 1M budget). When a `step_budget.txt` file is present we
     // invoke `run_fn_with_budget` instead so cases can deliberately
-    // trip SD5009 with a smaller bound (avoids growing the host stack
+    // trip MT5009 with a smaller bound (avoids growing the host stack
     // past its limit during recursive shapes; see CONFORMANCE_V0_3_NOTES).
     let res = match case.step_budget {
         Some(b) => match run_fn_with_budget(&prog, "main", vec![], &mut host, b) {
@@ -204,8 +204,8 @@ fn run_program(case: &CaseSpec) -> Result<(i32, String, Vec<String>), String> {
     let (exit, mut runtime_codes) = match res {
         RunResult::Ok { exit } => (exit, vec![]),
         RunResult::Trap { code, .. } => (1, vec![code.to_string()]),
-        RunResult::BudgetExceeded => (3, vec!["SD5009".to_string()]),
-        RunResult::MemBudgetExceeded { .. } => (4, vec!["SD5009".to_string()]),
+        RunResult::BudgetExceeded => (3, vec!["MT5009".to_string()]),
+        RunResult::MemBudgetExceeded { .. } => (4, vec!["MT5009".to_string()]),
         RunResult::NoMain => (2, vec![]),
     };
     // Surface trap codes alongside any check-time codes for diag-assertion
@@ -281,7 +281,7 @@ fn discover_cases(root: &Path) -> Vec<(String, PathBuf)> {
         let mut cases: Vec<PathBuf> = sub
             .flatten()
             .map(|e| e.path())
-            .filter(|p| p.is_dir() && p.join("input.sd").exists() && p.join("command.txt").exists())
+            .filter(|p| p.is_dir() && p.join("input.mty").exists() && p.join("command.txt").exists())
             .collect();
         cases.sort();
         for c in cases {

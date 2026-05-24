@@ -1,4 +1,4 @@
-//! Negative-test corpus: each `.sd` file under `tests/typeck_neg/`
+//! Negative-test corpus: each `.mty` file under `tests/typeck_neg/`
 //! should emit at least one of the expected diagnostic codes.
 
 use mty_diagnostics::{codes::DiagCode, Severity};
@@ -43,67 +43,67 @@ use mty_diagnostics::codes::*;
 
 #[test]
 fn neg_mismatch_let() {
-    assert_emits("mismatch_let.sd", &[TYPE_MISMATCH]);
+    assert_emits("mismatch_let.mty", &[TYPE_MISMATCH]);
 }
 
 #[test]
 fn neg_mismatch_call() {
-    assert_emits("mismatch_call.sd", &[TYPE_MISMATCH]);
+    assert_emits("mismatch_call.mty", &[TYPE_MISMATCH]);
 }
 
 #[test]
 fn neg_unresolved_type() {
-    assert_emits("unresolved_type.sd", &[UNRESOLVED_TYPE]);
+    assert_emits("unresolved_type.mty", &[UNRESOLVED_TYPE]);
 }
 
 #[test]
 fn neg_wrong_arity() {
     // Some(1, 2) — fn expects 1 arg, got 2 → WRONG_ARG_COUNT.
-    assert_emits("wrong_arity.sd", &[WRONG_ARG_COUNT, WRONG_VARIANT_ARITY]);
+    assert_emits("wrong_arity.mty", &[WRONG_ARG_COUNT, WRONG_VARIANT_ARITY]);
 }
 
 #[test]
 fn neg_unknown_field() {
-    assert_emits("unknown_field.sd", &[UNKNOWN_FIELD]);
+    assert_emits("unknown_field.mty", &[UNKNOWN_FIELD]);
 }
 
 #[test]
 fn neg_pub_no_type() {
-    assert_emits("pub_no_type.sd", &[PUB_PARAM_NEEDS_TYPE]);
+    assert_emits("pub_no_type.mty", &[PUB_PARAM_NEEDS_TYPE]);
 }
 
 #[test]
 fn neg_q_outside_result() {
-    assert_emits("q_outside_result.sd", &[QUESTION_OUTSIDE_RESULT]);
+    assert_emits("q_outside_result.mty", &[QUESTION_OUTSIDE_RESULT]);
 }
 
 #[test]
 fn neg_q_err_mismatch() {
     assert_emits(
-        "q_err_mismatch.sd",
+        "q_err_mismatch.mty",
         &[QUESTION_ERROR_MISMATCH, TYPE_MISMATCH],
     );
 }
 
 #[test]
 fn neg_binop_mismatch() {
-    assert_emits("binop_mismatch.sd", &[BINOP_TYPE_MISMATCH, TYPE_MISMATCH]);
+    assert_emits("binop_mismatch.mty", &[BINOP_TYPE_MISMATCH, TYPE_MISMATCH]);
 }
 
 #[test]
 fn neg_wrong_generic_arity() {
-    assert_emits("wrong_generic_arity.sd", &[WRONG_GENERIC_ARITY]);
+    assert_emits("wrong_generic_arity.mty", &[WRONG_GENERIC_ARITY]);
 }
 
 #[test]
 fn neg_return_mismatch() {
-    assert_emits("return_mismatch.sd", &[RETURN_TYPE_MISMATCH, TYPE_MISMATCH]);
+    assert_emits("return_mismatch.mty", &[RETURN_TYPE_MISMATCH, TYPE_MISMATCH]);
 }
 
 #[test]
 fn neg_if_branch_mismatch() {
     assert_emits(
-        "if_branch_mismatch.sd",
+        "if_branch_mismatch.mty",
         &[IF_BRANCH_MISMATCH, TYPE_MISMATCH],
     );
 }

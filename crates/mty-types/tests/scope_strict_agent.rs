@@ -1,12 +1,12 @@
 //! v0.3 (A65): strict agent body rejects unresolved value names with
-//! SD2021 (was slice-3 A21 permissive fresh-var fallback).
+//! MT2021 (was slice-3 A21 permissive fresh-var fallback).
 
 use mty_diagnostics::Severity;
 use mty_driver::{lower, parse_source};
 use mty_types::check_package;
 
 fn diag_codes(src: &str) -> Vec<String> {
-    let parsed = parse_source(src.into(), "scope_strict_agent.sd".into());
+    let parsed = parse_source(src.into(), "scope_strict_agent.mty".into());
     let (pkg, mut diags) = lower(&parsed);
     let any_lower_err = diags.iter().any(|d| matches!(d.severity, Severity::Error));
     if !any_lower_err {
@@ -33,8 +33,8 @@ fn agent_handler_unknown_name_is_sd2021() {
     ";
     let codes = diag_codes(src);
     assert!(
-        codes.contains(&"SD2021".to_string()),
-        "expected SD2021 in strict handler scope, got {:?}",
+        codes.contains(&"MT2021".to_string()),
+        "expected MT2021 in strict handler scope, got {:?}",
         codes
     );
 }
@@ -52,8 +52,8 @@ fn agent_state_init_unknown_name_is_sd2021() {
     ";
     let codes = diag_codes(src);
     assert!(
-        codes.contains(&"SD2021".to_string()),
-        "expected SD2021 in strict agent state-init scope, got {:?}",
+        codes.contains(&"MT2021".to_string()),
+        "expected MT2021 in strict agent state-init scope, got {:?}",
         codes
     );
 }
@@ -74,8 +74,8 @@ fn agent_method_unknown_name_is_sd2021() {
     ";
     let codes = diag_codes(src);
     assert!(
-        codes.contains(&"SD2021".to_string()),
-        "expected SD2021 in strict agent-method scope, got {:?}",
+        codes.contains(&"MT2021".to_string()),
+        "expected MT2021 in strict agent-method scope, got {:?}",
         codes
     );
 }
@@ -93,7 +93,7 @@ fn agent_handler_known_state_name_is_clean() {
     ";
     let codes = diag_codes(src);
     assert!(
-        !codes.contains(&"SD2021".to_string()),
+        !codes.contains(&"MT2021".to_string()),
         "state name should be in tolerance, got {:?}",
         codes
     );

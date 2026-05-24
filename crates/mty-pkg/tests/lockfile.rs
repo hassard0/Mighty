@@ -40,7 +40,7 @@ version = 1
 [[package]]
 name = "foo"
 version = "1.2.3"
-source = "registry+https://pkg.stardust.dev"
+source = "registry+https://pkg.mighty.dev"
 hash = "sha256:cafe"
 dependencies = ["bar"]
 

@@ -1,9 +1,9 @@
 //! Discover-and-run conformance harness for slice-7 runtime tests.
 //!
 //! These cases exercise programs that use the slice-7 runtime via
-//! `sdust run`'s default codepath: parse → lower → SIR-lower → tokio
+//! `mty run`'s default codepath: parse → lower → SIR-lower → tokio
 //! Runtime with main on the slice-6 evaluator. Each case is a
-//! directory with `input.sd` + `expected.txt`. If `expected.txt`
+//! directory with `input.mty` + `expected.txt`. If `expected.txt`
 //! contains `__TRAP__` the harness asserts the program traps.
 
 use mty_driver::{lower, lower_to_sir, parse_source, type_and_borrow_check};
@@ -23,7 +23,7 @@ fn run_case(case_dir: &Path) -> Result<(), String> {
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let input = case_dir.join("input.sd");
+    let input = case_dir.join("input.mty");
     let expected = case_dir.join("expected.txt");
     let src =
         std::fs::read_to_string(&input).map_err(|e| format!("[{}] read input: {}", name, e))?;
@@ -72,7 +72,7 @@ fn runtime_7_conformance_corpus() {
     let mut failures: Vec<String> = vec![];
     let mut count = 0;
     for dir in entries {
-        if !dir.join("input.sd").exists() {
+        if !dir.join("input.mty").exists() {
             continue;
         }
         count += 1;

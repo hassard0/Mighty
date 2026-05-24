@@ -1,7 +1,7 @@
 //! Verifies the v0.2 acceptance criterion:
 //!
 //! > A Mighty example file using `use std.json` + `json.parse(...)`
-//! > actually parses and executes through `sdust run`.
+//! > actually parses and executes through `mty run`.
 //!
 //! We don't shell out to the `sdust` binary — we link directly against
 //! the driver so the test stays hermetic.
@@ -28,6 +28,6 @@ fn json_demo_runs_through_runtime() {
     // parse + type-check + lower + run pipeline — exactly what the
     // acceptance criterion asks for.
     mty_stdlib::host::install();
-    let code = run_file_with_runtime(DEMO.to_string(), "json_demo.sd".into());
+    let code = run_file_with_runtime(DEMO.to_string(), "json_demo.mty".into());
     assert_eq!(code, 0, "demo should exit 0");
 }

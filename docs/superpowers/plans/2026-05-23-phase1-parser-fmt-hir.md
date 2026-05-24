@@ -52,7 +52,7 @@ stardust/
 │   │   └── src/
 │   │       ├── lib.rs
 │   │       ├── diagnostic.rs                   Diagnostic, Severity, Label
-│   │       ├── codes.rs                        DiagCode enum (SD0001..)
+│   │       ├── codes.rs                        DiagCode enum (MT0001..)
 │   │       └── render/
 │   │           ├── mod.rs
 │   │           └── ariadne.rs                  terminal render
@@ -3133,7 +3133,7 @@ impl DiagCode {
     pub fn as_str(&self) -> String { format!("SD{:04}", self.0) }
 }
 
-// Lex/parse: SD0001..SD0999
+// Lex/parse: MT0001..MT0999
 pub const UNEXPECTED_TOKEN: DiagCode      = DiagCode::new(0001);
 pub const UNTERMINATED_STRING: DiagCode   = DiagCode::new(0002);
 pub const INVALID_ESCAPE: DiagCode        = DiagCode::new(0003);
@@ -3145,7 +3145,7 @@ pub const DUPLICATE_ON_HANDLER: DiagCode  = DiagCode::new(0020);
 pub const PUB_NEEDS_RETURN_TYPE: DiagCode = DiagCode::new(0021);
 pub const DEPTH_LIMIT_EXCEEDED: DiagCode  = DiagCode::new(0030);
 
-// HIR: SD1001..SD1999
+// HIR: MT1001..MT1999
 pub const UNRESOLVED_NAME: DiagCode       = DiagCode::new(1001);
 pub const USE_RESOLVES_TO_NOTHING: DiagCode = DiagCode::new(1002);
 ```
@@ -3211,14 +3211,14 @@ use sdust_diagnostics::codes::UNEXPECTED_TOKEN;
 
 #[test]
 fn code_format() {
-    assert_eq!(UNEXPECTED_TOKEN.as_str(), "SD0001");
+    assert_eq!(UNEXPECTED_TOKEN.as_str(), "MT0001");
 }
 
 #[test]
 fn build_diagnostic() {
     let d = Diagnostic::error(UNEXPECTED_TOKEN, Label { start: 5, end: 8, message: "here".into() })
         .with_note("try removing the token")
-        .with_help("see SD0001 reference");
+        .with_help("see MT0001 reference");
     assert_eq!(d.severity, Severity::Error);
     assert_eq!(d.notes.len(), 1);
     assert_eq!(d.helps.len(), 1);
@@ -3300,7 +3300,7 @@ fn renders_one_line() {
     let d = Diagnostic::error(UNEXPECTED_TOKEN,
         Label { start: 18, end: 20, message: "unexpected `@@`".into() });
     let out = render(&d, "test.sd", src);
-    assert!(out.contains("SD0001"));
+    assert!(out.contains("MT0001"));
     assert!(out.contains("unexpected `@@`"));
 }
 ```

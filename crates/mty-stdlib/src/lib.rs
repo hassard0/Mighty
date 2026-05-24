@@ -8,7 +8,7 @@
 //! real semantics (parsing JSON via `serde_json`, opening TLS sockets via
 //! `rustls`, serving HTTP via `hyper`, etc.).
 //!
-//! v0.3 will migrate to **Strategy B**: real `.sd` source files shipped
+//! v0.3 will migrate to **Strategy B**: real `.mty` source files shipped
 //! as a bundled package and resolved by `mty-pkg`.
 //!
 //! ## Module layout

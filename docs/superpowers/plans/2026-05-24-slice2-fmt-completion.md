@@ -1207,42 +1207,42 @@ Append to `crates/sdust-diagnostics/src/codes.rs`:
 /// codes.
 pub fn explain(code: DiagCode) -> Option<&'static str> {
     Some(match code.0 {
-        1 => "SD0001: Unexpected token. The lexer or parser found a token \
+        1 => "MT0001: Unexpected token. The lexer or parser found a token \
               that doesn't fit the current grammar context. Check for typos, \
               missing punctuation, or a misplaced keyword.",
-        2 => "SD0002: Unterminated string literal. A string starts with \" \
+        2 => "MT0002: Unterminated string literal. A string starts with \" \
               but never closes before end-of-line or end-of-file. Add the \
               closing quote, or escape any embedded \" as \\\".",
-        3 => "SD0003: Invalid escape sequence. The character after \\ in a \
+        3 => "MT0003: Invalid escape sequence. The character after \\ in a \
               string or char literal is not a recognized escape. Valid \
               escapes: \\n, \\t, \\r, \\\\, \\\", \\', \\x{HH}, \\u{HHHH}.",
-        4 => "SD0004: Unknown duration unit. Stardust duration literals use \
+        4 => "MT0004: Unknown duration unit. Stardust duration literals use \
               one of `ns`, `us`, `ms`, `s`, `m`, `h` as the trailing unit.",
-        10 => "SD0010: Expected an item. At the top level (or inside a mod), \
+        10 => "MT0010: Expected an item. At the top level (or inside a mod), \
                the parser expected one of: fn, struct, enum, type, use, mod, \
                package, agent, protocol, supervisor, extern, export, impl, \
                trait, const, macro.",
-        11 => "SD0011: Expected an expression. The parser reached a position \
+        11 => "MT0011: Expected an expression. The parser reached a position \
                where an expression must appear but found something else \
                (such as a closing delimiter or a statement keyword).",
-        12 => "SD0012: Mismatched delimiter. An opening `(`, `[`, or `{` was \
+        12 => "MT0012: Mismatched delimiter. An opening `(`, `[`, or `{` was \
                not paired with the matching closing delimiter, or they were \
                crossed.",
-        20 => "SD0020: Duplicate `on` handler. An agent body declared two \
+        20 => "MT0020: Duplicate `on` handler. An agent body declared two \
                handlers for the same message. Each protocol message may have \
                at most one `on Message` handler per agent.",
-        21 => "SD0021: `pub` function needs a return type. Public functions \
+        21 => "MT0021: `pub` function needs a return type. Public functions \
                must declare an explicit return type (`-> T`) so callers in \
                other modules can rely on the signature. Add `-> Unit` if the \
                function returns nothing.",
-        30 => "SD0030: Recursion depth limit exceeded. The parser nested \
+        30 => "MT0030: Recursion depth limit exceeded. The parser nested \
                deeper than the configured limit. This usually indicates \
                adversarial or accidentally pathological input; refactor the \
                source to reduce nesting.",
-        1001 => "SD1001: Unresolved name. The HIR lowerer could not resolve \
+        1001 => "MT1001: Unresolved name. The HIR lowerer could not resolve \
                  a name reference to any binding in scope. Check the spelling \
                  and ensure the binding's `use` or declaration is visible.",
-        1002 => "SD1002: `use` resolves to nothing. The path on the right of \
+        1002 => "MT1002: `use` resolves to nothing. The path on the right of \
                  `use` does not name any importable item. Verify the package \
                  and module path; remember that paths use `.` as the \
                  separator.",
@@ -1272,14 +1272,14 @@ fn sdust(args: &[&str]) -> (i32, String, String) {
 
 #[test]
 fn explain_known_code_succeeds() {
-    let (code, stdout, _stderr) = sdust(&["explain", "SD0001"]);
+    let (code, stdout, _stderr) = sdust(&["explain", "MT0001"]);
     assert_eq!(code, 0);
     assert!(stdout.contains("Unexpected token"), "stdout: {}", stdout);
 }
 
 #[test]
 fn explain_unknown_code_fails() {
-    let (code, _stdout, stderr) = sdust(&["explain", "SD9999"]);
+    let (code, _stdout, stderr) = sdust(&["explain", "MT9999"]);
     assert_ne!(code, 0);
     assert!(stderr.to_lowercase().contains("unknown"), "stderr: {}", stderr);
 }
@@ -1308,7 +1308,7 @@ Create `crates/sdust-cli/src/cmd/explain.rs`:
 use sdust_diagnostics::codes;
 
 pub fn run(arg: &str) -> i32 {
-    // Accept formats: SD0001, sd0001, 1, 0001
+    // Accept formats: MT0001, sd0001, 1, 0001
     let num = if let Some(rest) = arg.strip_prefix("SD").or_else(|| arg.strip_prefix("sd")) {
         rest.parse::<u16>()
     } else {
@@ -1317,7 +1317,7 @@ pub fn run(arg: &str) -> i32 {
     let n = match num {
         Ok(n) => n,
         Err(_) => {
-            eprintln!("error: expected diagnostic code like `SD0001`, got `{}`", arg);
+            eprintln!("error: expected diagnostic code like `MT0001`, got `{}`", arg);
             return 2;
         }
     };
@@ -1367,7 +1367,7 @@ CLI: add `sdust explain <CODE>` subcommand
 
 `codes::explain(DiagCode) -> Option<&'static str>` ships a static
 lookup table of human-readable explanations for every assigned code.
-`sdust explain SD0001` prints the body and exits 0; unknown codes
+`sdust explain MT0001` prints the body and exits 0; unknown codes
 exit 1; malformed input exits 2.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
@@ -2252,7 +2252,7 @@ sdust explain <CODE>
 ## Arguments
 
 - `<CODE>` — the diagnostic code, in any of these forms:
-  - `SD0001`
+  - `MT0001`
   - `sd0001`
   - `0001`
   - `1`
@@ -2260,13 +2260,13 @@ sdust explain <CODE>
 ## Examples
 
 ```sh
-$ sdust explain SD0001
-SD0001: Unexpected token. The lexer or parser found a token that
+$ sdust explain MT0001
+MT0001: Unexpected token. The lexer or parser found a token that
 doesn't fit the current grammar context. Check for typos, missing
 punctuation, or a misplaced keyword.
 
-$ sdust explain SD9999
-error: unknown diagnostic code SD9999
+$ sdust explain MT9999
+error: unknown diagnostic code MT9999
 $ echo $?
 1
 ```

@@ -16,7 +16,7 @@ scheduler / cross-language benchmarks / self-host parser) over a
 single session, then integrated through this slice document. Three
 v0.5 loose-end "easy wins" landed during integration: `BuiltinId::DomOp`
 + DOM SIR lowering (closes the v0.5 `#[allow(dead_code)]` on
-`emit_dom_call`), the SD6001-SD6006 macro catalog merge into
+`emit_dom_call`), the MT6001-MT6006 macro catalog merge into
 `sdust_diagnostics::codes`, and an FsCap cross-cap isolation test.
 The v0.5 "loose ends" agent was killed before committing anything;
 the work the integrator picked up is the subset of that backlog that
@@ -150,7 +150,7 @@ anything. The integrator picked up three items that fit inside a
   deferral #6. **Tests**: 3 SIR lowering shape tests (positive,
   multi-op, negative control over non-Dom methods) + 1 wasm-emit
   smoke (a SIR with a DomOp call still produces valid wasm).
-- **Central SD catalog merge** (A107). The SD6001-SD6006 macro-band
+- **Central SD catalog merge** (A107). The MT6001-MT6006 macro-band
   codes that lived in `sdust_macros::diag` as bare `u16`s move into
   `sdust_diagnostics::codes` as `DiagCode` constants. `sdust_macros`
   picks up a path-dep on `sdust_diagnostics` and re-exports the
@@ -203,7 +203,7 @@ acknowledges as already-closed-by-design) the following:
 
 **Closed by integrator easy-wins**:
 - DOM SIR lowering (A108) — closes v0.5 deferral #6
-- Central SD6001-SD6006 catalog (A107) — closes v0.5 deferral #8
+- Central MT6001-MT6006 catalog (A107) — closes v0.5 deferral #8
 - Per-call FsCap isolation contract (A109) — closes v0.5 deferral #7
   modulo per-call materialisation from sandbox manifest (the API
   shape was already correct; the test is the contract)
@@ -234,7 +234,7 @@ A103 — Lightweight migration via routing-table retargeting (v0.6)
 A104 — Per-worker scheduler telemetry (v0.6)
 A105 — Scheduler driver runtime separation (v0.6)
 A106 — Default worker count = available_parallelism (v0.6)
-A107 — Central diagnostic catalog for SD6001-SD6006 (v0.6, integrator)
+A107 — Central diagnostic catalog for MT6001-MT6006 (v0.6, integrator)
 A108 — BuiltinId::DomOp(name) SIR variant (v0.6, integrator)
 A109 — Per-call FsCap isolation contract (v0.6, integrator)
 ```
@@ -253,7 +253,7 @@ from the integrator pass.
 | Cross-language performance numbers | none | 6 categories, code shipped + scaffolds for Rust/Go/C++ comparators |
 | Stardust parser written in Stardust | only lexer | parser at ~1930 LOC, 13/13 bootstrap tests pass |
 | `dom.set_text(...)` in Stardust source | typeck only — never reaches `emit_dom_call` | full SIR lowering + wasm call (A108) |
-| `sdust explain SD6001` | resolves via `sdust_macros::diag` (separate catalog) | resolves via the single `sdust_diagnostics::codes` catalog (A107) |
+| `sdust explain MT6001` | resolves via `sdust_macros::diag` (separate catalog) | resolves via the single `sdust_diagnostics::codes` catalog (A107) |
 | `FsCap` isolation between two caps in one process | implicit | contract pinned by test (A109) |
 
 ## Cross-cut fixes applied during integration
@@ -307,7 +307,7 @@ for v0.6" backlog above.
 
 ### Loose-ends carried from v0.5
 
-12. **Proc-macro sandboxed execution** (today: SD6006-gated).
+12. **Proc-macro sandboxed execution** (today: MT6006-gated).
 13. **Real per-agent HTTP routing** via `install_agent_dispatch`
     wiring at runtime startup.
 14. **Set-of-scopes macro hygiene** (replaces v0.5 mangling pass).
@@ -348,7 +348,7 @@ capture in compiled code, LLVM backend smoke on Linux/LLVM 17,
 - **20/20 examples** build to native + wasm32-web Components.
 - **3/3 dogfood demos** pass `smoke.sh`.
 - **9 new spec amendments** (A101..A109).
-- **0 new SD codes** this slice (SD6001-SD6006 relocated, not new).
+- **0 new SD codes** this slice (MT6001-MT6006 relocated, not new).
 - **MSRV unchanged** (rust-toolchain.toml pinned).
 
 ## Known issues
@@ -374,7 +374,7 @@ capture in compiled code, LLVM backend smoke on Linux/LLVM 17,
 6. **Carried from v0.5**: 2 conformance cases still ignored, OTLP
    transport gRPC-only, LLVM backend untested on this build host,
    slice-7 supervisor/cap-narrow scopes strict-but-open, proc macros
-   SD6006-gated.
+   MT6006-gated.
 
 ## What's next
 
@@ -385,7 +385,7 @@ v0.7 picks up the deferral catalogue above. Likely themes:
 - **Per-message work-stealing** — refactor agent-loop infra so the
   scheduler steals at message granularity, not just per-spawn.
 - **Lossless live migration** — solve the tokio-waker handover.
-- **Proc-macro sandboxed execution** — unblock SD6006-gated macros.
+- **Proc-macro sandboxed execution** — unblock MT6006-gated macros.
 - **LSP workspace-wide resolve map** — cross-file rename /
   go-to-def, receiver-chain completion, method-call receiver typing.
 - **Canonical-ABI return-area bridge** + **set-of-scopes macro

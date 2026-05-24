@@ -2,8 +2,8 @@
 
 This file captures the design choices made while hardening
 `sdust-borrow` from the slice-4 lexical/whole-local checker to v0.3's
-NLL-lite + field-level + precise-SD3009 implementation. New amendments:
-**A54 (field places), A55 (NLL last-use), A56 (SD3009 precise)**.
+NLL-lite + field-level + precise-MT3009 implementation. New amendments:
+**A54 (field places), A55 (NLL last-use), A56 (MT3009 precise)**.
 
 ## What's in v0.3
 
@@ -63,19 +63,19 @@ conservative: a borrow held on only one arm is conservatively still
 live after the join. Refining this requires control-flow-sensitive
 reasoning and is post-v0.3.
 
-### A56 — Precise SD3009 (move out of reference)
+### A56 — Precise MT3009 (move out of reference)
 
 `*ref` of a non-Copy type is fundamentally unsound — references don't
 own their pointee. v0.3 implements:
 
 - `HirExpr::Unary { op: Deref, rhs }` in `Position::Use`: if
-  `expr_ty[rhs] = Ref { inner }` and `inner` is non-Copy, emit SD3009.
+  `expr_ty[rhs] = Ref { inner }` and `inner` is non-Copy, emit MT3009.
 - `HirExpr::Move(Unary { op: Deref, rhs })`: same check.
-- If `inner` IS Copy, the deref is a load (no SD3009).
+- If `inner` IS Copy, the deref is a load (no MT3009).
 
 The message names the reference (`cannot move out of *r: ...`) and
-the diagnostic distinguishes SD3009 from SD3001 (use-after-move) and
-SD3008 (move-of-borrowed).
+the diagnostic distinguishes MT3009 from MT3001 (use-after-move) and
+MT3008 (move-of-borrowed).
 
 ## Backwards-compat with slice 4
 
@@ -83,10 +83,10 @@ Existing slice-4 conformance cases (`01..04`) still hold:
 
 - `01_mut_while_shared`: `r` is borrower of `&a`; `r`'s last-use is
   at `use_ref(r)` (after the conflicting `&mut a`), so the borrow is
-  STILL live at the conflict point → SD3004 fires.
-- `02_shared_while_mut`: symmetric — SD3005 fires.
-- `03_two_mut_borrows`: symmetric — SD3006 fires.
-- `04_mut_borrow_of_immut_local`: SD3013 fires unconditionally in
+  STILL live at the conflict point → MT3004 fires.
+- `02_shared_while_mut`: symmetric — MT3005 fires.
+- `03_two_mut_borrows`: symmetric — MT3006 fires.
+- `04_mut_borrow_of_immut_local`: MT3013 fires unconditionally in
   `try_place_borrow`.
 
 No expected_diagnostics changes were needed for the existing 4 cases.
@@ -134,7 +134,7 @@ afterwards. v0.4 ticket.
 | Last-use pre-pass     | `crates/sdust-borrow/src/nll.rs`           |
 | Borrow ledger         | `crates/sdust-borrow/src/state.rs` (`BorrowLedger`) |
 | Place-aware borrow check | `flow.rs::try_place_borrow`             |
-| SD3009 detector       | `flow.rs::check_deref_move`                |
+| MT3009 detector       | `flow.rs::check_deref_move`                |
 | NLL decay hook        | `flow.rs::maybe_decay_after_use`           |
 | Ledger join (branches) | `flow.rs::join_ledgers`                   |
 

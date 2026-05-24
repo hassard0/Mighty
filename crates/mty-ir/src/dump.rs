@@ -1,4 +1,4 @@
-//! SIR text dump (read-only). Used by `sdust dump --sir` and by
+//! SIR text dump (read-only). Used by `mty dump --sir` and by
 //! snapshot tests.
 
 use crate::ir::*;

@@ -3,7 +3,7 @@ use mty_diagnostics::*;
 
 #[test]
 fn code_format() {
-    assert_eq!(UNEXPECTED_TOKEN.as_str(), "SD0001");
+    assert_eq!(UNEXPECTED_TOKEN.as_str(), "MT0001");
 }
 
 #[test]
@@ -17,7 +17,7 @@ fn build_diagnostic() {
         },
     )
     .with_note("try removing the token")
-    .with_help("see SD0001 reference");
+    .with_help("see MT0001 reference");
     assert_eq!(d.severity, Severity::Error);
     assert_eq!(d.notes.len(), 1);
     assert_eq!(d.helps.len(), 1);

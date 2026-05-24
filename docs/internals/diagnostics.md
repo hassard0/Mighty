@@ -62,7 +62,7 @@ Two main pathways:
 
 1. **Parser errors** — `Parser::error_at(message, start, end)` records a
    `ParseError`. The driver converts these into `Diagnostic` values
-   with code `UNEXPECTED_TOKEN` (`SD0001`).
+   with code `UNEXPECTED_TOKEN` (`MT0001`).
 2. **HIR lowering** — `LoweringCtx.diagnostics: Vec<Diagnostic>` is
    pushed to directly by lowering submodules with the appropriate
    `SD1xxx` code.

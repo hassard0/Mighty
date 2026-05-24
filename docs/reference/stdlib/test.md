@@ -35,7 +35,7 @@ Run with:
 sdust-test
 # tests/basic_test.sd ... ok
 # tests/basic_test.sd ... FAILED
-#   reason: trap SD0901: intentional
+#   reason: trap MT0901: intentional
 # test result: 1 passed; 1 failed; 2 total
 ```
 
@@ -66,7 +66,7 @@ a non-zero exit.
 ```
 test basic_test::test_addition_works ... ok
 test basic_test::test_panics_fails ... FAILED
-  reason: trap SD0901: intentional
+  reason: trap MT0901: intentional
 
 test result: 1 passed; 1 failed; 2 total
 ```

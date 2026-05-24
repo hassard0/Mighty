@@ -9,7 +9,7 @@ use mty_lsp::rename::{prepare, rename};
 use tower_lsp::lsp_types::{Position, PrepareRenameResponse, Url};
 
 fn analyze(src: &str) -> DocAnalysis {
-    DocAnalysis::analyze(src.to_string(), "test://main.sd".to_string(), 1)
+    DocAnalysis::analyze(src.to_string(), "test://main.mty".to_string(), 1)
 }
 
 fn locate(src: &str, needle: &str) -> Position {
@@ -20,7 +20,7 @@ fn locate(src: &str, needle: &str) -> Position {
 }
 
 fn uri() -> Url {
-    Url::parse("test://main.sd").unwrap()
+    Url::parse("test://main.mty").unwrap()
 }
 
 #[test]

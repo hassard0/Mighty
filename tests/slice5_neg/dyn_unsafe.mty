@@ -1,4 +1,4 @@
-// SD4023: trait with `Self` in method signature can't be used through `dyn`.
+// MT4023: trait with `Self` in method signature can't be used through `dyn`.
 trait Clone {
   fn clone(self) -> Self
 }

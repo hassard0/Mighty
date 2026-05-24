@@ -11,7 +11,7 @@
 //! Execution is deferred to v0.6 because running a Mighty function at
 //! compile time requires a sandboxed SIR sub-interpreter that doesn't
 //! exist yet. Call sites for proc macros parse + lower correctly but
-//! emit **SD6006** (`proc_macro_unsupported_v0_5`) instead of running
+//! emit **MT6006** (`proc_macro_unsupported_v0_5`) instead of running
 //! the body.
 //!
 //! ## Sandbox constraints (planned for v0.6)
@@ -21,7 +21,7 @@
 //!
 //!   * **No effects.** Token-tree manipulation only — no I/O, no `time`,
 //!     no `env`, no `model`, no `rand`. v0.5 catches this statically and
-//!     emits SD6005 at declaration time. See [`check_proc_macro_purity`].
+//!     emits MT6005 at declaration time. See [`check_proc_macro_purity`].
 //!   * **Wall-clock timeout.** 100 ms hard cap per expansion, enforced
 //!     via `tokio::time::timeout` around the SIR step loop.
 //!   * **Memory cap.** 16 MB of intermediate state (token buffers +
@@ -78,9 +78,9 @@ impl std::fmt::Display for ImpurityReason {
 pub enum ProcMacroResult {
     /// Successful expansion produced these output tokens.
     Ok(Vec<Tok>),
-    /// v0.5: parsed-and-stored but not yet executable. SD6006.
+    /// v0.5: parsed-and-stored but not yet executable. MT6006.
     Unsupported,
-    /// Body was rejected for impurity. SD6005.
+    /// Body was rejected for impurity. MT6005.
     Impure(ImpurityReason),
 }
 

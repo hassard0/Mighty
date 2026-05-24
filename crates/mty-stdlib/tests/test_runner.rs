@@ -8,7 +8,7 @@ use std::fs;
 
 fn write_fixture(dir: &std::path::Path) {
     fs::write(
-        dir.join("a_test.sd"),
+        dir.join("a_test.mty"),
         "\
 fn test_pass_one() {
 }
@@ -18,7 +18,7 @@ fn test_pass_two() {
     )
     .unwrap();
     fs::write(
-        dir.join("b_test.sd"),
+        dir.join("b_test.mty"),
         "\
 fn test_panics() {
   panic(\"boom\")

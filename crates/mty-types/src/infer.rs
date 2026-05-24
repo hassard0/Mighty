@@ -173,7 +173,7 @@ pub fn unify(
         (TyData::Param(p1), TyData::Param(p2)) if p1 == p2 => Ok(()),
         // Capability unification: family must match. Constraint mismatch
         // is permitted here (narrower-vs-broader is enforced separately
-        // by SD4010 at call sites — unification stays loose so dispatch
+        // by MT4010 at call sites — unification stays loose so dispatch
         // can still proceed).
         (TyData::Cap { family: f1, .. }, TyData::Cap { family: f2, .. }) if f1 == f2 => Ok(()),
         (TyData::Dyn { trait_name: a }, TyData::Dyn { trait_name: b }) if a == b => Ok(()),

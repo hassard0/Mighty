@@ -1,8 +1,8 @@
 // v0.3 Task 3 (CONFORMANCE_V0_3_NOTES.md): the original `loop { tick() }`
-// formulation didn't trip SD5009 because SIR slice-6 lowers `loop` as
+// formulation didn't trip MT5009 because SIR slice-6 lowers `loop` as
 // single-iteration. Recursion is the simplest unbounded shape that the
 // slice-6 interpreter actually ticks against its step budget, so we use
-// it here. The spec intent (step-budget enforcement → SD5009 → exit 3)
+// it here. The spec intent (step-budget enforcement → MT5009 → exit 3)
 // is unchanged.
 
 fn _recurse(n: I64) -> I64 {

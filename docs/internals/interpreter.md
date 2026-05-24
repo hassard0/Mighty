@@ -61,7 +61,7 @@ overwrites the slot.
 
 References carry their owning local, projection path, mutability flag,
 and a `ScopeId`. A `Reference` whose `ScopeId` no longer corresponds to
-a live frame should trap with **SD5002**; slice-6 enforcement is
+a live frame should trap with **MT5002**; slice-6 enforcement is
 best-effort (the borrow checker already proves the static case).
 
 ## Frames + the step loop
@@ -132,19 +132,19 @@ custom budget to detect infinite loops. Exceeding the budget returns
 
 | Code   | Trap                              |
 |--------|-----------------------------------|
-| SD5001 | `panic(msg)` or explicit Panic    |
-| SD5002 | Use-after-drop                    |
-| SD5003 | Divide / remainder by zero        |
-| SD5004 | Integer overflow (debug-only)     |
-| SD5005 | Unreachable (fell off match arms) |
-| SD5006 | `main` returned `Result::Err`     |
-| SD5007 | Arena escape at run time          |
-| SD5008 | Unimplemented builtin             |
-| SD5009 | Step budget exceeded / suspension |
-| SD5010 | Sandbox violation (placeholder)   |
-| SD5020 | Missing agent handler             |
-| SD5021 | Send to dead agent                |
-| SD5050 | Extern fn unimplemented           |
+| MT5001 | `panic(msg)` or explicit Panic    |
+| MT5002 | Use-after-drop                    |
+| MT5003 | Divide / remainder by zero        |
+| MT5004 | Integer overflow (debug-only)     |
+| MT5005 | Unreachable (fell off match arms) |
+| MT5006 | `main` returned `Result::Err`     |
+| MT5007 | Arena escape at run time          |
+| MT5008 | Unimplemented builtin             |
+| MT5009 | Step budget exceeded / suspension |
+| MT5010 | Sandbox violation (placeholder)   |
+| MT5020 | Missing agent handler             |
+| MT5021 | Send to dead agent                |
+| MT5050 | Extern fn unimplemented           |
 
 ## File index
 

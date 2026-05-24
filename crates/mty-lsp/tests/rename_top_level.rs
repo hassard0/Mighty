@@ -2,7 +2,7 @@
 //!
 //! v0.5 is single-file: cross-file renames are deferred until the LSP
 //! grows a multi-file resolve map. The test below renames a fn whose
-//! decl and call sites all live in `main.sd` and confirms every
+//! decl and call sites all live in `main.mty` and confirms every
 //! occurrence is rewritten.
 
 use mty_lsp::docs::DocAnalysis;
@@ -10,7 +10,7 @@ use mty_lsp::rename::rename;
 use tower_lsp::lsp_types::{Position, Url};
 
 fn analyze(src: &str) -> DocAnalysis {
-    DocAnalysis::analyze(src.to_string(), "test://main.sd".to_string(), 1)
+    DocAnalysis::analyze(src.to_string(), "test://main.mty".to_string(), 1)
 }
 
 fn locate(src: &str, needle: &str) -> Position {
@@ -21,7 +21,7 @@ fn locate(src: &str, needle: &str) -> Position {
 }
 
 fn uri() -> Url {
-    Url::parse("test://main.sd").unwrap()
+    Url::parse("test://main.mty").unwrap()
 }
 
 #[test]

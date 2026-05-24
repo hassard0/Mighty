@@ -1,5 +1,5 @@
 //! The canonical `assert_eq` macro expands as documented in
-//! `examples/16_macro.sd`: `assert_eq(a, b)` produces
+//! `examples/16_macro.mty`: `assert_eq(a, b)` produces
 //! `if (a) != (b) { panic("assert_eq failed") }`.
 
 use mty_ast::{AstNode, File};

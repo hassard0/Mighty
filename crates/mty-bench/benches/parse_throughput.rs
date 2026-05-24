@@ -21,7 +21,7 @@ fn bench_parse(c: &mut Criterion) {
         |b, src| {
             b.iter(|| {
                 let s = src.clone();
-                let parsed = mty_driver::parse_source(black_box(s), "synth.sd".into());
+                let parsed = mty_driver::parse_source(black_box(s), "synth.mty".into());
                 black_box(parsed);
             })
         },

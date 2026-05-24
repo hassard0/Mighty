@@ -17,7 +17,7 @@ fn run_case(case_dir: &Path) -> Result<(), String> {
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let input = case_dir.join("input.sd");
+    let input = case_dir.join("input.mty");
     let expected = case_dir.join("expected.txt");
     let src =
         std::fs::read_to_string(&input).map_err(|e| format!("[{}] read input: {}", name, e))?;
@@ -67,8 +67,8 @@ fn runtime_conformance_corpus() {
     let mut failures: Vec<String> = vec![];
     let mut count = 0;
     for dir in entries {
-        // Skip dirs without input.sd (the legacy parser/* etc. dirs).
-        if !dir.join("input.sd").exists() {
+        // Skip dirs without input.mty (the legacy parser/* etc. dirs).
+        if !dir.join("input.mty").exists() {
             continue;
         }
         count += 1;

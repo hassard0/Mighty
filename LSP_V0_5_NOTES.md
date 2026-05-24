@@ -87,13 +87,13 @@ notifications (just logging). The underlying analysis is still
 per-file — building a workspace-wide resolve map is a larger refactor
 that crosses into `sdust-driver`. Out of scope for v0.5; tracked.
 
-## 8. SD6001 / `unknown_macro`
+## 8. MT6001 / `unknown_macro`
 
-The task brief lists SD6001 unknown_macro as a code-action target.
+The task brief lists MT6001 unknown_macro as a code-action target.
 That diagnostic code isn't yet allocated in
-`sdust-diagnostics::codes` (codes stop at SD8010 in the codegen
+`sdust-diagnostics::codes` (codes stop at MT8010 in the codegen
 range; no macro-specific code exists yet — the macros crate raises
-SD1001 / SD2007-style codes today). When the macros work lands its
+MT1001 / MT2007-style codes today). When the macros work lands its
 own code we'll wire the corresponding quick-fix.
 
 ## 9. Tests run against `DocAnalysis` directly, not JSON-RPC

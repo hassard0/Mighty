@@ -5,7 +5,7 @@ use mty_driver::{lower, parse_source};
 use mty_types::check_package_typed;
 
 fn check(src: &str) -> Vec<mty_diagnostics::Diagnostic> {
-    let parsed = parse_source(src.into(), "test.sd".into());
+    let parsed = parse_source(src.into(), "test.mty".into());
     let (pkg, mut diags) = lower(&parsed);
     let any_err = diags.iter().any(|d| matches!(d.severity, Severity::Error));
     if !any_err {

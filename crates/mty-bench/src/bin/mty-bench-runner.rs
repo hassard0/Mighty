@@ -133,7 +133,7 @@ fn run_parse(iters: usize) -> Sample {
     for _ in 0..iters {
         let s = src.clone();
         let t0 = Instant::now();
-        let parsed = mty_driver::parse_source(s, "synth.sd".into());
+        let parsed = mty_driver::parse_source(s, "synth.mty".into());
         std::hint::black_box(&parsed);
         samples.push(t0.elapsed());
     }
@@ -243,7 +243,7 @@ fn run_compile(iters: usize) -> Sample {
         let t0 = Instant::now();
         let _ = build_wasm(
             src.clone(),
-            "compile_bench.sd".into(),
+            "compile_bench.mty".into(),
             &opts,
             WasmTarget::Wasi,
         );
@@ -272,7 +272,7 @@ fn run_wasm_size() -> Sample {
         binary_name: "wasm_size_bench".into(),
         no_component: true,
     };
-    let outcome = build_wasm(src, "wasm_size.sd".into(), &opts, WasmTarget::Wasi);
+    let outcome = build_wasm(src, "wasm_size.mty".into(), &opts, WasmTarget::Wasi);
     let bytes = match outcome {
         BuildOutcome::WasmOk(p) => std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0),
         _ => 0,

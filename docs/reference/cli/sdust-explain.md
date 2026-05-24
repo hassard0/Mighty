@@ -12,23 +12,23 @@ sdust explain <CODE>
 
 | Argument | Required | Description |
 |---|---|---|
-| `<CODE>` | yes | Diagnostic code in any of these forms: `SD0001`, `sd0001`, `0001`, `1`. |
+| `<CODE>` | yes | Diagnostic code in any of these forms: `MT0001`, `sd0001`, `0001`, `1`. |
 
 ## Examples
 
 ```sh
-$ sdust explain SD0001
-SD0001: Unexpected token. The lexer or parser found a token that
+$ sdust explain MT0001
+MT0001: Unexpected token. The lexer or parser found a token that
 doesn't fit the current grammar context. Check for typos, missing
 punctuation, or a misplaced keyword.
 
 $ sdust explain 1001
-SD1001: Unresolved name. The HIR lowerer could not resolve a name
+MT1001: Unresolved name. The HIR lowerer could not resolve a name
 reference to any binding in scope. Check the spelling and ensure
 the binding's `use` or declaration is visible.
 
-$ sdust explain SD9999
-error: unknown diagnostic code SD9999
+$ sdust explain MT9999
+error: unknown diagnostic code MT9999
 $ echo $?
 1
 ```

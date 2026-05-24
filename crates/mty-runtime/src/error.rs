@@ -45,16 +45,16 @@ impl RuntimeError {
     /// and exit-code mapping.
     pub fn diag_code(&self) -> &'static str {
         match self {
-            RuntimeError::AgentPanic { .. } => "SD5001",
-            RuntimeError::DeadlineExceeded(_) => "SD5011",
-            RuntimeError::MailboxFull { .. } => "SD5012",
-            RuntimeError::SupervisorEscalated { .. } => "SD5013",
-            RuntimeError::RestartLimitExceeded { .. } => "SD5014",
-            RuntimeError::BudgetExceeded(_) => "SD5009",
-            RuntimeError::CapabilityOutsideSandbox(_) => "SD5015",
-            RuntimeError::ExternUnimplemented(_) => "SD5050",
-            RuntimeError::AgentNotFound(_) => "SD5021",
-            RuntimeError::HandlerNotFound { .. } => "SD5020",
+            RuntimeError::AgentPanic { .. } => "MT5001",
+            RuntimeError::DeadlineExceeded(_) => "MT5011",
+            RuntimeError::MailboxFull { .. } => "MT5012",
+            RuntimeError::SupervisorEscalated { .. } => "MT5013",
+            RuntimeError::RestartLimitExceeded { .. } => "MT5014",
+            RuntimeError::BudgetExceeded(_) => "MT5009",
+            RuntimeError::CapabilityOutsideSandbox(_) => "MT5015",
+            RuntimeError::ExternUnimplemented(_) => "MT5050",
+            RuntimeError::AgentNotFound(_) => "MT5021",
+            RuntimeError::HandlerNotFound { .. } => "MT5020",
             RuntimeError::Trap { code, .. } => code,
         }
     }
@@ -67,40 +67,40 @@ mod tests {
     #[test]
     fn diag_codes_cover_all_variants() {
         let cases = [
-            (RuntimeError::AgentPanic { msg: "x".into() }, "SD5001"),
+            (RuntimeError::AgentPanic { msg: "x".into() }, "MT5001"),
             (
                 RuntimeError::DeadlineExceeded(Duration::from_millis(10)),
-                "SD5011",
+                "MT5011",
             ),
-            (RuntimeError::MailboxFull { agent: "A".into() }, "SD5012"),
+            (RuntimeError::MailboxFull { agent: "A".into() }, "MT5012"),
             (
                 RuntimeError::SupervisorEscalated { child: "c".into() },
-                "SD5013",
+                "MT5013",
             ),
             (
                 RuntimeError::RestartLimitExceeded { child: "c".into() },
-                "SD5014",
+                "MT5014",
             ),
-            (RuntimeError::BudgetExceeded("cpu".into()), "SD5009"),
+            (RuntimeError::BudgetExceeded("cpu".into()), "MT5009"),
             (
                 RuntimeError::CapabilityOutsideSandbox("/etc".into()),
-                "SD5015",
+                "MT5015",
             ),
-            (RuntimeError::ExternUnimplemented("foo".into()), "SD5050"),
-            (RuntimeError::AgentNotFound("A".into()), "SD5021"),
+            (RuntimeError::ExternUnimplemented("foo".into()), "MT5050"),
+            (RuntimeError::AgentNotFound("A".into()), "MT5021"),
             (
                 RuntimeError::HandlerNotFound {
                     agent: "A".into(),
                     msg: "M".into(),
                 },
-                "SD5020",
+                "MT5020",
             ),
             (
                 RuntimeError::Trap {
-                    code: "SD5005",
+                    code: "MT5005",
                     message: "u".into(),
                 },
-                "SD5005",
+                "MT5005",
             ),
         ];
         for (err, code) in cases {

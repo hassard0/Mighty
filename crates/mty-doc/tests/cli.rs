@@ -1,4 +1,4 @@
-//! End-to-end shape: render `sdust doc <file>` style output as a single
+//! End-to-end shape: render `mty doc <file>` style output as a single
 //! function call (mirrors what `crates/mty-cli/src/cmd/doc.rs` does).
 
 use mty_doc::{build_doc_package, render};
@@ -13,7 +13,7 @@ pub fn main() {
 
 #[test]
 fn package_text_render_matches_go_style() {
-    let (doc, _) = build_doc_package(FIXTURE, "hello.sd", "hello");
+    let (doc, _) = build_doc_package(FIXTURE, "hello.mty", "hello");
     let out = render::text(&doc);
     assert!(out.starts_with("package hello\n"), "leading line: {}", out);
     assert!(out.contains("FUNCTIONS"));
@@ -30,7 +30,7 @@ fn item_text_render_includes_full_body() {
 /// This is the long body.
 pub fn foo() {}
 "#;
-    let (doc, _) = build_doc_package(src, "p.sd", "p");
+    let (doc, _) = build_doc_package(src, "p.mty", "p");
     let foo = doc.items.iter().find(|i| i.name == "foo").unwrap();
     let out = render::item_text(&doc, foo);
     assert!(out.contains("package p"));
@@ -41,7 +41,7 @@ pub fn foo() {}
 
 #[test]
 fn writing_html_tree_succeeds() {
-    let (doc, _) = build_doc_package(FIXTURE, "hello.sd", "hello");
+    let (doc, _) = build_doc_package(FIXTURE, "hello.mty", "hello");
     let files = render::html(&doc);
     let dir = tempfile::tempdir().unwrap();
     render::write_tree(dir.path(), &files).unwrap();
@@ -69,7 +69,7 @@ agent Repeater(): Echo {
   }
 }
 "#;
-    let (doc, _) = build_doc_package(src, "svc.sd", "svc");
+    let (doc, _) = build_doc_package(src, "svc.mty", "svc");
     let echo = doc.items.iter().find(|i| i.name == "Echo").expect("Echo");
     assert_eq!(echo.kind, mty_doc::DocItemKind::Protocol);
     assert!(echo.signature.plain.contains("protocol Echo"));

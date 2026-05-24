@@ -26,7 +26,7 @@ pub fn predict(city: Str) -> Forecast {
 
 #[test]
 fn html_index_lists_items_and_link_to_pages() {
-    let (doc, _) = build_doc_package(SAMPLE, "weather.sd", "weather");
+    let (doc, _) = build_doc_package(SAMPLE, "weather.mty", "weather");
     let files = render::html(&doc);
     let idx = files.get("index.html").expect("index.html");
     assert!(idx.contains("Package <code>weather</code>"));
@@ -41,7 +41,7 @@ fn html_index_lists_items_and_link_to_pages() {
 
 #[test]
 fn html_item_page_linkifies_signature_to_struct_anchor() {
-    let (doc, _) = build_doc_package(SAMPLE, "weather.sd", "weather");
+    let (doc, _) = build_doc_package(SAMPLE, "weather.mty", "weather");
     let files = render::html(&doc);
     let predict = files.get("fn.predict.html").expect("predict page");
     // The return type `Forecast` should be hyperlinked to the struct anchor.
@@ -54,7 +54,7 @@ fn html_item_page_linkifies_signature_to_struct_anchor() {
 
 #[test]
 fn html_item_page_renders_since_block() {
-    let (doc, _) = build_doc_package(SAMPLE, "weather.sd", "weather");
+    let (doc, _) = build_doc_package(SAMPLE, "weather.mty", "weather");
     let files = render::html(&doc);
     let greet = files.get("fn.greet.html").expect("greet page");
     assert!(greet.contains("Since 0.2.0"), "missing since: {}", greet);
@@ -62,7 +62,7 @@ fn html_item_page_renders_since_block() {
 
 #[test]
 fn html_static_assets_are_emitted() {
-    let (doc, _) = build_doc_package(SAMPLE, "weather.sd", "weather");
+    let (doc, _) = build_doc_package(SAMPLE, "weather.mty", "weather");
     let files = render::html(&doc);
     assert!(files.contains_key("style.css"));
     assert!(files.contains_key("search.js"));
@@ -79,7 +79,7 @@ fn html_static_assets_are_emitted() {
 
 #[test]
 fn html_doc_body_linkifies_bracket_refs() {
-    let (doc, _) = build_doc_package(SAMPLE, "weather.sd", "weather");
+    let (doc, _) = build_doc_package(SAMPLE, "weather.mty", "weather");
     let files = render::html(&doc);
     let predict = files.get("fn.predict.html").expect("predict page");
     // `[Forecast]` in doc text should become a relative anchor link.

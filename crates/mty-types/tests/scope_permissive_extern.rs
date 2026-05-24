@@ -1,13 +1,13 @@
 //! v0.3 (A65): extern blocks and top-level fns keep the slice-3 A21
 //! permissive fresh-var fallback. Unknown names inside them are NOT
-//! promoted to SD2021.
+//! promoted to MT2021.
 
 use mty_diagnostics::Severity;
 use mty_driver::{lower, parse_source};
 use mty_types::check_package;
 
 fn diag_codes(src: &str) -> Vec<String> {
-    let parsed = parse_source(src.into(), "scope_permissive_extern.sd".into());
+    let parsed = parse_source(src.into(), "scope_permissive_extern.mty".into());
     let (pkg, mut diags) = lower(&parsed);
     let any_lower_err = diags.iter().any(|d| matches!(d.severity, Severity::Error));
     if !any_lower_err {
@@ -31,7 +31,7 @@ fn top_level_fn_unknown_name_is_permissive() {
     ";
     let codes = diag_codes(src);
     assert!(
-        !codes.contains(&"SD2021".to_string()),
+        !codes.contains(&"MT2021".to_string()),
         "top-level fn should be permissive (A21), got {:?}",
         codes
     );
@@ -50,7 +50,7 @@ fn unsafe_block_unknown_name_is_permissive() {
     ";
     let codes = diag_codes(src);
     assert!(
-        !codes.contains(&"SD2021".to_string()),
+        !codes.contains(&"MT2021".to_string()),
         "unsafe block should be permissive, got {:?}",
         codes
     );

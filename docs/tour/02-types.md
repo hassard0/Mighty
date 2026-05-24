@@ -51,16 +51,16 @@ sdust check examples/02_struct_enum.sd
 ```sd
 struct User { id: U64, name: String }
 
-// SD2006 unknown field
+// MT2006 unknown field
 let u = User { id: 1, name: "x", missing: 2 }
 
-// SD2013 missing field
+// MT2013 missing field
 let u = User { id: 1 }
 
-// SD2014 duplicate field
+// MT2014 duplicate field
 let u = User { id: 1, id: 2, name: "x" }
 
-// SD2001 type mismatch
+// MT2001 type mismatch
 let u = User { id: "one", name: "Ada" }   // id expects U64
 ```
 
@@ -69,7 +69,7 @@ For enums and `match`:
 ```sd
 enum Shape { Circle(F64), Rect(F64, F64) }
 
-// SD2012 wrong variant arity
+// MT2012 wrong variant arity
 let s = Shape.Circle(1.0, 2.0)
 ```
 

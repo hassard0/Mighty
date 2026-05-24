@@ -51,8 +51,8 @@ calling `log` with a string literal.
 The type checker enforces that `log` takes a single `Str`:
 
 ```sd
-fn main() { log(42) }   // SD2001 expected `Str`, found `{integer}`
-fn main() { log() }     // SD2005 function expects 1 argument(s), got 0
+fn main() { log(42) }   // MT2001 expected `Str`, found `{integer}`
+fn main() { log() }     // MT2005 function expects 1 argument(s), got 0
 ```
 
 ## Next

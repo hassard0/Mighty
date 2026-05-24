@@ -25,7 +25,7 @@ feature index).
   expansion-time mangling — sound for the v0.4 surface, deliberately
   simpler than a full set-of-scopes implementation.
 * `mac!name(...)` syntactic marker. v0.4 reuses ordinary function-call
-  syntax; the marker (and the matching SD6001 check) lands in v0.5.
+  syntax; the marker (and the matching MT6001 check) lands in v0.5.
 * Compile-time function evaluation.
 
 ## Grammar
@@ -66,7 +66,7 @@ For an expansion of `name(arg_1, ..., arg_n)` against a definition
 `macro name(p_1, ..., p_n) => { body }`:
 
 1. **Arity check.** If `n` does not equal the declared parameter count,
-   diagnostic **SD6002** is raised and the call is replaced with the
+   diagnostic **MT6002** is raised and the call is replaced with the
    integer literal `0` to keep the surrounding parse well-formed.
 2. **Parameter substitution.** Each `IDENT` token in `body` whose text
    matches `p_i` is replaced by `( arg_i_tokens )`. The surrounding
@@ -85,7 +85,7 @@ For an expansion of `name(arg_1, ..., arg_n)` against a definition
    iterations.
 
 `MAX_EXPANSION_DEPTH = 32` is part of this spec. Hitting it raises
-**SD6004** for every call still present and aborts further expansion.
+**MT6004** for every call still present and aborts further expansion.
 
 ## Hygiene scope (v0.4 subset)
 
@@ -103,11 +103,11 @@ code or wait for v0.5's set-of-scopes hygiene.
 
 ## Diagnostic codes
 
-* **SD6001** `unknown_macro` — reserved; not raised in v0.4 (see
+* **MT6001** `unknown_macro` — reserved; not raised in v0.4 (see
   Non-goals).
-* **SD6002** `macro_arity_mismatch` — wrong arg count.
-* **SD6003** `macro_body_parse_failed` — expanded body did not parse.
-* **SD6004** `recursive_macro_too_deep` — depth cap exceeded.
+* **MT6002** `macro_arity_mismatch` — wrong arg count.
+* **MT6003** `macro_body_parse_failed` — expanded body did not parse.
+* **MT6004** `recursive_macro_too_deep` — depth cap exceeded.
 
 ## Worked acceptance example
 

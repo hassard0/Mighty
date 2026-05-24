@@ -1,7 +1,7 @@
 // v0.3 (A65): a pub fn that allocates via an arena block must declare
 // `alloc` in its effect set. The effect inferencer maps `arena name { ... }`
 // blocks to the alloc effect; without `effect alloc` in the pub
-// signature, SD4001 fires.
+// signature, MT4001 fires.
 pub fn build_thing(x: I32) -> I32 {
   arena turn {
     x + 1

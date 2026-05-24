@@ -19,8 +19,8 @@
 //!    the runtime *does not* try to join the blocking thread (that
 //!    could block waiting on a runaway loop forever). Instead the
 //!    thread is detached and the agent is removed from the registry;
-//!    its handler is treated as a hard trap with SD5011 (deadline) or
-//!    SD5009 (CPU budget). Subsequent turns simply never run because
+//!    its handler is treated as a hard trap with MT5011 (deadline) or
+//!    MT5009 (CPU budget). Subsequent turns simply never run because
 //!    the agent loop has exited.
 //!
 //! This delivers the spec-required *interruption mid-turn* without
@@ -36,7 +36,7 @@
 //! thread pool. The async parent task races the blocking task's join
 //! handle against `cancel.cancelled()`. On cancel we:
 //!
-//! - emit `BudgetBreach { kind: SD5011|SD5009 }` telemetry,
+//! - emit `BudgetBreach { kind: MT5011|MT5009 }` telemetry,
 //! - send the failure on the reply oneshot (so `ask` callers get a
 //!   timely error instead of waiting for the underlying thread),
 //! - drop the JoinHandle (detaches the blocking thread).
@@ -69,10 +69,10 @@ impl CancelReason {
     /// SD5xxx code emitted in telemetry when the turn is killed.
     pub fn diag_code(self) -> &'static str {
         match self {
-            CancelReason::WallBudget => "SD5009",
-            CancelReason::CpuBudget => "SD5009",
-            CancelReason::AskDeadline => "SD5011",
-            CancelReason::Shutdown => "SD5020",
+            CancelReason::WallBudget => "MT5009",
+            CancelReason::CpuBudget => "MT5009",
+            CancelReason::AskDeadline => "MT5011",
+            CancelReason::Shutdown => "MT5020",
         }
     }
 
@@ -219,9 +219,9 @@ mod tests {
 
     #[test]
     fn diag_codes_map() {
-        assert_eq!(CancelReason::WallBudget.diag_code(), "SD5009");
-        assert_eq!(CancelReason::CpuBudget.diag_code(), "SD5009");
-        assert_eq!(CancelReason::AskDeadline.diag_code(), "SD5011");
-        assert_eq!(CancelReason::Shutdown.diag_code(), "SD5020");
+        assert_eq!(CancelReason::WallBudget.diag_code(), "MT5009");
+        assert_eq!(CancelReason::CpuBudget.diag_code(), "MT5009");
+        assert_eq!(CancelReason::AskDeadline.diag_code(), "MT5011");
+        assert_eq!(CancelReason::Shutdown.diag_code(), "MT5020");
     }
 }

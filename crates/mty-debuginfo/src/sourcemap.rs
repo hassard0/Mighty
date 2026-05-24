@@ -42,7 +42,7 @@ impl SourceMapMapping {
 
 /// A source-map v3 builder.
 ///
-/// "Sources" are the .sd files that contributed to the wasm output;
+/// "Sources" are the .mty files that contributed to the wasm output;
 /// for slice-8 there's always exactly one. "Names" are optional symbol
 /// names that appear in mappings (function names, local names); we
 /// don't use them in v0.2 mappings, so the names array is empty.
@@ -291,13 +291,13 @@ mod tests {
     fn sourcemap_roundtrips_via_serde() {
         let mut sm = SourceMap::new();
         sm.file = Some("hello.wasm".into());
-        let src = sm.add_source("hello.sd", Some("fn main() {}\n".into()));
+        let src = sm.add_source("hello.mty", Some("fn main() {}\n".into()));
         sm.add_mapping(SourceMapMapping::from_pos(0, src, SourcePos::new(0, 1, 1)));
         sm.add_mapping(SourceMapMapping::from_pos(5, src, SourcePos::new(13, 2, 3)));
         let bytes = sm.to_json().unwrap();
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["version"], 3);
-        assert_eq!(v["sources"][0], "hello.sd");
+        assert_eq!(v["sources"][0], "hello.mty");
         assert!(!v["mappings"].as_str().unwrap().is_empty());
         assert_eq!(v["file"], "hello.wasm");
     }

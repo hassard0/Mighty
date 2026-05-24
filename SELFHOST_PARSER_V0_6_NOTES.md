@@ -119,7 +119,7 @@ fn f() {
 }
 ```
 
-**v0.6 behavior:** SD2001 "expected Bool, found Unit" (or vice versa)
+**v0.6 behavior:** MT2001 "expected Bool, found Unit" (or vice versa)
 because the `if/else` is parsed as an expression and both branches
 must unify.
 

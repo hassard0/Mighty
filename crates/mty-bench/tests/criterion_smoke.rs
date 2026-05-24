@@ -11,7 +11,7 @@ use std::time::Instant;
 fn parse_one_iter_runs() {
     let src = stardust_10kloc();
     let t0 = Instant::now();
-    let parsed = mty_driver::parse_source(src, "smoke.sd".into());
+    let parsed = mty_driver::parse_source(src, "smoke.mty".into());
     let dur = t0.elapsed();
     assert!(dur.as_millis() < 60_000, "parse took too long: {dur:?}");
     assert!(parsed

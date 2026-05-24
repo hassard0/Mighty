@@ -34,7 +34,7 @@ pub fn macro_decl(p: &mut Parser, cp: rowan::Checkpoint) {
 ///
 /// Parses but does not execute. The body is captured as opaque
 /// brace-balanced tokens; the registry stores it as a procedural macro,
-/// and call sites emit SD6006 until v0.6's sandboxed interpreter ships.
+/// and call sites emit MT6006 until v0.6's sandboxed interpreter ships.
 pub fn proc_macro_decl(p: &mut Parser, cp: rowan::Checkpoint) {
     p.start_node_at(cp, PROC_MACRO_DECL);
     // Consume `proc` (IDENT in lexer) then `macro` keyword.

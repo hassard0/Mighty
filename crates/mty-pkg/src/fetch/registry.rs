@@ -4,9 +4,9 @@
 //! packages. See [`crate::registry`] for the storage convention. This
 //! module implements the *fetch* side: resolving an index, locating a
 //! release, downloading its `.tar.gz` asset, verifying the sha256
-//! sidecar, and extracting into `.stardust/pkgs/<name>-<version>/`.
+//! sidecar, and extracting into `.mighty/pkgs/<name>-<version>/`.
 //!
-//! Source URLs in `star.lock` use the form `registry+gh://<owner>/<repo>`.
+//! Source URLs in `mighty.lock` use the form `registry+gh://<owner>/<repo>`.
 //! The legacy `registry+https://<host>` shape from v0.2 is still
 //! parsed and triggers a clear error directing the user to switch
 //! their lockfile over.
@@ -23,13 +23,13 @@ pub fn fetch(locked: &LockedPackage, slot: &Path) -> Result<Fetched, FetchError>
         None => {
             return Err(FetchError::Registry(format!(
                 "lockfile source `{}` uses the legacy `registry+https://` scheme; \
-                 re-run `sdust pkg update` to migrate to the GitHub-Releases registry",
+                 re-run `mty pkg update` to migrate to the GitHub-Releases registry",
                 locked.source
             )));
         }
     };
     // Cache base = the repo root containing the package's
-    // `.stardust/pkgs/<slot>` dir. We walk two levels up from the slot
+    // `.mighty/pkgs/<slot>` dir. We walk two levels up from the slot
     // to recover it.
     let repo_root = slot
         .parent()
@@ -112,7 +112,7 @@ pub fn fetch(_locked: &LockedPackage, _slot: &Path) -> Result<Fetched, FetchErro
 /// Ensure a cached index exists for `slug`; refetch from GitHub when
 /// the cache is missing, stale, or `force` is set.
 ///
-/// `repo_root` is the package directory that owns the `.stardust`
+/// `repo_root` is the package directory that owns the `.mighty`
 /// cache.
 #[cfg(feature = "registry-fetch")]
 pub fn ensure_index(
@@ -461,6 +461,6 @@ mod tests {
     fn traversal_paths_rejected() {
         assert!(is_traversal(Path::new("../etc/passwd")));
         assert!(is_traversal(Path::new("/etc/passwd")));
-        assert!(!is_traversal(Path::new("foo/bar.sd")));
+        assert!(!is_traversal(Path::new("foo/bar.mty")));
     }
 }

@@ -9,7 +9,7 @@ benchmarks land alongside a new `sdust-bench` crate, the Stardust
 source parser is itself ported to Stardust (~1930 LOC running through
 a bootstrap host bridge), and three v0.5 loose ends close inline:
 DOM SIR lowering reaches `emit_dom_call` end-to-end, the
-SD6001-SD6006 macro codes merge into the central
+MT6001-MT6006 macro codes merge into the central
 `sdust_diagnostics` catalog, and per-call `FsCap` isolation gains a
 contract test.
 
@@ -46,12 +46,12 @@ cargo test -p sdust-driver --test selfhost_parser
 cargo test -p sdust-sir --test dom_lowering
 # → 3 passed (`d.set_text("#id", "x")` lowers to BuiltinId::DomOp("set_text"))
 
-# Central SD catalog: `sdust explain` resolves SD6001-SD6006 the
+# Central SD catalog: `sdust explain` resolves MT6001-MT6006 the
 # same way it resolves every other code
-sdust explain SD6001
-# → SD6001: Unknown macro. ...
-sdust explain SD6006
-# → SD6006: Procedural macro execution is not supported yet. ...
+sdust explain MT6001
+# → MT6001: Unknown macro. ...
+sdust explain MT6006
+# → MT6006: Procedural macro execution is not supported yet. ...
 
 # Per-call FsCap isolation contract is pinned
 cargo test -p sdust-stdlib --test fs_capability_allowlist
@@ -76,7 +76,7 @@ the killed "loose ends" swarm agent left on the table:
 | multi-core scheduler | `sdust-runtime` (scheduler, runtime, lib, Cargo), 7 new tests, conformance `mailbox_ordering/06+07`, `docs/internals/{scheduler,multi-core}.md`, spec A101..A106 | `ee5d83b`, `f071f12` |
 | benchmarks | new `sdust-bench` workspace member, 6 categories × {Rust / Go / C++ comparators}, criterion harness + CLI runner, `docs/benchmarks/*.md`, CI workflow | `a678e41`, `3f6fb89`, `b303cee` |
 | self-host parser | `selfhost/parser/parser.sd` (~1930 LOC), `crates/sdust-driver/tests/selfhost_parser.rs` (host bridge), `docs/internals/self-hosting.md`, `SELFHOST_PARSER_V0_6_NOTES.md` | `a9c89c8`, `1b41b22` |
-| integrator easy wins | `sdust-diagnostics::codes` (SD6001-SD6006), `sdust-macros::diag` (re-exports), `sdust-sir::BuiltinId::DomOp` + lowering, `sdust-codegen-wasm::emit_call` (DomOp dispatch + dead-code removal), `sdust-codegen-cranelift::lower_call` (DomOp stub), 3 new sir tests + 1 new wasm-emit test + 1 new fs cap isolation test | `03c74fd`, `697cd79`, `76e962c` |
+| integrator easy wins | `sdust-diagnostics::codes` (MT6001-MT6006), `sdust-macros::diag` (re-exports), `sdust-sir::BuiltinId::DomOp` + lowering, `sdust-codegen-wasm::emit_call` (DomOp dispatch + dead-code removal), `sdust-codegen-cranelift::lower_call` (DomOp stub), 3 new sir tests + 1 new wasm-emit test + 1 new fs cap isolation test | `03c74fd`, `697cd79`, `76e962c` |
 
 A fourth "v0.5 loose ends" agent was killed before committing
 anything; the integrator picked up the three items that fit inside
@@ -111,7 +111,7 @@ set-of-scopes hygiene, LSP workspace resolve map).
   diff)
 - **Self-host parser: 13/13 pass** (NEW; covers examples 01-05)
 - **9 new spec amendments** (A101..A109)
-- **0 new SD codes** this slice (SD6001-SD6006 relocated, not new)
+- **0 new SD codes** this slice (MT6001-MT6006 relocated, not new)
 - **MSRV unchanged**
 
 ## Correctness assertions newly enforced
@@ -126,7 +126,7 @@ set-of-scopes hygiene, LSP workspace resolve map).
 | Per-token-stream perf number | absent | parse / send / mailbox / HTTP / native-compile / wasm-size shipped via `sdust-bench` |
 | Stardust parser written in Stardust | only lexer | parser at ~1930 LOC, 13/13 bootstrap tests pass |
 | `d.set_text(...)` on a `Dom` cap | typeck only — never reaches `emit_dom_call` | full SIR lowering + wasm `stardust:web/dom` call (A108) |
-| `sdust explain SD6001` | resolved via `sdust_macros::diag` (separate catalog) | single-sourced on `sdust_diagnostics::codes` (A107) |
+| `sdust explain MT6001` | resolved via `sdust_macros::diag` (separate catalog) | single-sourced on `sdust_diagnostics::codes` (A107) |
 | `FsCap` isolation between two caps in one process | implicit | contract pinned by test (A109) |
 
 ## Closed deferrals from v0.5
@@ -149,14 +149,14 @@ The v0.5 deferral list named 47 carry-over items. v0.6 closes:
 **Integrator easy wins** (closed inline):
 - **DOM SIR lowering** (A108) — closes v0.5 deferral #6
   (`emit_dom_call` `#[allow(dead_code)]`)
-- **Central SD6001-SD6006 catalog** (A107) — closes v0.5 deferral #8
+- **Central MT6001-MT6006 catalog** (A107) — closes v0.5 deferral #8
 - **Per-call FsCap isolation contract** (A109) — closes v0.5
   deferral #7 modulo per-call materialisation from sandbox manifest
   (the API shape was already correct; the test is the contract)
 
 **Carried forward to v0.7** (too invasive for v0.6 integration
 scope):
-- Proc-macro sandboxed execution (SD6006-gated)
+- Proc-macro sandboxed execution (MT6006-gated)
 - Real per-agent HTTP routing via `install_agent_dispatch` wiring
 - Set-of-scopes macro hygiene (replaces v0.5 mangling pass)
 - LSP workspace resolve map for cross-file rename / go-to-def
@@ -181,7 +181,7 @@ A103 — Lightweight migration via routing-table retargeting (scheduler swarm)
 A104 — Per-worker scheduler telemetry (scheduler swarm)
 A105 — Scheduler driver runtime separation (scheduler swarm)
 A106 — Default worker count = available_parallelism (scheduler swarm)
-A107 — Central diagnostic catalog for SD6001-SD6006 (integrator)
+A107 — Central diagnostic catalog for MT6001-MT6006 (integrator)
 A108 — BuiltinId::DomOp(name) SIR variant (integrator)
 A109 — Per-call FsCap isolation contract (integrator)
 ```
@@ -190,7 +190,7 @@ All committed to `docs/spec/v0.1-amendments.md`.
 
 ## Diagnostic codes
 
-No new SD codes in v0.6. The SD6001-SD6006 macro band (introduced
+No new SD codes in v0.6. The MT6001-MT6006 macro band (introduced
 in v0.4 + v0.5) relocates from `sdust_macros::diag` to
 `sdust_diagnostics::codes` (A107); `sdust_macros::diag` keeps the
 historical bare-`u16` constants but re-exports their values from
@@ -227,7 +227,7 @@ The Stardust numbers themselves are real (recorded by criterion).
   scheduler is a complete rewrite from the slice-7 single-threaded
   design (A101..A106)
 - `sdust-macros` picks up a path-dep on `sdust-diagnostics` so the
-  SD6001-SD6006 codes can re-export from the central catalog (A107)
+  MT6001-MT6006 codes can re-export from the central catalog (A107)
 
 ## Known issues
 
@@ -251,7 +251,7 @@ The Stardust numbers themselves are real (recorded by criterion).
 6. **Carried from v0.5**: 2 conformance cases still ignored, OTLP
    transport gRPC-only, LLVM backend untested on this build host,
    slice-7 supervisor/cap-narrow scopes strict-but-open, proc macros
-   SD6006-gated.
+   MT6006-gated.
 
 ## What's next
 

@@ -39,8 +39,8 @@
   - Spawn → `AgentRef[T]`
 - **Unification engine** with occurs check, IntInfer/FloatInfer flex,
   `Error`/`Never` poison-passes-through.
-- **Pub-signature validation** (`SD2020 pub_param_needs_type`).
-- **25 new diagnostic codes** SD2001..SD2025 with `sdust explain`
+- **Pub-signature validation** (`MT2020 pub_param_needs_type`).
+- **25 new diagnostic codes** MT2001..MT2025 with `sdust explain`
   entries.
 - **Driver integration**: `pipeline::type_check(pkg)` runs the checker;
   `sdust check` now does lex + parse + lower + type-check, returning
@@ -97,7 +97,7 @@ revisit if any look wrong.
 - **A12** — Postfix `?` and `!` require their `Msg` identifier on the
   same line (parser bug fix from slice 2's trivia-skipping lookahead).
 - **Opaque tolerance**: unknown values resolve to fresh inference
-  vars rather than `SD2021 unresolved_value` errors. This is what
+  vars rather than `MT2021 unresolved_value` errors. This is what
   lets examples that reference agent-state/supervisor-scope/cap-narrow
   items (`work`, `n`, `cache`, `draw`, ...) compile without first
   modelling those scopes. Slice 4+ tightens this.
@@ -118,7 +118,7 @@ revisit if any look wrong.
 CLOSED in slice 4:
 - ~~Ownership / move / affine / borrow checking~~ — sdust-borrow crate
 - ~~Explicit defaulting pass for `IntInfer`/`FloatInfer`~~ — A19
-- ~~Match exhaustiveness as an error~~ — A16 (SD2015 flipped to Error)
+- ~~Match exhaustiveness as an error~~ — A16 (MT2015 flipped to Error)
 - ~~Real protocol message-type checking for agent handlers~~ — A18
 - ~~Real impl-method dispatch on user ADTs~~ — A17
 - ~~Scope-aware unresolved-value tolerance~~ — A21
@@ -136,7 +136,7 @@ Still open:
 - `crates/sdust-types/` — new crate
 - `docs/internals/typeck.md` — type-checker internals
 - `docs/spec/v0.1-amendments.md` — A7..A12
-- `docs/reference/diagnostics.md` — SD2001..SD2025 table
+- `docs/reference/diagnostics.md` — MT2001..MT2025 table
 - `docs/reference/cli/sdust-check.md` — updated semantics
 - `docs/superpowers/specs/2026-05-24-slice3-type-checker-design.md`
   — slice design

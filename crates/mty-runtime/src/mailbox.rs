@@ -10,7 +10,7 @@
 //! the frame is dropped (typically right after the handler runs).
 //! Senders therefore observe slab exhaustion through the same
 //! [`SendPolicy`] semantics that govern channel-capacity overflow —
-//! Block waits, Drop discards, Fail returns SD5012.
+//! Block waits, Drop discards, Fail returns MT5012.
 //!
 //! ## Slab + channel layering
 //!
@@ -30,7 +30,7 @@
 //! ```
 //!
 //! Backpressure semantics are therefore the union of pool-exhaustion
-//! and channel-full conditions; both surface as `MailboxFull` (SD5012)
+//! and channel-full conditions; both surface as `MailboxFull` (MT5012)
 //! or are absorbed by Block, depending on policy.
 
 use mty_ir::interp::value::Value;
@@ -47,7 +47,7 @@ pub enum SendPolicy {
     Block,
     /// Drop the message and warn.
     Drop,
-    /// Return SD5012 to the sender.
+    /// Return MT5012 to the sender.
     Fail,
 }
 

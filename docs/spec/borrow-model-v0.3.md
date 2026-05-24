@@ -43,9 +43,9 @@ Otherwise, emit:
 
 | New kind | Existing has &mut? | Existing has &? | Diagnostic |
 |----------|--------------------|-----------------|------------|
-| Mut      | yes                | (any)           | SD3006     |
-| Mut      | no                 | yes             | SD3004     |
-| Shared   | yes                | (any)           | SD3005     |
+| Mut      | yes                | (any)           | MT3006     |
+| Mut      | no                 | yes             | MT3004     |
+| Shared   | yes                | (any)           | MT3005     |
 | Shared   | no                 | yes             | (admissible) |
 
 When the conflict spans projection paths (non-empty `projs`), the
@@ -76,10 +76,10 @@ A move out of `Place(root, [])` (a bare local) transitions
 
 | Operation            | On Owned    | On Moved          |
 |----------------------|-------------|-------------------|
-| Use                  | OK          | SD3001            |
-| Move                 | →Moved      | SD3001            |
-| BorrowShared         | →ledger Shared | SD3003         |
-| BorrowMut            | →ledger Mut OR SD3013 | SD3003 |
+| Use                  | OK          | MT3001            |
+| Move                 | →Moved      | MT3001            |
+| BorrowShared         | →ledger Shared | MT3003         |
+| BorrowMut            | →ledger Mut OR MT3013 | MT3003 |
 | AssignTarget         | (no-op for Owned) → re-init Owned | →Owned (re-init) |
 
 A move out of `Place(root, projs)` with non-empty projs is more subtle.
@@ -140,18 +140,18 @@ For `if`/`if let`/`match`, before each arm we snapshot
 The conservative ledger join is a documented over-restriction. v0.4
 will refine via control-flow-sensitive last-use within branches.
 
-## 8. SD3009 — move out of reference (A56)
+## 8. MT3009 — move out of reference (A56)
 
 For each occurrence of `*ref` where `ref` is a path expression with
 `expr_ty[ref] = Ref { inner: T, .. }`:
 
 - If T is Copy (per `is_copy(T, ...)`), `*ref` is a load → admissible.
 - If T is non-Copy, `*ref` in `Position::Use` or as the operand of
-  `move` → emit SD3009.
+  `move` → emit MT3009.
 
 The diagnostic names the reference (`*r`) so the user can find the
-exact deref site. SD3009 is distinct from SD3001 (use-after-move on
-a moved local) and SD3008 (move out of a borrowed local).
+exact deref site. MT3009 is distinct from MT3001 (use-after-move on
+a moved local) and MT3008 (move out of a borrowed local).
 
 ## 9. Soundness gaps deferred to v0.4
 
@@ -176,7 +176,7 @@ which v0.3 fixes (A56).
 | NLL pre-pass / LastUseMap     | `crates/sdust-borrow/src/nll.rs`           |
 | Borrow ledger                 | `crates/sdust-borrow/src/state.rs`         |
 | Conflict detection            | `flow.rs::try_place_borrow`                |
-| SD3009 detection              | `flow.rs::check_deref_move`                |
+| MT3009 detection              | `flow.rs::check_deref_move`                |
 | Decay hook                    | `flow.rs::maybe_decay_after_use`           |
 | Branch / loop joins           | `flow.rs::join_ledgers`                    |
 | Conformance cases             | `tests/conformance/borrow_checking/05..09` |

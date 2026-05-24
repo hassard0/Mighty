@@ -7,7 +7,7 @@
 //! `wasm-tools component validate` accepts.
 //!
 //! Closes amendment A47: full Component Model output is no longer
-//! deferred — every `sdust build --target wasm32-*` now emits a
+//! deferred — every `mty build --target wasm32-*` now emits a
 //! component by default. Pass `--no-component` to fall back to the
 //! bare core module (useful for debugging the lowering, or for
 //! shipping into a runtime that doesn't yet support the Component

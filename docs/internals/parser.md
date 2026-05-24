@@ -61,7 +61,7 @@ All productions are written against these. Nodes are opened with
 
 Top-level recovery is "bump and report": when no item production
 matches, the parser records an `unexpected token` error and consumes
-one token before retrying. The depth limit produces `SD0030`.
+one token before retrying. The depth limit produces `MT0030`.
 
 Slice 2 will add expression-level recovery so that an error inside a
 function body does not poison the rest of the file.

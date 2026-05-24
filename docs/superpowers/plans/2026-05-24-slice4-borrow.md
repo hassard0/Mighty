@@ -38,16 +38,16 @@
 - `crates/sdust-driver/Cargo.toml` — depend on `sdust-borrow`
 - `crates/sdust-driver/src/pipeline.rs` — `borrow_check(pkg) -> Vec<Diagnostic>` stage
 - `crates/sdust-cli/src/cmd/check.rs` — run the new stage after type-check
-- `crates/sdust-diagnostics/src/codes.rs` — add SD2026 + SD3001..SD3015 + `explain` entries
+- `crates/sdust-diagnostics/src/codes.rs` — add MT2026 + MT3001..MT3015 + `explain` entries
 - `crates/sdust-types/src/lib.rs` — export `TypedPackage`, `check_package_typed`
-- `crates/sdust-types/src/items.rs` — track typed-HIR side tables; replace warning severity on SD2015 with Error; defaulting pass
+- `crates/sdust-types/src/items.rs` — track typed-HIR side tables; replace warning severity on MT2015 with Error; defaulting pass
 - `crates/sdust-types/src/check.rs` — scope-aware tolerance set; real method dispatch; protocol-message handler param types
-- `crates/sdust-types/src/diag.rs` — `non_exhaustive_match` severity Error; new SD2026 `protocol_msg_unknown`
+- `crates/sdust-types/src/diag.rs` — `non_exhaustive_match` severity Error; new MT2026 `protocol_msg_unknown`
 - `crates/sdust-types/src/infer.rs` — `default_inference` walks expr_ty + local_ty and rewrites IntInfer/FloatInfer
 - `examples/06_for_while_loop.sd` — add `-> Unit!WorkErr`
 - `examples/11_budget_block.sd` — `-> Unit!RunErr` (was `Result!RunErr`)
 - `docs/spec/v0.1-amendments.md` — A13..A21
-- `docs/reference/diagnostics.md` — SD3xxx section + SD2026
+- `docs/reference/diagnostics.md` — SD3xxx section + MT2026
 - `docs/tour/02-types.md` — Copy section
 - `docs/tour/09-arenas.md` — arena escape rule
 - `docs/tour/10-capabilities.md` — cross-agent message rule
@@ -189,17 +189,17 @@ pub struct ScopeFrame {
 
 Define `BorrowCx<'a>` holding the typed package, locals table (`HashMap<String, LocalState>`), scope stack, diagnostic buffer, arena counter. Implement `walk_block`, `walk_stmt`, `walk_expr`. The expr walker classifies usage:
 
-- **`HirExpr::Path([name])`** in non-`&` non-`move` context: a *use* of the local. If non-Copy and currently Owned, mark Moved. If Moved, error SD3001. If Borrowed (any kind), accept (immutable read of a borrowed value is fine — the borrow held it; we don't double-borrow on plain reads).
+- **`HirExpr::Path([name])`** in non-`&` non-`move` context: a *use* of the local. If non-Copy and currently Owned, mark Moved. If Moved, error MT3001. If Borrowed (any kind), accept (immutable read of a borrowed value is fine — the borrow held it; we don't double-borrow on plain reads).
 - **`HirExpr::Move(inner)`**: force move semantics: must be Owned (not Borrowed, not Moved). Mark Moved.
-- **`HirExpr::Borrow { mutable, inner }`**: if `inner` resolves to a local path, transition: shared → Borrowed.count+=1; mut requires Owned + mutable=true binding; emit SD3004/3005/3006/3013 on conflict.
+- **`HirExpr::Borrow { mutable, inner }`**: if `inner` resolves to a local path, transition: shared → Borrowed.count+=1; mut requires Owned + mutable=true binding; emit MT3004/3005/3006/3013 on conflict.
 - **`HirExpr::Call { callee, args }`**: walk callee (usually fn name), then each arg. Each arg's parameter type tells whether it's a move or a ref. Slice 4 simplification: look up callee's `Fn { params, .. }` type from `expr_ty`; for each arg position, if param type is `Ref { .. }`, the arg is treated as a temporary borrow (held until call returns; lexical = just that expression); else the arg is moved if non-Copy.
 - **`HirExpr::MethodCall { receiver, method, args }`**: similar; receiver is borrowed (shared by default, mut if method takes `&mut self`). Slice 4 keeps it permissive: receiver borrowed shared for the duration.
 - **`HirExpr::Field { receiver, name }`**: read-only field access; if receiver is a local, no state change.
-- **`HirExpr::Send { target, msg, args }` / `Ask { target, msg, args }`**: check each arg's resolved type via `expr_ty[arg.value]` is Sendable; else SD3011. Args of non-Copy Sendable types are moved.
+- **`HirExpr::Send { target, msg, args }` / `Ask { target, msg, args }`**: check each arg's resolved type via `expr_ty[arg.value]` is Sendable; else MT3011. Args of non-Copy Sendable types are moved.
 - **`HirExpr::Return(opt)`**: walk inner; tail-value moved out (or copied if Copy).
 - **`HirExpr::Block(b)`**: enter scope frame, walk, leave (running drop intent + dropping borrows for locals introduced in this frame).
 - **`HirExpr::If/IfLet/Match`**: snapshot state, walk each arm with a clone, join via intersection at the end (a local is "definitely moved" iff moved on every arm).
-- **`HirExpr::Arena { name, body }`**: push arena region, walk body; on body end, check tail-expression for direct local references that are arena-local and emit SD3010.
+- **`HirExpr::Arena { name, body }`**: push arena region, walk body; on body end, check tail-expression for direct local references that are arena-local and emit MT3010.
 - **`HirExpr::Unsafe(b)`**: walk block normally (borrow rules still apply even in unsafe; only the *value namespace* tolerance relaxes — handled in slice-3-hardening task).
 - Other variants (`Spawn`, `Lambda`, `Cast`, `Run`, `TaskScope`, `Budget`, `Sandbox`, etc.): walk children; lambdas open a fresh local-state map.
 
@@ -222,12 +222,12 @@ Define `BorrowCx<'a>` holding the typed package, locals table (`HashMap<String, 
 
 **Files:** `crates/sdust-borrow/src/arena.rs`, integrated into `flow.rs`
 
-Push `ArenaRegionId` on entry to `HirExpr::Arena`, pop on exit. Locals introduced inside an arena body carry the region id. On arena exit, inspect the *tail expression* of the body: if it's a `Path([name])` and `name` resolves to a local with the active region, emit `SD3010 arena_escape`. For block-bodied arenas, the tail is the block's `tail` field. For the short form `arena name: expr`, the tail is the expression directly.
+Push `ArenaRegionId` on entry to `HirExpr::Arena`, pop on exit. Locals introduced inside an arena body carry the region id. On arena exit, inspect the *tail expression* of the body: if it's a `Path([name])` and `name` resolves to a local with the active region, emit `MT3010 arena_escape`. For block-bodied arenas, the tail is the block's `tail` field. For the short form `arena name: expr`, the tail is the expression directly.
 
 - [ ] Implement region push/pop
 - [ ] Tag locals on declaration with active region (if any)
 - [ ] Check tail-expression at arena exit
-- [ ] Negative test: `arena turn { let x = String("hi"); x }` errors SD3010
+- [ ] Negative test: `arena turn { let x = String("hi"); x }` errors MT3010
 - [ ] Positive test: `arena turn { let x = String("hi"); compute(x) }` accepted (call result is fresh)
 
 ## Task 8: Drop intent
@@ -241,11 +241,11 @@ At each scope exit, walk locals introduced in that scope; for any whose state is
 - [ ] Unit test: simple fn that binds a `String` drops at fn-end
 - [ ] Unit test: explicit `move x` removes the drop entry
 
-## Task 9: SD3xxx + SD2026 diagnostic codes
+## Task 9: SD3xxx + MT2026 diagnostic codes
 
 **Files:** `crates/sdust-diagnostics/src/codes.rs`, `crates/sdust-borrow/src/diag.rs`
 
-Add SD3001..SD3015 plus SD2026; wire each into `explain()` with 2-4 sentence text per slice-3 style. Constructors in `sdust-borrow::diag` mirror `sdust-types::diag` shape.
+Add MT3001..MT3015 plus MT2026; wire each into `explain()` with 2-4 sentence text per slice-3 style. Constructors in `sdust-borrow::diag` mirror `sdust-types::diag` shape.
 
 - [ ] All codes declared
 - [ ] All explain entries
@@ -258,7 +258,7 @@ Add SD3001..SD3015 plus SD2026; wire each into `explain()` with 2-4 sentence tex
 
 Build a `ToleranceSet { names: HashSet<String>, allow_any: bool }` per body. The set is populated by the body's enclosing scope kind (agent / supervisor / sandbox / budget / unsafe / extern) plus the agent's state/method names. `allow_any = true` for extern bodies, macro bodies, and the inside of `unsafe` blocks beyond the first level.
 
-In `synth_path` for a single-segment unresolved value: if the name is in the tolerance set OR `allow_any`, return a fresh inference variable (slice-3 behaviour). Otherwise emit `SD2021 unresolved_value` and return Error type.
+In `synth_path` for a single-segment unresolved value: if the name is in the tolerance set OR `allow_any`, return a fresh inference variable (slice-3 behaviour). Otherwise emit `MT2021 unresolved_value` and return Error type.
 
 - [ ] `ToleranceSet` type
 - [ ] Builder per body kind
@@ -272,12 +272,12 @@ In `synth_path` for a single-segment unresolved value: if the name is in the tol
 
 Index `HirImpl` blocks: for each impl, map `(self_adt_id, method_name) → FnDef`. Method-call resolution:
 
-1. If receiver type is `Adt(id, _)` and `id` is a user-declared (Struct/Enum) ADT → look up in the impl index; on miss emit SD2007.
+1. If receiver type is `Adt(id, _)` and `id` is a user-declared (Struct/Enum) ADT → look up in the impl index; on miss emit MT2007.
 2. Otherwise (opaque, primitive) → slice-3 built-in table; on miss return fresh Var (permissive).
 
 - [ ] Index impl blocks at def-map build time
 - [ ] `synth_method_call` consults the index for user ADTs
-- [ ] User-struct .foo() with no impl: error SD2007
+- [ ] User-struct .foo() with no impl: error MT2007
 - [ ] User-struct .foo() with impl: succeeds, returns impl's ret type
 - [ ] Opaque receiver still permissive
 
@@ -289,7 +289,7 @@ Build `protocol_msg_index: HashMap<String, HashMap<String, Vec<TyId>>>` mapping 
 
 1. Find `Msg` in any implemented protocol (first-win).
 2. If found, bind each handler param to the corresponding declared type.
-3. Else emit `SD2026 protocol_msg_unknown` (warning) and fall back to fresh vars.
+3. Else emit `MT2026 protocol_msg_unknown` (warning) and fall back to fresh vars.
 
 - [ ] `protocol_msg_index` built
 - [ ] Handler-param binding consults the index
@@ -301,7 +301,7 @@ Build `protocol_msg_index: HashMap<String, HashMap<String, Vec<TyId>>>` mapping 
 
 **Files:** `crates/sdust-types/src/diag.rs`
 
-Flip `non_exhaustive_match` severity from Warning to Error. Update the diagnostic message ("non-exhaustive match") and the `sdust explain` entry for SD2015.
+Flip `non_exhaustive_match` severity from Warning to Error. Update the diagnostic message ("non-exhaustive match") and the `sdust explain` entry for MT2015.
 
 - [ ] Severity flipped
 - [ ] Updated explain text
@@ -364,18 +364,18 @@ fn run_job(input: Bytes) -> Unit!RunErr {
 
 Twelve small inputs, one per SD3xxx + a couple combos:
 
-- `use_after_move.sd` — `let a = String("x"); let b = move a; log_str(a)` → SD3001
-- `move_out_of_borrow.sd` — `let a = String("x"); let r = &a; let b = move a` → SD3002
-- `borrow_after_move.sd` — `let a = String("x"); let b = move a; let r = &a` → SD3003
-- `mut_borrow_while_shared.sd` — SD3004
-- `shared_borrow_while_mut.sd` — SD3005
-- `two_mut_borrows.sd` — SD3006
-- `borrow_outlives_owner.sd` — SD3007
-- `cannot_move_borrowed.sd` — SD3008
-- `move_out_of_ref.sd` — SD3009
-- `arena_escape.sd` — `arena turn { let x = String("hi"); x }` → SD3010
-- `non_sendable_message_arg.sd` — `agent!Msg(&buf)` → SD3011
-- `assign_to_immut_local.sd` — SD3014
+- `use_after_move.sd` — `let a = String("x"); let b = move a; log_str(a)` → MT3001
+- `move_out_of_borrow.sd` — `let a = String("x"); let r = &a; let b = move a` → MT3002
+- `borrow_after_move.sd` — `let a = String("x"); let b = move a; let r = &a` → MT3003
+- `mut_borrow_while_shared.sd` — MT3004
+- `shared_borrow_while_mut.sd` — MT3005
+- `two_mut_borrows.sd` — MT3006
+- `borrow_outlives_owner.sd` — MT3007
+- `cannot_move_borrowed.sd` — MT3008
+- `move_out_of_ref.sd` — MT3009
+- `arena_escape.sd` — `arena turn { let x = String("hi"); x }` → MT3010
+- `non_sendable_message_arg.sd` — `agent!Msg(&buf)` → MT3011
+- `assign_to_immut_local.sd` — MT3014
 
 Driver test enumerates the folder and asserts each file emits its target code.
 
@@ -396,11 +396,11 @@ Driver test enumerates the folder and asserts each file emits its target code.
 
 - [ ] Five test files; counts roughly 25+ tests
 
-## Task 19: SD2015 → error update + tolerance check
+## Task 19: MT2015 → error update + tolerance check
 
 **Files:** `crates/sdust-types/tests/`, `tests/typeck_neg/`
 
-Update any slice-3 typeck-neg fixture that was expecting Warning on SD2015 to expect Error.
+Update any slice-3 typeck-neg fixture that was expecting Warning on MT2015 to expect Error.
 
 - [ ] Audit + update
 - [ ] All slice-3 fixtures still emit their expected codes (severity may change)
@@ -427,8 +427,8 @@ A new chapter walking through: ownership basics, `move`, Copy types, `&T`/`&mut 
 **Files:** `docs/tour/02-types.md`, `docs/tour/09-arenas.md`, `docs/tour/10-capabilities.md`
 
 - 02-types: add "Copy types" subsection
-- 09-arenas: add "Arena escape" callout with SD3010
-- 10-capabilities: add "Cross-agent values must be Sendable" callout with SD3011
+- 09-arenas: add "Arena escape" callout with MT3010
+- 10-capabilities: add "Cross-agent values must be Sendable" callout with MT3011
 
 - [ ] Three small additions
 
@@ -443,7 +443,7 @@ Append the eight new amendments per the design doc §6.
 
 ## Task 24: `docs/reference/diagnostics.md`
 
-Add the SD3xxx table + SD2026 row + flip SD2015 severity.
+Add the SD3xxx table + MT2026 row + flip MT2015 severity.
 
 - [ ] Updated
 

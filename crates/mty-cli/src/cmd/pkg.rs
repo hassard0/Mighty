@@ -1,4 +1,4 @@
-//! `sdust pkg <subcmd>` — package manager CLI surface.
+//! `mty pkg <subcmd>` — package manager CLI surface.
 //!
 //! Thin shim over `mty_pkg::commands::*`. All errors are reported to
 //! stderr and the process exits non-zero.
@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub enum PkgCmd {
-    /// Add a dependency to `star.toml` and update the lockfile.
+    /// Add a dependency to `mighty.toml` and update the lockfile.
     Add {
         /// Package name. Optionally `name@version` for the registry.
         spec: String,
@@ -27,7 +27,7 @@ pub enum PkgCmd {
         #[arg(long)]
         rev: Option<String>,
     },
-    /// Remove a dependency from `star.toml` and update the lockfile.
+    /// Remove a dependency from `mighty.toml` and update the lockfile.
     Remove {
         /// Package name.
         name: String,
@@ -41,7 +41,7 @@ pub enum PkgCmd {
         #[arg(long)]
         refresh: bool,
     },
-    /// Materialise all locked dependencies into `.stardust/pkgs/`.
+    /// Materialise all locked dependencies into `.mighty/pkgs/`.
     Fetch,
     /// Print the resolved dependency tree.
     List,
@@ -118,7 +118,7 @@ pub fn run(cmd: PkgCmd, root: Option<PathBuf>) -> i32 {
             0
         }
         Err(e) => {
-            eprintln!("sdust pkg: {e}");
+            eprintln!("mty pkg: {e}");
             1
         }
     }

@@ -5,7 +5,7 @@
 //!
 //!   * `MacroDef` gains a `MacroKind` (declarative vs procedural) and an
 //!     `is_pub` flag. Procedural macros store the body but do not yet
-//!     execute (gated by SD6006 — see `proc` module).
+//!     execute (gated by MT6006 — see `proc` module).
 //!   * A new [`PackageMacros`] type splits a package's macros into
 //!     `local` (visible only inside the file/package) and `exported`
 //!     (re-exportable via `pub macro`). Cross-file resolution copies
@@ -31,7 +31,7 @@ pub enum MacroKind {
     /// Declarative: parameter substitution + hygiene mangling.
     Declarative,
     /// Procedural: body is a fn-shape that maps `TokenStream` →
-    /// `TokenStream`. v0.5 stores the body but emits SD6006 at call
+    /// `TokenStream`. v0.5 stores the body but emits MT6006 at call
     /// sites (deferred to v0.6).
     Procedural,
 }

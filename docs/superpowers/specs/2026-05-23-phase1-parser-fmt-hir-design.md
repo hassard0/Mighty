@@ -231,7 +231,7 @@ pub struct Diagnostic {
 }
 ```
 
-**Error codes:** `SD0001`–`SD0999` reserved for lex/parse. `SD1000`–`SD1999` for HIR. Codes are stable forever once shipped (we may rename messages, not codes).
+**Error codes:** `MT0001`–`MT0999` reserved for lex/parse. `MT1000`–`MT1999` for HIR. Codes are stable forever once shipped (we may rename messages, not codes).
 
 **Render:** `ariadne` for terminal output. The `Diagnostic` type is independent of `ariadne` so we can render to JSON for LSP later without churn.
 
@@ -239,17 +239,17 @@ pub struct Diagnostic {
 
 **Diagnostics emitted in slice 1** (illustrative, not exhaustive):
 
-- `SD0001` unexpected token
-- `SD0002` unterminated string literal
-- `SD0003` invalid escape sequence
-- `SD0004` unknown duration unit
-- `SD0010` expected item (`fn`, `agent`, …)
-- `SD0011` expected expression
-- `SD0012` mismatched delimiter
-- `SD0020` duplicate `on` handler in agent
-- `SD0021` `pub` requires explicit return type (spec §6.4, §10.2)
-- `SD1001` unresolved name
-- `SD1002` use path resolves to nothing
+- `MT0001` unexpected token
+- `MT0002` unterminated string literal
+- `MT0003` invalid escape sequence
+- `MT0004` unknown duration unit
+- `MT0010` expected item (`fn`, `agent`, …)
+- `MT0011` expected expression
+- `MT0012` mismatched delimiter
+- `MT0020` duplicate `on` handler in agent
+- `MT0021` `pub` requires explicit return type (spec §6.4, §10.2)
+- `MT1001` unresolved name
+- `MT1002` use path resolves to nothing
 
 ## 11. Formatter (`sdust-fmt`)
 
@@ -404,7 +404,7 @@ No `unsafe` in our crates outside of `rowan` internals we don't touch. No `build
 | `html"..."` template syntax interpolation (`{n}`) ambiguous with block syntax | Slice 1 lexes the literal as opaque; interpolation deferred to a library macro in slice 2. |
 | Send/ask postfix operators (`!Msg`, `?Msg`, `@dur`) collide with logical-not and `?` propagation | Disambiguate by what follows the operator: `!`+identifier = send; `!`+expr = boolean not. `?`+identifier+`(` = ask; `?` at end of expr = propagate. Pratt parser handles this with lookahead. |
 | Compact arena form `arena turn: expr` parsing | Treat `arena <name>:` as a unique two-token sequence; the parser branches on whether `:` or `{` follows the arena name. |
-| Recursive descent stack overflow on deeply nested expressions | Limit nesting depth to 256 in slice 1; emit `SD0030` if exceeded. (Real fix later.) |
+| Recursive descent stack overflow on deeply nested expressions | Limit nesting depth to 256 in slice 1; emit `MT0030` if exceeded. (Real fix later.) |
 | Snapshot churn during early parser iteration | Use `insta review` workflow; commit snapshots once examples lock in. |
 
 ## 18. Out-of-band notes

@@ -1,6 +1,6 @@
 //! v0.3 (A65): supervisor body scope is marked SupervisorBody. Today
 //! supervisor child expressions still run with tolerance_open=true (until
-//! slice-7 wires per-supervisor cap names), so SD2021 doesn't fire yet
+//! slice-7 wires per-supervisor cap names), so MT2021 doesn't fire yet
 //! — these tests are negative assertions documenting the current
 //! behavior and the planned tightening.
 
@@ -9,7 +9,7 @@ use mty_driver::{lower, parse_source};
 use mty_types::check_package;
 
 fn diag_codes(src: &str) -> Vec<String> {
-    let parsed = parse_source(src.into(), "scope_strict_supervisor.sd".into());
+    let parsed = parse_source(src.into(), "scope_strict_supervisor.mty".into());
     let (pkg, mut diags) = lower(&parsed);
     let any_lower_err = diags.iter().any(|d| matches!(d.severity, Severity::Error));
     if !any_lower_err {
@@ -38,10 +38,10 @@ fn supervisor_body_is_currently_tolerance_open() {
         }
     ";
     let codes = diag_codes(src);
-    // No SD2021 expected: tolerance_open is on.
+    // No MT2021 expected: tolerance_open is on.
     assert!(
-        !codes.contains(&"SD2021".to_string()),
-        "supervisor child expr should not trigger SD2021 yet, got {:?}",
+        !codes.contains(&"MT2021".to_string()),
+        "supervisor child expr should not trigger MT2021 yet, got {:?}",
         codes
     );
 }

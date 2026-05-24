@@ -11,8 +11,8 @@ calls made during the build so future slices can revisit them with context.
    of the arguments — the macro expander interprets them). v0.4's
    plain-call syntax (`foo(...)` for a known macro `foo`) continues to
    work for backwards-compat.
-2. **SD6001 unknown_macro** finally fires. Any `IDENT!(...)` call site
-   with no matching `MacroDef` in the registry triggers SD6001.
+2. **MT6001 unknown_macro** finally fires. Any `IDENT!(...)` call site
+   with no matching `MacroDef` in the registry triggers MT6001.
 3. **Extended hygiene mangling**: `let` bindings in tuple, struct, ref,
    and binding-pattern shapes are mangled, not just `let IDENT`. Walks
    the pattern subtree and renames every leaf identifier binding to
@@ -22,7 +22,7 @@ calls made during the build so future slices can revisit them with context.
    `use otherpkg.foo` resolves and `foo` is in `otherpkg`'s exported
    set, the macro is registered in the importing file's local registry.
 5. **Procedural macro skeleton**: `proc macro` declarations parse and
-   register, but execution is gated behind **SD6006**
+   register, but execution is gated behind **MT6006**
    `proc_macro_unsupported_v0_5`. The proc-macro interpreter needs a
    sandboxed SIR sub-context that doesn't exist yet; v0.6 closure.
 6. **Standard macros library**: `assert!`, `assert_eq!`, `assert_ne!`,
@@ -41,13 +41,13 @@ arg source slices, preserving v0.4's expansion contract. This gives
 maximum flexibility for future variadic macros (`format!(...)`,
 `vec![1,2,3]`) without committing to expression-shape arguments.
 
-### IC2: SD6005 vs SD6006
+### IC2: MT6005 vs MT6006
 
-- **SD6005** `proc_macro_impure` is reserved for "your proc-macro
+- **MT6005** `proc_macro_impure` is reserved for "your proc-macro
   body contains an effect call". v0.5 detects this statically
-  (token-tree scan for `effect.*` patterns) and emits SD6005 at
+  (token-tree scan for `effect.*` patterns) and emits MT6005 at
   declaration time.
-- **SD6006** `proc_macro_unsupported_v0_5` fires at *call* sites for
+- **MT6006** `proc_macro_unsupported_v0_5` fires at *call* sites for
   parsed-but-unexecutable proc macros. This is a soft gate so test
   code can verify parsing + storage now and unblock proc-macro
   rollout in v0.6 by replacing the call site without source churn.
@@ -95,7 +95,7 @@ takes one `TokenStream` and returns one `TokenStream`.
 ### IC7: Backwards-compat: `foo(args)` for declared `foo` still expands
 
 v0.4 expansion behavior is preserved for any macro registered in
-the local registry. SD6001 only triggers for the **explicit
+the local registry. MT6001 only triggers for the **explicit
 `name!(...)` shape** when `name` is unresolved. This avoids a
 breaking change to every example and selfhost source already in
 the tree.

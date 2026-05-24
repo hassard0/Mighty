@@ -3,7 +3,7 @@
 //! Verifies:
 //! - Sending N > pool_size messages reuses slots.
 //! - FIFO ordering of message delivery is preserved.
-//! - Send under Fail policy returns SD5012 when pool + channel full.
+//! - Send under Fail policy returns MT5012 when pool + channel full.
 //! - Block policy backpressures until handler drains.
 
 use mty_runtime::mailbox::{Mailbox, MessageFrame, SendPolicy, SmallPayload};
@@ -49,7 +49,7 @@ async fn fail_policy_returns_sd5012_when_full() {
         .await;
     let err = r.unwrap_err();
     assert!(matches!(err, RuntimeError::MailboxFull { .. }));
-    assert_eq!(err.diag_code(), "SD5012");
+    assert_eq!(err.diag_code(), "MT5012");
 }
 
 #[tokio::test(start_paused = true)]

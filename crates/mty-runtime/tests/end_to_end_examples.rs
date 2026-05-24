@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 fn compile(src: &str) -> Arc<mty_ir::ir::Program> {
     use mty_driver::pipeline::{lower, lower_to_sir, parse_source, type_and_borrow_check};
-    let parsed = parse_source(src.to_string(), "test.sd".to_string());
+    let parsed = parse_source(src.to_string(), "test.mty".to_string());
     let (pkg, _diags) = lower(&parsed);
     let _ = type_and_borrow_check(&pkg);
     let (prog, _diags) = lower_to_sir(&pkg);
@@ -13,7 +13,7 @@ fn compile(src: &str) -> Arc<mty_ir::ir::Program> {
 
 #[test]
 fn example_07_echo() {
-    let prog = compile(include_str!("../../../examples/07_agent_echo.sd"));
+    let prog = compile(include_str!("../../../examples/07_agent_echo.mty"));
     let rt = RuntimeBuilder::new().build(prog);
     let rt_arc = rt.scheduler.rt.clone();
     rt_arc.block_on(async {
@@ -32,7 +32,7 @@ fn example_07_echo() {
 
 #[test]
 fn example_08_counter() {
-    let prog = compile(include_str!("../../../examples/08_agent_state.sd"));
+    let prog = compile(include_str!("../../../examples/08_agent_state.mty"));
     let rt = RuntimeBuilder::new().build(prog);
     let rt_arc = rt.scheduler.rt.clone();
     rt_arc.block_on(async {
@@ -76,7 +76,7 @@ fn main() { () }
 
 #[test]
 fn deadline_succeeds_for_fast_handler() {
-    let prog = compile(include_str!("../../../examples/07_agent_echo.sd"));
+    let prog = compile(include_str!("../../../examples/07_agent_echo.mty"));
     let rt = RuntimeBuilder::new().build(prog);
     let rt_arc = rt.scheduler.rt.clone();
     rt_arc.block_on(async {

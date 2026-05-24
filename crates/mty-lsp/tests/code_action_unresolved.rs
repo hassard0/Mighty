@@ -1,4 +1,4 @@
-//! Code-action quick-fix regressions for SD2021 (unresolved value).
+//! Code-action quick-fix regressions for MT2021 (unresolved value).
 //!
 //! We construct a file containing a typo, ask the LSP for code actions
 //! at the typo's range, and confirm at least one quick-fix is offered
@@ -11,11 +11,11 @@ use tower_lsp::lsp_types::{
 };
 
 fn analyze(src: &str) -> DocAnalysis {
-    DocAnalysis::analyze(src.to_string(), "test://main.sd".to_string(), 1)
+    DocAnalysis::analyze(src.to_string(), "test://main.mty".to_string(), 1)
 }
 
 fn uri() -> Url {
-    Url::parse("test://main.sd").unwrap()
+    Url::parse("test://main.mty").unwrap()
 }
 
 fn _ctx(diags: Vec<Diagnostic>) -> CodeActionContext {
@@ -43,10 +43,10 @@ fn unresolved_value_emits_quickfix_with_suggestion() {
             character: character + bad.len() as u32,
         },
     };
-    // Construct the synthetic SD2021 diagnostic the client would pass.
+    // Construct the synthetic MT2021 diagnostic the client would pass.
     let diag = Diagnostic {
         range,
-        code: Some(NumberOrString::String("SD2021".into())),
+        code: Some(NumberOrString::String("MT2021".into())),
         message: format!("unresolved value `{}`", bad),
         ..Default::default()
     };

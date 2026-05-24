@@ -151,7 +151,7 @@ covered by slice 6:
 |----------|------------------------------------|--------------------------------|
 | `log`    | `fn(Str) -> Unit`                  | prints to stdout + newline     |
 | `print`  | `fn(Str) -> Unit`                  | prints without newline         |
-| `panic`  | `fn(Str) -> Never`                 | traps with SD5001              |
+| `panic`  | `fn(Str) -> Never`                 | traps with MT5001              |
 | `spawn`  | `fn(T) -> AgentRef[T]`             | slice 6: returns opaque handle |
 | `move`   | `fn(T) -> T`                       | identity (compiles to Move)    |
 | `fetch`  | `fn(Url) -> Str!NetErr`            | host stub; default returns Ok("")|
@@ -185,7 +185,7 @@ proj: Vec<Projection>, mutable: bool }`. Reading a borrow re-reads from
 the owner; this preserves the slice-4 invariant that the borrow points
 into a live local. We don't track aliasing at run time — the borrow
 checker already proved no overlap. A borrow whose owner has been dropped
-yields SD5002 at access time.
+yields MT5002 at access time.
 
 ### D9 — Arena lifetimes
 
@@ -195,7 +195,7 @@ interpreter keeps a stack of arena scopes; any heap-like allocations
 (currently `Vec`/`Map` placeholders for slice 6 are inline so this is a
 no-op for correctness, but the scope is still tracked so SIR dumps and
 the future runtime have hooks). The interpreter does **not** trap arena
-escape at run-time — it relies on borrow-check SD3010 (Amendment **A31**:
+escape at run-time — it relies on borrow-check MT3010 (Amendment **A31**:
 runtime arena enforcement is a slice-7 obligation).
 
 ### D10 — `?` operator lowering
@@ -213,7 +213,7 @@ bb_cont:
 We synthesize the enclosing fn's `Err` type by widening the inner `Err`
 into the outer error union, which the type checker already validated.
 If the outer return type is not a `Result`, the lowerer emits no SIR for
-that fn (it would have errored in typeck; SD2010).
+that fn (it would have errored in typeck; MT2010).
 
 ### D11 — Match lowering
 
@@ -228,9 +228,9 @@ keeps it simple — patterns are evaluated top-down:
 - Struct constructor → field accesses + sub-pat tests AND-folded.
 - Range → two `BinOp` + `If`.
 
-We do not check exhaustiveness at SIR-lowering time (typeck SD2015
+We do not check exhaustiveness at SIR-lowering time (typeck MT2015
 already does). If the runtime falls off the end (e.g. typeck disabled),
-it traps SD5005 *unreachable_match*.
+it traps MT5005 *unreachable_match*.
 
 ### D12 — Agents in slice 6
 
@@ -300,25 +300,25 @@ enum Value {
 
 `Reference` is `{ scope_id: u64, owner: Local, proj: Vec<Projection>, mutable: bool }`
 where `scope_id` ties the reference to a specific frame; a stale `scope_id`
-traps SD5002.
+traps MT5002.
 
 ### D17 — Diagnostics SD5xxx (runtime)
 
 | Code   | Kind                           |
 |--------|--------------------------------|
-| SD5001 | runtime_panic (explicit)       |
-| SD5002 | use_after_drop (stale ref)     |
-| SD5003 | division_by_zero               |
-| SD5004 | integer_overflow (debug only)  |
-| SD5005 | unreachable_match              |
-| SD5006 | unhandled_error_result         |
-| SD5007 | arena_escape_runtime           |
-| SD5008 | uncallable_builtin             |
-| SD5009 | budget_exceeded (placeholder)  |
-| SD5010 | sandbox_violation (placeholder)|
-| SD5020 | agent_handler_missing          |
-| SD5021 | send_to_dead_agent             |
-| SD5050 | extern_fn_unimpl               |
+| MT5001 | runtime_panic (explicit)       |
+| MT5002 | use_after_drop (stale ref)     |
+| MT5003 | division_by_zero               |
+| MT5004 | integer_overflow (debug only)  |
+| MT5005 | unreachable_match              |
+| MT5006 | unhandled_error_result         |
+| MT5007 | arena_escape_runtime           |
+| MT5008 | uncallable_builtin             |
+| MT5009 | budget_exceeded (placeholder)  |
+| MT5010 | sandbox_violation (placeholder)|
+| MT5020 | agent_handler_missing          |
+| MT5021 | send_to_dead_agent             |
+| MT5050 | extern_fn_unimpl               |
 
 Runtime diagnostics are reported via `Diagnostic` with `severity =
 Error` and a non-overlapping range (`5001..5099`). They do **not** include
@@ -370,9 +370,9 @@ short-circuits with exit 1 if any prior phase reported errors.
 | Risk                                          | Mitigation                                                            |
 |-----------------------------------------------|------------------------------------------------------------------------|
 | Lowering blows up on weird HIR shapes         | Per-shape unit tests + 20-example smoke test                          |
-| Interpreter loops forever on agent recursion  | Hard step budget (1M ops) trips SD5009 placeholder; configurable      |
+| Interpreter loops forever on agent recursion  | Hard step budget (1M ops) trips MT5009 placeholder; configurable      |
 | `?` propagation across nested calls           | Lowered into per-call check; verified by conformance test             |
-| Pattern-match arity drift                     | Lowerer asserts `payload.len() == variant.fields.len()` else SD5005   |
+| Pattern-match arity drift                     | Lowerer asserts `payload.len() == variant.fields.len()` else MT5005   |
 | Borrow value handles leak across drops        | Each fn frame stamps a `scope_id` on issued refs                      |
 | Snapshot tests get noisy                      | Use `insta` with explicit snapshot files; review diffs before commit  |
 

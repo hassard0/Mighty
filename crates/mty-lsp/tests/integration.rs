@@ -21,11 +21,11 @@ use tower_lsp::lsp_types::{
 };
 
 fn analyze(src: &str) -> DocAnalysis {
-    DocAnalysis::analyze(src.to_string(), "test://main.sd".to_string(), 1)
+    DocAnalysis::analyze(src.to_string(), "test://main.mty".to_string(), 1)
 }
 
 fn uri() -> Url {
-    Url::parse("test://main.sd").unwrap()
+    Url::parse("test://main.mty").unwrap()
 }
 
 // ---------------------------------------------------------------------
@@ -51,7 +51,7 @@ fn diagnostics_type_error_produces_at_least_one() {
     // permissive (slice-3 A21 fresh-var fallback). We deliberately
     // surface a strict-scope error here: an agent handler is a strict
     // scope (`ScopeKind::HandlerBody`) so calling an unresolved helper
-    // promotes to SD2021. This keeps the LSP wired to a stable
+    // promotes to MT2021. This keeps the LSP wired to a stable
     // diagnostic that survives future tolerance-policy changes.
     let src = "\
         protocol Hi { Greet(name: Str) -> Str }\n\
@@ -69,7 +69,7 @@ fn diagnostics_type_error_produces_at_least_one() {
     );
     let first = &publish.diagnostics[0];
     let code = format!("{:?}", first.code);
-    assert!(code.contains("SD"), "expected SD-prefixed code, got {code}");
+    assert!(code.contains("MT"), "expected MT-prefixed code, got {code}");
 }
 
 // ---------------------------------------------------------------------

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 fn compile(src: &str) -> Arc<mty_ir::ir::Program> {
     use mty_driver::pipeline::{lower, lower_to_sir, parse_source, type_and_borrow_check};
-    let parsed = parse_source(src.to_string(), "test.sd".to_string());
+    let parsed = parse_source(src.to_string(), "test.mty".to_string());
     let (pkg, _diags) = lower(&parsed);
     let _ = type_and_borrow_check(&pkg);
     let (prog, _diags) = lower_to_sir(&pkg);

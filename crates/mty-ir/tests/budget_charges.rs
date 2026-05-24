@@ -1,7 +1,7 @@
 //! v0.5 dogfood Gap-4 — CPU step + memory budget auto-charging in the
 //! SIR interpreter. The step budget was already enforced in v0.4; v0.5
 //! adds a paired memory ceiling that trips as a typed
-//! `RunResult::MemBudgetExceeded` and an `SD5009` trap message.
+//! `RunResult::MemBudgetExceeded` and an `MT5009` trap message.
 
 mod common;
 
@@ -44,9 +44,9 @@ fn mem_budget_trips_when_array_alloc_exceeds_cap() {
     let mut host = TestHost::default();
     let res = run_fn_with_resource_budget(&prog, "main", vec![], &mut host, 100_000, 32);
     assert!(
-        matches!(res, Err(RunResult::Trap { code: "SD5009", .. }))
+        matches!(res, Err(RunResult::Trap { code: "MT5009", .. }))
             || matches!(res, Err(RunResult::MemBudgetExceeded { .. })),
-        "expected SD5009 mem trap, got {res:?}"
+        "expected MT5009 mem trap, got {res:?}"
     );
 }
 

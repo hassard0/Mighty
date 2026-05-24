@@ -1,6 +1,6 @@
 //! `std.test` — Mighty-native test runner.
 //!
-//! Discovery rule (v0.2): every `fn` declared in any `.sd` file under
+//! Discovery rule (v0.2): every `fn` declared in any `.mty` file under
 //! the package's `tests/` directory whose name begins with `test_` is a
 //! test. Each test is invoked through the slice-6 SIR interpreter,
 //! which runs deterministically and respects per-fn step budgets.
@@ -76,7 +76,7 @@ impl TestRunSummary {
     }
 }
 
-/// Walk `dir` recursively and return all `.sd` files in lexicographic
+/// Walk `dir` recursively and return all `.mty` files in lexicographic
 /// order. Missing dir → empty vec (matches `cargo test` ergonomics).
 pub fn discover_test_files(dir: &Path) -> Vec<PathBuf> {
     let mut out = vec![];
@@ -97,7 +97,7 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
         let p = entry.path();
         if p.is_dir() {
             walk(&p, out);
-        } else if p.extension().and_then(|s| s.to_str()) == Some("sd") {
+        } else if p.extension().and_then(|s| s.to_str()) == Some("mty") {
             out.push(p);
         }
     }
@@ -109,7 +109,7 @@ pub fn qualified_name(file: &Path, name: &str) -> String {
     format!("{stem}::{name}")
 }
 
-/// Run every `test_*` fn in every `.sd` file under `dir`. Returns a
+/// Run every `test_*` fn in every `.mty` file under `dir`. Returns a
 /// summary suitable for printing + exit-code use. Requires the
 /// `runner` feature (default-on) which pulls the driver + diagnostics
 /// stack.
@@ -229,10 +229,10 @@ mod tests {
     #[test]
     fn discover_finds_sd_files() {
         let tmp = tempfile::tempdir().unwrap();
-        fs::write(tmp.path().join("a.sd"), "").unwrap();
+        fs::write(tmp.path().join("a.mty"), "").unwrap();
         fs::write(tmp.path().join("b.txt"), "").unwrap();
         let found = discover_test_files(tmp.path());
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].extension().unwrap(), "sd");
+        assert_eq!(found[0].extension().unwrap(), "mty");
     }
 }

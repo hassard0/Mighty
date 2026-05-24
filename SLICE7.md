@@ -47,13 +47,13 @@
 - Top-frame locals snapshot on outer return so callers can recover
   synthetic state-holder values.
 
-### Diagnostics SD5011..SD5015
+### Diagnostics MT5011..MT5015
 
-- SD5011 deadline_exceeded
-- SD5012 mailbox_full
-- SD5013 supervisor_escalated
-- SD5014 restart_limit_exceeded
-- SD5015 capability_outside_sandbox
+- MT5011 deadline_exceeded
+- MT5012 mailbox_full
+- MT5013 supervisor_escalated
+- MT5014 restart_limit_exceeded
+- MT5015 capability_outside_sandbox
 
 All have `sdust explain SD5xxx` entries.
 
@@ -138,7 +138,7 @@ All have `sdust explain SD5xxx` entries.
   `run_fn_with_budget`, deref-of-ref write path, top-frame snapshot
 - `crates/sdust-driver/src/pipeline.rs` — `run_file_with_runtime`
 - `crates/sdust-cli/src/cmd/run.rs` — `--legacy-interp` flag wiring
-- `crates/sdust-diagnostics/src/codes.rs` — SD5011..SD5015 + explain
+- `crates/sdust-diagnostics/src/codes.rs` — MT5011..MT5015 + explain
 - `docs/internals/runtime.md`, `scheduler.md`, `mailboxes.md`,
   `supervisors.md`, `budgets.md`, `telemetry.md` — new
 - `docs/spec/v0.1-amendments.md` — A36..A45

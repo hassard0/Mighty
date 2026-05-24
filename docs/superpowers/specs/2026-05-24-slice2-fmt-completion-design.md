@@ -237,7 +237,7 @@ After 3.1–3.6 land:
 
 ### 3.9 `sdust explain <CODE>`
 
-**Behavior:** `sdust explain SD0001` prints a paragraph describing the diagnostic. The data lives in `crates/sdust-diagnostics/src/codes.rs` as a `pub fn explain(code: DiagCode) -> Option<&'static str>` lookup table.
+**Behavior:** `sdust explain MT0001` prints a paragraph describing the diagnostic. The data lives in `crates/sdust-diagnostics/src/codes.rs` as a `pub fn explain(code: DiagCode) -> Option<&'static str>` lookup table.
 
 **CLI:** add `Cmd::Explain { code: String }` to `main.rs`, handler in `cmd::explain::run`.
 
@@ -313,7 +313,7 @@ Default 100 columns (already in `Layout::default`). When a group fits, render fl
     - keyword method names — `dom.on("click")`, `agent.spawn()`, `x.match(...)`.
     - sandbox body `run` — `sandbox X with { ... } { run job(x) }`.
 - **HIR** (`tests/lower_items.rs`): new `lower_lambda`, `lower_if_let`, `lower_run`, `lower_path_generic`.
-- **CLI** (`tests/explain.rs` new): `sdust explain SD0001` prints non-empty body, exits 0; `sdust explain SD9999` exits 1 with "unknown code".
+- **CLI** (`tests/explain.rs` new): `sdust explain MT0001` prints non-empty body, exits 0; `sdust explain MT9999` exits 1 with "unknown code".
 - **Formatter** (`tests/fmt/canonical/`): add fixture files exercising each canonical rule. Sweep test (`tests/idempotence.rs`) verifies idempotence on all examples + fixtures.
 - **End-to-end** (`tests/conformance/`): `sdust check examples/19_backend_service.sd` passes with restored syntax. Same for #20.
 

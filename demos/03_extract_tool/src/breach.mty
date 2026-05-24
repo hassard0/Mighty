@@ -42,7 +42,7 @@ sandbox ImpossibleExtract with {
 fn main_body() {
   let e = spawn Extractor()
   // Flood the mailbox. Under a 1-frame cap the runtime should either
-  // backpressure (the default Block policy) or trap with SD5009.
+  // backpressure (the default Block policy) or trap with MT5009.
   log("== flood ==")
   let _ = e?Classify("a")
   let _ = e?Classify("b")

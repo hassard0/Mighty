@@ -30,7 +30,7 @@
   wraps the sandbox in `fn tool_run` (top-level sandbox items are
   slice 3) and now uses `run job(input)?` inside the body.
 - **`sdust explain <CODE>`**: ships a static explanation table for
-  every assigned diagnostic code (SD0001..SD0030, SD1001..SD1002).
+  every assigned diagnostic code (MT0001..MT0030, MT1001..MT1002).
 - **Side-effect parser fix**: `no_struct_literal` context flag set
   by `if`/`while`/`for`/`match` condition parsing so `if x { ... }`
   parses as condition+body rather than `x { ... }` struct literal.

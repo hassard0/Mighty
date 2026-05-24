@@ -18,11 +18,11 @@ in `sdust-hir`.
    ┌─────────────────────────────────────────┐
    │  sdust-hir::lower::macros::preprocess   │ ◀── sdust-macros
    │   – collect MacroRegistry from File     │
-   │   – check_proc_macros (SD6005)          │
+   │   – check_proc_macros (MT6005)          │
    │   – find every MACRO_CALL OR known      │
    │     plain CALL_EXPR (v0.4 compat)       │
    │   – find every unknown MACRO_CALL        │
-   │     (SD6001)                            │
+   │     (MT6001)                            │
    │   – substitute params + mangle hygiene  │
    │   – splice expansion (or sentinel for   │
    │     errors / proc macros / unknown)     │
@@ -43,7 +43,7 @@ The macro layer is still a pure source-to-source pre-pass. Downstream
 stages (name resolution, type check, borrow check, SIR, codegen)
 never see a macro call: they see the expansion as if it had been
 written by hand. Procedural-macro call sites *parse* in v0.5 but emit
-SD6006 because the sandboxed interpreter that will run them is a v0.6
+MT6006 because the sandboxed interpreter that will run them is a v0.6
 deliverable.
 
 ## Crates
@@ -100,7 +100,7 @@ slice.
 
 The v0.4 plain-call form (`foo(args)` for a registered `foo`) still
 expands, for backwards-compat with the existing examples and
-selfhost. Only the explicit `name!(...)` shape triggers SD6001 when
+selfhost. Only the explicit `name!(...)` shape triggers MT6001 when
 the name isn't in the registry; a plain unresolved call is handled by
 normal name resolution.
 
@@ -210,7 +210,7 @@ tokens, mirroring declarative macros.
 
 Stored as `MacroDef { kind: Procedural, body: Vec<Tok> }`.
 
-### Purity check (SD6005)
+### Purity check (MT6005)
 
 `check_proc_macro_purity` scans the body for:
 
@@ -218,12 +218,12 @@ Stored as `MacroDef { kind: Procedural, body: Vec<Tok> }`.
 * Bare calls to the well-known impure surface: `time`, `env`, `io`,
   `model`, `rand`.
 
-These trigger SD6005 at *declaration time*. The check is purely
+These trigger MT6005 at *declaration time*. The check is purely
 syntactic; v0.6's sandbox is the authoritative gate.
 
-### Execution gate (SD6006)
+### Execution gate (MT6006)
 
-Any call site to a procedural macro emits SD6006 in v0.5 and replaces
+Any call site to a procedural macro emits MT6006 in v0.5 and replaces
 the call with the sentinel literal `0`. The macro declaration is
 preserved verbatim, so call-site source survives untouched when v0.6
 ships actual execution.
@@ -263,7 +263,7 @@ The expander itself is non-recursive. The *preprocessing loop* in
 `sdust-hir` iterates: each pass expands one wave of macro calls; the
 result is re-parsed and the loop runs again until no macro calls
 remain or `MAX_EXPANSION_DEPTH = 32` is reached. Hitting the cap
-yields SD6004 for every remaining call site.
+yields MT6004 for every remaining call site.
 
 This caps both direct (`macro r(x) => { r(x) + 1 }`) and transitive
 (`A` calls `B` calls `A`) recursion.
@@ -272,12 +272,12 @@ This caps both direct (`macro r(x) => { r(x) + 1 }`) and transitive
 
 | Code   | Meaning                                                  |
 |--------|----------------------------------------------------------|
-| SD6001 | `unknown_macro` — `name!(args)` with no matching decl.   |
-| SD6002 | `macro_arity_mismatch` — call has wrong number of args.  |
-| SD6003 | `macro_body_parse_failed` — expansion doesn't re-parse.  |
-| SD6004 | `recursive_macro_too_deep` — depth cap (32) exceeded.    |
-| SD6005 | `proc_macro_impure` — proc body references an effect.    |
-| SD6006 | `proc_macro_unsupported_v0_5` — exec deferred to v0.6.   |
+| MT6001 | `unknown_macro` — `name!(args)` with no matching decl.   |
+| MT6002 | `macro_arity_mismatch` — call has wrong number of args.  |
+| MT6003 | `macro_body_parse_failed` — expansion doesn't re-parse.  |
+| MT6004 | `recursive_macro_too_deep` — depth cap (32) exceeded.    |
+| MT6005 | `proc_macro_impure` — proc body references an effect.    |
+| MT6006 | `proc_macro_unsupported_v0_5` — exec deferred to v0.6.   |
 
 Codes live in `sdust-macros::diag` as bare `u16` constants; the HIR
 integration wraps them in `DiagCode::new(N)` so we don't have to

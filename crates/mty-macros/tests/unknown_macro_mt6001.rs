@@ -1,4 +1,4 @@
-//! v0.5: SD6001 unknown_macro finally fires.
+//! v0.5: MT6001 unknown_macro finally fires.
 //!
 //! Verifies the parse layer's view: a `Name!(args)` MACRO_CALL with no
 //! matching MacroDef in the registry. Diagnostic emission itself lives

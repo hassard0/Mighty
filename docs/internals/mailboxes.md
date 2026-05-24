@@ -46,7 +46,7 @@ Two constructors:
 pub enum SendPolicy {
     Block,  // sender awaits capacity (default)
     Drop,   // try_send; ignore Full errors
-    Fail,   // try_send; SD5012 MailboxFull on Full
+    Fail,   // try_send; MT5012 MailboxFull on Full
 }
 ```
 
@@ -143,7 +143,7 @@ itself still bounds depth.
 |----------|-------------------------------------------------------|
 | `Block`  | Sender awaits both: overflow slot + channel capacity. |
 | `Drop`   | Best-effort `try_send`; failure silently discards.    |
-| `Fail`   | Returns SD5012 `MailboxFull`.                         |
+| `Fail`   | Returns MT5012 `MailboxFull`.                         |
 
 ### Statistics + introspection
 
@@ -162,7 +162,7 @@ is an internal implementation detail attached via the new
 ### Tests
 
 - `crates/sdust-runtime/tests/mailbox_slab_pool.rs` — FIFO under
-  reuse, Block backpressure, Fail SD5012, overflow path, slot
+  reuse, Block backpressure, Fail MT5012, overflow path, slot
   leak-detection via `pool.stats()`.
 - `crates/sdust-runtime/tests/mailbox_basic.rs` — slice-7 surface
   contracts (unchanged).

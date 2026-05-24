@@ -21,7 +21,7 @@ native compile / wasm size), the Stardust source parser is itself
 ported to Stardust at ~1930 LOC and bootstraps examples 01-05
 clean through a host bridge, and three v0.5 loose ends land inline:
 `BuiltinId::DomOp` + DOM SIR lowering closes the v0.5
-`emit_dom_call` `#[allow(dead_code)]` (A108), the SD6001-SD6006
+`emit_dom_call` `#[allow(dead_code)]` (A108), the MT6001-MT6006
 macro codes merge into the central `sdust_diagnostics::codes`
 catalog (A107), and per-call `FsCap` isolation gains a contract
 test (A109). See [`RELEASE-v0.6.md`](RELEASE-v0.6.md) for the
@@ -70,7 +70,7 @@ Prior milestones remain tagged:
   + lowerer + wasm32-web `emit_dom_call` dispatch (A108) — Stardust
   source `d.set_text(...)` on a `Dom` cap now lowers to a real
   `stardust:web/dom` import call instead of an opaque MethodCall.
-- **Central SD catalog** — SD6001-SD6006 (macro band) move to
+- **Central SD catalog** — MT6001-MT6006 (macro band) move to
   `sdust_diagnostics::codes`; `sdust_macros::diag` re-exports the
   `u16`s for compat (A107). `sdust explain SDxxxx` is single-sourced.
 - **FsCap per-call isolation** — contract test pins that two
@@ -101,15 +101,15 @@ Prior milestones remain tagged:
   charging on `AdtInit`/`TupleInit`/`ArrayInit` (A99), and the
   `FsCap` allowlist is enforced process-wide with `Forbidden(path)`
   results (A100).
-- **Macros completion** — `name!(args)` invocation syntax + SD6001
+- **Macros completion** — `name!(args)` invocation syntax + MT6001
   unknown_macro activated (A90/A91); extended hygiene over tuple/
   struct/ref patterns (A92); cross-file `pub macro` (A93);
-  proc-macro skeleton parses + stores but execution is SD6006-
+  proc-macro skeleton parses + stores but execution is MT6006-
   gated (A94); standard macro library shipped (assert!, assert_eq!,
   assert_ne!, debug!, unreachable!) (A95).
 - **LSP advanced** — semanticTokens (full+range), rename +
-  prepareRename, inlayHint, codeAction (SD2021/SD2002/SD3001/
-  SD4001 quick fixes), signatureHelp, workspaceFolders, and
+  prepareRename, inlayHint, codeAction (MT2021/MT2002/MT3001/
+  MT4001 quick fixes), signatureHelp, workspaceFolders, and
   receiver-aware semantic completion (A74). 45 LSP tests across
   9 files.
 - **839 tests pass** (+147 over v0.4), 0 clippy warnings, 20/20
@@ -132,7 +132,7 @@ Prior milestones remain tagged:
   network) (A59/A60/A61)
 - **Hygienic declarative macros** — new `sdust-macros` crate;
   `let IDENT` bindings mangled per expansion site so macros don't
-  collide with caller-scope names; SD6001..SD6004 catch unknown /
+  collide with caller-scope names; MT6001..MT6004 catch unknown /
   arity-mismatch / depth-exceeded / bad-arg conditions; capped at
   `MAX_EXPANSION_DEPTH = 32` (A57/A58)
 - **Self-host lexer (subset bootstrap)** — `selfhost/lexer/lexer.sd`
@@ -155,10 +155,10 @@ Prior milestones remain tagged:
   deactivates borrows at their last use and tracks disjoint fields
   separately (A54/A55/A56)
 - **Scope-aware strict tolerance** — agent/handler/supervisor bodies
-  hard-error unresolved names with SD2021 (A65); permissive scopes
+  hard-error unresolved names with MT2021 (A65); permissive scopes
   keep the slice-3 fresh-var fallback
 - **Sendable trait** — formal cross-agent message-arg contract (Copy
-  ∨ owned-Sized-no-refs ∨ `derive(Sendable)`); SD3011 at every
+  ∨ owned-Sized-no-refs ∨ `derive(Sendable)`); MT3011 at every
   `!Msg(...)` / `?Msg(...)` site (A65.b)
 - **Cooperative mid-turn cancellation** — per-turn deadlines now
   interrupt blocking handlers (A70); closes A41
@@ -207,7 +207,7 @@ sdust build --target wasm32-wasi examples/01_hello.sd
 
 The CLI ships `sdust new`, `sdust check`, `sdust fmt`, `sdust dump`,
 `sdust run`, `sdust build`, and `sdust explain`. Runtime diagnostics
-range from `SD0001` (parse errors) through `SD8010` (codegen traps);
+range from `MT0001` (parse errors) through `MT8010` (codegen traps);
 `sdust explain SDxxxx` prints a paragraph describing each.
 
 ## Install
@@ -299,9 +299,9 @@ implemented or planned:
 | 8 | native (Cranelift) and Wasm backends | shipped (`v0.8.0-codegen` / `v0.1.0`) |
 | **v0.2** | LSP + pkg + doc + full codegen + stdlib + DWARF + Wasm CM | **shipped (`v0.2.0`)** |
 | **v0.3** | Soundness hardening: NLL last-use + field Places, scope-strict + Sendable, mid-turn cancel + OTLP + slab mailboxes, v0.2 cleanup (stdlib install, 20/20 wasm-CM, 5→2 ignored) | **shipped (`v0.3.0`)** |
-| **v0.4** | Dogfood demos (3), real GH-Releases registry transport, hygienic declarative macros (SD6001..SD6004), self-host lexer (subset bootstrap via `std.io`), SIR loop terminator fix | **shipped (`v0.4.0`)** |
+| **v0.4** | Dogfood demos (3), real GH-Releases registry transport, hygienic declarative macros (MT6001..MT6004), self-host lexer (subset bootstrap via `std.io`), SIR loop terminator fix | **shipped (`v0.4.0`)** |
 | **v0.5** | `break` / `continue` HIR + iterator protocol + bounded-fixed-point loop borrows, self-host lexer full diff, dogfood completion (5 gaps: real http.serve, Wasm DOM imports, full Str methods, mem-budget auto-charge, FsCap allowlist), macros completion (`name!(args)`, extended hygiene, cross-file `pub macro`, proc-macro skeleton, stdlib macros), LSP advanced (semantic tokens, rename, inlay hints, code actions, signature help, workspace folders, semantic completion) | **shipped (`v0.5.0`)** |
-| **v0.6** | Multi-core scheduler (per-worker tokio runtimes + crossbeam-deque work-stealing + affinity hints + lightweight migration + per-worker stats), first honest benchmarks (sdust-bench crate + 6 categories with Rust/Go/C++ comparators), self-host parser subset (~1930 LOC, 13/13 bootstrap tests, examples 01-05 covered), DOM SIR lowering (`BuiltinId::DomOp` end-to-end), central SD6001-SD6006 catalog merge, per-call FsCap isolation contract | **shipped (`v0.6.0`)** |
+| **v0.6** | Multi-core scheduler (per-worker tokio runtimes + crossbeam-deque work-stealing + affinity hints + lightweight migration + per-worker stats), first honest benchmarks (sdust-bench crate + 6 categories with Rust/Go/C++ comparators), self-host parser subset (~1930 LOC, 13/13 bootstrap tests, examples 01-05 covered), DOM SIR lowering (`BuiltinId::DomOp` end-to-end), central MT6001-MT6006 catalog merge, per-call FsCap isolation contract | **shipped (`v0.6.0`)** |
 
 ### Post-v0.6 roadmap
 

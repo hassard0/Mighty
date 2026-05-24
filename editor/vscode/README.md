@@ -22,9 +22,9 @@ Syntax highlighting plus the official Stardust Language Server (LSP) for
 - **Inlay hints** — `: T` annotations on `let` bindings and fn
   parameters whose type was inferred. Off by default; toggle via
   `stardust.inlayHints.enable`.
-- **Code actions** — quick fixes for `unresolved value` (SD2021),
-  `unresolved type` (SD2002), `use after move` (SD3001), and
-  `effect undeclared` (SD4001).
+- **Code actions** — quick fixes for `unresolved value` (MT2021),
+  `unresolved type` (MT2002), `use after move` (MT3001), and
+  `effect undeclared` (MT4001).
 - **Signature help** — pops up on `(` and `,` inside call sites, with
   the active parameter highlighted.
 

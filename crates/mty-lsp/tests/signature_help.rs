@@ -5,7 +5,7 @@ use mty_lsp::signature_help::signature_help;
 use tower_lsp::lsp_types::Position;
 
 fn analyze(src: &str) -> DocAnalysis {
-    DocAnalysis::analyze(src.to_string(), "test://main.sd".to_string(), 1)
+    DocAnalysis::analyze(src.to_string(), "test://main.mty".to_string(), 1)
 }
 
 #[test]

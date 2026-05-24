@@ -90,20 +90,20 @@ SIR subset), it falls back transparently to the slice-7 runtime path
 (`pipeline::run_file_with_runtime`). `--legacy-interp` still routes
 to the slice-6 tree-walker directly.
 
-### Diagnostics: SD8001..SD8010
+### Diagnostics: MT8001..MT8010
 
 | Code | Meaning |
 |------|---------|
-| SD8001 | divide by zero (compiled code) |
-| SD8002 | out-of-bounds index |
-| SD8003 | integer overflow (checked) |
-| SD8004 | null deref |
-| SD8005 | extern symbol unresolved |
-| SD8006 | unreachable executed |
-| SD8007 | codegen rejected SIR shape |
-| SD8008 | native linker missing |
-| SD8009 | emitted Wasm failed validation |
-| SD8010 | monomorphization failed |
+| MT8001 | divide by zero (compiled code) |
+| MT8002 | out-of-bounds index |
+| MT8003 | integer overflow (checked) |
+| MT8004 | null deref |
+| MT8005 | extern symbol unresolved |
+| MT8006 | unreachable executed |
+| MT8007 | codegen rejected SIR shape |
+| MT8008 | native linker missing |
+| MT8009 | emitted Wasm failed validation |
+| MT8010 | monomorphization failed |
 
 All have `sdust explain SD8xxx` entries.
 
@@ -125,7 +125,7 @@ All exercised by `crates/sdust-driver/tests/conformance_codegen.rs`.
 | A48 | `sdust run` defaults to JIT with interpreter fallback |
 | A49 | Per-(fn, type-args) monomorphization; slice 8 strips generic fns |
 | A50 | `bumpalo`-backed arenas with byte-charging |
-| A51 | Codegen trap codes SD8001..SD8010 reserved |
+| A51 | Codegen trap codes MT8001..MT8010 reserved |
 | A52 | Native linker discovery: `clang` / `gcc` / `cc` preferred, skips MSYS `link.exe` shim |
 | A53 | Extern resolution via `libloading` against host libc, overridable in `star.toml` |
 

@@ -5,9 +5,9 @@
 //! effect map.
 //!
 //! Public-fn discipline: the declared `effect ...` clause must be a
-//! superset of the inferred set. Else `SD4001 effect_undeclared`.
+//! superset of the inferred set. Else `MT4001 effect_undeclared`.
 //!
-//! Strict profile (`profile = "core"`) bans `alloc` — `SD4002 alloc_in_core`.
+//! Strict profile (`profile = "core"`) bans `alloc` — `MT4002 alloc_in_core`.
 
 use crate::defs::*;
 use crate::ty::*;
@@ -15,7 +15,7 @@ use mty_diagnostics::Diagnostic;
 use mty_hir::*;
 use std::collections::{HashMap, HashSet};
 
-/// Profile loaded from `star.toml` (slice 5). `Host` is permissive; `Core`
+/// Profile loaded from `mighty.toml` (slice 5). `Host` is permissive; `Core`
 /// is the strict embedded-target profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Profile {
@@ -452,7 +452,7 @@ mod tests {
     }
 
     /// v0.3 (A65) `core_profile_rejects_alloc`: the strict core profile
-    /// emits SD4002 whenever a public fn's inferred effect set includes
+    /// emits MT4002 whenever a public fn's inferred effect set includes
     /// `alloc`. This drives the public-facing rule documented in the
     /// `effect_checking/05_strict_core_profile` conformance case shape.
     #[test]
@@ -504,14 +504,14 @@ mod tests {
             .map(|d| d.code.as_str())
             .collect();
         assert!(
-            codes.contains(&"SD4002".to_string()),
-            "expected SD4002 in core profile, got {:?}",
+            codes.contains(&"MT4002".to_string()),
+            "expected MT4002 in core profile, got {:?}",
             codes
         );
     }
 
-    /// Counter-test: Host profile tolerates alloc without SD4002 (it
-    /// still wants SD4001 because alloc is undeclared, but no SD4002).
+    /// Counter-test: Host profile tolerates alloc without MT4002 (it
+    /// still wants MT4001 because alloc is undeclared, but no MT4002).
     #[test]
     fn host_profile_allows_alloc_but_demands_declaration() {
         use mty_diagnostics::{Diagnostic, Severity};
@@ -557,14 +557,14 @@ mod tests {
             .map(|d| d.code.as_str())
             .collect();
         assert!(
-            !codes.contains(&"SD4002".to_string()),
-            "Host profile must NOT emit SD4002, got {:?}",
+            !codes.contains(&"MT4002".to_string()),
+            "Host profile must NOT emit MT4002, got {:?}",
             codes
         );
-        // SD4001 (effect_undeclared) IS expected because the fn doesn't
+        // MT4001 (effect_undeclared) IS expected because the fn doesn't
         // declare `effect alloc`.
         assert!(
-            codes.contains(&"SD4001".to_string()),
+            codes.contains(&"MT4001".to_string()),
             "Host profile should still demand effect declaration; got {:?}",
             codes
         );

@@ -33,7 +33,7 @@ crates/sdust-lsp/
     ├── rename_local.rs           # local + prepareRename + invalid-ident
     ├── rename_top_level.rs       # top-level fn / struct rewrite
     ├── inlay_hints.rs            # inferred-type vs annotated
-    ├── code_action_unresolved.rs # SD2021 quickfix suggestions
+    ├── code_action_unresolved.rs # MT2021 quickfix suggestions
     ├── signature_help.rs         # call-site active-param tracking
     ├── workspace_folders.rs      # multi-doc independence
     └── completion_semantic.rs    # locals + receiver completion
@@ -251,10 +251,10 @@ diagnostic codes the editor passes along with the request:
 
 | code | fix                                                                    |
 |------|------------------------------------------------------------------------|
-| SD2021 unresolved value  | suggest top-3 in-scope names by edit distance ≤ 2 |
-| SD2002 unresolved type   | suggest top-3 in-scope type names by edit distance |
-| SD3001 use-after-move    | suggest inserting `.clone()` after the moved value |
-| SD4001 effect undeclared | suggest adding `effect { name }` to the fn signature |
+| MT2021 unresolved value  | suggest top-3 in-scope names by edit distance ≤ 2 |
+| MT2002 unresolved type   | suggest top-3 in-scope type names by edit distance |
+| MT3001 use-after-move    | suggest inserting `.clone()` after the moved value |
+| MT4001 effect undeclared | suggest adding `effect { name }` to the fn signature |
 
 When the client sends an empty `diagnostics` list (some editors do
 this when first painting the lightbulb), we re-scan our own cached

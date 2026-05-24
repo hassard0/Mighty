@@ -354,7 +354,7 @@ pub enum Term {
     /// Build `Result::Err(payload)` and return. Used by `?` lowering.
     TryReturnErr(Operand),
     /// Async suspension point — slice-7 runtime resumes execution at
-    /// `resume`. Slice 6 traps with SD5009 if hit.
+    /// `resume`. Slice 6 traps with MT5009 if hit.
     Suspend {
         resume: BlockId,
     },

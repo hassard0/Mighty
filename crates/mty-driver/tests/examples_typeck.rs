@@ -1,7 +1,7 @@
 //! Integration test: every canonical example in `examples/` must
 //! type-check clean (lex + parse + lower + type-check produce no errors).
 //!
-//! Warnings are allowed (slice 3 emits SD2015 non-exhaustive-match as a
+//! Warnings are allowed (slice 3 emits MT2015 non-exhaustive-match as a
 //! warning, etc.).
 
 use mty_diagnostics::Severity;
@@ -47,81 +47,81 @@ fn assert_clean(name: &str) {
 
 #[test]
 fn example_01_hello() {
-    assert_clean("01_hello.sd");
+    assert_clean("01_hello.mty");
 }
 #[test]
 fn example_02_struct_enum() {
-    assert_clean("02_struct_enum.sd");
+    assert_clean("02_struct_enum.mty");
 }
 #[test]
 fn example_03_generic_fn() {
-    assert_clean("03_generic_fn.sd");
+    assert_clean("03_generic_fn.mty");
 }
 #[test]
 fn example_04_result_propagation() {
-    assert_clean("04_result_propagation.sd");
+    assert_clean("04_result_propagation.mty");
 }
 #[test]
 fn example_05_match_expr() {
-    assert_clean("05_match_expr.sd");
+    assert_clean("05_match_expr.mty");
 }
 #[test]
 fn example_06_for_while_loop() {
-    assert_clean("06_for_while_loop.sd");
+    assert_clean("06_for_while_loop.mty");
 }
 #[test]
 fn example_07_agent_echo() {
-    assert_clean("07_agent_echo.sd");
+    assert_clean("07_agent_echo.mty");
 }
 #[test]
 fn example_08_agent_state() {
-    assert_clean("08_agent_state.sd");
+    assert_clean("08_agent_state.mty");
 }
 #[test]
 fn example_09_send_ask_deadline() {
-    assert_clean("09_send_ask_deadline.sd");
+    assert_clean("09_send_ask_deadline.mty");
 }
 #[test]
 fn example_10_supervisor() {
-    assert_clean("10_supervisor.sd");
+    assert_clean("10_supervisor.mty");
 }
 #[test]
 fn example_11_budget_block() {
-    assert_clean("11_budget_block.sd");
+    assert_clean("11_budget_block.mty");
 }
 #[test]
 fn example_12_arena() {
-    assert_clean("12_arena.sd");
+    assert_clean("12_arena.mty");
 }
 #[test]
 fn example_13_capabilities() {
-    assert_clean("13_capabilities.sd");
+    assert_clean("13_capabilities.mty");
 }
 #[test]
 fn example_14_extern_c() {
-    assert_clean("14_extern_c.sd");
+    assert_clean("14_extern_c.mty");
 }
 #[test]
 fn example_15_extern_js() {
-    assert_clean("15_extern_js.sd");
+    assert_clean("15_extern_js.mty");
 }
 #[test]
 fn example_16_macro() {
-    assert_clean("16_macro.sd");
+    assert_clean("16_macro.mty");
 }
 #[test]
 fn example_17_unsafe() {
-    assert_clean("17_unsafe.sd");
+    assert_clean("17_unsafe.mty");
 }
 #[test]
 fn example_18_sandbox() {
-    assert_clean("18_sandbox.sd");
+    assert_clean("18_sandbox.mty");
 }
 #[test]
 fn example_19_backend_service() {
-    assert_clean("19_backend_service.sd");
+    assert_clean("19_backend_service.mty");
 }
 #[test]
 fn example_20_frontend_component() {
-    assert_clean("20_frontend_component.sd");
+    assert_clean("20_frontend_component.mty");
 }

@@ -12,8 +12,8 @@ use tower_lsp::lsp_types::Url;
 #[test]
 fn two_files_get_independent_analysis() {
     let store = DocStore::new();
-    let a = Url::parse("file:///a.sd").unwrap();
-    let b = Url::parse("file:///b.sd").unwrap();
+    let a = Url::parse("file:///a.mty").unwrap();
+    let b = Url::parse("file:///b.mty").unwrap();
     let doc_a = store.open(a.clone(), "fn main() { }\n".into(), 1);
     let doc_b = store.open(
         b.clone(),

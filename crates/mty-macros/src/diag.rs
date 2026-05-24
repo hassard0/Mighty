@@ -12,31 +12,31 @@
 //!   2. Re-export the bare `u16` here so legacy lowering code keeps
 //!      compiling.
 //!
-//! Do not duplicate the explanation text — `sdust explain SDxxxx`
+//! Do not duplicate the explanation text — `mty explain SDxxxx`
 //! reads exclusively from the central catalog.
 
 use mty_diagnostics::codes;
 
-/// SD6001 — A call site referenced a macro name that wasn't declared.
+/// MT6001 — A call site referenced a macro name that wasn't declared.
 pub const UNKNOWN_MACRO: u16 = codes::UNKNOWN_MACRO.0;
 
-/// SD6002 — A macro call had the wrong number of arguments.
+/// MT6002 — A macro call had the wrong number of arguments.
 pub const MACRO_ARITY_MISMATCH: u16 = codes::MACRO_ARITY_MISMATCH.0;
 
-/// SD6003 — After substitution + hygiene, the expanded body failed to
+/// MT6003 — After substitution + hygiene, the expanded body failed to
 /// re-parse as a valid expression / statement sequence.
 pub const MACRO_BODY_PARSE_FAILED: u16 = codes::MACRO_BODY_PARSE_FAILED.0;
 
-/// SD6004 — A macro expanded itself (directly or transitively) past
+/// MT6004 — A macro expanded itself (directly or transitively) past
 /// the depth cap (`MAX_EXPANSION_DEPTH`).
 pub const RECURSIVE_MACRO_TOO_DEEP: u16 = codes::RECURSIVE_MACRO_TOO_DEEP.0;
 
-/// SD6005 — A procedural macro's body references an `effect` call
+/// MT6005 — A procedural macro's body references an `effect` call
 /// (I/O, time, env, model, rand). Proc macros must be pure token-tree
 /// manipulations.
 pub const PROC_MACRO_IMPURE: u16 = codes::PROC_MACRO_IMPURE.0;
 
-/// SD6006 — A procedural macro was invoked but the current compiler
+/// MT6006 — A procedural macro was invoked but the current compiler
 /// can only parse and store proc macros, not execute them. Lift this
 /// constraint once the sandboxed SIR sub-context lands.
 pub const PROC_MACRO_UNSUPPORTED_V0_5: u16 = codes::PROC_MACRO_UNSUPPORTED_V0_5.0;

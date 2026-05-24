@@ -42,7 +42,7 @@ SDUST_PKG_LOGIN_TOKEN=ghp_… sdust pkg login
 sdust pkg publish my_package
 
 # Declarative macros now expand with hygiene.
-# (see examples/16_macro.sd; sdust-macros::diag exports SD6001..SD6004)
+# (see examples/16_macro.sd; sdust-macros::diag exports MT6001..MT6004)
 sdust check examples/16_macro.sd
 
 # The Stardust lexer is now written in Stardust source.
@@ -84,7 +84,7 @@ terminator fix in `crates/sdust-sir/src/lower/exprs.rs`.
 - **32 conformance cases run** (unchanged), 2 ignored (unchanged)
 - **3/3 dogfood demo smoke scripts pass** (search_api, counter_web, extract_tool)
 - **7 new spec amendments** (A57..A63)
-- **4 new SD codes** (SD6001..SD6004, macros)
+- **4 new SD codes** (MT6001..MT6004, macros)
 - **MSRV unchanged at 1.85**
 
 ## Correctness assertions newly enforced
@@ -94,7 +94,7 @@ terminator fix in `crates/sdust-sir/src/lower/exprs.rs`.
 | `while cond` re-evaluates cond between iterations | single-iteration (collapsed to `if`) | iterates (A62) |
 | `loop { body }` runs until trap / return / budget | single-iteration | iterates until budget (A62) |
 | Macro hygiene at `let IDENT` sites | n/a (no expansion) | mangled — no caller collision (A57) |
-| Macro arity / depth violations | n/a | SD6002..SD6004 with span (A58) |
+| Macro arity / depth violations | n/a | MT6002..MT6004 with span (A58) |
 | Package fetch from registry | stubbed | real GH Releases + sha256 + offline cache (A59/A60) |
 | `pkg publish` bundle determinism | n/a | byte-identical across runs (A61) |
 | Stardust source can express its own lexer | external Rust only | subset compiles + first-token round-trips via `std.io` host bridge (A63) |
@@ -104,7 +104,7 @@ terminator fix in `crates/sdust-sir/src/lower/exprs.rs`.
 The v0.3 deferral list named 28 items. v0.4 closes the following:
 
 - **Backtracking package resolver + tar/flate2 + real registry** — shipped (registry agent: GH Releases transport, deterministic gz tar bundles, on-disk index cache with `If-Modified-Since`, sha256 verification, three new CLI commands)
-- **Procedural / declarative macros** — declarative-side shipped (sdust-macros: expansion + mangling-based hygiene + SD6001..SD6004; proc macros remain v0.5+)
+- **Procedural / declarative macros** — declarative-side shipped (sdust-macros: expansion + mangling-based hygiene + MT6001..MT6004; proc macros remain v0.5+)
 - **Real `loop { break }` lowering** — partially shipped (the SIR loop terminator is fixed; `break`/`continue` HIR nodes remain v0.5)
 
 The other 25 items roll into v0.5 (see `SLICE_V0_4.md` for the
@@ -114,7 +114,7 @@ full carry-over list).
 
 ```
 A57 — Declarative macro expansion model + hygiene via mangling
-A58 — SD6001..SD6004 macro diagnostic codes
+A58 — MT6001..MT6004 macro diagnostic codes
 A59 — GitHub Releases registry transport + `registry+gh://<owner>/<repo>` URL scheme
 A60 — Offline-first resolver: `add` / `update` use cache; `--refresh` for network
 A61 — Deterministic `.tar.gz` bundles for `pkg publish`
@@ -130,12 +130,12 @@ the renumbered v0.2 draft slots noted in `SLICE_V0_3.md`).
 Four new SD codes for the macro slice, defined in
 `sdust_macros::diag` as bare `u16` and wrapped at emission:
 
-- **SD6001** — `unknown_macro` (reserved — fires once the
+- **MT6001** — `unknown_macro` (reserved — fires once the
   `mac!name(...)` syntactic marker lands in v0.5)
-- **SD6002** — `macro_arity_mismatch`
-- **SD6003** — `macro_recursion_depth_exceeded`
+- **MT6002** — `macro_arity_mismatch`
+- **MT6003** — `macro_recursion_depth_exceeded`
   (`MAX_EXPANSION_DEPTH = 32`)
-- **SD6004** — `macro_bad_argument_tokens`
+- **MT6004** — `macro_bad_argument_tokens`
 
 `sdust explain SD6xxx` is not yet wired (v0.5 cleanup folds these
 codes into `sdust-diagnostics::codes`).
@@ -162,7 +162,7 @@ Highlights:
   cross-file module resolution; real `Str` method intrinsics;
   self-host parser + HIR + typeck.
 - **Macros**: `mac!name(...)` syntactic marker (activates
-  SD6001); set-of-scopes hygiene; proc macros; cross-file macro
+  MT6001); set-of-scopes hygiene; proc macros; cross-file macro
   export; `format!`-style variadic args.
 - **Registry / pkg**: create + seed the default registry repo;
   consolidate `Manifest` into `sdust-pkg`; bundle
@@ -204,7 +204,7 @@ Highlights:
 4. **Macro hygiene is mangling-based, not set-of-scopes** —
    `let IDENT` is mangled; pattern bindings inside an expansion
    are not.
-5. **`mac!name(...)` syntactic marker not yet parsed** — SD6001
+5. **`mac!name(...)` syntactic marker not yet parsed** — MT6001
    stays reserved.
 6. **No default registry** — `stardust-pkg/registry` is reserved
    but not created. Network fetches surface a clean 404.
@@ -242,7 +242,7 @@ behavior changes**:
   that don't `run` — the macros agent's preprocessor expands the
   module shape correctly.
 
-Diagnostic codes (SD0001..SD8010 + SD6001..SD6004 minted in
+Diagnostic codes (MT0001..MT8010 + MT6001..MT6004 minted in
 v0.4) are otherwise unchanged. CLI shape is unchanged except for
 the three new `sdust pkg` subcommands (`search` / `info` /
 `login`) and `pkg update --refresh`.

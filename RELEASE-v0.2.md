@@ -169,7 +169,7 @@ preserved for all slice 1-5 surfaces. The notable behavior change:
   WASI runtimes that hardcoded the old name need to adopt the
   canonical Component Model names. (See A55.)
 
-Diagnostic codes (SD0001..SD8010) are unchanged. CLI shape gains
+Diagnostic codes (MT0001..MT8010) are unchanged. CLI shape gains
 three new subcommands (`lsp`, `pkg`, `doc`).
 
 ## Acknowledgments

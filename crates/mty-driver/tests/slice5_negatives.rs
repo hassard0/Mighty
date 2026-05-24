@@ -40,40 +40,40 @@ fn assert_emits(name: &str, expected: &[mty_diagnostics::codes::DiagCode]) {
 
 #[test]
 fn neg_effect_undeclared() {
-    assert_emits("effect_undeclared.sd", &[EFFECT_UNDECLARED]);
+    assert_emits("effect_undeclared.mty", &[EFFECT_UNDECLARED]);
 }
 
 #[test]
 fn neg_protocol_missing() {
-    assert_emits("protocol_missing.sd", &[PROTOCOL_MISSING_HANDLER]);
+    assert_emits("protocol_missing.mty", &[PROTOCOL_MISSING_HANDLER]);
 }
 
 #[test]
 fn neg_protocol_arity() {
-    assert_emits("protocol_arity.sd", &[PROTOCOL_ARITY_MISMATCH]);
+    assert_emits("protocol_arity.mty", &[PROTOCOL_ARITY_MISMATCH]);
 }
 
 #[test]
 fn neg_protocol_extra() {
-    assert_emits("protocol_extra.sd", &[PROTOCOL_EXTRA_HANDLER]);
+    assert_emits("protocol_extra.mty", &[PROTOCOL_EXTRA_HANDLER]);
 }
 
 #[test]
 fn neg_derive_copy_bad() {
-    assert_emits("derive_copy_bad.sd", &[DERIVE_COPY_FIELD_NOT_COPY]);
+    assert_emits("derive_copy_bad.mty", &[DERIVE_COPY_FIELD_NOT_COPY]);
 }
 
 #[test]
 fn neg_derive_unknown() {
-    assert_emits("derive_unknown.sd", &[DERIVE_UNKNOWN]);
+    assert_emits("derive_unknown.mty", &[DERIVE_UNKNOWN]);
 }
 
 #[test]
 fn neg_trait_coherence() {
-    assert_emits("trait_coherence.sd", &[TRAIT_COHERENCE_VIOLATION]);
+    assert_emits("trait_coherence.mty", &[TRAIT_COHERENCE_VIOLATION]);
 }
 
 #[test]
 fn neg_dyn_unsafe() {
-    assert_emits("dyn_unsafe.sd", &[DYN_REQUIRES_OBJECT_SAFE]);
+    assert_emits("dyn_unsafe.mty", &[DYN_REQUIRES_OBJECT_SAFE]);
 }

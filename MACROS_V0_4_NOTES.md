@@ -35,9 +35,9 @@ revisit them with context.
    documented in both the internals doc and the spec.
 
 3. **No `mac!name(...)` syntactic marker.** This was tempting because
-   it would unlock SD6001 ("unknown_macro"), but adding it requires
+   it would unlock MT6001 ("unknown_macro"), but adding it requires
    parser changes that ripple into syntax, ast, items, and recovery —
-   all outside scope. Keep SD6001 reserved; ship it with the marker in
+   all outside scope. Keep MT6001 reserved; ship it with the marker in
    v0.5.
 
 4. **Hygiene only catches `let IDENT`.** Macros that introduce
@@ -73,7 +73,7 @@ revisit them with context.
 
 ## Open follow-ups for v0.5
 
-* `mac!name(...)` syntax + SD6001 activation.
+* `mac!name(...)` syntax + MT6001 activation.
 * Set-of-scopes hygiene (replacing the mangling pass in `expand`).
 * Proc macros (sandboxed token-tree → token-tree functions).
 * Cross-file macro export + visibility (`pub macro foo`).

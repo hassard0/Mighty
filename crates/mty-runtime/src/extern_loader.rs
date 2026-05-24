@@ -2,10 +2,10 @@
 //!
 //! Slice-8 supports a minimal model: libc-resident C fns can be called
 //! by name from Mighty. Per-extern overrides specified in
-//! `star.toml`'s `[extern]` table can target other shared libraries.
+//! `mighty.toml`'s `[extern]` table can target other shared libraries.
 //!
 //! The registry is built once, lazily loads libraries as needed, and
-//! caches resolved fn-pointers. Unresolved names trap with SD8005 at
+//! caches resolved fn-pointers. Unresolved names trap with MT8005 at
 //! the call site.
 
 use libloading::{Library, Symbol};

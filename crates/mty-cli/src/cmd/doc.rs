@@ -1,4 +1,4 @@
-//! `sdust doc` — Mighty documentation generator. See
+//! `mty doc` — Mighty documentation generator. See
 //! `docs/reference/cli/mty-doc.md` for the user-facing reference and
 //! `docs/internals/doc-generator.md` for the algorithm.
 
@@ -15,7 +15,7 @@ pub fn run(
     let src = match std::fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("sdust doc: {}: {}", path.display(), e);
+            eprintln!("mty doc: {}: {}", path.display(), e);
             return 1;
         }
     };
@@ -38,7 +38,7 @@ pub fn run(
         // v0.2: examples are extracted but not type-checked; surface a
         // note instead of silently doing nothing.
         eprintln!(
-            "sdust doc: --check-examples is a no-op in v0.2 (extraction-only); see DOC_V0_2_NOTES.md"
+            "mty doc: --check-examples is a no-op in v0.2 (extraction-only); see DOC_V0_2_NOTES.md"
         );
     }
 
@@ -46,7 +46,7 @@ pub fn run(
         let dir = out_dir.unwrap_or_else(|| PathBuf::from("target/doc").join(&doc.name));
         let files = mty_doc::render::html(&doc);
         if let Err(e) = mty_doc::render::write_tree(&dir, &files) {
-            eprintln!("sdust doc: write {}: {}", dir.display(), e);
+            eprintln!("mty doc: write {}: {}", dir.display(), e);
             return 1;
         }
         println!("wrote {} files to {}", files.len(), dir.display());
@@ -56,7 +56,7 @@ pub fn run(
         let dir = out_dir.unwrap_or_else(|| PathBuf::from("target/doc-md").join(&doc.name));
         let files = mty_doc::render::markdown(&doc);
         if let Err(e) = mty_doc::render::write_tree(&dir, &files) {
-            eprintln!("sdust doc: write {}: {}", dir.display(), e);
+            eprintln!("mty doc: write {}: {}", dir.display(), e);
             return 1;
         }
         println!("wrote {} files to {}", files.len(), dir.display());
@@ -70,7 +70,7 @@ pub fn run(
             0
         } else {
             eprintln!(
-                "sdust doc: no item named `{}` in package `{}`",
+                "mty doc: no item named `{}` in package `{}`",
                 name, doc.name
             );
             1

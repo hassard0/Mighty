@@ -99,7 +99,7 @@ pub fn move_out_of_ref(span: &SourceSpan) -> Diagnostic {
     )
 }
 
-/// v0.3 (A56): precise SD3009 with the ref expression's pretty name.
+/// v0.3 (A56): precise MT3009 with the ref expression's pretty name.
 pub fn move_out_of_ref_named(name: &str, span: &SourceSpan) -> Diagnostic {
     Diagnostic::error(
         MOVE_OUT_OF_REF,

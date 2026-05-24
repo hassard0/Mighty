@@ -17,7 +17,7 @@ edition = "2026"
 "#,
     )
     .unwrap();
-    std::fs::write(dep.join("lib.sd"), b"fn hello() {}").unwrap();
+    std::fs::write(dep.join("lib.mty"), b"fn hello() {}").unwrap();
 
     std::fs::write(
         root.path().join("mighty.toml"),
@@ -58,7 +58,7 @@ edition = "2026"
 "#,
     )
     .unwrap();
-    std::fs::write(dep.join("lib.sd"), b"fn original() {}").unwrap();
+    std::fs::write(dep.join("lib.mty"), b"fn original() {}").unwrap();
 
     std::fs::write(
         root.path().join("mighty.toml"),
@@ -77,7 +77,7 @@ mylib = { path = "mylib" }
     commands::fetch_all(root.path()).unwrap();
 
     // Tamper with the source after the lockfile pinned a hash.
-    std::fs::write(dep.join("lib.sd"), b"fn tampered() {}").unwrap();
+    std::fs::write(dep.join("lib.mty"), b"fn tampered() {}").unwrap();
 
     let err = commands::fetch_all(root.path()).unwrap_err();
     let msg = err.to_string();

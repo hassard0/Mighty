@@ -16,7 +16,7 @@ sdust-syntax → sdust-ast → sdust-hir → sdust-types → sdust-borrow
 ```
 
 `sdust-borrow` only runs if `sdust-types` produced no Error-severity
-diagnostics (warnings, such as SD2026 `protocol_msg_unknown`, are
+diagnostics (warnings, such as MT2026 `protocol_msg_unknown`, are
 tolerated). The driver wires this up via
 `sdust_driver::type_and_borrow_check(pkg)`.
 
@@ -48,20 +48,20 @@ Each tracked local has an `Ownership` state:
 | State          | Meaning                                                    |
 |----------------|------------------------------------------------------------|
 | `Owned`        | The local owns its value (Copy values stay Owned forever)  |
-| `Moved { at }` | Value has been moved; reads/borrows error (SD3001/SD3003)  |
+| `Moved { at }` | Value has been moved; reads/borrows error (MT3001/MT3003)  |
 | `Borrowed{n}`  | `n` live shared borrows; reads OK, mut-borrow forbidden    |
 | `BorrowedMut`  | One live mutable borrow; both reads and shared-borrow forbid|
-| `Uninit`       | `let x;` without init; first read errors SD3015            |
+| `Uninit`       | `let x;` without init; first read errors MT3015            |
 
 State transitions are driven by the **position** the local appears in:
 
 | Position         | On Owned    | On Moved | On Borrowed | On BorrowedMut |
 |------------------|-------------|----------|-------------|-----------------|
-| `Use`            | (no change) | SD3001   | (read OK)   | (read OK)       |
-| `Move`           | →Moved (if !Copy) | SD3001 | SD3008    | SD3008          |
-| `BorrowShared`   | →Borrowed{1}| SD3003   | →Borrowed{n+1} | SD3005      |
-| `BorrowMut`      | →BorrowedMut OR SD3013 | SD3003 | SD3004 | SD3006        |
-| `AssignTarget`   | →Owned OR SD3014 | →Owned OR SD3014 | (same) | (same) |
+| `Use`            | (no change) | MT3001   | (read OK)   | (read OK)       |
+| `Move`           | →Moved (if !Copy) | MT3001 | MT3008    | MT3008          |
+| `BorrowShared`   | →Borrowed{1}| MT3003   | →Borrowed{n+1} | MT3005      |
+| `BorrowMut`      | →BorrowedMut OR MT3013 | MT3003 | MT3004 | MT3006        |
+| `AssignTarget`   | →Owned OR MT3014 | →Owned OR MT3014 | (same) | (same) |
 
 Copy values never transition out of Owned: `is_copy()` returning true
 makes Move into a no-op.
@@ -99,7 +99,7 @@ makes Move into a no-op.
   bounds tighten)
 
 A `!Msg(args)` / `?Msg(args)` call site checks every arg's expr type
-against this predicate; failures emit SD3011.
+against this predicate; failures emit MT3011.
 
 ## 6. Linear walk
 
@@ -125,7 +125,7 @@ mutates as the walk proceeds:
     join via `state::join_states` (intersection) after.
   - `Arena { body, .. }` → push a fresh `ArenaRegionId`; locals declared
     in the body carry the region; at body end, if the tail expression's
-    root name is an arena-local non-Copy binding, emit SD3010.
+    root name is an arena-local non-Copy binding, emit MT3010.
   - `Unsafe` / `Sandbox` / `Budget` → just walk (the type checker's
     scope-aware tolerance is what relaxes name resolution).
   - `Spawn` / `Lambda` / `TaskScope` → walk children; lambdas open a fresh
@@ -157,7 +157,7 @@ field.
    tail directly (not through `walk_block`) so the arena frame is still
    active when we inspect the tail.
 3. If the tail expression's "root name" (returned by `walk_expr`) names a
-   local owned in the active region with `!is_copy`, emit SD3010.
+   local owned in the active region with `!is_copy`, emit MT3010.
 4. Pop the frame.
 
 The MVP only flags **direct naming** (`arena turn { let x = ...; x }`).
@@ -175,31 +175,31 @@ and discarded by `flow::run`. Future codegen consumers can re-thread it.
 
 | Code   | Name                          | Severity | Origin                              |
 |--------|-------------------------------|----------|-------------------------------------|
-| SD3001 | use_after_move                | Error    | do_use / do_move on Moved           |
-| SD3002 | move_out_of_borrow            | Error    | (reserved — slice 4 uses SD3008)    |
-| SD3003 | borrow_after_move             | Error    | do_borrow on Moved                  |
-| SD3004 | mut_borrow_while_shared       | Error    | do_borrow_mut on Borrowed{n}        |
-| SD3005 | shared_borrow_while_mut       | Error    | do_borrow_shared on BorrowedMut     |
-| SD3006 | two_mut_borrows               | Error    | do_borrow_mut on BorrowedMut        |
-| SD3007 | borrow_outlives_owner         | Error    | (reserved; lexical regions can't trigger) |
-| SD3008 | cannot_move_borrowed          | Error    | do_move on Borrowed / BorrowedMut   |
-| SD3009 | move_out_of_ref               | Error    | (reserved; needs deref-move modelling) |
-| SD3010 | arena_escape                  | Error    | Arena tail names arena-local        |
-| SD3011 | non_sendable_message_arg      | Error    | Send/Ask arg fails is_sendable      |
-| SD3012 | drop_in_const_context         | Error    | (reserved)                          |
-| SD3013 | mut_borrow_of_immut_local     | Error    | do_borrow_mut on !mutable Owned     |
-| SD3014 | assign_to_immut_local         | Error    | do_assign on !mutable               |
-| SD3015 | use_of_uninitialized          | Error    | do_use on Uninit                    |
+| MT3001 | use_after_move                | Error    | do_use / do_move on Moved           |
+| MT3002 | move_out_of_borrow            | Error    | (reserved — slice 4 uses MT3008)    |
+| MT3003 | borrow_after_move             | Error    | do_borrow on Moved                  |
+| MT3004 | mut_borrow_while_shared       | Error    | do_borrow_mut on Borrowed{n}        |
+| MT3005 | shared_borrow_while_mut       | Error    | do_borrow_shared on BorrowedMut     |
+| MT3006 | two_mut_borrows               | Error    | do_borrow_mut on BorrowedMut        |
+| MT3007 | borrow_outlives_owner         | Error    | (reserved; lexical regions can't trigger) |
+| MT3008 | cannot_move_borrowed          | Error    | do_move on Borrowed / BorrowedMut   |
+| MT3009 | move_out_of_ref               | Error    | (reserved; needs deref-move modelling) |
+| MT3010 | arena_escape                  | Error    | Arena tail names arena-local        |
+| MT3011 | non_sendable_message_arg      | Error    | Send/Ask arg fails is_sendable      |
+| MT3012 | drop_in_const_context         | Error    | (reserved)                          |
+| MT3013 | mut_borrow_of_immut_local     | Error    | do_borrow_mut on !mutable Owned     |
+| MT3014 | assign_to_immut_local         | Error    | do_assign on !mutable               |
+| MT3015 | use_of_uninitialized          | Error    | do_use on Uninit                    |
 
 Plus the typeck warning added by slice 4:
 
-| SD2026 | protocol_msg_unknown          | Warning  | Agent handler msg not in protocol   |
+| MT2026 | protocol_msg_unknown          | Warning  | Agent handler msg not in protocol   |
 
 ## 11. Scope-aware tolerance (slice-3 hardening)
 
 The slice-3 permissive "any unknown name → fresh inference var" policy
 was tightened. Now unresolved single-segment value names emit
-`SD2021 unresolved_value` **unless** the name appears in the per-body
+`MT2021 unresolved_value` **unless** the name appears in the per-body
 tolerance set, or the body is in `tolerance_open` mode:
 
 - **Open** (tolerance_open=true): inside `unsafe` blocks, `sandbox … with`
@@ -223,7 +223,7 @@ Method resolution on a `Adt(aid, _)` receiver:
 2. Else if the ADT is **opaque** (prelude `Url`/`Logger`/agent types,
    etc.), fall through to the built-in method table (permissive
    variadic / fresh-return).
-3. Else (user struct/enum), emit `SD2007 unknown_method`.
+3. Else (user struct/enum), emit `MT2007 unknown_method`.
 
 Non-ADT receivers (primitives, refs, raw ptrs) keep using the slice-3
 built-in table plus shape specials (`.len` on arrays / Str / String /
@@ -238,7 +238,7 @@ When checking an agent handler `on Msg(p1, p2)`, the type checker
 searches every implemented protocol (from the agent's `protocols`
 HirType list) for a matching message. If found, handler params bind to
 the protocol-declared types; else the params fall back to fresh
-inference variables and an `SD2026 protocol_msg_unknown` warning is
+inference variables and an `MT2026 protocol_msg_unknown` warning is
 emitted.
 
 ## 14. Integer/float defaulting pass
@@ -263,8 +263,8 @@ Tracked as out-of-scope for slice 4:
 - Real serializable-shape audit for cross-agent messages — slice 6
 - Trait coherence + dyn dispatch — slice 5
 - Effect closure + capability narrowing — slice 5
-- `move *ref` modelling for SD3009 — slice 5
-- Tighter SD3002 vs SD3008 distinction — slice 5
+- `move *ref` modelling for MT3009 — slice 5
+- Tighter MT3002 vs MT3008 distinction — slice 5
 - Real codegen of drop() calls + SIR consumption of DropPlan — slice 6+
 
 ## 16. Source map
@@ -304,7 +304,7 @@ Proj  := Field(name) | Index | Deref
 
 Two Places overlap iff one is a structural prefix of the other.
 Disjoint fields (`s.a` and `s.b`) coexist; overlapping projections
-conflict per the slice-4 SD3004/3005/3006 rules.
+conflict per the slice-4 MT3004/3005/3006 rules.
 
 `flow.rs::expr_as_place` maps a `HirExpr` to an `Option<Place>`,
 peeling `Path`, `Field`, `Unary{Deref}`, `Index`. v0.3 **truncates**
@@ -347,7 +347,7 @@ What v0.3 deliberately doesn't do (deferred to v0.4):
 See `docs/spec/borrow-model-v0.3.md` for the formal algorithm and
 `BORROW_V0_3_NOTES.md` for the rationale per design call.
 
-## 19. v0.3 / A56 — Precise SD3009
+## 19. v0.3 / A56 — Precise MT3009
 
 `*ref` of a non-Copy type is fundamentally unsound (references don't
 own). `flow.rs::check_deref_move` detects:
@@ -355,7 +355,7 @@ own). `flow.rs::check_deref_move` detects:
 - `HirExpr::Unary { op: Deref, rhs }` in `Position::Use`
 - `HirExpr::Move(Unary { op: Deref, rhs })`
 
-If `expr_ty[rhs] = Ref { inner: T, .. }` and T is non-Copy, SD3009
+If `expr_ty[rhs] = Ref { inner: T, .. }` and T is non-Copy, MT3009
 fires with a named diagnostic (`cannot move out of *r: ...`). If T
 is Copy, the deref is a load and no diagnostic is produced.
 
@@ -363,9 +363,9 @@ Trichotomy with neighbouring codes:
 
 | Code   | Cause                                       |
 |--------|---------------------------------------------|
-| SD3001 | Use of a value already moved                |
-| SD3008 | Move out of a currently-borrowed value      |
-| SD3009 | Move via deref of a reference (non-Copy)    |
+| MT3001 | Use of a value already moved                |
+| MT3008 | Move out of a currently-borrowed value      |
+| MT3009 | Move via deref of a reference (non-Copy)    |
 
 ## 20. v0.5 / A82 — Loop back-edges
 

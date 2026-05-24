@@ -65,7 +65,7 @@ agent Echoer: Echo {
   on Ping(msg) -> msg
 }
 "#;
-    let parsed = mty_driver::parse_source(src.to_string(), "echo.sd".into());
+    let parsed = mty_driver::parse_source(src.to_string(), "echo.mty".into());
     let (pkg, _diags) = mty_driver::lower(&parsed);
     let typed = mty_types::check_package_typed(&pkg);
     Arc::new(mty_ir::lower_package(&pkg, &typed))

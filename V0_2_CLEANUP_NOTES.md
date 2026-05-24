@@ -115,7 +115,7 @@ to `>= 25` for v0.2; cleanup keeps the same floor since the new
 budget-violation case raises the bar by 1 to 28 + 2 ignored).
 
 Added a new optional per-case knob `step_budget.txt` to the harness
-so cases that need a tighter budget (to trip SD5009 before exhausting
+so cases that need a tighter budget (to trip MT5009 before exhausting
 the host Rust stack via recursion) can override the default 1M.
 
 ## Task 4 — LLVM install docs

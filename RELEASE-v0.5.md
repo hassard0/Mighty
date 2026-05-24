@@ -38,7 +38,7 @@ cargo test -p sdust-stdlib --test http_serve_real
 echo 'fn main() { println("hello".contains("ll"))  /* prints true */ }' | sdust run -
 
 # Hygienic macros via the explicit `!` marker
-sdust check examples/16_macro.sd                  # `mac!(args)` parses; SD6001 on unknown
+sdust check examples/16_macro.sd                  # `mac!(args)` parses; MT6001 on unknown
 
 # Mem-budget violations trap deterministically
 # (run_fn_with_resource_budget exposes the cap to embedders)
@@ -48,7 +48,7 @@ sdust check examples/16_macro.sd                  # `mac!(args)` parses; SD6001 
 #   - Rename (F2) — single-file scope, validated against keywords
 #   - Inlay hints — inferred types on `let` and fn params
 #   - Semantic tokens — finer-grained highlighting than the TextMate grammar
-#   - Code actions — quick fixes for SD2021 / SD2002 / SD3001 / SD4001
+#   - Code actions — quick fixes for MT2021 / MT2002 / MT3001 / MT4001
 #   - Signature help — at call + method-call sites
 ```
 
@@ -94,7 +94,7 @@ tests/dom_imports}.rs` and a clippy nit in
 - **Self-host lexer: 4/4 pass**, including the newly-unignored
   byte-for-byte diff against the Rust lexer
 - **15 new spec amendments** (A74 + A80..A82 + A90..A100)
-- **2 new SD codes** (SD6005, SD6006, both for proc macros)
+- **2 new SD codes** (MT6005, MT6006, both for proc macros)
 - **MSRV unchanged at 1.85**
 
 ## Correctness assertions newly enforced
@@ -105,7 +105,7 @@ tests/dom_imports}.rs` and a clippy nit in
 | `continue` skips to loop header | parses as bare IDENT, no effect | real HIR node + continue_tgt block (A80) |
 | `for x in arr` terminates on exhaustion | spins until step budget | iterator protocol via `__sdust_iter_next` (A81) |
 | Borrow check at loop back-edges | one-pass walk | bounded fixed-point (16-iter cap) (A82) |
-| `name!(args)` parses as a macro call | required registration + plain `foo(args)` | explicit `!` marker; SD6001 on unknown (A90/A91) |
+| `name!(args)` parses as a macro call | required registration + plain `foo(args)` | explicit `!` marker; MT6001 on unknown (A90/A91) |
 | Macro hygiene covers tuple / struct / ref patterns | `let IDENT` only | whole pattern subtree mangled (A92) |
 | `use otherpkg.foo` imports a macro | n/a | cross-file via `pub macro` + per-pkg registry split (A93) |
 | Stardust lexer source round-trips against Rust lexer | first token only (full diff `#[ignore]`d) | byte-for-byte (loop CF + iterators unblocked) |
@@ -130,7 +130,7 @@ The v0.4 deferral list named 43 carry-over items. v0.5 closes:
   mangling to tuple / struct / ref patterns; full set-of-scopes
   is v0.6)
 - **Proc macros** — parse-and-store skeleton shipped; execution
-  gated behind SD6006 (v0.6)
+  gated behind MT6006 (v0.6)
 - **Cross-file macro export + visibility (`pub macro foo`)** —
   shipped
 - **Stdlib macros** — shipped (`assert!`, `assert_eq!`,
@@ -159,10 +159,10 @@ A80 — `break` / `continue` as real HIR nodes
 A81 — Iterator protocol via `__sdust_iter_next`
 A82 — Loop back-edge fixed-point in the borrow checker
 A90 — `name!(args)` macro invocation marker
-A91 — SD6001 unknown_macro activated
+A91 — MT6001 unknown_macro activated
 A92 — Extended hygiene mangling
 A93 — Cross-file `pub macro`
-A94 — Procedural macros (parse-and-store) + SD6005/SD6006
+A94 — Procedural macros (parse-and-store) + MT6005/MT6006
 A95 — Standard macro library shipped with sdust-macros
 A96 — `std.http.serve` binds a real socket (dogfood)
 A97 — `stardust:web/dom` interface added to wasm32-web (dogfood)
@@ -180,15 +180,15 @@ with the dogfood A96.
 Two new SD codes for proc macros, defined in `sdust_macros::diag`
 as bare `u16` and wrapped at emission:
 
-- **SD6005** — `proc_macro_impure` (fires at declaration time if
+- **MT6005** — `proc_macro_impure` (fires at declaration time if
   the proc-macro body's token-tree contains an `effect.*` pattern)
-- **SD6006** — `proc_macro_unsupported_v0_5` (fires at *call*
+- **MT6006** — `proc_macro_unsupported_v0_5` (fires at *call*
   sites for parsed-but-unexecutable proc macros)
 
 `sdust explain SD6xxx` is not yet wired (v0.6 cleanup folds the
 SD6xxx codes into `sdust-diagnostics::codes`).
 
-The v0.4 SD6001..SD6004 codes also stay live; SD6001
+The v0.4 MT6001..MT6004 codes also stay live; MT6001
 `unknown_macro` is now reachable from the new
 `IDENT!(...)` parse path (A91).
 
@@ -222,7 +222,7 @@ behaviour changes**:
   matched the 2-tuple shape — but no such code exists yet in the
   workspace.
 - **`name!(args)` is now the explicit macro-call marker**, and
-  unknown macros at this shape fire **SD6001**. v0.4's plain-call
+  unknown macros at this shape fire **MT6001**. v0.4's plain-call
   syntax (`foo(args)` for a registered macro `foo`) continues to
   work for backwards-compat, so existing examples don't churn.
 - **`std.http.serve(addr)` now binds a real TCP socket.** Code
@@ -241,7 +241,7 @@ behaviour changes**:
   integration-time fix; v0.6 restores the real return types once
   the canonical-ABI return-area bridge is wired.
 
-Diagnostic codes (SD0001..SD8010 + SD6001..SD6004 + SD6005..SD6006)
+Diagnostic codes (MT0001..MT8010 + MT6001..MT6004 + MT6005..MT6006)
 are otherwise unchanged. CLI shape is unchanged.
 
 ## Known issues
@@ -252,7 +252,7 @@ are otherwise unchanged. CLI shape is unchanged.
 2. **WIT `get-text` / `query` return `u32` not `string` /
    `option<string>`** — integration-time fix to line up with the
    core import signature. v0.6 restores real string returns.
-3. **Proc macros are gated behind SD6006** — parse-and-store
+3. **Proc macros are gated behind MT6006** — parse-and-store
    only; execution waits on a sandboxed SIR sub-context.
 4. **LSP rename is single-file** — protocol surface shipped with
    a documented restriction; multi-file waits on a workspace-

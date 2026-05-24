@@ -22,33 +22,33 @@ fn lower_one(name: &str) -> mty_ir::Program {
 
 #[test]
 fn example_01_hello_lowers() {
-    let p = lower_one("01_hello.sd");
+    let p = lower_one("01_hello.mty");
     assert!(p.fn_by_name("main").is_some(), "main should be present");
 }
 
 #[test]
 fn all_examples_lower_without_panic() {
     let examples = [
-        "01_hello.sd",
-        "02_struct_enum.sd",
-        "03_generic_fn.sd",
-        "04_result_propagation.sd",
-        "05_match_expr.sd",
-        "06_for_while_loop.sd",
-        "07_agent_echo.sd",
-        "08_agent_state.sd",
-        "09_send_ask_deadline.sd",
-        "10_supervisor.sd",
-        "11_budget_block.sd",
-        "12_arena.sd",
-        "13_capabilities.sd",
-        "14_extern_c.sd",
-        "15_extern_js.sd",
-        "16_macro.sd",
-        "17_unsafe.sd",
-        "18_sandbox.sd",
-        "19_backend_service.sd",
-        "20_frontend_component.sd",
+        "01_hello.mty",
+        "02_struct_enum.mty",
+        "03_generic_fn.mty",
+        "04_result_propagation.mty",
+        "05_match_expr.mty",
+        "06_for_while_loop.mty",
+        "07_agent_echo.mty",
+        "08_agent_state.mty",
+        "09_send_ask_deadline.mty",
+        "10_supervisor.mty",
+        "11_budget_block.mty",
+        "12_arena.mty",
+        "13_capabilities.mty",
+        "14_extern_c.mty",
+        "15_extern_js.mty",
+        "16_macro.mty",
+        "17_unsafe.mty",
+        "18_sandbox.mty",
+        "19_backend_service.mty",
+        "20_frontend_component.mty",
     ];
     for name in examples {
         let p = lower_one(name);
@@ -61,7 +61,7 @@ fn all_examples_lower_without_panic() {
 
 #[test]
 fn agent_examples_register_agents() {
-    let p = lower_one("07_agent_echo.sd");
+    let p = lower_one("07_agent_echo.mty");
     assert!(
         p.agent_by_name("Echoer").is_some(),
         "Echoer agent should be registered"
@@ -70,7 +70,7 @@ fn agent_examples_register_agents() {
 
 #[test]
 fn struct_enum_lowers_adts() {
-    let p = lower_one("02_struct_enum.sd");
+    let p = lower_one("02_struct_enum.mty");
     let names: Vec<&str> = p.adts.iter().map(|a| a.name.as_str()).collect();
     assert!(names.contains(&"User"), "User struct missing");
     assert!(names.contains(&"Shape"), "Shape enum missing");

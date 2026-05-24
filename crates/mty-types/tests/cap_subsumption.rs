@@ -1,5 +1,5 @@
 //! v0.3 (A65) — sanity test for `CapConstraint::is_narrower_or_eq`.
-//! Exercises Path-prefix and Any subsumption used by the SD4010 check.
+//! Exercises Path-prefix and Any subsumption used by the MT4010 check.
 
 use mty_types::ty::CapConstraint;
 
@@ -14,7 +14,7 @@ fn any_is_widest_only_narrower_than_any() {
 
 #[test]
 fn cap_subsumption_path_too_broad() {
-    // /home is NOT a subpath of /data → not narrower → SD4010 should
+    // /home is NOT a subpath of /data → not narrower → MT4010 should
     // fire when the arg /home is passed where param /data is required.
     let arg = CapConstraint::Path("/home".into());
     let param = CapConstraint::Path("/data".into());

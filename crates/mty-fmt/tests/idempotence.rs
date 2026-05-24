@@ -11,7 +11,7 @@ fn collect_sd_files() -> Vec<PathBuf> {
         }
         for entry in fs::read_dir(&dir).unwrap() {
             let p = entry.unwrap().path();
-            if p.extension().and_then(|s| s.to_str()) == Some("sd") {
+            if p.extension().and_then(|s| s.to_str()) == Some("mty") {
                 out.push(p);
             }
         }
@@ -59,7 +59,7 @@ fn fmt_is_idempotent() {
     let files = collect_sd_files();
     assert!(
         !files.is_empty(),
-        "no .sd files found — expected at least 00_smoke.sd"
+        "no .mty files found — expected at least 00_smoke.mty"
     );
     let mut failed = Vec::new();
     for path in files {

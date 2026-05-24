@@ -133,7 +133,7 @@ impl JitCompiled {
 unsafe impl Send for JitCompiled {}
 
 /// Compile and immediately run `main`, returning its exit code.
-/// Convenience for `sdust run` integration tests.
+/// Convenience for `mty run` integration tests.
 pub fn jit_compile_and_run_main(
     prog: &Program,
     symbols: &[(String, *const u8)],

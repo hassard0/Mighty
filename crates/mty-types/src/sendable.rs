@@ -17,13 +17,13 @@
 //! Sendable check here is the static *type-shape* gate.
 //!
 //! Returned from `sendable_reason` is a short human-readable explanation
-//! suitable for SD3011's diagnostic note. `None` = type is Sendable.
+//! suitable for MT3011's diagnostic note. `None` = type is Sendable.
 
 use crate::defs::{AdtKind, DefMap};
 use crate::ty::{TyArena, TyData, TyId};
 
 /// Returns `None` if the type is Sendable. Otherwise returns a short reason
-/// string for the SD3011 diagnostic. Operates on a substitution-resolved
+/// string for the MT3011 diagnostic. Operates on a substitution-resolved
 /// `TyId` (callers should pass `subst.resolve(ty, arena)`).
 pub fn sendable_reason(ty: TyId, arena: &TyArena, defs: &DefMap) -> Option<String> {
     sendable_reason_inner(ty, arena, defs, 0)

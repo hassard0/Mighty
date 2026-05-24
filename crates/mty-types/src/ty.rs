@@ -150,7 +150,7 @@ pub enum TyData {
     /// Opaque module like `std.http`. Field access returns Var.
     Module(String),
     /// Capability value (spec §8). Carries family + narrowing
-    /// constraint; subsumption is checked at call sites (SD4010).
+    /// constraint; subsumption is checked at call sites (MT4010).
     Cap {
         family: CapFamily,
         constraint: CapConstraint,

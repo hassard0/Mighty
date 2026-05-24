@@ -12,9 +12,9 @@
 - Fixpoint over the call graph (bounded at 32 iterations) propagates
   callee effects.
 - Public-fn `effect ...` clauses are validated as supersets of the
-  inferred set. Missing effects → `SD4001 effect_undeclared`.
+  inferred set. Missing effects → `MT4001 effect_undeclared`.
 - Strict profile (`profile = "core"` in `star.toml`) bans heap
-  allocation: `SD4002 alloc_in_core`.
+  allocation: `MT4002 alloc_in_core`.
 - Inferred effect names exposed today: `alloc`, `net`, `fs`, `time`,
   `dom`, `model`, `spawn`, `unsafe`.
 
@@ -26,7 +26,7 @@
   with `is_narrower_or_eq` subsumption.
 - Built-in narrowing methods: `cap.ro(path)`, `cap.path(path)`,
   `cap.host(host)` produce a narrower `Cap` type.
-- Call-site subsumption check emits `SD4010 capability_too_broad` when
+- Call-site subsumption check emits `MT4010 capability_too_broad` when
   an arg's constraint is wider than the param's.
 
 ### Traits + coherence + dispatch (spec §19)
@@ -36,8 +36,8 @@
 - `DefMap.traits: TraitTable` stores `impls`, `by_method`, `impl_keys`,
   `trait_methods`.
 - Method dispatch: inherent impl > trait impl. Multiple matches
-  → `SD4020 method_ambiguous`; no match → `SD4021 method_not_found`.
-  Duplicate trait impls → `SD4022 trait_coherence_violation`
+  → `MT4020 method_ambiguous`; no match → `MT4021 method_not_found`.
+  Duplicate trait impls → `MT4022 trait_coherence_violation`
   (name-only — generic overlap detection is post-v0.1).
 
 ### `dyn Trait`
@@ -45,7 +45,7 @@
 - New `dyn` keyword. Parser produces TYPE_DYN; lowerer builds
   `HirType::Dyn`; resolver builds `TyData::Dyn`.
 - Slice-5 conservative object-safety bans traits whose methods
-  mention `Self` or have method-level generics → `SD4023
+  mention `Self` or have method-level generics → `MT4023
   dyn_requires_object_safe`.
 
 ### `#[derive(Copy/Hash/Eq)]`
@@ -53,11 +53,11 @@
 - New `#` attribute token already existed; slice 5 wires the parser to
   consume `#[derive(...)]` (and a `derive Copy` shorthand) before items.
 - `Copy` validation walks every field's type; non-Copy field →
-  `SD4040 derive_copy_field_not_copy`. On success, the ADT joins
+  `MT4040 derive_copy_field_not_copy`. On success, the ADT joins
   `DefMap.user_copy` (consulted by `is_copy` / `is_field_copy`).
 - `Hash` / `Eq` register synthetic `TraitImpl` entries so `dyn Hash =
   value` resolves; no method bodies (codegen post-v0.1).
-- Unknown derive name → `SD4041 derive_unknown`.
+- Unknown derive name → `MT4041 derive_unknown`.
 
 ### Top-level `sandbox` items (spec §16.1)
 
@@ -67,14 +67,14 @@
 
 ### Strict protocol message types (spec §13)
 
-- `SD4030 protocol_arity_mismatch` — handler param count ≠ message arity.
-- `SD4032 protocol_missing_handler` — implemented protocol declares a
+- `MT4030 protocol_arity_mismatch` — handler param count ≠ message arity.
+- `MT4032 protocol_missing_handler` — implemented protocol declares a
   message no handler covers.
-- `SD4033 protocol_extra_handler` — handler refers to a message no
+- `MT4033 protocol_extra_handler` — handler refers to a message no
   implemented protocol declares.
 - Strict checks are skipped when ANY declared protocol is unknown
   (e.g. `http.Handler` defined in an external module) — the slice-4
-  `SD2026` warning still applies in that case.
+  `MT2026` warning still applies in that case.
 
 ### Slice-4 polish
 
@@ -92,7 +92,7 @@ sdust check examples/01_hello.sd            → ok
 ... (all 20)
 ```
 
-Examples 13 and 19 still emit `SD2026` warnings for handlers on
+Examples 13 and 19 still emit `MT2026` warnings for handlers on
 unknown protocols (`Fetch`, `http.Handler`). Pre-existing; no change.
 
 ## Spec interpretation calls (recorded as amendments)
@@ -104,7 +104,7 @@ unknown protocols (`Fetch`, `http.Handler`). Pre-existing; no change.
 - **A26** — Derive set (Copy, Hash, Eq) + shorthand
 - **A27** — Top-level `sandbox` items
 - **A28** — Strict protocol-handler checks (with unknown-protocol skip)
-- **A29** — `move *ref` is SD3009
+- **A29** — `move *ref` is MT3009
 - **A30** — Strict-profile `alloc` ban
 
 ## Stats
@@ -127,7 +127,7 @@ unknown protocols (`Fetch`, `http.Handler`). Pre-existing; no change.
 - Capability narrowing via type-arg syntax (`Fs[Path("/x")]`) — post-v0.1
 - Per-receiver typed cap dispatch (effects via dispatch rather than
   receiver-path heuristic) — post-v0.1
-- Tighter SD3002 vs SD3008 spans — slice 7
+- Tighter MT3002 vs MT3008 spans — slice 7
 - SIR / interpreter — **delivered slice 6** (`v0.6.0-sir`)
 - Runtime — slice 7
 - Codegen — slice 8
@@ -154,7 +154,7 @@ unknown protocols (`Fetch`, `http.Handler`). Pre-existing; no change.
 - `crates/sdust-syntax/src/syntax_kind.rs` — `DYN_KW`, `DERIVE_KW`
 - `crates/sdust-syntax/src/parser/types.rs` — `dyn_type`
 - `crates/sdust-syntax/src/parser/items.rs` — attribute + sandbox_decl
-- `crates/sdust-diagnostics/src/codes.rs` — SD4001..SD4041 + explain
+- `crates/sdust-diagnostics/src/codes.rs` — MT4001..MT4041 + explain
 - `tests/slice5_neg/*.sd` — 8 negative fixtures
 - `crates/sdust-driver/tests/slice5_negatives.rs` — slice-5 driver tests
 - `docs/internals/effects.md`, `capabilities.md`, `traits.md` — new

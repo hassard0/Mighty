@@ -39,7 +39,7 @@ The lexer always pushes a synthetic `EOF` token as the last element, so
 the parser can peek without bounds checking.
 
 Unknown bytes produce `SyntaxKind::ERROR` tokens; the parser converts
-those into diagnostics with code `SD0001`.
+those into diagnostics with code `MT0001`.
 
 ## Trivia
 
@@ -75,6 +75,6 @@ are not recognized. Example `11_budget_block.sd` works around this.
 ## Slice-2 work
 
 - `1k`, `1m`, `1g` numeric multipliers.
-- Better recovery on unterminated strings (emit `SD0002` with a span).
+- Better recovery on unterminated strings (emit `MT0002` with a span).
 - Lex hexadecimal, binary, and underscored numeric forms with explicit
   base prefixes.

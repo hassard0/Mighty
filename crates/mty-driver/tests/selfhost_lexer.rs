@@ -1,6 +1,6 @@
 //! Self-hosting bootstrap test (v0.4).
 //!
-//! Runs the Mighty lexer in `selfhost/lexer/lexer.sd` over a canned
+//! Runs the Mighty lexer in `selfhost/lexer/lexer.mty` over a canned
 //! input via the SIR interpreter, with a custom `Host` that services
 //! the lexer's extern bridge (`lex_init` / `lex_len` / `lex_byte_at` /
 //! `lex_slice` / `lex_emit`). Then it lexes the same input via the
@@ -142,10 +142,10 @@ struct SelfhostRun {
 }
 
 fn run_selfhost_lexer(input: &str) -> Result<SelfhostRun, String> {
-    let lexer_path = workspace_root().join("selfhost/lexer/lexer.sd");
+    let lexer_path = workspace_root().join("selfhost/lexer/lexer.mty");
     let lexer_src = std::fs::read_to_string(&lexer_path)
         .map_err(|e| format!("read {}: {}", lexer_path.display(), e))?;
-    let parsed = parse_source(lexer_src, "selfhost/lexer/lexer.sd".into());
+    let parsed = parse_source(lexer_src, "selfhost/lexer/lexer.mty".into());
     let (pkg, lower_diags) = lower(&parsed);
     if lower_diags
         .iter()
@@ -222,9 +222,9 @@ fn selfhost_lexer_compiles() {
     // Sanity: just compile the lexer source through the v0.3 pipeline.
     // If this fails, the source has type errors and the diff tests below
     // would give an opaque "lower errors" message.
-    let lexer_path = workspace_root().join("selfhost/lexer/lexer.sd");
-    let src = std::fs::read_to_string(&lexer_path).expect("read lexer.sd");
-    let parsed = parse_source(src, "selfhost/lexer/lexer.sd".into());
+    let lexer_path = workspace_root().join("selfhost/lexer/lexer.mty");
+    let src = std::fs::read_to_string(&lexer_path).expect("read lexer.mty");
+    let parsed = parse_source(src, "selfhost/lexer/lexer.mty".into());
     let (pkg, diags) = lower(&parsed);
     let errors: Vec<_> = diags
         .iter()

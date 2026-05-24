@@ -12,12 +12,12 @@ fn round_trip_preserves_item_shape() {
         }
         for entry in fs::read_dir(&dir).unwrap() {
             let p = entry.unwrap().path();
-            if p.extension().and_then(|s| s.to_str()) == Some("sd") {
+            if p.extension().and_then(|s| s.to_str()) == Some("mty") {
                 paths.push(p);
             }
         }
     }
-    assert!(!paths.is_empty(), "no .sd files found");
+    assert!(!paths.is_empty(), "no .mty files found");
     for p in paths {
         let src = fs::read_to_string(&p).unwrap();
         let original_tree = parse(&src).green;

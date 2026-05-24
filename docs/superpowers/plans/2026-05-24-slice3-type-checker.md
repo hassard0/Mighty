@@ -37,7 +37,7 @@
 - `crates/sdust-driver/Cargo.toml` — depend on `sdust-types`
 - `crates/sdust-driver/src/pipeline.rs` — add `type_check(pkg) -> Vec<Diagnostic>` stage
 - `crates/sdust-cli/src/cmd/check.rs` — invoke type-check stage
-- `crates/sdust-diagnostics/src/codes.rs` — add SD2001..SD2025 + explain entries
+- `crates/sdust-diagnostics/src/codes.rs` — add MT2001..MT2025 + explain entries
 - `crates/sdust-hir/src/lower/items.rs` — capture struct/enum/fn generics into HIR (currently dropped); preserve `effect` clauses (already done); add `agent` ctor param types
 - `crates/sdust-hir/src/nodes.rs` — fn/struct/enum `generics: Vec<HirGenericParam>` (was `Vec<String>`)
 - `examples/06_for_while_loop.sd` — return `Unit!WorkErr` so `?` is legal
@@ -149,7 +149,7 @@ pub fn resolve_hir_type(ty: &HirType, pkg: &Package, defs: &DefMap, arena: &mut 
 ```
 
 Cases:
-- `HirType::Path { segments, generics }` — look up in `defs`; if generic param in scope, return `Param`; if ADT, check arity, build `Adt(id, resolved_generics)`; if type alias, return its `TyId` (eagerly expanded); if not found, emit `SD2002` and return `Ty::Error`.
+- `HirType::Path { segments, generics }` — look up in `defs`; if generic param in scope, return `Param`; if ADT, check arity, build `Adt(id, resolved_generics)`; if type alias, return its `TyId` (eagerly expanded); if not found, emit `MT2002` and return `Ty::Error`.
 - `HirType::Borrow { mutable, inner }` → `Ref { mutable, inner: resolve(inner) }`
 - `HirType::Tuple(xs)` → `Tuple(xs.map(resolve))`
 - `HirType::Array { elem, len }` → `Array { elem: resolve(elem), len: const_eval_len(len) }`. `const_eval_len` returns `None` if `len.is_none()` or len can't be const-evaluated (slice 3: only literal integers).
@@ -163,8 +163,8 @@ Cases:
 
 - [ ] Implement `resolve_hir_type`
 - [ ] Tests: primitives, generics, Result, Borrow, Fn, Array
-- [ ] `SD2002` emitted for unknown types
-- [ ] `SD2004` emitted for arity mismatch
+- [ ] `MT2002` emitted for unknown types
+- [ ] `MT2004` emitted for arity mismatch
 
 ## Task 6: Generic param capture in HIR
 
@@ -215,7 +215,7 @@ pub fn unify(a: TyId, b: TyId, subst: &mut Substitution, arena: &mut TyArena, sp
 pub fn occurs_check(var: TyVarId, ty: TyId, subst: &Substitution, arena: &TyArena) -> bool
 ```
 
-`unify` walks both args through `resolve`, then dispatches on the resolved pair. Implements all the cases from design §3.6. Emits `SD2001` (type_mismatch) on failure.
+`unify` walks both args through `resolve`, then dispatches on the resolved pair. Implements all the cases from design §3.6. Emits `MT2001` (type_mismatch) on failure.
 
 - [ ] Substitution + resolve
 - [ ] `unify` with all variant cases
@@ -257,7 +257,7 @@ For `HirExpr::Call { callee, args }`:
 2. If callee resolves to a `Fn { params, ret, .. }` with no `Param` slots: arity-check, unify each arg.
 3. If callee resolves to a generic fn: instantiate with fresh vars (or turbofish args from `PathGeneric`).
 4. If callee is `Path(["Some"])` etc: special-case Option/Result constructors.
-5. If callee is not callable: `SD2008`.
+5. If callee is not callable: `MT2008`.
 
 For `HirExpr::PathGeneric { segments, generics }`: resolve segments + check generic args.
 
@@ -277,7 +277,7 @@ For `HirExpr::PathGeneric { segments, generics }`: resolve segments + check gene
   - Look up user-defined impl methods (slice 3 doesn't have full coherence; just match `impl T { fn method }` or `impl Trait for T { fn method }`).
   - If not found, consult builtin method table.
   - If still not found and receiver is `Ty::Error` or `Ty::Var`: silently return fresh var.
-  - Else `SD2007`.
+  - Else `MT2007`.
 
 - [ ] Struct literal checking
 - [ ] Field access
@@ -315,9 +315,9 @@ Pattern handling (`check_pattern(pat, ty)`):
 
 `HirExpr::Question(inner)`:
 1. Synth inner type.
-2. Resolve: must be `Adt(result_id, [t, e])`. If not, `SD2010`.
-3. Check `cx.return_ty` resolved is `Adt(result_id, [_, e'])`. If not, `SD2010`.
-4. Unify e with e'. If fail, `SD2011`.
+2. Resolve: must be `Adt(result_id, [t, e])`. If not, `MT2010`.
+3. Check `cx.return_ty` resolved is `Adt(result_id, [_, e'])`. If not, `MT2010`.
+4. Unify e with e'. If fail, `MT2011`.
 5. Result is `t`.
 
 - [ ] Implement
@@ -348,7 +348,7 @@ For handlers: bind handler-arg names to `Ty::Var` (or to the protocol-message ar
 
 **Files:** `crates/sdust-types/src/diag.rs`, `crates/sdust-diagnostics/src/codes.rs`
 
-Add `SD2001..SD2025` constants. Add `explain` entries. Diag builder functions like `mismatch(expected, found, span) -> Diagnostic`.
+Add `MT2001..MT2025` constants. Add `explain` entries. Diag builder functions like `mismatch(expected, found, span) -> Diagnostic`.
 
 - [ ] Add codes
 - [ ] Add explain entries
@@ -402,7 +402,7 @@ Run `sdust check` on every example; iterate until all pass.
 
 The driver:
 ```rust
-#[test] fn mismatch_let() { expect(typeck_neg("mismatch_let.sd"), &["SD2001"]) }
+#[test] fn mismatch_let() { expect(typeck_neg("mismatch_let.sd"), &["MT2001"]) }
 ```
 
 - [ ] Write 15 .sd files

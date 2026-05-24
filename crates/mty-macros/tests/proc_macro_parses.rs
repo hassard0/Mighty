@@ -1,14 +1,14 @@
 //! v0.5: procedural macros parse + register, even though execution is
-//! gated behind SD6006.
+//! gated behind MT6006.
 //!
 //! These tests assert that:
 //!   * `proc macro Name(input: TokenStream) -> TokenStream { body }`
 //!     parses without parser errors.
 //!   * The registry records it as `MacroKind::Procedural`.
 //!   * Calling `expand_proc` on a pure body returns `Unsupported`
-//!     (SD6006 territory).
+//!     (MT6006 territory).
 //!   * Calling `expand_proc` on an impure body returns `Impure`
-//!     (SD6005 territory).
+//!     (MT6005 territory).
 //!   * The `pub` modifier puts a proc macro into the exported set.
 
 use mty_ast::{AstNode, File};

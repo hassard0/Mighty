@@ -99,9 +99,9 @@ the user items so user names shadow.
 The prelude tolerance + the permissive-fallback policy in `synth_path`
 let the type checker accept references to identifiers that aren't
 modelled yet (`work`, `n`, `cache`, `draw`, ...). Unknown values
-produce a fresh inference variable rather than `SD2021
+produce a fresh inference variable rather than `MT2021
 unresolved_value`. Unknown methods on opaque receivers produce a fresh
-inference variable rather than `SD2007 unknown_method`. Slice 4+
+inference variable rather than `MT2007 unknown_method`. Slice 4+
 tightens these once agent state / supervisor scope / impl-method
 resolution are modelled.
 
@@ -128,7 +128,7 @@ explicitly.
 5. Structural cases zip args (tuple, array, ref, fn, adt, raw_ptr).
 6. `IntInfer` vs concrete `Int(_)`: ok (permissive; the concrete
    wins via context). Same for `FloatInfer`.
-7. Otherwise: `SD2001 type_mismatch`.
+7. Otherwise: `MT2001 type_mismatch`.
 
 ### Generic instantiation
 
@@ -162,8 +162,8 @@ Slice 4 may add a real defaulting pass (Rust-style: leftover
 2. Must resolve to `Result[T, E]`. If receiver is `Var` or `Error`,
    produces a fresh var silently.
 3. Enclosing fn return must also be `Result[_, E']`. Otherwise
-   `SD2010 question_outside_result`.
-4. `unify(E, E')` — otherwise `SD2011 question_error_mismatch`.
+   `MT2010 question_outside_result`.
+4. `unify(E, E')` — otherwise `MT2011 question_error_mismatch`.
 5. The result of `expr?` is `T`.
 
 ## Effects and capabilities (parsed only)
@@ -176,8 +176,8 @@ capability-typed parameters.
 
 ## Diagnostic codes
 
-Slice 3 reserves `SD2001..SD2099`. Currently assigned: `SD2001`
-(type_mismatch) through `SD2025` (cannot_take_ref). See
+Slice 3 reserves `MT2001..MT2099`. Currently assigned: `MT2001`
+(type_mismatch) through `MT2025` (cannot_take_ref). See
 `crates/sdust-diagnostics/src/codes.rs` and
 `docs/reference/diagnostics.md`.
 
@@ -209,7 +209,7 @@ fallback: unresolved identifiers silently resolve to fresh inference
 variables so the canonical examples kept compiling while slice 4-5
 hardened other surfaces. v0.3 tightens this: each lexical scope now
 carries a `ScopeKind` and the unresolved-name fallback only fires in
-**permissive** scopes. Strict scopes hard-error with SD2021
+**permissive** scopes. Strict scopes hard-error with MT2021
 (`unresolved_value_strict`).
 
 | ScopeKind         | Strict? | Where it triggers                              | Unknown-name behavior                                |
@@ -221,8 +221,8 @@ carries a `ScopeKind` and the unresolved-name fallback only fires in
 | `Arena`           |     no  | `arena name { ... }` body                      | Permissive (arena-implicit names)                    |
 | `Budget`          |     no  | `budget { ... } { ... }` body                  | Permissive (budget-category names)                   |
 | `Sandbox`         |     no  | `sandbox ID { ... }` body (no narrowing)       | Permissive (legacy v0.2 behavior)                    |
-| `AgentBody`       | **yes** | agent state-init, agent methods, fn-in-agent   | **SD2021** if not in tolerance set / locals / prelude |
-| `HandlerBody`     | **yes** | `on Msg(...) { ... }` handler body             | **SD2021** if not in tolerance set / locals / prelude |
+| `AgentBody`       | **yes** | agent state-init, agent methods, fn-in-agent   | **MT2021** if not in tolerance set / locals / prelude |
+| `HandlerBody`     | **yes** | `on Msg(...) { ... }` handler body             | **MT2021** if not in tolerance set / locals / prelude |
 | `SupervisorBody`  | **yes** | supervisor `children { ... }` expressions      | Currently kept permissive (`tolerance_open=true`)     |
 | `CapNarrowBody`   | **yes** | `sandbox ... with { e1; e2 } { ... }` body     | Currently kept permissive (`tolerance_open=true`)     |
 
@@ -239,7 +239,7 @@ Strict scopes still grant two escape hatches:
 `SupervisorBody` and `CapNarrowBody` are marked strict for *framework
 consistency* but currently leave `tolerance_open=true` because slice-7
 hasn't yet wired real supervisor / cap-narrowing name resolution. When
-slice-7 lands, flipping the toggle activates SD2021 in those scopes
+slice-7 lands, flipping the toggle activates MT2021 in those scopes
 without any further code change.
 
 ### Implementation notes
@@ -255,4 +255,4 @@ strict policy on the closing brace.
 The strict path in `synth_path` consults `tolerance_open ||
 tolerance.contains(name) || !scope_kind.is_strict()` (any of which
 keeps the slice-3 A21 fallback); only when ALL three are false does
-SD2021 fire.
+MT2021 fire.

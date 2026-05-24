@@ -25,12 +25,12 @@ example both type-checks and borrow-checks cleanly. The system implements:
 - **Borrow lifetime** check: a borrow may not outlive its owner (lexical
   region MVP, no NLL/Polonius)
 - **Affine resources**: non-Copy types are affine; second use after move is
-  an error (SD3001)
+  an error (MT3001)
 - **`Drop` trait** modelling: at scope end, emit drop intent for any Owned
   non-Copy locals; reported in HIR-level metadata, not yet codegen
 - **Arena scoping rules**: values bound inside an `arena` block cannot escape
   the arena's lexical scope unless explicitly promoted via `move` to an
-  ancestor scope (SD3010) — implemented as a tag on locals/values
+  ancestor scope (MT3010) — implemented as a tag on locals/values
 - **Cross-agent message rules**: at `target!Msg(args)` and `target?Msg(args)`
   call sites, every argument's type must be `Sendable` (Copy ∨ owned,
   serializable shape). Managed references (`Gc[T]`) cannot cross. Slice 4
@@ -39,7 +39,7 @@ example both type-checks and borrow-checks cleanly. The system implements:
 
 And the **slice-3 hardening** carry-over:
 
-1. **Unknown values now error** as `SD2021 unresolved_value` unless the
+1. **Unknown values now error** as `MT2021 unresolved_value` unless the
    reference appears inside an `unsafe` block, an `extern` block body, an
    agent state initializer/handler (which has implicit access to the agent's
    state/methods), or a sandbox/budget capability scope. The slice-3
@@ -53,8 +53,8 @@ And the **slice-3 hardening** carry-over:
    an `impl` block + built-in receiver-type-keyed table. The table still
    accepts arbitrary methods on **opaque** receivers (so `Url`, `Logger`,
    etc. continue to work), but on concrete receivers the unknown method now
-   errors as SD2007.
-4. **Match exhaustiveness** is promoted from warning (SD2015) to error.
+   errors as MT2007.
+4. **Match exhaustiveness** is promoted from warning (MT2015) to error.
 5. **Real protocol-message-type checking for agent handlers**: handler
    parameter types come from the implemented protocol's `Msg(name: Ty, ...)`
    signature, not fresh inference vars.
@@ -241,7 +241,7 @@ locals) get `arena_region = Some(region_id)`. When the arena body ends:
 
 - If the arena's *tail expression* references a value that was bound inside
   the arena (without being copied/promoted via `move`), emit
-  `SD3010 arena_escape`. The tail of `arena name { tokenize(input); ast =
+  `MT3010 arena_escape`. The tail of `arena name { tokenize(input); ast =
   parse(...); lower(ast) }` evaluates to a fresh value (`lower(ast)` is a
   fn call returning a non-arena-bound value) — that's the legal pattern.
 - The check is: the tail-expression's *result value*, if it directly names
@@ -296,7 +296,7 @@ When entering a body, build a `tolerance: HashSet<String>` populated from:
 
 Inside a body, an unresolved value name that *is* in the tolerance set
 silently resolves to a fresh inference variable (slice-3 permissive
-behaviour). Names *not* in the tolerance set emit SD2021.
+behaviour). Names *not* in the tolerance set emit MT2021.
 
 This change is implemented in `sdust-types`'s `check.rs::synth_path`; not
 in `sdust-borrow`.
@@ -306,7 +306,7 @@ in `sdust-borrow`.
 For receivers whose resolved type is a **user-declared** ADT (struct or
 enum), method calls resolve via `impl` blocks. The HIR already carries
 `HirImpl { trait_for, self_ty, methods }`; we index them in DefMap by
-`self_ty AdtId` and look up by method name. If not found, emit SD2007.
+`self_ty AdtId` and look up by method name. If not found, emit MT2007.
 
 For receivers whose type is **opaque** (`Url`, `Page`, `Logger`, ...),
 keep the slice-3 permissive built-in table (variadic, returns fresh Var).
@@ -324,7 +324,7 @@ When an agent body declares `on Msg(p1, p2)`, we look up the agent's
 declared protocols (e.g. `agent Counter: Count`), then the protocol's `Msg`
 message signature. If found, bind p1/p2 to the protocol-declared types
 instead of fresh vars. If the protocol isn't found or the message isn't
-declared, fall back to slice-3 fresh vars + emit a warning SD2026.
+declared, fall back to slice-3 fresh vars + emit a warning MT2026.
 
 ### 3.14 Match exhaustiveness as error
 
@@ -333,29 +333,29 @@ flips this to Error. The slice-3 simple-coverage logic stays (we don't
 re-implement the exhaustiveness engine; we just promote what's already
 there).
 
-## 4. Diagnostics (SD3001..SD3099)
+## 4. Diagnostics (MT3001..MT3099)
 
 | Code   | Name                          | Severity | Example                                                       |
 |--------|-------------------------------|----------|---------------------------------------------------------------|
-| SD3001 | use_after_move                | Error    | `let b = move a; use(a)`                                      |
-| SD3002 | move_out_of_borrow            | Error    | `let r = &a; let b = move a`                                  |
-| SD3003 | borrow_after_move             | Error    | `let b = move a; let r = &a`                                  |
-| SD3004 | mut_borrow_while_shared       | Error    | `let r = &a; let m = &mut a`                                  |
-| SD3005 | shared_borrow_while_mut       | Error    | `let m = &mut a; let r = &a`                                  |
-| SD3006 | two_mut_borrows               | Error    | `let m1 = &mut a; let m2 = &mut a`                            |
-| SD3007 | borrow_outlives_owner         | Error    | `let r; { let a = ...; r = &a } use(r)` (lexical-detectable)  |
-| SD3008 | cannot_move_borrowed          | Error    | `let r = &a; consume(move a)`                                 |
-| SD3009 | move_out_of_ref               | Error    | `fn f(r: &T) { let x = move *r }`                             |
-| SD3010 | arena_escape                  | Error    | `arena turn { let x = mk(); x }` where `x` is owned in arena  |
-| SD3011 | non_sendable_message_arg      | Error    | `agent!Msg(&buf)` (ref crosses boundary)                      |
-| SD3012 | drop_in_const_context         | Error    | non-Copy value left over in const context (reserved; not yet) |
-| SD3013 | mut_borrow_of_immut_local     | Error    | `let a = ...; let m = &mut a` (a not declared mut)            |
-| SD3014 | assign_to_immut_local         | Error    | `let a = 1; a = 2` (a not mut)                                |
-| SD3015 | use_of_uninitialized          | Error    | `let a; use(a)` before assignment                             |
+| MT3001 | use_after_move                | Error    | `let b = move a; use(a)`                                      |
+| MT3002 | move_out_of_borrow            | Error    | `let r = &a; let b = move a`                                  |
+| MT3003 | borrow_after_move             | Error    | `let b = move a; let r = &a`                                  |
+| MT3004 | mut_borrow_while_shared       | Error    | `let r = &a; let m = &mut a`                                  |
+| MT3005 | shared_borrow_while_mut       | Error    | `let m = &mut a; let r = &a`                                  |
+| MT3006 | two_mut_borrows               | Error    | `let m1 = &mut a; let m2 = &mut a`                            |
+| MT3007 | borrow_outlives_owner         | Error    | `let r; { let a = ...; r = &a } use(r)` (lexical-detectable)  |
+| MT3008 | cannot_move_borrowed          | Error    | `let r = &a; consume(move a)`                                 |
+| MT3009 | move_out_of_ref               | Error    | `fn f(r: &T) { let x = move *r }`                             |
+| MT3010 | arena_escape                  | Error    | `arena turn { let x = mk(); x }` where `x` is owned in arena  |
+| MT3011 | non_sendable_message_arg      | Error    | `agent!Msg(&buf)` (ref crosses boundary)                      |
+| MT3012 | drop_in_const_context         | Error    | non-Copy value left over in const context (reserved; not yet) |
+| MT3013 | mut_borrow_of_immut_local     | Error    | `let a = ...; let m = &mut a` (a not declared mut)            |
+| MT3014 | assign_to_immut_local         | Error    | `let a = 1; a = 2` (a not mut)                                |
+| MT3015 | use_of_uninitialized          | Error    | `let a; use(a)` before assignment                             |
 
-Additionally we promote SD2015 from warning → error and add:
+Additionally we promote MT2015 from warning → error and add:
 
-| SD2026 | protocol_msg_unknown           | Warning  | `on Msg(...)` where Msg isn't in any implemented protocol     |
+| MT2026 | protocol_msg_unknown           | Warning  | `on Msg(...)` where Msg isn't in any implemented protocol     |
 
 ## 5. Examples — sweep + expected adjustments
 
@@ -439,8 +439,8 @@ The only **source edits** needed:
   region, errors. Indirect derivations (calls that return non-arena
   values) are not flagged. Full transitive flow is post-v0.1.
 
-- **A16**: Match exhaustiveness is promoted from SD2015 warning to
-  SD2015 error. (Same code, different severity.)
+- **A16**: Match exhaustiveness is promoted from MT2015 warning to
+  MT2015 error. (Same code, different severity.)
 
 - **A17**: Method-dispatch policy: user struct/enum receivers require an
   `impl` method; opaque and primitive receivers continue to use the
@@ -448,7 +448,7 @@ The only **source edits** needed:
 
 - **A18**: Protocol-handler param-type inference: agent handler params
   are typed by looking up the implemented protocol's message signature.
-  When no protocol declares the message, slice 4 emits SD2026 (warning)
+  When no protocol declares the message, slice 4 emits MT2026 (warning)
   and falls back to fresh vars.
 
 - **A19**: Integer/float defaulting is applied post-fn-body: any
@@ -464,7 +464,7 @@ The only **source edits** needed:
 - **A21**: Scope-aware tolerance for unresolved values. Inside agent
   bodies, supervisor children scopes, sandbox-with scopes, budget scopes,
   unsafe blocks, and extern-block fn bodies, unresolved value names
-  resolve to fresh inference vars. Elsewhere they emit SD2021.
+  resolve to fresh inference vars. Elsewhere they emit MT2021.
 
 ## 7. Implementation order
 

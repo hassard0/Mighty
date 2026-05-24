@@ -6,7 +6,7 @@
 //!     parsed by mty-syntax as a `MACRO_DECL`. v0.4 baseline.
 //!   * `proc macro Name(input: TokenStream) -> TokenStream { body }` —
 //!     procedural macros parsed by mty-syntax as a `PROC_MACRO_DECL`.
-//!     v0.5 parses + stores; execution gated by SD6006 until v0.6.
+//!     v0.5 parses + stores; execution gated by MT6006 until v0.6.
 //!   * `Path!(args)` invocation syntax — `MACRO_CALL` node with an
 //!     opaque `TOKEN_TREE` argument list.
 //!   * Extended hygiene mangling for tuple/struct/ref/binding `let`

@@ -2,9 +2,9 @@
 //!
 //! Two output modes:
 //!
-//! - **JIT** ([`jit::JitModule`]): used by `sdust run` to compile and
+//! - **JIT** ([`jit::JitModule`]): used by `mty run` to compile and
 //!   execute in-process. Returns a fn-ptr to `main`.
-//! - **Object** ([`object::compile_object`]): used by `sdust build` to
+//! - **Object** ([`object::compile_object`]): used by `mty build` to
 //!   emit a host-format `.o` that the platform linker turns into an
 //!   executable.
 //!

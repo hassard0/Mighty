@@ -8,7 +8,7 @@ use mty_diagnostics::Severity;
 #[test]
 fn ten_kloc_parses_without_errors() {
     let src = stardust_10kloc();
-    let parsed = mty_driver::parse_source(src, "synth.sd".into());
+    let parsed = mty_driver::parse_source(src, "synth.mty".into());
     let errors: Vec<_> = parsed
         .diagnostics
         .iter()

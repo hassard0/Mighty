@@ -329,7 +329,7 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
                     }
                     _ => None,
                 });
-            // Coherence: emit SD4022 if the (trait, self_adt) pair already
+            // Coherence: emit MT4022 if the (trait, self_adt) pair already
             // exists. Slice 5 detection is name-only.
             if let (Some(t), Some(sa)) = (trait_name.as_ref(), self_adt) {
                 if defs.traits.impl_keys.contains(&(t.clone(), sa)) {
@@ -624,7 +624,7 @@ fn declare_item(
     }
 }
 
-/// Resolve an `HirType` to a `TyId`. Unknown identifiers emit `SD2002` and
+/// Resolve an `HirType` to a `TyId`. Unknown identifiers emit `MT2002` and
 /// return `Ty::Error`.
 #[allow(clippy::too_many_arguments)]
 pub fn resolve_hir_type(

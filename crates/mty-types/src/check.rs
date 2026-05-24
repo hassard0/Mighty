@@ -45,7 +45,7 @@ impl LocalScope {
 /// v0.3 (A65): the kind of lexical scope we're currently type-checking.
 /// Differentiates **permissive** scopes (where Slice-3's A21 fresh-var
 /// fallback for unresolved names still applies) from **strict** scopes
-/// (where any unresolved name promotes to SD2021).
+/// (where any unresolved name promotes to MT2021).
 ///
 /// | ScopeKind   | Unresolved name behavior              |
 /// |-------------|---------------------------------------|
@@ -56,10 +56,10 @@ impl LocalScope {
 /// | Arena       | Permissive (arena-implicit names)     |
 /// | Budget      | Permissive (budget-category names)    |
 /// | Sandbox     | Permissive (narrowed-cap names)       |
-/// | AgentBody   | **Strict** — SD2021 on unknown        |
-/// | HandlerBody | **Strict** — SD2021 on unknown        |
-/// | SupervisorBody | **Strict** — SD2021 on unknown     |
-/// | CapNarrowBody | **Strict** — SD2021 on unknown      |
+/// | AgentBody   | **Strict** — MT2021 on unknown        |
+/// | HandlerBody | **Strict** — MT2021 on unknown        |
+/// | SupervisorBody | **Strict** — MT2021 on unknown     |
+/// | CapNarrowBody | **Strict** — MT2021 on unknown      |
 ///
 /// The `tolerance` per-body set still applies to strict scopes: it carries
 /// the agent's state / ctor-param / method names so the body sees its own
@@ -81,7 +81,7 @@ pub enum ScopeKind {
 }
 
 impl ScopeKind {
-    /// True iff unresolved names should hard-error (SD2021) instead of
+    /// True iff unresolved names should hard-error (MT2021) instead of
     /// silently falling back to a fresh inference variable.
     pub fn is_strict(&self) -> bool {
         matches!(
@@ -93,7 +93,7 @@ impl ScopeKind {
         )
     }
 
-    /// Short human-readable label for the SD2021 strict-mode note.
+    /// Short human-readable label for the MT2021 strict-mode note.
     pub fn label(&self) -> &'static str {
         match self {
             ScopeKind::TopLevelFn => "top-level fn",
@@ -126,7 +126,7 @@ pub struct Cx<'a> {
     pub param_scope: ParamScope,
     /// Scope-aware tolerance set for unresolved value names. Names in this
     /// set silently resolve to fresh inference vars (A21); names not in the
-    /// set emit SD2021 when the current scope is **strict** (see
+    /// set emit MT2021 when the current scope is **strict** (see
     /// `ScopeKind::is_strict`). When `tolerance_open` is true (extern,
     /// macro, deep unsafe), all unresolved names are tolerated regardless
     /// of strictness — this matches v0.2's pre-A65 behavior.
@@ -399,7 +399,7 @@ fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
             // type-check time, to be wired by the runtime under the
             // sandbox's authority) continues to compile. When slice-7
             // ships real cap-name resolution we'll flip this to false
-            // and SD2021-strict-mode will fire automatically — see
+            // and MT2021-strict-mode will fire automatically — see
             // EFFECTS_V0_3_NOTES.md for the rationale.
             let saved_open = cx.tolerance_open;
             let saved_kind = cx.scope_kind;
@@ -487,7 +487,7 @@ fn synth_path(cx: &mut Cx, segments: &[String], expr_id: ExprId) -> TyId {
         // v0.3 (A65): scope-aware tolerance. Slice-3's permissive fresh-var
         // fallback (A21) now only applies in **permissive** scopes; strict
         // scopes (agent/handler/supervisor/cap-narrow bodies) promote an
-        // unresolved name to SD2021 via `unresolved_value_strict`.
+        // unresolved name to MT2021 via `unresolved_value_strict`.
         //
         // Three escape hatches still let strict scopes accept unknowns:
         // (a) `tolerance_open == true` — opened inside unsafe/arena/budget/
@@ -801,7 +801,7 @@ fn synth_method_call(
 
     // 1. User-declared (struct/enum/agent) ADT receivers go through the
     //    impl-method index first. Slice 5: also consider trait impls
-    //    in scope (SD4020 ambiguous / SD4021 not found).
+    //    in scope (MT4020 ambiguous / MT4021 not found).
     if let TyData::Adt(aid, _) = data {
         // Check trait dispatch: collect all candidate impls.
         let trait_candidates: Vec<(String, FnDefId)> = cx
@@ -817,7 +817,7 @@ fn synth_method_call(
             .get(&(aid, method.to_string()))
             .copied();
         // If inherent is present, it wins; trait candidates ignored.
-        // If no inherent and trait_candidates.len() > 1: SD4020.
+        // If no inherent and trait_candidates.len() > 1: MT4020.
         if inherent.is_none() && trait_candidates.len() > 1 {
             let names: Vec<String> = trait_candidates.iter().map(|(t, _)| t.clone()).collect();
             cx.diag.push(diag::method_ambiguous(
@@ -955,7 +955,7 @@ fn synth_method_call(
 /// v0.3 (A65): enforce the Sendable trait at `!Msg(args)` / `?Msg(args)`
 /// call sites. The argument type is resolved through the substitution
 /// then handed to `crate::sendable::sendable_reason`; a non-None reason
-/// triggers SD3011.
+/// triggers MT3011.
 fn check_sendable_arg(cx: &mut Cx, arg_idx: usize, arg_ty: TyId, span_expr: ExprId) {
     let resolved = cx.subst.resolve(arg_ty, cx.arena);
     if let Some(reason) = crate::sendable::sendable_reason(resolved, cx.arena, cx.defs) {
@@ -975,7 +975,7 @@ fn check_sendable_arg(cx: &mut Cx, arg_idx: usize, arg_ty: TyId, span_expr: Expr
 /// method is a recognized narrower; None otherwise (caller falls through
 /// to permissive dispatch).
 /// Slice-5: check that the argument's capability constraint is at least
-/// as narrow as the parameter's. If not, emit SD4010 capability_too_broad.
+/// as narrow as the parameter's. If not, emit MT4010 capability_too_broad.
 fn check_cap_subsumption(cx: &mut Cx, arg_expr: ExprId, param_ty: TyId, expr_id: ExprId) {
     let arg_ty = match cx.expr_ty.get(&arg_expr).copied() {
         Some(t) => t,

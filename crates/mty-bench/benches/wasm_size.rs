@@ -30,7 +30,7 @@ fn bench_wasm_size(c: &mut Criterion) {
                 binary_name: format!("s{counter}"),
                 no_component: true,
             };
-            let outcome = build_wasm(src.clone(), "size.sd".into(), &opts, WasmTarget::Wasi);
+            let outcome = build_wasm(src.clone(), "size.mty".into(), &opts, WasmTarget::Wasi);
             let bytes = match outcome {
                 BuildOutcome::WasmOk(p) => std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0),
                 _ => 0,

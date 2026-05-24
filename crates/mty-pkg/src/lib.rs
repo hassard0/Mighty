@@ -7,7 +7,7 @@
 //! - A registry is a GitHub repo (`<owner>/<repo>`) whose Releases
 //!   host published packages, one release per `(name, version)`.
 //! - The fetcher caches the release index at
-//!   `.stardust/registry/<owner>__<repo>/index.json` with a 1-hour
+//!   `.mighty/registry/<owner>__<repo>/index.json` with a 1-hour
 //!   TTL and honours `If-Modified-Since` for cheap refetches.
 //! - The lockfile records sources as `registry+gh://<owner>/<repo>`.
 //! - Auth (for private registries + publish) is per-user, stored in
@@ -22,14 +22,14 @@
 //!
 //! - [`manifest`] — re-export of the extended manifest types
 //!   (`Manifest`, `Dep`, `BuildConfig`) from `mty-driver`.
-//! - [`lockfile`] — `star.lock` schema, parse + serialize.
+//! - [`lockfile`] — `mighty.lock` schema, parse + serialize.
 //! - [`registry`] — `[registry]` config, auth store, cached index.
 //! - [`resolver`] — greedy DFS dep-graph walk with semver matching +
 //!   index-aware registry lookups.
 //! - [`fetch`] — pluggable fetchers for path / git / registry sources.
 //! - [`hash`] — sha256-of-tree helper for fetch verification.
-//! - [`publish`] — tarball bundler used by `sdust pkg publish`.
-//! - [`commands`] — high-level operations driving `sdust pkg <cmd>`.
+//! - [`publish`] — tarball bundler used by `mty pkg publish`.
+//! - [`commands`] — high-level operations driving `mty pkg <cmd>`.
 
 pub mod commands;
 pub mod fetch;
@@ -59,8 +59,8 @@ pub const MANIFEST_NAME: &str = "mighty.toml";
 
 /// Default subdirectory under the package root where fetched dependency
 /// trees are materialised.
-pub const PKG_CACHE_DIR: &str = ".stardust/pkgs";
+pub const PKG_CACHE_DIR: &str = ".mighty/pkgs";
 
 /// Default subdirectory under the package root where cached registry
 /// indexes live.
-pub const REGISTRY_CACHE_DIR: &str = ".stardust/registry";
+pub const REGISTRY_CACHE_DIR: &str = ".mighty/registry";

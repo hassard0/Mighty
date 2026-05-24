@@ -13,7 +13,7 @@ the policy the runtime would enforce in a production deployment.
 >    `split`, etc. The per-token `==` workaround in this demo can
 >    be lifted; see `crates/sdust-sir/tests/string_methods.rs`.
 > 2. **CPU + memory budgets** auto-trip via a new
->    `RunResult::MemBudgetExceeded` variant and an SD5009 trap when
+>    `RunResult::MemBudgetExceeded` variant and an MT5009 trap when
 >    a sandboxed run exceeds its `cpu` / `memory` ceiling. The
 >    companion `breach.sd` now actually trips — see
 >    `crates/sdust-sir/tests/budget_charges.rs`.
@@ -119,7 +119,7 @@ Two v0.4 limitations show up:
    `BudgetTracker::record_*` calls (see A37 / A50). The included
    `breach.sd` runs against `cpu = 1ns / wall = 1ns / memory = 1B /
    mailbox = 1` — under v0.4 it completes cleanly; once
-   enforcement lands it will trap with `SD5009 budget_exceeded`
+   enforcement lands it will trap with `MT5009 budget_exceeded`
    without changes to the source.
 
 A third limitation tilts the implementation more than the surface:

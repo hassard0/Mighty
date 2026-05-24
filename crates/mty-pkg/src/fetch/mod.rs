@@ -1,5 +1,5 @@
 //! Fetchers materialise a resolved package source onto local disk
-//! under `.stardust/pkgs/<name>-<version-or-rev>/` and return its
+//! under `.mighty/pkgs/<name>-<version-or-rev>/` and return its
 //! sha256.
 //!
 //! The trait `Fetcher` is intentionally narrow so future kinds (e.g. a
@@ -45,12 +45,12 @@ pub enum FetchError {
     Git(String),
 }
 
-/// Compute the on-disk slot under `<root>/.stardust/pkgs/` for a
+/// Compute the on-disk slot under `<root>/.mighty/pkgs/` for a
 /// locked package. Stable per (name, version), so re-running `fetch`
 /// is idempotent.
 pub fn package_slot(repo_root: &std::path::Path, locked: &LockedPackage) -> PathBuf {
     repo_root
-        .join(".stardust")
+        .join(".mighty")
         .join("pkgs")
         .join(format!("{}-{}", locked.name, locked.version))
 }

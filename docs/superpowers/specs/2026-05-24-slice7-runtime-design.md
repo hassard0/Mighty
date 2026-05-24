@@ -21,7 +21,7 @@ metadata pieces into an actual asynchronous executor so:
   limits (`restart up_to N in DUR`) and backoff (`backoff D1..D2`);
 - budgets (CPU, wall, mem, mailbox-depth, spawned-tasks) and sandboxes
   (path / host allowlists) are enforced at runtime, raising the
-  reserved SD5009 / SD5010 traps;
+  reserved MT5009 / MT5010 traps;
 - a deterministic mode replays controlled interleavings against the
   same SIR program;
 - `std.http.serve(":8080", api)` opens a real TCP listener and
@@ -202,13 +202,13 @@ A `BudgetTracker` holds atomic counters for:
 
 | Counter        | Source                                      | Action on breach |
 |----------------|---------------------------------------------|------------------|
-| `cpu_ns`       | accumulated turn duration                    | `SD5009`         |
-| `wall_ns`      | wall clock since budget start                | `SD5009`         |
-| `mem_bytes`    | per-agent arena byte counter (approximate)   | `SD5009`         |
-| `mailbox_max`  | enforced on `try_send`                       | `SD5009`         |
-| `spawned`      | child count                                  | `SD5009`         |
-| `paths`        | sandbox path allowlist                       | `SD5010`         |
-| `hosts`        | sandbox host allowlist                       | `SD5010`         |
+| `cpu_ns`       | accumulated turn duration                    | `MT5009`         |
+| `wall_ns`      | wall clock since budget start                | `MT5009`         |
+| `mem_bytes`    | per-agent arena byte counter (approximate)   | `MT5009`         |
+| `mailbox_max`  | enforced on `try_send`                       | `MT5009`         |
+| `spawned`      | child count                                  | `MT5009`         |
+| `paths`        | sandbox path allowlist                       | `MT5010`         |
+| `hosts`        | sandbox host allowlist                       | `MT5010`         |
 
 Slice-7 approximation for `mem`: each `Value` carries a synthetic byte
 cost (1 byte per primitive, 24 per allocation header, etc.); the
@@ -290,7 +290,7 @@ A36 records this as the slice-7 stdlib surface.
 - **A42** — `restart up_to N in DUR` denies after N restarts within a
   sliding `DUR` window; on denial the supervisor escalates one level.
 - **A43** — Top-level `sandbox` items (A27) execute as a child Runtime
-  with the declared budget caps applied; violations trap with SD5010.
+  with the declared budget caps applied; violations trap with MT5010.
 
 ## Testing strategy
 
@@ -309,8 +309,8 @@ A36 records this as the slice-7 stdlib surface.
   - Counter (example 08) — three sends, ask state, expect 3.
   - Send + ask + deadline (example 09) — succeeds + times out.
   - Supervisor (example 10) — child fails → restart attempts traced.
-  - Budget block (example 11) — CPU breach traps with SD5009.
-  - Sandbox (example 18) — path-allowlist breach traps with SD5010.
+  - Budget block (example 11) — CPU breach traps with MT5009.
+  - Sandbox (example 18) — path-allowlist breach traps with MT5010.
   - Backend service (example 19) — start, hit `:8080`, observe reply.
 - **Conformance corpus** under `tests/conformance/runtime-7/`:
   - 8 new cases covering scheduling, supervisor, budgets, deadlines,
@@ -327,10 +327,10 @@ A36 records this as the slice-7 stdlib surface.
    `--legacy-interp` for diagnostic comparison).
 3. Examples 07/08/09/10/11/18/19 run end-to-end (vs lower-only).
 4. 290 baseline tests still pass; ~60 new tests added (target ~350).
-5. SD5009 / SD5010 / SD5011..SD5050 expanded with runtime-specific
-   sub-codes (`SD5011 deadline_exceeded`, `SD5012 mailbox_full`,
-   `SD5013 supervisor_escalated`, `SD5014 restart_limit_exceeded`,
-   `SD5015 capability_outside_sandbox`, `SD5050 extern_fn_unimpl`
+5. MT5009 / MT5010 / MT5011..MT5050 expanded with runtime-specific
+   sub-codes (`MT5011 deadline_exceeded`, `MT5012 mailbox_full`,
+   `MT5013 supervisor_escalated`, `MT5014 restart_limit_exceeded`,
+   `MT5015 capability_outside_sandbox`, `MT5050 extern_fn_unimpl`
    unchanged).
 6. Documentation: `docs/internals/runtime.md`,
    `docs/internals/scheduler.md`, `docs/internals/mailboxes.md`,
@@ -372,7 +372,7 @@ A36 records this as the slice-7 stdlib surface.
   causes failure today; we add a `main()` to make it executable and
   introduce a `fail_after_n` helper in the prelude so the run is
   observable).
-- `sdust run examples/11_budget_block.sd` traps with SD5009 when
+- `sdust run examples/11_budget_block.sd` traps with MT5009 when
   `cpu 150ms` is exceeded by an infinite-loop helper.
 - `STARDUST_HTTP_REAL=1 sdust run examples/19_backend_service.sd`
   starts listening on `:8080` and serves at least one mock request

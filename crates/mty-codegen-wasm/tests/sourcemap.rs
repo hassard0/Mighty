@@ -71,7 +71,7 @@ fn emits_valid_sourcemap_v3_sidecar() {
     let dir = tempfile::tempdir().expect("tempdir");
     let wasm_path = dir.path().join("hello.wasm");
     let p = empty_main_prog();
-    let sm = build_source_map(&p, "hello.sd", "fn main() {}\n", "hello.wasm");
+    let sm = build_source_map(&p, "hello.mty", "fn main() {}\n", "hello.wasm");
     let sidecar = write_sourcemap_sidecar(&wasm_path, &sm).expect("write sidecar");
     let expected = sourcemap_sidecar_path(&wasm_path);
     assert_eq!(sidecar, expected);
@@ -81,7 +81,7 @@ fn emits_valid_sourcemap_v3_sidecar() {
     let bytes = std::fs::read(&sidecar).expect("read sidecar");
     let v: serde_json::Value = serde_json::from_slice(&bytes).expect("valid json");
     assert_eq!(v["version"], 3);
-    assert_eq!(v["sources"][0], "hello.sd");
+    assert_eq!(v["sources"][0], "hello.mty");
     assert_eq!(v["file"], "hello.wasm");
     assert!(v["mappings"].is_string());
     // sourcesContent should preserve our literal source.

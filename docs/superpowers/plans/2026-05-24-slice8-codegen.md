@@ -22,7 +22,7 @@
    - Stub `pub fn compile(_: &Program) -> Result<Artifact, CodegenError>`
      returning `Err(NotYetImplemented)` to confirm wiring.
 
-4. **T04 — Diagnostic codes SD8001..SD8010**
+4. **T04 — Diagnostic codes MT8001..MT8010**
    - Reserve in `sdust-diagnostics/src/codes.rs`.
    - Wire `explain` for each.
 
@@ -155,7 +155,7 @@
 
 32. **T32 — Real `extern` resolution**
     - `runtime/src/extern_loader.rs`: open libc via `libloading`.
-    - Symbol cache; lookup by name; trap SD8005 on miss.
+    - Symbol cache; lookup by name; trap MT8005 on miss.
 
 33. **T33 — JIT-runtime bridge**
     - Runtime hosts a `CodegenBridge` that JIT'd code calls via the
@@ -208,7 +208,7 @@
     - Full flag reference, examples, exit codes.
 
 45. **T45 — Diagnostics ref update**
-    - Add SD8001..SD8010 to `docs/reference/diagnostics.md`.
+    - Add MT8001..MT8010 to `docs/reference/diagnostics.md`.
 
 46. **T46 — README update**
     - Roadmap shows slice 8 shipped; v0.1 = complete; add `sdust build`

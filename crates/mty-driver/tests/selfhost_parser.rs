@@ -1,6 +1,6 @@
 //! Self-hosting bootstrap test (v0.6) — parser phase.
 //!
-//! Runs the Mighty parser in `selfhost/parser/parser.sd` over a canned
+//! Runs the Mighty parser in `selfhost/parser/parser.mty` over a canned
 //! input via the SIR interpreter, with a custom `Host` that services the
 //! parser's cursor + event-sink bridge (`tok_*`, `cur_*`, `ev_*`,
 //! `no_struct_lit_*`). Then it parses the same input via the trusted
@@ -252,10 +252,10 @@ struct SelfhostRun {
 }
 
 fn run_selfhost_parser(input: &str) -> Result<SelfhostRun, String> {
-    let parser_path = workspace_root().join("selfhost/parser/parser.sd");
+    let parser_path = workspace_root().join("selfhost/parser/parser.mty");
     let parser_src = std::fs::read_to_string(&parser_path)
         .map_err(|e| format!("read {}: {}", parser_path.display(), e))?;
-    let parsed = parse_source(parser_src, "selfhost/parser/parser.sd".into());
+    let parsed = parse_source(parser_src, "selfhost/parser/parser.mty".into());
     let (pkg, lower_diags) = lower(&parsed);
     if lower_diags
         .iter()
@@ -510,9 +510,9 @@ fn selfhost_parser_compiles() {
     // Sanity: just compile the parser source through the v0.6 pipeline.
     // If this fails, the source has type errors and the diff tests
     // below would give an opaque "lower errors" message.
-    let parser_path = workspace_root().join("selfhost/parser/parser.sd");
-    let src = std::fs::read_to_string(&parser_path).expect("read parser.sd");
-    let parsed = parse_source(src, "selfhost/parser/parser.sd".into());
+    let parser_path = workspace_root().join("selfhost/parser/parser.mty");
+    let src = std::fs::read_to_string(&parser_path).expect("read parser.mty");
+    let parsed = parse_source(src, "selfhost/parser/parser.mty".into());
     let (pkg, diags) = lower(&parsed);
     let errors: Vec<_> = diags
         .iter()
@@ -547,7 +547,7 @@ fn rust_parser_baseline_hello() {
 #[test]
 fn selfhost_parser_hello_world() {
     // Parses `fn main() { log("hi") }` via the Mighty parser source
-    // in `selfhost/parser/parser.sd` and asserts the resulting CST has
+    // in `selfhost/parser/parser.mty` and asserts the resulting CST has
     // the same kind structure (BFS pre-order) as the Rust parser's
     // output. Trivia leaves (WHITESPACE etc.) are ignored in the diff
     // because the two parsers tuck trivia at slightly different
@@ -615,7 +615,7 @@ fn selfhost_parser_match_simple() {
 
 #[test]
 fn selfhost_parser_example_01() {
-    let path = workspace_root().join("examples/01_hello.sd");
+    let path = workspace_root().join("examples/01_hello.mty");
     let input = std::fs::read_to_string(path).unwrap();
     let SelfhostRun { events, result } =
         run_selfhost_parser(&input).expect("Mighty parser should compile");
@@ -629,7 +629,7 @@ fn selfhost_parser_example_01() {
 
 #[test]
 fn selfhost_parser_example_02() {
-    let path = workspace_root().join("examples/02_struct_enum.sd");
+    let path = workspace_root().join("examples/02_struct_enum.mty");
     let input = std::fs::read_to_string(path).unwrap();
     let SelfhostRun { events, result } =
         run_selfhost_parser(&input).expect("Mighty parser should compile");
@@ -643,7 +643,7 @@ fn selfhost_parser_example_02() {
 
 #[test]
 fn selfhost_parser_example_03() {
-    let path = workspace_root().join("examples/03_generic_fn.sd");
+    let path = workspace_root().join("examples/03_generic_fn.mty");
     let input = std::fs::read_to_string(path).unwrap();
     let SelfhostRun { events, result } =
         run_selfhost_parser(&input).expect("Mighty parser should compile");
@@ -657,7 +657,7 @@ fn selfhost_parser_example_03() {
 
 #[test]
 fn selfhost_parser_example_04() {
-    let path = workspace_root().join("examples/04_result_propagation.sd");
+    let path = workspace_root().join("examples/04_result_propagation.mty");
     let input = std::fs::read_to_string(path).unwrap();
     let SelfhostRun { events, result } =
         run_selfhost_parser(&input).expect("Mighty parser should compile");
@@ -671,7 +671,7 @@ fn selfhost_parser_example_04() {
 
 #[test]
 fn selfhost_parser_example_05() {
-    let path = workspace_root().join("examples/05_match_expr.sd");
+    let path = workspace_root().join("examples/05_match_expr.mty");
     let input = std::fs::read_to_string(path).unwrap();
     let SelfhostRun { events, result } =
         run_selfhost_parser(&input).expect("Mighty parser should compile");

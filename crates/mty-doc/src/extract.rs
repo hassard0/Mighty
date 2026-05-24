@@ -847,7 +847,7 @@ fn extract_examples(body: &str) -> Vec<DocExample> {
         match ev {
             Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang))) => {
                 let lang = lang.to_string();
-                if lang == "sd" || lang == "stardust" {
+                if lang == "mty" || lang == "mighty" {
                     current = Some((lang, String::new()));
                 } else {
                     current = None;

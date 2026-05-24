@@ -75,7 +75,7 @@ with the real implementation.
   `last`/`iter`.
 - **Gap 4 — CPU + mem auto-charging.** New
   `RunResult::MemBudgetExceeded { used, limit }` variant (exit
-  code 4, `SD5009` trap code). Interpreter charges bytes on
+  code 4, `MT5009` trap code). Interpreter charges bytes on
   `AdtInit`/`TupleInit`/`ArrayInit` via `estimate_value_bytes` (24 B
   header + recursive payload). New
   `run_fn_with_resource_budget(prog, name, args, host, steps, mem)`
@@ -103,8 +103,8 @@ hygiene + lights up cross-file + ships the standard library.
   single raw `TOKEN_TREE`. v0.4's plain-call syntax
   (`foo(args)` for a registered macro `foo`) continues to work
   for backwards-compat.
-- **SD6001 `unknown_macro` activated.** Any `IDENT!(...)` call
-  site with no matching `MacroDef` triggers SD6001.
+- **MT6001 `unknown_macro` activated.** Any `IDENT!(...)` call
+  site with no matching `MacroDef` triggers MT6001.
 - **Extended hygiene mangling.** `let` bindings in tuple, struct,
   ref, and binding-pattern shapes are mangled, not just
   `let IDENT`. The walker harvests every IDENT inside the pattern
@@ -115,8 +115,8 @@ hygiene + lights up cross-file + ships the standard library.
   exported set, the macro is registered in the importing file's
   local registry.
 - **Procedural macro skeleton.** `proc macro` declarations parse
-  and register, but execution is gated behind **SD6006**
-  `proc_macro_unsupported_v0_5`. SD6005 `proc_macro_impure` fires
+  and register, but execution is gated behind **MT6006**
+  `proc_macro_unsupported_v0_5`. MT6005 `proc_macro_impure` fires
   at declaration time if the body's token-tree contains an
   `effect.*` pattern.
 - **Standard macro library.** `assert!`, `assert_eq!`, `assert_ne!`,
@@ -124,7 +124,7 @@ hygiene + lights up cross-file + ships the standard library.
   `crates/sdust-macros/lib/`.
 
 See `MACROS_V0_5_NOTES.md` for the seven interpretation calls
-(opaque token-tree args, SD6005-at-decl vs SD6006-at-call, lexical
+(opaque token-tree args, MT6005-at-decl vs MT6006-at-call, lexical
 pattern walker, stdlib as source fixtures, `proc macro` as a
 two-keyword form, backwards-compat for `foo(args)` plain calls).
 
@@ -145,9 +145,9 @@ completion). v0.5 closes the documented gaps with seven more.
 - **`textDocument/inlayHint`** — inferred-type hints for `let`
   bindings (no `:` annotation) and fn parameters; viewport-filtered;
   uninteresting types (Var / Param / Error) suppressed.
-- **`textDocument/codeAction`** — quick fixes for SD2021
-  (unresolved value), SD2002 (unresolved type), SD3001
-  (use-after-move → `.clone()`), SD4001 (effect undeclared → add
+- **`textDocument/codeAction`** — quick fixes for MT2021
+  (unresolved value), MT2002 (unresolved type), MT3001
+  (use-after-move → `.clone()`), MT4001 (effect undeclared → add
   `effect { name }` to fn signature); Levenshtein ≤ 2.
 - **`textDocument/signatureHelp`** — call + method-call sites;
   active parameter via depth-1 comma counting; CALL_EXPR resolves
@@ -194,7 +194,7 @@ following:
 - **Loop back-edge borrow modelling** (A82, conservative
   fixed-point)
 - **`mac!name(...)` syntactic marker** (A90)
-- **SD6001 unknown_macro activated** (A91)
+- **MT6001 unknown_macro activated** (A91)
 - **Extended hygiene mangling** beyond `let IDENT` (A92)
 - **Cross-file `pub macro`** (A93)
 - **Proc macros — parse-and-store skeleton** (A94)
@@ -223,10 +223,10 @@ A80 — `break` / `continue` as real HIR nodes (v0.5)
 A81 — Iterator protocol via `__sdust_iter_next` (v0.5)
 A82 — Loop back-edge fixed-point in the borrow checker (v0.5)
 A90 — `name!(args)` macro invocation marker (v0.5)
-A91 — SD6001 unknown_macro activated (v0.5)
+A91 — MT6001 unknown_macro activated (v0.5)
 A92 — Extended hygiene mangling (v0.5)
 A93 — Cross-file `pub macro` (v0.5)
-A94 — Procedural macros (parse-and-store) + SD6005/SD6006 (v0.5)
+A94 — Procedural macros (parse-and-store) + MT6005/MT6006 (v0.5)
 A95 — Standard macro library shipped with sdust-macros (v0.5)
 A96 — `std.http.serve` binds a real socket (v0.5 dogfood)
 A97 — `stardust:web/dom` interface added to the `wasm32-web` world (v0.5 dogfood)
@@ -246,7 +246,7 @@ draft A96 to deconflict with the dogfood A96.
 | `continue` skips to loop header | parses as bare IDENT, no effect | **real HIR node + continue_tgt block** (A80) |
 | `for x in arr` terminates when arr is exhausted | spins until step budget | **iterator protocol with exhaustion probe** (A81) |
 | Borrow check at loop back-edges | one-pass walk | **bounded fixed-point (16-iter cap, conservative joins)** (A82) |
-| `name!(args)` parses as a macro call | requires the macro to be registered + plain `foo(args)` | **explicit syntactic marker; SD6001 on unknown** (A90/A91) |
+| `name!(args)` parses as a macro call | requires the macro to be registered + plain `foo(args)` | **explicit syntactic marker; MT6001 on unknown** (A90/A91) |
 | Macro hygiene covers tuple / struct / ref patterns | `let IDENT` only | **whole pattern subtree mangled** (A92) |
 | `use otherpkg.foo` imports a macro | n/a | **cross-file via `pub macro` + per-pkg registry split** (A93) |
 | Stardust source lexer round-trips against Rust lexer | first token only (full diff `#[ignore]`d) | **full byte-for-byte diff passes** (loop CF + iterator protocol unblocked) |
@@ -262,14 +262,14 @@ draft A96 to deconflict with the dogfood A96.
 Two new SD codes for proc macros, defined in `sdust_macros::diag`
 as bare `u16`:
 
-- **SD6005** — `proc_macro_impure` (fires at declaration time if
+- **MT6005** — `proc_macro_impure` (fires at declaration time if
   the proc-macro body's token-tree contains an `effect.*` pattern)
-- **SD6006** — `proc_macro_unsupported_v0_5` (fires at *call*
+- **MT6006** — `proc_macro_unsupported_v0_5` (fires at *call*
   sites for parsed-but-unexecutable proc macros; soft gate so
   test code can verify parsing + storage now and unblock proc-
   macro rollout in v0.6 without source churn)
 
-The v0.4 SD6001..SD6004 codes also stay live; SD6001
+The v0.4 MT6001..MT6004 codes also stay live; MT6001
 `unknown_macro` is now reachable (A91).
 
 ## Cross-cut fixes applied during integration
@@ -317,7 +317,7 @@ alignment cross-cut.
 
 ### Macros
 
-5. **Proc-macro execution** — currently SD6006-gated. Needs a
+5. **Proc-macro execution** — currently MT6006-gated. Needs a
    sandboxed SIR sub-context.
 6. **Set-of-scopes hygiene** — replaces v0.5's mangling pass.
 7. **`format!`-style variadic macro arguments** — needs an
@@ -420,7 +420,7 @@ alignment cross-cut.
 - **3/3 dogfood demos pass `smoke.sh`** (search_api, counter_web,
   extract_tool).
 - **15 new spec amendments** (A74 + A80..A82 + A90..A100).
-- **2 new SD codes** (SD6005, SD6006).
+- **2 new SD codes** (MT6005, MT6006).
 - **MSRV unchanged at 1.85.**
 
 ## Known issues
@@ -434,7 +434,7 @@ alignment cross-cut.
    `option<string>`.** This is the integration-time fix; v0.6
    restores the real return types once the canonical-ABI
    return-area bridge is wired in `emit.rs`.
-3. **Proc macros are gated behind SD6006.** v0.5 ships
+3. **Proc macros are gated behind MT6006.** v0.5 ships
    parse-and-store only; execution waits on the sandboxed SIR
    sub-context (v0.6).
 4. **LSP rename is single-file.** Cross-file rename needs a

@@ -11,8 +11,8 @@ fn renders_one_line() {
             message: "unexpected `@@`".into(),
         },
     );
-    let out = render(&d, "test.sd", src);
-    assert!(out.contains("SD0001"), "render output:\n{}", out);
+    let out = render(&d, "test.mty", src);
+    assert!(out.contains("MT0001"), "render output:\n{}", out);
     assert!(
         out.contains("unexpected `@@`") || out.contains("`@@`") || out.contains("@@"),
         "render output:\n{}",

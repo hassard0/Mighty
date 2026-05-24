@@ -62,7 +62,7 @@ fn buffer_sink_captures_all_event_kinds() {
         },
         TelemetryEvent::BudgetBreach {
             agent: "A".into(),
-            kind: "SD5009".into(),
+            kind: "MT5009".into(),
         },
         TelemetryEvent::Shutdown,
     ];

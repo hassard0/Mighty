@@ -88,7 +88,7 @@ impl BufferHost {
     }
 }
 
-/// Real host that writes to stdout/stderr. Used by `sdust run`.
+/// Real host that writes to stdout/stderr. Used by `mty run`.
 #[derive(Debug, Default)]
 pub struct RealHost;
 

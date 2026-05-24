@@ -4,10 +4,10 @@
 //!
 //! | code | fix                                                                 |
 //! |------|---------------------------------------------------------------------|
-//! | SD2021 unresolved value  | suggest top-3 in-scope names by edit distance |
-//! | SD2002 unresolved type   | suggest top-3 in-scope type names by edit distance |
-//! | SD3001 use-after-move    | suggest `.clone()` (best-effort; user confirms)    |
-//! | SD4001 effect undeclared | suggest adding the missing effect to the fn signature |
+//! | MT2021 unresolved value  | suggest top-3 in-scope names by edit distance |
+//! | MT2002 unresolved type   | suggest top-3 in-scope type names by edit distance |
+//! | MT3001 use-after-move    | suggest `.clone()` (best-effort; user confirms)    |
+//! | MT4001 effect undeclared | suggest adding the missing effect to the fn signature |
 //!
 //! Each action returns a single-text-edit [`WorkspaceEdit`] so the
 //! editor can preview before applying.
@@ -40,11 +40,11 @@ pub fn code_actions(
             continue;
         };
         match code.as_str() {
-            "SD2021" => actions_for_unresolved_value(uri, doc, diag, &mut out),
-            "SD2002" => actions_for_unresolved_type(uri, doc, diag, &mut out),
-            "SD3001" => actions_for_use_after_move(uri, doc, diag, &mut out),
-            "SD4001" => actions_for_effect_undeclared(uri, doc, diag, &mut out),
-            "SD6001" => actions_for_unknown_macro(uri, doc, diag, &mut out),
+            "MT2021" => actions_for_unresolved_value(uri, doc, diag, &mut out),
+            "MT2002" => actions_for_unresolved_type(uri, doc, diag, &mut out),
+            "MT3001" => actions_for_use_after_move(uri, doc, diag, &mut out),
+            "MT4001" => actions_for_effect_undeclared(uri, doc, diag, &mut out),
+            "MT6001" => actions_for_unknown_macro(uri, doc, diag, &mut out),
             _ => {}
         }
     }
@@ -58,11 +58,11 @@ pub fn code_actions(
             if diag_contains_cursor(d, doc, cursor_range) {
                 let lsp_diag = crate::conv::diagnostic_to_lsp(d, &doc.line_index, &doc.source);
                 match d.code.as_str().as_str() {
-                    "SD2021" => actions_for_unresolved_value(uri, doc, &lsp_diag, &mut out),
-                    "SD2002" => actions_for_unresolved_type(uri, doc, &lsp_diag, &mut out),
-                    "SD3001" => actions_for_use_after_move(uri, doc, &lsp_diag, &mut out),
-                    "SD4001" => actions_for_effect_undeclared(uri, doc, &lsp_diag, &mut out),
-                    "SD6001" => actions_for_unknown_macro(uri, doc, &lsp_diag, &mut out),
+                    "MT2021" => actions_for_unresolved_value(uri, doc, &lsp_diag, &mut out),
+                    "MT2002" => actions_for_unresolved_type(uri, doc, &lsp_diag, &mut out),
+                    "MT3001" => actions_for_use_after_move(uri, doc, &lsp_diag, &mut out),
+                    "MT4001" => actions_for_effect_undeclared(uri, doc, &lsp_diag, &mut out),
+                    "MT6001" => actions_for_unknown_macro(uri, doc, &lsp_diag, &mut out),
                     _ => {}
                 }
             }

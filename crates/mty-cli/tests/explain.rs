@@ -14,7 +14,7 @@ fn sdust(args: &[&str]) -> (i32, String, String) {
 
 #[test]
 fn explain_known_code_succeeds() {
-    let (code, stdout, _stderr) = sdust(&["explain", "SD0001"]);
+    let (code, stdout, _stderr) = sdust(&["explain", "MT0001"]);
     assert_eq!(code, 0);
     assert!(stdout.contains("Unexpected token"), "stdout: {}", stdout);
 }
@@ -39,7 +39,7 @@ fn explain_bare_number_works() {
 
 #[test]
 fn explain_unknown_code_fails() {
-    let (code, _stdout, stderr) = sdust(&["explain", "SD9999"]);
+    let (code, _stdout, stderr) = sdust(&["explain", "MT9999"]);
     assert_eq!(code, 1);
     assert!(
         stderr.to_lowercase().contains("unknown"),

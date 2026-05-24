@@ -30,7 +30,7 @@ The server reports the following capabilities in its
 | `documentFormattingProvider` | `true` | Whole-document via `sdust fmt`. |
 | `semanticTokensProvider` | full + range, legend below | v0.5: 14 types × 3 modifiers. |
 | `renameProvider` | `{ prepareProvider: true }` | Single-file scope (v0.5). |
-| `codeActionProvider` | `{ codeActionKinds: ["quickfix"] }` | SD2021 / SD2002 / SD3001 / SD4001 fixes. |
+| `codeActionProvider` | `{ codeActionKinds: ["quickfix"] }` | MT2021 / MT2002 / MT3001 / MT4001 fixes. |
 | `signatureHelpProvider` | `{ triggerCharacters: ["(", ","] }` | Call + method-call sites. |
 | `inlayHintProvider` | `{ resolveProvider: false }` | `let` + fn-param type hints. |
 | `workspace.workspaceFolders` | `{ supported: true, changeNotifications: true }` | Event surface; per-file analysis. |

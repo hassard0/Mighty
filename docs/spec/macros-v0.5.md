@@ -11,14 +11,14 @@ the v0.4 doc remains the historical record of the v0.4 surface.
 | `macro Name(...) => { body }`       | yes  | yes  |
 | Plain-call invocation `foo(args)`   | yes  | yes (compat) |
 | `Name!(args)` invocation marker     | no   | **yes** |
-| SD6001 `unknown_macro`              | reserved | **active** |
+| MT6001 `unknown_macro`              | reserved | **active** |
 | `let IDENT` hygiene mangling        | yes  | yes  |
 | Tuple/struct/ref pattern hygiene    | no   | **yes** |
 | `pub macro` cross-file visibility   | no   | **yes** |
 | `proc macro` declaration parsing    | no   | **yes** |
 | `proc macro` execution              | no   | **no** (v0.6) |
-| SD6005 `proc_macro_impure`          | n/a  | **yes** |
-| SD6006 `proc_macro_unsupported_v0_5`| n/a  | **yes** |
+| MT6005 `proc_macro_impure`          | n/a  | **yes** |
+| MT6006 `proc_macro_unsupported_v0_5`| n/a  | **yes** |
 | Bundled `assert!` / `debug!` / etc. | no   | **yes** |
 
 ## Goals (carried from v0.4)
@@ -79,11 +79,11 @@ assert_eq(1 + 1, 2)
 
 The `!` marker has two practical consequences:
 
-1. **SD6001 fires.** If a `Name!(...)` site refers to a name with no
+1. **MT6001 fires.** If a `Name!(...)` site refers to a name with no
    matching declarative or procedural macro decl in the (combined
    local + exported-of-imports) registry, the lowering pre-pass emits
-   `SD6001 unknown_macro`. The plain-call form intentionally does NOT
-   trigger SD6001 — the lowering pass cannot distinguish a typo'd
+   `MT6001 unknown_macro`. The plain-call form intentionally does NOT
+   trigger MT6001 — the lowering pass cannot distinguish a typo'd
    `foo()` from a regular function call there.
 
 2. **Arguments are opaque tokens.** Inside `!(`, the args are stored
@@ -150,7 +150,7 @@ proc macro upcase(input: TokenStream) -> TokenStream {
 }
 
 fn main() {
-  upcase!(my_name)   // SD6006 in v0.5; expansion lands in v0.6.
+  upcase!(my_name)   // MT6006 in v0.5; expansion lands in v0.6.
 }
 ```
 
@@ -159,14 +159,14 @@ is stored verbatim in the registry. v0.5 enforces two rules:
 
 1. **Purity check** at decl time. If the body references `effect.…(…)`
    or a bare call to the well-known impure surface (`time`, `env`,
-   `io`, `model`, `rand`), the compiler emits **SD6005
+   `io`, `model`, `rand`), the compiler emits **MT6005
    `proc_macro_impure`**. Proc macros run at *compile time* — they
    cannot perform I/O or read the environment.
 
 2. **Execution gate** at call sites. v0.5 cannot execute a proc-macro
    body; doing so requires a sandboxed sub-interpreter that is a v0.6
    deliverable. So every `name!(…)` call to a procedural macro emits
-   **SD6006 `proc_macro_unsupported_v0_5`** and replaces the call with
+   **MT6006 `proc_macro_unsupported_v0_5`** and replaces the call with
    the sentinel literal `0`. The macro declaration is preserved so the
    call site can stay stable when v0.6 enables execution.
 
@@ -202,14 +202,14 @@ auto-import them as part of the prelude.
 
 | Code   | Meaning                                                  |
 |--------|----------------------------------------------------------|
-| SD6001 | `unknown_macro` — `name!(args)` with no matching decl.   |
-| SD6002 | `macro_arity_mismatch` — call has wrong number of args.  |
-| SD6003 | `macro_body_parse_failed` — expansion doesn't re-parse.  |
-| SD6004 | `recursive_macro_too_deep` — depth cap (32) exceeded.    |
-| SD6005 | `proc_macro_impure` — proc body references an effect.    |
-| SD6006 | `proc_macro_unsupported_v0_5` — exec deferred to v0.6.   |
+| MT6001 | `unknown_macro` — `name!(args)` with no matching decl.   |
+| MT6002 | `macro_arity_mismatch` — call has wrong number of args.  |
+| MT6003 | `macro_body_parse_failed` — expansion doesn't re-parse.  |
+| MT6004 | `recursive_macro_too_deep` — depth cap (32) exceeded.    |
+| MT6005 | `proc_macro_impure` — proc body references an effect.    |
+| MT6006 | `proc_macro_unsupported_v0_5` — exec deferred to v0.6.   |
 
-SD6001 through SD6004 are unchanged from v0.4. SD6005 and SD6006 are
+MT6001 through MT6004 are unchanged from v0.4. MT6005 and MT6006 are
 new in v0.5.
 
 ## Migration from v0.4
@@ -217,7 +217,7 @@ new in v0.5.
 * **Existing macros keep working.** Plain-call invocations still
   expand for any macro registered in the file's local registry.
 * **Optional opt-in to `!` syntax.** Add `!` to call sites where you
-  want the v0.5 SD6001 check, or where the macro's arguments would not
+  want the v0.5 MT6001 check, or where the macro's arguments would not
   parse as a normal expression.
 * **New cross-file flow.** Mark macros `pub macro …` to export them.
   Add `use otherpkg.foo` to import. The flow is end-to-end once

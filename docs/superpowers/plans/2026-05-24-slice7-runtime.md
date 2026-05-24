@@ -44,7 +44,7 @@ crates/sdust-runtime/                         # NEW crate
 
 crates/sdust-driver/src/pipeline.rs           # MODIFY: add run_file_runtime entry
 crates/sdust-cli/src/cmd/run.rs               # MODIFY: --legacy-interp flag, default to runtime
-crates/sdust-diagnostics/src/codes.rs         # MODIFY: SD5011..SD5015 added
+crates/sdust-diagnostics/src/codes.rs         # MODIFY: MT5011..MT5015 added
 
 crates/sdust-sir/src/sir.rs                   # (read-only in this slice)
 crates/sdust-sir/src/interp/run.rs            # MINOR: expose evaluator hooks
@@ -233,7 +233,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Task 2: Add SD5011..SD5015 diagnostic codes
+## Task 2: Add MT5011..MT5015 diagnostic codes
 
 **Files:**
 - Modify: `crates/sdust-diagnostics/src/codes.rs`
@@ -241,15 +241,15 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: Read existing diagnostic codes file**
 
-Run: `Read crates/sdust-diagnostics/src/codes.rs` to confirm the structure. Find the SD5xxx section (after SD5010).
+Run: `Read crates/sdust-diagnostics/src/codes.rs` to confirm the structure. Find the SD5xxx section (after MT5010).
 
 - [ ] **Step 2: Add the new codes**
 
-In `crates/sdust-diagnostics/src/codes.rs`, find the existing SD5xxx entries (search for `SD5010`). After the SD5010 entry add:
+In `crates/sdust-diagnostics/src/codes.rs`, find the existing SD5xxx entries (search for `MT5010`). After the MT5010 entry add:
 
 ```rust
     Code {
-        id: "SD5011",
+        id: "MT5011",
         title: "deadline_exceeded",
         body: "An `?Msg(args) @duration` ask did not receive a reply \
 within the requested duration. The runtime cancels the reply oneshot \
@@ -257,7 +257,7 @@ and the caller observes a `Result::Err(DeadlineExceeded)` (or a \
 typed-error variant when the protocol declares one).",
     },
     Code {
-        id: "SD5012",
+        id: "MT5012",
         title: "mailbox_full",
         body: "An agent's mailbox is at its declared `mb` depth and \
 the budget policy is `drop` or `fail`. The send is rejected and the \
@@ -265,21 +265,21 @@ sender observes `Result::Err(MailboxFull)`. Under the default `block` \
 policy the runtime back-pressures instead of trapping.",
     },
     Code {
-        id: "SD5013",
+        id: "MT5013",
         title: "supervisor_escalated",
         body: "A supervisor's `escalate` strategy propagated a child \
 failure to its parent supervisor. At the top of the supervisor tree \
 this terminates the runtime.",
     },
     Code {
-        id: "SD5014",
+        id: "MT5014",
         title: "restart_limit_exceeded",
         body: "A child agent exceeded its `restart up_to N in DUR` \
 budget. The supervisor escalates the failure to its parent \
 strategy.",
     },
     Code {
-        id: "SD5015",
+        id: "MT5015",
         title: "capability_outside_sandbox",
         body: "A capability call attempted to reach a path or host \
 not on the active sandbox allowlist. The runtime denies the call and \
@@ -299,7 +299,7 @@ In the existing test module at the bottom of `crates/sdust-diagnostics/src/codes
 ```rust
     #[test]
     fn slice7_runtime_codes_documented() {
-        for id in ["SD5011", "SD5012", "SD5013", "SD5014", "SD5015"] {
+        for id in ["MT5011", "MT5012", "MT5013", "MT5014", "MT5015"] {
             let c = lookup(id).unwrap_or_else(|| panic!("missing code {id}"));
             assert!(!c.body.is_empty(), "body empty for {id}");
         }
@@ -315,7 +315,7 @@ Expected: PASS including the new test.
 
 ```bash
 git add crates/sdust-diagnostics/src/codes.rs
-git commit -m "Slice 7: add SD5011..SD5015 runtime diagnostics
+git commit -m "Slice 7: add MT5011..MT5015 runtime diagnostics
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
@@ -380,16 +380,16 @@ impl RuntimeError {
     /// and exit-code mapping.
     pub fn diag_code(&self) -> &'static str {
         match self {
-            RuntimeError::AgentPanic { .. } => "SD5001",
-            RuntimeError::DeadlineExceeded(_) => "SD5011",
-            RuntimeError::MailboxFull { .. } => "SD5012",
-            RuntimeError::SupervisorEscalated { .. } => "SD5013",
-            RuntimeError::RestartLimitExceeded { .. } => "SD5014",
-            RuntimeError::BudgetExceeded(_) => "SD5009",
-            RuntimeError::CapabilityOutsideSandbox(_) => "SD5015",
-            RuntimeError::ExternUnimplemented(_) => "SD5050",
-            RuntimeError::AgentNotFound(_) => "SD5021",
-            RuntimeError::HandlerNotFound { .. } => "SD5020",
+            RuntimeError::AgentPanic { .. } => "MT5001",
+            RuntimeError::DeadlineExceeded(_) => "MT5011",
+            RuntimeError::MailboxFull { .. } => "MT5012",
+            RuntimeError::SupervisorEscalated { .. } => "MT5013",
+            RuntimeError::RestartLimitExceeded { .. } => "MT5014",
+            RuntimeError::BudgetExceeded(_) => "MT5009",
+            RuntimeError::CapabilityOutsideSandbox(_) => "MT5015",
+            RuntimeError::ExternUnimplemented(_) => "MT5050",
+            RuntimeError::AgentNotFound(_) => "MT5021",
+            RuntimeError::HandlerNotFound { .. } => "MT5020",
             RuntimeError::Trap { code, .. } => code,
         }
     }
@@ -402,17 +402,17 @@ mod tests {
     #[test]
     fn diag_codes_cover_all_variants() {
         let cases = [
-            (RuntimeError::AgentPanic { msg: "x".into() }, "SD5001"),
-            (RuntimeError::DeadlineExceeded(Duration::from_millis(10)), "SD5011"),
-            (RuntimeError::MailboxFull { agent: "A".into() }, "SD5012"),
-            (RuntimeError::SupervisorEscalated { child: "c".into() }, "SD5013"),
-            (RuntimeError::RestartLimitExceeded { child: "c".into() }, "SD5014"),
-            (RuntimeError::BudgetExceeded("cpu".into()), "SD5009"),
-            (RuntimeError::CapabilityOutsideSandbox("/etc".into()), "SD5015"),
-            (RuntimeError::ExternUnimplemented("foo".into()), "SD5050"),
-            (RuntimeError::AgentNotFound("A".into()), "SD5021"),
-            (RuntimeError::HandlerNotFound { agent: "A".into(), msg: "M".into() }, "SD5020"),
-            (RuntimeError::Trap { code: "SD5005", message: "u".into() }, "SD5005"),
+            (RuntimeError::AgentPanic { msg: "x".into() }, "MT5001"),
+            (RuntimeError::DeadlineExceeded(Duration::from_millis(10)), "MT5011"),
+            (RuntimeError::MailboxFull { agent: "A".into() }, "MT5012"),
+            (RuntimeError::SupervisorEscalated { child: "c".into() }, "MT5013"),
+            (RuntimeError::RestartLimitExceeded { child: "c".into() }, "MT5014"),
+            (RuntimeError::BudgetExceeded("cpu".into()), "MT5009"),
+            (RuntimeError::CapabilityOutsideSandbox("/etc".into()), "MT5015"),
+            (RuntimeError::ExternUnimplemented("foo".into()), "MT5050"),
+            (RuntimeError::AgentNotFound("A".into()), "MT5021"),
+            (RuntimeError::HandlerNotFound { agent: "A".into(), msg: "M".into() }, "MT5020"),
+            (RuntimeError::Trap { code: "MT5005", message: "u".into() }, "MT5005"),
         ];
         for (err, code) in cases {
             assert_eq!(err.diag_code(), code, "wrong code for {err:?}");
@@ -503,7 +503,7 @@ pub enum SendPolicy {
     Block,
     /// Drop the message and warn.
     Drop,
-    /// Return SD5012 to the sender.
+    /// Return MT5012 to the sender.
     Fail,
 }
 
@@ -1775,7 +1775,7 @@ impl Runtime {
         match reply {
             Ok(inner) => inner,
             Err(_) => Err(RuntimeError::Trap {
-                code: "SD5020",
+                code: "MT5020",
                 message: "reply channel closed".into(),
             }),
         }
@@ -2753,7 +2753,7 @@ fn main() {
 hi
 ```
 
-Repeat for 02..08 mirroring the existing-corpus convention. For cases that rely on runtime behaviour not yet observable from inside `.sd` (sandbox, http_inmem), the expected is the trap code (`SD5009`, etc.) — see example 06.
+Repeat for 02..08 mirroring the existing-corpus convention. For cases that rely on runtime behaviour not yet observable from inside `.sd` (sandbox, http_inmem), the expected is the trap code (`MT5009`, etc.) — see example 06.
 
 - [ ] **Step 3: Add the driver test**
 
@@ -2951,7 +2951,7 @@ Slice 7's `RestartTracker` keeps a sliding window of restart
 timestamps and denies the (N+1)-th restart attempt within `DUR`. On
 denial the supervisor escalates per its strategy (`escalate` →
 parent supervisor; top-level → `RuntimeError::SupervisorEscalated`
-trap with SD5013). Backoff between restarts is uniform-jittered
+trap with MT5013). Backoff between restarts is uniform-jittered
 between the configured min and max (default 0 ms).
 
 ## A43 — Top-level sandbox executes as a child runtime (slice 7)
@@ -2960,7 +2960,7 @@ A37's metadata-only `sandbox Name with {...} { body }` (slice 5)
 gains runtime execution: at `body` entry the runtime constructs a
 child `BudgetTracker` from the entries and pushes it onto the active
 budget stack. Capability calls inside the body are checked against
-the child's allowlists; breach traps with SD5015 / SD5010. Nested
+the child's allowlists; breach traps with MT5015 / MT5010. Nested
 sandboxes compose by stacking budgets; the inner sandbox's
 allowlist must be a subset of the outer (slice 7 enforces
 intersection at allowlist construction time).
@@ -3029,13 +3029,13 @@ Create `SLICE7.md` mirroring the SLICE6.md voice:
 - JSON-line telemetry emitter (stderr/file/buffer/discard).
 - Minimal `std.http` server (HTTP/1.1 GET; in-tree parser).
 
-### Diagnostics SD5011..SD5015
+### Diagnostics MT5011..MT5015
 
-- SD5011 deadline_exceeded
-- SD5012 mailbox_full
-- SD5013 supervisor_escalated
-- SD5014 restart_limit_exceeded
-- SD5015 capability_outside_sandbox
+- MT5011 deadline_exceeded
+- MT5012 mailbox_full
+- MT5013 supervisor_escalated
+- MT5014 restart_limit_exceeded
+- MT5015 capability_outside_sandbox
 
 ### `sdust run` upgrade
 
@@ -3165,7 +3165,7 @@ Save the SHA for the final report.
 - No `TBD`/`TODO` in implementation tasks.
 - Telemetry JSON tests use exact string assertions, not generic
   shape checks.
-- Conformance case 06 (sandbox) uses `SD5010`/`SD5015` trap as the
+- Conformance case 06 (sandbox) uses `MT5010`/`MT5015` trap as the
   expected outcome — concrete, not hand-wavy.
 
 ## Type consistency

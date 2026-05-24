@@ -9,7 +9,7 @@
 //!   `&s.b` coexist (A54).
 //! - **NLL last-use** (`nll::LastUseMap`) so `let r = &x; use(r); let m
 //!   = &mut x` is accepted (A55).
-//! - **Precise SD3009** for `move *ref` of non-Copy ref'd values (A56).
+//! - **Precise MT3009** for `move *ref` of non-Copy ref'd values (A56).
 //!
 //! Public surface: [`check_package`] returns a `Vec<Diagnostic>` carrying
 //! borrow-checker errors. The [`drop_plan::DropPlan`] is also produced
@@ -31,7 +31,7 @@ use mty_types::TypedPackage;
 
 /// Run the slice-4 borrow checker over a typed package + its source HIR.
 /// Returns a vector of diagnostics (errors only — borrow checking has no
-/// warnings of its own; SD2026 from typeck is the lone warning code).
+/// warnings of its own; MT2026 from typeck is the lone warning code).
 pub fn check_package(typed: &TypedPackage, pkg: &Package) -> Vec<Diagnostic> {
     flow::run(typed, pkg)
 }

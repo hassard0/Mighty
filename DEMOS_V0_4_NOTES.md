@@ -107,7 +107,7 @@ slice-6 interpreter is synchronous and has no auto-charging for
 pure-compute loops (A37), so the impossible-cap sandbox in
 `src/breach.sd` runs to completion today. When v0.5 wires
 auto-charging through the SIR interpreter the breach will start
-trapping with `SD5009 budget_exceeded`. The smoke script tolerates
+trapping with `MT5009 budget_exceeded`. The smoke script tolerates
 both outcomes.
 
 ### Decision: fs.read fixture is consumed in-process
@@ -132,7 +132,7 @@ of-allowlist case.
   `.ps1` companions. The PowerShell scripts use `pwsh`-friendly
   syntax (no `&&`-chains).
 - **All demos use `host` profile**, not `core` — the latter would
-  trigger SD4002 on `alloc` effects (A30 / A65.d) which the agent
+  trigger MT4002 on `alloc` effects (A30 / A65.d) which the agent
   spawn machinery uses.
 - **No demo modifies the workspace `Cargo.toml`** or any crate
   source. Per the v0.4 swarm-agent agreement, the demos are

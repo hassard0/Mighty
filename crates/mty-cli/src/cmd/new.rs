@@ -23,14 +23,14 @@ profile = "host"
         name
     );
     if let Err(e) = fs::write(dir.join("mighty.toml"), manifest) {
-        eprintln!("failed to write star.toml: {}", e);
+        eprintln!("failed to write mighty.toml: {}", e);
         return 1;
     }
     if let Err(e) = fs::write(
-        dir.join("src").join("main.sd"),
+        dir.join("src").join("main.mty"),
         "fn main() {\n  log(\"hello, Mighty\")\n}\n",
     ) {
-        eprintln!("failed to write src/main.sd: {}", e);
+        eprintln!("failed to write src/main.mty: {}", e);
         return 1;
     }
     println!("created {}/", name);

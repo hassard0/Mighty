@@ -56,21 +56,21 @@
 - `sdust dump --sir <file>` joins the existing `--ast --cst --hir`
   flags; emits a MIR-style text rendering.
 
-### Diagnostics SD5001..SD5050 (slice 6 runtime)
+### Diagnostics MT5001..MT5050 (slice 6 runtime)
 
-- SD5001 runtime_panic
-- SD5002 use_after_drop
-- SD5003 division_by_zero
-- SD5004 integer_overflow (debug)
-- SD5005 unreachable_match
-- SD5006 unhandled_error_result
-- SD5007 arena_escape_runtime
-- SD5008 uncallable_builtin
-- SD5009 budget_exceeded
-- SD5010 sandbox_violation (placeholder)
-- SD5020 agent_handler_missing
-- SD5021 send_to_dead_agent
-- SD5050 extern_fn_unimpl
+- MT5001 runtime_panic
+- MT5002 use_after_drop
+- MT5003 division_by_zero
+- MT5004 integer_overflow (debug)
+- MT5005 unreachable_match
+- MT5006 unhandled_error_result
+- MT5007 arena_escape_runtime
+- MT5008 uncallable_builtin
+- MT5009 budget_exceeded
+- MT5010 sandbox_violation (placeholder)
+- MT5020 agent_handler_missing
+- MT5021 send_to_dead_agent
+- MT5050 extern_fn_unimpl
 
 All have `sdust explain SD5xxx` entries.
 
@@ -156,7 +156,7 @@ shallowly; full agent execution arrives in slice 7.
 - `crates/sdust-driver/tests/interp_runnable.rs` — interp acceptance
 - `crates/sdust-driver/tests/conformance_runtime.rs` — corpus driver
 - `tests/conformance/runtime/*` — 6 runtime cases
-- `crates/sdust-diagnostics/src/codes.rs` — SD5001..SD5050 + explain
+- `crates/sdust-diagnostics/src/codes.rs` — MT5001..MT5050 + explain
 - `docs/internals/sir.md`, `docs/internals/interpreter.md` — new
 - `docs/reference/cli/sdust-run.md` — new
 - `docs/getting-started.md` — extended with `sdust run`

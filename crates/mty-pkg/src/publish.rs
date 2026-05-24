@@ -1,13 +1,13 @@
-//! `sdust pkg publish` — bundle and (optionally) upload a package
+//! `mty pkg publish` — bundle and (optionally) upload a package
 //! release.
 //!
 //! v0.4 produces a real `tar.gz` of the package contents (excluding
-//! `.git`, `target`, `.stardust`) plus a sha256 sidecar file, and —
+//! `.git`, `target`, `.mighty`) plus a sha256 sidecar file, and —
 //! when a GitHub token is available for the configured registry —
 //! creates the GitHub release that hosts them.
 //!
 //! Without a token, the bundle is still written to
-//! `.stardust/publish/` and the function returns a clear "auth
+//! `.mighty/publish/` and the function returns a clear "auth
 //! required for upload" message that includes the file paths so the
 //! user can drop them onto the release page manually.
 //!
@@ -50,7 +50,7 @@ pub struct PublishOutcome {
     pub package_version: String,
 }
 
-/// Bundle the package into `.stardust/publish/<name>-<version>.tar.gz`
+/// Bundle the package into `.mighty/publish/<name>-<version>.tar.gz`
 /// + `.tar.gz.sha256`. Does **not** upload.
 pub fn bundle(repo_root: &Path) -> Result<PublishOutcome, PublishError> {
     let manifest_path = repo_root.join(crate::MANIFEST_NAME);
@@ -64,7 +64,7 @@ pub fn bundle(repo_root: &Path) -> Result<PublishOutcome, PublishError> {
     let version = manifest.package.version.clone();
     let tag = registry::make_tag(&name, &version);
 
-    let out_dir = repo_root.join(".stardust").join("publish");
+    let out_dir = repo_root.join(".mighty").join("publish");
     std::fs::create_dir_all(&out_dir)?;
     let bundle_path = out_dir.join(format!("{tag}.tar.gz"));
     let sha256_path = out_dir.join(format!("{tag}.tar.gz.sha256"));
@@ -156,7 +156,7 @@ fn collect_publishable(root: &Path, dir: &Path, out: &mut Vec<String>) -> std::i
         let path = entry.path();
         let name = entry.file_name();
         let name_s = name.to_string_lossy();
-        if name_s == ".git" || name_s == "target" || name_s == ".stardust" {
+        if name_s == ".git" || name_s == "target" || name_s == ".mighty" {
             continue;
         }
         if ft.is_dir() {
@@ -183,7 +183,7 @@ fn collect_publishable(root: &Path, dir: &Path, out: &mut Vec<String>) -> std::i
 pub fn upload(slug: &str, outcome: &PublishOutcome) -> Result<String, PublishError> {
     let token = resolve_token(slug).ok_or_else(|| {
         PublishError::Upload(format!(
-            "no auth token for `{slug}` — set GITHUB_TOKEN or run `sdust pkg login {slug}`"
+            "no auth token for `{slug}` — set GITHUB_TOKEN or run `mty pkg login {slug}`"
         ))
     })?;
     let (owner, repo) = registry::parse_slug(slug)?;
@@ -329,9 +329,9 @@ edition = "2026"
             ),
         )
         .unwrap();
-        std::fs::write(dir.join("main.sd"), b"fn main() {}").unwrap();
+        std::fs::write(dir.join("main.mty"), b"fn main() {}").unwrap();
         std::fs::create_dir_all(dir.join("src")).unwrap();
-        std::fs::write(dir.join("src/lib.sd"), b"// lib").unwrap();
+        std::fs::write(dir.join("src/lib.mty"), b"// lib").unwrap();
     }
 
     #[test]
@@ -383,8 +383,8 @@ edition = "2026"
         assert!(names.iter().all(|n| n.starts_with("demo-0.2.3/")));
         // The manifest must be in there.
         assert!(names.iter().any(|n| n.ends_with("mighty.toml")));
-        assert!(names.iter().any(|n| n.ends_with("main.sd")));
-        assert!(names.iter().any(|n| n.ends_with("src/lib.sd")));
+        assert!(names.iter().any(|n| n.ends_with("main.mty")));
+        assert!(names.iter().any(|n| n.ends_with("src/lib.mty")));
     }
 
     #[test]
@@ -393,8 +393,8 @@ edition = "2026"
         write_pkg(dir.path(), "demo", "0.1.0");
         std::fs::create_dir_all(dir.path().join("target")).unwrap();
         std::fs::write(dir.path().join("target/junk"), b"x").unwrap();
-        std::fs::create_dir_all(dir.path().join(".stardust/whatever")).unwrap();
-        std::fs::write(dir.path().join(".stardust/whatever/x"), b"y").unwrap();
+        std::fs::create_dir_all(dir.path().join(".mighty/whatever")).unwrap();
+        std::fs::write(dir.path().join(".mighty/whatever/x"), b"y").unwrap();
 
         let out = bundle(dir.path()).unwrap();
         let gz = std::fs::read(&out.bundle_path).unwrap();
@@ -404,7 +404,7 @@ edition = "2026"
             let e = e.unwrap();
             let p = e.path().unwrap().to_string_lossy().into_owned();
             assert!(!p.contains("/target/"), "target leaked: {p}");
-            assert!(!p.contains("/.stardust/"), ".stardust leaked: {p}");
+            assert!(!p.contains("/.mighty/"), ".mighty leaked: {p}");
         }
     }
 }

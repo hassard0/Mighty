@@ -8,7 +8,7 @@ use mty_lsp::docs::DocAnalysis;
 use tower_lsp::lsp_types::{CompletionResponse, Position};
 
 fn analyze(src: &str) -> DocAnalysis {
-    DocAnalysis::analyze(src.to_string(), "test://main.sd".to_string(), 1)
+    DocAnalysis::analyze(src.to_string(), "test://main.mty".to_string(), 1)
 }
 
 #[test]

@@ -43,7 +43,7 @@ pub fn text(doc: &DocPackage) -> String {
     s
 }
 
-/// Render a single item's full doc, Go-style (used by `sdust doc Item`).
+/// Render a single item's full doc, Go-style (used by `mty doc Item`).
 pub fn item_text(doc: &DocPackage, item: &DocItem) -> String {
     let mut s = String::new();
     s.push_str(&format!("package {}\n\n", doc.name));

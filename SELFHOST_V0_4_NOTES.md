@@ -63,7 +63,7 @@ full diff to v0.5.
 cap pathological runs. The native and Wasm backends already do this
 correctly; only the tree-walking interpreter cuts the back-edge.
 
-## 2. `!fn(args)` triggers SD2008 "value of type Bool is not callable"
+## 2. `!fn(args)` triggers MT2008 "value of type Bool is not callable"
 
 **Reproducer:**
 
@@ -76,12 +76,12 @@ fn main() {
 }
 ```
 
-**v0.3 output:** `SD2008 Error: value of type Bool is not callable`
+**v0.3 output:** `MT2008 Error: value of type Bool is not callable`
 
 **Root cause:** unary `!` binds tighter than postfix `(args)`. So
 `!is_space(b)` parses as `(!is_space)(b)`. The type checker sees the
 `!` applied to a function value (which it lowers to `Bool`), then sees
-the call `(Bool)(b)` and flags SD2008.
+the call `(Bool)(b)` and flags MT2008.
 
 **Workaround:** introduce the call into a let binding first.
 
@@ -151,7 +151,7 @@ sees real invocations.
 `fn classify(k: SyntaxKind) -> Str { ... }` in `b.sd`, run
 `sdust check b.sd`.
 
-**v0.3 output:** `SD2002 Error: cannot find type SyntaxKind in scope`
+**v0.3 output:** `MT2002 Error: cannot find type SyntaxKind in scope`
 
 **Root cause:** the v0.3 driver compiles a single file at a time. The
 `use a.SyntaxKind` mechanism is parsed but not yet wired through to

@@ -186,11 +186,11 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
             // 2. let the handler body infer the param's actual usage
             //    type,
             // 3. unify each inferred type with the protocol's declared
-            //    type — mismatch surfaces as SD4031 with both spans.
+            //    type — mismatch surfaces as MT4031 with both spans.
             //
             // For external (unknown-to-defs) protocols we keep the
             // slice-5 behavior — bind params at the declared types and
-            // skip the SD4031 check so v0.2 examples still compile.
+            // skip the MT4031 check so v0.2 examples still compile.
             for handler in &hir_agent.handlers {
                 let handler_param_tys =
                     lookup_protocol_msg_types(&defs, &hir_agent.protocols, pkg, &handler.message);
@@ -220,11 +220,11 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
                 };
                 cx.locals.enter();
                 // Bind handler params: prefer protocol-declared types,
-                // else fresh inference vars (with a SD2026 warning if no
+                // else fresh inference vars (with a MT2026 warning if no
                 // protocol declares the message).
                 //
                 // v0.3 (A65): for **local** protocols we bind to fresh
-                // vars and post-check via SD4031; for external protocols
+                // vars and post-check via MT4031; for external protocols
                 // we keep the legacy bind-to-declared behavior.
                 let mut handler_param_record: Vec<(String, TyId, TyId)> = vec![];
                 match handler_param_tys.clone() {
@@ -262,7 +262,7 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
                     }
                 }
                 let _ = check_block(&mut cx, handler.body, None);
-                // v0.3 (A65): post-check SD4031 for local protocols.
+                // v0.3 (A65): post-check MT4031 for local protocols.
                 if local_protocol {
                     let proto_name = first_protocol_name(&hir_agent.protocols, pkg)
                         .unwrap_or_else(|| "<unknown>".into());
@@ -345,7 +345,7 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
                     //
                     // v0.3 (A65): we still mark the scope as SupervisorBody
                     // for documentation; tolerance_open keeps the runtime
-                    // policy permissive, so SD2021 won't fire here. Once
+                    // policy permissive, so MT2021 won't fire here. Once
                     // slice 7 wires supervisor cap-scopes properly, drop
                     // `tolerance_open` and the SupervisorBody strict
                     // policy will fire automatically.
@@ -382,7 +382,7 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
     }
 }
 
-/// Slice 5: look for `profile = "core"` in `./star.toml`. Best-effort —
+/// Slice 5: look for `profile = "core"` in `./mighty.toml`. Best-effort —
 /// any I/O failure resolves to `Host`.
 fn load_profile_from_star_toml() -> crate::effects::Profile {
     use std::fs;
@@ -401,11 +401,11 @@ fn load_profile_from_star_toml() -> crate::effects::Profile {
 }
 
 /// Slice 5: protocol-strict checks. For each agent:
-/// - SD4032 protocol_missing_handler: implemented protocol declares a
+/// - MT4032 protocol_missing_handler: implemented protocol declares a
 ///   message that has no `on Msg(...)` handler.
-/// - SD4033 protocol_extra_handler: handler refers to a message that
+/// - MT4033 protocol_extra_handler: handler refers to a message that
 ///   no implemented protocol declares.
-/// - SD4030 protocol_arity_mismatch: handler's param count differs from
+/// - MT4030 protocol_arity_mismatch: handler's param count differs from
 ///   the protocol-declared signature.
 fn check_protocols_strict(
     pkg: &Package,
@@ -454,7 +454,7 @@ fn check_protocols_strict(
                 })
             })
             .collect();
-        // SD4032: missing handlers.
+        // MT4032: missing handlers.
         let provided: std::collections::HashSet<String> =
             agent.handlers.iter().map(|h| h.message.clone()).collect();
         for mname in declared_msgs.keys() {
@@ -477,7 +477,7 @@ fn check_protocols_strict(
                 ));
             }
         }
-        // SD4030 + SD4033 per handler.
+        // MT4030 + MT4033 per handler.
         for h in &agent.handlers {
             match declared_msgs.get(&h.message) {
                 Some(decl_params) => {
@@ -514,8 +514,8 @@ enum HandlerParamLookup {
 /// `msg_name` is **local** — i.e. its name appears in
 /// `defs.protocol_msg_names`. External protocols (e.g. `http.Handler` from
 /// example 19) live in another module and are not yet visible to defs;
-/// for those we skip the SD4031 strict param-type check and continue
-/// emitting SD2026 warnings instead.
+/// for those we skip the MT4031 strict param-type check and continue
+/// emitting MT2026 warnings instead.
 fn is_handler_protocol_local(
     defs: &DefMap,
     proto_type_ids: &[TypeId],
@@ -536,7 +536,7 @@ fn is_handler_protocol_local(
 }
 
 /// v0.3 (A65): the first protocol name attached to an agent, used in the
-/// SD4031 diagnostic's "protocol declares ..." note.
+/// MT4031 diagnostic's "protocol declares ..." note.
 fn first_protocol_name(proto_type_ids: &[TypeId], pkg: &Package) -> Option<String> {
     for ptid in proto_type_ids {
         let ty = &pkg.types[*ptid];

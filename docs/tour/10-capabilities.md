@@ -29,7 +29,7 @@ agent Fetcher(net, clock): Fetch {
 - Capabilities can't cross agent boundaries as references. Anything you
   pass through `!Msg(...)` / `?Msg(...)` must be **Sendable**: Copy ∨
   owned ∨ owned struct of Sendable fields. References and raw pointers
-  fail `SD3011 non_sendable_message_arg`. See
+  fail `MT3011 non_sendable_message_arg`. See
   [14 — Ownership](14-ownership.md).
 
 ## Run it

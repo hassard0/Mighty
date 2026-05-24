@@ -29,7 +29,7 @@ pub struct Pair {
 
 #[test]
 fn markdown_index_contains_sections_and_anchors() {
-    let (doc, _) = build_doc_package(SAMPLE, "calc.sd", "calc");
+    let (doc, _) = build_doc_package(SAMPLE, "calc.mty", "calc");
     let files = render::markdown(&doc);
     let idx = files.get("index.md").expect("index.md");
     assert!(
@@ -48,7 +48,7 @@ fn markdown_index_contains_sections_and_anchors() {
 
 #[test]
 fn markdown_per_item_has_signature_and_back_link() {
-    let (doc, _) = build_doc_package(SAMPLE, "calc.sd", "calc");
+    let (doc, _) = build_doc_package(SAMPLE, "calc.mty", "calc");
     let files = render::markdown(&doc);
     let add = files.get("fn.add.md").expect("fn.add.md");
     assert!(add.contains("# `add` (fn)"));
@@ -59,7 +59,7 @@ fn markdown_per_item_has_signature_and_back_link() {
 
 #[test]
 fn markdown_struct_signature_is_pretty_printed() {
-    let (doc, _) = build_doc_package(SAMPLE, "calc.sd", "calc");
+    let (doc, _) = build_doc_package(SAMPLE, "calc.mty", "calc");
     let files = render::markdown(&doc);
     let pair = files.get("struct.Pair.md").expect("struct.Pair.md");
     assert!(pair.contains("pub struct Pair"));

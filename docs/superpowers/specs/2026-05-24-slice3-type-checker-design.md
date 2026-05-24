@@ -186,9 +186,9 @@ pub struct Substitution(Vec<Option<TyId>>);
 9. `Int(IntInfer)` unifies with any concrete `Int(_)`; concrete unifies only with same kind. Same for floats.
 10. `Never` unifies with any (it's the bottom type).
 11. `Error` unifies with anything (poison).
-12. Anything else: type mismatch — emit `SD2001` with both pretty-printed types.
+12. Anything else: type mismatch — emit `MT2001` with both pretty-printed types.
 
-**Defaulting**: after item-body inference, walk leftover `IntInfer` → `I32`, `FloatInfer` → `F64`. Unresolved generic `Var` after defaulting → `SD2003 cannot_infer_type`.
+**Defaulting**: after item-body inference, walk leftover `IntInfer` → `I32`, `FloatInfer` → `F64`. Unresolved generic `Var` after defaulting → `MT2003 cannot_infer_type`.
 
 ### 3.7 Bidirectional checking
 
@@ -240,49 +240,49 @@ Lowering already produces `HirType::Result { ok, err }`. The resolver maps `HirT
 `?` semantics:
 
 1. Expr must have type `Adt(result_id, [t, e])`.
-2. Enclosing fn return must have type `Adt(result_id, [_, e'])`. (If not, `SD2010 question_outside_result`.)
-3. Unify `e` with `e'`. (If mismatch, `SD2011 question_error_mismatch`.)
+2. Enclosing fn return must have type `Adt(result_id, [_, e'])`. (If not, `MT2010 question_outside_result`.)
+3. Unify `e` with `e'`. (If mismatch, `MT2011 question_error_mismatch`.)
 4. Result of `expr?` is `t`.
 
 ### 3.10 Public signature validation
 
 A pass over top-level fns:
 
-- If `is_pub`: every param must have an explicit `ty`. (`HirParam.ty.is_some()`.) If missing → `SD2020 pub_param_needs_type`.
-- If `is_pub` and return type missing → already SD0021 from parser.
+- If `is_pub`: every param must have an explicit `ty`. (`HirParam.ty.is_some()`.) If missing → `MT2020 pub_param_needs_type`.
+- If `is_pub` and return type missing → already MT0021 from parser.
 - If `is_pub` and any generic param appears in fn body's local type inference but not in the signature → not enforceable without inference, so skip in slice 3.
 
-### 3.11 Diagnostic codes (SD2001..SD2099)
+### 3.11 Diagnostic codes (MT2001..MT2099)
 
 ```
-SD2001 type_mismatch                  — expected T, found U
-SD2002 unresolved_type                — type name `Foo` does not name a type
-SD2003 cannot_infer_type              — cannot infer type for binding `x`
-SD2004 wrong_generic_arity            — type `Vec` expects 1 arg, got 0
-SD2005 wrong_arg_count                — fn expects N args, got M
-SD2006 unknown_field                  — struct `Foo` has no field `bar`
-SD2007 unknown_method                 — type `T` has no method `m`
-SD2008 not_callable                   — value of type T is not callable
-SD2009 unknown_variant                — enum `Foo` has no variant `Bar`
-SD2010 question_outside_result        — `?` requires fn returning Result[_, _]
-SD2011 question_error_mismatch        — `?` error type mismatch
-SD2012 wrong_variant_arity            — variant `Some` expects 1 payload, got 0
-SD2013 missing_struct_field           — struct `Foo` initializer missing field `x`
-SD2014 duplicate_struct_field         — duplicate field `x` in struct initializer
-SD2015 non_exhaustive_match           — warning: match not exhaustive (missing variants)
-SD2016 unreachable_match_arm          — warning: unreachable arm
-SD2017 binop_type_mismatch            — operator `+` not defined on T, U
-SD2018 if_branch_mismatch             — if/else branches have incompatible types
-SD2019 return_type_mismatch           — fn returns T, body produces U
-SD2020 pub_param_needs_type           — pub fn parameters require explicit types
-SD2021 unresolved_value               — name `foo` does not refer to any value
-SD2022 not_a_struct                   — value of type T cannot be initialized with struct literal
-SD2023 generic_arg_mismatch           — type arg N: expected kind K
-SD2024 lambda_arity_mismatch          — lambda has N params, expected M
-SD2025 cannot_take_ref                — cannot take reference to non-place expression
+MT2001 type_mismatch                  — expected T, found U
+MT2002 unresolved_type                — type name `Foo` does not name a type
+MT2003 cannot_infer_type              — cannot infer type for binding `x`
+MT2004 wrong_generic_arity            — type `Vec` expects 1 arg, got 0
+MT2005 wrong_arg_count                — fn expects N args, got M
+MT2006 unknown_field                  — struct `Foo` has no field `bar`
+MT2007 unknown_method                 — type `T` has no method `m`
+MT2008 not_callable                   — value of type T is not callable
+MT2009 unknown_variant                — enum `Foo` has no variant `Bar`
+MT2010 question_outside_result        — `?` requires fn returning Result[_, _]
+MT2011 question_error_mismatch        — `?` error type mismatch
+MT2012 wrong_variant_arity            — variant `Some` expects 1 payload, got 0
+MT2013 missing_struct_field           — struct `Foo` initializer missing field `x`
+MT2014 duplicate_struct_field         — duplicate field `x` in struct initializer
+MT2015 non_exhaustive_match           — warning: match not exhaustive (missing variants)
+MT2016 unreachable_match_arm          — warning: unreachable arm
+MT2017 binop_type_mismatch            — operator `+` not defined on T, U
+MT2018 if_branch_mismatch             — if/else branches have incompatible types
+MT2019 return_type_mismatch           — fn returns T, body produces U
+MT2020 pub_param_needs_type           — pub fn parameters require explicit types
+MT2021 unresolved_value               — name `foo` does not refer to any value
+MT2022 not_a_struct                   — value of type T cannot be initialized with struct literal
+MT2023 generic_arg_mismatch           — type arg N: expected kind K
+MT2024 lambda_arity_mismatch          — lambda has N params, expected M
+MT2025 cannot_take_ref                — cannot take reference to non-place expression
 ```
 
-Plus `SD2026..SD2099` reserved for future type errors.
+Plus `MT2026..MT2099` reserved for future type errors.
 
 ### 3.12 Prelude (`std.core`)
 
@@ -302,7 +302,7 @@ Synthesized by `prelude::build_prelude(&mut TypeArena, &mut DefMap)`. Defines:
 - `spawn: fn[T](T) -> AgentRef[T]` (special — `T` must be `agent`-shaped; slice 3 lets `T` be any ADT)
 - `move: fn[T](T) -> T` (identity for typeck)
 - `Some/None/Ok/Err` — added as enum variant constructors
-- A small "magic methods" table for things examples need: `len`, `to_str`, `get`, `ok_or`, `query`, `set_text`, `read`, `write`, `post`, `embed`, `encode`, `read` (Fs), `serve`, `on`, `ok`. These are typed as `fn(self, ...) -> Var` — i.e. the return type is a fresh inference variable so the example doesn't fail on a return-type mismatch. If a method isn't in the table and isn't user-defined, emit `SD2007`.
+- A small "magic methods" table for things examples need: `len`, `to_str`, `get`, `ok_or`, `query`, `set_text`, `read`, `write`, `post`, `embed`, `encode`, `read` (Fs), `serve`, `on`, `ok`. These are typed as `fn(self, ...) -> Var` — i.e. the return type is a fresh inference variable so the example doesn't fail on a return-type mismatch. If a method isn't in the table and isn't user-defined, emit `MT2007`.
 
 **Opaque modules:**
 - `std.http`, `std.json`, `std.dom`, `std.trace` are typed as `Module`. Field access on a Module returns `Ty::Error` silently if the member name is unknown. Known stubs: `http.ok`, `http.serve`, `http.Handler`, `json.encode`, `dom.set_text`, `dom.on`, `trace.span`.
@@ -345,7 +345,7 @@ For each example, list what type-checker features it exercises and what (if any)
 | 19_backend_service | package, use, agent with cache, if let Some, multiple deadlines, http.serve | std.http, std.json, std.trace, Net, Model, SearchErr, Json |
 | 20_frontend_component | export fn, lambda, agent method, dom intrinsics | std.dom, Dom |
 
-**Tricky case** (example 06): `work(item)?` inside `for` inside a fn returning `()`. The `?` requires the enclosing fn to return `Result[_, _]`. Spec interpretation: slice 3 emits `SD2010` and the example fails. **Resolution**: amend example 06 to return `Unit!WorkErr`, or treat the `?` as a slice-3 special case "permissive" (emit warning, not error). **Decision**: amend the example. Add `WorkErr` to prelude opaques.
+**Tricky case** (example 06): `work(item)?` inside `for` inside a fn returning `()`. The `?` requires the enclosing fn to return `Result[_, _]`. Spec interpretation: slice 3 emits `MT2010` and the example fails. **Resolution**: amend example 06 to return `Unit!WorkErr`, or treat the `?` as a slice-3 special case "permissive" (emit warning, not error). **Decision**: amend the example. Add `WorkErr` to prelude opaques.
 
 Similarly, example 11 has `Result!RunErr` — that desugars to `Result[Result, RunErr]` literally. **Resolution**: amend to `Unit!RunErr`. Document in spec amendments.
 
@@ -355,21 +355,21 @@ Examples 14, 16, 17 contain constructs (extern body fn sig, macro body, `require
 
 `tests/typeck_neg/*.sd` plus a `tests/typeck_neg.rs` driver that asserts each emits the expected diagnostic code:
 
-- `mismatch_let.sd` — `let x: I32 = "hi"` → SD2001
-- `mismatch_call.sd` — `log(42)` → SD2001
-- `unresolved_type.sd` — `fn f(x: NoSuch) -> Unit` → SD2002
-- `wrong_arity.sd` — `Some(1, 2)` → SD2012
-- `unknown_field.sd` — `User { id: 1, missing: 2 }` → SD2006 (or SD2014)
-- `pub_no_type.sd` — `pub fn f(x) -> Unit` → SD2020
-- `q_outside_result.sd` — `fn f() -> Unit { foo()? }` → SD2010
-- `q_err_mismatch.sd` — `Result[T,A]?` in `Result[U,B]` fn → SD2011
-- `unknown_variant.sd` — `match x { Foo.Bar => 1 }` where no `Foo.Bar` → SD2009
-- `binop_mismatch.sd` — `1 + "x"` → SD2017 (or SD2001)
-- `wrong_generic_arity.sd` — `Option[I32, Str]` → SD2004
-- `not_callable.sd` — `let n = 1; n()` → SD2008
-- `unresolved_value.sd` — `let x = no_such_name` → SD2021
-- `lambda_arity.sd` — `fn(a) {}` checked against `fn(I32, I32) -> Unit` → SD2024
-- `return_mismatch.sd` — `fn f() -> I32 { "hi" }` → SD2019
+- `mismatch_let.sd` — `let x: I32 = "hi"` → MT2001
+- `mismatch_call.sd` — `log(42)` → MT2001
+- `unresolved_type.sd` — `fn f(x: NoSuch) -> Unit` → MT2002
+- `wrong_arity.sd` — `Some(1, 2)` → MT2012
+- `unknown_field.sd` — `User { id: 1, missing: 2 }` → MT2006 (or MT2014)
+- `pub_no_type.sd` — `pub fn f(x) -> Unit` → MT2020
+- `q_outside_result.sd` — `fn f() -> Unit { foo()? }` → MT2010
+- `q_err_mismatch.sd` — `Result[T,A]?` in `Result[U,B]` fn → MT2011
+- `unknown_variant.sd` — `match x { Foo.Bar => 1 }` where no `Foo.Bar` → MT2009
+- `binop_mismatch.sd` — `1 + "x"` → MT2017 (or MT2001)
+- `wrong_generic_arity.sd` — `Option[I32, Str]` → MT2004
+- `not_callable.sd` — `let n = 1; n()` → MT2008
+- `unresolved_value.sd` — `let x = no_such_name` → MT2021
+- `lambda_arity.sd` — `fn(a) {}` checked against `fn(I32, I32) -> Unit` → MT2024
+- `return_mismatch.sd` — `fn f() -> I32 { "hi" }` → MT2019
 
 15 negative cases × 1 expected code = 15 tests.
 
@@ -448,7 +448,7 @@ Order:
 | Risk | Mitigation |
 |---|---|
 | Inference blows up on complex example | Permissive fallback to `Ty::Var` + `Ty::Error` keeps the checker non-fatal for unmodelled constructs |
-| Generic instantiation gets `Ty::Var` left over | Defaulting pass after each item; `SD2003` for the rare residual |
+| Generic instantiation gets `Ty::Var` left over | Defaulting pass after each item; `MT2003` for the rare residual |
 | Method-resolution table is brittle | Document table location; new built-in methods are one-line additions |
 | Examples cite stdlib that doesn't exist | Opaque prelude modules + opaque types make this tractable; we don't try to define std at all |
 | `?` in `Unit` examples fail | Amend the examples; document |

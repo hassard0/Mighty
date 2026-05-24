@@ -55,7 +55,7 @@ pub fn build_name_section(prog: &Program, import_count: u32) -> NameSection {
 /// `source_path` is the relative path the source-map's `sources` array
 /// will record. `source_text` is the literal source (used to compute
 /// line/column from byte offsets, and stored as `sourcesContent[0]` so
-/// debuggers can render source even if the .sd file isn't fetched).
+/// debuggers can render source even if the .mty file isn't fetched).
 pub fn build_source_map(
     prog: &Program,
     source_path: &str,
@@ -173,8 +173,8 @@ mod tests {
     #[test]
     fn source_map_includes_fn_entry() {
         let p = empty_main();
-        let sm = build_source_map(&p, "hello.sd", "// hi\nfn main() {}\n", "hello.wasm");
-        assert_eq!(sm.sources, vec!["hello.sd"]);
+        let sm = build_source_map(&p, "hello.mty", "// hi\nfn main() {}\n", "hello.wasm");
+        assert_eq!(sm.sources, vec!["hello.mty"]);
         assert_eq!(sm.file.as_deref(), Some("hello.wasm"));
         assert_eq!(sm.mappings.len(), 1);
     }

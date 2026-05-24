@@ -1,4 +1,4 @@
-//! `star.lock` — content-addressed dependency lockfile.
+//! `mighty.lock` — content-addressed dependency lockfile.
 //!
 //! Format (TOML):
 //!
@@ -8,7 +8,7 @@
 //! [[package]]
 //! name = "std"
 //! version = "0.1.0"
-//! source = "registry+https://pkg.stardust.dev"
+//! source = "registry+https://pkg.mighty.dev"
 //! hash = "sha256:abc..."
 //! dependencies = []
 //!
@@ -28,7 +28,7 @@ use std::path::Path;
 
 /// Hard-coded registry URL prefix used in lockfile `source = ...`
 /// values for registry-sourced packages.
-pub const DEFAULT_REGISTRY: &str = "https://pkg.stardust.dev";
+pub const DEFAULT_REGISTRY: &str = "https://pkg.mighty.dev";
 
 /// Current lockfile schema version. Bumped only on incompatible
 /// format changes.

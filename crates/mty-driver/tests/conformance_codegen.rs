@@ -28,13 +28,13 @@ fn conformance_root() -> PathBuf {
 fn read_case(name: &str) -> (String, String) {
     let mut p = conformance_root();
     p.push(name);
-    let input = std::fs::read_to_string(p.join("input.sd")).expect("input.sd");
+    let input = std::fs::read_to_string(p.join("input.mty")).expect("input.mty");
     let expected = std::fs::read_to_string(p.join("expected.txt")).unwrap_or_default();
     (input, expected)
 }
 
 fn lower_strict(src: String) -> mty_ir::Program {
-    let parsed = parse_source(src.clone(), "conformance.sd".into());
+    let parsed = parse_source(src.clone(), "conformance.mty".into());
     let (pkg, mut diags) = lower(&parsed);
     if !diags
         .iter()
@@ -106,7 +106,7 @@ fn wasm_web_target_emits_valid_module() {
 
 #[test]
 fn examples_01_hello_compiles_native() {
-    let src = std::fs::read_to_string("../../examples/01_hello.sd").expect("read example");
+    let src = std::fs::read_to_string("../../examples/01_hello.mty").expect("read example");
     let prog = lower_strict(src);
     let st = codegen_abi::symbol_table();
     let syms = symbols_from(&st.iter().map(|(n, p)| (n.as_str(), *p)).collect::<Vec<_>>());
@@ -115,7 +115,7 @@ fn examples_01_hello_compiles_native() {
 
 #[test]
 fn examples_01_hello_compiles_wasm() {
-    let src = std::fs::read_to_string("../../examples/01_hello.sd").expect("read example");
+    let src = std::fs::read_to_string("../../examples/01_hello.mty").expect("read example");
     let prog = lower_strict(src);
     let bytes = compile_program_to_bytes(&prog, WasmTarget::Wasi).expect("wasm");
     let mut v = wasmparser::Validator::new();
@@ -221,7 +221,7 @@ fn all_examples_compile_native() {
     let mut failed: Vec<(String, String)> = Vec::new();
     for entry in std::fs::read_dir(&examples_root).unwrap() {
         let p = entry.unwrap().path();
-        if p.extension().map(|e| e != "sd").unwrap_or(true) {
+        if p.extension().map(|e| e != "mty").unwrap_or(true) {
             continue;
         }
         let name = p.file_stem().unwrap().to_string_lossy().to_string();
@@ -316,7 +316,7 @@ fn aot_link_and_run_smoke() {
 }
 
 /// v0.3 integrator gate: every ship example must wrap into a valid
-/// Wasm Component (the default `sdust build --target wasm` output).
+/// Wasm Component (the default `mty build --target wasm` output).
 /// This third column complements `all_examples_compile_native` and
 /// `all_examples_compile_wasm` (which validate only the core module).
 #[test]
@@ -328,7 +328,7 @@ fn all_examples_compile_wasm_component() {
     let mut failed: Vec<(String, String)> = Vec::new();
     for entry in std::fs::read_dir(&examples_root).unwrap() {
         let p = entry.unwrap().path();
-        if p.extension().map(|e| e != "sd").unwrap_or(true) {
+        if p.extension().map(|e| e != "mty").unwrap_or(true) {
             continue;
         }
         let name = p.file_stem().unwrap().to_string_lossy().to_string();
@@ -383,7 +383,7 @@ fn all_examples_compile_wasm() {
     let mut failed: Vec<(String, String)> = Vec::new();
     for entry in std::fs::read_dir(&examples_root).unwrap() {
         let p = entry.unwrap().path();
-        if p.extension().map(|e| e != "sd").unwrap_or(true) {
+        if p.extension().map(|e| e != "mty").unwrap_or(true) {
             continue;
         }
         let name = p.file_stem().unwrap().to_string_lossy().to_string();

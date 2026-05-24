@@ -4,10 +4,10 @@
 //! (`mty-driver` → parse + lower + type-check) to LSP features so an
 //! editor (VS Code, Neovim, etc.) can get diagnostics, hover, go-to-def,
 //! formatting, completion, and (v0.5) semantic tokens / rename / inlay
-//! hints / code actions / signature help for `.sd` files.
+//! hints / code actions / signature help for `.mty` files.
 //!
 //! The single public entry point is [`run_stdio`], which is called by
-//! `sdust lsp` (see `crates/mty-cli/src/cmd/lsp.rs`).
+//! `mty lsp` (see `crates/mty-cli/src/cmd/lsp.rs`).
 //!
 //! Scope (v0.5):
 //! - `textDocument/didOpen`, `didChange` (incremental), `didClose`
@@ -20,13 +20,13 @@
 //! - `textDocument/semanticTokens/full` + `/range` (whole-CST classify)
 //! - `textDocument/rename` + `prepareRename` (single-file)
 //! - `textDocument/inlayHint` (inferred-type hints for `let` + params)
-//! - `textDocument/codeAction` (SD2021 / SD2002 / SD3001 / SD4001 fixes)
+//! - `textDocument/codeAction` (MT2021 / MT2002 / MT3001 / MT4001 fixes)
 //! - `textDocument/signatureHelp` (call + method-call sites)
 //! - `workspace/didChangeWorkspaceFolders` (re-analyzes per-folder open
 //!   files; cross-file resolution remains single-file inside the LSP)
 //! - lifecycle: `initialize` / `initialized` / `shutdown` / `exit`
 //!
-//! Out-of-scope (still): borrow-check diagnostics live in `sdust check`,
+//! Out-of-scope (still): borrow-check diagnostics live in `mty check`,
 //! full cross-file go-to-def, and call-hierarchy / type-hierarchy. See
 //! `docs/internals/lsp.md` for the architecture deep dive.
 

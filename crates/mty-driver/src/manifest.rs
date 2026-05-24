@@ -1,4 +1,4 @@
-//! Package manifest (`star.toml`) types and loader.
+//! Package manifest (`mighty.toml`) types and loader.
 //!
 //! v0.1 shipped a minimal `Manifest { package, deps: BTreeMap<String,
 //! String> }`. v0.2 extends `[deps]` to support detailed source
@@ -71,8 +71,8 @@ pub struct DetailedDep {
     pub rev: Option<String>,
     /// Pre-computed sha256 of the dependency contents (lockfile pinning).
     ///
-    /// `sha256:<hex>` form. Optional in `star.toml`; required in
-    /// `star.lock` for fetch-time verification.
+    /// `sha256:<hex>` form. Optional in `mighty.toml`; required in
+    /// `mighty.lock` for fetch-time verification.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hash: Option<String>,
 }
@@ -150,7 +150,7 @@ pub enum DepSourceKind {
 
 /// Build-script sandbox configuration scaffold (spec §5.4).
 ///
-/// Lists the network domains and filesystem paths a `build.sd` script
+/// Lists the network domains and filesystem paths a `build.mty` script
 /// is allowed to access. v0.2 only parses + records; enforcement is
 /// deferred to a later slice. Documented in
 /// `docs/internals/package-manager.md`.
@@ -182,7 +182,7 @@ pub fn load(path: &std::path::Path) -> Result<Manifest, ManifestError> {
 
 /// Serialize a `Manifest` back to TOML.
 ///
-/// Used by `sdust pkg add` / `sdust pkg remove` to round-trip the
+/// Used by `mty pkg add` / `mty pkg remove` to round-trip the
 /// manifest without losing fields. Comments and key ordering are *not*
 /// preserved — this is a coarse-grained MVP rewrite.
 pub fn save(m: &Manifest, path: &std::path::Path) -> Result<(), ManifestError> {

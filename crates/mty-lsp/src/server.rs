@@ -317,7 +317,7 @@ impl LanguageServer for Backend {
     async fn did_change_workspace_folders(&self, _params: DidChangeWorkspaceFoldersParams) {
         // v0.5: workspace folders are observed but the LSP still
         // analyzes each open file individually. When the user opens or
-        // closes a folder, the editor will didOpen/didClose every .sd
+        // closes a folder, the editor will didOpen/didClose every .mty
         // file inside; our per-doc analysis handles each. A future
         // amendment will build a cross-file ResolveMap.
         self.client
@@ -345,7 +345,7 @@ impl LanguageServer for Backend {
 }
 
 /// Convenience: run a tower-lsp server over stdio. Used by
-/// `sdust lsp` (see `crates/mty-cli/src/cmd/lsp.rs`).
+/// `mty lsp` (see `crates/mty-cli/src/cmd/lsp.rs`).
 pub fn run_stdio() -> i32 {
     let rt = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -353,7 +353,7 @@ pub fn run_stdio() -> i32 {
     {
         Ok(rt) => rt,
         Err(e) => {
-            eprintln!("sdust lsp: failed to start tokio runtime: {}", e);
+            eprintln!("mty lsp: failed to start tokio runtime: {}", e);
             return 1;
         }
     };

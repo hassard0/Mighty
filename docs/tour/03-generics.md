@@ -51,7 +51,7 @@ generics remain bracket-only as above.
 ## Type errors you might see
 
 ```sd
-// SD2004 wrong generic arity
+// MT2004 wrong generic arity
 fn f(x: Option[I32, Str]) -> Unit {}   // Option takes 1 arg
 
 // Type-arg inference flows from arg to return:

@@ -43,12 +43,12 @@ sdust check examples/04_result_propagation.sd
 amendment A7):
 
 ```sd
-// SD2010 ? outside Result-returning function
+// MT2010 ? outside Result-returning function
 fn returns_unit() -> Unit {
   fetch(url)?    // can't propagate; fn returns Unit
 }
 
-// SD2011 ? error-type mismatch
+// MT2011 ? error-type mismatch
 fn outer() -> Result[I32, NetErr] {
   first()?       // first() returns Result[I32, IoErr] — err types don't match
   Ok(2)

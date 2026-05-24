@@ -98,7 +98,7 @@ The v0.4 macro slice ships expansion + hygiene + HIR integration.
   expansion get a unique suffix per expansion site, so a macro
   introducing `let tmp = …` doesn't collide with the caller's
   `tmp`. (Set-of-scopes is documented as the v0.5 upgrade path.)
-- **SD6001..SD6004** — bare `u16` codes living in
+- **MT6001..MT6004** — bare `u16` codes living in
   `sdust_macros::diag` (the slice scope precluded modifying
   `sdust-diagnostics`). The HIR integration wraps them in
   `DiagCode::new(N)` at emission.
@@ -189,7 +189,7 @@ Consolidated from the v0.3 `*_NOTES.md` set and `SLICE_V0_3.md`'s
 | Item | Status in v0.4 |
 |---|---|
 | Backtracking package resolver + tar/flate2 + real registry | **shipped** (registry agent: GH Releases transport, gz tar bundles, on-disk index cache, three new CLI commands) |
-| Procedural / declarative macros | **shipped — declarative** (sdust-macros: expansion + hygiene + SD6001..SD6004; proc macros remain v0.5+) |
+| Procedural / declarative macros | **shipped — declarative** (sdust-macros: expansion + hygiene + MT6001..MT6004; proc macros remain v0.5+) |
 | Real `loop { break }` lowering (single-iteration loops in SIR) | **partially shipped** — SIR loops now iterate properly; `break`/`continue` HIR nodes remain v0.5 |
 | 20/20 wasm-Component example sweep (v0.3 regression gate) | **held** (20/20 still passing) |
 | LSP integration test contract under A65 strict scopes | **held** (no regression) |
@@ -215,7 +215,7 @@ The carried items are scoped into v0.5; nothing regressed.
 
 ```
 A57 — Declarative macro expansion model + hygiene via mangling (v0.4)
-A58 — SD6001..SD6004 macro diagnostic codes (v0.4)
+A58 — MT6001..MT6004 macro diagnostic codes (v0.4)
 A59 — GitHub Releases registry transport + `registry+gh://<owner>/<repo>` URL scheme (v0.4)
 A60 — Offline-first resolver: `add` / `update` use cache; `--refresh` for network (v0.4)
 A61 — Deterministic `.tar.gz` bundles for `pkg publish` (v0.4)
@@ -233,7 +233,7 @@ A63 — Self-host bootstrap via `std.io` effect bridge (v0.4)
 | `while cond` re-evaluates cond between iterations | single-iter (collapsed to `if`) | **iterates** (A62) |
 | `loop { body }` runs until trap / return / budget | single-iter | **iterates until budget** (A62) |
 | Macro hygiene at `let IDENT` sites | n/a (no expansion) | **mangled — no caller collision** (A57) |
-| Macro arity / recursion-depth violations | n/a | **SD6001..SD6004 with span** (A58) |
+| Macro arity / recursion-depth violations | n/a | **MT6001..MT6004 with span** (A58) |
 | Package fetch from registry | stubbed | **real GH Releases + sha256 + offline cache** (A59/A60) |
 | `pkg publish` bundle determinism | n/a | **byte-identical across runs** (A61) |
 | Lexer source bootstrap | external Rust only | **Stardust subset compiles + first-token round-trips via host bridge** (A63) |
@@ -243,12 +243,12 @@ A63 — Self-host bootstrap via `std.io` effect bridge (v0.4)
 Four codes minted by the macros agent (bare `u16` in
 `sdust_macros::diag`, wrapped in `DiagCode::new(N)` at emission):
 
-- **SD6001** — unknown_macro (reserved — fires once the
+- **MT6001** — unknown_macro (reserved — fires once the
   `mac!name(...)` syntactic marker lands in v0.5)
-- **SD6002** — macro_arity_mismatch
-- **SD6003** — macro_recursion_depth_exceeded
+- **MT6002** — macro_arity_mismatch
+- **MT6003** — macro_recursion_depth_exceeded
   (`MAX_EXPANSION_DEPTH = 32`)
-- **SD6004** — macro_bad_argument_tokens
+- **MT6004** — macro_bad_argument_tokens
 
 These do not yet appear in `sdust-diagnostics::codes`; the cleanup
 folds them into the central catalog in v0.5.
@@ -294,7 +294,7 @@ v0.4 loop fix's residue.
 
 4. **`!fn(args)` parse precedence.** Unary `!` binds tighter than
    `(args)` so `!is_space(b)` parses as `(!is_space)(b)` and trips
-   SD2008. Standard fix: `unary_op call_expr` becomes
+   MT2008. Standard fix: `unary_op call_expr` becomes
    `unary_op(call_expr)`.
 5. **`extern { fn ... }` real dispatch.** Bodyless extern fns
    currently lower to `return Unit`; route through
@@ -311,7 +311,7 @@ v0.4 loop fix's residue.
 
 ### Macros
 
-9. **`mac!name(...)` syntactic marker.** Activates SD6001.
+9. **`mac!name(...)` syntactic marker.** Activates MT6001.
 10. **Set-of-scopes hygiene** replacing the v0.4 mangling pass.
 11. **Proc macros** (sandboxed token-tree → token-tree functions).
 12. **Cross-file macro export + visibility** (`pub macro foo`).
@@ -384,7 +384,7 @@ v0.4 loop fix's residue.
 - **3/3 dogfood demos pass `smoke.sh`** (search_api, counter_web,
   extract_tool).
 - **7 new spec amendments** (A57..A63).
-- **4 new SD codes** (SD6001..SD6004, macros).
+- **4 new SD codes** (MT6001..MT6004, macros).
 - **MSRV unchanged at 1.85**.
 
 ## Known issues
@@ -392,7 +392,7 @@ v0.4 loop fix's residue.
 1. **`break` / `continue` are not yet HIR nodes** — they currently
    parse as bare identifier expressions with no side effect. Any
    `loop { if cond { break } … }` shape runs until the
-   interpreter's step budget (`SD5009 BudgetExceeded`). This blocks
+   interpreter's step budget (`MT5009 BudgetExceeded`). This blocks
    the full self-host lexer diff (the bootstrap test runs first
    token + asserts BudgetExceeded as its v0.4 contract).
 2. **`for` has no iterator-exhaustion check** — `for x in arr {
@@ -413,7 +413,7 @@ v0.4 loop fix's residue.
 4. **Macro hygiene is mangling-based, not set-of-scopes** — only
    `let IDENT` is mangled; pattern bindings (`let (a, b) = …`)
    inside an expansion don't yet get unique suffixes.
-5. **`mac!name(...)` syntactic marker not yet parsed** — SD6001
+5. **`mac!name(...)` syntactic marker not yet parsed** — MT6001
    stays reserved. Macros are detected via `CALL_EXPR` whose
    callee path matches a registered macro name.
 6. **`sdust-macros` SD6xxx codes** live in `sdust_macros::diag` as

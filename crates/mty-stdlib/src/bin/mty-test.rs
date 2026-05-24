@@ -4,7 +4,7 @@
 //! every `fn test_*` it finds, and prints a `cargo test`-style report.
 //! Exit code: 0 on all-pass, 1 on any failure.
 //!
-//! v0.3 plan: merge this into `sdust test` as a subcommand of the main
+//! v0.3 plan: merge this into `mty test` as a subcommand of the main
 //! `sdust` CLI. We ship it as a standalone binary in v0.2 to respect
 //! the wave-2 work-area constraints documented in `STDLIB_V0_2_NOTES.md`.
 
@@ -26,7 +26,7 @@ fn main() {
                 println!("Usage: mty-test [--dir <path>]");
                 println!();
                 println!("Default --dir is `tests/`. Every fn whose name starts with");
-                println!("`test_` in every .sd file under that directory is invoked.");
+                println!("`test_` in every .mty file under that directory is invoked.");
                 return;
             }
             _ => {}

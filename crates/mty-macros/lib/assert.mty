@@ -1,7 +1,7 @@
 // Standard assertion macros (v0.5 sdust-macros).
 //
 // These macros are pure declarative templates. They expand inline at
-// the call site; SD6002 fires if the arity is wrong, and SD6003 fires
+// the call site; MT6002 fires if the arity is wrong, and MT6003 fires
 // if the expanded body fails to re-parse.
 //
 // Usage:

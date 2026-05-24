@@ -279,7 +279,7 @@ pub fn unresolved_value(name: &str, span: &SourceSpan) -> Diagnostic {
 /// v0.3 (A65): an unresolved value name appeared inside a strict scope
 /// (agent body, handler body, supervisor body, narrow-cap body). Slice 3's
 /// permissive A21 fresh-var fallback only applies in top-level / extern /
-/// unsafe scopes; strict scopes promote the failure to SD2021 with a
+/// unsafe scopes; strict scopes promote the failure to MT2021 with a
 /// scope-aware note so the author understands why fresh-var inference
 /// won't paper over the missing binding.
 pub fn unresolved_value_strict(name: &str, scope: &str, span: &SourceSpan) -> Diagnostic {
@@ -453,7 +453,7 @@ pub fn protocol_arity_mismatch(
 /// v0.3 (A65): handler parameter type derived from in-body usage does not
 /// unify with the protocol's declared parameter type. Reported only for
 /// protocols defined in the current package (local) and in the prelude;
-/// external protocols continue to emit SD2026 instead so v0.2 examples
+/// external protocols continue to emit MT2026 instead so v0.2 examples
 /// keep compiling.
 #[allow(clippy::too_many_arguments)]
 pub fn protocol_param_type_mismatch(

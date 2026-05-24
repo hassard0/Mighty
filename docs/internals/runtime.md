@@ -72,7 +72,7 @@ Each agent owns a tokio task that loops:
 7. If the message had a `reply` sender, send the handler return value.
 8. Loop.
 
-On trap (e.g. SD5001 panic, SD5009 budget exceeded), the agent
+On trap (e.g. MT5001 panic, MT5009 budget exceeded), the agent
 notifies its supervisor (slice 7 MVP: just removes the agent from
 the registry; the full supervisor restart path is wired but not
 exercised end-to-end in slice 7).
@@ -101,7 +101,7 @@ exercised end-to-end in slice 7).
 | Capability table   | `BudgetTracker` allowlists | host/path/read/write |
 | Budget tracker     | `BudgetTracker` | CPU/wall/mem/mailbox/spawn |
 | Telemetry emitter  | `TelemetrySink` (JSON lines) | A38 OTLP-flavoured |
-| Panic/trap handler | `RuntimeError::diag_code()` | SD5001..SD5050 |
+| Panic/trap handler | `RuntimeError::diag_code()` | MT5001..MT5050 |
 
 ## Determinism
 
@@ -157,7 +157,7 @@ Specifically:
    the blocking thread against `per_turn.cancelled()`.
 4. When the wall-budget timer expires, the child token is fired
    with `CancelReason::WallBudget`; the parent emits a
-   `BudgetBreach` telemetry event (SD5009) and notifies the
+   `BudgetBreach` telemetry event (MT5009) and notifies the
    `ask`-side `reply` oneshot with the error.
 5. The blocking thread is **detached** — never joined. Worst-case
    wall time on its end is bounded by the SIR interpreter's
@@ -178,10 +178,10 @@ runaway handler would block until the channel was dropped.
 
 | `CancelReason`  | SD5xxx | When fired                            |
 |-----------------|--------|---------------------------------------|
-| `WallBudget`    | SD5009 | per-turn wall budget elapsed          |
-| `CpuBudget`     | SD5009 | (reserved) per-agent CPU sum          |
-| `AskDeadline`   | SD5011 | caller's `?Msg @D` deadline           |
-| `Shutdown`      | SD5020 | `Runtime::shutdown` fired the root    |
+| `WallBudget`    | MT5009 | per-turn wall budget elapsed          |
+| `CpuBudget`     | MT5009 | (reserved) per-agent CPU sum          |
+| `AskDeadline`   | MT5011 | caller's `?Msg @D` deadline           |
+| `Shutdown`      | MT5020 | `Runtime::shutdown` fired the root    |
 
 ### Concurrency contract
 

@@ -14,11 +14,11 @@
 //!     addition to v0.4's plain `CALL_EXPR` shape. The new node's args
 //!     are stored as an opaque `TOKEN_TREE`; we split on commas at
 //!     depth 0 to recover individual argument source slices.
-//!   * **SD6001** finally fires for `name!(args)` calls whose name is
-//!     not in the registry. v0.4 left SD6001 dormant because there was
+//!   * **MT6001** finally fires for `name!(args)` calls whose name is
+//!     not in the registry. v0.4 left MT6001 dormant because there was
 //!     no syntactic distinction between fn calls and macro calls.
-//!   * **SD6005** + **SD6006** fire for procedural macros: SD6005 at
-//!     decl time if the body looks impure; SD6006 at call sites
+//!   * **MT6005** + **MT6006** fire for procedural macros: MT6005 at
+//!     decl time if the body looks impure; MT6006 at call sites
 //!     because v0.5 can't execute proc-macro bodies yet.
 //!
 //! Errors produced here use the SD6xxx band (see
@@ -53,9 +53,9 @@ pub struct Preprocessed {
 ///     registered macro — v0.4 backwards-compat), skipping calls that
 ///     appear *inside* a macro declaration's body,
 ///   * also collects every MACRO_CALL whose name is **not** in the
-///     registry — those raise SD6001 immediately,
+///     registry — those raise MT6001 immediately,
 ///   * also collects every PROC_MACRO_DECL and checks purity
-///     (SD6005), and raises SD6006 for any call to one,
+///     (MT6005), and raises MT6006 for any call to one,
 ///   * replaces each resolvable call's source span with its expansion,
 ///     processed right-to-left so byte offsets stay valid,
 ///   * if no calls were found, returns; otherwise iterates.
@@ -64,7 +64,7 @@ pub fn preprocess(source: &str) -> Preprocessed {
     let mut diags: Vec<Diagnostic> = vec![];
     let mut ctx_counter: MacroContext = 0;
 
-    // SD6005: check every proc-macro decl's purity once, before expansion.
+    // MT6005: check every proc-macro decl's purity once, before expansion.
     // This is a static check so we only need to run it on the original
     // source (subsequent expansion passes don't change decls).
     diags.extend(check_proc_macros(source));
@@ -80,7 +80,7 @@ pub fn preprocess(source: &str) -> Preprocessed {
         };
         let registry = MacroRegistry::from_file(&file.0);
 
-        // SD6001 for explicit Name!(args) calls whose name isn't in the
+        // MT6001 for explicit Name!(args) calls whose name isn't in the
         // registry. This fires even when the registry is empty.
         let unknown = collect_unknown_macro_calls(&file.0, &registry);
         let unknown_was_nonempty = !unknown.is_empty();
@@ -140,7 +140,7 @@ pub fn preprocess(source: &str) -> Preprocessed {
         let mut rewrites: Vec<Rewrite> = vec![];
         for c in &calls {
             ctx_counter = ctx_counter.wrapping_add(1);
-            // Procedural macro: emit SD6006 and replace with sentinel.
+            // Procedural macro: emit MT6006 and replace with sentinel.
             // (Real expansion is v0.6.)
             if c.def.kind == MacroKind::Procedural {
                 diags.push(diag_proc_macro_unsupported(c.start, c.end, &c.name));
@@ -233,7 +233,7 @@ pub fn preprocess(source: &str) -> Preprocessed {
 }
 
 /// Validate that a referenced macro name actually exists. Walks the
-/// CST and reports SD6001 for any `name!(args)` call whose name is
+/// CST and reports MT6001 for any `name!(args)` call whose name is
 /// not in `registry`.
 pub fn check_unknown_macros(source: &str) -> Vec<Diagnostic> {
     let p = mty_syntax::parse(source);
@@ -248,9 +248,9 @@ pub fn check_unknown_macros(source: &str) -> Vec<Diagnostic> {
         .collect()
 }
 
-/// Scan proc-macro decls in `source` and emit SD6005 for any whose body
+/// Scan proc-macro decls in `source` and emit MT6005 for any whose body
 /// looks impure (effect calls, bare impure surface). Pure proc macros
-/// produce no diagnostic here — their call sites raise SD6006 later.
+/// produce no diagnostic here — their call sites raise MT6006 later.
 pub fn check_proc_macros(source: &str) -> Vec<Diagnostic> {
     let p = mty_syntax::parse(source);
     let root = SyntaxNode::new_root(p.green);
@@ -342,7 +342,7 @@ fn collect_macro_calls<'a>(
 }
 
 /// Walk the CST and collect every MACRO_CALL whose name is NOT in
-/// the registry — those raise SD6001.
+/// the registry — those raise MT6001.
 fn collect_unknown_macro_calls(file: &SyntaxNode, reg: &MacroRegistry) -> Vec<UnknownMacroSite> {
     let mut out: Vec<UnknownMacroSite> = vec![];
     let mut stack: Vec<SyntaxNode> = vec![file.clone()];
@@ -755,7 +755,7 @@ mod tests {
             diags
                 .iter()
                 .any(|d| d.code == DiagCode::new(mty_macros::MACRO_ARITY_MISMATCH)),
-            "missing SD6002, got: {:?}",
+            "missing MT6002, got: {:?}",
             diags
         );
     }
@@ -872,7 +872,7 @@ mod tests {
             pp.diagnostics
                 .iter()
                 .any(|d| d.code == DiagCode::new(mty_macros::UNKNOWN_MACRO)),
-            "missing SD6001, diags: {:?}",
+            "missing MT6001, diags: {:?}",
             pp.diagnostics
         );
     }
@@ -880,7 +880,7 @@ mod tests {
     #[test]
     fn plain_call_to_unknown_does_not_emit_sd6001() {
         // Without the `!` marker, an unknown name is a regular fn call
-        // — let normal name resolution handle it. SD6001 fires only
+        // — let normal name resolution handle it. MT6001 fires only
         // for the explicit `name!(...)` shape.
         let src = "fn main() -> i32 { nonexistent(x); 0 }\n";
         let pp = preprocess(src);
@@ -888,7 +888,7 @@ mod tests {
             !pp.diagnostics
                 .iter()
                 .any(|d| d.code == DiagCode::new(mty_macros::UNKNOWN_MACRO)),
-            "SD6001 should not fire for plain calls, diags: {:?}",
+            "MT6001 should not fire for plain calls, diags: {:?}",
             pp.diagnostics
         );
     }
@@ -904,7 +904,7 @@ mod tests {
             pp.diagnostics
                 .iter()
                 .any(|d| d.code == DiagCode::new(mty_macros::PROC_MACRO_UNSUPPORTED_V0_5)),
-            "missing SD6006, diags: {:?}",
+            "missing MT6006, diags: {:?}",
             pp.diagnostics
         );
     }
@@ -922,7 +922,7 @@ mod tests {
             pp.diagnostics
                 .iter()
                 .any(|d| d.code == DiagCode::new(mty_macros::PROC_MACRO_IMPURE)),
-            "missing SD6005, diags: {:?}",
+            "missing MT6005, diags: {:?}",
             pp.diagnostics
         );
     }

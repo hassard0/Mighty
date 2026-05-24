@@ -17,13 +17,13 @@ use std::collections::HashMap;
 pub enum Ownership {
     /// The local owns its value (or is a Copy value sitting in storage).
     Owned,
-    /// The local was moved; reading it is SD3001.
+    /// The local was moved; reading it is MT3001.
     Moved { at: SourceSpan },
     /// One or more shared borrows are live; `count` is their count.
     Borrowed { count: u32 },
     /// A single mutable borrow is live.
     BorrowedMut,
-    /// Declared but never assigned (let with no init). Reading is SD3015.
+    /// Declared but never assigned (let with no init). Reading is MT3015.
     Uninit,
 }
 

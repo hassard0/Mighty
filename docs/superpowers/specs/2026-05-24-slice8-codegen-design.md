@@ -247,7 +247,7 @@ can override per-extern via `[extern]` table in `star.toml`:
 "sqlite3_open" = "libsqlite3"
 ```
 
-For unresolved externs we trap at the call site with SD8005.
+For unresolved externs we trap at the call site with MT8005.
 
 ### Supervisor restart orchestrator
 
@@ -267,9 +267,9 @@ orchestrator into the loop. Tests live in
 ### Panic & trap handling
 
 Native: compiled fns panic via Rust runtime → caught at agent boundary
-by `std::panic::catch_unwind`. Trap codes: SD8001 (divide-by-zero),
-SD8002 (oob index), SD8003 (overflow when checked), SD8004 (null
-deref), SD8005 (extern unresolved), SD8006 (unreachable).
+by `std::panic::catch_unwind`. Trap codes: MT8001 (divide-by-zero),
+MT8002 (oob index), MT8003 (overflow when checked), MT8004 (null
+deref), MT8005 (extern unresolved), MT8006 (unreachable).
 
 Wasm: same trap codes, surface via wasmtime's `Trap` type when run
 under wasmtime; slice-8 ships byte-only Wasm and leaves wasmtime
@@ -358,7 +358,7 @@ Target test count: **390+**.
   specialization; size-optimized shared generics deferred to v0.2.
 - **A50** — Slice-8 arena = bumpalo-backed `Bump` per arena scope;
   byte-accurate budget charging through `BudgetTracker`.
-- **A51** — Trap code namespace SD8001..SD8010 reserved for codegen
+- **A51** — Trap code namespace MT8001..MT8010 reserved for codegen
   runtime traps.
 - **A52** — Native linker discovery order: `$STARDUST_LINKER` env →
   `cc` → `gcc` → `clang` → MSVC `link.exe`. First found wins. If none,

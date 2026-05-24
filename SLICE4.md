@@ -24,22 +24,22 @@
   - `if`/`match`/`if-let` join-by-intersection (definitely-moved wins)
   - Lexical borrow regions — borrows decay at end of innermost enclosing
     block
-- **Arena escape detection** (`SD3010`) — arena body's tail expression
+- **Arena escape detection** (`MT3010`) — arena body's tail expression
   directly naming an arena-local non-Copy binding errors. Indirect flow
   is post-v0.1.
-- **Cross-agent Sendable check** (`SD3011`) — every arg to
+- **Cross-agent Sendable check** (`MT3011`) — every arg to
   `target!Msg(args)` / `target?Msg(args)` validated via `is_sendable`.
 - **Drop intent** — at scope exit, `DropPlan` accumulates entries for
   every Owned non-Copy local. Codegen consumes this in a later slice.
 - **15 SD3xxx diagnostics** + `sdust explain` text for each.
 - **Slice-3 hardening**:
   - **Scope-aware tolerance** (A21) — replaces blanket permissive policy;
-    `SD2021` fires on top-level fn bodies' unresolved names
+    `MT2021` fires on top-level fn bodies' unresolved names
   - **Real impl-method dispatch** (A17) — user-ADT methods resolve via
     indexed impl blocks; opaque + primitive receivers stay permissive
   - **Protocol-aware handler param types** (A18) — agent handler params
-    bind to protocol-declared types; `SD2026` warns when no match
-  - **Match exhaustiveness as error** (A16) — `SD2015` flipped from
+    bind to protocol-declared types; `MT2026` warns when no match
+  - **Match exhaustiveness as error** (A16) — `MT2015` flipped from
     Warning to Error
   - **Integer/float defaulting pass** (A19) — `IntInfer` → `I32`,
     `FloatInfer` → `F64` rewritten in the side-table after each body
@@ -71,7 +71,7 @@ operator rule applies cleanly.
 - **A16** — Non-exhaustive match is an error (was warning)
 - **A17** — Method dispatch policy (user ADTs require impl; opaque keep
   built-in table)
-- **A18** — Protocol-aware handler params (SD2026 warning on miss)
+- **A18** — Protocol-aware handler params (MT2026 warning on miss)
 - **A19** — Integer/float defaulting pass
 - **A20** — Lexical borrow regions (Rust-2015 style; no NLL/Polonius)
 - **A21** — Scope-aware tolerance for unresolved values
@@ -81,7 +81,7 @@ operator rule applies cleanly.
 - **266 tests pass** (slice 3: 224 → slice 4: +42)
 - ~2 500 lines of Rust added (sdust-borrow + items.rs/check.rs/resolve.rs
   extensions)
-- 15 new SD3xxx + SD2026 diagnostic codes
+- 15 new SD3xxx + MT2026 diagnostic codes
 - 12 negative borrow fixtures (one per SD3xxx-reachable code)
 - 20 example-borrowck integration tests + 4 sdust-borrow direct tests +
   17 unit tests in copy/sendable/state
@@ -96,8 +96,8 @@ operator rule applies cleanly.
 - Real serializable-shape audit for cross-agent messages — slice 6
 - Trait coherence + dyn dispatch — slice 5
 - Effect closure + capability narrowing enforcement — slice 5
-- `move *ref` modelling for SD3009 — slice 5
-- Tighter SD3002 vs SD3008 distinction — slice 5
+- `move *ref` modelling for MT3009 — slice 5
+- Tighter MT3002 vs MT3008 distinction — slice 5
 - Real codegen of `drop()` calls + SIR consumption of `DropPlan` —
   slice 6+
 - Pattern-typed locals (struct field types in patterns) — slice 5

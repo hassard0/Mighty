@@ -942,10 +942,10 @@ fn lower_match(
 
         next_test = failure;
     }
-    // Final fallthrough: panic SD5005.
+    // Final fallthrough: panic MT5005.
     fb.switch_to(next_test);
     fb.set_term(Term::Panic {
-        msg: Operand::Const(Const::Str("SD5005 unreachable match".into())),
+        msg: Operand::Const(Const::Str("MT5005 unreachable match".into())),
     });
 
     fb.switch_to(join);

@@ -16,10 +16,10 @@ edition = "2026"
 "#,
     )
     .unwrap();
-    fs::write(root.join("main.sd"), b"fn main() { println(\"hi\") }").unwrap();
+    fs::write(root.join("main.mty"), b"fn main() { println(\"hi\") }").unwrap();
     fs::create_dir_all(root.join("src/inner")).unwrap();
-    fs::write(root.join("src/lib.sd"), b"// lib").unwrap();
-    fs::write(root.join("src/inner/util.sd"), b"// util").unwrap();
+    fs::write(root.join("src/lib.mty"), b"// lib").unwrap();
+    fs::write(root.join("src/inner/util.mty"), b"// util").unwrap();
 }
 
 #[test]
@@ -54,14 +54,14 @@ fn bundle_writes_tar_gz_and_sidecar_with_matching_sha256() {
         .map(|e| e.path().unwrap().to_string_lossy().into_owned())
         .collect();
     paths.sort();
-    assert!(paths.iter().any(|p| p.ends_with("fixture-0.4.0/star.toml")));
-    assert!(paths.iter().any(|p| p.ends_with("fixture-0.4.0/main.sd")));
+    assert!(paths.iter().any(|p| p.ends_with("fixture-0.4.0/mighty.toml")));
+    assert!(paths.iter().any(|p| p.ends_with("fixture-0.4.0/main.mty")));
     assert!(paths
         .iter()
-        .any(|p| p.ends_with("fixture-0.4.0/src/lib.sd")));
+        .any(|p| p.ends_with("fixture-0.4.0/src/lib.mty")));
     assert!(paths
         .iter()
-        .any(|p| p.ends_with("fixture-0.4.0/src/inner/util.sd")));
+        .any(|p| p.ends_with("fixture-0.4.0/src/inner/util.mty")));
 }
 
 #[test]
@@ -90,7 +90,7 @@ fn bundle_extraction_round_trips_through_fetcher() {
 
     let unpacked_root = dst.path().join("fixture-0.4.0");
     assert!(unpacked_root.join("mighty.toml").exists());
-    assert!(unpacked_root.join("main.sd").exists());
-    assert!(unpacked_root.join("src/lib.sd").exists());
-    assert!(unpacked_root.join("src/inner/util.sd").exists());
+    assert!(unpacked_root.join("main.mty").exists());
+    assert!(unpacked_root.join("src/lib.mty").exists());
+    assert!(unpacked_root.join("src/inner/util.mty").exists());
 }

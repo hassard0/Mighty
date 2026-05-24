@@ -23,8 +23,8 @@
 //!   borrower binding's last use, the corresponding borrow record is
 //!   removed from the ledger (and the root-local state recomputed
 //!   from the ledger remnants).
-//! - **Precise SD3009**: `move *ref` (and `let x = *ref` for non-Copy)
-//!   emits SD3009 with a tailored message.
+//! - **Precise MT3009**: `move *ref` (and `let x = *ref` for non-Copy)
+//!   emits MT3009 with a tailored message.
 
 use crate::arena_region::ArenaCounter;
 use crate::copy::is_copy;
@@ -594,7 +594,7 @@ impl<'a> BorrowCx<'a> {
             }
             HirExpr::Unary { op, rhs } => {
                 // v0.3 (A56): `let x = *ref` (Position::Use of a Deref of
-                // a non-Copy ref) is also an SD3009. The explicit Move
+                // a non-Copy ref) is also an MT3009. The explicit Move
                 // case is handled in HirExpr::Move.
                 if matches!(op, UnOp::Deref) && pos == Position::Use {
                     self.check_deref_move(rhs, &span);
@@ -635,7 +635,7 @@ impl<'a> BorrowCx<'a> {
                 None
             }
             HirExpr::Move(inner) => {
-                // v0.3 (A56): `move *ref` of a non-Copy ref => SD3009.
+                // v0.3 (A56): `move *ref` of a non-Copy ref => MT3009.
                 let inner_expr = self.pkg.exprs[inner].clone();
                 if let HirExpr::Unary {
                     op: UnOp::Deref,
@@ -902,7 +902,7 @@ impl<'a> BorrowCx<'a> {
                 };
                 // Arena escape: if the body's tail directly resolves to a
                 // local owned in the active arena region and is not Copy,
-                // emit SD3010.
+                // emit MT3010.
                 if let Some(name) = tail_name {
                     if let Some(state) = self.locals.get(&name) {
                         if state.arena_region == Some(region) && !state.is_copy {
@@ -1017,7 +1017,7 @@ impl<'a> BorrowCx<'a> {
     /// pathways still fire.
     fn try_place_borrow(&mut self, place: &Place, kind: BorrowKind, span: &SourceSpan) {
         // Mutability check: borrow_mut of a place rooted at an immutable
-        // local needs the legacy SD3013 check on the root.
+        // local needs the legacy MT3013 check on the root.
         if kind == BorrowKind::Mut {
             if let Some(s) = self.locals.get(&place.root) {
                 if !s.mutable {
@@ -1062,7 +1062,7 @@ impl<'a> BorrowCx<'a> {
             }
             match (kind, any_mut_existing, any_shared_existing) {
                 (BorrowKind::Mut, true, _) => {
-                    // existing &mut + new &mut => SD3006
+                    // existing &mut + new &mut => MT3006
                     if is_root_borrow {
                         self.diag.push(diag::two_mut_borrows(&place.root, span));
                     } else {
@@ -1070,7 +1070,7 @@ impl<'a> BorrowCx<'a> {
                     }
                 }
                 (BorrowKind::Mut, false, true) => {
-                    // existing & + new &mut => SD3004
+                    // existing & + new &mut => MT3004
                     if is_root_borrow {
                         self.diag
                             .push(diag::mut_borrow_while_shared(&place.root, span));
@@ -1080,7 +1080,7 @@ impl<'a> BorrowCx<'a> {
                     }
                 }
                 (BorrowKind::Shared, true, _) => {
-                    // existing &mut + new & => SD3005
+                    // existing &mut + new & => MT3005
                     if is_root_borrow {
                         self.diag
                             .push(diag::shared_borrow_while_mut(&place.root, span));
@@ -1146,7 +1146,7 @@ impl<'a> BorrowCx<'a> {
         }
     }
 
-    /// v0.3 (A56): SD3009 detector for `*ref` where ref's underlying
+    /// v0.3 (A56): MT3009 detector for `*ref` where ref's underlying
     /// type is non-Copy. Called on the inner `rhs` of `Unary{Deref}`.
     fn check_deref_move(&mut self, ref_expr: ExprId, span: &SourceSpan) {
         let ref_ty = self.typed.expr_ty.get(&ref_expr).copied();
@@ -1158,7 +1158,7 @@ impl<'a> BorrowCx<'a> {
         if is_copy(inner_ty, &self.typed.ty_arena, &self.typed.def_map) {
             return;
         }
-        // Non-Copy: SD3009. Name the ref expression for the user.
+        // Non-Copy: MT3009. Name the ref expression for the user.
         let pretty = self.expr_pretty_name(ref_expr);
         self.diag.push(diag::move_out_of_ref_named(&pretty, span));
     }
@@ -1224,7 +1224,7 @@ impl<'a> BorrowCx<'a> {
         // a reborrow (e.g. passing `r: &T` as `&T` arg). Reborrow at
         // the borrow-check level is a no-op on the source local — we
         // only need to read it. This eliminates a slice-4 false-flag
-        // where SD3013 would fire on immutable `&mut T` bindings.
+        // where MT3013 would fire on immutable `&mut T` bindings.
         if self.local_is_ref_typed(name) {
             self.do_use(name, span);
             return;

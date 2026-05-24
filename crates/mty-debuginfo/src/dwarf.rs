@@ -79,7 +79,7 @@ pub struct DwarfBuilder {
 }
 
 impl DwarfBuilder {
-    /// Create a new builder. `source_path` is the path of the .sd
+    /// Create a new builder. `source_path` is the path of the .mty
     /// source file (used for `DW_AT_name` on the compile unit).
     /// `comp_dir` is typically the current working directory.
     pub fn new(source_path: impl Into<String>, comp_dir: impl Into<String>) -> Self {
@@ -348,7 +348,7 @@ mod tests {
 
     #[test]
     fn build_produces_nonempty_sections() {
-        let mut b = DwarfBuilder::new("test.sd", "/tmp");
+        let mut b = DwarfBuilder::new("test.mty", "/tmp");
         b.init_compile_unit().unwrap();
         b.add_function(&sample_fn()).unwrap();
         b.set_total_code_size(32);
@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn empty_program_still_emits_compile_unit() {
-        let mut b = DwarfBuilder::new("empty.sd", "/tmp");
+        let mut b = DwarfBuilder::new("empty.mty", "/tmp");
         b.init_compile_unit().unwrap();
         b.set_total_code_size(0);
         let enc = b.finish().unwrap();
@@ -377,14 +377,14 @@ mod tests {
 
     #[test]
     fn file_basename_handles_windows_paths() {
-        assert_eq!(file_basename("C:\\foo\\bar.sd"), "bar.sd");
-        assert_eq!(file_basename("/usr/local/x.sd"), "x.sd");
-        assert_eq!(file_basename("plain.sd"), "plain.sd");
+        assert_eq!(file_basename("C:\\foo\\bar.mty"), "bar.mty");
+        assert_eq!(file_basename("/usr/local/x.mty"), "x.mty");
+        assert_eq!(file_basename("plain.mty"), "plain.mty");
     }
 
     #[test]
     fn rejects_inverted_range() {
-        let mut b = DwarfBuilder::new("t.sd", "/tmp");
+        let mut b = DwarfBuilder::new("t.mty", "/tmp");
         b.init_compile_unit().unwrap();
         let mut f = sample_fn();
         f.code_range = (10, 5);

@@ -51,7 +51,7 @@ Call-site enforcement:
 
 - `synth_call` and `check_cap_subsumption` run after the normal
   type-unify pass. If `actual` is a Cap and `expected` is a Cap of the
-  same family, the constraint check runs. Failure: `SD4010
+  same family, the constraint check runs. Failure: `MT4010
   capability_too_broad`.
 
 ## Effects
@@ -72,9 +72,9 @@ v0.3 hardens the cross-agent gate: the Sendable check (see
 `docs/internals/sendable.md`) explicitly classifies
 `Cap{family, ...}` values as **non-Sendable**, so any agent
 attempting to pass a raw `Fs` or `Net` handle into a `!Msg(...)` /
-`?Msg(...)` call now hard-errors with SD3011 carrying a reason note
+`?Msg(...)` call now hard-errors with MT3011 carrying a reason note
 that points the author at the typed-message-with-narrowed-authority
-pattern. The SD4010 capability_too_broad check itself is unchanged
+pattern. The MT4010 capability_too_broad check itself is unchanged
 in v0.3; case-shape coverage lives in
 `tests/conformance/capability_checking/04_cap_too_broad/` with the
 positive-fire path exercised by the

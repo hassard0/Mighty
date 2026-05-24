@@ -47,12 +47,12 @@ payloads). The contract is "deterministic + monotonic", not
 
 When `mem_used > mem_budget` after a charge:
 
-1. `charge_mem` returns an `Err(("SD5009", message))` which the
+1. `charge_mem` returns an `Err(("MT5009", message))` which the
    `eval_rvalue` path lifts into [`EvalOutcome::Trap`].
 2. The interpreter's main loop catches the next step boundary,
    notices `mem_used > mem_budget`, and returns
    [`RunResult::MemBudgetExceeded { used, limit }`].
-3. Callers map the variant onto exit code `4` and an SD5009 trap
+3. Callers map the variant onto exit code `4` and an MT5009 trap
    message. See `crates/sdust-driver/src/pipeline.rs::run_file_with_runtime`.
 
 ## Capability allow-lists — fs.read / fs.write

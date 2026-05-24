@@ -1,6 +1,6 @@
-//! Drive every `tests/borrow_neg/*.sd` fixture and assert it produces at
+//! Drive every `tests/borrow_neg/*.mty` fixture and assert it produces at
 //! least one diagnostic of the expected SD3xxx code (encoded in the
-//! filename, e.g. `use_after_move.sd` → SD3001).
+//! filename, e.g. `use_after_move.mty` → MT3001).
 
 use mty_diagnostics::Severity;
 use mty_driver::{lower, parse_source, type_and_borrow_check};
@@ -8,18 +8,18 @@ use std::path::PathBuf;
 
 fn expected_code_for(stem: &str) -> &'static str {
     match stem {
-        "use_after_move" => "SD3001",
-        "move_out_of_borrow" => "SD3008", // slice 4 simplification: borrowed-then-move
-        "borrow_after_move" => "SD3003",
-        "mut_borrow_while_shared" => "SD3004",
-        "shared_borrow_while_mut" => "SD3005",
-        "two_mut_borrows" => "SD3006",
-        "cannot_move_borrowed" => "SD3008",
-        "move_out_of_ref" => "SD3001", // slice 4 maps to use-after-move shape
-        "arena_escape" => "SD3010",
-        "non_sendable_message_arg" => "SD3011",
-        "mut_borrow_of_immut_local" => "SD3013",
-        "assign_to_immut_local" => "SD3014",
+        "use_after_move" => "MT3001",
+        "move_out_of_borrow" => "MT3008", // slice 4 simplification: borrowed-then-move
+        "borrow_after_move" => "MT3003",
+        "mut_borrow_while_shared" => "MT3004",
+        "shared_borrow_while_mut" => "MT3005",
+        "two_mut_borrows" => "MT3006",
+        "cannot_move_borrowed" => "MT3008",
+        "move_out_of_ref" => "MT3001", // slice 4 maps to use-after-move shape
+        "arena_escape" => "MT3010",
+        "non_sendable_message_arg" => "MT3011",
+        "mut_borrow_of_immut_local" => "MT3013",
+        "assign_to_immut_local" => "MT3014",
         other => panic!("unknown borrow_neg fixture stem: {}", other),
     }
 }
@@ -51,7 +51,7 @@ fn borrow_neg_corpus_covers_each_code() {
     for entry in std::fs::read_dir(&dir).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("sd") {
+        if path.extension().and_then(|e| e.to_str()) != Some("mty") {
             continue;
         }
         let stem = path
@@ -78,8 +78,8 @@ fn borrow_neg_corpus_covers_each_code() {
     }
     // Sanity: we covered at least the core SD3xxx codes.
     for code in [
-        "SD3001", "SD3003", "SD3004", "SD3005", "SD3006", "SD3008", "SD3010", "SD3011", "SD3013",
-        "SD3014",
+        "MT3001", "MT3003", "MT3004", "MT3005", "MT3006", "MT3008", "MT3010", "MT3011", "MT3013",
+        "MT3014",
     ] {
         assert!(covered.contains(code), "no fixture covered {}", code);
     }

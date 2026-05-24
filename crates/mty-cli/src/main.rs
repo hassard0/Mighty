@@ -68,7 +68,7 @@ enum Cmd {
     },
     /// Print a human-readable explanation of a diagnostic code.
     Explain {
-        /// e.g. SD0001, sd0001, 0001, 1
+        /// e.g. MT0001, sd0001, 0001, 1
         code: String,
     },
     /// Run the Mighty Language Server (LSP 3.17) over stdio.

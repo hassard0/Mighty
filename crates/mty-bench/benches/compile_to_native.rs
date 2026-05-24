@@ -1,7 +1,7 @@
 //! Bench: end-to-end compile time of a 1 KLOC Mighty source.
 //!
 //! Goes through the same `parse → lower → typeck → borrowck → SIR →
-//! wasm-core emit` path as `sdust build --target wasm --core-only`.
+//! wasm-core emit` path as `mty build --target wasm --core-only`.
 //! We use the wasm core backend (not native cranelift) because the
 //! native linker may be absent on Windows CI; wasm emit is the most
 //! portable measure of the compiler's hot path.
@@ -31,7 +31,7 @@ fn bench_compile(c: &mut Criterion) {
                 binary_name: format!("c{counter}"),
                 no_component: true,
             };
-            let outcome = build_wasm(src.clone(), "compile.sd".into(), &opts, WasmTarget::Wasi);
+            let outcome = build_wasm(src.clone(), "compile.mty".into(), &opts, WasmTarget::Wasi);
             black_box(outcome);
         })
     });

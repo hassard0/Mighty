@@ -27,7 +27,7 @@ sdust check <PATH>
 - Runs the lexer, parser, AST view, and HIR lowering.
 - If lowering produced no hard errors, runs the type checker
   (`SD2xxx`).
-- Warnings (severity `Warning`, e.g. `SD2015 non_exhaustive_match`)
+- Warnings (severity `Warning`, e.g. `MT2015 non_exhaustive_match`)
   are reported but do not affect the exit status.
 - If any errors are present, renders them with `ariadne` to stderr
   (colorized when stderr is a TTY) and exits 1.
@@ -35,10 +35,10 @@ sdust check <PATH>
 
 As of slice 3, `sdust check` performs:
 
-1. Lex (SD0001..SD0004)
-2. Parse (SD0010..SD0030)
-3. HIR lowering (SD1001..SD1002)
-4. Type checking (SD2001..SD2025)
+1. Lex (MT0001..MT0004)
+2. Parse (MT0010..MT0030)
+3. HIR lowering (MT1001..MT1002)
+4. Type checking (MT2001..MT2025)
 
 Still deferred to later slices: ownership / affine / borrow checking
 (slice 4), effect closure + capability narrowing (slice 5), trait

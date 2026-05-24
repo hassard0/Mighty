@@ -40,7 +40,7 @@ sdust fmt src/
 sdust dump --sir src/main.sd
 
 # Explain any diagnostic code
-sdust explain SD8005
+sdust explain MT8005
 ```
 
 ## The eight slices

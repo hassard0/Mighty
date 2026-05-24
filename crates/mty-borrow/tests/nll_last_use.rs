@@ -10,7 +10,7 @@ use mty_driver::{lower, parse_source};
 use mty_types::check_package_typed;
 
 fn check(src: &str) -> Vec<mty_diagnostics::Diagnostic> {
-    let parsed = parse_source(src.into(), "test.sd".into());
+    let parsed = parse_source(src.into(), "test.mty".into());
     let (pkg, mut diags) = lower(&parsed);
     let any_err = diags.iter().any(|d| matches!(d.severity, Severity::Error));
     if !any_err {
@@ -111,7 +111,7 @@ fn nll_chain_through_three_borrows() {
 #[test]
 fn lexical_still_rejects_overlap() {
     // Under NLL, `r` is used at `use_ref(r)` which is AFTER `let m = &mut a`.
-    // So the shared borrow is still live → SD3004 still fires.
+    // So the shared borrow is still live → MT3004 still fires.
     let src = "
         fn f() {
           let mut a = String(\"x\")
@@ -126,5 +126,5 @@ fn lexical_still_rejects_overlap() {
         }
     ";
     let d = check(src);
-    assert_has_code(&d, "SD3004", "lexical overlap still rejected");
+    assert_has_code(&d, "MT3004", "lexical overlap still rejected");
 }

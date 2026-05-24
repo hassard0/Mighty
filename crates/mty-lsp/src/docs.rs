@@ -41,7 +41,7 @@ impl DocAnalysis {
             diagnostics.extend(typed.diagnostics.clone());
             // v0.2 MVP: surface parse + lower + type-check diagnostics.
             // Borrow check is deferred (it shares state with the typed
-            // package and adds a heavyweight dep — `sdust check` from
+            // package and adds a heavyweight dep — `mty check` from
             // the CLI still runs it).
             typed
         };

@@ -28,9 +28,9 @@ actually guarantees.
   past the last use, ledger records borrowed by that name are dropped
   and the root local's ownership state is recomputed. Pins the
   canonical `let r = &x; use(r); let m = &mut x` chain.
-- **A56 — Precise SD3009 for `move *ref`.** `Unary { op: Deref, rhs }`
-  in a Use position whose pointee is non-Copy emits SD3009; Copy
-  pointees still load cleanly. Distinguished from SD3001/SD3008.
+- **A56 — Precise MT3009 for `move *ref`.** `Unary { op: Deref, rhs }`
+  in a Use position whose pointee is non-Copy emits MT3009; Copy
+  pointees still load cleanly. Distinguished from MT3001/MT3008.
 - **Lambda body snapshot.** Lambda bodies snapshot/restore the
   `BorrowLedger` alongside locals, so borrows established inside a
   closure body don't leak out.
@@ -48,22 +48,22 @@ Closes three slice-3/4/5 loose ends:
   permissive fresh-var fallback for unresolved names now only fires
   in permissive scopes (TopLevelFn, ExternBlock, Macro, Unsafe,
   Arena, Budget, Sandbox). Strict scopes (AgentBody, HandlerBody,
-  SupervisorBody, CapNarrowBody) promote unresolved → SD2021 with a
+  SupervisorBody, CapNarrowBody) promote unresolved → MT2021 with a
   scope-labeled note. SupervisorBody and CapNarrowBody mark strict
   for framework consistency but keep `tolerance_open=true` until
   slice-7 wires real cap-name resolution.
 - **A65.b — Sendable trait.** Cross-agent message-arg shape is now a
   formal trait (`crate::sendable`): Copy ∨ (owned + Sized + no internal
   refs) ∨ `#[derive(Sendable)]`. Refs / caps / dyn / transitive non-
-  Sendable compounds fail with SD3011 at every `!Msg(...)` / `?Msg(...)`
+  Sendable compounds fail with MT3011 at every `!Msg(...)` / `?Msg(...)`
   site. `derive(Sendable)` is a pure marker.
-- **A65.c — SD4031 local-protocol param-type check.** Handlers of
+- **A65.c — MT4031 local-protocol param-type check.** Handlers of
   locally-declared protocols bind params to fresh inference vars,
   body-check normally, then unify each inferred type against the
-  protocol-declared type. Mismatch → SD4031 with both spans. External
-  protocols continue to SD2026-warn (preserves canonical examples 13
+  protocol-declared type. Mismatch → MT4031 with both spans. External
+  protocols continue to MT2026-warn (preserves canonical examples 13
   and 19).
-- **A65.d — Explicit SD4002 `alloc-in-core` ratification.** Strict
+- **A65.d — Explicit MT4002 `alloc-in-core` ratification.** Strict
   `profile = "core"` check now has an explicit unit test +
   conformance shape (`tests/conformance/effect_checking/05_strict_core_profile/`).
 
@@ -115,7 +115,7 @@ the seven open follow-on items.
   ignores — already passed and got un-ignored.
   `budget_violation/02_step_budget_exceeded` was rewritten from the
   broken `loop {}` shape to recursion + per-case `step_budget.txt`
-  knob; now traps cleanly with SD5009. Remaining 2:
+  knob; now traps cleanly with MT5009. Remaining 2:
   `capability_checking/03_narrow_to_ro` (needs sdust-types
   cap-narrowing) and `supervisor_restart/02_escalate` (needs
   sdust-syntax grammar expansion).
@@ -172,10 +172,10 @@ Actual v0.2 deferred amendments now closed in v0.3:
 ```
 A54 — Field-level borrow tracking via Place algebra (v0.3)
 A55 — NLL last-use deactivation (v0.3)
-A56 — Precise SD3009 for `move *ref` (v0.3)
+A56 — Precise MT3009 for `move *ref` (v0.3)
 A65 — Scope-aware permissive/strict type-check policy (v0.3)
 A65.b — Sendable trait at cross-agent message sites (v0.3)
-A65.c — SD4031 strict handler param-type check, local-protocol only (v0.3)
+A65.c — MT4031 strict handler param-type check, local-protocol only (v0.3)
 A65.d — `core` profile rejects `alloc` (v0.3 conformance)
 A70 — Cooperative mid-turn cancellation (v0.3)
 A71 — OTLP wire-format telemetry (v0.3)
@@ -191,10 +191,10 @@ Total: 11 new amendments in `docs/spec/v0.1-amendments.md`.
 |---|---|---|
 | Last-use deactivates a borrow | whole-local lexical | **per-Place NLL** (A55) |
 | Field borrows of disjoint fields | conflated | **disjoint via Place algebra** (A54) |
-| `move *ref` of non-Copy | partial (SD3001/SD3008 in some shapes) | **explicit SD3009** (A56) |
-| Cross-agent send carries non-Sendable | informal | **formal Sendable trait + SD3011 at every site** (A65.b) |
-| Unresolved name in agent / handler body | A21 fresh-var (silent) | **strict SD2021** (A65) |
-| Handler param matches protocol decl (local) | trust-the-decl | **post-check + SD4031 on mismatch** (A65.c) |
+| `move *ref` of non-Copy | partial (MT3001/MT3008 in some shapes) | **explicit MT3009** (A56) |
+| Cross-agent send carries non-Sendable | informal | **formal Sendable trait + MT3011 at every site** (A65.b) |
+| Unresolved name in agent / handler body | A21 fresh-var (silent) | **strict MT2021** (A65) |
+| Handler param matches protocol decl (local) | trust-the-decl | **post-check + MT4031 on mismatch** (A65.c) |
 | Cancellation mid-turn | between-turns only (A41) | **cooperative mid-turn cancel** (A70) |
 | OTLP telemetry shape | JSON sidecar | **real OTLP/gRPC** (A71) |
 | Lambda body borrow leaks | possible | **snapshot/restore prevents leak** |
@@ -203,22 +203,22 @@ Total: 11 new amendments in `docs/spec/v0.1-amendments.md`.
 
 No new SD codes were minted; existing codes were re-aimed:
 
-- **SD2021** (unresolved_value) — text + note updated for strict
+- **MT2021** (unresolved_value) — text + note updated for strict
   scope context
-- **SD3009** (move_out_of_ref) — newly precise for `*ref` of
+- **MT3009** (move_out_of_ref) — newly precise for `*ref` of
   non-Copy
-- **SD3011** (non_sendable_message_arg) — rule formalized; reason
+- **MT3011** (non_sendable_message_arg) — rule formalized; reason
   note tied to Sendable definition
-- **SD4031** (protocol_param_type_mismatch) — newly activated for
+- **MT4031** (protocol_param_type_mismatch) — newly activated for
   local protocols
-- **SD4041** (derive_unknown) — text now lists `Sendable` as
+- **MT4041** (derive_unknown) — text now lists `Sendable` as
   supported derive
 
 ## Cross-cut fixes applied during integration
 
 1. **LSP integration test `diagnostics_type_error_produces_at_least_one`**
    (`crates/sdust-lsp/tests/integration.rs`) — the test relied on
-   `definitely_not_a_real_fn(...)` in `fn main()` producing SD2021,
+   `definitely_not_a_real_fn(...)` in `fn main()` producing MT2021,
    which A65 reclassifies as a permissive TopLevelFn scope (silent
    fresh-var fallback). Rewrote the test to invoke the unresolved
    call inside an agent handler body (strict HandlerBody scope) so
@@ -260,8 +260,8 @@ Consolidated from `BORROW_V0_3_NOTES.md`, `EFFECTS_V0_3_NOTES.md`,
 
 8. Slice-7 supervisor/cap-narrow name binding — flip
    `tolerance_open=false` when real cap-name resolution lands;
-   SD2021 activates automatically.
-9. Per-case `star.toml` in conformance harness (for direct SD4002
+   MT2021 activates automatically.
+9. Per-case `star.toml` in conformance harness (for direct MT4002
    conformance).
 10. Function-signature cap-narrowing (propagate `CapConstraint::And`
     into fn signatures).
@@ -328,7 +328,7 @@ will likely be:
 
 - Polonius-style borrow checker + conditional-branch join refinement
 - Real cap-name resolution wiring (slice-7 plumbing → flips
-  supervisor / cap-narrow to strict SD2021)
+  supervisor / cap-narrow to strict MT2021)
 - SIR-side cancellation polling (true mid-turn interrupt)
 - WASI Preview 2 + user-authored WIT in the Component pipeline
 - LLVM backend smoke on a Linux host with LLVM 17

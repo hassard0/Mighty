@@ -88,7 +88,7 @@ the Rust shape, which lets future agent code drop the per-element
 ### Decision: typed `RunResult::MemBudgetExceeded` variant
 
 `RunResult` gains `MemBudgetExceeded { used: u64, limit: u64 }` with
-exit code `4` and `SD5009` trap code. The interpreter charges memory
+exit code `4` and `MT5009` trap code. The interpreter charges memory
 on every `AdtInit` / `TupleInit` / `ArrayInit` rvalue evaluation
 using an `estimate_value_bytes` helper (header byte estimate + sum
 of recursive field/element sizes). The contract is "deterministic +
@@ -156,7 +156,7 @@ global slot becomes the fallback path for un-sandboxed runs.
   builtin/effect surface I don't own.
 - **Demo 03 `breach.sd` actually trapping**: the budget machinery
   is wired; the demo's smoke script just needs an update to assert
-  on the new SD5009 trap exit, which is a Demo work-stream task.
+  on the new MT5009 trap exit, which is a Demo work-stream task.
 
 ## Files modified (this slice)
 

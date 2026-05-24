@@ -111,7 +111,7 @@ Highlights that any reader of this page should know:
    only the interpreter cuts the back-edge. v0.5 needs a real
    interpreter loop or a step-bounded iteration count.
 
-2. **`!fn(args)` triggers SD2008.** Unary `!` applied to a call
+2. **`!fn(args)` triggers MT2008.** Unary `!` applied to a call
    expression parses as `(!fn)(args)`, then type-checks the function
    value as `Bool`. Workaround used in `lexer.sd`: rewrite as
    `let b = fn(args); if b == false { ... }`.

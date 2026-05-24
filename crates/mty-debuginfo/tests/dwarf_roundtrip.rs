@@ -26,7 +26,7 @@ fn sample_main() -> FunctionDebugInfo {
 
 #[test]
 fn roundtrip_finds_subprogram_for_main() {
-    let mut b = DwarfBuilder::new("examples/01_hello.sd", "/tmp");
+    let mut b = DwarfBuilder::new("examples/01_hello.mty", "/tmp");
     b.init_compile_unit().unwrap();
     b.add_function(&sample_main()).unwrap();
     b.set_total_code_size(24);
@@ -102,7 +102,7 @@ fn roundtrip_finds_subprogram_for_main() {
 
 #[test]
 fn roundtrip_multi_function() {
-    let mut b = DwarfBuilder::new("foo.sd", "/tmp");
+    let mut b = DwarfBuilder::new("foo.mty", "/tmp");
     b.init_compile_unit().unwrap();
     let mut f1 = sample_main();
     f1.name = "alpha".into();

@@ -51,7 +51,7 @@ fn emits_debug_subprogram_for_main() {
     let obj_path = dir.path().join("hello.o");
     let prog = Monomorphizer::new(&empty_main_prog()).run();
     let src = "fn main() {\n  let n = 0\n}\n";
-    let res = compile_object_with_debug(&prog, &obj_path, src, "hello.sd");
+    let res = compile_object_with_debug(&prog, &obj_path, src, "hello.mty");
     assert!(
         res.is_ok(),
         "compile_object_with_debug failed: {:?}",

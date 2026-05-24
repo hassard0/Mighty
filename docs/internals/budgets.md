@@ -48,13 +48,13 @@ all `None` so an unconfigured runtime never gates anything.
 ### Breach → RuntimeError
 
 ```rust
-BudgetBreach::Cpu(_)   → RuntimeError::BudgetExceeded("cpu ...")  → SD5009
-BudgetBreach::Wall(_)  → RuntimeError::BudgetExceeded("wall ...") → SD5009
-BudgetBreach::Mem(_)   → RuntimeError::BudgetExceeded("mem ...")  → SD5009
-BudgetBreach::Mailbox  → RuntimeError::BudgetExceeded("mailbox")  → SD5009
-BudgetBreach::Spawned  → RuntimeError::BudgetExceeded("spawned")  → SD5009
-BudgetBreach::Host     → RuntimeError::CapabilityOutsideSandbox   → SD5015
-BudgetBreach::Path     → RuntimeError::CapabilityOutsideSandbox   → SD5015
+BudgetBreach::Cpu(_)   → RuntimeError::BudgetExceeded("cpu ...")  → MT5009
+BudgetBreach::Wall(_)  → RuntimeError::BudgetExceeded("wall ...") → MT5009
+BudgetBreach::Mem(_)   → RuntimeError::BudgetExceeded("mem ...")  → MT5009
+BudgetBreach::Mailbox  → RuntimeError::BudgetExceeded("mailbox")  → MT5009
+BudgetBreach::Spawned  → RuntimeError::BudgetExceeded("spawned")  → MT5009
+BudgetBreach::Host     → RuntimeError::CapabilityOutsideSandbox   → MT5015
+BudgetBreach::Path     → RuntimeError::CapabilityOutsideSandbox   → MT5015
 ```
 
 A40 retains spec §16.2's "Budget violations return typed errors or

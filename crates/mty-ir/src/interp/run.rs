@@ -292,7 +292,7 @@ impl<'a> Interp<'a> {
         self.mem_used = new;
         if self.mem_budget > 0 && new > self.mem_budget {
             return Err((
-                "SD5009",
+                "MT5009",
                 format!(
                     "memory budget exceeded: used {} B > cap {} B",
                     new, self.mem_budget
@@ -317,7 +317,7 @@ impl<'a> Interp<'a> {
             // v0.5 Gap-4: surface MemBudgetExceeded between steps so
             // a charge inside `eval_rvalue` propagates as a typed
             // RunResult (instead of being smuggled through the trap
-            // channel — which keeps the SD5009 trap message intact).
+            // channel — which keeps the MT5009 trap message intact).
             if self.mem_budget > 0 && self.mem_used > self.mem_budget {
                 return RunResult::MemBudgetExceeded {
                     used: self.mem_used,
@@ -502,9 +502,9 @@ impl<'a> Interp<'a> {
                 let v = self.eval_operand(&msg);
                 let m = v.as_str();
                 host.eprint(&format!("panic: {}\n", m));
-                StepOutcome::Trap("SD5001", m)
+                StepOutcome::Trap("MT5001", m)
             }
-            Term::Unreachable => StepOutcome::Trap("SD5005", "unreachable".into()),
+            Term::Unreachable => StepOutcome::Trap("MT5005", "unreachable".into()),
             Term::TryReturnErr(op) => {
                 // Build Result::Err(payload). Variant 1 of the Result ADT.
                 let payload = self.eval_operand(&op);
@@ -520,7 +520,7 @@ impl<'a> Interp<'a> {
                 StepOutcome::FrameReturned(v)
             }
             Term::Suspend { resume: _ } => {
-                StepOutcome::Trap("SD5009", "async suspension requires slice-7 runtime".into())
+                StepOutcome::Trap("MT5009", "async suspension requires slice-7 runtime".into())
             }
         }
     }
@@ -1018,7 +1018,7 @@ impl<'a> Interp<'a> {
             BuiltinId::Panic => {
                 let s = args.first().map(|v| v.as_str()).unwrap_or_default();
                 host.eprint(&format!("panic: {}\n", s));
-                Err(("SD5001", s))
+                Err(("MT5001", s))
             }
             BuiltinId::Spawn => {
                 // Return whatever was passed in (closure / agent value).
@@ -1211,7 +1211,7 @@ fn eval_binop(op: BinOp, l: &Value, r: &Value) -> Result<Value, (&'static str, S
             Mul => Value::Float(lf * rf, FloatKind_default(l, r)),
             Div => {
                 if rf == 0.0 {
-                    return Err(("SD5003", "float divide by zero".into()));
+                    return Err(("MT5003", "float divide by zero".into()));
                 }
                 Value::Float(lf / rf, FloatKind_default(l, r))
             }
@@ -1256,13 +1256,13 @@ fn eval_binop(op: BinOp, l: &Value, r: &Value) -> Result<Value, (&'static str, S
         Mul => Value::Int(li.wrapping_mul(ri), kind),
         Div => {
             if ri == 0 {
-                return Err(("SD5003", "divide by zero".into()));
+                return Err(("MT5003", "divide by zero".into()));
             }
             Value::Int(li.wrapping_div(ri), kind)
         }
         Rem => {
             if ri == 0 {
-                return Err(("SD5003", "remainder by zero".into()));
+                return Err(("MT5003", "remainder by zero".into()));
             }
             Value::Int(li.wrapping_rem(ri), kind)
         }

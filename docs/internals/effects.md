@@ -34,11 +34,11 @@ borrow checker.
 
 3. **Public-fn discipline:** if `pub fn`'s inferred set is non-empty,
    verify the declared `effect ...` clause is a superset. Else
-   `SD4001 effect_undeclared` with the missing effects listed.
+   `MT4001 effect_undeclared` with the missing effects listed.
 
 4. **Profile gate:** if `star.toml` declares `profile = "core"`, any
    `pub fn` with `alloc` in its inferred set triggers
-   `SD4002 alloc_in_core`.
+   `MT4002 alloc_in_core`.
 
 ## Limitations
 
@@ -65,10 +65,10 @@ revisions in `crates/sdust-types/src/check.rs` (see `docs/internals/
 typeck.md#scope-aware-permissivestrict-policy-v03--a65`) and the
 Sendable check at message-send sites (see
 `docs/internals/sendable.md`) interact with effects only insofar as
-SD3011 / SD4031 now fire alongside the existing SD4001 / SD4002.
+MT3011 / MT4031 now fire alongside the existing MT4001 / MT4002.
 The conformance corpus gains two new effect-checking cases —
-`effect_checking/04_undeclared_alloc` (positive SD4001) and
-`effect_checking/05_strict_core_profile` (case-shape for the SD4002
+`effect_checking/04_undeclared_alloc` (positive MT4001) and
+`effect_checking/05_strict_core_profile` (case-shape for the MT4002
 positive fire under `profile = "core"`, with the positive assertion
 running through the dedicated `core_profile_rejects_alloc` unit
 test until the harness supports per-case `star.toml` overrides).

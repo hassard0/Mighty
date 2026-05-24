@@ -295,7 +295,7 @@ impl Runtime {
         match reply {
             Ok(inner) => inner,
             Err(_) => Err(RuntimeError::Trap {
-                code: "SD5020",
+                code: "MT5020",
                 message: "reply channel closed".into(),
             }),
         }

@@ -80,9 +80,9 @@ fn breach_to_runtime_error_maps_correctly() {
     let b = BudgetBreach::Cpu(Duration::from_millis(10));
     let err = b.into_runtime_error();
     assert!(matches!(err, RuntimeError::BudgetExceeded(_)));
-    assert_eq!(err.diag_code(), "SD5009");
+    assert_eq!(err.diag_code(), "MT5009");
 
     let b = BudgetBreach::Host("evil".into());
     let err = b.into_runtime_error();
-    assert_eq!(err.diag_code(), "SD5015");
+    assert_eq!(err.diag_code(), "MT5015");
 }

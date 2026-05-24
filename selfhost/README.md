@@ -94,7 +94,7 @@ The headline gaps were:
 Catalogued in [`../SELFHOST_PARSER_V0_6_NOTES.md`](../SELFHOST_PARSER_V0_6_NOTES.md).
 The headline gaps are:
 
-1. `if X { foo() } else { let y = ... }` triggers SD2001 when the
+1. `if X { foo() } else { let y = ... }` triggers MT2001 when the
    if-branch ends with a Bool call and the else-branch ends with a
    Unit statement (workaround: return Unit from helper fns when
    possible, or `let _ = ...` to discard)

@@ -35,11 +35,11 @@ let r1 = &s.a
 let r2 = &mut s.b
 use_both(r1, r2)
 
-# Strict agent body rejects unresolved names with SD2021
+# Strict agent body rejects unresolved names with MT2021
 # (was permissive fresh-var fallback in v0.2)
 agent Worker: Hi {
   on Greet(name) -> {
-    unknown_helper(name)  # → SD2021 (was silent in v0.2)
+    unknown_helper(name)  # → MT2021 (was silent in v0.2)
   }
 }
 ```
@@ -82,10 +82,10 @@ tokio-util workspace deps before the runtime swarm began.
 |---|---|---|
 | Last-use deactivates borrow | whole-local lexical | per-Place NLL (A55) |
 | Disjoint field borrows | conflated | disjoint via Place algebra (A54) |
-| `move *ref` of non-Copy | partial | explicit SD3009 (A56) |
-| Non-Sendable cross-agent arg | informal | formal Sendable + SD3011 (A65.b) |
-| Unresolved name in agent body | silent fresh-var | strict SD2021 (A65) |
-| Handler param vs protocol decl | trust-the-decl | post-check + SD4031 (A65.c) |
+| `move *ref` of non-Copy | partial | explicit MT3009 (A56) |
+| Non-Sendable cross-agent arg | informal | formal Sendable + MT3011 (A65.b) |
+| Unresolved name in agent body | silent fresh-var | strict MT2021 (A65) |
+| Handler param vs protocol decl | trust-the-decl | post-check + MT4031 (A65.c) |
 | Mid-turn cancellation | between-turns only | cooperative mid-turn (A70) |
 | OTLP telemetry | JSON sidecar | real OTLP/gRPC (A71) |
 | Mailbox frame allocation | per-message alloc | slab pool (A72) |
@@ -118,10 +118,10 @@ Plus three v0.1 amendments superseded:
 ```
 A54   — Field-level borrow tracking via Place algebra
 A55   — NLL last-use deactivation
-A56   — Precise SD3009 for `move *ref`
+A56   — Precise MT3009 for `move *ref`
 A65   — Scope-aware permissive/strict type-check policy
 A65.b — Sendable trait at cross-agent message sites
-A65.c — SD4031 strict handler param-type check, local-protocol only
+A65.c — MT4031 strict handler param-type check, local-protocol only
 A65.d — `core` profile rejects `alloc`
 A70   — Cooperative mid-turn cancellation
 A71   — OTLP wire-format telemetry
@@ -135,12 +135,12 @@ All committed to `docs/spec/v0.1-amendments.md`.
 
 No new SD codes minted; existing codes were re-aimed:
 
-- **SD2021** (unresolved_value) — text + scope-labeled note
-- **SD3009** (move_out_of_ref) — newly precise for `*ref` of non-Copy
-- **SD3011** (non_sendable_message_arg) — rule formalized
-- **SD4031** (protocol_param_type_mismatch) — newly activated for
+- **MT2021** (unresolved_value) — text + scope-labeled note
+- **MT3009** (move_out_of_ref) — newly precise for `*ref` of non-Copy
+- **MT3011** (non_sendable_message_arg) — rule formalized
+- **MT4031** (protocol_param_type_mismatch) — newly activated for
   local protocols
-- **SD4041** (derive_unknown) — text lists `Sendable`
+- **MT4041** (derive_unknown) — text lists `Sendable`
 
 `sdust explain SDxxxx` carries the updated text for each.
 
@@ -189,7 +189,7 @@ Highlights:
 3. **Supervisor / cap-narrow scopes mark strict but keep
    `tolerance_open=true`** until slice-7 wires real cap-name
    resolution. The ScopeKind framework is in place; flipping the
-   toggle activates SD2021 automatically when names land.
+   toggle activates MT2021 automatically when names land.
 4. **OTLP transport is gRPC-only** (`STARDUST_OTLP_PROTO` selector
    deferred). OTel resource-attribute env-vars not honoured yet.
 5. **LLVM backend code paths shipped but not exercised on this
@@ -201,21 +201,21 @@ v0.3 is a minor-version bump from v0.2. Source compatibility is
 preserved for slice 1-5 + v0.2 surfaces. **Notable behavior
 changes**:
 
-- **Strict scopes now hard-error unresolved names (SD2021).** Code
+- **Strict scopes now hard-error unresolved names (MT2021).** Code
   that relied on the slice-3 A21 fresh-var fallback inside agent /
   handler / supervisor / cap-narrow bodies needs to either declare
   the missing name or move the reference into a permissive scope
   (top-level fn, extern block, unsafe / arena / budget block).
   Existing well-typed agent code is unaffected.
-- **Cross-agent sends now check Sendable (SD3011).** Code that
+- **Cross-agent sends now check Sendable (MT3011).** Code that
   silently passed `&T` or `Cap` through a `!Msg` will now error.
   Convert to owned, derive(Sendable), or move via a handle.
-- **`move *ref` of non-Copy now errors with SD3009** (was silently
+- **`move *ref` of non-Copy now errors with MT3009** (was silently
   accepted in some shapes). Use `*ref.clone()` or unwrap the
   reference first.
 
-Diagnostic codes (SD0001..SD8010) are unchanged in number; SD2021 /
-SD3009 / SD3011 / SD4031 / SD4041 carry updated text. CLI shape is
+Diagnostic codes (MT0001..MT8010) are unchanged in number; MT2021 /
+MT3009 / MT3011 / MT4031 / MT4041 carry updated text. CLI shape is
 unchanged.
 
 ## Acknowledgments

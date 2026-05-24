@@ -71,7 +71,7 @@ fn walk(dir: &PathBuf, out: &mut Vec<PathBuf>) {
             let p = e.path();
             if p.is_dir() {
                 walk(&p, out);
-            } else if p.extension().and_then(|s| s.to_str()) == Some("sd") {
+            } else if p.extension().and_then(|s| s.to_str()) == Some("mty") {
                 out.push(p);
             }
         }

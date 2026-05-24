@@ -3,7 +3,7 @@
 Stardust enforces single-owner semantics for non-Copy values. The
 compiler tracks every binding's ownership state through the body of each
 fn / handler / lambda, and reports moves, borrows, and drops with
-matching diagnostics in the **SD3001..SD3099** range.
+matching diagnostics in the **MT3001..MT3099** range.
 
 This chapter walks the rules with worked examples. See
 [spec §7](../spec/v0.1.md) and
@@ -17,7 +17,7 @@ A non-Copy value has exactly one owner. Reassigning **moves** the value:
 ```sd
 let a = String("hello")
 let b = move a
-// a is now invalid; reading it errors SD3001
+// a is now invalid; reading it errors MT3001
 ```
 
 Without the explicit `move` keyword Stardust does NOT silently move the
@@ -28,7 +28,7 @@ takes a non-Copy value also moves; see "Calls and parameters" below.)
 
 Primitives, shared references, raw pointers, function pointers, and
 tuples/arrays of Copy values are implicitly copyable. No `move` required;
-no SD3001 risk.
+no MT3001 risk.
 
 ```sd
 let n: I32 = 7
@@ -62,7 +62,7 @@ let m = &mut buf             // OK — no live shared borrow
 push(m, "!")
 ```
 
-Pre-v0.3 this would have errored with SD3004 because `r`'s borrow was
+Pre-v0.3 this would have errored with MT3004 because `r`'s borrow was
 "live" until the end of the enclosing block. v0.3 sees that `r` is
 last used at `log_len(r)`, so the borrow ends there.
 
@@ -80,10 +80,10 @@ push(m, "!")
 
 Errors you might trip:
 
-- `SD3004 mut_borrow_while_shared` — created `&mut` while `&` was live
-- `SD3005 shared_borrow_while_mut` — created `&` while `&mut` was live
-- `SD3006 two_mut_borrows` — created a second `&mut`
-- `SD3013 mut_borrow_of_immut_local` — used `&mut` on a `let` without `mut`
+- `MT3004 mut_borrow_while_shared` — created `&mut` while `&` was live
+- `MT3005 shared_borrow_while_mut` — created `&` while `&mut` was live
+- `MT3006 two_mut_borrows` — created a second `&mut`
+- `MT3013 mut_borrow_of_immut_local` — used `&mut` on a `let` without `mut`
 
 ## Field-level borrows (v0.3 / A54)
 
@@ -108,12 +108,12 @@ projection chains at depth 1, so `&s.a.x` and `&s.a.y` still conflict
 ## Moves through references (v0.3 / A56)
 
 Dereferencing a reference does NOT transfer ownership. For a non-Copy
-type, this errors with `SD3009 move_out_of_ref`:
+type, this errors with `MT3009 move_out_of_ref`:
 
 ```sd
 let s = String("x")
 let r = &s
-let x = *r                     // SD3009 — can't move out of &String
+let x = *r                     // MT3009 — can't move out of &String
 ```
 
 For Copy types (primitives, references, function pointers), `*r` is
@@ -165,13 +165,13 @@ fn turn(input: Str) -> Lowered!ParseErr {
 }
 ```
 
-Trying to return an arena-local binding directly is `SD3010 arena_escape`:
+Trying to return an arena-local binding directly is `MT3010 arena_escape`:
 
 ```sd
 fn bad() -> String {
   arena turn {
     let x = String("hi")
-    x                       // SD3010 — x is arena-local
+    x                       // MT3010 — x is arena-local
   }
 }
 ```
@@ -188,7 +188,7 @@ boundaries.
 
 ```sd
 fn caller(r: AgentRef[Worker], buf: &String) {
-  r!Send(buf)               // SD3011 — &String is not Sendable
+  r!Send(buf)               // MT3011 — &String is not Sendable
 }
 ```
 
@@ -198,18 +198,18 @@ Pass owned data, copies, or convert to a Sendable form first.
 
 | Symptom                          | Code   | Fix                                              |
 |----------------------------------|--------|--------------------------------------------------|
-| Used a moved local               | SD3001 | Don't reuse, or `clone` before the move          |
-| Borrowed after move              | SD3003 | Same                                             |
-| `&mut` while `&` is live         | SD3004 | Reorder, narrow scope, or use a fresh borrow     |
-| `&` while `&mut` is live         | SD3005 | Same                                             |
-| Two `&mut` to same value         | SD3006 | Sequence them; only one mut borrow at a time     |
-| Moved a borrowed value           | SD3008 | Move only after the borrow ends                  |
-| Moved out of a reference         | SD3009 | Clone or borrow; don't `*ref` a non-Copy value   |
-| Arena-local escapes              | SD3010 | Copy out, or restructure to return a derived val |
-| Cross-agent arg is not Sendable  | SD3011 | Pass owned data; don't ship references           |
-| `&mut x` but `x` not `mut`       | SD3013 | `let mut x = ...`                                |
-| Assigned to non-`mut` local      | SD3014 | `let mut x = ...`                                |
-| Used un-initialized binding      | SD3015 | Initialise the binding before its first read     |
+| Used a moved local               | MT3001 | Don't reuse, or `clone` before the move          |
+| Borrowed after move              | MT3003 | Same                                             |
+| `&mut` while `&` is live         | MT3004 | Reorder, narrow scope, or use a fresh borrow     |
+| `&` while `&mut` is live         | MT3005 | Same                                             |
+| Two `&mut` to same value         | MT3006 | Sequence them; only one mut borrow at a time     |
+| Moved a borrowed value           | MT3008 | Move only after the borrow ends                  |
+| Moved out of a reference         | MT3009 | Clone or borrow; don't `*ref` a non-Copy value   |
+| Arena-local escapes              | MT3010 | Copy out, or restructure to return a derived val |
+| Cross-agent arg is not Sendable  | MT3011 | Pass owned data; don't ship references           |
+| `&mut x` but `x` not `mut`       | MT3013 | `let mut x = ...`                                |
+| Assigned to non-`mut` local      | MT3014 | `let mut x = ...`                                |
+| Used un-initialized binding      | MT3015 | Initialise the binding before its first read     |
 
 ## Next
 

@@ -15,16 +15,16 @@ Three loose ends from slice 3 / 4 / 5 are now formally closed:
    only applies in permissive scopes (top-level fn, extern, macro,
    unsafe, arena, budget, sandbox). Strict scopes (agent body,
    handler body, plus the framework-marked supervisor/cap-narrow
-   scopes) promote an unresolved name to SD2021.
+   scopes) promote an unresolved name to MT2021.
 2. **A65.b Sendable.** The cross-agent message-arg type-shape
    contract is now a formal trait: Copy ∨ (owned + Sized + no
-   internal refs), with `#[derive(Sendable)]` opt-in. SD3011
+   internal refs), with `#[derive(Sendable)]` opt-in. MT3011
    fires at every `!Msg(...)` / `?Msg(...)` site.
-3. **A65.c SD4031 strict handler param-type check.** For protocols
+3. **A65.c MT4031 strict handler param-type check.** For protocols
    defined in the current package, handler params are bound to
    fresh inference vars; the body's usage type is unified post-hoc
    with the protocol's declared type, with mismatch reported as
-   SD4031. External protocols continue to warn SD2026.
+   MT4031. External protocols continue to warn MT2026.
 
 ## Interpretation calls
 
@@ -41,45 +41,45 @@ toggle to false would regress canonical example 18.
 
 **Resolution:** keep `tolerance_open=true` for these scopes; the
 ScopeKind framework is in place so that when slice-7 wires real
-cap-name resolution, the toggle flips and SD2021 activates
+cap-name resolution, the toggle flips and MT2021 activates
 automatically with no further code change. Documented in
 `docs/internals/typeck.md` and the A65 amendment.
 
 ### IC2 — Generic / unbound types in Sendable check
 
 The Sendable check treats `Var(_)` and `Param(_)` types as
-permissive (no SD3011 fires). Reason: slice-3 inference frequently
+permissive (no MT3011 fires). Reason: slice-3 inference frequently
 leaves fresh vars in send-arg positions that pin to concrete
 Sendable types only after defaulting. Rejecting them at the
 type-checker gate would over-reject in practice. The cost is that
 truly-non-Sendable generic instantiations (e.g. a sender passing
 a `&T` via a generic helper) escape the static check — but those
-are caught downstream by the borrow checker's SD3009/SD3008.
+are caught downstream by the borrow checker's MT3009/MT3008.
 
-### IC3 — SD4031 protocol param post-check vs intra-body unification
+### IC3 — MT4031 protocol param post-check vs intra-body unification
 
 A naive implementation would bind handler params at the
 protocol-declared type and let any incompatible usage downstream
-surface as SD2001 type_mismatch. The spec ask was clearer: emit
-SD4031 with cross-references to both the handler and the protocol
+surface as MT2001 type_mismatch. The spec ask was clearer: emit
+MT4031 with cross-references to both the handler and the protocol
 declaration.
 
 **Implementation:** bind to fresh inference vars (for local
 protocols only), type-check the body normally (downstream SD2001s
 suppressed only by the body's structural shape), then run a final
 unification between each param's inferred type and the protocol's
-declared type. Mismatch → SD4031 with both spans and the inferred
+declared type. Mismatch → MT4031 with both spans and the inferred
 vs declared type names. Local-vs-external is detected via
 `DefMap::protocol_msg_names` membership.
 
 For external protocols we fall back to the slice-5 behavior:
-bind to the declared types and skip the SD4031 check. This keeps
+bind to the declared types and skip the MT4031 check. This keeps
 canonical examples 13 (uses opaque `Fetch` protocol) and 19 (uses
 `http.Handler`) compiling unchanged.
 
 ### IC4 — Strict `core` profile conformance case
 
-The strict `profile = "core"` SD4002 check is exercised by the new
+The strict `profile = "core"` MT4002 check is exercised by the new
 unit test `crate::effects::tests::core_profile_rejects_alloc`.
 The conformance case shape lives at
 `tests/conformance/effect_checking/05_strict_core_profile/` but
@@ -110,18 +110,18 @@ and refine this.
    supervisor scopes expose their child cap names to type-check,
    flip `tolerance_open=false` in the SupervisorBody /
    CapNarrowBody branches; the existing strict ScopeKind will
-   pick up SD2021 automatically.
+   pick up MT2021 automatically.
 2. **Per-case `star.toml` in the conformance harness.** Today the
    harness reads the workspace `star.toml`; adding per-case
-   overrides enables direct conformance assertion of SD4002 (and
+   overrides enables direct conformance assertion of MT4002 (and
    future profile-driven diagnostics).
-3. **Function-signature cap-narrowing.** SD4010 fires only at
+3. **Function-signature cap-narrowing.** MT4010 fires only at
    method-call subsumption sites today. v0.3.1 should propagate
    `CapConstraint::And(...)` into fn signatures so callers can
    declare narrowed-Fs parameters explicitly and the call-site
-   subsumption check elevates broader caps to SD4010.
+   subsumption check elevates broader caps to MT4010.
 4. **Cross-package Sendable propagation.** When external crates
-   declare a type Sendable via metadata, our SD3011 check should
+   declare a type Sendable via metadata, our MT3011 check should
    see the bound. Today external opaque ADTs are permissively
    Sendable; v0.4 should tighten this when the metadata API
    exists.
@@ -132,18 +132,18 @@ and refine this.
 
 ## New diagnostic codes
 
-(No new code numbers; existing SD2021, SD3011, SD4031, SD4002 are
+(No new code numbers; existing MT2021, MT3011, MT4031, MT4002 are
 re-aimed.)
 
-- SD2021 (unresolved_value) — text + note updated to call out the
+- MT2021 (unresolved_value) — text + note updated to call out the
   strict scope context.
-- SD3011 (non_sendable_message_arg) — rule formalized; text +
+- MT3011 (non_sendable_message_arg) — rule formalized; text +
   reason note tied to the Sendable definition.
-- SD4031 (protocol_param_type_mismatch) — newly activated for
+- MT4031 (protocol_param_type_mismatch) — newly activated for
   local protocols; text + note tied to the protocol declaration.
-- SD4002 (alloc_in_core) — explain text + conformance case shape
+- MT4002 (alloc_in_core) — explain text + conformance case shape
   added; no behavior change to the check itself.
-- SD4041 (derive_unknown) — text updated to include `Sendable` in
+- MT4041 (derive_unknown) — text updated to include `Sendable` in
   the list of supported derives.
 
 ## Test count delta
@@ -162,7 +162,7 @@ re-aimed.)
   rewrote `synth_path` strict/permissive fork.
 - `crates/sdust-types/src/items.rs` — set scope_kind for each
   Cx construction (TopLevelFn / AgentBody / HandlerBody /
-  SupervisorBody), added local-protocol SD4031 post-check, added
+  SupervisorBody), added local-protocol MT4031 post-check, added
   helpers `is_handler_protocol_local` / `first_protocol_name`.
 - `crates/sdust-types/src/defs.rs` — added `DefMap::user_sendable`.
 - `crates/sdust-types/src/resolve.rs` — `derive(Sendable)` handler.
@@ -175,8 +175,8 @@ re-aimed.)
   parse-profile unit tests.
 - `crates/sdust-types/Cargo.toml` — add `sdust-driver` dev-dep
   for the integration tests' end-to-end pipeline.
-- `crates/sdust-diagnostics/src/codes.rs` — updated SD2021, SD3011,
-  SD4031, SD4041 explain text.
+- `crates/sdust-diagnostics/src/codes.rs` — updated MT2021, MT3011,
+  MT4031, MT4041 explain text.
 - `docs/internals/{typeck,sendable,effects,capabilities,traits}.md`
   — A65 documentation.
 - `docs/spec/v0.1-amendments.md` — A65, A65.b, A65.c, A65.d.

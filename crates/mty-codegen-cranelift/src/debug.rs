@@ -37,7 +37,7 @@ pub struct DwarfInputs<'a> {
     /// to line/column pairs.
     pub source_text: &'a str,
     /// Display path for the source file (typically the path the user
-    /// passed to `sdust build`).
+    /// passed to `mty build`).
     pub source_path: &'a str,
     /// Working directory for `DW_AT_comp_dir` (typically `std::env::current_dir`).
     pub comp_dir: String,
@@ -215,7 +215,7 @@ mod tests {
         prog.fns.push(dummy_main());
         let inputs = DwarfInputs {
             source_text: "fn main() {}\n",
-            source_path: "x.sd",
+            source_path: "x.mty",
             comp_dir: "/tmp".into(),
         };
         let b = build_dwarf_for(&prog, &inputs).unwrap();

@@ -28,7 +28,7 @@ impl Hash for UserId {
 
 The compiler enforces **coherence**: at most one
 `impl Trait for Type` per (trait, type) pair. A duplicate raises
-`SD4022 trait_coherence_violation`.
+`MT4022 trait_coherence_violation`.
 
 ## Dispatch
 
@@ -38,10 +38,10 @@ When you call `x.hash()`:
    `T`, it wins regardless of trait impls.
 2. **Trait fallback.** If exactly one trait in scope provides `hash`
    for `T`, that impl dispatches. Two or more in scope: ambiguous,
-   `SD4020 method_ambiguous` — disambiguate by importing fewer traits
+   `MT4020 method_ambiguous` — disambiguate by importing fewer traits
    or using an explicit trait-qualified call (slice 5 doesn't yet
    parse that syntax; the diagnostic lists candidates).
-3. **None of the above.** `SD4021 method_not_found`.
+3. **None of the above.** `MT4021 method_not_found`.
 
 ## `dyn Trait`
 
@@ -64,7 +64,7 @@ fn print(s: dyn Show) -> Unit {
 
 Slice 5 keeps object-safety conservative: a trait used through `dyn`
 may not mention `Self` in any method parameter or return, and may not
-have method-level generics. Violation: `SD4023 dyn_requires_object_safe`.
+have method-level generics. Violation: `MT4023 dyn_requires_object_safe`.
 
 ## `#[derive(Copy, Hash, Eq)]`
 
@@ -80,9 +80,9 @@ struct Vec2 {
 ```
 
 `Copy` validates every field's type is itself Copy
-(`SD4040 derive_copy_field_not_copy` otherwise). `Hash` / `Eq` register
+(`MT4040 derive_copy_field_not_copy` otherwise). `Hash` / `Eq` register
 synthetic impls so `dyn Hash = my_t` resolves.
 
 A shorthand `derive Copy struct Vec2 { ... }` is also accepted.
 
-Unknown derive names raise `SD4041 derive_unknown`.
+Unknown derive names raise `MT4041 derive_unknown`.

@@ -1,4 +1,4 @@
-//! `sdust build` and `sdust run` (JIT path) implementations
+//! `mty build` and `mty run` (JIT path) implementations
 //! (slice 8).
 //!
 //! Goes through the same parse → lower → typeck → borrowck → SIR
@@ -268,7 +268,7 @@ mod tests {
     #[test]
     fn jit_run_empty_main_returns_zero() {
         let src = "fn main() {}\n".to_string();
-        match jit_run(src, "test.sd".into()) {
+        match jit_run(src, "test.mty".into()) {
             Ok(Some(0)) | Ok(None) => {}
             other => panic!("expected Ok(Some(0)) or Ok(None), got {other:?}"),
         }
@@ -278,7 +278,7 @@ mod tests {
     fn build_native_creates_object() {
         let dir = tempfile::tempdir().expect("tempdir");
         let opts = BuildOptions::native_debug(dir.path().to_path_buf(), "hello");
-        let outcome = build_native("fn main() {}\n".into(), "x.sd".into(), &opts);
+        let outcome = build_native("fn main() {}\n".into(), "x.mty".into(), &opts);
         // Either we got a native binary or just the .o (no linker).
         match outcome {
             BuildOutcome::NativeOk(p) => assert!(p.exists()),
@@ -302,7 +302,7 @@ mod tests {
         };
         let outcome = build_wasm(
             "fn main() {}\n".into(),
-            "x.sd".into(),
+            "x.mty".into(),
             &opts,
             WasmTarget::Wasi,
         );
@@ -336,7 +336,7 @@ mod tests {
         };
         let outcome = build_wasm(
             "fn main() {}\n".into(),
-            "x.sd".into(),
+            "x.mty".into(),
             &opts,
             WasmTarget::Wasi,
         );

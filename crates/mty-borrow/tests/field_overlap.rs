@@ -5,7 +5,7 @@ use mty_driver::{lower, parse_source};
 use mty_types::check_package_typed;
 
 fn check(src: &str) -> Vec<mty_diagnostics::Diagnostic> {
-    let parsed = parse_source(src.into(), "test.sd".into());
+    let parsed = parse_source(src.into(), "test.mty".into());
     let (pkg, mut diags) = lower(&parsed);
     let any_err = diags.iter().any(|d| matches!(d.severity, Severity::Error));
     if !any_err {
@@ -42,8 +42,8 @@ fn two_mut_on_same_field_err() {
     ";
     let d = check(src);
     assert!(
-        has_code(&d, "SD3006"),
-        "two &mut on same field → SD3006, got {:?}",
+        has_code(&d, "MT3006"),
+        "two &mut on same field → MT3006, got {:?}",
         d.iter().map(|d| d.code.as_str()).collect::<Vec<_>>()
     );
 }
@@ -66,8 +66,8 @@ fn mut_then_shared_on_same_field_err() {
     ";
     let d = check(src);
     assert!(
-        has_code(&d, "SD3005"),
-        "&mut then & on same field → SD3005, got {:?}",
+        has_code(&d, "MT3005"),
+        "&mut then & on same field → MT3005, got {:?}",
         d.iter().map(|d| d.code.as_str()).collect::<Vec<_>>()
     );
 }

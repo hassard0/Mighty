@@ -10,7 +10,7 @@ Spec §13 + slice-5 design. Strict agent/protocol conformance:
 
 ## Cases
 
-- `01_arity_mismatch` — SD4030 protocol_arity_mismatch.
-- `02_missing_handler` — SD4032 protocol_missing_handler.
-- `03_extra_handler` — SD4033 protocol_extra_handler.
+- `01_arity_mismatch` — MT4030 protocol_arity_mismatch.
+- `02_missing_handler` — MT4032 protocol_missing_handler.
+- `03_extra_handler` — MT4033 protocol_extra_handler.
 - `04_protocol_ok` — positive: agent fully implements protocol; clean.

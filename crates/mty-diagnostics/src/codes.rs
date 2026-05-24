@@ -8,11 +8,11 @@ impl DiagCode {
         DiagCode(n)
     }
     pub fn as_str(&self) -> String {
-        format!("SD{:04}", self.0)
+        format!("MT{:04}", self.0)
     }
 }
 
-// Lex/parse: SD0001..SD0999
+// Lex/parse: MT0001..MT0999
 pub const UNEXPECTED_TOKEN: DiagCode = DiagCode::new(1);
 pub const UNTERMINATED_STRING: DiagCode = DiagCode::new(2);
 pub const INVALID_ESCAPE: DiagCode = DiagCode::new(3);
@@ -24,11 +24,11 @@ pub const DUPLICATE_ON_HANDLER: DiagCode = DiagCode::new(20);
 pub const PUB_NEEDS_RETURN_TYPE: DiagCode = DiagCode::new(21);
 pub const DEPTH_LIMIT_EXCEEDED: DiagCode = DiagCode::new(30);
 
-// HIR: SD1001..SD1999
+// HIR: MT1001..MT1999
 pub const UNRESOLVED_NAME: DiagCode = DiagCode::new(1001);
 pub const USE_RESOLVES_TO_NOTHING: DiagCode = DiagCode::new(1002);
 
-// Type checker: SD2001..SD2099
+// Type checker: MT2001..MT2099
 pub const TYPE_MISMATCH: DiagCode = DiagCode::new(2001);
 pub const UNRESOLVED_TYPE: DiagCode = DiagCode::new(2002);
 pub const CANNOT_INFER_TYPE: DiagCode = DiagCode::new(2003);
@@ -56,7 +56,7 @@ pub const LAMBDA_ARITY_MISMATCH: DiagCode = DiagCode::new(2024);
 pub const CANNOT_TAKE_REF: DiagCode = DiagCode::new(2025);
 pub const PROTOCOL_MSG_UNKNOWN: DiagCode = DiagCode::new(2026);
 
-// Effects + capabilities + traits + protocol strict: SD4001..SD4099
+// Effects + capabilities + traits + protocol strict: MT4001..MT4099
 pub const EFFECT_UNDECLARED: DiagCode = DiagCode::new(4001);
 pub const ALLOC_IN_CORE: DiagCode = DiagCode::new(4002);
 pub const CAPABILITY_TOO_BROAD: DiagCode = DiagCode::new(4010);
@@ -71,7 +71,7 @@ pub const PROTOCOL_EXTRA_HANDLER: DiagCode = DiagCode::new(4033);
 pub const DERIVE_COPY_FIELD_NOT_COPY: DiagCode = DiagCode::new(4040);
 pub const DERIVE_UNKNOWN: DiagCode = DiagCode::new(4041);
 
-// Runtime / interpreter (slice 6): SD5001..SD5099
+// Runtime / interpreter (slice 6): MT5001..MT5099
 pub const RUNTIME_PANIC: DiagCode = DiagCode::new(5001);
 pub const USE_AFTER_DROP: DiagCode = DiagCode::new(5002);
 pub const DIVISION_BY_ZERO: DiagCode = DiagCode::new(5003);
@@ -91,7 +91,7 @@ pub const AGENT_HANDLER_MISSING: DiagCode = DiagCode::new(5020);
 pub const SEND_TO_DEAD_AGENT: DiagCode = DiagCode::new(5021);
 pub const EXTERN_FN_UNIMPL: DiagCode = DiagCode::new(5050);
 
-// Codegen traps (slice 8): SD8001..SD8010
+// Codegen traps (slice 8): MT8001..MT8010
 pub const CODEGEN_DIV_BY_ZERO: DiagCode = DiagCode::new(8001);
 pub const CODEGEN_OOB_INDEX: DiagCode = DiagCode::new(8002);
 pub const CODEGEN_INT_OVERFLOW: DiagCode = DiagCode::new(8003);
@@ -103,7 +103,7 @@ pub const CODEGEN_LINKER_MISSING: DiagCode = DiagCode::new(8008);
 pub const CODEGEN_WASM_VALIDATION: DiagCode = DiagCode::new(8009);
 pub const CODEGEN_MONO_FAILED: DiagCode = DiagCode::new(8010);
 
-// Macros: SD6001..SD6099 (moved from mty_macros::diag in v0.6
+// Macros: MT6001..MT6099 (moved from mty_macros::diag in v0.6
 // integrator pass — see SLICE_V0_6.md easy-win 2).
 pub const UNKNOWN_MACRO: DiagCode = DiagCode::new(6001);
 pub const MACRO_ARITY_MISMATCH: DiagCode = DiagCode::new(6002);
@@ -112,7 +112,7 @@ pub const RECURSIVE_MACRO_TOO_DEEP: DiagCode = DiagCode::new(6004);
 pub const PROC_MACRO_IMPURE: DiagCode = DiagCode::new(6005);
 pub const PROC_MACRO_UNSUPPORTED_V0_5: DiagCode = DiagCode::new(6006);
 
-// Borrow checker: SD3001..SD3099
+// Borrow checker: MT3001..MT3099
 pub const USE_AFTER_MOVE: DiagCode = DiagCode::new(3001);
 pub const MOVE_OUT_OF_BORROW: DiagCode = DiagCode::new(3002);
 pub const BORROW_AFTER_MOVE: DiagCode = DiagCode::new(3003);
@@ -130,174 +130,174 @@ pub const ASSIGN_TO_IMMUT_LOCAL: DiagCode = DiagCode::new(3014);
 pub const USE_OF_UNINITIALIZED: DiagCode = DiagCode::new(3015);
 
 /// Returns a 2-4 sentence human-readable explanation for a diagnostic
-/// code, suitable for `sdust explain SDxxxx`. Returns None for codes
+/// code, suitable for `mty explain MTxxxx`. Returns None for codes
 /// outside the assigned ranges.
 pub fn explain(code: DiagCode) -> Option<&'static str> {
     Some(match code.0 {
         1 => {
-            "SD0001: Unexpected token. The lexer or parser found a token \
+            "MT0001: Unexpected token. The lexer or parser found a token \
               that doesn't fit the current grammar context. Check for typos, \
               missing punctuation, or a misplaced keyword."
         }
         2 => {
-            "SD0002: Unterminated string literal. A string starts with \" \
+            "MT0002: Unterminated string literal. A string starts with \" \
               but never closes before end-of-line or end-of-file. Add the \
               closing quote, or escape any embedded \" as \\\"."
         }
         3 => {
-            "SD0003: Invalid escape sequence. The character after \\ in a \
+            "MT0003: Invalid escape sequence. The character after \\ in a \
               string or char literal is not a recognized escape. Valid \
               escapes include \\n, \\t, \\r, \\\\, \\\", \\', \\x{HH}, and \
               \\u{HHHH}."
         }
         4 => {
-            "SD0004: Unknown duration unit. Mighty duration literals use \
+            "MT0004: Unknown duration unit. Mighty duration literals use \
               one of `ns`, `us`, `ms`, `s`, `m`, `h` as the trailing unit. \
-              For size literals see SD0001 (`KiB`/`MiB`/`GiB` binary, `k`/`M` \
+              For size literals see MT0001 (`KiB`/`MiB`/`GiB` binary, `k`/`M` \
               decimal)."
         }
         10 => {
-            "SD0010: Expected an item. At the top level (or inside a mod), \
+            "MT0010: Expected an item. At the top level (or inside a mod), \
                the parser expected one of: fn, struct, enum, type, use, mod, \
                package, agent, protocol, supervisor, extern, export, impl, \
                trait, const, macro."
         }
         11 => {
-            "SD0011: Expected an expression. The parser reached a position \
+            "MT0011: Expected an expression. The parser reached a position \
                where an expression must appear but found something else \
                (such as a closing delimiter or a statement keyword)."
         }
         12 => {
-            "SD0012: Mismatched delimiter. An opening `(`, `[`, or `{` was \
+            "MT0012: Mismatched delimiter. An opening `(`, `[`, or `{` was \
                not paired with the matching closing delimiter, or they were \
                crossed."
         }
         20 => {
-            "SD0020: Duplicate `on` handler. An agent body declared two \
+            "MT0020: Duplicate `on` handler. An agent body declared two \
                handlers for the same protocol message. Each protocol message \
                may have at most one `on Message` handler per agent."
         }
         21 => {
-            "SD0021: `pub` function needs a return type. Public functions \
+            "MT0021: `pub` function needs a return type. Public functions \
                must declare an explicit return type (`-> T`) so callers in \
                other modules can rely on the signature. Add `-> Unit` if the \
                function returns nothing."
         }
         30 => {
-            "SD0030: Recursion depth limit exceeded. The parser nested \
+            "MT0030: Recursion depth limit exceeded. The parser nested \
                deeper than the configured limit. This usually indicates \
                adversarial or accidentally pathological input; refactor the \
                source to reduce nesting."
         }
         1001 => {
-            "SD1001: Unresolved name. The HIR lowerer could not resolve \
+            "MT1001: Unresolved name. The HIR lowerer could not resolve \
                  a name reference to any binding in scope. Check the spelling \
                  and ensure the binding's `use` or declaration is visible."
         }
         1002 => {
-            "SD1002: `use` resolves to nothing. The path on the right of \
+            "MT1002: `use` resolves to nothing. The path on the right of \
                  `use` does not name any importable item. Verify the package \
                  and module path; remember that paths use `.` as the \
                  separator."
         }
         2001 => {
-            "SD2001: Type mismatch. An expression's type does not match the \
+            "MT2001: Type mismatch. An expression's type does not match the \
                  type required by context. The diagnostic shows the expected \
                  type and the actual type; check the call site or annotation."
         }
         2002 => {
-            "SD2002: Unresolved type. The named type does not exist in scope. \
+            "MT2002: Unresolved type. The named type does not exist in scope. \
                  Verify the spelling, the relevant `use` declaration, and \
                  whether the type lives inside a module path (`foo.bar.Type`)."
         }
         2003 => {
-            "SD2003: Cannot infer type. The type checker could not determine \
+            "MT2003: Cannot infer type. The type checker could not determine \
                  a binding's type from context. Add an explicit annotation \
                  (`let x: T = ...`) or provide more usage."
         }
         2004 => {
-            "SD2004: Wrong number of generic arguments. The type or function \
+            "MT2004: Wrong number of generic arguments. The type or function \
                  expects a specific number of `[T, ...]` arguments. Add or \
                  remove arguments to match the declaration."
         }
         2005 => {
-            "SD2005: Wrong number of arguments. The function expects a specific \
+            "MT2005: Wrong number of arguments. The function expects a specific \
                  arity; the call site provides a different number. Check the \
                  function's declaration."
         }
         2006 => {
-            "SD2006: Unknown field. The named field does not exist on the \
+            "MT2006: Unknown field. The named field does not exist on the \
                  struct. Check spelling and the struct declaration."
         }
         2007 => {
-            "SD2007: Unknown method. The named method does not exist on the \
+            "MT2007: Unknown method. The named method does not exist on the \
                  receiver type. Method resolution searches `impl` blocks and \
                  a small built-in table; nothing matched."
         }
         2008 => {
-            "SD2008: Not callable. The value being applied does not have a \
+            "MT2008: Not callable. The value being applied does not have a \
                  function type. Check that it refers to a function or a \
                  callable agent constructor."
         }
         2009 => {
-            "SD2009: Unknown variant. The named variant does not exist on the \
+            "MT2009: Unknown variant. The named variant does not exist on the \
                  enum. Verify the spelling and the enum declaration."
         }
         2010 => {
-            "SD2010: `?` outside Result-returning function. The `?` operator \
+            "MT2010: `?` outside Result-returning function. The `?` operator \
                  requires the enclosing function's return type to be \
                  `Result[_, _]`. Change the signature, or replace `?` with an \
                  explicit `match`."
         }
         2011 => {
-            "SD2011: `?` error-type mismatch. The error type of `?`'s operand \
+            "MT2011: `?` error-type mismatch. The error type of `?`'s operand \
                  must match (or coerce to) the enclosing function's error \
                  type. Slice 3 requires an exact match."
         }
         2012 => {
-            "SD2012: Wrong variant arity. The enum variant expects a specific \
+            "MT2012: Wrong variant arity. The enum variant expects a specific \
                  number of payload values; the call site provides a different \
                  count."
         }
         2013 => {
-            "SD2013: Missing struct field. The struct literal omits a \
+            "MT2013: Missing struct field. The struct literal omits a \
                  required field. Add the field, or (if the field has a \
                  default) use shorthand notation."
         }
         2014 => {
-            "SD2014: Duplicate struct field. The struct literal lists the same \
+            "MT2014: Duplicate struct field. The struct literal lists the same \
                  field twice. Remove the duplicate."
         }
         2015 => {
-            "SD2015: Non-exhaustive match. The match does not cover every \
+            "MT2015: Non-exhaustive match. The match does not cover every \
                  possible value of the scrutinee. Slice 4 made this an \
                  error; add the missing arm(s) or a wildcard `_ => ...`."
         }
         2016 => {
-            "SD2016: Unreachable match arm (warning). A later arm cannot be \
+            "MT2016: Unreachable match arm (warning). A later arm cannot be \
                  reached because an earlier arm always matches first."
         }
         2017 => {
-            "SD2017: Binary operator type mismatch. The operator is not defined \
+            "MT2017: Binary operator type mismatch. The operator is not defined \
                  for the given operand types. Slice 3 supports the standard \
                  numeric/boolean operators only."
         }
         2018 => {
-            "SD2018: If/else branch type mismatch. The two branches of an `if` \
+            "MT2018: If/else branch type mismatch. The two branches of an `if` \
                  produce incompatible types. Unify them, or remove the value \
                  use of the `if`."
         }
         2019 => {
-            "SD2019: Return-type mismatch. The function declares one return \
+            "MT2019: Return-type mismatch. The function declares one return \
                  type but the body produces a different one."
         }
         2020 => {
-            "SD2020: Public function parameter requires explicit type. `pub` \
+            "MT2020: Public function parameter requires explicit type. `pub` \
                  functions must declare every parameter's type so callers in \
                  other modules can rely on the signature."
         }
         2021 => {
-            "SD2021: Unresolved value. The named identifier does not refer to \
+            "MT2021: Unresolved value. The named identifier does not refer to \
                  any value in scope. Check the spelling and visibility. \
                  v0.3 (A65) tightens this: agent/handler/supervisor/cap-narrow \
                  bodies are STRICT and reject unknown names that previously \
@@ -306,80 +306,80 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  permissive scope (top-level fn / extern / unsafe / arena)."
         }
         2022 => {
-            "SD2022: Not a struct. The value cannot be initialized with a \
+            "MT2022: Not a struct. The value cannot be initialized with a \
                  struct literal because it is not a struct type."
         }
         2023 => {
-            "SD2023: Generic argument-kind mismatch. The type argument's kind \
+            "MT2023: Generic argument-kind mismatch. The type argument's kind \
                  does not match the expected parameter kind (e.g. supplied a \
                  lifetime where a type was expected)."
         }
         2024 => {
-            "SD2024: Lambda arity mismatch. The lambda's parameter count \
+            "MT2024: Lambda arity mismatch. The lambda's parameter count \
                  differs from the expected function type."
         }
         2025 => {
-            "SD2025: Cannot take reference. The expression is not a place \
+            "MT2025: Cannot take reference. The expression is not a place \
                  (l-value), so `&` cannot apply."
         }
         2026 => {
-            "SD2026: Protocol message unknown (warning). An `on Msg(...)` \
+            "MT2026: Protocol message unknown (warning). An `on Msg(...)` \
                  handler refers to a message that no implemented protocol \
                  declares. Handler params will be typed as fresh inference \
                  variables; declare the message in a protocol or use \
                  protocol composition to bring it in."
         }
         3001 => {
-            "SD3001: Use after move. The value was moved earlier and cannot \
+            "MT3001: Use after move. The value was moved earlier and cannot \
                  be used again. Add `.clone()` before the move site if you \
                  need both, or restructure the code so each owner has a \
                  single move."
         }
         3002 => {
-            "SD3002: Move out of borrowed value. A reference (`&` or \
+            "MT3002: Move out of borrowed value. A reference (`&` or \
                  `&mut`) to the value is still live, so the value cannot be \
                  moved. Wait for the borrow's scope to end, or copy the \
                  value."
         }
         3003 => {
-            "SD3003: Borrow after move. The value was already moved and no \
+            "MT3003: Borrow after move. The value was already moved and no \
                  longer owns its storage; a borrow is not permitted."
         }
         3004 => {
-            "SD3004: Mutable borrow while shared borrows exist. Mighty \
+            "MT3004: Mutable borrow while shared borrows exist. Mighty \
                  forbids creating a `&mut T` while any `&T` to the same \
                  value is live."
         }
         3005 => {
-            "SD3005: Shared borrow while a mutable borrow exists. Mighty \
+            "MT3005: Shared borrow while a mutable borrow exists. Mighty \
                  forbids creating a `&T` while a `&mut T` to the same \
                  value is live."
         }
         3006 => {
-            "SD3006: Two mutable borrows of the same value. Only one \
+            "MT3006: Two mutable borrows of the same value. Only one \
                  `&mut T` may exist at a time."
         }
         3007 => {
-            "SD3007: Borrow outlives its owner. The borrowed value's \
+            "MT3007: Borrow outlives its owner. The borrowed value's \
                  owner goes out of scope before the borrow's lexical \
                  region ends."
         }
         3008 => {
-            "SD3008: Cannot move a borrowed value. A reference to the \
+            "MT3008: Cannot move a borrowed value. A reference to the \
                  value is still live."
         }
         3009 => {
-            "SD3009: Cannot move out of a reference. Dereferencing `&T` \
+            "MT3009: Cannot move out of a reference. Dereferencing `&T` \
                  or `&mut T` does not transfer ownership; you may only \
                  read or write through it."
         }
         3010 => {
-            "SD3010: Value escapes its arena. A value bound inside an \
+            "MT3010: Value escapes its arena. A value bound inside an \
                  `arena name { ... }` cannot leave the arena's scope unless \
                  explicitly promoted via `move` to an ancestor scope."
         }
         3011 => {
-            "SD3011: Non-Sendable cross-agent message argument. Every \
+            "MT3011: Non-Sendable cross-agent message argument. Every \
                  argument to a `!Msg(...)` or `?Msg(...)` call must be \
                  Sendable. v0.3 (A65) gives Sendable a formal definition: \
                  (a) Copy types are Sendable; (b) owned Sized values with \
@@ -390,290 +390,290 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  and the check is enforced at the !/? call site."
         }
         3012 => {
-            "SD3012: Drop in const context. A value requiring deterministic \
+            "MT3012: Drop in const context. A value requiring deterministic \
                  cleanup cannot live in a `const` slot."
         }
         3013 => {
-            "SD3013: Cannot mutably borrow an immutable local. The binding \
+            "MT3013: Cannot mutably borrow an immutable local. The binding \
                  was declared without `mut`."
         }
         3014 => {
-            "SD3014: Assignment to immutable local. The binding was \
+            "MT3014: Assignment to immutable local. The binding was \
                  declared without `mut`."
         }
         3015 => {
-            "SD3015: Use of uninitialised binding. The binding was \
+            "MT3015: Use of uninitialised binding. The binding was \
                  declared but never assigned before its first read."
         }
         4001 => {
-            "SD4001: Public function effect set is incomplete. The body \
+            "MT4001: Public function effect set is incomplete. The body \
                  calls (transitively) something that produces effects not \
                  listed in the function's `effect ...` clause. Either add \
                  the missing effects or restructure to avoid them."
         }
         4002 => {
-            "SD4002: Heap allocation in `core` profile. The strict `core` \
+            "MT4002: Heap allocation in `core` profile. The strict `core` \
                  profile bans the `alloc` effect; the body uses an \
                  allocator (arena, growable container, html template, \
                  etc.). Switch to a stack-only design or change the \
                  profile."
         }
         4010 => {
-            "SD4010: Capability too broad. The argument's capability \
+            "MT4010: Capability too broad. The argument's capability \
                  constraint is wider than the parameter declares. \
                  Narrow at the call site (e.g. `fs.ro(\"/data\")`) \
                  before passing."
         }
         4020 => {
-            "SD4020: Ambiguous method call. Two or more traits in scope \
+            "MT4020: Ambiguous method call. Two or more traits in scope \
                  each provide a method of this name on the receiver type. \
                  Disambiguate by importing fewer traits or by an explicit \
                  trait-qualified call."
         }
         4021 => {
-            "SD4021: Method not found. No inherent `impl` and no trait \
+            "MT4021: Method not found. No inherent `impl` and no trait \
                  impl in scope provides this method for the receiver \
                  type. Add an `impl T { fn m(...) }` or import the \
                  trait."
         }
         4022 => {
-            "SD4022: Trait coherence violation. The same trait is \
+            "MT4022: Trait coherence violation. The same trait is \
                  implemented twice for the same self type. Remove one \
                  of the conflicting `impl Trait for T` blocks."
         }
         4023 => {
-            "SD4023: `dyn Trait` requires an object-safe trait and an \
+            "MT4023: `dyn Trait` requires an object-safe trait and an \
                  implementing concrete type. Slice 5 bans `Self` in \
                  method signatures and bans generic methods inside \
                  traits used through `dyn`."
         }
         4030 => {
-            "SD4030: Protocol handler arity mismatch. The `on Msg(...)` \
+            "MT4030: Protocol handler arity mismatch. The `on Msg(...)` \
                  handler declares a different number of parameters than \
                  the protocol's message signature."
         }
         4031 => {
-            "SD4031: Protocol handler parameter type mismatch. The handler \
+            "MT4031: Protocol handler parameter type mismatch. The handler \
                  uses a parameter at a type incompatible with the \
                  protocol's declared parameter type. v0.3 (A65) fires this \
                  only when the protocol is defined in the current package \
                  (or prelude). External protocols continue to issue \
-                 SD2026 warnings — once the external module is in scope, \
+                 MT2026 warnings — once the external module is in scope, \
                  the strict check will activate automatically. Fix by \
                  adjusting either the handler body's usage or the protocol \
                  declaration so the two agree."
         }
         4032 => {
-            "SD4032: Protocol handler missing. The agent implements a \
+            "MT4032: Protocol handler missing. The agent implements a \
                  protocol that declares this message, but no `on Msg(...)` \
                  handler is provided. Either implement the handler or \
                  remove the protocol from the agent's declaration."
         }
         4033 => {
-            "SD4033: Protocol handler unknown. The `on Msg(...)` handler \
+            "MT4033: Protocol handler unknown. The `on Msg(...)` handler \
                  refers to a message that no implemented protocol declares. \
                  Either declare the message in a protocol or remove the \
                  handler."
         }
         4040 => {
-            "SD4040: `derive(Copy)` requires every field to be Copy. \
+            "MT4040: `derive(Copy)` requires every field to be Copy. \
                  At least one field's type is not Copy (e.g. `String`, \
                  `Bytes`, or another user ADT that is not itself Copy)."
         }
         4041 => {
-            "SD4041: Unknown derive. v0.3 supports `Copy`, `Hash`, `Eq`, \
+            "MT4041: Unknown derive. v0.3 supports `Copy`, `Hash`, `Eq`, \
                  and `Sendable`. Other derive names are reserved for later \
                  slices."
         }
         5001 => {
-            "SD5001: Runtime panic. The program executed `panic(msg)` \
+            "MT5001: Runtime panic. The program executed `panic(msg)` \
                  (or an unreachable terminator). The interpreter unwinds \
                  to the top of `main` and exits with code 1."
         }
         5002 => {
-            "SD5002: Use after drop. A reference outlived the local it \
+            "MT5002: Use after drop. A reference outlived the local it \
                  pointed into. The borrow checker proves this statically \
                  in well-typed programs; this trap fires only on programs \
                  that bypassed type-checking."
         }
         5003 => {
-            "SD5003: Division by zero. The interpreter trapped on `a / 0` \
+            "MT5003: Division by zero. The interpreter trapped on `a / 0` \
                  or `a % 0`. The static checker does not currently flag \
                  divisions by literal zero; that is post-v0.1 work."
         }
         5004 => {
-            "SD5004: Integer overflow. Arithmetic exceeded the target \
+            "MT5004: Integer overflow. Arithmetic exceeded the target \
                  integer's range. In debug builds (and the slice-6 \
                  interpreter) this traps. Release-mode wrap is post-v0.1."
         }
         5005 => {
-            "SD5005: Unreachable match. The interpreter fell off the end \
+            "MT5005: Unreachable match. The interpreter fell off the end \
                  of a `match` whose arms did not cover the scrutinee. \
                  Make the match exhaustive or add `_ => ...`."
         }
         5006 => {
-            "SD5006: Unhandled error result. Slice 6 reports this when \
+            "MT5006: Unhandled error result. Slice 6 reports this when \
                  `main` returns a `Result::Err(...)` value: the process \
                  exits 1 and prints the err payload."
         }
         5007 => {
-            "SD5007: Arena escape at runtime. The interpreter caught a \
-                 value escaping its arena scope. Borrow check SD3010 \
+            "MT5007: Arena escape at runtime. The interpreter caught a \
+                 value escaping its arena scope. Borrow check MT3010 \
                  covers the static case; this is a defense in depth."
         }
         5008 => {
-            "SD5008: Uncallable builtin. The program tried to invoke a \
+            "MT5008: Uncallable builtin. The program tried to invoke a \
                  built-in fn whose interpreter implementation is not yet \
                  wired up. File an issue with the fn name."
         }
         5009 => {
-            "SD5009: Budget exceeded. The interpreter's step budget \
+            "MT5009: Budget exceeded. The interpreter's step budget \
                  (default 1 000 000 ops) was exhausted, or an async \
                  suspension point was reached that slice 6 cannot honor."
         }
         5010 => {
-            "SD5010: Sandbox violation. The runtime denied a capability \
+            "MT5010: Sandbox violation. The runtime denied a capability \
                  call because the active sandbox's allowlist (fs.read, \
                  fs.write, or net) does not cover the requested target."
         }
         5011 => {
-            "SD5011: Deadline exceeded. An `?Msg(args) @duration` ask \
+            "MT5011: Deadline exceeded. An `?Msg(args) @duration` ask \
                  did not receive a reply within the requested duration. \
                  The runtime cancels the reply oneshot and the caller \
                  observes Result::Err(DeadlineExceeded) — or a typed-error \
                  variant when the protocol declares one."
         }
         5012 => {
-            "SD5012: Mailbox full. An agent's mailbox is at its declared \
+            "MT5012: Mailbox full. An agent's mailbox is at its declared \
                  `mb` depth and the budget policy is `drop` or `fail`. \
                  Under the default `block` policy the sender back-pressures \
                  instead of trapping."
         }
         5013 => {
-            "SD5013: Supervisor escalated. A supervisor's `escalate` \
+            "MT5013: Supervisor escalated. A supervisor's `escalate` \
                  strategy propagated a child failure to its parent. At \
                  the top of the supervisor tree this terminates the run."
         }
         5014 => {
-            "SD5014: Restart limit exceeded. A child agent exceeded its \
+            "MT5014: Restart limit exceeded. A child agent exceeded its \
                  `restart up_to N in DUR` budget. The supervisor escalates \
                  per its strategy."
         }
         5015 => {
-            "SD5015: Capability outside sandbox. A capability call \
+            "MT5015: Capability outside sandbox. A capability call \
                  attempted to reach a path or host not on the active \
                  sandbox allowlist. The runtime denies the call."
         }
         5020 => {
-            "SD5020: Agent handler missing. A `send` or `ask` referenced \
+            "MT5020: Agent handler missing. A `send` or `ask` referenced \
                  a message the target agent does not handle. The static \
-                 checker covers most cases (SD4032/SD4033); this code \
+                 checker covers most cases (MT4032/MT4033); this code \
                  covers `dyn`-dispatch holes."
         }
         5021 => {
-            "SD5021: Send to dead agent. The target agent handle no \
+            "MT5021: Send to dead agent. The target agent handle no \
                  longer resolves (e.g. the agent panicked and was not \
                  supervised). Slice 7 will integrate supervisor restart."
         }
         5050 => {
-            "SD5050: Extern fn unimplemented. The interpreter has no \
+            "MT5050: Extern fn unimplemented. The interpreter has no \
                  host binding for the named `extern { fn ... }` symbol. \
                  Register a host stub or run under a target that \
                  supplies the symbol."
         }
         8001 => {
-            "SD8001: Divide by zero in compiled code. The native or \
+            "MT8001: Divide by zero in compiled code. The native or \
                  wasm backend lowered an integer division whose RHS \
                  was zero at runtime. Add a guard before the division \
                  or migrate to a checked-arithmetic helper."
         }
         8002 => {
-            "SD8002: Out-of-bounds index in compiled code. An array \
+            "MT8002: Out-of-bounds index in compiled code. An array \
                  index escaped its declared length. Slice-8 codegen \
                  emits bounds-checked loads; ensure the index is in \
                  `0..len`."
         }
         8003 => {
-            "SD8003: Integer overflow in checked arithmetic. A checked \
+            "MT8003: Integer overflow in checked arithmetic. A checked \
                  add/sub/mul wrapped past its representable range. \
                  Use the wrapping_* helpers if wrap-around is intended."
         }
         8004 => {
-            "SD8004: Null pointer dereference in compiled code. A \
+            "MT8004: Null pointer dereference in compiled code. A \
                  raw pointer (`*T`) was dereferenced while null. \
                  Mighty safe code never produces null `*T`; this \
                  trap fires only from `unsafe` blocks."
         }
         8005 => {
-            "SD8005: Extern symbol unresolved. The runtime's libloading \
+            "MT8005: Extern symbol unresolved. The runtime's libloading \
                  lookup failed for an `extern { fn ... }` declaration. \
                  Ensure the library is in your loader path or override \
-                 it via `star.toml [extern]`."
+                 it via `mighty.toml [extern]`."
         }
         8006 => {
-            "SD8006: Unreachable code executed. A SIR block marked \
+            "MT8006: Unreachable code executed. A SIR block marked \
                  unreachable by the lowerer was reached at runtime — \
                  usually a sign of a typeck bug or a hand-edited SIR \
                  program."
         }
         8007 => {
-            "SD8007: Codegen rejected SIR shape. The selected backend \
+            "MT8007: Codegen rejected SIR shape. The selected backend \
                  (Cranelift native or Wasm) cannot lower this fn yet. \
                  The driver normally falls back to the interpreter for \
-                 `sdust run`; `sdust build` reports it as an error."
+                 `mty run`; `mty build` reports it as an error."
         }
         8008 => {
-            "SD8008: Native linker missing. `sdust build --target native` \
+            "MT8008: Native linker missing. `mty build --target native` \
                  emitted a `.o` but could not find a system linker \
                  (cc / gcc / clang on unix, link.exe on windows). Set \
                  `STARDUST_LINKER` to point at one, or install a C \
                  toolchain."
         }
         8009 => {
-            "SD8009: Emitted Wasm failed validation. The wasm backend \
+            "MT8009: Emitted Wasm failed validation. The wasm backend \
                  produced a module that `wasmparser` rejected. This is \
                  a codegen bug — please report with a reduced test case."
         }
         8010 => {
-            "SD8010: Monomorphization failed. A generic fn with \
+            "MT8010: Monomorphization failed. A generic fn with \
                  unresolved type parameters reached the codegen. The \
                  monomorphizer should have specialized or rejected it; \
                  if you see this, file a bug."
         }
         6001 => {
-            "SD6001: Unknown macro. The call site `name!(...)` refers to a name \
+            "MT6001: Unknown macro. The call site `name!(...)` refers to a name \
              that is not a registered declarative or procedural macro. Declare it \
              with `macro Name(...) => { ... }` above the call site, or check for \
              a typo. Cross-file macros must be `pub macro` in the exporting file \
              and imported with `use otherpkg.name`."
         }
         6002 => {
-            "SD6002: Macro arity mismatch. The macro was declared with a fixed \
+            "MT6002: Macro arity mismatch. The macro was declared with a fixed \
              number of parameters; the call site supplied a different count. \
              v0.6 macros do not support variadic parameters."
         }
         6003 => {
-            "SD6003: Macro body did not parse after expansion. Substituting the \
+            "MT6003: Macro body did not parse after expansion. Substituting the \
              call-site arguments into the body produced tokens that no longer \
              form a valid expression or statement. Check for missing punctuation \
              in the macro body, or for arguments that need parentheses to remain \
              a single sub-expression after substitution."
         }
         6004 => {
-            "SD6004: Recursive macro expansion exceeded the depth cap (32). The \
+            "MT6004: Recursive macro expansion exceeded the depth cap (32). The \
              macro called itself, directly or via another macro, more times \
              than v0.6 permits. Rewrite the macro non-recursively, or wait for \
              a future bounded-recursion proposal."
         }
         6005 => {
-            "SD6005: Procedural macro impurity. The proc-macro body contains a \
+            "MT6005: Procedural macro impurity. The proc-macro body contains a \
              call that looks like an effect (I/O, time, env, model, rand). \
              Procedural macros must be pure functions over TokenStream; effects \
              are forbidden because expansion happens at compile time, inside a \
              sandbox, with no access to the runtime environment."
         }
         6006 => {
-            "SD6006: Procedural macro execution is not supported yet. The \
+            "MT6006: Procedural macro execution is not supported yet. The \
              declaration parses and is stored in the registry, but the body \
              cannot run until the sandboxed compile-time interpreter ships. \
              Replace the call with a hand-expanded equivalent, or wait for the \

@@ -2,7 +2,7 @@
 
 > **Slice 7 (`v0.7.0-runtime`):** budgets and sandboxes are now
 > enforced at runtime. CPU/wall/mem/mailbox/spawn counters trap with
-> SD5009; host and path allowlists trap with SD5015. See
+> MT5009; host and path allowlists trap with MT5015. See
 > `docs/internals/budgets.md`.
 
 A `budget { ... } run expr` block bounds the resources `expr` may

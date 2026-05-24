@@ -1,7 +1,7 @@
-//! High-level operations behind `sdust pkg <subcmd>`.
+//! High-level operations behind `mty pkg <subcmd>`.
 //!
 //! Each function takes the package root (the directory holding
-//! `star.toml`) and returns either a printable summary string or an
+//! `mighty.toml`) and returns either a printable summary string or an
 //! error. The CLI wrapper in `mty-cli` is a thin pass-through.
 
 use crate::fetch::{self, Fetched};
@@ -30,7 +30,7 @@ pub enum PkgError {
     Io(#[from] std::io::Error),
     #[error("dep `{0}` not found in manifest")]
     DepNotFound(String),
-    #[error("no star.toml at {0}")]
+    #[error("no mighty.toml at {0}")]
     NoManifest(PathBuf),
     #[error("auth required: {0}")]
     AuthRequired(String),
@@ -45,7 +45,7 @@ pub fn resolve_and_lock(root: &Path) -> Result<Lockfile, PkgError> {
     Ok(lock)
 }
 
-/// `sdust pkg add <name>[@version]`.
+/// `mty pkg add <name>[@version]`.
 pub fn add(root: &Path, name: &str, version: Option<&str>) -> Result<String, PkgError> {
     let mut manifest = load_manifest(root)?;
     let version = version.unwrap_or("*").to_string();
@@ -77,7 +77,7 @@ pub fn remove(root: &Path, name: &str) -> Result<String, PkgError> {
     Ok(format!("removed `{name}`"))
 }
 
-/// `sdust pkg update [name] [--refresh]`. With `refresh=true` the
+/// `mty pkg update [name] [--refresh]`. With `refresh=true` the
 /// cached registry indexes are revalidated against GitHub before
 /// re-resolution.
 pub fn update(root: &Path, name: Option<&str>, refresh: bool) -> Result<String, PkgError> {
@@ -170,7 +170,7 @@ pub fn list(root: &Path) -> Result<String, PkgError> {
     Ok(out)
 }
 
-/// `sdust pkg search <query>`. Substring-matches both name and
+/// `mty pkg search <query>`. Substring-matches both name and
 /// version across the cached indexes of every configured registry.
 /// Refreshes indexes only when none are cached for a given slug.
 pub fn search(root: &Path, query: &str) -> Result<String, PkgError> {
@@ -202,7 +202,7 @@ pub fn search(root: &Path, query: &str) -> Result<String, PkgError> {
     if hits.is_empty() {
         if total_releases == 0 {
             return Ok(format!(
-                "no results for `{query}` (no cached registry indexes; run `sdust pkg update --refresh` to populate one)\n"
+                "no results for `{query}` (no cached registry indexes; run `mty pkg update --refresh` to populate one)\n"
             ));
         }
         return Ok(format!("no results for `{query}`\n"));
@@ -214,7 +214,7 @@ pub fn search(root: &Path, query: &str) -> Result<String, PkgError> {
     Ok(out)
 }
 
-/// `sdust pkg info <name>[@version]`. Resolves to a concrete release
+/// `mty pkg info <name>[@version]`. Resolves to a concrete release
 /// across configured registries and prints its metadata + body
 /// preview. With no version specifier the latest known version is
 /// shown.
@@ -290,7 +290,7 @@ pub fn info(root: &Path, query: &str) -> Result<String, PkgError> {
     Err(PkgError::DepNotFound(q))
 }
 
-/// `sdust pkg login [registry]` — guided token setup. When
+/// `mty pkg login [registry]` — guided token setup. When
 /// interactive input isn't available the function returns an error
 /// describing how to drop the token via env-var instead. In this
 /// non-interactive build we accept the token via env-var
@@ -309,7 +309,7 @@ pub fn login(slug: Option<&str>, root: &Path) -> Result<String, PkgError> {
     let token = std::env::var("SDUST_PKG_LOGIN_TOKEN").ok();
     let token = token.ok_or_else(|| {
         PkgError::AuthRequired(format!(
-            "pass the token via SDUST_PKG_LOGIN_TOKEN=<ghp_…> sdust pkg login {slug} \
+            "pass the token via SDUST_PKG_LOGIN_TOKEN=<ghp_…> mty pkg login {slug} \
              (interactive prompts are disabled in v0.4)"
         ))
     })?;
@@ -325,7 +325,7 @@ pub fn login(slug: Option<&str>, root: &Path) -> Result<String, PkgError> {
     ))
 }
 
-/// `sdust pkg publish`. Produces the bundle, then either uploads it
+/// `mty pkg publish`. Produces the bundle, then either uploads it
 /// (when a token is available for the configured default registry) or
 /// reports the local artefacts + a clear "set GITHUB_TOKEN" message.
 pub fn publish(root: &Path) -> Result<String, PkgError> {
@@ -348,7 +348,7 @@ pub fn publish(root: &Path) -> Result<String, PkgError> {
             "bundle ready at `{bundle}` ({hash})\n\
              sidecar     `{side}`\n\
              upload skipped: no auth token for `{slug}`.\n\
-             Set GITHUB_TOKEN or run `sdust pkg login {slug}` and retry.\n\
+             Set GITHUB_TOKEN or run `mty pkg login {slug}` and retry.\n\
              To upload manually, drag the two files onto the release page for tag `{tag}`.\n",
             bundle = outcome.bundle_path.display(),
             hash = outcome.hash,

@@ -107,10 +107,10 @@ and `source` (one of `Return | Param | UserLet | Temp | DropFlag`).
 | `SwitchInt{}`        | Int-valued switch                                      |
 | `SwitchVariant{}`    | Enum-tag-valued switch                                 |
 | `Return(op)`         | Return a value                                         |
-| `Panic{msg}`         | Trap with SD5001                                       |
-| `Unreachable`        | Trap with SD5005                                       |
+| `Panic{msg}`         | Trap with MT5001                                       |
+| `Unreachable`        | Trap with MT5005                                       |
 | `TryReturnErr(op)`   | Synthesize `Result::Err(op)` and return                |
-| `Suspend{resume}`    | Async suspension placeholder (slice-7 traps SD5009)    |
+| `Suspend{resume}`    | Async suspension placeholder (slice-7 traps MT5009)    |
 
 ## Places + projections
 
@@ -183,7 +183,7 @@ scheduler arrive in slice 7.
 
 | Concern              | Status                                                       |
 |----------------------|--------------------------------------------------------------|
-| Async scheduler      | Slice 7 — `Suspend` traps SD5009 until then                  |
+| Async scheduler      | Slice 7 — `Suspend` traps MT5009 until then                  |
 | Monomorphization     | Post-v0.1 — `SirTy::Param(name)` carries through unchanged   |
 | DCE / inlining       | Post-v0.1                                                    |
 | LLVM / Cranelift     | Slice 8                                                      |
