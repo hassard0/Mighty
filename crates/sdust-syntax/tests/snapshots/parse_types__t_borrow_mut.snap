@@ -1,0 +1,16 @@
+---
+source: crates/sdust-syntax/tests/parse_types.rs
+expression: "dump(\"&mut Bytes\")"
+---
+FILE@0..10
+  TYPE_BORROW@0..10
+    AMP@0..1 "&"
+    MUT_KW@1..4 "mut"
+    WHITESPACE@4..5 " "
+    TYPE_PATH@5..10
+      PATH@5..10
+        PATH_SEGMENT@5..10
+          NAME_REF@5..10
+            IDENT@5..10 "Bytes"
+
+errors: []

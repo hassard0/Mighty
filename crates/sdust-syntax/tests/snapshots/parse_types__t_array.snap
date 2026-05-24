@@ -1,0 +1,19 @@
+---
+source: crates/sdust-syntax/tests/parse_types.rs
+expression: "dump(\"[U8; 16]\")"
+---
+FILE@0..8
+  TYPE_ARRAY@0..8
+    L_BRACK@0..1 "["
+    TYPE_PATH@1..3
+      PATH@1..3
+        PATH_SEGMENT@1..3
+          NAME_REF@1..3
+            IDENT@1..3 "U8"
+    SEMI@3..4 ";"
+    WHITESPACE@4..5 " "
+    LITERAL_EXPR@5..7
+      INT_LITERAL@5..7 "16"
+    R_BRACK@7..8 "]"
+
+errors: []

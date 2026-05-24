@@ -121,3 +121,12 @@ impl<'src> Parser<'src> {
 pub fn parse(src: &str) -> ParseResult {
     Parser::new(src).parse_file()
 }
+
+pub fn parse_type(src: &str) -> ParseResult {
+    let mut p = Parser::new(src);
+    p.builder.start_node(SyntaxKind::FILE.into());
+    p.skip_trivia();
+    types::type_expr(&mut p);
+    p.builder.finish_node();
+    ParseResult { green: p.builder.finish(), errors: p.errors }
+}

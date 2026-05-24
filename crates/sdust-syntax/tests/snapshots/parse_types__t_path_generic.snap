@@ -1,0 +1,29 @@
+---
+source: crates/sdust-syntax/tests/parse_types.rs
+expression: "dump(\"Map[Str, Json]\")"
+---
+FILE@0..14
+  TYPE_PATH@0..14
+    PATH@0..3
+      PATH_SEGMENT@0..3
+        NAME_REF@0..3
+          IDENT@0..3 "Map"
+    GENERIC_ARG_LIST@3..14
+      L_BRACK@3..4 "["
+      GENERIC_ARG@4..7
+        TYPE_PATH@4..7
+          PATH@4..7
+            PATH_SEGMENT@4..7
+              NAME_REF@4..7
+                IDENT@4..7 "Str"
+      COMMA@7..8 ","
+      WHITESPACE@8..9 " "
+      GENERIC_ARG@9..13
+        TYPE_PATH@9..13
+          PATH@9..13
+            PATH_SEGMENT@9..13
+              NAME_REF@9..13
+                IDENT@9..13 "Json"
+      R_BRACK@13..14 "]"
+
+errors: []

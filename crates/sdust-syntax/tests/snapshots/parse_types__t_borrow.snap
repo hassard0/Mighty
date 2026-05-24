@@ -1,0 +1,14 @@
+---
+source: crates/sdust-syntax/tests/parse_types.rs
+expression: "dump(\"&Str\")"
+---
+FILE@0..4
+  TYPE_BORROW@0..4
+    AMP@0..1 "&"
+    TYPE_PATH@1..4
+      PATH@1..4
+        PATH_SEGMENT@1..4
+          NAME_REF@1..4
+            IDENT@1..4 "Str"
+
+errors: []

@@ -1,0 +1,22 @@
+---
+source: crates/sdust-syntax/tests/parse_types.rs
+expression: "dump(\"(I32, Str)\")"
+---
+FILE@0..10
+  TYPE_TUPLE@0..10
+    L_PAREN@0..1 "("
+    TYPE_PATH@1..4
+      PATH@1..4
+        PATH_SEGMENT@1..4
+          NAME_REF@1..4
+            IDENT@1..4 "I32"
+    COMMA@4..5 ","
+    WHITESPACE@5..6 " "
+    TYPE_PATH@6..9
+      PATH@6..9
+        PATH_SEGMENT@6..9
+          NAME_REF@6..9
+            IDENT@6..9 "Str"
+    R_PAREN@9..10 ")"
+
+errors: []
