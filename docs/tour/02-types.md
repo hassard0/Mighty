@@ -73,6 +73,23 @@ enum Shape { Circle(F64), Rect(F64, F64) }
 let s = Shape.Circle(1.0, 2.0)
 ```
 
+## Copy types
+
+Slice 4 hardcodes which types implicitly copy on use rather than move:
+
+- Primitives — Bool, all Int* and Float*, Char, Unit, Duration, Size
+- Shared references `&T`
+- Raw pointers `*T`
+- `Str` (the string slice; `String` and `Bytes` are NOT Copy)
+- Tuples and arrays of Copy elements
+- Function pointers
+
+User structs and enums are **not** Copy in v0.1. A non-Copy value moves
+on assignment / call / return; use a second copy by introducing the
+value at the source again, or by switching to `&T` borrows.
+
+See [ownership](14-ownership.md) for full move and borrow rules.
+
 ## Next
 
 Continue to [03 — Generics](03-generics.md).

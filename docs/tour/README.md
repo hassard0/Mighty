@@ -23,8 +23,10 @@ If you have not installed the compiler yet, see
 11. [Budgets](11-budgets.md) — bounded resource use.
 12. [Extern](12-extern.md) — C and JavaScript interop.
 13. [Unsafe](13-unsafe.md) — raw memory, contracts, audit metadata.
+14. [Ownership](14-ownership.md) — moves, borrows, drop, arena escape,
+    cross-agent Sendable.
 
-After chapter 13, examples 16–20 show macros, sandboxes, and complete
+After chapter 14, examples 16–20 show macros, sandboxes, and complete
 backend and frontend programs. Those are not yet split into individual
 tour chapters; read them directly under
 [`examples/`](../../examples/).

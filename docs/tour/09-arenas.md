@@ -26,7 +26,10 @@ fn turn_short(input: Str) -> Lowered!ParseErr {
   meaningful — agent message handlers get a default `turn` arena, and
   observability surfaces report arena lifetimes by name.
 - Allocations inside the arena cannot escape unless explicitly promoted
-  to the caller's region. The borrow checker (slice 4) will enforce this.
+  to the caller's region. Slice 4's borrow checker enforces this with
+  `SD3010 arena_escape`: an arena body whose tail directly names an
+  arena-local non-Copy binding errors. See
+  [14 — Ownership](14-ownership.md) for the full rule.
 - The compact form `arena turn: expr` is the spec's short-body syntax:
   the arena scope contains a single expression. The expression's value
   is the arena block's value.

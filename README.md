@@ -8,15 +8,15 @@ typed, ownership-based, and treats agents, protocols, capabilities, effects,
 arenas, and budgets as first-class concepts. The toolchain targets both
 native code (via LLVM) and the WebAssembly Component Model.
 
-The language is at the **pre-alpha** stage. Slice 3 — type checker
-MVP — is tagged
-[`v0.3.0-typeck`](https://github.com/hassard0/stardust/releases/tag/v0.3.0-typeck).
-Hindley-Milner inference with first-order generics, the Result sugar
-`T!E`, `?` propagation, struct/enum/match checking, and pub-signature
-validation all ship in slice 3. Effect and capability signatures are
-parsed and carried but not enforced (slice 5). Ownership/borrow
-checking is the next slice. Codegen and runtime are not yet
-implemented.
+The language is at the **pre-alpha** stage. Slice 4 — ownership and
+borrow checker — is tagged
+[`v0.4.0-borrowck`](https://github.com/hassard0/stardust/releases/tag/v0.4.0-borrowck).
+Slice 4 adds move/borrow/affine/arena/Sendable analysis on top of slice
+3's HM type checker, plus the slice-3 hardening (scope-aware unresolved-
+value tolerance, real impl-method dispatch on user ADTs, protocol-aware
+agent handler params, match exhaustiveness as error, int/float
+defaulting). Effect and capability enforcement is the next slice
+(slice 5). Codegen and runtime are not yet implemented.
 
 ## Install
 
@@ -63,7 +63,7 @@ describing any diagnostic code emitted.
 
 ## Project layout
 
-The compiler is a Rust workspace of eight crates:
+The compiler is a Rust workspace of nine crates:
 
 | Crate | Responsibility |
 |---|---|
@@ -72,6 +72,7 @@ The compiler is a Rust workspace of eight crates:
 | `sdust-diagnostics` | diagnostic types, SD-coded labels, ariadne rendering |
 | `sdust-hir` | name-resolved HIR with arena storage |
 | `sdust-types` | resolved Ty, HM inference, bidirectional type checker |
+| `sdust-borrow` | ownership/move/borrow/affine/arena analysis (slice 4) |
 | `sdust-fmt` | canonical formatter (Wadler/Lindig pretty-printer) |
 | `sdust-driver` | compilation pipeline and `star.toml` manifest loader |
 | `sdust-cli` | the `sdust` binary |
@@ -86,8 +87,8 @@ implemented or planned:
 | 1 | parser, formatter, HIR, CLI, examples | shipped (`v0.1.0-phase1`) |
 | 2 | per-node formatter, lambdas, if-let, turbofish, polish | shipped (`v0.2.0-phase1-polish`) |
 | 3 | type checker, generics MVP, `?` propagation | shipped (`v0.3.0-typeck`) |
-| 4 | ownership and borrow checker MVP | next |
-| 5 | effects and capabilities | planned |
+| 4 | ownership / borrow / affine / arena + slice-3 hardening | shipped (`v0.4.0-borrowck`) |
+| 5 | effects and capabilities | next |
 | 6 | SIR and interpreter | planned |
 | 7 | runtime MVP (scheduler, mailboxes, supervisors) | planned |
 | 8 | native (LLVM) and Wasm backends | planned |

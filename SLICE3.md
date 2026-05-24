@@ -113,15 +113,20 @@ revisit if any look wrong.
 - 12 negative-test fixtures
 - 20 integration tests (one per example)
 
-## Still deferred to slice 4+
+## Still deferred (slice 5+)
 
-- Ownership / move / affine / borrow checking (slice 4)
-- Trait coherence + impl-method dispatch (slice 4/5)
+CLOSED in slice 4:
+- ~~Ownership / move / affine / borrow checking~~ — sdust-borrow crate
+- ~~Explicit defaulting pass for `IntInfer`/`FloatInfer`~~ — A19
+- ~~Match exhaustiveness as an error~~ — A16 (SD2015 flipped to Error)
+- ~~Real protocol message-type checking for agent handlers~~ — A18
+- ~~Real impl-method dispatch on user ADTs~~ — A17
+- ~~Scope-aware unresolved-value tolerance~~ — A21
+
+Still open:
+- Trait coherence + dyn dispatch (slice 5)
 - Effect closure + capability narrowing enforcement (slice 5)
 - Top-level `sandbox` items per spec §16.1 (slice 5)
-- Explicit defaulting pass for `IntInfer`/`FloatInfer` (slice 4)
-- Match exhaustiveness as an error (slice 5; currently warning-only)
-- Real protocol message-type checking for agent handlers (slice 5)
 - Stdlib opaque modules → real definitions (slice 6+)
 - Per-item canonical printers for the formatter
 - HTML template `{expr}` interpolation parsing

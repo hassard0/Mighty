@@ -62,7 +62,7 @@ SD0001: Unexpected token. ...
 | `SD2012` | `WRONG_VARIANT_ARITY` | Variant payload count mismatch. |
 | `SD2013` | `MISSING_STRUCT_FIELD` | Struct literal omits a required field. |
 | `SD2014` | `DUPLICATE_STRUCT_FIELD` | Struct literal lists a field twice. |
-| `SD2015` | `NON_EXHAUSTIVE_MATCH` | (warning) match doesn't cover all cases. |
+| `SD2015` | `NON_EXHAUSTIVE_MATCH` | Match doesn't cover all cases (slice 4 promoted to error). |
 | `SD2016` | `UNREACHABLE_MATCH_ARM` | (warning) arm shadowed by earlier arm. |
 | `SD2017` | `BINOP_TYPE_MISMATCH` | Operator not defined on operand types. |
 | `SD2018` | `IF_BRANCH_MISMATCH` | If/else branches have incompatible types. |
@@ -73,6 +73,27 @@ SD0001: Unexpected token. ...
 | `SD2023` | `GENERIC_ARG_MISMATCH` | Generic arg kind mismatch. |
 | `SD2024` | `LAMBDA_ARITY_MISMATCH` | Lambda has wrong param count. |
 | `SD2025` | `CANNOT_TAKE_REF` | Cannot take reference to non-place. |
+| `SD2026` | `PROTOCOL_MSG_UNKNOWN` | (warning) agent handler msg not in any implemented protocol. |
+
+## Slice 4 codes (borrow checker, SD3001..SD3099)
+
+| Code | Name | Meaning |
+|---|---|---|
+| `SD3001` | `USE_AFTER_MOVE` | Use of a value after it was moved. |
+| `SD3002` | `MOVE_OUT_OF_BORROW` | (reserved; slice 4 uses SD3008) Move while borrowed. |
+| `SD3003` | `BORROW_AFTER_MOVE` | Borrow created after the value was moved. |
+| `SD3004` | `MUT_BORROW_WHILE_SHARED` | `&mut` created while shared borrows exist. |
+| `SD3005` | `SHARED_BORROW_WHILE_MUT` | `&` created while a `&mut` is live. |
+| `SD3006` | `TWO_MUT_BORROWS` | Second `&mut` to the same value. |
+| `SD3007` | `BORROW_OUTLIVES_OWNER` | (reserved) Borrow lifetime exceeds the owner's. |
+| `SD3008` | `CANNOT_MOVE_BORROWED` | Moved a value while it was borrowed. |
+| `SD3009` | `MOVE_OUT_OF_REF` | (reserved) Tried to move out of a reference. |
+| `SD3010` | `ARENA_ESCAPE` | Arena-local value escapes its arena scope. |
+| `SD3011` | `NON_SENDABLE_MESSAGE_ARG` | Cross-agent message arg is not Sendable. |
+| `SD3012` | `DROP_IN_CONST_CONTEXT` | (reserved) Drop-requiring value in const context. |
+| `SD3013` | `MUT_BORROW_OF_IMMUT_LOCAL` | `&mut` of a local declared without `mut`. |
+| `SD3014` | `ASSIGN_TO_IMMUT_LOCAL` | Assigned to a local declared without `mut`. |
+| `SD3015` | `USE_OF_UNINITIALIZED` | Read of a binding never assigned. |
 
 ## Adding a new code
 

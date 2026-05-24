@@ -1,0 +1,288 @@
+# Borrow Checker Internals (Slice 4)
+
+Stardust's ownership / borrow / affine / arena analysis lives in the
+**`sdust-borrow`** crate. It runs after `sdust-types` and consumes the
+typed-HIR side tables produced by `sdust_types::check_package_typed`.
+
+This document mirrors `docs/internals/typeck.md` and is the load-bearing
+reference for slice 4's design choices.
+
+## 1. Place in the pipeline
+
+```
+sdust-syntax → sdust-ast → sdust-hir → sdust-types → sdust-borrow
+```
+
+`sdust-borrow` only runs if `sdust-types` produced no Error-severity
+diagnostics (warnings, such as SD2026 `protocol_msg_unknown`, are
+tolerated). The driver wires this up via
+`sdust_driver::type_and_borrow_check(pkg)`.
+
+The CLI calls the combined stage:
+
+```
+sdust check foo.sd  →  lex → parse → lower → typeck → borrowck
+```
+
+## 2. Inputs
+
+`TypedPackage` carries:
+
+- `def_map: DefMap` — name resolution table (ADTs, fns, modules, params).
+- `ty_arena: TyArena` — interned types.
+- `expr_ty: HashMap<ExprId, TyId>` — resolved type of every expression
+  (post-defaulting; `IntInfer→I32`, `FloatInfer→F64`).
+- `fn_params: HashMap<FnId, Vec<(String, TyId)>>` — per-fn parameter list.
+- `fn_ret: HashMap<FnId, TyId>` — per-fn declared return type.
+- `diagnostics: Vec<Diagnostic>` — typeck diagnostics.
+
+The borrow checker reads `expr_ty` heavily (to classify calls' arg-pos
+moves vs borrows) and `fn_params` (to seed the per-fn local table).
+
+## 3. State machine
+
+Each tracked local has an `Ownership` state:
+
+| State          | Meaning                                                    |
+|----------------|------------------------------------------------------------|
+| `Owned`        | The local owns its value (Copy values stay Owned forever)  |
+| `Moved { at }` | Value has been moved; reads/borrows error (SD3001/SD3003)  |
+| `Borrowed{n}`  | `n` live shared borrows; reads OK, mut-borrow forbidden    |
+| `BorrowedMut`  | One live mutable borrow; both reads and shared-borrow forbid|
+| `Uninit`       | `let x;` without init; first read errors SD3015            |
+
+State transitions are driven by the **position** the local appears in:
+
+| Position         | On Owned    | On Moved | On Borrowed | On BorrowedMut |
+|------------------|-------------|----------|-------------|-----------------|
+| `Use`            | (no change) | SD3001   | (read OK)   | (read OK)       |
+| `Move`           | →Moved (if !Copy) | SD3001 | SD3008    | SD3008          |
+| `BorrowShared`   | →Borrowed{1}| SD3003   | →Borrowed{n+1} | SD3005      |
+| `BorrowMut`      | →BorrowedMut OR SD3013 | SD3003 | SD3004 | SD3006        |
+| `AssignTarget`   | →Owned OR SD3014 | →Owned OR SD3014 | (same) | (same) |
+
+Copy values never transition out of Owned: `is_copy()` returning true
+makes Move into a no-op.
+
+## 4. Copy rule
+
+`crates/sdust-borrow/src/copy.rs::is_copy(ty, arena, defs) -> bool`:
+
+- Primitives (Bool, Int*, Float*, Char, Unit, Duration, Size) — yes
+- `&T` (shared ref) — yes; `&mut T` — no
+- `*T` raw pointer — yes
+- `Str` (string slice) — yes; `String`/`Bytes` (owning) — no
+- Tuples / arrays — yes iff every element is Copy
+- Function pointers — yes
+- Opaque ADT (prelude `Url`, `Page`, agent types, etc.) — **yes**
+  (BOLD slice-4 decision to keep examples compiling; will tighten via
+  per-type `derive(Copy)` in slice 5)
+- User struct/enum — no
+- `Param(T)` / `Var(?n)` — no (conservative)
+- `Never`, `Error`, `Module` — yes (degenerate)
+
+## 5. Sendable rule (cross-agent)
+
+`sendable.rs::is_sendable(ty, arena, defs) -> bool`:
+
+- All references / raw pointers / fn pointers — **no** (rejected first,
+  even though refs are Copy)
+- Copy types (other than the above) — yes
+- Owned `String` / `Bytes` — yes (move semantics across boundary)
+- Tuples / arrays — yes iff every element is Sendable (recurse before
+  Copy short-circuit)
+- Opaque ADT — yes
+- User struct/enum — yes iff every variant payload is Sendable
+- `Param(T)` / `Var(?n)` — yes (conservative permissive; slice-5 trait
+  bounds tighten)
+
+A `!Msg(args)` / `?Msg(args)` call site checks every arg's expr type
+against this predicate; failures emit SD3011.
+
+## 6. Linear walk
+
+The walker is **lexical** and **linear** — no CFG, no fixpoint. State
+mutates as the walk proceeds:
+
+- `walk_block` pushes a scope frame, walks every statement, walks the
+  block's tail expression, pops the frame. On pop, every Owned non-Copy
+  local in the frame emits a `DropEntry` into `DropPlan`.
+- `walk_stmt(Let)` walks the init, reads its type from `expr_ty`, then
+  binds pattern locals with that type. `let mut <pat>` flows the mutability
+  through to bound locals.
+- `walk_expr` is a giant match. Highlights:
+  - `Path([name])` → consults `position` to do `do_use` / `do_move` /
+    `do_borrow_shared` / `do_borrow_mut` / `do_assign`.
+  - `Borrow { mutable, inner }` → walks inner with the corresponding
+    borrow Position.
+  - `Move(inner)` → walks inner with Position::Move.
+  - `Call { callee, args }` → walks callee, then each arg with a Position
+    derived from the callee's resolved `Fn { params, .. }` type:
+    `Ref { mutable, .. }` parameters borrow, others move.
+  - `If` / `IfLet` / `Match` → snapshot locals before the branch arms,
+    join via `state::join_states` (intersection) after.
+  - `Arena { body, .. }` → push a fresh `ArenaRegionId`; locals declared
+    in the body carry the region; at body end, if the tail expression's
+    root name is an arena-local non-Copy binding, emit SD3010.
+  - `Unsafe` / `Sandbox` / `Budget` → just walk (the type checker's
+    scope-aware tolerance is what relaxes name resolution).
+  - `Spawn` / `Lambda` / `TaskScope` → walk children; lambdas open a fresh
+    frame and the captured-locals snapshot is restored on exit (slice 4
+    does not enforce affine capture).
+
+## 7. Borrow region: lexical only
+
+A borrow's region is the **innermost enclosing block** of the borrow
+expression. When that block ends, every borrow it introduced "decays" —
+in practice the walker pops the local state of the borrower (which was a
+scope-local binding holding the `&T` / `&mut T` value), so the borrow
+count on the source local naturally decrements via the scope-end clean-up.
+
+This is conservative; some programs Rust's NLL accepts may error here.
+NLL / Polonius is post-v0.1.
+
+## 8. Arena region tracking
+
+`arena_region.rs::ArenaCounter` issues monotone region ids. The walker's
+`ScopeFrame::arena_region` holds the active region (if any). `bind_local`
+captures the current arena region into the new local's `arena_region`
+field.
+
+`walk_expr(HirExpr::Arena)` does:
+
+1. Push a frame with a fresh region id.
+2. Walk the body. If the body is a `Block`, we walk its statements and
+   tail directly (not through `walk_block`) so the arena frame is still
+   active when we inspect the tail.
+3. If the tail expression's "root name" (returned by `walk_expr`) names a
+   local owned in the active region with `!is_copy`, emit SD3010.
+4. Pop the frame.
+
+The MVP only flags **direct naming** (`arena turn { let x = ...; x }`).
+Transitive flow (e.g. a fn returning the arena-local through a deref) is
+post-v0.1.
+
+## 9. Drop intent
+
+At each scope-pop, `pop_frame` walks the frame's local names and emits a
+`DropEntry { local_name, span }` for each Owned non-Copy local. Slice 4
+does not codegen the drops (no SIR yet); the `DropPlan` is held internally
+and discarded by `flow::run`. Future codegen consumers can re-thread it.
+
+## 10. Diagnostics
+
+| Code   | Name                          | Severity | Origin                              |
+|--------|-------------------------------|----------|-------------------------------------|
+| SD3001 | use_after_move                | Error    | do_use / do_move on Moved           |
+| SD3002 | move_out_of_borrow            | Error    | (reserved — slice 4 uses SD3008)    |
+| SD3003 | borrow_after_move             | Error    | do_borrow on Moved                  |
+| SD3004 | mut_borrow_while_shared       | Error    | do_borrow_mut on Borrowed{n}        |
+| SD3005 | shared_borrow_while_mut       | Error    | do_borrow_shared on BorrowedMut     |
+| SD3006 | two_mut_borrows               | Error    | do_borrow_mut on BorrowedMut        |
+| SD3007 | borrow_outlives_owner         | Error    | (reserved; lexical regions can't trigger) |
+| SD3008 | cannot_move_borrowed          | Error    | do_move on Borrowed / BorrowedMut   |
+| SD3009 | move_out_of_ref               | Error    | (reserved; needs deref-move modelling) |
+| SD3010 | arena_escape                  | Error    | Arena tail names arena-local        |
+| SD3011 | non_sendable_message_arg      | Error    | Send/Ask arg fails is_sendable      |
+| SD3012 | drop_in_const_context         | Error    | (reserved)                          |
+| SD3013 | mut_borrow_of_immut_local     | Error    | do_borrow_mut on !mutable Owned     |
+| SD3014 | assign_to_immut_local         | Error    | do_assign on !mutable               |
+| SD3015 | use_of_uninitialized          | Error    | do_use on Uninit                    |
+
+Plus the typeck warning added by slice 4:
+
+| SD2026 | protocol_msg_unknown          | Warning  | Agent handler msg not in protocol   |
+
+## 11. Scope-aware tolerance (slice-3 hardening)
+
+The slice-3 permissive "any unknown name → fresh inference var" policy
+was tightened. Now unresolved single-segment value names emit
+`SD2021 unresolved_value` **unless** the name appears in the per-body
+tolerance set, or the body is in `tolerance_open` mode:
+
+- **Open** (tolerance_open=true): inside `unsafe` blocks, `sandbox … with`
+  bodies, `budget` bodies, `arena` bodies, supervisor child expressions,
+  and extern block contents.
+- **Set** (tolerance contains name): inside agent bodies (handlers, state
+  initializers, methods), the agent's state names, ctor-param names, and
+  sibling method names are tolerated.
+
+Top-level fn bodies have an empty tolerance set — they must resolve every
+name through locals/params or the prelude.
+
+## 12. Method dispatch (slice-3 hardening)
+
+Method resolution on a `Adt(aid, _)` receiver:
+
+1. If `(aid, method)` is in `def_map.impl_methods` (built from
+   `HirImpl` blocks at def-map construction), use that impl's signature
+   directly. Bind generic args via the receiver's `adt_args` plus fresh
+   vars for method-level generics.
+2. Else if the ADT is **opaque** (prelude `Url`/`Logger`/agent types,
+   etc.), fall through to the built-in method table (permissive
+   variadic / fresh-return).
+3. Else (user struct/enum), emit `SD2007 unknown_method`.
+
+Non-ADT receivers (primitives, refs, raw ptrs) keep using the slice-3
+built-in table plus shape specials (`.len` on arrays / Str / String /
+Bytes returns USize).
+
+## 13. Protocol-aware handler param types (slice-3 hardening)
+
+`build_def_map` indexes every protocol's messages into
+`def_map.protocol_msgs: HashMap<(ProtocolName, MsgName), Vec<TyId>>`.
+
+When checking an agent handler `on Msg(p1, p2)`, the type checker
+searches every implemented protocol (from the agent's `protocols`
+HirType list) for a matching message. If found, handler params bind to
+the protocol-declared types; else the params fall back to fresh
+inference variables and an `SD2026 protocol_msg_unknown` warning is
+emitted.
+
+## 14. Integer/float defaulting pass
+
+After each fn body is checked, `items.rs::default_ty(t, subst, arena)`
+walks the resolved type, rewriting `Int(IntInfer)` → `I32` and
+`Float(FloatInfer)` → `F64`. The rewritten type is stored into the
+side-table `expr_ty` / `fn_params` / `fn_ret`. Downstream consumers
+(the borrow checker, future codegen) see concrete primitives.
+
+## 15. Future work
+
+Tracked as out-of-scope for slice 4:
+
+- Non-lexical lifetimes / Polonius — post-v0.1
+- Cross-function lifetime inference + explicit lifetime parameters —
+  post-v0.1
+- Field-level borrow tracking (splitting `&struct.field` from
+  `&struct.other_field`) — post-v0.1
+- Drop ordering across reordered scopes / drop-flag bookkeeping — slice 5+
+- Manual `derive(Copy)` on user ADTs — slice 5
+- Real serializable-shape audit for cross-agent messages — slice 6
+- Trait coherence + dyn dispatch — slice 5
+- Effect closure + capability narrowing — slice 5
+- `move *ref` modelling for SD3009 — slice 5
+- Tighter SD3002 vs SD3008 distinction — slice 5
+- Real codegen of drop() calls + SIR consumption of DropPlan — slice 6+
+
+## 16. Source map
+
+- `crates/sdust-borrow/src/lib.rs` — entry points (`check_package`,
+  `type_and_borrow_check`)
+- `crates/sdust-borrow/src/state.rs` — `Ownership`, `LocalState`,
+  `ScopeFrame`, `join_states`
+- `crates/sdust-borrow/src/copy.rs` — `is_copy`
+- `crates/sdust-borrow/src/sendable.rs` — `is_sendable`
+- `crates/sdust-borrow/src/flow.rs` — `BorrowCx`, walker, per-position
+  state updates
+- `crates/sdust-borrow/src/arena_region.rs` — `ArenaCounter`
+- `crates/sdust-borrow/src/drop_plan.rs` — `DropPlan`, `DropEntry`
+- `crates/sdust-borrow/src/diag.rs` — SD3xxx constructors
+- `crates/sdust-diagnostics/src/codes.rs` — SD3xxx code + explain text
+- `crates/sdust-types/src/items.rs` — typed-side-table emission,
+  defaulting pass, tolerance-set construction, protocol-aware handler
+  param binding
+- `crates/sdust-types/src/check.rs` — scope-aware `synth_path`, real
+  method dispatch
+- `crates/sdust-types/src/resolve.rs` — `impl_methods` + `protocol_msgs`
+  indexing
