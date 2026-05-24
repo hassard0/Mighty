@@ -15,7 +15,32 @@ pub fn lower_expr(ctx: &mut LoweringCtx, n: SyntaxNode) -> ExprId {
                 .map(lower_literal_token)
                 .unwrap_or(HirLiteral::Bool(false)),
         ),
-        SyntaxKind::PATH_EXPR => HirExpr::Path(path_segments(&n)),
+        SyntaxKind::PATH_EXPR => {
+            let segs = path_segments(&n);
+            // Collect generics from any GENERIC_ARG_LIST descendant (slice 2
+            // attaches it to the final path segment via turbofish).
+            let generics: Vec<TypeId> = n
+                .descendants()
+                .find(|d| d.kind() == SyntaxKind::GENERIC_ARG_LIST)
+                .map(|gl| {
+                    gl.children()
+                        .filter(|c| c.kind() == SyntaxKind::GENERIC_ARG)
+                        .filter_map(|g| {
+                            g.children().find(|c| super::items::is_type_node(c.kind()))
+                        })
+                        .map(|t| super::types::lower_type(ctx, t))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if generics.is_empty() {
+                HirExpr::Path(segs)
+            } else {
+                HirExpr::PathGeneric {
+                    segments: segs,
+                    generics,
+                }
+            }
+        }
         SyntaxKind::BINARY_EXPR => {
             let mut kids = child_exprs(&n);
             let op = lower_bin_op(&n);
@@ -149,17 +174,59 @@ pub fn lower_expr(ctx: &mut LoweringCtx, n: SyntaxNode) -> ExprId {
         }
         SyntaxKind::QUESTION_EXPR => HirExpr::Question(first_child_expr_id(ctx, &n)),
         SyntaxKind::IF_EXPR => {
-            // IF_EXPR has: cond (first expr child), then (first BLOCK), optional else
-            // (either an inner IF_EXPR or another BLOCK).
+            // IF_EXPR has two shapes:
+            //   if cond { then } [else ...]
+            //   if let pat = scrutinee { then } [else ...]
+            // The distinguishing token is LET_KW; slice 2 represents the
+            // second shape as HirExpr::IfLet.
+            let has_let = n
+                .children_with_tokens()
+                .filter_map(|e| e.into_token())
+                .any(|t| t.kind() == SyntaxKind::LET_KW);
             let mut kids: Vec<SyntaxNode> = n.children().collect();
-            // cond = first expr child
+
+            if has_let {
+                // pat = first pattern child, scrutinee = first expr child,
+                // then = first BLOCK, else_ = subsequent BLOCK or nested IF_EXPR.
+                let pat_idx = kids.iter().position(|c| super::patterns::is_pat_node(c.kind()));
+                let pat = if let Some(i) = pat_idx {
+                    super::patterns::lower_pat(ctx, kids.remove(i))
+                } else {
+                    ctx.alloc_pat(HirPat::Wildcard)
+                };
+                let scrut_idx = kids.iter().position(|c| is_expr_node(c.kind()));
+                let scrutinee = if let Some(i) = scrut_idx {
+                    lower_expr(ctx, kids.remove(i))
+                } else {
+                    ctx.alloc_expr(HirExpr::Error)
+                };
+                let then_idx = kids.iter().position(|c| c.kind() == SyntaxKind::BLOCK);
+                let then = if let Some(i) = then_idx {
+                    lower_block_node(ctx, kids.remove(i))
+                } else {
+                    ctx.alloc_block(HirBlock { stmts: vec![], tail: None })
+                };
+                let else_ = kids
+                    .into_iter()
+                    .find(|c| c.kind() == SyntaxKind::IF_EXPR || c.kind() == SyntaxKind::BLOCK)
+                    .map(|c| {
+                        if c.kind() == SyntaxKind::BLOCK {
+                            let bid = lower_block_node(ctx, c);
+                            ctx.alloc_expr(HirExpr::Block(bid))
+                        } else {
+                            lower_expr(ctx, c)
+                        }
+                    });
+                return ctx.alloc_expr(HirExpr::IfLet { pat, scrutinee, then, else_ });
+            }
+
+            // Plain if/else.
             let cond_idx = kids.iter().position(|c| is_expr_node(c.kind()));
             let cond = if let Some(i) = cond_idx {
                 lower_expr(ctx, kids.remove(i))
             } else {
                 ctx.alloc_expr(HirExpr::Error)
             };
-            // then = first BLOCK child (after removing cond)
             let then_idx = kids.iter().position(|c| c.kind() == SyntaxKind::BLOCK);
             let then = if let Some(i) = then_idx {
                 lower_block_node(ctx, kids.remove(i))
@@ -169,7 +236,6 @@ pub fn lower_expr(ctx: &mut LoweringCtx, n: SyntaxNode) -> ExprId {
                     tail: None,
                 })
             };
-            // else_ = remaining IF_EXPR or BLOCK
             let else_ = kids
                 .into_iter()
                 .find(|c| c.kind() == SyntaxKind::IF_EXPR || c.kind() == SyntaxKind::BLOCK)
@@ -472,6 +538,53 @@ pub fn lower_expr(ctx: &mut LoweringCtx, n: SyntaxNode) -> ExprId {
                 .unwrap_or_else(|| ctx.alloc_type(HirType::Unknown));
             HirExpr::Cast { lhs, ty }
         }
+        SyntaxKind::LAMBDA_EXPR => {
+            // Params from FN_PARAM_LIST -> FN_PARAM children.
+            let params: Vec<HirParam> = n
+                .children()
+                .find(|c| c.kind() == SyntaxKind::FN_PARAM_LIST)
+                .map(|pl| {
+                    pl.children()
+                        .filter(|c| c.kind() == SyntaxKind::FN_PARAM)
+                        .map(|param| {
+                            let name = param
+                                .children()
+                                .find_map(sdust_ast::Name::cast)
+                                .map(|nm| nm.text())
+                                .unwrap_or_default();
+                            let ty = param
+                                .children()
+                                .find(|c| super::items::is_type_node(c.kind()))
+                                .map(|t| super::types::lower_type(ctx, t));
+                            let start: u32 = u32::from(param.text_range().start());
+                            let end: u32 = u32::from(param.text_range().end());
+                            HirParam {
+                                name,
+                                ty,
+                                span: SourceSpan { start, end },
+                            }
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let ret = n
+                .children()
+                .find(|c| c.kind() == SyntaxKind::RET_TYPE)
+                .and_then(|rt| rt.children().find(|c| super::items::is_type_node(c.kind())))
+                .map(|t| super::types::lower_type(ctx, t));
+            let body = n
+                .children()
+                .find(|c| c.kind() == SyntaxKind::BLOCK)
+                .map(|b| lower_block_node(ctx, b))
+                .unwrap_or_else(|| {
+                    ctx.alloc_block(HirBlock {
+                        stmts: vec![],
+                        tail: None,
+                    })
+                });
+            HirExpr::Lambda { params, ret, body }
+        }
+        SyntaxKind::RUN_EXPR => HirExpr::Run(first_child_expr_id(ctx, &n)),
         _ => HirExpr::Error,
     };
     ctx.alloc_expr(e)
@@ -605,6 +718,7 @@ pub fn is_expr_node(k: SyntaxKind) -> bool {
             | DETACH_EXPR
             | JOIN_EXPR
             | LAMBDA_EXPR
+            | RUN_EXPR
             | CAST_EXPR
     )
 }

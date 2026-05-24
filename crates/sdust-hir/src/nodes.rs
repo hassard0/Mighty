@@ -344,6 +344,33 @@ pub enum HirExpr {
         lhs: ExprId,
         ty: TypeId,
     },
+    /// `fn(params) -> ret { body }` lambda. Distinct from `HirFn` (item-level).
+    Lambda {
+        params: Vec<HirParam>,
+        ret: Option<TypeId>,
+        body: BlockId,
+    },
+    /// `if let Pattern = scrutinee { then } else { else_ }`. Slice 2 keeps
+    /// this as its own variant rather than desugaring to `match` so the
+    /// formatter (which works off CST) and the future type checker can
+    /// reason about it directly.
+    IfLet {
+        pat: PatId,
+        scrutinee: ExprId,
+        then: BlockId,
+        else_: Option<ExprId>,
+    },
+    /// `run <expr>` — leading-keyword expression used in sandbox bodies
+    /// (spec §16.1). Slice 2 does not constrain where it can appear;
+    /// slice 3's type checker will restrict it.
+    Run(ExprId),
+    /// `Path::[T1, T2]` (turbofish) in expression position. The generics
+    /// apply to the final segment. Distinct from the plain `Path` variant
+    /// so the type checker can resolve the explicit type arguments.
+    PathGeneric {
+        segments: Vec<String>,
+        generics: Vec<TypeId>,
+    },
     Error,
 }
 

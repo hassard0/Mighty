@@ -66,6 +66,73 @@ fn lowers_protocol() {
     assert_eq!(pr.messages.len(), 1);
 }
 
+// ---- slice-2 lowering ----
+
+#[test]
+fn lower_lambda_expr() {
+    let p = lower("fn f() { let g = fn(x: I32) -> I32 { x + 1 } }");
+    let has_lambda = p
+        .exprs
+        .iter()
+        .any(|(_, e)| matches!(e, sdust_hir::HirExpr::Lambda { .. }));
+    assert!(has_lambda, "expected HirExpr::Lambda");
+}
+
+#[test]
+fn lower_if_let_expr() {
+    let p = lower("fn f() { if let Some(x) = opt { x } else { 0 } }");
+    let has_iflet = p
+        .exprs
+        .iter()
+        .any(|(_, e)| matches!(e, sdust_hir::HirExpr::IfLet { .. }));
+    assert!(has_iflet, "expected HirExpr::IfLet");
+}
+
+#[test]
+fn lower_plain_if_still_works() {
+    let p = lower("fn f() { if a { 1 } else { 0 } }");
+    let has_if = p
+        .exprs
+        .iter()
+        .any(|(_, e)| matches!(e, sdust_hir::HirExpr::If { .. }));
+    let has_iflet = p
+        .exprs
+        .iter()
+        .any(|(_, e)| matches!(e, sdust_hir::HirExpr::IfLet { .. }));
+    assert!(has_if, "expected HirExpr::If");
+    assert!(!has_iflet, "plain if should NOT lower to IfLet");
+}
+
+#[test]
+fn lower_run_expr() {
+    let p = lower("fn f() { run g() }");
+    let has_run = p
+        .exprs
+        .iter()
+        .any(|(_, e)| matches!(e, sdust_hir::HirExpr::Run(_)));
+    assert!(has_run, "expected HirExpr::Run");
+}
+
+#[test]
+fn lower_turbofish_path() {
+    let p = lower("fn f() { let _ = Some::[I32](1) }");
+    let has_pg = p
+        .exprs
+        .iter()
+        .any(|(_, e)| matches!(e, sdust_hir::HirExpr::PathGeneric { .. }));
+    assert!(has_pg, "expected HirExpr::PathGeneric");
+}
+
+#[test]
+fn lower_plain_path_still_works() {
+    let p = lower("fn f() { let _ = foo.bar }");
+    let has_p = p
+        .exprs
+        .iter()
+        .any(|(_, e)| matches!(e, sdust_hir::HirExpr::Path(_)));
+    assert!(has_p, "expected HirExpr::Path");
+}
+
 #[test]
 fn lowers_arena_short() {
     let p = lower("fn main() { arena turn: tokenize(input) }");
