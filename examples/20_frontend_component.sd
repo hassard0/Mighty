@@ -1,9 +1,3 @@
-// Note: divergences from spec §35 for slice-1 parser compatibility:
-//   - The spec passes a `fn() { c!Click() }` closure to `dom.on(...)`. Slice-1
-//     has no closure/lambda parser; we bind the handler by passing the agent.
-//   - `dom.on(...)` rewritten as `dom.listen(...)` — `on` is a reserved keyword
-//     and the path parser only accepts IDENT for method names.
-// Full closure-expression support and keyword-as-method-name TBD in slice 2.
 package counter_web
 
 use std.dom
@@ -27,5 +21,5 @@ agent Counter(dom): CounterUi {
 
 export fn mount(dom: Dom) {
   let c = spawn Counter(dom)
-  dom.listen("#inc", "click", c)
+  dom.on("#inc", "click", fn() { c!Click() })
 }

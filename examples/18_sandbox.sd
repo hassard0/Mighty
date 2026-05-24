@@ -1,7 +1,7 @@
-// Note: spec §16.1 places `sandbox` at top level and uses `{ run job(input) }`.
-// In slice 1 the parser treats `sandbox` only as an expression-position construct
-// and `run` only as the budget-block separator, so we wrap the sandbox in a fn
-// and drop the inner `run`. Full top-level sandbox + run-body grammar TBD in slice 2.
+// Note: spec §16.1 places `sandbox` at top level. Slice 2 keeps it as
+// an expression-position construct (wrapped in fn tool_run); the inner
+// `run job(input)?` body now uses the real RUN_EXPR form. Top-level
+// sandbox items remain a slice-3 item.
 fn tool_run(input: Bytes) -> Unit!RunErr {
   sandbox ToolRun with {
     fs.read = ["/models", "/tmp/input.json"]
@@ -10,8 +10,8 @@ fn tool_run(input: Bytes) -> Unit!RunErr {
     cpu = 150ms
     wall = 2s
     memory = 128MiB
-    mailbox = 1024
+    mailbox = 1k
   } {
-    job(input)
+    run job(input)?
   }
 }

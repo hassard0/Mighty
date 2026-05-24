@@ -1,10 +1,9 @@
-// Note: spec uses `mb 1k`; lexer SIZE_LITERAL suffix support TBD in slice 2.
 fn run_job(input: Bytes) -> Result!RunErr {
   budget {
     cpu 150ms
     wall 2s
     mem 128MiB
-    mb 1024
+    mb 1k
   } run {
     job(input)?
   }
