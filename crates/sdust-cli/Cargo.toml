@@ -1,0 +1,22 @@
+[package]
+name = "sdust-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "sdust"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+ariadne.workspace = true
+sdust-driver = { path = "../sdust-driver" }
+sdust-syntax = { path = "../sdust-syntax" }
+sdust-ast = { path = "../sdust-ast" }
+sdust-hir = { path = "../sdust-hir" }
+sdust-diagnostics = { path = "../sdust-diagnostics" }
+sdust-fmt = { path = "../sdust-fmt" }

@@ -1,0 +1,1 @@
+//! sdust-fmt: canonical formatter.
