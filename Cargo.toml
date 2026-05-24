@@ -1,0 +1,39 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/sdust-syntax",
+    "crates/sdust-ast",
+    "crates/sdust-diagnostics",
+    "crates/sdust-hir",
+    "crates/sdust-fmt",
+    "crates/sdust-driver",
+    "crates/sdust-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/hassard0/stardust"
+authors = ["Ian Hassard <ihassard@gmail.com>"]
+
+[workspace.dependencies]
+logos = "0.14"
+rowan = "0.15"
+la-arena = "0.3"
+ariadne = "0.4"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+thiserror = "1"
+insta = { version = "1", features = ["yaml"] }
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
