@@ -195,22 +195,12 @@ pub fn lower_pat_match(
 /// v0.5 (for-loop binding): bind `pat`'s names to the operand without
 /// emitting any tests. Used by `for x in iter { ... }` where the
 /// iterator protocol has already determined the element is present.
-pub fn lower_pat_bind(
-    ctx: &mut LowerCtx,
-    fb: &mut FnBuilder,
-    pat_id: PatId,
-    rhs: Operand,
-) {
+pub fn lower_pat_bind(ctx: &mut LowerCtx, fb: &mut FnBuilder, pat_id: PatId, rhs: Operand) {
     let pat = ctx.pkg.pats[pat_id].clone();
     bind_pat_recursive(ctx, fb, &pat, rhs);
 }
 
-fn bind_pat_recursive(
-    ctx: &mut LowerCtx,
-    fb: &mut FnBuilder,
-    pat: &HirPat,
-    rhs: Operand,
-) {
+fn bind_pat_recursive(ctx: &mut LowerCtx, fb: &mut FnBuilder, pat: &HirPat, rhs: Operand) {
     match pat {
         HirPat::Binding { name, sub } => {
             let l = fb.new_local(name.clone(), SirTy::Error, true, LocalSource::UserLet);

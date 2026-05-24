@@ -62,7 +62,7 @@ fn mem_budget_does_not_trip_when_cap_is_generous() {
     let mut host = TestHost::default();
     // 1 MiB is wildly more than 4 ints; should run cleanly.
     let res = run_fn_with_resource_budget(&prog, "main", vec![], &mut host, 100_000, 1024 * 1024);
-    assert!(matches!(res, Ok(_)), "expected Ok, got {res:?}");
+    assert!(res.is_ok(), "expected Ok, got {res:?}");
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn zero_mem_budget_means_unlimited() {
     let mut host = TestHost::default();
     // mem_budget = 0 is the legacy "no cap" sentinel.
     let res = run_fn_with_resource_budget(&prog, "main", vec![], &mut host, 100_000, 0);
-    assert!(matches!(res, Ok(_)), "expected Ok, got {res:?}");
+    assert!(res.is_ok(), "expected Ok, got {res:?}");
 }
 
 #[test]

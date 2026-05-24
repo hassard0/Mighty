@@ -1,6 +1,6 @@
 # Stardust
 
-[![Status](https://img.shields.io/badge/status-v0.4-green)](https://github.com/hassard0/stardust/releases/tag/v0.4.0)
+[![Status](https://img.shields.io/badge/status-v0.5-green)](https://github.com/hassard0/stardust/releases/tag/v0.5.0)
 [![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)](#license)
 
 Stardust is an agent-first systems programming language. It is statically
@@ -10,25 +10,68 @@ native code (Cranelift JIT + AOT; LLVM behind `--features llvm`) and
 WebAssembly (Component Model by default; bare core modules via
 `--no-component`).
 
-**v0.4 is shipped.** The v0.4 milestone tag
-[`v0.4.0`](https://github.com/hassard0/stardust/releases/tag/v0.4.0)
-is the dogfood + ecosystem release: three end-to-end demos drive the
-compiler/runtime, the package manager grows a real GitHub-Releases-backed
-registry transport (offline-first cache + sha256 + deterministic bundles),
-declarative macros land with hygiene (SD6001..SD6004), the Stardust lexer
-is rewritten in Stardust source (subset bootstrap via the `std.io` effect
-bridge), and the long-standing single-iteration SIR loop bug is fixed
-(`while` / `loop` / `for` body terminators now route to the header).
-See [`RELEASE-v0.4.md`](RELEASE-v0.4.md) for the headline numbers and
-[`SLICE_V0_4.md`](SLICE_V0_4.md) for the shipped/deferred detail.
+**v0.5 is shipped.** The v0.5 milestone tag
+[`v0.5.0`](https://github.com/hassard0/stardust/releases/tag/v0.5.0)
+is the self-hosting + dogfood-completion release: the Stardust
+source lexer now round-trips byte-for-byte against the Rust lexer
+(loop control flow + iterator protocol unblock it), every v0.4
+demo stopgap has its real implementation (`std.http.serve` binds
+a real socket, `stardust:web/dom` ships as a Wasm Component
+import, the `Str` method table has real impls, mem-budget violations
+trap deterministically, `FsCap` rejects out-of-allowlist paths),
+declarative macros gain `name!(args)` invocation + extended hygiene
++ cross-file `pub macro` + a proc-macro skeleton (SD6005/SD6006),
+and the LSP grows seven advanced features (semantic tokens,
+rename, inlay hints, code actions, signature help, workspace
+folders, semantic completion). See [`RELEASE-v0.5.md`](RELEASE-v0.5.md)
+for the headline numbers and [`SLICE_V0_5.md`](SLICE_V0_5.md) for
+the shipped/deferred detail.
 
 Prior milestones remain tagged:
+[`v0.4.0`](https://github.com/hassard0/stardust/releases/tag/v0.4.0)
+(dogfood + ecosystem),
 [`v0.3.0`](https://github.com/hassard0/stardust/releases/tag/v0.3.0)
 (soundness hardening),
 [`v0.2.0`](https://github.com/hassard0/stardust/releases/tag/v0.2.0)
 (LSP + pkg + doc + stdlib + DWARF + Wasm CM), and
 [`v0.1.0`](https://github.com/hassard0/stardust/releases/tag/v0.1.0)
 (initial slice 1-8 ladder).
+
+### v0.5 highlights
+
+- **Loop control flow + iterator protocol** — `break <value>?` /
+  `continue` are real HIR nodes (A80); `for x in arr` terminates
+  on iterator exhaustion via `__sdust_iter_next` (A81); borrow
+  checker uses a bounded fixed-point at loop back-edges (A82,
+  16-iter cap). 5 new conformance cases under
+  `tests/conformance/control_flow/`.
+- **Self-host lexer full diff** — the v0.4 `#[ignore]`'d
+  `selfhost_lexer_full_diff_against_rust` test now passes
+  byte-for-byte (loop CF + iterators unblocked it).
+- **Dogfood completion (5 gaps)** — `std.http.serve` binds a real
+  TCP socket (A96), `stardust:web/dom` ships as a 4-method WIT
+  interface + 4 core imports (A97), the `Str` method table has
+  real impls for contains/find/slice/trim/replace/etc. (A98),
+  the SIR interp gains `MemBudgetExceeded` with byte-level
+  charging on `AdtInit`/`TupleInit`/`ArrayInit` (A99), and the
+  `FsCap` allowlist is enforced process-wide with `Forbidden(path)`
+  results (A100).
+- **Macros completion** — `name!(args)` invocation syntax + SD6001
+  unknown_macro activated (A90/A91); extended hygiene over tuple/
+  struct/ref patterns (A92); cross-file `pub macro` (A93);
+  proc-macro skeleton parses + stores but execution is SD6006-
+  gated (A94); standard macro library shipped (assert!, assert_eq!,
+  assert_ne!, debug!, unreachable!) (A95).
+- **LSP advanced** — semanticTokens (full+range), rename +
+  prepareRename, inlayHint, codeAction (SD2021/SD2002/SD3001/
+  SD4001 quick fixes), signatureHelp, workspaceFolders, and
+  receiver-aware semantic completion (A74). 45 LSP tests across
+  9 files.
+- **839 tests pass** (+147 over v0.4), 0 clippy warnings, 20/20
+  examples on native + wasm32-web Component (unchanged from v0.4),
+  3/3 demos pass `smoke.sh`.
+
+### v0.4 highlights
 
 ### v0.4 highlights
 
@@ -212,15 +255,18 @@ implemented or planned:
 | **v0.2** | LSP + pkg + doc + full codegen + stdlib + DWARF + Wasm CM | **shipped (`v0.2.0`)** |
 | **v0.3** | Soundness hardening: NLL last-use + field Places, scope-strict + Sendable, mid-turn cancel + OTLP + slab mailboxes, v0.2 cleanup (stdlib install, 20/20 wasm-CM, 5→2 ignored) | **shipped (`v0.3.0`)** |
 | **v0.4** | Dogfood demos (3), real GH-Releases registry transport, hygienic declarative macros (SD6001..SD6004), self-host lexer (subset bootstrap via `std.io`), SIR loop terminator fix | **shipped (`v0.4.0`)** |
+| **v0.5** | `break` / `continue` HIR + iterator protocol + bounded-fixed-point loop borrows, self-host lexer full diff, dogfood completion (5 gaps: real http.serve, Wasm DOM imports, full Str methods, mem-budget auto-charge, FsCap allowlist), macros completion (`name!(args)`, extended hygiene, cross-file `pub macro`, proc-macro skeleton, stdlib macros), LSP advanced (semantic tokens, rename, inlay hints, code actions, signature help, workspace folders, semantic completion) | **shipped (`v0.5.0`)** |
 
-### Post-v0.4 roadmap
+### Post-v0.5 roadmap
 
 | Slice | Scope | Status |
 |---|---|---|
-| v0.5 | `break` / `continue` HIR + iterator protocol (closes the loop work), self-host parser + HIR, `!call_expr` precedence fix, real `Str` method intrinsics, cross-file module resolution | planned |
+| v0.6 | Labelled break/continue + `Iter[T]` trait, self-host parser + HIR + typeck, `!call_expr` precedence fix, cross-file module resolution for non-macro symbols | planned |
+| - | Proc-macro execution (sandboxed SIR sub-context), set-of-scopes hygiene, `format!`-style variadic macros, central SD6xxx catalog merge | planned |
+| - | `BuiltinId::Dom` SIR lowering + canonical-ABI return-area bridge, `install_agent_dispatch` runtime wiring, per-call FsCap materialisation from sandbox manifest | planned (finishes the v0.5 dogfood end-to-end) |
+| - | Multi-file LSP rename + go-to-def, receiver-chain + method-call-receiver completion, borrow check in the LSP pipeline | planned |
 | - | Polonius-style borrows, real cap-name resolution wiring, SIR-side cancellation polling, WASI Preview 2 + user WIT, DWARF v5 + per-instr line program | planned |
-| - | `std.http.serve` host bridge + agent `Handler`, `stardust:web/dom` import lowering, SIR-side auto-charging for cpu/mem caps | planned (unblocks the v0.4 demo stopgaps) |
-| - | `dyn` dispatch + closure capture in compiled code, `escalate` supervisor action, proc macros, set-of-scopes hygiene | planned |
+| - | `dyn` dispatch + closure capture in compiled code, `escalate` supervisor action | planned |
 | - | Multi-core scheduler, PGO/ThinLTO, distributed agents, effect-row polymorphism | future |
 
 ## License
