@@ -48,6 +48,18 @@ let v = Vec::[T].new()          // method call on a generic path
 This is documented in `docs/spec/v0.1-amendments.md` A2. Type-position
 generics remain bracket-only as above.
 
+## Type errors you might see
+
+```sd
+// SD2004 wrong generic arity
+fn f(x: Option[I32, Str]) -> Unit {}   // Option takes 1 arg
+
+// Type-arg inference flows from arg to return:
+fn id[T](x: T) -> T { x }
+let n: I32 = id(42)        // T is inferred to I32
+let s = id::[Str]("hi")    // T is explicit via turbofish
+```
+
 ## Next
 
 Continue to [04 — Errors](04-errors.md).

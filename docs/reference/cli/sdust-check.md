@@ -1,6 +1,7 @@
 # sdust check
 
-Parse and HIR-lower a single Stardust source file; emit diagnostics.
+Lex, parse, HIR-lower, and type-check a single Stardust source file;
+emit diagnostics.
 
 ## Synopsis
 
@@ -23,15 +24,25 @@ sdust check <PATH>
 ## Behavior
 
 - Reads the file as UTF-8.
-- Runs the lexer, parser, AST view, and HIR lowering against it.
-- If any diagnostics are produced, renders them with `ariadne` to
-  stderr (colorized when stderr is a TTY) and exits 1.
+- Runs the lexer, parser, AST view, and HIR lowering.
+- If lowering produced no hard errors, runs the type checker
+  (`SD2xxx`).
+- Warnings (severity `Warning`, e.g. `SD2015 non_exhaustive_match`)
+  are reported but do not affect the exit status.
+- If any errors are present, renders them with `ariadne` to stderr
+  (colorized when stderr is a TTY) and exits 1.
 - Otherwise prints `ok: <path>` to stdout and exits 0.
 
-In slice 1 the only checks are lexical, syntactic, and lowering errors.
-Type checking, borrow checking, and effect/capability checking are not
-yet implemented; a program that lowers cleanly may still be unsound and
-will be rejected by later slices.
+As of slice 3, `sdust check` performs:
+
+1. Lex (SD0001..SD0004)
+2. Parse (SD0010..SD0030)
+3. HIR lowering (SD1001..SD1002)
+4. Type checking (SD2001..SD2025)
+
+Still deferred to later slices: ownership / affine / borrow checking
+(slice 4), effect closure + capability narrowing (slice 5), trait
+coherence + dispatch (slice 4+), exhaustiveness as an error (slice 5).
 
 See the [diagnostic codes](../diagnostics.md) page for the registry of
 `SDxxxx` codes.

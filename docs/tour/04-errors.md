@@ -37,6 +37,35 @@ fn load(url: Url) -> Page!{NetErr, ParseErr} {
 sdust check examples/04_result_propagation.sd
 ```
 
+## Type errors you might see
+
+`?` is strict about the enclosing function's return type (slice-3
+amendment A7):
+
+```sd
+// SD2010 ? outside Result-returning function
+fn returns_unit() -> Unit {
+  fetch(url)?    // can't propagate; fn returns Unit
+}
+
+// SD2011 ? error-type mismatch
+fn outer() -> Result[I32, NetErr] {
+  first()?       // first() returns Result[I32, IoErr] — err types don't match
+  Ok(2)
+}
+```
+
+To compose a fn that doesn't have any natural Result return, use
+`Unit!ErrType`:
+
+```sd
+fn process(items: &[I32]) -> Unit!WorkErr {
+  for item in items {
+    work(item)?       // legal — enclosing fn returns Result[Unit, WorkErr]
+  }
+}
+```
+
 ## Next
 
 Continue to [05 — Control flow](05-control-flow.md).

@@ -44,6 +44,36 @@ SD0001: Unexpected token. ...
 | `SD1001` | `UNRESOLVED_NAME` | A name could not be resolved to any binding. |
 | `SD1002` | `USE_RESOLVES_TO_NOTHING` | A `use` import targets a path with no resolution. |
 
+## Slice 3 codes (type checker, SD2001..SD2099)
+
+| Code | Name | Meaning |
+|---|---|---|
+| `SD2001` | `TYPE_MISMATCH` | Expression's type doesn't match expected type. |
+| `SD2002` | `UNRESOLVED_TYPE` | Type name does not name any type in scope. |
+| `SD2003` | `CANNOT_INFER_TYPE` | Cannot infer a binding's type. |
+| `SD2004` | `WRONG_GENERIC_ARITY` | Wrong number of `[T, ...]` generic args. |
+| `SD2005` | `WRONG_ARG_COUNT` | Wrong number of args to a call. |
+| `SD2006` | `UNKNOWN_FIELD` | Struct has no such field. |
+| `SD2007` | `UNKNOWN_METHOD` | Type has no such method. |
+| `SD2008` | `NOT_CALLABLE` | Value is not callable. |
+| `SD2009` | `UNKNOWN_VARIANT` | Enum has no such variant. |
+| `SD2010` | `QUESTION_OUTSIDE_RESULT` | `?` outside a Result-returning fn. |
+| `SD2011` | `QUESTION_ERROR_MISMATCH` | `?` error type doesn't match enclosing fn. |
+| `SD2012` | `WRONG_VARIANT_ARITY` | Variant payload count mismatch. |
+| `SD2013` | `MISSING_STRUCT_FIELD` | Struct literal omits a required field. |
+| `SD2014` | `DUPLICATE_STRUCT_FIELD` | Struct literal lists a field twice. |
+| `SD2015` | `NON_EXHAUSTIVE_MATCH` | (warning) match doesn't cover all cases. |
+| `SD2016` | `UNREACHABLE_MATCH_ARM` | (warning) arm shadowed by earlier arm. |
+| `SD2017` | `BINOP_TYPE_MISMATCH` | Operator not defined on operand types. |
+| `SD2018` | `IF_BRANCH_MISMATCH` | If/else branches have incompatible types. |
+| `SD2019` | `RETURN_TYPE_MISMATCH` | Fn body produces wrong type for return. |
+| `SD2020` | `PUB_PARAM_NEEDS_TYPE` | `pub fn` parameter needs explicit type. |
+| `SD2021` | `UNRESOLVED_VALUE` | Name does not refer to any value. |
+| `SD2022` | `NOT_A_STRUCT` | Value cannot be struct-initialized. |
+| `SD2023` | `GENERIC_ARG_MISMATCH` | Generic arg kind mismatch. |
+| `SD2024` | `LAMBDA_ARITY_MISMATCH` | Lambda has wrong param count. |
+| `SD2025` | `CANNOT_TAKE_REF` | Cannot take reference to non-place. |
+
 ## Adding a new code
 
 1. Pick the next free number in the appropriate range.

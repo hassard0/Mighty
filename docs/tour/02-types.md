@@ -46,6 +46,33 @@ fn area(s: Shape) -> F64 {
 sdust check examples/02_struct_enum.sd
 ```
 
+## Type errors you might see
+
+```sd
+struct User { id: U64, name: String }
+
+// SD2006 unknown field
+let u = User { id: 1, name: "x", missing: 2 }
+
+// SD2013 missing field
+let u = User { id: 1 }
+
+// SD2014 duplicate field
+let u = User { id: 1, id: 2, name: "x" }
+
+// SD2001 type mismatch
+let u = User { id: "one", name: "Ada" }   // id expects U64
+```
+
+For enums and `match`:
+
+```sd
+enum Shape { Circle(F64), Rect(F64, F64) }
+
+// SD2012 wrong variant arity
+let s = Shape.Circle(1.0, 2.0)
+```
+
 ## Next
 
 Continue to [03 — Generics](03-generics.md).

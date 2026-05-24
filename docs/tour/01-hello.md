@@ -46,6 +46,15 @@ sdust dump --hir examples/01_hello.sd
 The HIR dump shows a single `fn main` whose body is a one-statement block
 calling `log` with a string literal.
 
+## Type errors you might see
+
+The type checker enforces that `log` takes a single `Str`:
+
+```sd
+fn main() { log(42) }   // SD2001 expected `Str`, found `{integer}`
+fn main() { log() }     // SD2005 function expects 1 argument(s), got 0
+```
+
 ## Next
 
 Continue to [02 — Types](02-types.md).

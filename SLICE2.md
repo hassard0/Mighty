@@ -65,12 +65,14 @@
 
 ## Still deferred to slice 3+
 
-- Type checker, inference (slice 3)
-- Borrow / ownership / affine checking (slice 3)
-- Effect / capability checking (slice 3)
-- Top-level `sandbox` items per spec §16.1 (slice 3)
-- HIR `tail` semantics for `if let` (slice 3 will revisit alongside
-  type checking)
+- ~~Type checker, inference (slice 3)~~ → **closed in slice 3**
+  (`v0.3.0-typeck`)
+- Borrow / ownership / affine checking → slice 4
+- Effect closure / capability narrowing enforcement → slice 5
+  (signatures are now parsed and carried in slice 3)
+- Top-level `sandbox` items per spec §16.1 → slice 5
+- HIR `tail` semantics for `if let` — implemented incidentally by the
+  slice-3 type checker via `synth_expr(IfLet)`
 - HTML template `{expr}` interpolation parsing (library-level, no
   current consumer)
 - Per-item canonical printers for the formatter (item-internal
