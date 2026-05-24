@@ -1,0 +1,18 @@
+---
+source: crates/sdust-syntax/tests/parse_items.rs
+expression: "dump(\"mod net.http\")"
+---
+FILE@0..12
+  MOD_DECL@0..12
+    MOD_KW@0..3 "mod"
+    WHITESPACE@3..4 " "
+    PATH@4..12
+      PATH_SEGMENT@4..7
+        NAME_REF@4..7
+          IDENT@4..7 "net"
+      DOT@7..8 "."
+      PATH_SEGMENT@8..12
+        NAME_REF@8..12
+          IDENT@8..12 "http"
+
+errors: []

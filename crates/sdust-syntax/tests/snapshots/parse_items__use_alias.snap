@@ -1,0 +1,23 @@
+---
+source: crates/sdust-syntax/tests/parse_items.rs
+expression: "dump(\"use app.model as model\")"
+---
+FILE@0..22
+  USE_DECL@0..22
+    USE_KW@0..3 "use"
+    WHITESPACE@3..4 " "
+    PATH@4..14
+      PATH_SEGMENT@4..7
+        NAME_REF@4..7
+          IDENT@4..7 "app"
+      DOT@7..8 "."
+      PATH_SEGMENT@8..13
+        NAME_REF@8..13
+          IDENT@8..13 "model"
+      WHITESPACE@13..14 " "
+    AS_KW@14..16 "as"
+    WHITESPACE@16..17 " "
+    NAME@17..22
+      IDENT@17..22 "model"
+
+errors: []

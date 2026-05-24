@@ -1,0 +1,21 @@
+---
+source: crates/sdust-syntax/tests/parse_items.rs
+expression: "dump(\"pub use std.io\")"
+---
+FILE@0..14
+  USE_DECL@0..14
+    VISIBILITY@0..3
+      PUB_KW@0..3 "pub"
+    WHITESPACE@3..4 " "
+    USE_KW@4..7 "use"
+    WHITESPACE@7..8 " "
+    PATH@8..14
+      PATH_SEGMENT@8..11
+        NAME_REF@8..11
+          IDENT@8..11 "std"
+      DOT@11..12 "."
+      PATH_SEGMENT@12..14
+        NAME_REF@12..14
+          IDENT@12..14 "io"
+
+errors: []
