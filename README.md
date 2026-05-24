@@ -8,18 +8,22 @@ typed, ownership-based, and treats agents, protocols, capabilities, effects,
 arenas, and budgets as first-class concepts. The toolchain targets both
 native code (via LLVM) and the WebAssembly Component Model.
 
-The language is at the **pre-alpha** stage. Slice 5 — effects,
-capabilities, traits, `dyn`, derives, top-level sandboxes, and strict
-protocol checks — is tagged
-[`v0.5.0-effects`](https://github.com/hassard0/stardust/releases/tag/v0.5.0-effects).
-Slice 5 adds bottom-up effect inference with public-fn discipline,
-narrowable capability typing (Net/Fs/Clock/Dom/Model), real trait
-coherence + dispatch with `SD4020 method_ambiguous` /
-`SD4021 method_not_found` / `SD4022 trait_coherence_violation`,
-conservative `dyn Trait` object safety (`SD4023`), `#[derive(Copy,
-Hash, Eq)]`, top-level `sandbox` items, and strict protocol-handler
-arity / coverage checks (SD4030/32/33). Codegen and runtime are not
-yet implemented.
+The language is at the **pre-alpha** stage. Slice 6 — SIR (the
+Stardust mid-level IR) and a working interpreter — is tagged
+[`v0.6.0-sir`](https://github.com/hassard0/stardust/releases/tag/v0.6.0-sir).
+You can now run a Stardust program end-to-end:
+
+```bash
+sdust run examples/01_hello.sd
+# → hello, Stardust
+```
+
+Slice 6 adds the new `sdust-sir` crate (basic-block IR, HIR→SIR
+lowerer, tree-walking interpreter), the `sdust run` subcommand, the
+`sdust dump --sir` flag, runtime diagnostics `SD5001..SD5050`, and a
+conformance corpus under `tests/conformance/runtime/`. The concurrent
+runtime (mailboxes, supervisors, scheduler) is slice 7; native + Wasm
+codegen is slice 8.
 
 ## Install
 
@@ -50,9 +54,10 @@ fn main() {
 }
 ```
 
-`sdust check` lexes, parses, lowers, and type-checks the source,
-reporting any diagnostics. `sdust explain SDxxxx` prints a paragraph
-describing any diagnostic code emitted.
+`sdust check` lexes, parses, lowers, type-checks, and borrow-checks
+the source, reporting any diagnostics. `sdust run src/main.sd`
+executes the program under the slice-6 interpreter. `sdust explain
+SDxxxx` prints a paragraph describing any diagnostic code emitted.
 
 ## Documentation
 
@@ -66,7 +71,7 @@ describing any diagnostic code emitted.
 
 ## Project layout
 
-The compiler is a Rust workspace of nine crates:
+The compiler is a Rust workspace of ten crates:
 
 | Crate | Responsibility |
 |---|---|
@@ -74,8 +79,9 @@ The compiler is a Rust workspace of nine crates:
 | `sdust-ast` | typed AST view over the CST |
 | `sdust-diagnostics` | diagnostic types, SD-coded labels, ariadne rendering |
 | `sdust-hir` | name-resolved HIR with arena storage |
-| `sdust-types` | resolved Ty, HM inference, bidirectional type checker |
-| `sdust-borrow` | ownership/move/borrow/affine/arena analysis (slice 4) |
+| `sdust-types` | resolved Ty, HM inference, bidirectional type checker, effects + capabilities |
+| `sdust-borrow` | ownership/move/borrow/affine/arena analysis |
+| `sdust-sir` | mid-level IR + tree-walking interpreter (slice 6) |
 | `sdust-fmt` | canonical formatter (Wadler/Lindig pretty-printer) |
 | `sdust-driver` | compilation pipeline and `star.toml` manifest loader |
 | `sdust-cli` | the `sdust` binary |
@@ -92,8 +98,8 @@ implemented or planned:
 | 3 | type checker, generics MVP, `?` propagation | shipped (`v0.3.0-typeck`) |
 | 4 | ownership / borrow / affine / arena + slice-3 hardening | shipped (`v0.4.0-borrowck`) |
 | 5 | effects, capabilities, traits, `dyn`, derives, strict protocols | shipped (`v0.5.0-effects`) |
-| 6 | SIR and interpreter | next |
-| 7 | runtime MVP (scheduler, mailboxes, supervisors) | planned |
+| 6 | SIR and interpreter | shipped (`v0.6.0-sir`) |
+| 7 | runtime MVP (scheduler, mailboxes, supervisors) | next |
 | 8 | native (LLVM) and Wasm backends | planned |
 
 ## License

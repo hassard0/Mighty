@@ -123,12 +123,12 @@ unknown protocols (`Fetch`, `http.Handler`). Pre-existing; no change.
 - True object-safe `Self` dispatch — post-v0.1
 - Full derive macro system — post-v0.1
 - Cross-function lifetime inference / explicit lifetime params — post-v0.1
-- Field-level borrow tracking — slice 6
+- Field-level borrow tracking — slice 7
 - Capability narrowing via type-arg syntax (`Fs[Path("/x")]`) — post-v0.1
 - Per-receiver typed cap dispatch (effects via dispatch rather than
   receiver-path heuristic) — post-v0.1
-- Tighter SD3002 vs SD3008 spans — slice 6
-- SIR / interpreter — slice 6
+- Tighter SD3002 vs SD3008 spans — slice 7
+- SIR / interpreter — **delivered slice 6** (`v0.6.0-sir`)
 - Runtime — slice 7
 - Codegen — slice 8
 

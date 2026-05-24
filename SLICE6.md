@@ -1,0 +1,162 @@
+# Stardust Slice 6 — Complete
+
+**Tag:** `v0.6.0-sir`
+**Date:** 2026-05-24
+
+## What landed
+
+### Stardust mid-level IR (spec §24.4)
+
+- New crate `sdust-sir` with `Program`, `Function`, `Block`, `Stmt`,
+  `Rvalue`, `Term`, `Place`, `Projection`, `Const`, `FnRef`, `BuiltinId`,
+  `EffectOp`, `SirTy`.
+- Basic-block form (no SSA / phi). Locals are MIR-style with `_0` as
+  the return slot and `_1..=N` as parameters. `LocalDecl` carries
+  `name`, `ty`, `mutable`, `source: LocalSource`.
+- Capability values carry `(family, constraint)` from `sdust-types`.
+- Arena push/pop sentinels, effect-invoke statements, agent
+  spawn/send/ask rvalues, `?` propagation via `TryReturnErr`, async
+  suspension reserved by `Term::Suspend`.
+
+### HIR → SIR lowering (`crates/sdust-sir/src/lower/`)
+
+- Total + best-effort: never panics, even on partially-type-checked
+  input.
+- Fn shells allocated up front so call-site resolution can refer to
+  callees in any order.
+- Pattern matching for `match` and `if let` (wildcard, binding,
+  literal, tuple, enum, struct, range, ref).
+- `?` operator: switch-variant + `TryReturnErr` synthesis.
+- Agents: synthesized state ADT + ctor fn + per-handler fn; sends/asks
+  become `Rvalue::Send`/`Rvalue::Ask`.
+- Effect calls: receivers resolving to a `Module` lower to
+  `Stmt::EffectInvoke`.
+- Method-call disambiguation: `local.method(args)` (which the parser
+  emits as `Call{Path([local,method])}`) is re-routed to `MethodCall`.
+
+### Slice-6 interpreter (`crates/sdust-sir/src/interp/`)
+
+- Tree-walking, single-threaded, deterministic.
+- `Value` enum covers primitives + tuples + arrays + structs + enums +
+  refs + agents + caps.
+- `Host` trait + `RealHost` (stdout/stderr) + `BufferHost` (captures
+  output, effect log, extern log for tests).
+- Step budget (default 1 000 000) and `RunResult` discriminated union.
+- Builtins: `log`, `print`, `panic`, `spawn`, `move`, `fetch`, `null`,
+  `raw_ptr`, `valid`, + `extern:<name>` fallthrough to the host.
+- Built-in methods (permissive): `len`, `to_str`, `as_str`,
+  `is_empty`, `unwrap`/`unwrap_or`, `ok`/`ok_or`, `ro`/`rw`/`path`/
+  `host`, `get`/`query`, `contains`/`starts_with`/`ends_with`, etc.
+
+### `sdust run <file>`
+
+- New CLI subcommand wiring parse → typeck → borrowck → SIR-lower → interp.
+- Exit codes: `0` success, `1` compile error / trap / `Err`, `2` no
+  `main`, `3` budget exceeded.
+- `sdust dump --sir <file>` joins the existing `--ast --cst --hir`
+  flags; emits a MIR-style text rendering.
+
+### Diagnostics SD5001..SD5050 (slice 6 runtime)
+
+- SD5001 runtime_panic
+- SD5002 use_after_drop
+- SD5003 division_by_zero
+- SD5004 integer_overflow (debug)
+- SD5005 unreachable_match
+- SD5006 unhandled_error_result
+- SD5007 arena_escape_runtime
+- SD5008 uncallable_builtin
+- SD5009 budget_exceeded
+- SD5010 sandbox_violation (placeholder)
+- SD5020 agent_handler_missing
+- SD5021 send_to_dead_agent
+- SD5050 extern_fn_unimpl
+
+All have `sdust explain SD5xxx` entries.
+
+## All 20 examples lower cleanly
+
+```
+sdust dump --sir examples/01_hello.sd  → ok
+... (all 20)
+```
+
+`sdust run examples/01_hello.sd` prints `hello, Stardust` and exits 0.
+Examples with a runnable `main()` execute end-to-end; the rest succeed
+at SIR-lowering. The synchronous-agent path (A32) handles 07/08
+shallowly; full agent execution arrives in slice 7.
+
+## Conformance corpus
+
+`tests/conformance/runtime/` ships **6** initial cases driven by
+`crates/sdust-driver/tests/conformance_runtime.rs`:
+
+1. `hello` — `log("hello")`
+2. `arithmetic` — `(1 + 2 * 3).to_str()` → 7
+3. `if_chain` — int comparison branches
+4. `let_block` — multi-binding addition
+5. `string_concat` — Str `+` operator
+6. `panic_exits` — `panic("boom")` traps
+
+## Spec interpretation calls (recorded as amendments)
+
+- **A31** — Arena runtime enforcement deferred to slice 7
+- **A32** — Slice-6 agent dispatch is synchronous (no mailbox queue)
+- **A33** — Effect calls dispatched via Host trait
+- **A34** — Budgets + sandboxes are metadata-only in slice 6
+- **A35** — Slice-6 interpreter is single-thread deterministic
+
+## Stats
+
+- **290 tests pass** (slice 5: 274 → slice 6: +16)
+- 13 new SD5xxx diagnostic codes
+- 6 runtime conformance cases
+- New crate `sdust-sir` (~2 400 lines of Rust)
+- `sdust-driver` + `sdust-cli` extended with SIR-lower / run / dump-sir
+  surfaces
+
+## Still deferred (slice 7 unless noted)
+
+- Concurrent scheduler + work stealing — slice 7
+- Real mailbox slabs — slice 7
+- Supervisor restart policies — slice 7
+- Budget / sandbox enforcement — slice 7
+- Real `extern { fn ... }` calls — slice 7
+- Real effect-system syscalls — slice 7
+- Real arena allocator — slice 7
+- Field-level borrow tracking — slice 7 (slice-4 still local-granular)
+- LLVM / Cranelift codegen — slice 8
+- Wasm component-model codegen — slice 8
+- Monomorphization of generics — slice 8
+- DCE / inlining / escape analysis — post-v0.1
+- True NLL / Polonius — post-v0.1
+- Effect-row polymorphism — post-v0.1
+- Full Drop impl execution at scope exit — post-v0.1
+
+## Files of note
+
+- `crates/sdust-sir/src/sir.rs` — SIR data types
+- `crates/sdust-sir/src/dump.rs` — text rendering
+- `crates/sdust-sir/src/lower/mod.rs` — lowering entry
+- `crates/sdust-sir/src/lower/items.rs` — fn/struct/enum/agent
+- `crates/sdust-sir/src/lower/exprs.rs` — expression lowering
+- `crates/sdust-sir/src/lower/pats.rs` — pattern matching
+- `crates/sdust-sir/src/lower/ty.rs` — type translation
+- `crates/sdust-sir/src/lower/ctx.rs` — `LowerCtx`, `FnBuilder`
+- `crates/sdust-sir/src/interp/value.rs` — `Value`, `Frame`,
+  `Reference`, `AgentHandle`
+- `crates/sdust-sir/src/interp/host.rs` — `Host`, `RealHost`,
+  `BufferHost`
+- `crates/sdust-sir/src/interp/run.rs` — step loop + eval + builtins
+- `crates/sdust-cli/src/cmd/run.rs` — `sdust run` subcommand
+- `crates/sdust-cli/src/cmd/dump.rs` — `--sir` flag wiring
+- `crates/sdust-driver/src/pipeline.rs` — `lower_to_sir`, `run_file`
+- `crates/sdust-driver/tests/sir_lower_examples.rs` — 20-example smoke
+- `crates/sdust-driver/tests/interp_runnable.rs` — interp acceptance
+- `crates/sdust-driver/tests/conformance_runtime.rs` — corpus driver
+- `tests/conformance/runtime/*` — 6 runtime cases
+- `crates/sdust-diagnostics/src/codes.rs` — SD5001..SD5050 + explain
+- `docs/internals/sir.md`, `docs/internals/interpreter.md` — new
+- `docs/reference/cli/sdust-run.md` — new
+- `docs/getting-started.md` — extended with `sdust run`
+- `docs/spec/v0.1-amendments.md` — A31..A35

@@ -65,12 +65,24 @@ cd hello
 sdust check src/main.sd
 ```
 
-`sdust check` parses the source, builds the CST and HIR, and prints any
-diagnostics. On success it prints `ok: <path>` and exits 0.
+`sdust check` parses the source, builds the CST and HIR, runs the type
+checker, the effect / capability checker, and the borrow checker, and
+prints any diagnostics. On success it prints `ok: <path>` and exits 0.
 
-In slice 1, `check` does not yet type-check, borrow-check, or verify
-effects — those gates land in later slices. It catches lexical, syntactic,
-and lowering-time errors.
+## Run it
+
+```bash
+sdust run src/main.sd
+```
+
+`sdust run` runs the full `check` pipeline, lowers the program to SIR,
+and executes it under the slice-6 interpreter. The above program prints
+`hello, Stardust` and exits 0. See
+[reference/cli/sdust-run.md](reference/cli/sdust-run.md) for details on
+exit codes, traps, and the effect-handling model.
+
+`sdust run` is intended for development and conformance testing. Real
+native binaries and Wasm components arrive in slice 8.
 
 ## Format
 
@@ -91,6 +103,7 @@ from standard input.
 sdust dump --cst src/main.sd
 sdust dump --ast src/main.sd
 sdust dump --hir src/main.sd
+sdust dump --sir src/main.sd
 ```
 
 Use these to debug parser/lowering behavior or to write your own tooling
