@@ -1,0 +1,25 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Snapshot review staging
+**/*.snap.new
+**/.pending-snap
+
+# Local-only env / scratch
+/.env
+/.scratch/
+/tmp/
+
+# Stardust build output (when codegen lands)
+*.sdprof
+*.smeta.cache
