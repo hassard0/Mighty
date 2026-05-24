@@ -1,0 +1,59 @@
+---
+source: crates/sdust-syntax/tests/parse_concurrency.rs
+expression: "dump_expr(\"task scope { let a = spawn task fetch(a_url); join a? }\")"
+---
+FILE@0..55
+  TASK_SCOPE@0..55
+    TASK_KW@0..4 "task"
+    WHITESPACE@4..5 " "
+    SCOPE_KW@5..10 "scope"
+    WHITESPACE@10..11 " "
+    BLOCK@11..55
+      L_BRACE@11..12 "{"
+      WHITESPACE@12..13 " "
+      LET_STMT@13..46
+        LET_KW@13..16 "let"
+        WHITESPACE@16..17 " "
+        BINDING_PAT@17..19
+          NAME@17..18
+            IDENT@17..18 "a"
+          WHITESPACE@18..19 " "
+        EQ@19..20 "="
+        WHITESPACE@20..21 " "
+        SPAWN_EXPR@21..44
+          SPAWN_KW@21..26 "spawn"
+          WHITESPACE@26..27 " "
+          TASK_KW@27..31 "task"
+          WHITESPACE@31..32 " "
+          CALL_EXPR@32..44
+            PATH_EXPR@32..37
+              PATH@32..37
+                PATH_SEGMENT@32..37
+                  NAME_REF@32..37
+                    IDENT@32..37 "fetch"
+            ARG_LIST@37..44
+              L_PAREN@37..38 "("
+              ARG@38..43
+                PATH_EXPR@38..43
+                  PATH@38..43
+                    PATH_SEGMENT@38..43
+                      NAME_REF@38..43
+                        IDENT@38..43 "a_url"
+              R_PAREN@43..44 ")"
+        SEMI@44..45 ";"
+        WHITESPACE@45..46 " "
+      EXPR_STMT@46..54
+        JOIN_EXPR@46..54
+          JOIN_KW@46..50 "join"
+          WHITESPACE@50..51 " "
+          QUESTION_EXPR@51..53
+            PATH_EXPR@51..52
+              PATH@51..52
+                PATH_SEGMENT@51..52
+                  NAME_REF@51..52
+                    IDENT@51..52 "a"
+            QUESTION@52..53 "?"
+          WHITESPACE@53..54 " "
+      R_BRACE@54..55 "}"
+
+errors: []

@@ -1,0 +1,64 @@
+---
+source: crates/sdust-syntax/tests/parse_concurrency.rs
+expression: "dump_expr(\"budget { cpu 150ms wall 2s mem 128MiB mb 1k } run job(input)?\")"
+---
+FILE@0..61
+  BUDGET_BLOCK@0..61
+    BUDGET_KW@0..6 "budget"
+    WHITESPACE@6..7 " "
+    L_BRACE@7..8 "{"
+    WHITESPACE@8..9 " "
+    BUDGET_ENTRY@9..19
+      NAME@9..12
+        IDENT@9..12 "cpu"
+      WHITESPACE@12..13 " "
+      LITERAL_EXPR@13..18
+        DURATION_LITERAL@13..18 "150ms"
+      WHITESPACE@18..19 " "
+    BUDGET_ENTRY@19..27
+      NAME@19..23
+        IDENT@19..23 "wall"
+      WHITESPACE@23..24 " "
+      LITERAL_EXPR@24..26
+        DURATION_LITERAL@24..26 "2s"
+      WHITESPACE@26..27 " "
+    BUDGET_ENTRY@27..38
+      NAME@27..30
+        IDENT@27..30 "mem"
+      WHITESPACE@30..31 " "
+      LITERAL_EXPR@31..37
+        SIZE_LITERAL@31..37 "128MiB"
+      WHITESPACE@37..38 " "
+    BUDGET_ENTRY@38..42
+      NAME@38..40
+        IDENT@38..40 "mb"
+      WHITESPACE@40..41 " "
+      LITERAL_EXPR@41..42
+        INT_LITERAL@41..42 "1"
+    BUDGET_ENTRY@42..44
+      NAME@42..43
+        IDENT@42..43 "k"
+      WHITESPACE@43..44 " "
+    R_BRACE@44..45 "}"
+    WHITESPACE@45..46 " "
+    RUN_KW@46..49 "run"
+    WHITESPACE@49..50 " "
+    QUESTION_EXPR@50..61
+      CALL_EXPR@50..60
+        PATH_EXPR@50..53
+          PATH@50..53
+            PATH_SEGMENT@50..53
+              NAME_REF@50..53
+                IDENT@50..53 "job"
+        ARG_LIST@53..60
+          L_PAREN@53..54 "("
+          ARG@54..59
+            PATH_EXPR@54..59
+              PATH@54..59
+                PATH_SEGMENT@54..59
+                  NAME_REF@54..59
+                    IDENT@54..59 "input"
+          R_PAREN@59..60 ")"
+      QUESTION@60..61 "?"
+
+errors: []

@@ -1,0 +1,123 @@
+---
+source: crates/sdust-syntax/tests/parse_concurrency.rs
+expression: "dump_expr(\"sandbox ToolRun with { fs.read = [\\\"/models\\\"], net = [\\\"api.example.com:443\\\"], cpu = 150ms, wall = 2s, memory = 128MiB, mailbox = 1024 } { run job(input) }\")"
+---
+FILE@0..153
+  SANDBOX_BLOCK@0..153
+    SANDBOX_KW@0..7 "sandbox"
+    WHITESPACE@7..8 " "
+    NAME@8..15
+      IDENT@8..15 "ToolRun"
+    WHITESPACE@15..16 " "
+    WITH_KW@16..20 "with"
+    WHITESPACE@20..21 " "
+    L_BRACE@21..22 "{"
+    WHITESPACE@22..23 " "
+    SANDBOX_ENTRY@23..46
+      PATH@23..31
+        PATH_SEGMENT@23..25
+          NAME_REF@23..25
+            IDENT@23..25 "fs"
+        DOT@25..26 "."
+        PATH_SEGMENT@26..30
+          NAME_REF@26..30
+            IDENT@26..30 "read"
+        WHITESPACE@30..31 " "
+      EQ@31..32 "="
+      WHITESPACE@32..33 " "
+      ARRAY_EXPR@33..44
+        L_BRACK@33..34 "["
+        LITERAL_EXPR@34..43
+          STRING_LITERAL@34..43 "\"/models\""
+        R_BRACK@43..44 "]"
+      COMMA@44..45 ","
+      WHITESPACE@45..46 " "
+    SANDBOX_ENTRY@46..77
+      PATH@46..50
+        PATH_SEGMENT@46..49
+          NAME_REF@46..49
+            IDENT@46..49 "net"
+        WHITESPACE@49..50 " "
+      EQ@50..51 "="
+      WHITESPACE@51..52 " "
+      ARRAY_EXPR@52..75
+        L_BRACK@52..53 "["
+        LITERAL_EXPR@53..74
+          STRING_LITERAL@53..74 "\"api.example.com:443\""
+        R_BRACK@74..75 "]"
+      COMMA@75..76 ","
+      WHITESPACE@76..77 " "
+    SANDBOX_ENTRY@77..90
+      PATH@77..81
+        PATH_SEGMENT@77..80
+          NAME_REF@77..80
+            IDENT@77..80 "cpu"
+        WHITESPACE@80..81 " "
+      EQ@81..82 "="
+      WHITESPACE@82..83 " "
+      LITERAL_EXPR@83..88
+        DURATION_LITERAL@83..88 "150ms"
+      COMMA@88..89 ","
+      WHITESPACE@89..90 " "
+    SANDBOX_ENTRY@90..101
+      PATH@90..95
+        PATH_SEGMENT@90..94
+          NAME_REF@90..94
+            IDENT@90..94 "wall"
+        WHITESPACE@94..95 " "
+      EQ@95..96 "="
+      WHITESPACE@96..97 " "
+      LITERAL_EXPR@97..99
+        DURATION_LITERAL@97..99 "2s"
+      COMMA@99..100 ","
+      WHITESPACE@100..101 " "
+    SANDBOX_ENTRY@101..118
+      PATH@101..108
+        PATH_SEGMENT@101..107
+          NAME_REF@101..107
+            IDENT@101..107 "memory"
+        WHITESPACE@107..108 " "
+      EQ@108..109 "="
+      WHITESPACE@109..110 " "
+      LITERAL_EXPR@110..116
+        SIZE_LITERAL@110..116 "128MiB"
+      COMMA@116..117 ","
+      WHITESPACE@117..118 " "
+    SANDBOX_ENTRY@118..133
+      PATH@118..126
+        PATH_SEGMENT@118..125
+          NAME_REF@118..125
+            IDENT@118..125 "mailbox"
+        WHITESPACE@125..126 " "
+      EQ@126..127 "="
+      WHITESPACE@127..128 " "
+      LITERAL_EXPR@128..132
+        INT_LITERAL@128..132 "1024"
+      WHITESPACE@132..133 " "
+    R_BRACE@133..134 "}"
+    WHITESPACE@134..135 " "
+    BLOCK@135..153
+      L_BRACE@135..136 "{"
+      WHITESPACE@136..137 " "
+      RUN_KW@137..140 "run"
+      WHITESPACE@140..141 " "
+      EXPR_STMT@141..152
+        CALL_EXPR@141..152
+          PATH_EXPR@141..144
+            PATH@141..144
+              PATH_SEGMENT@141..144
+                NAME_REF@141..144
+                  IDENT@141..144 "job"
+          ARG_LIST@144..152
+            L_PAREN@144..145 "("
+            ARG@145..150
+              PATH_EXPR@145..150
+                PATH@145..150
+                  PATH_SEGMENT@145..150
+                    NAME_REF@145..150
+                      IDENT@145..150 "input"
+            R_PAREN@150..151 ")"
+            WHITESPACE@151..152 " "
+      R_BRACE@152..153 "}"
+
+errors: [ParseError { message: "expected statement or expression", start: 137, end: 140 }]

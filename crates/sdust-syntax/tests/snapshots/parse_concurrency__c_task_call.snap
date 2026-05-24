@@ -1,0 +1,53 @@
+---
+source: crates/sdust-syntax/tests/parse_concurrency.rs
+expression: "dump_expr(\"task.all(fetch(a_url), fetch(b_url))\")"
+---
+FILE@0..36
+  METHOD_CALL_EXPR@0..36
+    PATH_EXPR@0..4
+      PATH@0..4
+        PATH_SEGMENT@0..4
+          NAME_REF@0..4
+            TASK_KW@0..4 "task"
+    DOT@4..5 "."
+    NAME@5..8
+      IDENT@5..8 "all"
+    ARG_LIST@8..36
+      L_PAREN@8..9 "("
+      ARG@9..21
+        CALL_EXPR@9..21
+          PATH_EXPR@9..14
+            PATH@9..14
+              PATH_SEGMENT@9..14
+                NAME_REF@9..14
+                  IDENT@9..14 "fetch"
+          ARG_LIST@14..21
+            L_PAREN@14..15 "("
+            ARG@15..20
+              PATH_EXPR@15..20
+                PATH@15..20
+                  PATH_SEGMENT@15..20
+                    NAME_REF@15..20
+                      IDENT@15..20 "a_url"
+            R_PAREN@20..21 ")"
+      COMMA@21..22 ","
+      WHITESPACE@22..23 " "
+      ARG@23..35
+        CALL_EXPR@23..35
+          PATH_EXPR@23..28
+            PATH@23..28
+              PATH_SEGMENT@23..28
+                NAME_REF@23..28
+                  IDENT@23..28 "fetch"
+          ARG_LIST@28..35
+            L_PAREN@28..29 "("
+            ARG@29..34
+              PATH_EXPR@29..34
+                PATH@29..34
+                  PATH_SEGMENT@29..34
+                    NAME_REF@29..34
+                      IDENT@29..34 "b_url"
+            R_PAREN@34..35 ")"
+      R_PAREN@35..36 ")"
+
+errors: []
