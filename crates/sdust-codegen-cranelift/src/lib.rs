@@ -21,6 +21,7 @@
 //!   the slice-leader decision record.
 
 pub mod abi;
+pub mod aggregate;
 pub mod artifact;
 pub mod error;
 pub mod jit;

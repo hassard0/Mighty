@@ -79,7 +79,10 @@ pub fn layout_with_adts(t: &SirTy, adts: &[AdtRef]) -> Layout {
         }
         SirTy::Adt(id, _args) => match adts.iter().find(|a| a.adt == *id) {
             Some(adt) => {
-                if adt.variants.len() <= 1 {
+                if adt.variants.is_empty() {
+                    // Opaque ADT with no variants — treat as pointer-sized.
+                    Layout::scalar(PTR_BYTES)
+                } else if adt.variants.len() == 1 {
                     let v = &adt.variants[0];
                     layout_struct(v.fields.iter().map(|f| layout_with_adts(&f.ty, adts)))
                 } else {
