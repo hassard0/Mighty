@@ -311,9 +311,8 @@ mod tests {
                 assert!(p.exists());
                 let bytes = std::fs::read(&p).expect("read wasm");
                 // Component-Model bytes need feature flags enabled.
-                let mut v = wasmparser::Validator::new_with_features(
-                    wasmparser::WasmFeatures::all(),
-                );
+                let mut v =
+                    wasmparser::Validator::new_with_features(wasmparser::WasmFeatures::all());
                 v.validate_all(&bytes).expect("valid wasm");
                 // And the bytes should actually be a component.
                 assert!(

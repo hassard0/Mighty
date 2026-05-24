@@ -60,6 +60,11 @@ enum Cmd {
         target: Option<String>,
         #[arg(long)]
         out_dir: Option<std::path::PathBuf>,
+        /// Wasm targets only: emit a bare core wasm module instead
+        /// of a Component Model component. Default = component
+        /// output (v0.2 wave-2, closes A47).
+        #[arg(long)]
+        no_component: bool,
     },
     /// Print a human-readable explanation of a diagnostic code.
     Explain {
@@ -129,7 +134,8 @@ fn main() {
             release,
             target,
             out_dir,
-        } => cmd::build::run(&path, debug, release, target, out_dir),
+            no_component,
+        } => cmd::build::run(&path, debug, release, target, out_dir, no_component),
         Cmd::Explain { code } => cmd::explain::run(&code),
         Cmd::Lsp => cmd::lsp::run(),
         Cmd::Pkg {
