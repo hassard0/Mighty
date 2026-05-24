@@ -1,7 +1,7 @@
 # Stardust Slice 2 — Complete
 
 **Tag:** `v0.2.0-phase1-polish`
-**HEAD:** _(filled at tag time)_
+**HEAD:** `263e5c919898ec2a1bc348e01d632872faba6d07`
 **Date:** 2026-05-24
 
 ## What landed
