@@ -433,3 +433,138 @@ fn walk_expr_effects(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_profile_recognises_core() {
+        assert_eq!(Profile::parse_profile("core"), Profile::Core);
+        assert_eq!(Profile::parse_profile("edge"), Profile::Edge);
+        assert_eq!(Profile::parse_profile("web"), Profile::Web);
+        // Anything else falls back to Host.
+        assert_eq!(Profile::parse_profile("host"), Profile::Host);
+        assert_eq!(Profile::parse_profile(""), Profile::Host);
+        assert_eq!(Profile::parse_profile("gibberish"), Profile::Host);
+    }
+
+    /// v0.3 (A65) `core_profile_rejects_alloc`: the strict core profile
+    /// emits SD4002 whenever a public fn's inferred effect set includes
+    /// `alloc`. This drives the public-facing rule documented in the
+    /// `effect_checking/05_strict_core_profile` conformance case shape.
+    #[test]
+    fn core_profile_rejects_alloc() {
+        use sdust_diagnostics::{Diagnostic, Severity};
+        use sdust_hir::{
+            BlockId, ExprId, FnId, HirBlock, HirExpr, HirFn, HirStmt, Item, Package, SourceSpan,
+        };
+
+        let mut pkg = Package::default();
+        // Synthesize: pub fn f() -> Unit { arena tmp { 0 } }
+        // The arena block triggers `out.insert(known.alloc)`.
+        let zero = pkg
+            .exprs
+            .alloc(HirExpr::Literal(sdust_hir::HirLiteral::Int(0, None)));
+        let arena_body: ExprId = pkg.exprs.alloc(HirExpr::Arena {
+            name: "tmp".into(),
+            body: zero,
+        });
+        let block: BlockId = pkg.blocks.alloc(HirBlock {
+            stmts: vec![HirStmt::Expr(arena_body)],
+            tail: None,
+        });
+        let fid: FnId = pkg.fns.alloc(HirFn {
+            name: "f".into(),
+            is_pub: true,
+            is_unsafe: false,
+            params: vec![],
+            ret: None,
+            effects: vec![],
+            generics: vec![],
+            body: Some(block),
+            span: SourceSpan { start: 0, end: 0 },
+        });
+        let iid = pkg.items.alloc(Item::Fn(fid));
+        pkg.top_level.push(iid);
+
+        // Run effect inference under the Core profile.
+        let arena = TyArena::new();
+        let mut defs = DefMap::default();
+        // Pre-intern; not strictly required but matches the live flow.
+        let _ = defs.intern_effect("alloc");
+        let mut diagnostics: Vec<Diagnostic> = vec![];
+        let _ = infer_and_validate(&pkg, &mut defs, &arena, Profile::Core, &mut diagnostics);
+
+        let codes: Vec<String> = diagnostics
+            .iter()
+            .filter(|d| matches!(d.severity, Severity::Error))
+            .map(|d| d.code.as_str())
+            .collect();
+        assert!(
+            codes.contains(&"SD4002".to_string()),
+            "expected SD4002 in core profile, got {:?}",
+            codes
+        );
+    }
+
+    /// Counter-test: Host profile tolerates alloc without SD4002 (it
+    /// still wants SD4001 because alloc is undeclared, but no SD4002).
+    #[test]
+    fn host_profile_allows_alloc_but_demands_declaration() {
+        use sdust_diagnostics::{Diagnostic, Severity};
+        use sdust_hir::{
+            BlockId, ExprId, FnId, HirBlock, HirExpr, HirFn, HirStmt, Item, Package, SourceSpan,
+        };
+
+        let mut pkg = Package::default();
+        let zero = pkg
+            .exprs
+            .alloc(HirExpr::Literal(sdust_hir::HirLiteral::Int(0, None)));
+        let arena_body: ExprId = pkg.exprs.alloc(HirExpr::Arena {
+            name: "tmp".into(),
+            body: zero,
+        });
+        let block: BlockId = pkg.blocks.alloc(HirBlock {
+            stmts: vec![HirStmt::Expr(arena_body)],
+            tail: None,
+        });
+        let fid: FnId = pkg.fns.alloc(HirFn {
+            name: "f".into(),
+            is_pub: true,
+            is_unsafe: false,
+            params: vec![],
+            ret: None,
+            effects: vec![],
+            generics: vec![],
+            body: Some(block),
+            span: SourceSpan { start: 0, end: 0 },
+        });
+        let iid = pkg.items.alloc(Item::Fn(fid));
+        pkg.top_level.push(iid);
+
+        let arena = TyArena::new();
+        let mut defs = DefMap::default();
+        let _ = defs.intern_effect("alloc");
+        let mut diagnostics: Vec<Diagnostic> = vec![];
+        let _ = infer_and_validate(&pkg, &mut defs, &arena, Profile::Host, &mut diagnostics);
+
+        let codes: Vec<String> = diagnostics
+            .iter()
+            .filter(|d| matches!(d.severity, Severity::Error))
+            .map(|d| d.code.as_str())
+            .collect();
+        assert!(
+            !codes.contains(&"SD4002".to_string()),
+            "Host profile must NOT emit SD4002, got {:?}",
+            codes
+        );
+        // SD4001 (effect_undeclared) IS expected because the fn doesn't
+        // declare `effect alloc`.
+        assert!(
+            codes.contains(&"SD4001".to_string()),
+            "Host profile should still demand effect declaration; got {:?}",
+            codes
+        );
+    }
+}

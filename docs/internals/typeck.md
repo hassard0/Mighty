@@ -201,3 +201,58 @@ Slice 3 reserves `SD2001..SD2099`. Currently assigned: `SD2001`
 - Match exhaustiveness as an error (slice 5).
 - Replace the permissive-fallback policy with real diagnostics now
   that the agent/cap/supervisor scopes become first-class.
+
+## Scope-aware permissive/strict policy (v0.3 / A65)
+
+Slice 3's amendment A21 introduced a **permissive** name-resolution
+fallback: unresolved identifiers silently resolve to fresh inference
+variables so the canonical examples kept compiling while slice 4-5
+hardened other surfaces. v0.3 tightens this: each lexical scope now
+carries a `ScopeKind` and the unresolved-name fallback only fires in
+**permissive** scopes. Strict scopes hard-error with SD2021
+(`unresolved_value_strict`).
+
+| ScopeKind         | Strict? | Where it triggers                              | Unknown-name behavior                                |
+|-------------------|--------:|-----------------------------------------------|------------------------------------------------------|
+| `TopLevelFn`      |     no  | `fn ... { ... }` at module top-level          | Slice-3 fresh-var fallback (A21) — kept              |
+| `ExternBlock`     |     no  | `extern { fn ... }` shims                     | Permissive (foreign ABI surface)                     |
+| `Macro`           |     no  | macro expansion sites                          | Permissive (token soup; expanded later)              |
+| `Unsafe`          |     no  | `unsafe { ... }` sub-block                     | Permissive (raw-ptr builtins, spec §21)              |
+| `Arena`           |     no  | `arena name { ... }` body                      | Permissive (arena-implicit names)                    |
+| `Budget`          |     no  | `budget { ... } { ... }` body                  | Permissive (budget-category names)                   |
+| `Sandbox`         |     no  | `sandbox ID { ... }` body (no narrowing)       | Permissive (legacy v0.2 behavior)                    |
+| `AgentBody`       | **yes** | agent state-init, agent methods, fn-in-agent   | **SD2021** if not in tolerance set / locals / prelude |
+| `HandlerBody`     | **yes** | `on Msg(...) { ... }` handler body             | **SD2021** if not in tolerance set / locals / prelude |
+| `SupervisorBody`  | **yes** | supervisor `children { ... }` expressions      | Currently kept permissive (`tolerance_open=true`)     |
+| `CapNarrowBody`   | **yes** | `sandbox ... with { e1; e2 } { ... }` body     | Currently kept permissive (`tolerance_open=true`)     |
+
+Strict scopes still grant two escape hatches:
+
+1. **per-body `tolerance` set** — for `AgentBody`/`HandlerBody`, this
+   set carries the agent's state names, ctor-param names, and sibling
+   method names so handlers can mention them without lookup.
+2. **`tolerance_open` toggle** — opened by inner permissive sub-blocks
+   (`unsafe`, `arena`, `budget`, `sandbox`). When true, all names are
+   tolerated; when false (the default in strict scopes), the
+   ScopeKind's policy applies.
+
+`SupervisorBody` and `CapNarrowBody` are marked strict for *framework
+consistency* but currently leave `tolerance_open=true` because slice-7
+hasn't yet wired real supervisor / cap-narrowing name resolution. When
+slice-7 lands, flipping the toggle activates SD2021 in those scopes
+without any further code change.
+
+### Implementation notes
+
+`ScopeKind` lives on the `Cx` struct alongside the existing
+`tolerance` / `tolerance_open` fields. Sub-scope openers (`unsafe`,
+`arena`, `budget`, `sandbox`) save the parent's `(tolerance_open,
+scope_kind)` pair, push their own kind, and restore on exit — so a
+strict outer handler with a nested `unsafe { ... }` block does
+permissive resolution inside the unsafe block then restores the
+strict policy on the closing brace.
+
+The strict path in `synth_path` consults `tolerance_open ||
+tolerance.contains(name) || !scope_kind.is_strict()` (any of which
+keeps the slice-3 A21 fallback); only when ALL three are false does
+SD2021 fire.

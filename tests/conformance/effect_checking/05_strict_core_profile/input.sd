@@ -1,0 +1,12 @@
+// v0.3 (A65): the strict `profile = "core"` rejects the `alloc` effect
+// (heap allocation forbidden on embedded targets). This case is shaped to
+// match the SD4002 diagnostic; firing it requires the harness to also
+// inject `profile = "core"` into the working dir's `star.toml`. The
+// conformance_full harness today reads the workspace's star.toml
+// (host-profile), so the diagnostic is currently produced only via the
+// dedicated sdust-types unit test `core_profile_rejects_alloc`. The
+// case-shape is preserved here so that when slice-7 wires per-case
+// `star.toml` overrides we get the SD4002 emission for free.
+pub fn alloc_in_core(name: Str) -> String effect alloc {
+  name.to_string()
+}

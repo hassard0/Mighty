@@ -878,6 +878,14 @@ fn apply_derives(
                         defs.user_copy.insert(*aid);
                     }
                 }
+                "Sendable" => {
+                    // v0.3 (A65): opt the struct into the Sendable
+                    // marker-trait set. Validation happens at use sites
+                    // (the field-shape check is performed lazily by
+                    // `crate::sendable::sendable_reason`).
+                    defs.user_sendable.insert(*aid);
+                    register_synthetic_trait_impl(defs, d, *aid, &hs.span);
+                }
                 "Hash" | "Eq" => {
                     register_synthetic_trait_impl(defs, d, *aid, &hs.span);
                 }
@@ -895,6 +903,10 @@ fn apply_derives(
                     if validate_copy_struct(*aid, &he.name, defs, arena, diagnostics, &he.span) {
                         defs.user_copy.insert(*aid);
                     }
+                }
+                "Sendable" => {
+                    defs.user_sendable.insert(*aid);
+                    register_synthetic_trait_impl(defs, d, *aid, &he.span);
                 }
                 "Hash" | "Eq" => {
                     register_synthetic_trait_impl(defs, d, *aid, &he.span);
@@ -944,6 +956,8 @@ fn register_synthetic_trait_impl(
                 has_self_ty: true,
                 has_generics: false,
             }],
+            // v0.3 (A65): Sendable is a pure marker trait — no methods.
+            "Sendable" => vec![],
             _ => vec![],
         });
 }

@@ -126,6 +126,10 @@ pub struct DefMap {
     pub protocol_msg_names: HashMap<String, Vec<String>>,
     /// Slice-5 set of user ADTs marked Copy via `#[derive(Copy)]`.
     pub user_copy: HashSet<AdtId>,
+    /// v0.3 (A65) set of user ADTs marked Sendable via
+    /// `#[derive(Sendable)]`. Sendable cross-agent messaging gate; see
+    /// `crate::sendable` for the rules.
+    pub user_sendable: HashSet<AdtId>,
     /// Slice-5 trait coherence + dispatch table.
     pub traits: TraitTable,
 }

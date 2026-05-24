@@ -289,7 +289,12 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
         }
         2021 => {
             "SD2021: Unresolved value. The named identifier does not refer to \
-                 any value in scope. Check the spelling and visibility."
+                 any value in scope. Check the spelling and visibility. \
+                 v0.3 (A65) tightens this: agent/handler/supervisor/cap-narrow \
+                 bodies are STRICT and reject unknown names that previously \
+                 fell through to fresh-var inference. Bind via state, \
+                 ctor-param, prelude, import, or move the call into a \
+                 permissive scope (top-level fn / extern / unsafe / arena)."
         }
         2022 => {
             "SD2022: Not a struct. The value cannot be initialized with a \
@@ -367,8 +372,13 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
         3011 => {
             "SD3011: Non-Sendable cross-agent message argument. Every \
                  argument to a `!Msg(...)` or `?Msg(...)` call must be \
-                 Sendable: a Copy type or an owned value (references and \
-                 managed handles cannot cross agent boundaries)."
+                 Sendable. v0.3 (A65) gives Sendable a formal definition: \
+                 (a) Copy types are Sendable; (b) owned Sized values with \
+                 no internal references are Sendable; (c) references \
+                 (`&T`/`&mut T`), capability handles (`Net`/`Fs`/...), \
+                 and any type that transitively contains either are NOT \
+                 Sendable. User structs can opt in via #[derive(Sendable)] \
+                 and the check is enforced at the !/? call site."
         }
         3012 => {
             "SD3012: Drop in const context. A value requiring deterministic \
@@ -436,7 +446,13 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
         4031 => {
             "SD4031: Protocol handler parameter type mismatch. The handler \
                  uses a parameter at a type incompatible with the \
-                 protocol's declared parameter type."
+                 protocol's declared parameter type. v0.3 (A65) fires this \
+                 only when the protocol is defined in the current package \
+                 (or prelude). External protocols continue to issue \
+                 SD2026 warnings — once the external module is in scope, \
+                 the strict check will activate automatically. Fix by \
+                 adjusting either the handler body's usage or the protocol \
+                 declaration so the two agree."
         }
         4032 => {
             "SD4032: Protocol handler missing. The agent implements a \
@@ -456,8 +472,8 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  `Bytes`, or another user ADT that is not itself Copy)."
         }
         4041 => {
-            "SD4041: Unknown derive. Slice 5 supports `Copy`, `Hash`, \
-                 and `Eq`. Other derive names are reserved for later \
+            "SD4041: Unknown derive. v0.3 supports `Copy`, `Hash`, `Eq`, \
+                 and `Sendable`. Other derive names are reserved for later \
                  slices."
         }
         5001 => {

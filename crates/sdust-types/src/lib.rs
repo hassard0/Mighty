@@ -18,6 +18,7 @@ pub mod infer;
 pub mod items;
 pub mod prelude;
 pub mod resolve;
+pub mod sendable;
 pub mod ty;
 
 pub use defs::*;

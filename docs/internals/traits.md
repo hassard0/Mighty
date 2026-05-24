@@ -82,15 +82,23 @@ On success, the ADT id is inserted into `defs.user_copy`.
 entry. The method body isn't generated (no codegen yet); the entry
 simply makes `let h: dyn Hash = my_t` resolve.
 
+v0.3 (A65) adds `#[derive(Sendable)]` — a pure marker that opts the
+ADT into the cross-agent Sendable trait (`crate::sendable`). No
+field-level validation is run at the derive site; the per-send
+SD3011 check enforces the actual contract at every `!Msg(...)` /
+`?Msg(...)` use. See `docs/internals/sendable.md`.
+
 Unknown derive names → `SD4041 derive_unknown`.
 
 ## Diagnostics
 
 | Code   | Name                          |
 |--------|-------------------------------|
+| SD3011 | non_sendable_message_arg      |
 | SD4020 | method_ambiguous              |
 | SD4021 | method_not_found              |
 | SD4022 | trait_coherence_violation     |
 | SD4023 | dyn_requires_object_safe      |
+| SD4031 | protocol_param_type_mismatch  |
 | SD4040 | derive_copy_field_not_copy    |
 | SD4041 | derive_unknown                |

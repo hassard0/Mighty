@@ -2,6 +2,7 @@
 //! agent handlers, etc.
 
 use crate::check::*;
+use crate::defs::DefMap;
 use crate::diag;
 use crate::infer::Substitution;
 use crate::resolve::{build_def_map, ParamScope};
@@ -75,6 +76,7 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
         let mut local_expr_ty: HashMap<ExprId, TyId> = HashMap::new();
         // Tolerance: if this fn is an agent method, use the owning agent's
         // tolerance set so the method body can reference state / siblings.
+        let is_agent_method = hir_fn.and_then(|fid| hir_fn_to_agent.get(&fid)).is_some();
         let tolerance = if let Some(fid) = hir_fn {
             if let Some(aid) = hir_fn_to_agent.get(&fid) {
                 build_agent_tolerance(&pkg.agents[*aid], pkg)
@@ -83,6 +85,14 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
             }
         } else {
             build_tolerance_for_fn(pkg, hir_fn)
+        };
+        // v0.3 (A65): top-level fns stay permissive (slice-3 A21 behavior);
+        // agent methods enter a strict AgentBody scope so unknown names
+        // (other than the agent's tolerance set) hard-error.
+        let scope_kind = if is_agent_method {
+            ScopeKind::AgentBody
+        } else {
+            ScopeKind::TopLevelFn
         };
         let mut cx = Cx {
             pkg,
@@ -98,6 +108,7 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
             param_scope,
             tolerance,
             tolerance_open: false,
+            scope_kind,
             expr_ty: &mut local_expr_ty,
         };
         cx.locals.enter();
@@ -154,6 +165,9 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
                         param_scope: ParamScope::default(),
                         tolerance: agent_tolerance.clone(),
                         tolerance_open: false,
+                        // v0.3 (A65): state initializers run inside the
+                        // strict agent body.
+                        scope_kind: ScopeKind::AgentBody,
                         expr_ty: &mut local_expr_ty,
                     };
                     let _ = synth_expr(&mut cx, init);
@@ -165,9 +179,23 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
                 }
             }
             // Handlers — protocol-aware param typing.
+            //
+            // v0.3 (A65): when the agent implements a **known local /
+            // prelude** protocol declaring this message, we now:
+            // 1. bind each handler param to a fresh inference var,
+            // 2. let the handler body infer the param's actual usage
+            //    type,
+            // 3. unify each inferred type with the protocol's declared
+            //    type — mismatch surfaces as SD4031 with both spans.
+            //
+            // For external (unknown-to-defs) protocols we keep the
+            // slice-5 behavior — bind params at the declared types and
+            // skip the SD4031 check so v0.2 examples still compile.
             for handler in &hir_agent.handlers {
                 let handler_param_tys =
                     lookup_protocol_msg_types(&defs, &hir_agent.protocols, pkg, &handler.message);
+                let local_protocol =
+                    is_handler_protocol_local(&defs, &hir_agent.protocols, pkg, &handler.message);
                 let mut subst = Substitution::new();
                 let mut cx_diag = vec![];
                 let unit_id = arena.unit;
@@ -186,20 +214,34 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
                     param_scope: ParamScope::default(),
                     tolerance: agent_tolerance.clone(),
                     tolerance_open: false,
+                    // v0.3 (A65): handler bodies are strict.
+                    scope_kind: ScopeKind::HandlerBody,
                     expr_ty: &mut local_expr_ty,
                 };
                 cx.locals.enter();
                 // Bind handler params: prefer protocol-declared types,
                 // else fresh inference vars (with a SD2026 warning if no
                 // protocol declares the message).
-                match handler_param_tys {
+                //
+                // v0.3 (A65): for **local** protocols we bind to fresh
+                // vars and post-check via SD4031; for external protocols
+                // we keep the legacy bind-to-declared behavior.
+                let mut handler_param_record: Vec<(String, TyId, TyId)> = vec![];
+                match handler_param_tys.clone() {
                     HandlerParamLookup::Found(ptys) => {
                         for (i, pname) in handler.params.iter().enumerate() {
-                            let ty = ptys.get(i).copied().unwrap_or_else(|| {
+                            let declared = ptys.get(i).copied().unwrap_or_else(|| {
                                 let v = cx.subst.fresh_var();
                                 cx.arena.var(v)
                             });
-                            cx.locals.bind(pname.clone(), ty);
+                            let inferred = if local_protocol {
+                                let v = cx.subst.fresh_var();
+                                cx.arena.var(v)
+                            } else {
+                                declared
+                            };
+                            cx.locals.bind(pname.clone(), inferred);
+                            handler_param_record.push((pname.clone(), declared, inferred));
                         }
                     }
                     HandlerParamLookup::NoProtocols => {
@@ -220,6 +262,44 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
                     }
                 }
                 let _ = check_block(&mut cx, handler.body, None);
+                // v0.3 (A65): post-check SD4031 for local protocols.
+                if local_protocol {
+                    let proto_name = first_protocol_name(&hir_agent.protocols, pkg)
+                        .unwrap_or_else(|| "<unknown>".into());
+                    for (pname, declared, inferred) in &handler_param_record {
+                        let inferred_resolved = cx.subst.resolve(*inferred, cx.arena);
+                        let declared_resolved = cx.subst.resolve(*declared, cx.arena);
+                        // Skip when the inferred type is still an unbound
+                        // fresh var (handler never used the param) or
+                        // either side is Error (cascade suppression).
+                        if matches!(cx.arena.get(inferred_resolved), TyData::Var(_))
+                            || matches!(cx.arena.get(inferred_resolved), TyData::Error)
+                            || matches!(cx.arena.get(declared_resolved), TyData::Error)
+                        {
+                            continue;
+                        }
+                        if crate::infer::unify(
+                            inferred_resolved,
+                            declared_resolved,
+                            cx.subst,
+                            cx.arena,
+                        )
+                        .is_err()
+                        {
+                            cx.diag.push(diag::protocol_param_type_mismatch(
+                                &handler.message,
+                                &proto_name,
+                                pname,
+                                declared_resolved,
+                                inferred_resolved,
+                                &handler.span,
+                                cx.arena,
+                                cx.subst,
+                                cx.defs,
+                            ));
+                        }
+                    }
+                }
                 cx.locals.leave();
                 diagnostics.extend(cx_diag);
                 for (e, t) in local_expr_ty.iter_mut() {
@@ -262,7 +342,15 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
                     // come from a supervisor's enclosing capability context
                     // which slice 4 does not model. Open tolerance for
                     // these one-line expressions.
+                    //
+                    // v0.3 (A65): we still mark the scope as SupervisorBody
+                    // for documentation; tolerance_open keeps the runtime
+                    // policy permissive, so SD2021 won't fire here. Once
+                    // slice 7 wires supervisor cap-scopes properly, drop
+                    // `tolerance_open` and the SupervisorBody strict
+                    // policy will fire automatically.
                     tolerance_open: true,
+                    scope_kind: ScopeKind::SupervisorBody,
                     expr_ty: &mut local_expr_ty,
                 };
                 let _ = synth_expr(&mut cx, *child_expr);
@@ -415,10 +503,48 @@ pub fn check(pkg: &Package) -> Vec<Diagnostic> {
     check_typed(pkg).diagnostics
 }
 
+#[derive(Clone)]
 enum HandlerParamLookup {
     Found(Vec<TyId>),
     NoProtocols,
     Unknown,
+}
+
+/// v0.3 (A65): true iff *any* protocol the agent implements that declares
+/// `msg_name` is **local** — i.e. its name appears in
+/// `defs.protocol_msg_names`. External protocols (e.g. `http.Handler` from
+/// example 19) live in another module and are not yet visible to defs;
+/// for those we skip the SD4031 strict param-type check and continue
+/// emitting SD2026 warnings instead.
+fn is_handler_protocol_local(
+    defs: &DefMap,
+    proto_type_ids: &[TypeId],
+    pkg: &Package,
+    msg_name: &str,
+) -> bool {
+    for ptid in proto_type_ids {
+        let ty = &pkg.types[*ptid];
+        for pname in collect_protocol_names(ty) {
+            if let Some(names) = defs.protocol_msg_names.get(&pname) {
+                if names.iter().any(|n| n == msg_name) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// v0.3 (A65): the first protocol name attached to an agent, used in the
+/// SD4031 diagnostic's "protocol declares ..." note.
+fn first_protocol_name(proto_type_ids: &[TypeId], pkg: &Package) -> Option<String> {
+    for ptid in proto_type_ids {
+        let ty = &pkg.types[*ptid];
+        if let Some(n) = collect_protocol_names(ty).into_iter().next() {
+            return Some(n);
+        }
+    }
+    None
 }
 
 /// Look up the parameter types for an agent handler's message by searching

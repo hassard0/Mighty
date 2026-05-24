@@ -1,0 +1,14 @@
+// v0.3 (A65) capability subsumption: case-shape for the SD4010
+// `capability_too_broad` check. Today the function-signature surface for
+// caps treats both params as `Cap{Fs, Any}`, so the check returns clean.
+// When slice-7 wires per-fn cap narrowing into signatures, the call site
+// will fire SD4010 — update `expected_diagnostics.txt` then.
+fn read_only_user(fs: Fs) -> Unit {
+  // Method-call site that exercises cap-narrowing methods.
+  let _ = fs.ro("/data")
+}
+
+fn driver(fs: Fs) -> Unit {
+  // Passes top-Fs to a callee that ideally requires a narrowed Fs.
+  read_only_user(fs)
+}

@@ -1,0 +1,18 @@
+// v0.3 (A65) conformance: when an agent implements a **local** protocol
+// (defined in this same package) and the handler body uses a param at a
+// type incompatible with the protocol's declared param type, the
+// type-checker now emits SD4031 (was deferred behind SD2026 in v0.2).
+protocol Counter {
+  Add(n: Str) -> I32
+}
+
+agent Adder: Counter {
+  total = 0
+
+  // The protocol declares `n: Str`, but the handler treats it as `I32`
+  // via integer arithmetic. v0.3 hardens this to SD4031.
+  on Add(n) -> {
+    let v: I32 = n
+    total + v
+  }
+}

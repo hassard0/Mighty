@@ -16,3 +16,4 @@ sdust-diagnostics = { path = "../sdust-diagnostics" }
 insta.workspace = true
 sdust-syntax = { path = "../sdust-syntax" }
 sdust-ast = { path = "../sdust-ast" }
+sdust-driver = { path = "../sdust-driver" }

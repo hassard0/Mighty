@@ -276,6 +276,30 @@ pub fn unresolved_value(name: &str, span: &SourceSpan) -> Diagnostic {
     )
 }
 
+/// v0.3 (A65): an unresolved value name appeared inside a strict scope
+/// (agent body, handler body, supervisor body, narrow-cap body). Slice 3's
+/// permissive A21 fresh-var fallback only applies in top-level / extern /
+/// unsafe scopes; strict scopes promote the failure to SD2021 with a
+/// scope-aware note so the author understands why fresh-var inference
+/// won't paper over the missing binding.
+pub fn unresolved_value_strict(name: &str, scope: &str, span: &SourceSpan) -> Diagnostic {
+    let mut d = Diagnostic::error(
+        UNRESOLVED_VALUE,
+        label(
+            span,
+            format!(
+                "cannot find value `{}` in scope (strict {} scope; v0.3 A65)",
+                name, scope
+            ),
+        ),
+    );
+    d.notes.push(format!(
+        "the {} scope rejects unknown values — bind {} via state, ctor-param, prelude, or import",
+        scope, name
+    ));
+    d
+}
+
 pub fn lambda_arity_mismatch(expected: usize, got: usize, span: &SourceSpan) -> Diagnostic {
     Diagnostic::error(
         LAMBDA_ARITY_MISMATCH,
@@ -426,6 +450,42 @@ pub fn protocol_arity_mismatch(
     )
 }
 
+/// v0.3 (A65): handler parameter type derived from in-body usage does not
+/// unify with the protocol's declared parameter type. Reported only for
+/// protocols defined in the current package (local) and in the prelude;
+/// external protocols continue to emit SD2026 instead so v0.2 examples
+/// keep compiling.
+#[allow(clippy::too_many_arguments)]
+pub fn protocol_param_type_mismatch(
+    msg: &str,
+    proto: &str,
+    param_name: &str,
+    declared: TyId,
+    inferred: TyId,
+    span: &SourceSpan,
+    arena: &TyArena,
+    subst: &Substitution,
+    defs: &DefMap,
+) -> Diagnostic {
+    let d_ty = pretty_ty(declared, arena, Some(subst), Some(defs));
+    let i_ty = pretty_ty(inferred, arena, Some(subst), Some(defs));
+    let mut d = Diagnostic::error(
+        PROTOCOL_PARAM_TYPE_MISMATCH,
+        label(
+            span,
+            format!(
+                "handler `on {}` uses param `{}` as `{}`, but protocol `{}` declares it as `{}`",
+                msg, param_name, i_ty, proto, d_ty
+            ),
+        ),
+    );
+    d.notes.push(format!(
+        "the protocol declaration of `{}` is the source of truth — adjust the handler usage or the protocol",
+        msg
+    ));
+    d
+}
+
 pub fn protocol_missing_handler(msg: &str, proto: &str, span: &SourceSpan) -> Diagnostic {
     Diagnostic::error(
         PROTOCOL_MISSING_HANDLER,
@@ -471,9 +531,44 @@ pub fn derive_unknown(name: &str, span: &SourceSpan) -> Diagnostic {
         label(
             span,
             format!(
-                "unknown derive `{}`; slice 5 supports `Copy`, `Hash`, `Eq`",
+                "unknown derive `{}`; v0.3 supports `Copy`, `Hash`, `Eq`, `Sendable`",
                 name
             ),
         ),
     )
+}
+
+/// v0.3 (A65): cross-agent message argument violates the Sendable trait.
+/// Reported at `!Msg(args)` / `?Msg(args)` call sites. The `reason`
+/// argument carries the specific failure (e.g. "contains a `&T`
+/// reference", "type is not Copy and not Owned").
+#[allow(clippy::too_many_arguments)]
+pub fn non_sendable_message_arg(
+    arg_idx: usize,
+    arg_ty: TyId,
+    reason: &str,
+    span: &SourceSpan,
+    arena: &TyArena,
+    subst: &Substitution,
+    defs: &DefMap,
+) -> Diagnostic {
+    let a = pretty_ty(arg_ty, arena, Some(subst), Some(defs));
+    let mut d = Diagnostic::error(
+        NON_SENDABLE_MESSAGE_ARG,
+        label(
+            span,
+            format!(
+                "argument {} (`{}`) is not Sendable: {}",
+                arg_idx + 1,
+                a,
+                reason
+            ),
+        ),
+    );
+    d.notes.push(
+        "Sendable = Copy types, or owned Sized values that contain no internal references; \
+         `derive(Sendable)` to opt a user struct in"
+            .into(),
+    );
+    d
 }

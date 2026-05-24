@@ -65,3 +65,17 @@ heuristic detects the call shape.
 Caps are non-Copy and non-Sendable (slice 5; the spec §8.1 sandbox
 "explicitly host-provided" caveat is post-v0.1). They participate
 normally in the borrow checker's move/borrow tracking.
+
+## v0.3 (A65) tightening
+
+v0.3 hardens the cross-agent gate: the Sendable check (see
+`docs/internals/sendable.md`) explicitly classifies
+`Cap{family, ...}` values as **non-Sendable**, so any agent
+attempting to pass a raw `Fs` or `Net` handle into a `!Msg(...)` /
+`?Msg(...)` call now hard-errors with SD3011 carrying a reason note
+that points the author at the typed-message-with-narrowed-authority
+pattern. The SD4010 capability_too_broad check itself is unchanged
+in v0.3; case-shape coverage lives in
+`tests/conformance/capability_checking/04_cap_too_broad/` with the
+positive-fire path exercised by the
+`cap_subsumption_path_too_broad` unit test in sdust-types.

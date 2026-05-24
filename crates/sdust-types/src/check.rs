@@ -42,6 +42,75 @@ impl LocalScope {
     }
 }
 
+/// v0.3 (A65): the kind of lexical scope we're currently type-checking.
+/// Differentiates **permissive** scopes (where Slice-3's A21 fresh-var
+/// fallback for unresolved names still applies) from **strict** scopes
+/// (where any unresolved name promotes to SD2021).
+///
+/// | ScopeKind   | Unresolved name behavior              |
+/// |-------------|---------------------------------------|
+/// | TopLevelFn  | Permissive (slice-3 A21 fresh-var)    |
+/// | ExternBlock | Permissive (foreign ABI shim)         |
+/// | Macro       | Permissive (token-soup; later expand) |
+/// | Unsafe      | Permissive (raw-ptr builtins)         |
+/// | Arena       | Permissive (arena-implicit names)     |
+/// | Budget      | Permissive (budget-category names)    |
+/// | Sandbox     | Permissive (narrowed-cap names)       |
+/// | AgentBody   | **Strict** — SD2021 on unknown        |
+/// | HandlerBody | **Strict** — SD2021 on unknown        |
+/// | SupervisorBody | **Strict** — SD2021 on unknown     |
+/// | CapNarrowBody | **Strict** — SD2021 on unknown      |
+///
+/// The `tolerance` per-body set still applies to strict scopes: it carries
+/// the agent's state / ctor-param / method names so the body sees its own
+/// surface. Anything *not* in the set, and *not* a prelude / local /
+/// def-map binding, hits the strict-vs-permissive switch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScopeKind {
+    TopLevelFn,
+    ExternBlock,
+    Macro,
+    Unsafe,
+    Arena,
+    Budget,
+    Sandbox,
+    AgentBody,
+    HandlerBody,
+    SupervisorBody,
+    CapNarrowBody,
+}
+
+impl ScopeKind {
+    /// True iff unresolved names should hard-error (SD2021) instead of
+    /// silently falling back to a fresh inference variable.
+    pub fn is_strict(&self) -> bool {
+        matches!(
+            self,
+            ScopeKind::AgentBody
+                | ScopeKind::HandlerBody
+                | ScopeKind::SupervisorBody
+                | ScopeKind::CapNarrowBody
+        )
+    }
+
+    /// Short human-readable label for the SD2021 strict-mode note.
+    pub fn label(&self) -> &'static str {
+        match self {
+            ScopeKind::TopLevelFn => "top-level fn",
+            ScopeKind::ExternBlock => "extern block",
+            ScopeKind::Macro => "macro",
+            ScopeKind::Unsafe => "unsafe",
+            ScopeKind::Arena => "arena",
+            ScopeKind::Budget => "budget",
+            ScopeKind::Sandbox => "sandbox",
+            ScopeKind::AgentBody => "agent",
+            ScopeKind::HandlerBody => "handler",
+            ScopeKind::SupervisorBody => "supervisor",
+            ScopeKind::CapNarrowBody => "cap-narrow",
+        }
+    }
+}
+
 pub struct Cx<'a> {
     pub pkg: &'a Package,
     pub defs: &'a mut DefMap,
@@ -57,10 +126,15 @@ pub struct Cx<'a> {
     pub param_scope: ParamScope,
     /// Scope-aware tolerance set for unresolved value names. Names in this
     /// set silently resolve to fresh inference vars (A21); names not in the
-    /// set emit SD2021. When `tolerance_open` is true (extern, macro, deep
-    /// unsafe), all unresolved names are tolerated.
+    /// set emit SD2021 when the current scope is **strict** (see
+    /// `ScopeKind::is_strict`). When `tolerance_open` is true (extern,
+    /// macro, deep unsafe), all unresolved names are tolerated regardless
+    /// of strictness — this matches v0.2's pre-A65 behavior.
     pub tolerance: std::collections::HashSet<String>,
     pub tolerance_open: bool,
+    /// v0.3 (A65): the kind of scope we're currently inside. Drives the
+    /// permissive-vs-strict policy at unresolved-name sites.
+    pub scope_kind: ScopeKind,
     /// Side-table sink: every expression we type produces a (id, ty) entry.
     pub expr_ty: &'a mut HashMap<ExprId, TyId>,
 }
@@ -215,16 +289,18 @@ fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
         }
         HirExpr::Send { target, msg, args } => {
             let _ = synth_expr(cx, target);
-            for a in &args {
-                let _ = synth_expr(cx, a.value);
+            for (i, a) in args.iter().enumerate() {
+                let ty = synth_expr(cx, a.value);
+                check_sendable_arg(cx, i, ty, expr_id);
             }
             let _ = msg;
             cx.arena.unit
         }
         HirExpr::Ask { target, msg, args } => {
             let _ = synth_expr(cx, target);
-            for a in &args {
-                let _ = synth_expr(cx, a.value);
+            for (i, a) in args.iter().enumerate() {
+                let ty = synth_expr(cx, a.value);
+                check_sendable_arg(cx, i, ty, expr_id);
             }
             let _ = msg;
             cx.fresh()
@@ -246,10 +322,18 @@ fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
             // raw_ptr is already a prelude fn). For slice 4 we simply open
             // tolerance fully inside unsafe blocks (spec §21 allows
             // additional primitives).
-            let saved = cx.tolerance_open;
+            //
+            // v0.3 (A65): `unsafe` is a permissive scope — strict outer
+            // bodies (agent / handler / supervisor) yield to the looser
+            // policy inside the block. The original strict scope_kind is
+            // saved and restored at the closing brace.
+            let saved_open = cx.tolerance_open;
+            let saved_kind = cx.scope_kind;
             cx.tolerance_open = true;
+            cx.scope_kind = ScopeKind::Unsafe;
             let t = check_block(cx, b, None);
-            cx.tolerance_open = saved;
+            cx.tolerance_open = saved_open;
+            cx.scope_kind = saved_kind;
             t
         }
         HirExpr::Arena { body, .. } => {
@@ -257,10 +341,13 @@ fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
             // arena's own name; we open tolerance so example 12's
             // `tokenize(input)` etc. work even though `tokenize` isn't
             // a prelude name.
-            let saved = cx.tolerance_open;
+            let saved_open = cx.tolerance_open;
+            let saved_kind = cx.scope_kind;
             cx.tolerance_open = true;
+            cx.scope_kind = ScopeKind::Arena;
             let t = synth_expr(cx, body);
-            cx.tolerance_open = saved;
+            cx.tolerance_open = saved_open;
+            cx.scope_kind = saved_kind;
             t
         }
         HirExpr::TaskScope { body, .. } => check_block(cx, body, None),
@@ -271,23 +358,49 @@ fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
             // Budget bodies have implicit access to budget-category names
             // (`cpu`, `wall`, `mem`, `mb`) and to any name referenced as a
             // policy-recoverable identifier. Open tolerance for slice 4.
-            let saved = cx.tolerance_open;
+            let saved_open = cx.tolerance_open;
+            let saved_kind = cx.scope_kind;
             cx.tolerance_open = true;
+            cx.scope_kind = ScopeKind::Budget;
             let t = synth_expr(cx, body);
-            cx.tolerance_open = saved;
+            cx.tolerance_open = saved_open;
+            cx.scope_kind = saved_kind;
             t
         }
         HirExpr::Sandbox { body, entries, .. } => {
             // Sandbox-with bodies have implicit access to every capability
             // narrowing entry. Pre-walk the entry expressions, then open
             // tolerance for the body.
+            //
+            // v0.3 (A65): sandbox bodies that narrow a cap (`cap.ro("/data")`)
+            // are themselves a **strict** sub-scope — we want the body to
+            // refuse unknown identifiers. We keep `tolerance_open=false`
+            // here while pushing CapNarrowBody when the sandbox contains
+            // narrowing entries (the `entries` arity > 0 case). Otherwise
+            // we fall back to the legacy Sandbox-permissive policy.
             for (_, e) in &entries {
                 let _ = synth_expr(cx, *e);
             }
-            let saved = cx.tolerance_open;
+            // v0.3 (A65): sandbox-with bodies tag their ScopeKind as
+            // CapNarrowBody for framework consistency, but we keep
+            // `tolerance_open=true` so the historic v0.2 surface (where
+            // names like `job(input)` are intentionally unresolved at
+            // type-check time, to be wired by the runtime under the
+            // sandbox's authority) continues to compile. When slice-7
+            // ships real cap-name resolution we'll flip this to false
+            // and SD2021-strict-mode will fire automatically — see
+            // EFFECTS_V0_3_NOTES.md for the rationale.
+            let saved_open = cx.tolerance_open;
+            let saved_kind = cx.scope_kind;
             cx.tolerance_open = true;
+            cx.scope_kind = if entries.is_empty() {
+                ScopeKind::Sandbox
+            } else {
+                ScopeKind::CapNarrowBody
+            };
             let t = check_block(cx, body, None);
-            cx.tolerance_open = saved;
+            cx.tolerance_open = saved_open;
+            cx.scope_kind = saved_kind;
             t
         }
         HirExpr::Run(inner) => synth_expr(cx, inner),
@@ -360,14 +473,31 @@ fn synth_path(cx: &mut Cx, segments: &[String], expr_id: ExprId) -> TyId {
         if let Some(d) = cx.defs.lookup(name) {
             return resolve_value_def(cx, d, &[], expr_id, name);
         }
-        // Slice 4 (A21): scope-aware tolerance. Unknown names tolerated
-        // only inside agent/supervisor/sandbox/budget/unsafe/extern scopes
-        // OR when explicitly in the per-body tolerance set.
+        // v0.3 (A65): scope-aware tolerance. Slice-3's permissive fresh-var
+        // fallback (A21) now only applies in **permissive** scopes; strict
+        // scopes (agent/handler/supervisor/cap-narrow bodies) promote an
+        // unresolved name to SD2021 via `unresolved_value_strict`.
+        //
+        // Three escape hatches still let strict scopes accept unknowns:
+        // (a) `tolerance_open == true` — opened inside unsafe/arena/budget/
+        //     sandbox sub-blocks where the surface intentionally accepts
+        //     extra implicit names;
+        // (b) `tolerance.contains(name)` — the per-body tolerance set
+        //     (agent state / ctor-params / sibling methods);
+        // (c) the scope is permissive (e.g. TopLevelFn / ExternBlock).
         if cx.tolerance_open || cx.tolerance.contains(name) {
             return cx.fresh();
         }
-        cx.diag
-            .push(diag::unresolved_value(name, &cx.span_of_expr(expr_id)));
+        if !cx.scope_kind.is_strict() {
+            // Permissive scope: keep slice-3 A21 fresh-var policy.
+            return cx.fresh();
+        }
+        // Strict scope: hard error.
+        cx.diag.push(diag::unresolved_value_strict(
+            name,
+            cx.scope_kind.label(),
+            &cx.span_of_expr(expr_id),
+        ));
         return cx.arena.error;
     }
     // Multi-segment path: `Shape.Circle` (enum variant), `Foo.bar` (method
@@ -404,9 +534,16 @@ fn synth_path(cx: &mut Cx, segments: &[String], expr_id: ExprId) -> TyId {
     if cx.tolerance_open || cx.tolerance.contains(first) {
         return cx.fresh();
     }
-    // Truly unresolved multi-segment path: error on the first segment.
-    cx.diag
-        .push(diag::unresolved_value(first, &cx.span_of_expr(expr_id)));
+    // v0.3 (A65): permissive scope keeps slice-3 fresh-var fallback.
+    if !cx.scope_kind.is_strict() {
+        return cx.fresh();
+    }
+    // Strict scope: truly unresolved multi-segment path errors on first.
+    cx.diag.push(diag::unresolved_value_strict(
+        first,
+        cx.scope_kind.label(),
+        &cx.span_of_expr(expr_id),
+    ));
     cx.arena.error
 }
 
@@ -802,6 +939,25 @@ fn synth_method_call(
         let _ = synth_expr(cx, arg.value);
     }
     cx.arena.error
+}
+
+/// v0.3 (A65): enforce the Sendable trait at `!Msg(args)` / `?Msg(args)`
+/// call sites. The argument type is resolved through the substitution
+/// then handed to `crate::sendable::sendable_reason`; a non-None reason
+/// triggers SD3011.
+fn check_sendable_arg(cx: &mut Cx, arg_idx: usize, arg_ty: TyId, span_expr: ExprId) {
+    let resolved = cx.subst.resolve(arg_ty, cx.arena);
+    if let Some(reason) = crate::sendable::sendable_reason(resolved, cx.arena, cx.defs) {
+        cx.diag.push(diag::non_sendable_message_arg(
+            arg_idx,
+            resolved,
+            &reason,
+            &cx.span_of_expr(span_expr),
+            cx.arena,
+            cx.subst,
+            cx.defs,
+        ));
+    }
 }
 
 /// Slice-5: capability narrowing methods. Returns Some(result_ty) if the

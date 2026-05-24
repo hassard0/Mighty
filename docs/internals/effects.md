@@ -57,3 +57,18 @@ borrow checker.
 `TypedPackage.fn_effects: HashMap<FnId, Vec<EffectId>>` — every fn's
 inferred effects in deterministic order. Consumers (LSP, codegen,
 docs) read from here.
+
+## v0.3 (A65) tightening
+
+v0.3 didn't touch the inference algorithm itself. The strict-scope
+revisions in `crates/sdust-types/src/check.rs` (see `docs/internals/
+typeck.md#scope-aware-permissivestrict-policy-v03--a65`) and the
+Sendable check at message-send sites (see
+`docs/internals/sendable.md`) interact with effects only insofar as
+SD3011 / SD4031 now fire alongside the existing SD4001 / SD4002.
+The conformance corpus gains two new effect-checking cases —
+`effect_checking/04_undeclared_alloc` (positive SD4001) and
+`effect_checking/05_strict_core_profile` (case-shape for the SD4002
+positive fire under `profile = "core"`, with the positive assertion
+running through the dedicated `core_profile_rejects_alloc` unit
+test until the harness supports per-case `star.toml` overrides).
