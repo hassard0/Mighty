@@ -173,10 +173,18 @@ mod tests {
         // Both fns retained; the generic one is rewritten to a
         // concrete specialization with a mangled name.
         assert_eq!(m.fns.len(), 2);
-        let g = m.fns.iter().find(|f| f.name == "g__mono").expect("specialized name");
+        let g = m
+            .fns
+            .iter()
+            .find(|f| f.name == "g__mono")
+            .expect("specialized name");
         // Return type is no longer Param.
         assert!(!matches!(g.ret_ty, SirTy::Param(_)));
-        let main = m.fns.iter().find(|f| f.name == "main").expect("main retained");
+        let main = m
+            .fns
+            .iter()
+            .find(|f| f.name == "main")
+            .expect("main retained");
         assert!(matches!(main.ret_ty, SirTy::Unit));
     }
 
