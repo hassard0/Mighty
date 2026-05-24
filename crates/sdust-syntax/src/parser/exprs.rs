@@ -196,6 +196,8 @@ fn primary(p: &mut Parser) -> bool {
             p.finish_node();
             true
         }
+        FN_KW => lambda_expr(p),
+        RUN_KW => run_expr(p),
         IDENT => path_expr_or_call(p),
         SELF_KW => {
             // `self` parses as a single-segment path expression so postfix `.field`,
@@ -519,5 +521,43 @@ pub fn can_start_expr(k: SyntaxKind) -> bool {
             | SANDBOX_KW
             | DETACH_KW
             | JOIN_KW
+            | FN_KW
+            | RUN_KW
     )
+}
+
+/// `fn` lambda expression: `fn() { body }` or `fn(x: T, y) -> R { body }`.
+/// LAMBDA_EXPR node kind already exists; this is the parser production.
+/// Item-level `fn` is handled in `items::fn_decl_pub`; `lambda_expr` is
+/// only reached from expression position via `primary`.
+fn lambda_expr(p: &mut Parser) -> bool {
+    p.start_node(LAMBDA_EXPR);
+    p.bump(FN_KW);
+    p.skip_trivia();
+    super::items::fn_params(p);
+    p.skip_trivia();
+    if p.eat(THIN_ARROW) {
+        p.start_node(RET_TYPE);
+        super::types::type_expr(p);
+        p.finish_node();
+        p.skip_trivia();
+    }
+    if p.at(L_BRACE) {
+        super::stmts::block(p);
+    } else {
+        p.error("expected '{' to start lambda body");
+    }
+    p.finish_node();
+    true
+}
+
+/// `run <expr>` — leading-keyword expression form. Used in sandbox bodies
+/// per spec §16.1. RUN_EXPR node kind is declared in syntax_kind.rs.
+fn run_expr(p: &mut Parser) -> bool {
+    p.start_node(RUN_EXPR);
+    p.bump(RUN_KW);
+    p.skip_trivia();
+    expr(p);
+    p.finish_node();
+    true
 }

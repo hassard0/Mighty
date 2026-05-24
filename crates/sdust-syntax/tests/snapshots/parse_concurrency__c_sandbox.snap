@@ -1,5 +1,6 @@
 ---
 source: crates/sdust-syntax/tests/parse_concurrency.rs
+assertion_line: 41
 expression: "dump_expr(\"sandbox ToolRun with { fs.read = [\\\"/models\\\"], net = [\\\"api.example.com:443\\\"], cpu = 150ms, wall = 2s, memory = 128MiB, mailbox = 1024 } { run job(input) }\")"
 ---
 FILE@0..153
@@ -99,25 +100,26 @@ FILE@0..153
     BLOCK@135..153
       L_BRACE@135..136 "{"
       WHITESPACE@136..137 " "
-      RUN_KW@137..140 "run"
-      WHITESPACE@140..141 " "
-      EXPR_STMT@141..152
-        CALL_EXPR@141..152
-          PATH_EXPR@141..144
-            PATH@141..144
-              PATH_SEGMENT@141..144
-                NAME_REF@141..144
-                  IDENT@141..144 "job"
-          ARG_LIST@144..152
-            L_PAREN@144..145 "("
-            ARG@145..150
-              PATH_EXPR@145..150
-                PATH@145..150
-                  PATH_SEGMENT@145..150
-                    NAME_REF@145..150
-                      IDENT@145..150 "input"
-            R_PAREN@150..151 ")"
-            WHITESPACE@151..152 " "
+      EXPR_STMT@137..152
+        RUN_EXPR@137..152
+          RUN_KW@137..140 "run"
+          WHITESPACE@140..141 " "
+          CALL_EXPR@141..152
+            PATH_EXPR@141..144
+              PATH@141..144
+                PATH_SEGMENT@141..144
+                  NAME_REF@141..144
+                    IDENT@141..144 "job"
+            ARG_LIST@144..152
+              L_PAREN@144..145 "("
+              ARG@145..150
+                PATH_EXPR@145..150
+                  PATH@145..150
+                    PATH_SEGMENT@145..150
+                      NAME_REF@145..150
+                        IDENT@145..150 "input"
+              R_PAREN@150..151 ")"
+              WHITESPACE@151..152 " "
       R_BRACE@152..153 "}"
 
-errors: [ParseError { message: "expected statement or expression", start: 137, end: 140 }]
+errors: []

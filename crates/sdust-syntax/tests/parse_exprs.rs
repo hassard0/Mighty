@@ -70,3 +70,64 @@ fn e_neg_unary() {
 fn e_chain_send_ask() {
     assert_snapshot!(dump("logger!Info(\"x\"); fetcher?Page(url) @2s?"));
 }
+
+// ---- slice-2 additions ----
+
+#[test]
+fn parse_lambda_nullary() {
+    use sdust_syntax::{parser::parse_expr, SyntaxKind, SyntaxNode};
+    let r = parse_expr("fn() { 0 }");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    assert!(
+        root.descendants()
+            .any(|n| n.kind() == SyntaxKind::LAMBDA_EXPR),
+        "expected LAMBDA_EXPR"
+    );
+}
+
+#[test]
+fn parse_lambda_with_params_and_ret() {
+    use sdust_syntax::{parser::parse_expr, SyntaxKind, SyntaxNode};
+    let r = parse_expr("fn(x: I32, y) -> I32 { x + y }");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::LAMBDA_EXPR));
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::FN_PARAM_LIST));
+    assert!(root.descendants().any(|n| n.kind() == SyntaxKind::RET_TYPE));
+}
+
+#[test]
+fn parse_lambda_in_arg_position() {
+    use sdust_syntax::{parser::parse_expr, SyntaxKind, SyntaxNode};
+    let r = parse_expr("dom.listen(\"click\", fn() { c!Click() })");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::LAMBDA_EXPR));
+}
+
+#[test]
+fn parse_run_expr_in_block() {
+    use sdust_syntax::{parse, SyntaxKind, SyntaxNode};
+    let src = "fn f() { run job(input) }";
+    let r = parse(src);
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    assert!(root.descendants().any(|n| n.kind() == SyntaxKind::RUN_EXPR));
+}
+
+#[test]
+fn parse_run_expr_with_propagate() {
+    use sdust_syntax::{parse, SyntaxKind, SyntaxNode};
+    let src = "fn f() { run job(input)? }";
+    let r = parse(src);
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    assert!(root.descendants().any(|n| n.kind() == SyntaxKind::RUN_EXPR));
+}

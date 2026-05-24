@@ -184,8 +184,9 @@ pub(super) fn fn_decl_pub(p: &mut Parser, cp: rowan::Checkpoint) {
     p.skip_trivia();
 }
 
-/// Public to siblings so extern blocks can parse function parameter lists.
-pub(super) fn fn_params(p: &mut Parser) {
+/// Public to siblings so extern blocks (and the lambda parser in exprs.rs)
+/// can parse function parameter lists.
+pub(crate) fn fn_params(p: &mut Parser) {
     p.start_node(FN_PARAM_LIST);
     p.expect(L_PAREN);
     p.skip_trivia();

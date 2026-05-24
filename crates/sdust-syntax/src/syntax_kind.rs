@@ -366,6 +366,7 @@ pub enum SyntaxKind {
     MOVE_EXPR,
     BORROW_EXPR,
     SPAWN_EXPR,
+    RUN_EXPR,
     LITERAL_PAT,
     IDENT_PAT,
     WILDCARD_PAT,
