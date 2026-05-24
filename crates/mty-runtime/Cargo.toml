@@ -30,4 +30,5 @@ otlp = ["dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk"]
 
 [dev-dependencies]
 mty-driver = { path = "../mty-driver" }
+mty-stdlib = { path = "../mty-stdlib", default-features = false }
 tokio = { workspace = true, features = ["test-util"] }

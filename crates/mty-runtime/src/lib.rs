@@ -16,6 +16,7 @@ pub mod error;
 pub mod extern_loader;
 pub mod host_std;
 pub mod http;
+pub mod http_server;
 pub mod mailbox;
 #[cfg(feature = "otlp")]
 pub mod otlp;
