@@ -1,0 +1,50 @@
+// Note: divergences from spec §34 for slice-1 parser compatibility:
+//   - `cache = Map[Str, Json]{}` rewritten as `cache = Map.new()` — path-expr does
+//     not pick up generic args in slice-1 (only paths in type position do).
+//   - `if let Some(hit) = cache.get(q) { ... }` rewritten as a `match` — there is
+//     no `if let` in slice-1.
+//   - `effect net, model, spawn` dropped to `effect net, model` — `spawn` is a
+//     reserved keyword and the effect-clause parser only accepts IDENT names.
+// Full path-generics, if-let, and keyword-effect-names TBD in slice 2.
+package search_api
+
+use std.http
+use std.json
+use std.trace
+
+protocol Search {
+  Query(q: Str) -> Json!SearchErr
+}
+
+agent Searcher(net, model): Search {
+  cache = Map.new()
+
+  on Query(q) {
+    match cache.get(q) {
+      Some(hit) => return Ok(hit)
+      None => {}
+    }
+
+    arena turn {
+      let emb = model.embed(q) @500ms?
+      let docs = net.post("https://idx.local/search", emb) @1s?
+      let out = json.encode(docs)?
+      cache[q] = out
+      Ok(out)
+    }
+  }
+}
+
+agent Api(searcher): http.Handler {
+  on Request(req) {
+    let q = req.query("q").ok_or(SearchErr.BadReq)?
+    let body = searcher?Query(q) @2s?
+    http.ok(body)
+  }
+}
+
+fn main(net: Net, model: Model) -> Unit!MainErr effect net, model {
+  let searcher = spawn Searcher(net, model)
+  let api = spawn Api(searcher)
+  http.serve(":8080", api)?
+}

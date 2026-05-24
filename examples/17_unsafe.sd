@@ -1,0 +1,10 @@
+fn read_byte(addr: USize) -> U8 {
+  unsafe {
+    let p = raw_ptr(addr)
+    p.read()
+  }
+}
+
+pub unsafe fn from_raw(ptr: *U8, len: USize) -> Bytes
+  requires ptr != null
+  requires valid(ptr, len)

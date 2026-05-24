@@ -1,0 +1,7 @@
+protocol Echo {
+  Ping(msg: Str) -> Str
+}
+
+agent Echoer: Echo {
+  on Ping(msg) -> msg
+}

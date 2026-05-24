@@ -1,0 +1,11 @@
+fn process(items: &[I32]) {
+  for item in items {
+    work(item)?
+  }
+  while ready() {
+    step()
+  }
+  loop {
+    tick()
+  }
+}

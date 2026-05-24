@@ -1,0 +1,18 @@
+struct User {
+  id: UserId
+  name: String
+}
+
+enum Shape {
+  Circle(F64)
+  Rect(F64, F64)
+}
+
+type UserId = U64
+
+fn area(s: Shape) -> F64 {
+  match s {
+    Shape.Circle(r) => 3.14159 * r * r
+    Shape.Rect(w, h) => w * h
+  }
+}

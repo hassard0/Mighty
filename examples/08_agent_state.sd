@@ -1,0 +1,8 @@
+protocol Count {
+  Inc() -> I64
+}
+
+agent Counter: Count {
+  n = 0
+  on Inc() -> { n += 1; n }
+}

@@ -1,0 +1,7 @@
+fn classify(n: I32) -> Str {
+  match n {
+    0 => "zero"
+    1..10 => "small"
+    _ => "big"
+  }
+}

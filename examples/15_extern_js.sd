@@ -1,0 +1,3 @@
+extern js {
+  fn alert(msg: Str) effect dom
+}

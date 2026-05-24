@@ -1,0 +1,3 @@
+macro assert_eq(a, b) => {
+  if a != b { panic("assert_eq failed") }
+}

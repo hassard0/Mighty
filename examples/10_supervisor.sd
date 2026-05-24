@@ -1,0 +1,7 @@
+supervisor SearchFlow(strategy: one_for_one) {
+  child planner = spawn Planner()
+  child fetcher = spawn Fetcher(net)
+
+  on_fail(planner) { restart up_to 3 in 30s }
+  on_fail(fetcher) { backoff 100ms..2s; restart }
+}
