@@ -10,6 +10,7 @@ description = "Stardust package manager: resolver, lockfile, fetchers."
 
 [dependencies]
 serde.workspace = true
+serde_json.workspace = true
 toml.workspace = true
 thiserror.workspace = true
 sha2.workspace = true
@@ -17,6 +18,9 @@ hex.workspace = true
 reqwest = { workspace = true, optional = true }
 git2 = { workspace = true, optional = true }
 sdust-driver = { path = "../sdust-driver" }
+tar = "0.4"
+flate2 = "1"
+dirs = "5"
 
 [features]
 # Default: include fetchers. Tests that hit the network mark themselves

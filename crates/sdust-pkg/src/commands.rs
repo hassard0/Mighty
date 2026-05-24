@@ -7,6 +7,7 @@
 use crate::fetch::{self, Fetched};
 use crate::lockfile::{self, Lockfile};
 use crate::publish;
+use crate::registry::{self, AuthStore, RegistryError};
 use crate::resolver::Resolver;
 use sdust_driver::manifest::{self, Dep, DetailedDep, Manifest};
 use std::path::{Path, PathBuf};
@@ -23,12 +24,16 @@ pub enum PkgError {
     Fetch(#[from] fetch::FetchError),
     #[error("publish error: {0}")]
     Publish(#[from] publish::PublishError),
+    #[error("registry error: {0}")]
+    Registry(#[from] RegistryError),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
     #[error("dep `{0}` not found in manifest")]
     DepNotFound(String),
     #[error("no star.toml at {0}")]
     NoManifest(PathBuf),
+    #[error("auth required: {0}")]
+    AuthRequired(String),
 }
 
 /// Resolve and write the lockfile to disk. Returns the lockfile.
@@ -40,8 +45,7 @@ pub fn resolve_and_lock(root: &Path) -> Result<Lockfile, PkgError> {
     Ok(lock)
 }
 
-/// `sdust pkg add <name>[@version]`. Mutates `star.toml`, re-resolves,
-/// writes the lockfile. Does *not* fetch — call [`fetch_all`] after.
+/// `sdust pkg add <name>[@version]`.
 pub fn add(root: &Path, name: &str, version: Option<&str>) -> Result<String, PkgError> {
     let mut manifest = load_manifest(root)?;
     let version = version.unwrap_or("*").to_string();
@@ -53,8 +57,6 @@ pub fn add(root: &Path, name: &str, version: Option<&str>) -> Result<String, Pkg
     Ok(format!("added `{name}` = \"{version}\""))
 }
 
-/// `sdust pkg add <name> --path <p>` (or git). Same shape as `add`
-/// but installs a detailed dep.
 pub fn add_detailed(root: &Path, name: &str, detailed: DetailedDep) -> Result<String, PkgError> {
     let mut manifest = load_manifest(root)?;
     manifest
@@ -65,25 +67,23 @@ pub fn add_detailed(root: &Path, name: &str, detailed: DetailedDep) -> Result<St
     Ok(format!("added `{name}` (detailed source)"))
 }
 
-/// `sdust pkg remove <name>`.
 pub fn remove(root: &Path, name: &str) -> Result<String, PkgError> {
     let mut manifest = load_manifest(root)?;
     if manifest.deps.remove(name).is_none() {
         return Err(PkgError::DepNotFound(name.into()));
     }
     manifest::save(&manifest, &root.join(crate::MANIFEST_NAME))?;
-    // Re-resolve so the lockfile drops orphans.
     let _ = resolve_and_lock(root)?;
     Ok(format!("removed `{name}`"))
 }
 
-/// `sdust pkg update [name]`. In v0.2 this re-runs the resolver,
-/// which is enough to refresh path/git deps. With the registry
-/// offline, "newest compatible" is whatever the resolver synthesises
-/// (typically the requirement floor).
-pub fn update(root: &Path, name: Option<&str>) -> Result<String, PkgError> {
-    // For v0.2 we always re-resolve from scratch; the `name` filter
-    // is informational. A registry-backed implementation will use it.
+/// `sdust pkg update [name] [--refresh]`. With `refresh=true` the
+/// cached registry indexes are revalidated against GitHub before
+/// re-resolution.
+pub fn update(root: &Path, name: Option<&str>, refresh: bool) -> Result<String, PkgError> {
+    if refresh {
+        refresh_indexes(root)?;
+    }
     let _ = resolve_and_lock(root)?;
     match name {
         Some(n) => Ok(format!("updated `{n}` (and re-resolved transitive deps)")),
@@ -91,9 +91,33 @@ pub fn update(root: &Path, name: Option<&str>) -> Result<String, PkgError> {
     }
 }
 
-/// `sdust pkg fetch`. Walks the existing lockfile and runs each
-/// fetcher. Updates the lockfile in-place to record hashes computed
-/// on first fetch (when none was previously recorded).
+/// Refresh every configured registry's index. Errors per-registry are
+/// reported but do not abort the others.
+pub fn refresh_indexes(root: &Path) -> Result<String, PkgError> {
+    let manifest_path = root.join(crate::MANIFEST_NAME);
+    let cfg = registry::load_registry_config(&manifest_path)?;
+    let slugs = cfg.slugs();
+    let mut out = String::new();
+    for slug in &slugs {
+        match fetch::registry::load_index_for(root, slug, true) {
+            Ok(idx) => {
+                out.push_str(&format!(
+                    "refreshed `{}` — {} releases\n",
+                    slug,
+                    idx.releases.len()
+                ));
+            }
+            Err(e) => {
+                out.push_str(&format!("warn: refresh `{slug}` failed: {e}\n"));
+            }
+        }
+    }
+    if out.is_empty() {
+        out.push_str("no registries configured\n");
+    }
+    Ok(out)
+}
+
 pub fn fetch_all(root: &Path) -> Result<Vec<Fetched>, PkgError> {
     let lock_path = root.join(crate::LOCKFILE_NAME);
     let mut lock = if lock_path.exists() {
@@ -105,7 +129,6 @@ pub fn fetch_all(root: &Path) -> Result<Vec<Fetched>, PkgError> {
     let mut results = Vec::new();
     for pkg in lock.packages.clone() {
         let fetched = fetch::fetch_one(root, &pkg)?;
-        // Pin the hash if it was previously empty.
         if pkg.hash.is_none() {
             let mut updated = pkg.clone();
             updated.hash = Some(fetched.hash.clone());
@@ -117,7 +140,6 @@ pub fn fetch_all(root: &Path) -> Result<Vec<Fetched>, PkgError> {
     Ok(results)
 }
 
-/// `sdust pkg list`. Renders a simple tree of (name, version, source).
 pub fn list(root: &Path) -> Result<String, PkgError> {
     let lock_path = root.join(crate::LOCKFILE_NAME);
     let lock = if lock_path.exists() {
@@ -148,14 +170,202 @@ pub fn list(root: &Path) -> Result<String, PkgError> {
     Ok(out)
 }
 
-/// `sdust pkg publish`. Produces the bundle + sha256 and explains the
-/// v0.2 caveat that the registry is not yet live.
-pub fn publish(root: &Path) -> Result<String, PkgError> {
-    let outcome = publish::publish(root)?;
+/// `sdust pkg search <query>`. Substring-matches both name and
+/// version across the cached indexes of every configured registry.
+/// Refreshes indexes only when none are cached for a given slug.
+pub fn search(root: &Path, query: &str) -> Result<String, PkgError> {
+    let cfg = registry::load_registry_config(&root.join(crate::MANIFEST_NAME))?;
+    let slugs = cfg.slugs();
+    let mut hits: Vec<(String, String, String)> = Vec::new(); // (slug, name, version)
+    let mut total_releases = 0usize;
+    for slug in &slugs {
+        let cached = registry::load_cached_index(root, slug)?;
+        let idx = match cached {
+            Some(i) => i,
+            None => {
+                // Best-effort prefetch — never fatal.
+                match fetch::registry::load_index_for(root, slug, false) {
+                    Ok(i) => i,
+                    Err(_) => continue,
+                }
+            }
+        };
+        total_releases += idx.releases.len();
+        for r in &idx.releases {
+            if r.name.contains(query) || r.version.contains(query) {
+                hits.push((slug.clone(), r.name.clone(), r.version.clone()));
+            }
+        }
+    }
+    hits.sort();
+    hits.dedup();
+    if hits.is_empty() {
+        if total_releases == 0 {
+            return Ok(format!(
+                "no results for `{query}` (no cached registry indexes; run `sdust pkg update --refresh` to populate one)\n"
+            ));
+        }
+        return Ok(format!("no results for `{query}`\n"));
+    }
+    let mut out = String::new();
+    for (slug, name, version) in hits {
+        out.push_str(&format!("{name}@{version}    [{slug}]\n"));
+    }
+    Ok(out)
+}
+
+/// `sdust pkg info <name>[@version]`. Resolves to a concrete release
+/// across configured registries and prints its metadata + body
+/// preview. With no version specifier the latest known version is
+/// shown.
+pub fn info(root: &Path, query: &str) -> Result<String, PkgError> {
+    let (name, version) = match query.split_once('@') {
+        Some((n, v)) => (n.to_string(), Some(v.to_string())),
+        None => (query.to_string(), None),
+    };
+    let cfg = registry::load_registry_config(&root.join(crate::MANIFEST_NAME))?;
+    let slugs = cfg.slugs();
+    for slug in &slugs {
+        let cached = registry::load_cached_index(root, slug)?;
+        let idx = match cached {
+            Some(i) => i,
+            None => match fetch::registry::load_index_for(root, slug, false) {
+                Ok(i) => i,
+                Err(_) => continue,
+            },
+        };
+        // Pick the requested version or the latest known.
+        let release = match &version {
+            Some(v) => idx.find(&name, v).cloned(),
+            None => idx
+                .releases
+                .iter()
+                .filter(|r| r.name == name)
+                .max_by(|a, b| {
+                    let va = crate::semver::Version::parse(&a.version).ok();
+                    let vb = crate::semver::Version::parse(&b.version).ok();
+                    va.cmp(&vb)
+                })
+                .cloned(),
+        };
+        let Some(release) = release else {
+            continue;
+        };
+        let mut out = String::new();
+        out.push_str(&format!(
+            "{}@{}    [{}]\n",
+            release.name, release.version, slug
+        ));
+        if let Some(url) = &release.html_url {
+            out.push_str(&format!("  release : {url}\n"));
+        }
+        if let Some(tar) = &release.tarball_url {
+            out.push_str(&format!("  tarball : {tar}\n"));
+        }
+        // Try to fetch the full body for a manifest snapshot.
+        match fetch::registry::fetch_release_body(slug, &release) {
+            Ok(body) if !body.is_empty() => {
+                out.push_str("  manifest:\n");
+                for line in body.lines().take(40) {
+                    out.push_str(&format!("    {line}\n"));
+                }
+            }
+            _ => {
+                if let Some(prev) = &release.body_preview {
+                    if !prev.is_empty() {
+                        out.push_str("  preview :\n");
+                        for line in prev.lines().take(8) {
+                            out.push_str(&format!("    {line}\n"));
+                        }
+                    }
+                }
+            }
+        }
+        return Ok(out);
+    }
+    let q = match version {
+        Some(v) => format!("{name}@{v}"),
+        None => name,
+    };
+    Err(PkgError::DepNotFound(q))
+}
+
+/// `sdust pkg login [registry]` — guided token setup. When
+/// interactive input isn't available the function returns an error
+/// describing how to drop the token via env-var instead. In this
+/// non-interactive build we accept the token via env-var
+/// `SDUST_PKG_LOGIN_TOKEN` (used by tests + scripted setups).
+pub fn login(slug: Option<&str>, root: &Path) -> Result<String, PkgError> {
+    let slug = match slug {
+        Some(s) => s.to_string(),
+        None => {
+            let cfg = registry::load_registry_config(&root.join(crate::MANIFEST_NAME))?;
+            cfg.default
+                .unwrap_or_else(|| registry::DEFAULT_REGISTRY_SLUG.into())
+        }
+    };
+    // Validate.
+    let _ = registry::parse_slug(&slug)?;
+    let token = std::env::var("SDUST_PKG_LOGIN_TOKEN").ok();
+    let token = token.ok_or_else(|| {
+        PkgError::AuthRequired(format!(
+            "pass the token via SDUST_PKG_LOGIN_TOKEN=<ghp_…> sdust pkg login {slug} \
+             (interactive prompts are disabled in v0.4)"
+        ))
+    })?;
+    let auth_path = AuthStore::default_path().ok_or_else(|| {
+        PkgError::AuthRequired("could not locate ~/.config/sdust/auth.toml".into())
+    })?;
+    let mut store = AuthStore::load(&auth_path)?;
+    store.set_token(&slug, token);
+    store.save(&auth_path)?;
     Ok(format!(
-        "Stardust registry is not yet live; bundle prepared at `{}` ({})",
-        outcome.bundle_path.display(),
-        outcome.hash
+        "stored token for `{slug}` at {}\n",
+        auth_path.display()
+    ))
+}
+
+/// `sdust pkg publish`. Produces the bundle, then either uploads it
+/// (when a token is available for the configured default registry) or
+/// reports the local artefacts + a clear "set GITHUB_TOKEN" message.
+pub fn publish(root: &Path) -> Result<String, PkgError> {
+    let outcome = publish::bundle(root)?;
+    let cfg = registry::load_registry_config(&root.join(crate::MANIFEST_NAME))?;
+    let slug = cfg
+        .default
+        .clone()
+        .unwrap_or_else(|| registry::DEFAULT_REGISTRY_SLUG.into());
+    let has_token = std::env::var("GITHUB_TOKEN")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .is_some()
+        || AuthStore::default_path()
+            .and_then(|p| AuthStore::load(&p).ok())
+            .map(|s| s.tokens.contains_key(&slug))
+            .unwrap_or(false);
+    if !has_token {
+        return Ok(format!(
+            "bundle ready at `{bundle}` ({hash})\n\
+             sidecar     `{side}`\n\
+             upload skipped: no auth token for `{slug}`.\n\
+             Set GITHUB_TOKEN or run `sdust pkg login {slug}` and retry.\n\
+             To upload manually, drag the two files onto the release page for tag `{tag}`.\n",
+            bundle = outcome.bundle_path.display(),
+            hash = outcome.hash,
+            side = outcome.sha256_path.display(),
+            slug = slug,
+            tag = outcome.tag,
+        ));
+    }
+    let url = publish::upload(&slug, &outcome)?;
+    Ok(format!(
+        "published `{tag}` to `{slug}` — {url}\nbundle: {bundle} ({hash})\nsidecar: {side}\n",
+        tag = outcome.tag,
+        slug = slug,
+        url = url,
+        bundle = outcome.bundle_path.display(),
+        hash = outcome.hash,
+        side = outcome.sha256_path.display(),
     ))
 }
 
@@ -168,9 +378,7 @@ fn load_manifest(root: &Path) -> Result<Manifest, PkgError> {
 }
 
 fn short_source(s: &str) -> &str {
-    if let Some(rest) = s.strip_prefix("registry+") {
-        // Strip the URL so listings stay readable.
-        let _ = rest;
+    if s.starts_with("registry+") {
         "registry"
     } else if s.starts_with("path+") {
         "path"
@@ -248,5 +456,45 @@ edition = "2026"
         );
         let err = remove(dir.path(), "nope").unwrap_err();
         assert!(matches!(err, PkgError::DepNotFound(_)));
+    }
+
+    #[test]
+    fn search_empty_returns_message() {
+        let dir = tempfile::tempdir().unwrap();
+        write_manifest(
+            dir.path(),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+edition = "2026"
+"#,
+        );
+        // No cached indexes -> "no results" with a hint.
+        let out = search(dir.path(), "foo").unwrap();
+        assert!(out.contains("no results"));
+    }
+
+    #[test]
+    fn publish_without_token_reports_bundle_path() {
+        // Make sure no env-token bleeds in.
+        std::env::remove_var("GITHUB_TOKEN");
+        let dir = tempfile::tempdir().unwrap();
+        write_manifest(
+            dir.path(),
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+edition = "2026"
+"#,
+        );
+        // Point auth.toml at a tempdir so we don't read the real one.
+        let home = tempfile::tempdir().unwrap();
+        std::env::set_var("XDG_CONFIG_HOME", home.path());
+        let msg = publish(dir.path()).unwrap();
+        assert!(msg.contains("bundle ready"));
+        assert!(msg.contains("upload skipped"));
+        std::env::remove_var("XDG_CONFIG_HOME");
     }
 }

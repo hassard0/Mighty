@@ -36,15 +36,36 @@ pub enum PkgCmd {
     Update {
         /// Restrict to a single package.
         name: Option<String>,
+        /// Refresh cached registry indexes from GitHub before
+        /// re-resolving.
+        #[arg(long)]
+        refresh: bool,
     },
     /// Materialise all locked dependencies into `.stardust/pkgs/`.
     Fetch,
     /// Print the resolved dependency tree.
     List,
-    /// Bundle the current package for publishing.
+    /// Search cached registry indexes by substring.
+    Search {
+        /// Substring to match against package name and version.
+        query: String,
+    },
+    /// Show metadata for a published package.
+    Info {
+        /// `<name>` or `<name>@<version>`.
+        spec: String,
+    },
+    /// Store a GitHub token for a registry.
     ///
-    /// v0.2 produces a local bundle only — the Stardust registry is
-    /// not yet live.
+    /// Pass the token via env-var `SDUST_PKG_LOGIN_TOKEN`. The token
+    /// is persisted to `~/.config/sdust/auth.toml` (`0600` on Unix).
+    Login {
+        /// Registry slug `<owner>/<repo>`; defaults to the configured
+        /// `[registry].default` (or the official Stardust registry).
+        registry: Option<String>,
+    },
+    /// Bundle the current package and (when authed) upload it to the
+    /// default registry as a GitHub Release.
     Publish,
 }
 
@@ -58,7 +79,6 @@ pub fn run(cmd: PkgCmd, root: Option<PathBuf>) -> i32 {
             git,
             rev,
         } => {
-            // Parse `name@version` if no explicit `--version`.
             let (name, parsed_version) = match spec.split_once('@') {
                 Some((n, v)) => (n.to_string(), Some(v.to_string())),
                 None => (spec, None),
@@ -78,11 +98,14 @@ pub fn run(cmd: PkgCmd, root: Option<PathBuf>) -> i32 {
             }
         }
         PkgCmd::Remove { name } => commands::remove(&root, &name),
-        PkgCmd::Update { name } => commands::update(&root, name.as_deref()),
+        PkgCmd::Update { name, refresh } => commands::update(&root, name.as_deref(), refresh),
         PkgCmd::Fetch => {
             commands::fetch_all(&root).map(|v| format!("fetched {} package(s)", v.len()))
         }
         PkgCmd::List => commands::list(&root),
+        PkgCmd::Search { query } => commands::search(&root, &query),
+        PkgCmd::Info { spec } => commands::info(&root, &spec),
+        PkgCmd::Login { registry } => commands::login(registry.as_deref(), &root),
         PkgCmd::Publish => commands::publish(&root),
     };
 
