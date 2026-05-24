@@ -5,10 +5,13 @@
 //! the final executable.
 
 use crate::artifact::{BuildMode, NativeArtifact};
+use crate::debug::{build_dwarf_for, DwarfInputs};
 use crate::error::{CodegenError, CompileResult};
 use crate::lower::{default_flags, LowerCtx};
 use cranelift_codegen::isa::{self};
 use cranelift_object::{ObjectBuilder, ObjectModule};
+use object::write::SectionId;
+use object::SectionKind;
 use sdust_sir::sir::Program;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -20,8 +23,39 @@ pub struct ObjectArtifact {
 }
 
 /// Lower `prog` to a host-format object file at `out_obj`. Returns the
-/// object artifact descriptor.
+/// object artifact descriptor. No debug info is attached; for that, see
+/// [`compile_object_with_debug`].
 pub fn compile_object(prog: &Program, out_obj: &Path) -> CompileResult<ObjectArtifact> {
+    compile_object_inner(prog, out_obj, None)
+}
+
+/// Like [`compile_object`] but attaches a DWARF debug section bundle to
+/// the emitted object file. The `source_text` and `source_path` are
+/// used to build a `DW_TAG_compile_unit` plus per-fn subprograms and
+/// per-local variable entries. See `crate::debug` for the v0.2 coverage
+/// matrix and the deferred items (per-instr line table, .debug_loc,
+/// real Address::Symbol references for low_pc/high_pc).
+pub fn compile_object_with_debug(
+    prog: &Program,
+    out_obj: &Path,
+    source_text: &str,
+    source_path: &str,
+) -> CompileResult<ObjectArtifact> {
+    let inputs = DwarfInputs {
+        source_text,
+        source_path,
+        comp_dir: std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| ".".into()),
+    };
+    compile_object_inner(prog, out_obj, Some(inputs))
+}
+
+fn compile_object_inner(
+    prog: &Program,
+    out_obj: &Path,
+    dwarf_inputs: Option<DwarfInputs<'_>>,
+) -> CompileResult<ObjectArtifact> {
     let triple = Triple::host();
     let isa_builder = isa::lookup(triple.clone())
         .map_err(|e| CodegenError::Module(format!("isa lookup: {e}")))?;
@@ -45,7 +79,18 @@ pub fn compile_object(prog: &Program, out_obj: &Path) -> CompileResult<ObjectArt
     }
     drop(ctx);
 
-    let product = module.finish();
+    let mut product = module.finish();
+
+    // Attach DWARF sections if requested.
+    if let Some(inputs) = dwarf_inputs {
+        let builder = build_dwarf_for(prog, &inputs)
+            .map_err(|e| CodegenError::Module(format!("dwarf build: {e:?}")))?;
+        let encoded = builder
+            .finish()
+            .map_err(|e| CodegenError::Module(format!("dwarf encode: {e:?}")))?;
+        attach_dwarf_sections(&mut product.object, &encoded);
+    }
+
     let bytes = product
         .emit()
         .map_err(|e| CodegenError::Module(format!("emit: {e}")))?;
@@ -55,6 +100,30 @@ pub fn compile_object(prog: &Program, out_obj: &Path) -> CompileResult<ObjectArt
         object_path: out_obj.to_path_buf(),
         triple,
     })
+}
+
+/// Append each encoded DWARF section to the object as a fresh
+/// `SectionKind::Debug` section. The object writer picks the right
+/// per-format encoding (ELF, COFF, Mach-O) automatically.
+fn attach_dwarf_sections(
+    obj: &mut object::write::Object<'static>,
+    encoded: &sdust_debuginfo::EncodedDwarf,
+) {
+    for s in &encoded.sections {
+        // Section naming convention per platform:
+        // - ELF and COFF: `.debug_info` etc. (as-is)
+        // - Mach-O: uses `__DWARF` segment with section names like
+        //   `__debug_info`. We translate.
+        let (segment, name) = match obj.format() {
+            object::BinaryFormat::MachO => (
+                b"__DWARF".to_vec(),
+                format!("__{}", s.name.trim_start_matches('.')).into_bytes(),
+            ),
+            _ => (Vec::new(), s.name.as_bytes().to_vec()),
+        };
+        let id: SectionId = obj.add_section(segment, name, SectionKind::Debug);
+        obj.set_section_data(id, s.bytes.clone(), 1);
+    }
 }
 
 /// Link an object file into an executable using the host's C linker

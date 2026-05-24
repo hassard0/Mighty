@@ -13,6 +13,7 @@ sdust-sir = { path = "../sdust-sir" }
 sdust-types = { path = "../sdust-types" }
 sdust-hir = { path = "../sdust-hir" }
 sdust-diagnostics = { path = "../sdust-diagnostics" }
+sdust-debuginfo = { path = "../sdust-debuginfo" }
 cranelift-codegen = { workspace = true }
 cranelift-frontend = { workspace = true }
 cranelift-module = { workspace = true }
@@ -21,3 +22,11 @@ cranelift-object = { workspace = true }
 cranelift-native = { workspace = true }
 target-lexicon = { workspace = true }
 thiserror = { workspace = true }
+# Match the `object` version cranelift-object 0.132 uses internally
+# (its ObjectProduct.object is from object-0.39), not the workspace
+# pin of 0.36 — those are separate copies and won't unify types.
+object = { version = "0.39", default-features = false, features = ["write", "std", "coff", "elf", "macho", "pe"] }
+
+[dev-dependencies]
+gimli = { workspace = true, features = ["read", "std"] }
+tempfile = "3"

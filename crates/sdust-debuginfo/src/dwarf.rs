@@ -126,7 +126,10 @@ impl DwarfBuilder {
 
         let root = self.dwarf.unit.root();
         let producer_id = self.dwarf.strings.add(self.producer.clone().into_bytes());
-        let name_id = self.dwarf.strings.add(self.source_path.clone().into_bytes());
+        let name_id = self
+            .dwarf
+            .strings
+            .add(self.source_path.clone().into_bytes());
         let dir_id_str = self.dwarf.strings.add(self.comp_dir.clone().into_bytes());
         let root_die = self.dwarf.unit.get_mut(root);
         root_die.set(
@@ -141,10 +144,7 @@ impl DwarfBuilder {
             AttributeValue::Language(gimli::DW_LANG_Rust),
         );
         root_die.set(gimli::DW_AT_name, AttributeValue::StringRef(name_id));
-        root_die.set(
-            gimli::DW_AT_comp_dir,
-            AttributeValue::StringRef(dir_id_str),
-        );
+        root_die.set(gimli::DW_AT_comp_dir, AttributeValue::StringRef(dir_id_str));
         // Default low_pc 0; high_pc set below once we know total size.
         root_die.set(
             gimli::DW_AT_low_pc,
@@ -192,10 +192,7 @@ impl DwarfBuilder {
         let root = self.dwarf.unit.root();
         let return_type_id = self.intern_base_type(&fn_info.return_type);
         let sub = self.dwarf.unit.add(root, gimli::DW_TAG_subprogram);
-        let name_str = self
-            .dwarf
-            .strings
-            .add(fn_info.name.clone().into_bytes());
+        let name_str = self.dwarf.strings.add(fn_info.name.clone().into_bytes());
 
         let (low, high) = fn_info.code_range;
         if high < low {

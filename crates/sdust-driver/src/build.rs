@@ -10,10 +10,12 @@ use sdust_codegen_cranelift::{
     artifact::BuildMode,
     error::CodegenError,
     jit::{build_jit, symbols_from},
-    object::{compile_object, find_linker, link_executable},
+    object::{compile_object, compile_object_with_debug, find_linker, link_executable},
     Monomorphizer,
 };
-use sdust_codegen_wasm::{compile_program_to_file, WasmError, WasmTarget};
+use sdust_codegen_wasm::{
+    compile_program_to_file_with_options, BuildOptions as WasmBuildOptions, WasmError, WasmTarget,
+};
 use sdust_diagnostics::{render::ariadne::render_all, Severity};
 use sdust_runtime::codegen_abi;
 use std::path::{Path, PathBuf};
@@ -30,6 +32,10 @@ pub struct BuildOptions {
     pub mode: BuildMode,
     pub out_dir: PathBuf,
     pub binary_name: String,
+    /// Wasm targets only: when `true`, skip the Component Model
+    /// wrapper and emit a bare core Wasm module. Default = false
+    /// (component output; v0.2 wave-2, closes A47).
+    pub no_component: bool,
 }
 
 impl BuildOptions {
@@ -39,6 +45,7 @@ impl BuildOptions {
             mode: BuildMode::Debug,
             out_dir,
             binary_name: name.into(),
+            no_component: false,
         }
     }
     pub fn native_release(out_dir: PathBuf, name: impl Into<String>) -> Self {
@@ -47,6 +54,7 @@ impl BuildOptions {
             mode: BuildMode::Release,
             out_dir,
             binary_name: name.into(),
+            no_component: false,
         }
     }
 }
@@ -62,6 +70,11 @@ pub enum BuildOutcome {
 
 /// Build a Stardust source file to a native executable.
 pub fn build_native(src: String, source_id: String, opts: &BuildOptions) -> BuildOutcome {
+    // Save the original source bytes / path: DWARF generation needs to
+    // map SIR `SourceSpan` byte offsets back to line/column for the
+    // line program. The lowerer would otherwise consume `src` by move.
+    let src_for_debug = src.clone();
+    let source_id_for_debug = source_id.clone();
     let prog = match lower_to_sir_strict(src, source_id) {
         Ok(p) => p,
         Err(()) => return BuildOutcome::FrontendError,
@@ -72,7 +85,13 @@ pub fn build_native(src: String, source_id: String, opts: &BuildOptions) -> Buil
         return BuildOutcome::BackendError(format!("mkdir {}: {}", opts.out_dir.display(), e));
     }
     let obj_path = opts.out_dir.join(format!("{}.o", opts.binary_name));
-    let obj = match compile_object(&prog, &obj_path) {
+    let obj = match opts.mode {
+        BuildMode::Debug => {
+            compile_object_with_debug(&prog, &obj_path, &src_for_debug, &source_id_for_debug)
+        }
+        BuildMode::Release => compile_object(&prog, &obj_path),
+    };
+    let obj = match obj {
         Ok(a) => a,
         Err(e) => return BuildOutcome::BackendError(format!("codegen: {e}")),
     };
@@ -87,12 +106,19 @@ pub fn build_native(src: String, source_id: String, opts: &BuildOptions) -> Buil
 }
 
 /// Build a Stardust source file to a Wasm module.
+///
+/// When `opts.mode == BuildMode::Debug`, also emits:
+/// - a wasm `name` custom section listing function names
+/// - a `<binary>.wasm.map` source-map v3 sidecar
+/// - a `sourceMappingURL` custom section pointing at the sidecar
 pub fn build_wasm(
     src: String,
     source_id: String,
     opts: &BuildOptions,
     target: WasmTarget,
 ) -> BuildOutcome {
+    let src_for_debug = src.clone();
+    let source_id_for_debug = source_id.clone();
     let prog = match lower_to_sir_strict(src, source_id) {
         Ok(p) => p,
         Err(()) => return BuildOutcome::FrontendError,
@@ -101,9 +127,34 @@ pub fn build_wasm(
         return BuildOutcome::BackendError(format!("mkdir {}: {}", opts.out_dir.display(), e));
     }
     let out = opts.out_dir.join(format!("{}.wasm", opts.binary_name));
-    match compile_program_to_file(&prog, target, &out) {
-        Ok(art) => match art.path {
-            Some(p) => BuildOutcome::WasmOk(p),
+    let wasm_opts = if opts.no_component {
+        WasmBuildOptions::core_only(&opts.binary_name)
+    } else {
+        WasmBuildOptions::new(&opts.binary_name)
+    };
+    match compile_program_to_file_with_options(&prog, target, &out, &wasm_opts) {
+        Ok(art) => match art.path.clone() {
+            Some(p) => {
+                // Debug-info attachment is core-module only for v0.2.
+                // Component-Model components have a stricter section
+                // layout (interleaved layer-1 sections); naive custom-
+                // section appending can produce a structurally-invalid
+                // component. Tracked in WASM_CM_V0_2_NOTES.md as a
+                // post-v0.2 follow-up.
+                let is_core = matches!(opts.mode, BuildMode::Debug) && opts.no_component;
+                if is_core {
+                    if let Err(e) = attach_wasm_debug_info(
+                        &p,
+                        &prog,
+                        &src_for_debug,
+                        &source_id_for_debug,
+                        &opts.binary_name,
+                    ) {
+                        return BuildOutcome::BackendError(format!("wasm debug: {e}"));
+                    }
+                }
+                BuildOutcome::WasmOk(p)
+            }
             None => BuildOutcome::BackendError("wasm artifact missing path".into()),
         },
         Err(WasmError::Unsupported(reason)) => {
@@ -111,6 +162,47 @@ pub fn build_wasm(
         }
         Err(e) => BuildOutcome::BackendError(format!("wasm: {e}")),
     }
+}
+
+/// Re-emit `wasm_path` with `name` + `sourceMappingURL` custom sections,
+/// and write the `<wasm_path>.map` source-map sidecar next to it. The
+/// wasm bytes are read back from disk to avoid threading them through
+/// the artifact (which would require a bigger emit-API change while
+/// the Component Model surface is still settling in v0.2 wave-2).
+fn attach_wasm_debug_info(
+    wasm_path: &Path,
+    prog: &sdust_sir::Program,
+    src: &str,
+    source_id: &str,
+    binary_name: &str,
+) -> Result<(), String> {
+    use sdust_codegen_wasm::sourcemap::{
+        append_debug_sections, build_name_section, build_source_map, sidecar_relative_filename,
+        sourcemap_sidecar_path, write_sourcemap_sidecar,
+    };
+    let bytes =
+        std::fs::read(wasm_path).map_err(|e| format!("read {}: {}", wasm_path.display(), e))?;
+
+    // import_count for the bare core module: at least 1 (the `log`
+    // import). The Component Model wrapper may add more, but the
+    // `name` section we emit applies to the core module's function
+    // index space, which the wrapper preserves as the inner module.
+    // v0.2: hard-coded to 1 (matches Emitter::declare_imports above).
+    let import_count: u32 = 1;
+    let name_section = build_name_section(prog, import_count);
+
+    let sidecar_target = format!("{binary_name}.wasm");
+    let sm = build_source_map(prog, source_id, src, &sidecar_target);
+
+    let sidecar_path = sourcemap_sidecar_path(wasm_path);
+    write_sourcemap_sidecar(wasm_path, &sm).map_err(|e| format!("write sidecar: {e}"))?;
+    let _ = sidecar_path;
+
+    let sidecar_url = sidecar_relative_filename(&sourcemap_sidecar_path(wasm_path));
+    let augmented = append_debug_sections(bytes, &name_section, &sidecar_url);
+    std::fs::write(wasm_path, &augmented)
+        .map_err(|e| format!("rewrite {}: {}", wasm_path.display(), e))?;
+    Ok(())
 }
 
 /// JIT-compile and run `main`. Falls back silently to the interpreter
@@ -205,6 +297,8 @@ mod tests {
             mode: BuildMode::Debug,
             out_dir: dir.path().to_path_buf(),
             binary_name: "hello".into(),
+            // Default = Component Model output.
+            no_component: false,
         };
         let outcome = build_wasm(
             "fn main() {}\n".into(),
@@ -216,8 +310,46 @@ mod tests {
             BuildOutcome::WasmOk(p) => {
                 assert!(p.exists());
                 let bytes = std::fs::read(&p).expect("read wasm");
-                let mut v = wasmparser::Validator::new();
+                // Component-Model bytes need feature flags enabled.
+                let mut v = wasmparser::Validator::new_with_features(
+                    wasmparser::WasmFeatures::all(),
+                );
                 v.validate_all(&bytes).expect("valid wasm");
+                // And the bytes should actually be a component.
+                assert!(
+                    sdust_codegen_wasm::is_component(&bytes),
+                    "expected component preamble"
+                );
+            }
+            other => panic!("wrong outcome: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn build_wasm_with_no_component_emits_core_module() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let opts = BuildOptions {
+            target: BuildTarget::Wasm(WasmTarget::Wasi),
+            mode: BuildMode::Release, // skip debug-info post-step
+            out_dir: dir.path().to_path_buf(),
+            binary_name: "hello_core".into(),
+            no_component: true,
+        };
+        let outcome = build_wasm(
+            "fn main() {}\n".into(),
+            "x.sd".into(),
+            &opts,
+            WasmTarget::Wasi,
+        );
+        match outcome {
+            BuildOutcome::WasmOk(p) => {
+                let bytes = std::fs::read(&p).expect("read wasm");
+                assert!(
+                    !sdust_codegen_wasm::is_component(&bytes),
+                    "should be a core module"
+                );
+                let mut v = wasmparser::Validator::new();
+                v.validate_all(&bytes).expect("core wasm validates");
             }
             other => panic!("wrong outcome: {other:?}"),
         }

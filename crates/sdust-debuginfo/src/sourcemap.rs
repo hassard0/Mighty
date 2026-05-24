@@ -85,7 +85,10 @@ impl SourceMap {
         if let Some(r) = &self.source_root {
             obj.insert("sourceRoot".into(), serde_json::Value::from(r.clone()));
         }
-        obj.insert("sources".into(), serde_json::Value::from(self.sources.clone()));
+        obj.insert(
+            "sources".into(),
+            serde_json::Value::from(self.sources.clone()),
+        );
         // Only emit sourcesContent if any are populated.
         if self.sources_content.iter().any(|c| c.is_some()) {
             let arr: Vec<serde_json::Value> = self
@@ -159,8 +162,7 @@ fn encode_vlq(out: &mut String, value: i64) {
     }
 }
 
-const BASE64_TABLE: &[u8; 64] =
-    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const BASE64_TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 /// A function-name entry for the wasm `name` custom section.
 #[derive(Debug, Clone)]
@@ -296,7 +298,7 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["version"], 3);
         assert_eq!(v["sources"][0], "hello.sd");
-        assert!(v["mappings"].as_str().unwrap().len() > 0);
+        assert!(!v["mappings"].as_str().unwrap().is_empty());
         assert_eq!(v["file"], "hello.wasm");
     }
 

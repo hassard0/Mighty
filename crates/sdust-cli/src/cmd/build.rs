@@ -10,6 +10,7 @@ pub fn run(
     release: bool,
     target: Option<String>,
     out_dir: Option<PathBuf>,
+    no_component: bool,
 ) -> i32 {
     let src = match fs::read_to_string(path) {
         Ok(s) => s,
@@ -21,7 +22,9 @@ pub fn run(
     let source_id = path.display().to_string();
 
     // Mode: explicit --release wins over --debug; default is debug.
-    let _ = debug; // explicit flag for clarity; default already matches
+    // Debug builds now actually emit debug info (DWARF for native, name
+    // section + .wasm.map sidecar for wasm) — see `sdust-debuginfo`.
+    let _ = debug; // flag retained for explicitness; default is already Debug
     let mode = if release {
         BuildMode::Release
     } else {
@@ -51,6 +54,7 @@ pub fn run(
         mode,
         out_dir,
         binary_name: name,
+        no_component,
     };
 
     let outcome = match build_target {

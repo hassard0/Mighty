@@ -23,6 +23,7 @@
 pub mod abi;
 pub mod aggregate;
 pub mod artifact;
+pub mod debug;
 pub mod error;
 pub mod jit;
 pub mod layout;
@@ -35,4 +36,4 @@ pub use artifact::NativeArtifact;
 pub use error::{CodegenError, CompileResult};
 pub use jit::{JitCompiled, JitMain};
 pub use mono::Monomorphizer;
-pub use object::{compile_object, ObjectArtifact};
+pub use object::{compile_object, compile_object_with_debug, ObjectArtifact};
