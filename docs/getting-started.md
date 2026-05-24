@@ -105,6 +105,21 @@ flags, exit codes, and the v0.1 backend coverage matrix (slice-8
 native + wasm cover a narrow SIR subset; richer programs will
 require the v0.2 LLVM backend or fall back to `sdust run`).
 
+## Test
+
+```bash
+sdust-test
+```
+
+`sdust-test` walks `tests/` in the current package, runs every
+`fn test_*` it finds via the SIR interpreter, and prints a
+`cargo test`-style report. Exit code: 0 on all-pass, 1 on any
+failure. Pass `--dir <path>` to test a directory other than
+`tests/`. See [reference/stdlib/test.md](reference/stdlib/test.md)
+for the full discovery + execution model.
+
+In v0.3 this merges into the main `sdust` CLI as `sdust test`.
+
 ## Format
 
 ```bash
