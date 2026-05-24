@@ -9,8 +9,8 @@ impl rowan::Language for Stardust {
     fn kind_from_raw(raw: rowan::SyntaxKind) -> Self::Kind {
         // SAFETY: We only ever round-trip SyntaxKind through u16 — see kind_to_raw.
         // The assert guards against rowan handing us a tag we never emitted.
-        // CONST_DECL is the last variant in SyntaxKind (see syntax_kind.rs).
-        assert!(raw.0 <= (SyntaxKind::CONST_DECL as u16));
+        // PROC_MACRO_DECL is the last variant in SyntaxKind (see syntax_kind.rs).
+        assert!(raw.0 <= (SyntaxKind::PROC_MACRO_DECL as u16));
         unsafe { std::mem::transmute::<u16, SyntaxKind>(raw.0) }
     }
 

@@ -11,9 +11,10 @@
 //!   2. **Hygiene mangling.** Identifiers introduced by `let` bindings
 //!      inside the macro body are renamed to `__mac_<ctx>_<orig>`. The
 //!      `ctx` is a per-expansion counter so two nested expansions don't
-//!      alias. Uses of those bindings inside the body are renamed to
-//!      match. Parameters and free names (calls to `panic`, etc.) are
-//!      left untouched.
+//!      alias. v0.5 extends this to tuple patterns `let (a, b) = ...`,
+//!      struct patterns `let User { id, name } = ...`, ref patterns
+//!      `let &x = ...`, and binding patterns. Parameters and free names
+//!      (calls to `panic`, etc.) are left untouched.
 //!   3. **Recursion accounting.** The expander tracks expansion depth
 //!      across nested macro calls and refuses to descend past
 //!      [`crate::MAX_EXPANSION_DEPTH`].
@@ -80,8 +81,9 @@ pub fn expand(def: &MacroDef, args: &[&str], ctx: MacroContext) -> Result<Vec<To
     }
 
     // First pass: collect the identifier names introduced by `let` bindings
-    // inside the macro body. These get hygiene-mangled. We deliberately do
-    // NOT mangle parameters (those are substituted) or free names.
+    // inside the macro body. v0.5 walks tuple/struct/ref/binding patterns
+    // in addition to the v0.4 simple `let IDENT` shape. We deliberately
+    // do NOT mangle parameters (those are substituted) or free names.
     let bound = collect_bound_idents(&def.body, &def.params);
 
     // Second pass: produce the output stream.
@@ -121,40 +123,230 @@ pub fn expand_to_source(
 }
 
 /// Walk the macro body and gather every identifier introduced by a
-/// `let` binding (skipping `mut`). We only handle the simple binding
-/// shape `let IDENT [: TYPE] = ...` for v0.4; tuple/struct patterns in
-/// `let` inside macros are explicitly out of scope.
+/// `let` binding. v0.5 supports the following pattern shapes:
+///
+///   * `let IDENT = ...`               — simple binding (v0.4 baseline)
+///   * `let mut IDENT = ...`           — simple, mutable
+///   * `let (a, b, ...) = ...`         — tuple pattern
+///   * `let Path { a, b: c, .. } = …`  — struct pattern
+///   * `let &x = ...` / `let &mut x`   — ref pattern
+///   * `let ref x = ...`               — ref-binding pattern
+///   * `let x @ pat = ...`             — binding pattern
+///
+/// Pattern recognition is lexical (we don't have a parsed body AST).
+/// Each `let` token starts a pattern extent that runs until the next
+/// `=` token; every IDENT inside that extent (modulo type annotations
+/// after `:`) is treated as a binding candidate.
 fn collect_bound_idents(body: &[Tok], params: &[String]) -> Vec<String> {
-    let mut bound = vec![];
+    let mut bound: Vec<String> = vec![];
     let mut i = 0;
     while i < body.len() {
         if body[i].kind == SyntaxKind::LET_KW {
-            // skip trivia
-            let mut j = i + 1;
-            while j < body.len() && body[j].is_trivia() {
+            // Find the end of the pattern: the first `=` at depth 0 after
+            // `let`. Type annotation `: Ty` between the pattern and `=`
+            // is allowed and skipped.
+            let pattern_start = i + 1;
+            let mut j = pattern_start;
+            let mut paren_depth = 0i32;
+            let mut brace_depth = 0i32;
+            let mut bracket_depth = 0i32;
+            let mut type_colon_at: Option<usize> = None;
+            while j < body.len() {
+                let k = body[j].kind;
+                match k {
+                    SyntaxKind::L_PAREN => paren_depth += 1,
+                    SyntaxKind::R_PAREN => paren_depth -= 1,
+                    SyntaxKind::L_BRACE => brace_depth += 1,
+                    SyntaxKind::R_BRACE => brace_depth -= 1,
+                    SyntaxKind::L_BRACK => bracket_depth += 1,
+                    SyntaxKind::R_BRACK => bracket_depth -= 1,
+                    SyntaxKind::EQ
+                        if paren_depth == 0 && brace_depth == 0 && bracket_depth == 0 =>
+                    {
+                        break;
+                    }
+                    SyntaxKind::COLON
+                        if paren_depth == 0
+                            && brace_depth == 0
+                            && bracket_depth == 0
+                            && type_colon_at.is_none() =>
+                    {
+                        type_colon_at = Some(j);
+                    }
+                    SyntaxKind::SEMI
+                        if paren_depth == 0 && brace_depth == 0 && bracket_depth == 0 =>
+                    {
+                        // Malformed `let pat;` — bail.
+                        break;
+                    }
+                    _ => {}
+                }
                 j += 1;
             }
-            // optional `mut`
-            if j < body.len() && body[j].kind == SyntaxKind::MUT_KW {
-                j += 1;
-                while j < body.len() && body[j].is_trivia() {
-                    j += 1;
-                }
-            }
-            if j < body.len() && body[j].kind == SyntaxKind::IDENT {
-                let name = &body[j].text;
-                // Don't mangle parameters; the caller's argument substitution
-                // owns those names.
-                if !params.iter().any(|p| p == name) && !bound.iter().any(|b: &String| b == name) {
-                    bound.push(name.clone());
-                }
-                i = j + 1;
-                continue;
-            }
+            let pattern_end = type_colon_at.unwrap_or(j);
+            harvest_pattern_idents(body, pattern_start, pattern_end, params, &mut bound);
+            i = j + 1;
+            continue;
         }
         i += 1;
     }
     bound
+}
+
+/// Pattern walker. Collects IDENTs from `body[start..end]` that are
+/// binding sites:
+///
+///   * Plain IDENT (or `mut IDENT`, `ref IDENT`): binding.
+///   * Inside `{ ... }` (struct pattern): IDENT followed by COLON
+///     introduces a renamed binding (the IDENT *after* the colon is
+///     the binding); a bare IDENT is shorthand-binding.
+///   * Inside `( ... )` (tuple pattern): every IDENT is a binding.
+///   * `Path::Variant(IDENT, ...)` (enum pattern): IDENTs inside the
+///     parens are bindings; the leading path segments are not.
+///   * `&IDENT` / `&mut IDENT`: ref pattern.
+///
+/// Conservative: we never treat the same identifier as bound twice,
+/// and we skip type-annotation positions (handled by the caller).
+fn harvest_pattern_idents(
+    body: &[Tok],
+    start: usize,
+    end: usize,
+    params: &[String],
+    bound: &mut Vec<String>,
+) {
+    let mut i = start;
+    // Track whether we're in a struct-pattern's `{ ... }` (vs tuple paren).
+    // We use a small stack of brackets seen so we know which "kind" we're
+    // inside when we hit an IDENT.
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    enum BracketKind {
+        Tuple, // (
+        Struct, // {
+    }
+    let mut bracket_stack: Vec<BracketKind> = vec![];
+    // For struct patterns, we need a tiny state machine: after the
+    // most recent COMMA or L_BRACE, the next IDENT is either:
+    //   - field-name only (`{ a, b }`) → binds `a`, `b`
+    //   - field-name with rename (`{ a: x }`) → binds `x`, not `a`
+    // We track "expecting field name" until we see either COMMA/R_BRACE
+    // (commit `a` as binding) or COLON (next IDENT is the binding).
+    let mut struct_pending_field: Option<usize> = None; // index of pending field-name token
+    while i < end {
+        let tok = &body[i];
+        match tok.kind {
+            SyntaxKind::L_BRACE => {
+                bracket_stack.push(BracketKind::Struct);
+                struct_pending_field = None;
+            }
+            SyntaxKind::R_BRACE => {
+                // Commit any dangling field-name as a binding.
+                if let Some(idx) = struct_pending_field.take() {
+                    add_binding(&body[idx].text, params, bound);
+                }
+                bracket_stack.pop();
+            }
+            SyntaxKind::L_PAREN => {
+                bracket_stack.push(BracketKind::Tuple);
+            }
+            SyntaxKind::R_PAREN => {
+                bracket_stack.pop();
+            }
+            SyntaxKind::COMMA => {
+                if let Some(idx) = struct_pending_field.take() {
+                    add_binding(&body[idx].text, params, bound);
+                }
+            }
+            SyntaxKind::COLON => {
+                // Inside a struct pattern, the next IDENT after `:` is the
+                // binding name. Drop the pending field-name (it's just a
+                // field selector, not a binding).
+                if bracket_stack.last().copied() == Some(BracketKind::Struct) {
+                    struct_pending_field = None;
+                    // Skip trivia, then bind the next IDENT.
+                    let mut j = i + 1;
+                    while j < end && body[j].is_trivia() {
+                        j += 1;
+                    }
+                    if j < end && body[j].kind == SyntaxKind::IDENT {
+                        add_binding(&body[j].text, params, bound);
+                        i = j; // continue from the bound IDENT
+                    }
+                }
+            }
+            SyntaxKind::MUT_KW | SyntaxKind::REF_KW => {
+                // The NEXT IDENT is the binding.
+                let mut j = i + 1;
+                while j < end && body[j].is_trivia() {
+                    j += 1;
+                }
+                if j < end && body[j].kind == SyntaxKind::IDENT {
+                    add_binding(&body[j].text, params, bound);
+                    i = j;
+                }
+            }
+            SyntaxKind::AMP => {
+                // `&IDENT` or `&mut IDENT`. The IDENT after `&` (or after `&mut`)
+                // is the binding.
+                let mut j = i + 1;
+                while j < end && body[j].is_trivia() {
+                    j += 1;
+                }
+                if j < end && body[j].kind == SyntaxKind::MUT_KW {
+                    j += 1;
+                    while j < end && body[j].is_trivia() {
+                        j += 1;
+                    }
+                }
+                if j < end && body[j].kind == SyntaxKind::IDENT {
+                    add_binding(&body[j].text, params, bound);
+                    i = j;
+                }
+            }
+            SyntaxKind::IDENT => {
+                let in_struct = bracket_stack.last().copied() == Some(BracketKind::Struct);
+                if in_struct {
+                    // Inside `{ ... }`: this could be a field-name (shorthand
+                    // binding) OR a field-name preceding a `:` rename. Defer
+                    // the decision until we see COLON / COMMA / R_BRACE.
+                    struct_pending_field = Some(i);
+                } else {
+                    // Tuple-pattern paren OR top level (`let x = ...`): bind it.
+                    // Skip leading Path segments — when we see `Path :: Variant(...)`,
+                    // we don't want to bind `Path`. Check the next non-trivia token:
+                    // if it's `COLON_COLON` or `DOT` we're in a path, not a binding.
+                    let mut k = i + 1;
+                    while k < end && body[k].is_trivia() {
+                        k += 1;
+                    }
+                    let next_kind = body.get(k).map(|t| t.kind).unwrap_or(SyntaxKind::EOF);
+                    let is_path_segment = matches!(
+                        next_kind,
+                        SyntaxKind::COLON_COLON | SyntaxKind::DOT
+                    );
+                    if !is_path_segment {
+                        add_binding(&tok.text, params, bound);
+                    }
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    if let Some(idx) = struct_pending_field.take() {
+        add_binding(&body[idx].text, params, bound);
+    }
+}
+
+fn add_binding(name: &str, params: &[String], bound: &mut Vec<String>) {
+    if name == "_" || name.is_empty() {
+        return;
+    }
+    if params.iter().any(|p| p == name) {
+        return;
+    }
+    if !bound.iter().any(|b| b == name) {
+        bound.push(name.to_string());
+    }
 }
 
 #[cfg(test)]
@@ -217,5 +409,80 @@ mod tests {
         assert!(s1.contains("__mac_1_y"));
         assert!(s2.contains("__mac_2_y"));
         assert!(s1 != s2);
+    }
+
+    // v0.5 extended hygiene tests:
+
+    #[test]
+    fn tuple_pattern_bindings_are_mangled() {
+        let d = def(
+            "macro split(p) => { let (a, b) = p; a + b }\n",
+            "split",
+        );
+        let s = expand_to_source(&d, &["pair"], 7).unwrap();
+        assert!(s.contains("let (__mac_7_a, __mac_7_b)"), "got: {s}");
+        assert!(s.contains("__mac_7_a + __mac_7_b"), "got: {s}");
+    }
+
+    #[test]
+    fn struct_pattern_bindings_are_mangled_shorthand() {
+        let d = def(
+            "macro pick(u) => { let User { id, name } = u; id }\n",
+            "pick",
+        );
+        let s = expand_to_source(&d, &["u"], 3).unwrap();
+        assert!(s.contains("__mac_3_id"), "shorthand id not mangled: {s}");
+        assert!(s.contains("__mac_3_name"), "shorthand name not mangled: {s}");
+        // `User` and `id` (field selector) are not bindings — User stays.
+        assert!(s.contains("User"), "User type was incorrectly mangled: {s}");
+    }
+
+    #[test]
+    fn struct_pattern_bindings_are_mangled_renamed() {
+        let d = def(
+            "macro pick(u) => { let User { id: x } = u; x }\n",
+            "pick",
+        );
+        let s = expand_to_source(&d, &["u"], 4).unwrap();
+        // `x` is the binding; `id` is just the field selector.
+        assert!(s.contains("__mac_4_x"), "x not mangled: {s}");
+        // The `id` token must remain unmangled (it's a field selector).
+        assert!(
+            !s.contains("__mac_4_id"),
+            "field selector id should not be mangled: {s}"
+        );
+    }
+
+    #[test]
+    fn ref_pattern_binding_is_mangled() {
+        let d = def("macro deref(p) => { let &x = p; x }\n", "deref");
+        let s = expand_to_source(&d, &["r"], 8).unwrap();
+        assert!(s.contains("__mac_8_x"), "got: {s}");
+    }
+
+    #[test]
+    fn ref_mut_pattern_binding_is_mangled() {
+        let d = def("macro deref(p) => { let &mut x = p; x }\n", "deref");
+        let s = expand_to_source(&d, &["r"], 9).unwrap();
+        assert!(s.contains("__mac_9_x"), "got: {s}");
+    }
+
+    #[test]
+    fn mut_binding_is_mangled() {
+        let d = def("macro double(x) => { let mut y = x; y = y + y; y }\n", "double");
+        let s = expand_to_source(&d, &["3"], 11).unwrap();
+        assert!(s.contains("let mut __mac_11_y"), "got: {s}");
+    }
+
+    #[test]
+    fn parameter_inside_tuple_pattern_is_not_mangled() {
+        // The macro parameter `p` appears inside the body — it should be
+        // substituted, not mangled.
+        let d = def("macro head(p) => { let (a, _) = p; a }\n", "head");
+        let s = expand_to_source(&d, &["pair"], 1).unwrap();
+        // `p` gets substituted to `(pair)`.
+        assert!(s.contains("(pair)"), "param not substituted: {s}");
+        // `a` is the macro-introduced binding.
+        assert!(s.contains("__mac_1_a"), "a not mangled: {s}");
     }
 }

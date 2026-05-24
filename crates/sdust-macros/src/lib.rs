@@ -1,37 +1,40 @@
 //! sdust-macros: declarative macro registry + expander.
 //!
-//! v0.4 ships token-substitution macros with mangling-based hygiene.
-//! See `docs/spec/macros-v0.4.md` and `docs/internals/macros.md` for the
-//! formal contract; the short version is:
+//! v0.5 ships:
 //!
-//!   * `macro Name(p1, p2) => { body tokens }` is parsed by sdust-syntax
-//!     as a `MACRO_DECL` with an opaque body of brace-balanced tokens.
-//!   * A `MacroRegistry` collected at HIR-lowering time turns those CST
-//!     nodes into `MacroDef { name, params, body }`.
-//!   * When the lowerer sees a `CALL_EXPR` whose callee is a single-segment
-//!     path matching a registered macro, it calls `expand` to produce a
-//!     re-parsable source string, re-parses, and lowers the result inline.
-//!   * Hygiene is implemented by renaming macro-introduced `let` bindings
-//!     to `__mac_<ctx>_<orig>` so they cannot capture caller locals. This
-//!     is a pragmatic subset of Set-of-Scopes hygiene that is sound for
-//!     v0.4's small surface area; v0.5 plans to upgrade to a real
-//!     set-of-scopes implementation.
+//!   * `macro Name(p1, p2) => { body tokens }` — declarative macros
+//!     parsed by sdust-syntax as a `MACRO_DECL`. v0.4 baseline.
+//!   * `proc macro Name(input: TokenStream) -> TokenStream { body }` —
+//!     procedural macros parsed by sdust-syntax as a `PROC_MACRO_DECL`.
+//!     v0.5 parses + stores; execution gated by SD6006 until v0.6.
+//!   * `Path!(args)` invocation syntax — `MACRO_CALL` node with an
+//!     opaque `TOKEN_TREE` argument list.
+//!   * Extended hygiene mangling for tuple/struct/ref/binding `let`
+//!     patterns (v0.4 only covered `let IDENT`).
+//!   * `pub macro …` cross-file visibility via [`PackageMacros`].
 //!
-//! No I/O, no procedural macros — fully compile-time, sandboxed-by-shape.
+//! No I/O, no procedural-macro execution yet — fully compile-time,
+//! sandboxed-by-shape.
 
 pub mod diag;
 pub mod expand;
+pub mod proc;
 pub mod registry;
 pub mod token;
 
 pub use diag::{
-    MACRO_ARITY_MISMATCH, MACRO_BODY_PARSE_FAILED, RECURSIVE_MACRO_TOO_DEEP, UNKNOWN_MACRO,
+    MACRO_ARITY_MISMATCH, MACRO_BODY_PARSE_FAILED, PROC_MACRO_IMPURE,
+    PROC_MACRO_UNSUPPORTED_V0_5, RECURSIVE_MACRO_TOO_DEEP, UNKNOWN_MACRO,
 };
 pub use expand::{expand, expand_to_source, ExpandError, MacroContext};
-pub use registry::{MacroDef, MacroRegistry};
+pub use proc::{
+    check_proc_macro_purity, expand_proc, ImpurityReason, ProcMacroResult,
+    PROC_MACRO_MEM_BYTES, PROC_MACRO_STEPS, PROC_MACRO_WALL_MS,
+};
+pub use registry::{MacroDef, MacroKind, MacroRegistry, PackageMacros};
 pub use token::{tokens_from_body_node, tokens_to_source, Tok};
 
-/// v0.4 macro-expansion depth limit. Recursive macro definitions are
+/// v0.5 macro-expansion depth limit. Recursive macro definitions are
 /// rejected after this many nested expansions to prevent runaway
 /// compilation. The integer is intentionally generous for hand-written
 /// macros; lift it only with a corresponding spec amendment.
