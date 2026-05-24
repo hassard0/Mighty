@@ -19,6 +19,7 @@ members = [
     "crates/sdust-stdlib",
     "crates/sdust-debuginfo",
     "crates/sdust-macros",
+    "crates/sdust-bench",
     "crates/sdust-driver",
     "crates/sdust-cli",
 ]
@@ -79,6 +80,9 @@ opentelemetry = "0.27"
 opentelemetry-otlp = { version = "0.27", features = ["grpc-tonic", "http-proto"] }
 opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
 tokio-util = "0.7"
+criterion = { version = "0.5", default-features = false, features = ["plotters", "cargo_bench_support"] }
+crossbeam-deque = "0.8"
+crossbeam-utils = "0.8"
 
 [profile.dev]
 opt-level = 0
