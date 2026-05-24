@@ -1,0 +1,8 @@
+# Comparator build artifacts
+**/target/
+**/Cargo.lock
+**/generated/
+**/parse-throughput-cpp
+**/agent-send-latency-cpp-asio
+**/mailbox-throughput-cpp
+**/http-server-throughput-cpp

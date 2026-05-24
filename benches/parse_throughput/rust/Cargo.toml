@@ -1,0 +1,19 @@
+[package]
+name = "parse-throughput-rust"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+# Standalone crate so it doesn't get sucked into the Stardust workspace.
+
+[dependencies]
+logos = "0.14"
+
+[[bin]]
+name = "parse-throughput-rust"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1

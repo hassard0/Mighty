@@ -1,0 +1,22 @@
+[package]
+name = "http-server-throughput-rust-hyper"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+http-body-util = "0.1"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "io-util", "sync"] }
+bytes = "1"
+
+[[bin]]
+name = "http-server-throughput-rust-hyper"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1

@@ -1,0 +1,18 @@
+[package]
+name = "agent-send-latency-rust-tokio"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync"] }
+
+[[bin]]
+name = "agent-send-latency-rust-tokio"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
