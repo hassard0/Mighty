@@ -120,10 +120,7 @@ pub extern "C" fn stardust_runtime_spawn(_agent_id: i64) -> i64 {
 pub extern "C" fn stardust_runtime_extern_call(name_ptr: i64, name_len: i64, _args: i64) -> i64 {
     let name = unsafe { read_str(name_ptr, name_len).to_string() };
     let reg = registry().lock();
-    match reg.call_i64(&name) {
-        Some(v) => v,
-        None => 0,
-    }
+    reg.call_i64(&name).unwrap_or_default()
 }
 
 #[no_mangle]
@@ -159,7 +156,10 @@ pub fn symbol_table() -> Vec<(String, *const u8)> {
         entry!("stardust_runtime_arena_push", stardust_runtime_arena_push),
         entry!("stardust_runtime_arena_pop", stardust_runtime_arena_pop),
         entry!("stardust_runtime_alloc", stardust_runtime_alloc),
-        entry!("stardust_runtime_budget_charge", stardust_runtime_budget_charge),
+        entry!(
+            "stardust_runtime_budget_charge",
+            stardust_runtime_budget_charge
+        ),
         entry!("stardust_runtime_send", stardust_runtime_send),
         entry!("stardust_runtime_ask", stardust_runtime_ask),
         entry!("stardust_runtime_spawn", stardust_runtime_spawn),

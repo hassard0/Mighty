@@ -94,7 +94,8 @@ fn sym_in(lib: &Library, name: &str) -> Option<*const ()> {
     let cstr = std::ffi::CString::new(name).ok()?;
     let sym: Result<Symbol<unsafe extern "C" fn()>, _> =
         unsafe { lib.get(cstr.as_bytes_with_nul()) };
-    sym.ok().map(|s| unsafe { std::mem::transmute(s.into_raw().into_raw()) })
+    sym.ok()
+        .map(|s| unsafe { std::mem::transmute(s.into_raw().into_raw()) })
 }
 
 #[cfg(target_os = "linux")]
@@ -152,6 +153,9 @@ mod tests {
     fn override_stored() {
         let mut r = ExternRegistry::new();
         r.add_override("foo", "libfoo.so");
-        assert_eq!(r.overrides.get("foo").map(|s| s.as_str()), Some("libfoo.so"));
+        assert_eq!(
+            r.overrides.get("foo").map(|s| s.as_str()),
+            Some("libfoo.so")
+        );
     }
 }

@@ -1,8 +1,6 @@
 //! Runtime + RuntimeBuilder.
 
-use crate::agent::{
-    run_one_turn, AgentDescriptor, AgentHandle, AgentRegistry,
-};
+use crate::agent::{run_one_turn, AgentDescriptor, AgentHandle, AgentRegistry};
 use crate::budget::{Budget, BudgetTracker};
 use crate::error::{RuntimeError, RuntimeResult};
 use crate::host_std::StdHost;

@@ -29,7 +29,9 @@ pub async fn serve_in_memory<F>(handler: F) -> (tokio::task::JoinHandle<()>, u16
 where
     F: Fn(Request) -> (u16, String) + Send + Sync + 'static + Clone,
 {
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind 127.0.0.1:0");
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind 127.0.0.1:0");
     let port = listener.local_addr().expect("local_addr").port();
     let handle = tokio::spawn(async move {
         loop {

@@ -91,6 +91,18 @@ pub const AGENT_HANDLER_MISSING: DiagCode = DiagCode::new(5020);
 pub const SEND_TO_DEAD_AGENT: DiagCode = DiagCode::new(5021);
 pub const EXTERN_FN_UNIMPL: DiagCode = DiagCode::new(5050);
 
+// Codegen traps (slice 8): SD8001..SD8010
+pub const CODEGEN_DIV_BY_ZERO: DiagCode = DiagCode::new(8001);
+pub const CODEGEN_OOB_INDEX: DiagCode = DiagCode::new(8002);
+pub const CODEGEN_INT_OVERFLOW: DiagCode = DiagCode::new(8003);
+pub const CODEGEN_NULL_DEREF: DiagCode = DiagCode::new(8004);
+pub const CODEGEN_EXTERN_UNRESOLVED: DiagCode = DiagCode::new(8005);
+pub const CODEGEN_UNREACHABLE: DiagCode = DiagCode::new(8006);
+pub const CODEGEN_UNSUPPORTED_SHAPE: DiagCode = DiagCode::new(8007);
+pub const CODEGEN_LINKER_MISSING: DiagCode = DiagCode::new(8008);
+pub const CODEGEN_WASM_VALIDATION: DiagCode = DiagCode::new(8009);
+pub const CODEGEN_MONO_FAILED: DiagCode = DiagCode::new(8010);
+
 // Borrow checker: SD3001..SD3099
 pub const USE_AFTER_MOVE: DiagCode = DiagCode::new(3001);
 pub const MOVE_OUT_OF_BORROW: DiagCode = DiagCode::new(3002);
@@ -543,6 +555,65 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  host binding for the named `extern { fn ... }` symbol. \
                  Register a host stub or run under a target that \
                  supplies the symbol."
+        }
+        8001 => {
+            "SD8001: Divide by zero in compiled code. The native or \
+                 wasm backend lowered an integer division whose RHS \
+                 was zero at runtime. Add a guard before the division \
+                 or migrate to a checked-arithmetic helper."
+        }
+        8002 => {
+            "SD8002: Out-of-bounds index in compiled code. An array \
+                 index escaped its declared length. Slice-8 codegen \
+                 emits bounds-checked loads; ensure the index is in \
+                 `0..len`."
+        }
+        8003 => {
+            "SD8003: Integer overflow in checked arithmetic. A checked \
+                 add/sub/mul wrapped past its representable range. \
+                 Use the wrapping_* helpers if wrap-around is intended."
+        }
+        8004 => {
+            "SD8004: Null pointer dereference in compiled code. A \
+                 raw pointer (`*T`) was dereferenced while null. \
+                 Stardust safe code never produces null `*T`; this \
+                 trap fires only from `unsafe` blocks."
+        }
+        8005 => {
+            "SD8005: Extern symbol unresolved. The runtime's libloading \
+                 lookup failed for an `extern { fn ... }` declaration. \
+                 Ensure the library is in your loader path or override \
+                 it via `star.toml [extern]`."
+        }
+        8006 => {
+            "SD8006: Unreachable code executed. A SIR block marked \
+                 unreachable by the lowerer was reached at runtime — \
+                 usually a sign of a typeck bug or a hand-edited SIR \
+                 program."
+        }
+        8007 => {
+            "SD8007: Codegen rejected SIR shape. The selected backend \
+                 (Cranelift native or Wasm) cannot lower this fn yet. \
+                 The driver normally falls back to the interpreter for \
+                 `sdust run`; `sdust build` reports it as an error."
+        }
+        8008 => {
+            "SD8008: Native linker missing. `sdust build --target native` \
+                 emitted a `.o` but could not find a system linker \
+                 (cc / gcc / clang on unix, link.exe on windows). Set \
+                 `STARDUST_LINKER` to point at one, or install a C \
+                 toolchain."
+        }
+        8009 => {
+            "SD8009: Emitted Wasm failed validation. The wasm backend \
+                 produced a module that `wasmparser` rejected. This is \
+                 a codegen bug — please report with a reduced test case."
+        }
+        8010 => {
+            "SD8010: Monomorphization failed. A generic fn with \
+                 unresolved type parameters reached the codegen. The \
+                 monomorphizer should have specialized or rejected it; \
+                 if you see this, file a bug."
         }
         _ => return None,
     })

@@ -39,6 +39,7 @@ use sdust_sir::sir::{
     BinOp, BlockId, BuiltinId, Const, FnRef, Function, Local, Operand, Place, Program, Rvalue,
     SirFnId, SirTy, Stmt, Term, UnOp,
 };
+#[allow(unused_imports)]
 use sdust_types::IntKind;
 use std::collections::HashMap;
 use target_lexicon::Triple;
@@ -130,9 +131,10 @@ impl<'m, M: Module> LowerCtx<'m, M> {
             .fn_ids
             .get(&f.id)
             .ok_or_else(|| CodegenError::Module(format!("undeclared fn {}", f.name)))?;
-        let sig = self.fn_sigs.get(&f.id).cloned().ok_or_else(|| {
-            CodegenError::Module(format!("missing signature for fn {}", f.name))
-        })?;
+        let sig =
+            self.fn_sigs.get(&f.id).cloned().ok_or_else(|| {
+                CodegenError::Module(format!("missing signature for fn {}", f.name))
+            })?;
 
         let mut clf = ClFunction::with_name_signature(UserFuncName::user(0, f.id.0), sig);
         let mut ctx = FunctionBuilderContext::new();
@@ -229,13 +231,6 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
         var
     }
 
-    /// Seal all blocks and finalize the FunctionBuilder. Called once at
-    /// the end of lowering so the cranelift builder's borrow naturally
-    /// expires when this FnLower drops.
-    fn finalize_builder(&mut self) {
-        self.b.seal_all_blocks();
-    }
-
     fn lower_blocks(&mut self) -> CompileResult<()> {
         // Create entry block & seed param values.
         let entry = self.ensure_block(self.f.entry);
@@ -330,28 +325,37 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 Ok(())
             }
             Term::Unreachable => {
-                self.b.ins().trap(cranelift_codegen::ir::TrapCode::user(1).unwrap());
+                self.b
+                    .ins()
+                    .trap(cranelift_codegen::ir::TrapCode::user(1).unwrap());
                 Ok(())
             }
             Term::Panic { msg } => {
                 let v = self.eval_operand(msg)?;
                 let zero = self.b.ins().iconst(ct::I64, 0);
                 self.call_rt("stardust_runtime_panic", &[v, zero], None)?;
-                self.b.ins().trap(cranelift_codegen::ir::TrapCode::user(2).unwrap());
+                self.b
+                    .ins()
+                    .trap(cranelift_codegen::ir::TrapCode::user(2).unwrap());
                 Ok(())
             }
             Term::TryReturnErr(_) => Err(CodegenError::Unsupported("? propagation".into())),
-            Term::SwitchInt { discr, arms, default } => {
+            Term::SwitchInt {
+                discr,
+                arms,
+                default,
+            } => {
                 let disc = self.eval_operand(discr)?;
                 let mut else_block = self.ensure_block(*default);
                 // Lower as a chain of brifs (small switch).
                 for (val, target) in arms {
                     let next = self.b.create_block();
                     let lit = self.b.ins().iconst(ct::I64, *val as i64);
-                    let cmp = self
-                        .b
-                        .ins()
-                        .icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, disc, lit);
+                    let cmp = self.b.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::Equal,
+                        disc,
+                        lit,
+                    );
                     let tgt = self.ensure_block(*target);
                     self.b.ins().brif(cmp, tgt, &[], next, &[]);
                     self.b.switch_to_block(next);
@@ -463,18 +467,13 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
             Const::Char(c) => self.b.ins().iconst(ct::I32, *c as i64),
             Const::Str(s) => {
                 let id = self.mod_ctx.intern_string(s)?;
-                let gv = self
-                    .mod_ctx
-                    .module
-                    .declare_data_in_func(id, self.b.func);
+                let gv = self.mod_ctx.module.declare_data_in_func(id, self.b.func);
                 self.b.ins().symbol_value(ct::I64, gv)
             }
             Const::Duration { value, .. } | Const::Size { value, .. } => {
                 self.b.ins().iconst(ct::I64, *value as i64)
             }
-            Const::FnPtr(_) => {
-                return Err(CodegenError::Unsupported("fn-pointer const".into()))
-            }
+            Const::FnPtr(_) => return Err(CodegenError::Unsupported("fn-pointer const".into())),
             Const::NullPtr => self.b.ins().iconst(ct::I64, 0),
         })
     }
@@ -616,10 +615,7 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
         match op {
             Operand::Const(Const::Str(s)) => {
                 let id = self.mod_ctx.intern_string(s)?;
-                let gv = self
-                    .mod_ctx
-                    .module
-                    .declare_data_in_func(id, self.b.func);
+                let gv = self.mod_ctx.module.declare_data_in_func(id, self.b.func);
                 let ptr = self.b.ins().symbol_value(ct::I64, gv);
                 let len = self.b.ins().iconst(ct::I64, s.len() as i64);
                 Ok((ptr, len))
@@ -660,10 +656,7 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
 pub fn default_flags(is_pic: bool) -> cranelift_codegen::settings::Flags {
     let mut b = settings::builder();
     let _ = b.set("opt_level", "speed");
-    let _ = b.set(
-        "is_pic",
-        if is_pic { "true" } else { "false" },
-    );
+    let _ = b.set("is_pic", if is_pic { "true" } else { "false" });
     settings::Flags::new(b)
 }
 

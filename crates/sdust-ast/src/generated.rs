@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use crate::{ast_node, AstNode};
 use sdust_syntax::{SyntaxKind, SyntaxNode};
 

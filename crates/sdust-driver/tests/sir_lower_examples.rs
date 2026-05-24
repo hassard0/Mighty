@@ -72,6 +72,6 @@ fn agent_examples_register_agents() {
 fn struct_enum_lowers_adts() {
     let p = lower_one("02_struct_enum.sd");
     let names: Vec<&str> = p.adts.iter().map(|a| a.name.as_str()).collect();
-    assert!(names.iter().any(|n| *n == "User"), "User struct missing");
-    assert!(names.iter().any(|n| *n == "Shape"), "Shape enum missing");
+    assert!(names.contains(&"User"), "User struct missing");
+    assert!(names.contains(&"Shape"), "Shape enum missing");
 }

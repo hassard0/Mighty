@@ -88,7 +88,9 @@ pub fn layout_with_adts(t: &SirTy, adts: &[AdtRef]) -> Layout {
                     let payload = adt
                         .variants
                         .iter()
-                        .map(|v| layout_struct(v.fields.iter().map(|f| layout_with_adts(&f.ty, adts))))
+                        .map(|v| {
+                            layout_struct(v.fields.iter().map(|f| layout_with_adts(&f.ty, adts)))
+                        })
                         .fold(Layout::ZST, |acc, l| Layout {
                             size: acc.size.max(l.size),
                             align: acc.align.max(l.align),
@@ -131,7 +133,12 @@ mod tests {
     fn primitives_have_expected_sizes() {
         assert_eq!(primitive_layout(&SirTy::Bool).unwrap().size, 1);
         assert_eq!(primitive_layout(&SirTy::Int(IntKind::I64)).unwrap().size, 8);
-        assert_eq!(primitive_layout(&SirTy::Float(FloatKind::F32)).unwrap().size, 4);
+        assert_eq!(
+            primitive_layout(&SirTy::Float(FloatKind::F32))
+                .unwrap()
+                .size,
+            4
+        );
         assert_eq!(primitive_layout(&SirTy::Str).unwrap().size, PTR_BYTES * 2);
         assert_eq!(primitive_layout(&SirTy::Unit).unwrap().size, 0);
     }
@@ -146,14 +153,8 @@ mod tests {
 
     #[test]
     fn struct_layout_naturally_aligned() {
-        let l = layout_struct(
-            [
-                Layout::scalar(1),
-                Layout::scalar(4),
-                Layout::scalar(2),
-            ]
-            .into_iter(),
-        );
+        let l =
+            layout_struct([Layout::scalar(1), Layout::scalar(4), Layout::scalar(2)].into_iter());
         // u8 + pad3 + u32 + u16 + pad2 = 12 bytes, align 4
         assert_eq!(l.size, 12);
         assert_eq!(l.align, 4);

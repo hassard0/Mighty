@@ -38,7 +38,6 @@ async fn simple_get(port: u16) -> String {
         .await
         .unwrap();
     let mut buf = Vec::new();
-    let _ =
-        tokio::time::timeout(std::time::Duration::from_secs(2), s.read_to_end(&mut buf)).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), s.read_to_end(&mut buf)).await;
     String::from_utf8_lossy(&buf).into_owned()
 }

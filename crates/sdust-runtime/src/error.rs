@@ -37,10 +37,7 @@ pub enum RuntimeError {
     HandlerNotFound { agent: String, msg: String },
 
     #[error("trap: {code} {message}")]
-    Trap {
-        code: &'static str,
-        message: String,
-    },
+    Trap { code: &'static str, message: String },
 }
 
 impl RuntimeError {
@@ -75,22 +72,13 @@ mod tests {
                 RuntimeError::DeadlineExceeded(Duration::from_millis(10)),
                 "SD5011",
             ),
+            (RuntimeError::MailboxFull { agent: "A".into() }, "SD5012"),
             (
-                RuntimeError::MailboxFull {
-                    agent: "A".into(),
-                },
-                "SD5012",
-            ),
-            (
-                RuntimeError::SupervisorEscalated {
-                    child: "c".into(),
-                },
+                RuntimeError::SupervisorEscalated { child: "c".into() },
                 "SD5013",
             ),
             (
-                RuntimeError::RestartLimitExceeded {
-                    child: "c".into(),
-                },
+                RuntimeError::RestartLimitExceeded { child: "c".into() },
                 "SD5014",
             ),
             (RuntimeError::BudgetExceeded("cpu".into()), "SD5009"),

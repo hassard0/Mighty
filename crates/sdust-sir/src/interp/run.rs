@@ -646,8 +646,7 @@ impl<'a> Interp<'a> {
         // (*self).fN writes go through. We snapshot the state, run, and
         // write the new state back.
         let state_in = self.agent_states[handle.state_idx].clone();
-        let (rr, new_state, reply) =
-            run_handler_isolated(self.prog, handler, state_in, args, host);
+        let (rr, new_state, reply) = run_handler_isolated(self.prog, handler, state_in, args, host);
         if matches!(rr, RunResult::Ok { .. }) {
             self.agent_states[handle.state_idx] = new_state;
         }
@@ -658,148 +657,148 @@ impl<'a> Interp<'a> {
         // historical state-passing hack until slice-8 cleanup.)
         #[allow(unreachable_code)]
         {
-        // Build args: &mut self ref + msg args.
-        let state_ref = Value::Ref(Reference {
-            scope: ScopeId(handle.id),
-            owner: Local(handle.state_idx as u32 + 10_000),
-            proj: vec![],
-            mutable: true,
-        });
-        let mut call_args = vec![state_ref];
-        call_args.extend(args);
-        // Stash the state in the agent_states slot before the call;
-        // copy back after. Because our interpreter doesn't have a
-        // proper aliased mut-ref model, we mutate through a saved index.
-        let saved_state = self.agent_states[handle.state_idx].clone();
-        // Place the state into the special pseudo-local via a temporary
-        // approach: we just pass the value directly as the "self"
-        // argument and copy back after. To keep slice-6 simple, we pass
-        // a clone of the state and write it back.
-        // Replace first arg with a real value clone (interpreter handler
-        // bodies read fields via a Ref::Deref, which we resolve to the
-        // owning local; using a value-copy here means writes are lost.
-        // For slice 6 we instead push the state straight into local 1 of
-        // the callee frame.
+            // Build args: &mut self ref + msg args.
+            let state_ref = Value::Ref(Reference {
+                scope: ScopeId(handle.id),
+                owner: Local(handle.state_idx as u32 + 10_000),
+                proj: vec![],
+                mutable: true,
+            });
+            let mut call_args = vec![state_ref];
+            call_args.extend(args);
+            // Stash the state in the agent_states slot before the call;
+            // copy back after. Because our interpreter doesn't have a
+            // proper aliased mut-ref model, we mutate through a saved index.
+            let saved_state = self.agent_states[handle.state_idx].clone();
+            // Place the state into the special pseudo-local via a temporary
+            // approach: we just pass the value directly as the "self"
+            // argument and copy back after. To keep slice-6 simple, we pass
+            // a clone of the state and write it back.
+            // Replace first arg with a real value clone (interpreter handler
+            // bodies read fields via a Ref::Deref, which we resolve to the
+            // owning local; using a value-copy here means writes are lost.
+            // For slice 6 we instead push the state straight into local 1 of
+            // the callee frame.
 
-        // Run the handler via a sub-fn-style execution, but with a
-        // special slot replacement: we copy `saved_state` into the
-        // handler's local 0's deref target. The handler's local 0 is
-        // declared as `&mut state`. We'll fake the ref by pre-loading
-        // the state into the handler's first locals.
-        let f = self.prog.fn_by_id(handler);
-        let mut locals = vec![Value::Void; f.locals.len()];
-        // local 0 is the return slot.
-        locals[0] = Value::Void;
-        // param 0: &mut state — store as a Ref that points to a Local
-        // (no real LocalId; we use a scope sentinel that the handler
-        // body never derefs in slice 6 — it instead reads state via
-        // `field index` after we pre-load them below).
-        locals[1] = Value::Ref(Reference {
-            scope: ScopeId(handle.id),
-            owner: Local(0),
-            proj: vec![],
-            mutable: true,
-        });
-        // The handler body pre-extracts state fields into named locals
-        // (the lowerer emits FieldRead from `(*self).fN` into named
-        // locals `n`, ...). To make that work *without* dereferencing
-        // the fake ref, we patch those reads by pre-storing values
-        // directly into the named-local slots.
-        if let Value::Struct { fields, .. } = &saved_state {
-            for (i, fv) in fields.iter().enumerate() {
-                let target_idx = 2 + i; // state ref is at 1, fields follow
-                if target_idx < locals.len() {
-                    locals[target_idx] = fv.clone();
+            // Run the handler via a sub-fn-style execution, but with a
+            // special slot replacement: we copy `saved_state` into the
+            // handler's local 0's deref target. The handler's local 0 is
+            // declared as `&mut state`. We'll fake the ref by pre-loading
+            // the state into the handler's first locals.
+            let f = self.prog.fn_by_id(handler);
+            let mut locals = vec![Value::Void; f.locals.len()];
+            // local 0 is the return slot.
+            locals[0] = Value::Void;
+            // param 0: &mut state — store as a Ref that points to a Local
+            // (no real LocalId; we use a scope sentinel that the handler
+            // body never derefs in slice 6 — it instead reads state via
+            // `field index` after we pre-load them below).
+            locals[1] = Value::Ref(Reference {
+                scope: ScopeId(handle.id),
+                owner: Local(0),
+                proj: vec![],
+                mutable: true,
+            });
+            // The handler body pre-extracts state fields into named locals
+            // (the lowerer emits FieldRead from `(*self).fN` into named
+            // locals `n`, ...). To make that work *without* dereferencing
+            // the fake ref, we patch those reads by pre-storing values
+            // directly into the named-local slots.
+            if let Value::Struct { fields, .. } = &saved_state {
+                for (i, fv) in fields.iter().enumerate() {
+                    let target_idx = 2 + i; // state ref is at 1, fields follow
+                    if target_idx < locals.len() {
+                        locals[target_idx] = fv.clone();
+                    }
                 }
             }
-        }
-        // Message args follow.
-        let arg_pos = 2 + (f.locals.len().saturating_sub(2));
-        let _ = arg_pos;
-        // Append message args by looking at the handler's params Vec.
-        for (i, p) in f.params.iter().enumerate().skip(1) {
-            let pos = p.0 as usize;
-            if pos < locals.len() {
-                if let Some(v) = call_args.get(i).cloned() {
-                    locals[pos] = v;
+            // Message args follow.
+            let arg_pos = 2 + (f.locals.len().saturating_sub(2));
+            let _ = arg_pos;
+            // Append message args by looking at the handler's params Vec.
+            for (i, p) in f.params.iter().enumerate().skip(1) {
+                let pos = p.0 as usize;
+                if pos < locals.len() {
+                    if let Some(v) = call_args.get(i).cloned() {
+                        locals[pos] = v;
+                    }
                 }
             }
-        }
 
-        // Run handler synchronously.
-        let prev_depth = self.stack.len();
-        let scope = self.fresh_scope();
-        let frame = Frame::new(handler, locals, scope, f.entry);
-        self.stack.push(frame);
-        let saved_return = std::mem::replace(&mut self.last_return, Value::Unit);
-        let target_depth = prev_depth;
-        let mut trap = false;
-        loop {
-            if self.stack.len() == target_depth {
-                break;
-            }
-            match self.step(host) {
-                StepOutcome::Continue => {}
-                StepOutcome::FrameReturned(v) => {
-                    self.last_return = v;
-                    self.stack.pop();
-                }
-                StepOutcome::Trap(_, _) => {
-                    self.stack.truncate(target_depth);
-                    trap = true;
+            // Run handler synchronously.
+            let prev_depth = self.stack.len();
+            let scope = self.fresh_scope();
+            let frame = Frame::new(handler, locals, scope, f.entry);
+            self.stack.push(frame);
+            let saved_return = std::mem::replace(&mut self.last_return, Value::Unit);
+            let target_depth = prev_depth;
+            let mut trap = false;
+            loop {
+                if self.stack.len() == target_depth {
                     break;
                 }
-            }
-            if self.budget == 0 {
-                self.stack.truncate(target_depth);
-                break;
-            }
-            self.budget -= 1;
-        }
-        let reply = std::mem::replace(&mut self.last_return, saved_return);
-
-        if trap {
-            return Value::Unit;
-        }
-
-        // Read back state field values from the handler's named-local
-        // slots and write them into agent_states.
-        if let Some(_handler_frame) = None::<&Frame> {
-            // unreachable — frame already popped
-        }
-        // We don't have the popped frame's locals anymore. The handler
-        // body that mutates `n += 1` writes back via the
-        // lowerer-emitted "Assign (*self).fN = local_n" sequence. Since
-        // our fake ref isn't dereferenceable, those writes go to the
-        // ref'd local (`Local(0)`)'s deref — which becomes a no-op in
-        // `assign_place`. The slice-6 simplification: read state from
-        // saved_state and only update fields with the named-local
-        // values via a final-state walker — but those locals are gone.
-        // Pragmatic compromise: the handler RETURN value is the new
-        // first state field (i.e. for `Counter` it returns `n`). Patch
-        // that into field 0 if present.
-        if let Value::Struct { fields, .. } = &saved_state {
-            if !fields.is_empty() {
-                let mut new_state = saved_state.clone();
-                if let Value::Struct {
-                    fields: ref mut fs, ..
-                } = &mut new_state
-                {
-                    // Bump field 0 if it's an Int — heuristic for counters.
-                    if let (Value::Int(n, k), Some(_)) = (&fs[0].clone(), Some(())) {
-                        let _ = (n, k);
+                match self.step(host) {
+                    StepOutcome::Continue => {}
+                    StepOutcome::FrameReturned(v) => {
+                        self.last_return = v;
+                        self.stack.pop();
                     }
-                    // Actually: use the reply value if it's the same type
-                    // as field 0.
-                    if let (Some(reply_int), Value::Int(_, k)) = (reply.as_int(), &fs[0]) {
-                        fs[0] = Value::Int(reply_int, *k);
+                    StepOutcome::Trap(_, _) => {
+                        self.stack.truncate(target_depth);
+                        trap = true;
+                        break;
                     }
                 }
-                self.agent_states[handle.state_idx] = new_state;
+                if self.budget == 0 {
+                    self.stack.truncate(target_depth);
+                    break;
+                }
+                self.budget -= 1;
             }
-        }
+            let reply = std::mem::replace(&mut self.last_return, saved_return);
 
-        reply
+            if trap {
+                return Value::Unit;
+            }
+
+            // Read back state field values from the handler's named-local
+            // slots and write them into agent_states.
+            if let Some(_handler_frame) = None::<&Frame> {
+                // unreachable — frame already popped
+            }
+            // We don't have the popped frame's locals anymore. The handler
+            // body that mutates `n += 1` writes back via the
+            // lowerer-emitted "Assign (*self).fN = local_n" sequence. Since
+            // our fake ref isn't dereferenceable, those writes go to the
+            // ref'd local (`Local(0)`)'s deref — which becomes a no-op in
+            // `assign_place`. The slice-6 simplification: read state from
+            // saved_state and only update fields with the named-local
+            // values via a final-state walker — but those locals are gone.
+            // Pragmatic compromise: the handler RETURN value is the new
+            // first state field (i.e. for `Counter` it returns `n`). Patch
+            // that into field 0 if present.
+            if let Value::Struct { fields, .. } = &saved_state {
+                if !fields.is_empty() {
+                    let mut new_state = saved_state.clone();
+                    if let Value::Struct {
+                        fields: ref mut fs, ..
+                    } = &mut new_state
+                    {
+                        // Bump field 0 if it's an Int — heuristic for counters.
+                        if let (Value::Int(n, k), Some(_)) = (&fs[0].clone(), Some(())) {
+                            let _ = (n, k);
+                        }
+                        // Actually: use the reply value if it's the same type
+                        // as field 0.
+                        if let (Some(reply_int), Value::Int(_, k)) = (reply.as_int(), &fs[0]) {
+                            fs[0] = Value::Int(reply_int, *k);
+                        }
+                    }
+                    self.agent_states[handle.state_idx] = new_state;
+                }
+            }
+
+            reply
         }
     }
 
@@ -1164,13 +1163,8 @@ fn as_float(v: &Value) -> f64 {
     match v {
         Value::Float(f, _) => *f,
         Value::Int(n, _) => *n as f64,
-        Value::Bool(b) => {
-            if *b {
-                1.0
-            } else {
-                0.0
-            }
-        }
+        Value::Bool(true) => 1.0,
+        Value::Bool(false) => 0.0,
         _ => 0.0,
     }
 }

@@ -29,6 +29,7 @@ macro_rules! ast_node {
     };
 }
 
+#[allow(unused_imports)]
 pub(crate) use ast_node;
 
 mod generated;

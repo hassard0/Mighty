@@ -8,6 +8,7 @@ use crate::error::{CodegenError, CompileResult};
 use crate::lower::{default_flags, LowerCtx};
 use cranelift_codegen::isa::{self};
 use cranelift_jit::{JITBuilder, JITModule};
+#[allow(unused_imports)]
 use cranelift_module::Module;
 use sdust_sir::sir::Program;
 use std::collections::HashMap;
@@ -36,10 +37,7 @@ pub type JitMainI64 = extern "C" fn() -> i64;
 /// Build a JIT module and lower every function in `prog`. The runtime
 /// symbol table is registered via `symbols`; pass the runtime's
 /// `register_with` helper to populate it.
-pub fn build_jit(
-    prog: &Program,
-    symbols: &[(String, *const u8)],
-) -> CompileResult<JitCompiled> {
+pub fn build_jit(prog: &Program, symbols: &[(String, *const u8)]) -> CompileResult<JitCompiled> {
     let triple = Triple::host();
     let isa_builder = isa::lookup(triple.clone())
         .map_err(|e| CodegenError::Module(format!("isa lookup: {e}")))?;
@@ -48,8 +46,7 @@ pub fn build_jit(
         .finish(flags)
         .map_err(|e| CodegenError::Module(format!("isa finish: {e}")))?;
 
-    let mut builder =
-        JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+    let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
     for (name, addr) in symbols {
         builder.symbol(name.clone(), *addr);
     }
@@ -79,9 +76,7 @@ pub fn build_jit(
     if !errors.is_empty() {
         // Surface the first error so the driver can decide.
         let (name, err) = errors.into_iter().next().unwrap();
-        return Err(CodegenError::Unsupported(format!(
-            "fn `{name}`: {err}"
-        )));
+        return Err(CodegenError::Unsupported(format!("fn `{name}`: {err}")));
     }
 
     // Capture main's FuncId before consuming ctx.
@@ -163,8 +158,8 @@ mod tests {
     use super::*;
     use sdust_hir::SourceSpan;
     use sdust_sir::sir::{
-        Block, BlockId, Const, Function, LocalDecl, LocalSource, Operand, Program, SirFnId,
-        SirTy, Term,
+        Block, BlockId, Const, Function, LocalDecl, LocalSource, Operand, Program, SirFnId, SirTy,
+        Term,
     };
 
     extern "C" fn no_op_log(_p: i64, _l: i64) {}

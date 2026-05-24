@@ -21,10 +21,9 @@ pub fn run(
     let source_id = path.display().to_string();
 
     // Mode: explicit --release wins over --debug; default is debug.
+    let _ = debug; // explicit flag for clarity; default already matches
     let mode = if release {
         BuildMode::Release
-    } else if debug {
-        BuildMode::Debug
     } else {
         BuildMode::Debug
     };
@@ -65,7 +64,10 @@ pub fn run(
             0
         }
         BuildOutcome::NativeOkNoLinker(p) => {
-            println!("wrote object {} (no linker found; set $STARDUST_LINKER)", p.display());
+            println!(
+                "wrote object {} (no linker found; set $STARDUST_LINKER)",
+                p.display()
+            );
             0
         }
         BuildOutcome::WasmOk(p) => {

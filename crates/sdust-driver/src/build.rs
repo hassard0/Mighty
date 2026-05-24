@@ -61,11 +61,7 @@ pub enum BuildOutcome {
 }
 
 /// Build a Stardust source file to a native executable.
-pub fn build_native(
-    src: String,
-    source_id: String,
-    opts: &BuildOptions,
-) -> BuildOutcome {
+pub fn build_native(src: String, source_id: String, opts: &BuildOptions) -> BuildOutcome {
     let prog = match lower_to_sir_strict(src, source_id) {
         Ok(p) => p,
         Err(()) => return BuildOutcome::FrontendError,

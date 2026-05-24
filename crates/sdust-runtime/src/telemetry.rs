@@ -169,7 +169,11 @@ impl TelemetrySink {
                 let _ = writeln!(std::io::stderr(), "{}", line);
             }
             TelemetrySink::File(p) => {
-                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(p)
+                {
                     let _ = writeln!(f, "{}", line);
                 }
             }

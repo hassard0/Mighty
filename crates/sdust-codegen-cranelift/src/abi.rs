@@ -47,11 +47,7 @@ pub fn cl_ty_for(t: &SirTy) -> Type {
 /// Build a cranelift `Signature` for a SIR fn given its param + return
 /// types. Aggregates are passed/returned by hidden pointer for
 /// slice-8.
-pub fn build_signature(
-    triple: &Triple,
-    params: &[SirTy],
-    ret: &SirTy,
-) -> Signature {
+pub fn build_signature(triple: &Triple, params: &[SirTy], ret: &SirTy) -> Signature {
     let mut sig = Signature::new(host_call_conv(triple));
     if !matches!(ret, SirTy::Unit | SirTy::Never) {
         sig.returns.push(AbiParam::new(cl_ty_for(ret)));

@@ -6,7 +6,7 @@ package, and running the `sdust` CLI against your first program.
 ## Install
 
 There is no binary release yet. Build the compiler from source with a
-recent Rust toolchain (1.82+).
+recent Rust toolchain (1.85+; slice 8 bumped MSRV).
 
 ```bash
 git clone https://github.com/hassard0/stardust
@@ -76,13 +76,34 @@ sdust run src/main.sd
 ```
 
 `sdust run` runs the full `check` pipeline, lowers the program to SIR,
-and executes it under the slice-6 interpreter. The above program prints
-`hello, Stardust` and exits 0. See
+JIT-compiles via Cranelift, and invokes `main`. Programs whose SIR
+the slice-8 backend can't yet lower fall back to the slice-7 runtime
+(tokio executor + per-turn interpreter) transparently. The above
+program prints `hello, Stardust` and exits 0. See
 [reference/cli/sdust-run.md](reference/cli/sdust-run.md) for details on
 exit codes, traps, and the effect-handling model.
 
-`sdust run` is intended for development and conformance testing. Real
-native binaries and Wasm components arrive in slice 8.
+## Build it
+
+```bash
+sdust build src/main.sd
+# → wrote target/hello   (or hello.exe on Windows)
+
+sdust build --target wasm32-wasi src/main.sd
+# → wrote target/hello.wasm
+```
+
+`sdust build` produces a real, runnable artifact. The native target
+uses Cranelift to emit a host-format `.o`, then links via the
+platform C linker (`clang` / `gcc` / `cc`). If no linker is on
+PATH, the `.o` is left in `target/` and a helpful message tells you
+how to link manually. The Wasm target produces a core Wasm module
+runnable under `wasmtime`/`wasmer` or a browser host.
+
+See [reference/cli/sdust-build.md](reference/cli/sdust-build.md) for
+flags, exit codes, and the v0.1 backend coverage matrix (slice-8
+native + wasm cover a narrow SIR subset; richer programs will
+require the v0.2 LLVM backend or fall back to `sdust run`).
 
 ## Format
 

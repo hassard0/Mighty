@@ -113,7 +113,7 @@ pub fn unify(
             if xs.len() != ys.len() {
                 return Err(UnifyError::ArityMismatch);
             }
-            for (x, y) in xs.into_iter().zip(ys.into_iter()) {
+            for (x, y) in xs.into_iter().zip(ys) {
                 unify(x, y, subst, arena)?;
             }
             Ok(())
@@ -155,7 +155,7 @@ pub fn unify(
             if p1.len() != p2.len() {
                 return Err(UnifyError::ArityMismatch);
             }
-            for (x, y) in p1.into_iter().zip(p2.into_iter()) {
+            for (x, y) in p1.into_iter().zip(p2) {
                 unify(x, y, subst, arena)?;
             }
             unify(r1, r2, subst, arena)
@@ -164,7 +164,7 @@ pub fn unify(
             if d1 != d2 || args1.len() != args2.len() {
                 return Err(UnifyError::Mismatch);
             }
-            for (x, y) in args1.into_iter().zip(args2.into_iter()) {
+            for (x, y) in args1.into_iter().zip(args2) {
                 unify(x, y, subst, arena)?;
             }
             Ok(())

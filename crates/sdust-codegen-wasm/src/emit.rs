@@ -25,10 +25,7 @@ use wasm_encoder::{
 };
 
 /// Compile a SIR program to a Wasm binary.
-pub fn compile_program_to_bytes(
-    prog: &Program,
-    target: WasmTarget,
-) -> CompileResult<Vec<u8>> {
+pub fn compile_program_to_bytes(prog: &Program, target: WasmTarget) -> CompileResult<Vec<u8>> {
     let mut emitter = Emitter::new(prog, target)?;
     emitter.emit()
 }
@@ -115,10 +112,9 @@ impl<'a> Emitter<'a> {
             return idx;
         }
         let idx = self.sigs.len() as u32;
-        self.type_section.ty().function(
-            sig.params.iter().copied(),
-            sig.results.iter().copied(),
-        );
+        self.type_section
+            .ty()
+            .function(sig.params.iter().copied(), sig.results.iter().copied());
         self.sigs.insert(sig, idx);
         idx
     }
@@ -145,8 +141,13 @@ impl<'a> Emitter<'a> {
         Some(match t {
             SirTy::Bool | SirTy::Char => ValType::I32,
             SirTy::Int(k) => match k {
-                IntKind::I8 | IntKind::U8 | IntKind::I16 | IntKind::U16 | IntKind::I32
-                | IntKind::U32 | IntKind::IntInfer => ValType::I32,
+                IntKind::I8
+                | IntKind::U8
+                | IntKind::I16
+                | IntKind::U16
+                | IntKind::I32
+                | IntKind::U32
+                | IntKind::IntInfer => ValType::I32,
                 IntKind::I64 | IntKind::U64 | IntKind::ISize | IntKind::USize => ValType::I64,
                 IntKind::I128 | IntKind::U128 => return None,
             },
@@ -167,9 +168,7 @@ impl<'a> Emitter<'a> {
             if let Some(v) = Self::lower_ty(ty) {
                 params.push(v);
             } else if !matches!(ty, SirTy::Unit | SirTy::Never) {
-                return Err(WasmError::Unsupported(format!(
-                    "wasm param type {ty:?}"
-                )));
+                return Err(WasmError::Unsupported(format!("wasm param type {ty:?}")));
             }
         }
         let mut results = Vec::new();
@@ -194,8 +193,7 @@ impl<'a> Emitter<'a> {
             self.fn_index.insert(f.id, fn_idx);
             // Export `main` for the wasm runtime to find.
             if f.name == "main" {
-                self.export_section
-                    .export("main", ExportKind::Func, fn_idx);
+                self.export_section.export("main", ExportKind::Func, fn_idx);
             }
         }
         Ok(())
@@ -244,8 +242,7 @@ impl<'a> Emitter<'a> {
         });
         m.section(&mem);
         // Export memory so the host can poke at it.
-        self.export_section
-            .export("memory", ExportKind::Memory, 0);
+        self.export_section.export("memory", ExportKind::Memory, 0);
         m.section(&self.export_section);
         m.section(&self.code_section);
         if self.next_data_offset > 1024 {
@@ -327,9 +324,7 @@ impl<'a> Emitter<'a> {
                         wfn.instruction(&I::Unreachable);
                     }
                     other => {
-                        return Err(WasmError::Unsupported(format!(
-                            "wasm terminator {other:?}"
-                        )))
+                        return Err(WasmError::Unsupported(format!("wasm terminator {other:?}")))
                     }
                 }
             }
@@ -343,11 +338,7 @@ impl<'a> Emitter<'a> {
                 Term::Unreachable => {
                     wfn.instruction(&I::Unreachable);
                 }
-                other => {
-                    return Err(WasmError::Unsupported(format!(
-                        "wasm terminator {other:?}"
-                    )))
-                }
+                other => return Err(WasmError::Unsupported(format!("wasm terminator {other:?}"))),
             }
         }
         wfn.instruction(&I::End);
@@ -438,7 +429,7 @@ impl<'a> Emitter<'a> {
 
     fn emit_operand(
         &mut self,
-        f: &Function,
+        _f: &Function,
         m: &HashMap<u32, u32>,
         op: &Operand,
         wfn: &mut WFunction,
@@ -569,9 +560,7 @@ impl<'a> Emitter<'a> {
                     wfn.instruction(&I::I32Const(ptr as i32));
                     wfn.instruction(&I::I32Const(len as i32));
                 } else {
-                    return Err(WasmError::Unsupported(
-                        "wasm log non-literal string".into(),
-                    ));
+                    return Err(WasmError::Unsupported("wasm log non-literal string".into()));
                 }
                 let idx = self.log_idx.expect("log import");
                 wfn.instruction(&I::Call(idx));
@@ -589,9 +578,7 @@ impl<'a> Emitter<'a> {
                 wfn.instruction(&I::Call(*idx));
                 Ok(())
             }
-            FnRef::Builtin(other) => Err(WasmError::Unsupported(format!(
-                "wasm builtin {other:?}"
-            ))),
+            FnRef::Builtin(other) => Err(WasmError::Unsupported(format!("wasm builtin {other:?}"))),
         }
     }
 }
@@ -612,8 +599,8 @@ mod tests {
     use super::*;
     use sdust_hir::SourceSpan;
     use sdust_sir::sir::{
-        Block, BlockId, Const, Function, LocalDecl, LocalSource, Operand, Program, SirFnId,
-        SirTy, Term,
+        Block, BlockId, Const, Function, LocalDecl, LocalSource, Operand, Program, SirFnId, SirTy,
+        Term,
     };
 
     fn empty_main() -> Program {

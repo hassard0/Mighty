@@ -8,7 +8,6 @@ use crate::artifact::{BuildMode, NativeArtifact};
 use crate::error::{CodegenError, CompileResult};
 use crate::lower::{default_flags, LowerCtx};
 use cranelift_codegen::isa::{self};
-use cranelift_module::Module;
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use sdust_sir::sir::Program;
 use std::path::{Path, PathBuf};

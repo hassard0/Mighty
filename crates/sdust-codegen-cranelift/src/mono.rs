@@ -58,7 +58,9 @@ impl<'a> Monomorphizer<'a> {
 mod tests {
     use super::*;
     use sdust_hir::SourceSpan;
-    use sdust_sir::sir::{Block, BlockId, Function, LocalDecl, LocalSource, Operand, SirFnId, Term};
+    use sdust_sir::sir::{
+        Block, BlockId, Function, LocalDecl, LocalSource, Operand, SirFnId, Term,
+    };
 
     fn make_fn(name: &str, ret: SirTy) -> Function {
         Function {

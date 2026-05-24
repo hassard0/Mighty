@@ -34,9 +34,8 @@ fn literals() {
 
 #[test]
 fn duration_and_size() {
-    let expected: Vec<SyntaxKind> = std::iter::repeat(DURATION_LITERAL)
-        .take(6)
-        .chain(std::iter::repeat(SIZE_LITERAL).take(4))
+    let expected: Vec<SyntaxKind> = std::iter::repeat_n(DURATION_LITERAL, 6)
+        .chain(std::iter::repeat_n(SIZE_LITERAL, 4))
         .chain(std::iter::once(EOF))
         .collect();
     assert_eq!(

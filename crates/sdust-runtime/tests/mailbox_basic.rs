@@ -5,10 +5,8 @@ use std::time::Duration;
 #[tokio::test]
 async fn fifo_and_bounded() {
     let mb = Mailbox::new(2, SendPolicy::Fail);
-    let frame1 =
-        MessageFrame::fire_and_forget("Ping", SmallPayload::inline(vec![Value::Unit]));
-    let frame2 =
-        MessageFrame::fire_and_forget("Pong", SmallPayload::inline(vec![Value::Unit]));
+    let frame1 = MessageFrame::fire_and_forget("Ping", SmallPayload::inline(vec![Value::Unit]));
+    let frame2 = MessageFrame::fire_and_forget("Pong", SmallPayload::inline(vec![Value::Unit]));
     mb.try_send(frame1).unwrap();
     mb.try_send(frame2).unwrap();
     assert!(mb
