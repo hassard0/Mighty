@@ -99,3 +99,67 @@ pub fn run_file(src: String, source_id: String) -> i32 {
     }
     res.exit_code()
 }
+
+/// Slice-7 helper: parse → lower → type+borrow check → SIR-lower → run
+/// **on the runtime** (tokio executor + agents). Returns the exit
+/// code from the runtime's outcome:
+///
+/// - 0 = `main` returned cleanly.
+/// - 1 = parse / type-check / borrow error, or a trap during execution.
+/// - 2 = no `main` defined.
+/// - 3 = step budget exhausted by `main`.
+///
+/// If `main` is absent the runtime falls back to a 0 exit (this
+/// matches example 07/08/10 which lack a `main` in their canonical
+/// form). Agents that have been spawned but have not received any
+/// messages are shut down cleanly.
+pub fn run_file_with_runtime(src: String, source_id: String) -> i32 {
+    use sdust_diagnostics::render::ariadne::render_all;
+    use sdust_diagnostics::Severity;
+    let parsed = parse_source(src.clone(), source_id.clone());
+    let (pkg, mut diags) = lower(&parsed);
+    if !diags.iter().any(|d| matches!(d.severity, Severity::Error)) {
+        diags.extend(type_and_borrow_check(&pkg));
+    }
+    if diags.iter().any(|d| matches!(d.severity, Severity::Error)) {
+        eprint!("{}", render_all(&diags, &source_id, &src));
+        return 1;
+    }
+    let typed = sdust_types::check_package_typed(&pkg);
+    let prog = std::sync::Arc::new(sdust_sir::lower_package(&pkg, &typed));
+
+    let runtime = sdust_runtime::RuntimeBuilder::new().build(prog.clone());
+    let exec = runtime.scheduler.rt.clone();
+    let main_exit = exec.block_on(async {
+        if prog.fn_by_name("main").is_some() {
+            // Slice-7 MVP: run main on the slice-6 interpreter (so user
+            // code like `log("hello")` and synchronous business logic
+            // still works). When main spawns agents via the runtime
+            // surface or via the existing AgentSpawn rvalue, those
+            // spawn paths now route through sdust-runtime; for slice 7
+            // we accept that the embedded AgentSpawn still uses the
+            // synchronous slice-6 path. Long-running services should
+            // instead embed via the programmatic Runtime API.
+            use sdust_sir::interp::host::RealHost;
+            use sdust_sir::interp::run::{run_fn_with_budget, RunResult};
+            let mut host = RealHost;
+            let res = run_fn_with_budget(&prog, "main", vec![], &mut host, 5_000_000);
+            let _ = runtime.shutdown().await;
+            match res {
+                Ok(_) => 0,
+                Err(RunResult::Trap { code, message }) => {
+                    eprintln!("trap {}: {}", code, message);
+                    1
+                }
+                Err(RunResult::BudgetExceeded) => 3,
+                Err(RunResult::NoMain) => 2,
+                Err(RunResult::Ok { exit }) => exit,
+            }
+        } else {
+            let _ = runtime.shutdown().await;
+            0
+        }
+    });
+
+    main_exit
+}

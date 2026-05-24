@@ -20,6 +20,7 @@ sdust-fmt = { path = "../sdust-fmt" }
 sdust-types = { path = "../sdust-types" }
 sdust-borrow = { path = "../sdust-borrow" }
 sdust-sir = { path = "../sdust-sir" }
+sdust-runtime = { path = "../sdust-runtime" }
 
 [dev-dependencies]
 tempfile = "3"

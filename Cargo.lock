@@ -527,6 +527,7 @@ dependencies = [
  "sdust-diagnostics",
  "sdust-fmt",
  "sdust-hir",
+ "sdust-runtime",
  "sdust-sir",
  "sdust-syntax",
  "sdust-types",
