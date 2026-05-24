@@ -44,14 +44,19 @@ fn pub_proc_macro_lands_in_exported_set() {
 }
 
 #[test]
-fn expand_proc_pure_returns_unsupported() {
+fn expand_proc_pure_returns_ok_v0_8() {
+    // v0.8: the sandboxed interpreter is enabled, so a pure
+    // identity-shaped body successfully expands to a (possibly empty)
+    // token stream. The legacy v0.5 `Unsupported` arm is retained as a
+    // back-compat enum variant but is no longer returned for runnable
+    // bodies.
     let src = "proc macro identity(input: TokenStream) -> TokenStream { input }\n";
     let file = parse_file(src);
     let reg = MacroRegistry::from_file(&file);
     let def = reg.get("identity").unwrap();
     match expand_proc(def, &[]) {
-        ProcMacroResult::Unsupported => {}
-        other => panic!("expected Unsupported, got: {:?}", other),
+        ProcMacroResult::Ok(_) => {}
+        other => panic!("expected Ok, got: {:?}", other),
     }
 }
 

@@ -41,6 +41,14 @@ pub const PROC_MACRO_IMPURE: u16 = codes::PROC_MACRO_IMPURE.0;
 /// constraint once the sandboxed SIR sub-context lands.
 pub const PROC_MACRO_UNSUPPORTED_V0_5: u16 = codes::PROC_MACRO_UNSUPPORTED_V0_5.0;
 
+/// MT6007 — Runtime detection of impurity in a proc-macro body that
+/// slipped past the static MT6005 check (e.g. an aliased effect call).
+pub const PROC_MACRO_IMPURE_AT_RUNTIME: u16 = codes::PROC_MACRO_IMPURE_AT_RUNTIME.0;
+
+/// MT6008 — Sandboxed proc-macro expansion exceeded its wall, step, or
+/// memory bound. Expansion is aborted; the call site becomes inert.
+pub const PROC_MACRO_RESOURCE_EXCEEDED: u16 = codes::PROC_MACRO_RESOURCE_EXCEEDED.0;
+
 /// Human-readable explanation for an SD6xxx code. v0.6: delegates to
 /// `mty_diagnostics::codes::explain` so the catalog stays
 /// single-sourced. Returns `None` for codes outside the macro band.
@@ -49,5 +57,15 @@ pub fn explain(code: u16) -> Option<&'static str> {
         codes::explain(codes::DiagCode::new(code))
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn new_codes_are_explainable() {
+        assert!(explain(PROC_MACRO_IMPURE_AT_RUNTIME).is_some());
+        assert!(explain(PROC_MACRO_RESOURCE_EXCEEDED).is_some());
     }
 }

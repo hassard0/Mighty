@@ -1,27 +1,36 @@
-// Macros — v0.5.
+// Macros — v0.8.
 //
-// Stardust ships declarative token-substitution macros with hygiene
-// mangling. v0.5 adds a `name!(args)` invocation marker (Rust-style
-// trailing `!`); the v0.4 plain-call form (`name(args)` for a known
-// macro) still works for backwards-compat.
+// Mighty ships declarative token-substitution macros with hygiene
+// mangling, plus (v0.8) sandboxed procedural macros that run a
+// TokenStream → TokenStream body at compile time.
 //
 // See:
-//   * docs/spec/macros-v0.5.md  — v0.5 normative spec
+//   * docs/spec/macros-v0.5.md  — declarative spec
 //   * docs/internals/macros.md  — implementation walkthrough
-//   * MACROS_V0_5_NOTES.md      — interpretation calls
+//   * MACROS_V0_5_NOTES.md      — v0.5 interpretation calls
+//   * LOOSE_ENDS_V0_8_NOTES.md  — v0.8 proc-macro sandbox notes
 
+// ---- declarative macro -----------------------------------------------
 // A simple declarative macro: substitute the parameter `a` and `b`,
 // generate an `if`-check, and panic on mismatch.
 macro assert_eq(a, b) => {
   if a != b { panic("assert_eq failed") }
 }
 
+// ---- procedural macro (v0.8 sandboxed) -------------------------------
+// `identity!(...)` returns the call-site token stream unchanged. The
+// sandbox runs the body with a 100 ms wall-clock cap, a 16 MiB memory
+// cap, and a 100,000-step interpreter budget. Effect calls (I/O, time,
+// env, model, rand) are rejected — proc macros must be pure.
+proc macro identity(input: TokenStream) -> TokenStream { input }
+
 fn main() {
-  // v0.5 syntax: explicit `!` marker. Recommended for new code — the
-  // marker triggers MT6001 if the macro name is undeclared, which a
-  // plain call cannot do without a registered symbol.
+  // v0.5 syntax: explicit `!` marker.
   assert_eq!(1 + 1, 2)
 
   // v0.4 backwards-compat: a known-macro plain call still expands.
   assert_eq(1 + 1, 2)
+
+  // v0.8 proc macro — expanded at compile time by the sandbox.
+  identity!(42)
 }

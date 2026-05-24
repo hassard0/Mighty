@@ -111,6 +111,14 @@ pub const MACRO_BODY_PARSE_FAILED: DiagCode = DiagCode::new(6003);
 pub const RECURSIVE_MACRO_TOO_DEEP: DiagCode = DiagCode::new(6004);
 pub const PROC_MACRO_IMPURE: DiagCode = DiagCode::new(6005);
 pub const PROC_MACRO_UNSUPPORTED_V0_5: DiagCode = DiagCode::new(6006);
+/// MT6007 — proc-macro body invoked an effect at runtime that purity
+/// analysis missed (e.g. via an aliased binding the static check can't
+/// see). Sandboxed execution observed the call and aborted.
+pub const PROC_MACRO_IMPURE_AT_RUNTIME: DiagCode = DiagCode::new(6007);
+/// MT6008 — sandboxed proc-macro execution exceeded one of its three
+/// resource bounds (wall-clock, step count, or memory). The expansion
+/// is aborted and the call site is left as an inert sentinel.
+pub const PROC_MACRO_RESOURCE_EXCEEDED: DiagCode = DiagCode::new(6008);
 
 // Borrow checker: MT3001..MT3099
 pub const USE_AFTER_MOVE: DiagCode = DiagCode::new(3001);
@@ -678,6 +686,21 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
              cannot run until the sandboxed compile-time interpreter ships. \
              Replace the call with a hand-expanded equivalent, or wait for the \
              proc-macro sandbox slice."
+        }
+        6007 => {
+            "MT6007: Procedural macro impurity at runtime. The proc-macro body \
+             tried to invoke a runtime effect (I/O, time, env, model, rand) \
+             during sandboxed execution. The static purity check (MT6005) may \
+             have been bypassed by aliasing the impure name through a `let` \
+             binding. Proc macros must be pure — remove the effect call or \
+             move the side effect into runtime code."
+        }
+        6008 => {
+            "MT6008: Procedural macro resource bound exceeded. The sandboxed \
+             expansion ran for more than 100 ms wall-clock, used more than \
+             100,000 interpreter steps, or allocated more than 16 MiB. Reduce \
+             the macro's complexity, or split the work between several smaller \
+             macros."
         }
         _ => return None,
     })

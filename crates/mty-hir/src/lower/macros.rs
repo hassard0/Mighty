@@ -32,8 +32,9 @@ use mty_diagnostics::{
     diagnostic::{Diagnostic, Label, Severity},
 };
 use mty_macros::{
-    check_proc_macro_purity, expand_to_source, MacroContext, MacroDef, MacroKind, MacroRegistry,
-    MAX_EXPANSION_DEPTH,
+    check_proc_macro_purity, expand_proc, expand_to_source, lex_fragment, tokens_to_source,
+    ImpurityReason, MacroContext, MacroDef, MacroKind, MacroRegistry, ProcMacroResult,
+    ResourceBreach, MAX_EXPANSION_DEPTH,
 };
 use mty_syntax::{SyntaxKind, SyntaxNode};
 
@@ -140,16 +141,74 @@ pub fn preprocess(source: &str) -> Preprocessed {
         let mut rewrites: Vec<Rewrite> = vec![];
         for c in &calls {
             ctx_counter = ctx_counter.wrapping_add(1);
-            // Procedural macro: emit MT6006 and replace with sentinel.
-            // (Real expansion is v0.6.)
+            // Procedural macro: v0.8 runs the body through the
+            // sandboxed interpreter. Per-result diagnostic mapping:
+            //   - Ok(toks)             → splice the rewritten source.
+            //   - Impure / ImpureAtRuntime → MT6005 / MT6007.
+            //   - ResourceExceeded     → MT6008.
+            //   - Unsupported (back-compat) → MT6006.
             if c.def.kind == MacroKind::Procedural {
-                diags.push(diag_proc_macro_unsupported(c.start, c.end, &c.name));
-                rewrites.push(Rewrite::Replace {
-                    start: c.start,
-                    end: c.end,
-                    with: macro_sentinel(),
-                });
-                any_progress = true;
+                // Re-lex the call args into a single token stream
+                // (joined by COMMA tokens, matching the source order).
+                let input_src = c.args.join(",");
+                let input_toks = lex_fragment(&input_src).unwrap_or_default();
+                match expand_proc(c.def, &input_toks) {
+                    ProcMacroResult::Ok(out_toks) => {
+                        let replacement = tokens_to_source(&out_toks);
+                        rewrites.push(Rewrite::Replace {
+                            start: c.start,
+                            end: c.end,
+                            with: replacement,
+                        });
+                        any_progress = true;
+                    }
+                    ProcMacroResult::Impure(reason) => {
+                        diags.push(diag_proc_macro_impure(
+                            c.start,
+                            c.end,
+                            &c.name,
+                            &reason.to_string(),
+                        ));
+                        rewrites.push(Rewrite::Replace {
+                            start: c.start,
+                            end: c.end,
+                            with: macro_sentinel(),
+                        });
+                        any_progress = true;
+                    }
+                    ProcMacroResult::ImpureAtRuntime(reason) => {
+                        diags.push(diag_proc_macro_impure_runtime(
+                            c.start,
+                            c.end,
+                            &c.name,
+                            &reason,
+                        ));
+                        rewrites.push(Rewrite::Replace {
+                            start: c.start,
+                            end: c.end,
+                            with: macro_sentinel(),
+                        });
+                        any_progress = true;
+                    }
+                    ProcMacroResult::ResourceExceeded(breach) => {
+                        diags.push(diag_proc_macro_resource(c.start, c.end, &c.name, breach));
+                        rewrites.push(Rewrite::Replace {
+                            start: c.start,
+                            end: c.end,
+                            with: macro_sentinel(),
+                        });
+                        any_progress = true;
+                    }
+                    ProcMacroResult::Unsupported => {
+                        diags.push(diag_proc_macro_unsupported(c.start, c.end, &c.name));
+                        rewrites.push(Rewrite::Replace {
+                            start: c.start,
+                            end: c.end,
+                            with: macro_sentinel(),
+                        });
+                        any_progress = true;
+                    }
+                }
                 continue;
             }
             let arg_refs: Vec<&str> = c.args.iter().map(|s| s.as_str()).collect();
@@ -698,6 +757,49 @@ fn diag_proc_macro_impure(start: usize, end: usize, name: &str, reason: &str) ->
     }
 }
 
+fn diag_proc_macro_impure_runtime(
+    start: usize,
+    end: usize,
+    name: &str,
+    reason: &ImpurityReason,
+) -> Diagnostic {
+    Diagnostic {
+        code: DiagCode::new(mty_macros::PROC_MACRO_IMPURE_AT_RUNTIME),
+        severity: Severity::Error,
+        primary: Label {
+            start,
+            end,
+            message: format!("procedural macro `{name}` performed an impure call at runtime"),
+        },
+        secondary: vec![],
+        notes: vec![
+            format!("sandbox observed: {reason}"),
+            "static MT6005 missed this site (likely aliased through a let binding)".to_string(),
+        ],
+        helps: vec![],
+    }
+}
+
+fn diag_proc_macro_resource(
+    start: usize,
+    end: usize,
+    name: &str,
+    breach: ResourceBreach,
+) -> Diagnostic {
+    Diagnostic {
+        code: DiagCode::new(mty_macros::PROC_MACRO_RESOURCE_EXCEEDED),
+        severity: Severity::Error,
+        primary: Label {
+            start,
+            end,
+            message: format!("procedural macro `{name}` exceeded the {breach} budget"),
+        },
+        secondary: vec![],
+        notes: vec!["sandboxed proc-macro expansion is bounded by wall-clock, step, and memory caps".to_string()],
+        helps: vec![],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -894,17 +996,21 @@ mod tests {
     }
 
     #[test]
-    fn proc_macro_call_emits_sd6006() {
+    fn proc_macro_call_expands_via_sandbox_v0_8() {
+        // v0.8: proc-macro execution is enabled, so a pure `identity`
+        // body produces output (no MT6006 fired). The integration with
+        // the rest of the pipeline is exercised by the lower / type
+        // checker on the spliced source.
         let src = concat!(
             "proc macro id(input: TokenStream) -> TokenStream { input }\n",
             "fn main() -> i32 { id!(42); 0 }\n",
         );
         let pp = preprocess(src);
         assert!(
-            pp.diagnostics
+            !pp.diagnostics
                 .iter()
                 .any(|d| d.code == DiagCode::new(mty_macros::PROC_MACRO_UNSUPPORTED_V0_5)),
-            "missing MT6006, diags: {:?}",
+            "MT6006 should NOT fire in v0.8 (sandboxed execution is enabled), diags: {:?}",
             pp.diagnostics
         );
     }
