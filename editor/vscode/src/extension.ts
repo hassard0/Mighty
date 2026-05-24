@@ -2,8 +2,12 @@
 // it up via vscode-languageclient.
 //
 // Build:  npm install && npm run compile
-// Package: npx vsce package  → produces stardust-0.2.0.vsix
-// Install: code --install-extension stardust-0.2.0.vsix
+// Package: npx vsce package  → produces stardust-0.5.0.vsix
+// Install: code --install-extension stardust-0.5.0.vsix
+//
+// v0.5 features: semantic tokens, rename, inlay hints, code actions,
+// signature help (in addition to the v0.2 baseline of diagnostics,
+// hover, definition, formatting, completion).
 
 import * as vscode from "vscode";
 import {
@@ -32,7 +36,11 @@ export function activate(context: vscode.ExtensionContext): void {
     ],
     synchronize: {
       fileEvents: vscode.workspace.createFileSystemWatcher("**/*.sd"),
+      // Forward stardust.* settings changes so the server sees them.
+      configurationSection: "stardust",
     },
+    // The server declares semantic-token and inlay-hint providers; the
+    // language client picks those up automatically.
   };
 
   client = new LanguageClient(
@@ -40,6 +48,17 @@ export function activate(context: vscode.ExtensionContext): void {
     "Stardust Language Server",
     serverOptions,
     clientOptions,
+  );
+
+  // Expose an explicit "restart" command for users who change the
+  // server.path setting or recover from a server crash.
+  context.subscriptions.push(
+    vscode.commands.registerCommand("stardust.restartServer", async () => {
+      if (!client) return;
+      await client.stop();
+      await client.start();
+      vscode.window.showInformationMessage("Stardust language server restarted.");
+    }),
   );
 
   context.subscriptions.push({

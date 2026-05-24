@@ -2,7 +2,8 @@
 
 Run the Stardust Language Server over stdio. Used by editor plugins
 (VS Code, Neovim, Helix, Emacs, etc.) to provide live diagnostics,
-hover, go-to-definition, formatting, and completion for `.sd` files.
+hover, go-to-definition, formatting, completion, semantic tokens,
+rename, inlay hints, code actions, and signature help for `.sd` files.
 
 ## Synopsis
 
@@ -24,11 +25,29 @@ The server reports the following capabilities in its
 |---|---|---|
 | `textDocumentSync` | `Incremental` | Per-edit range patches; full sync also accepted. |
 | `hoverProvider` | `true` | Markdown body. |
-| `definitionProvider` | `true` | Top-level item names only (v0.2). |
-| `completionProvider` | `{ triggerCharacters: [".", ":"] }` | Keywords + def names + (post-dot) built-in methods. |
+| `definitionProvider` | `true` | Top-level item names only (deferred). |
+| `completionProvider` | `{ triggerCharacters: [".", ":"] }` | Keywords + def names + locals + receiver-aware methods + built-in methods. |
 | `documentFormattingProvider` | `true` | Whole-document via `sdust fmt`. |
+| `semanticTokensProvider` | full + range, legend below | v0.5: 14 types × 3 modifiers. |
+| `renameProvider` | `{ prepareProvider: true }` | Single-file scope (v0.5). |
+| `codeActionProvider` | `{ codeActionKinds: ["quickfix"] }` | SD2021 / SD2002 / SD3001 / SD4001 fixes. |
+| `signatureHelpProvider` | `{ triggerCharacters: ["(", ","] }` | Call + method-call sites. |
+| `inlayHintProvider` | `{ resolveProvider: false }` | `let` + fn-param type hints. |
+| `workspace.workspaceFolders` | `{ supported: true, changeNotifications: true }` | Event surface; per-file analysis. |
 
-## In-scope methods (v0.2 MVP)
+### Semantic token legend (v0.5)
+
+| index | type | index | type | index | type |
+|---|---|---|---|---|---|
+| 0 | `keyword` | 5 | `string` | 10 | `enumMember` |
+| 1 | `type` | 6 | `number` | 11 | `typeParameter` |
+| 2 | `function` | 7 | `comment` | 12 | `macro` |
+| 3 | `variable` | 8 | `operator` | 13 | `property` |
+| 4 | `parameter` | 9 | `namespace` | | |
+
+Modifier bits: `0 = declaration`, `1 = readonly`, `2 = defaultLibrary`.
+
+## In-scope methods (v0.5)
 
 - `initialize` / `initialized` / `shutdown` / `exit`
 - `textDocument/didOpen`
@@ -39,20 +58,27 @@ The server reports the following capabilities in its
 - `textDocument/definition`
 - `textDocument/formatting`
 - `textDocument/completion`
+- `textDocument/semanticTokens/full`
+- `textDocument/semanticTokens/range`
+- `textDocument/rename`
+- `textDocument/prepareRename`
+- `textDocument/inlayHint`
+- `textDocument/codeAction`
+- `textDocument/signatureHelp`
+- `workspace/didChangeWorkspaceFolders`
+- `workspace/didChangeWatchedFiles`
 
-## Out-of-scope (v0.2)
+## Out-of-scope (still deferred)
 
-Documented as v0.2 amendments — to be addressed in a follow-up release:
-
-- Workspace folders + multi-file resolution
-- Code actions (`textDocument/codeAction`)
-- Inlay hints (`textDocument/inlayHint`)
-- Rename (`textDocument/rename`)
-- Signature help (`textDocument/signatureHelp`)
-- Semantic tokens (`textDocument/semanticTokens`)
-- Borrow-check diagnostics (parse + lower + type-check are surfaced;
-  borrow check is currently CLI-only via `sdust check`)
-- Locals-in-scope / per-receiver semantic completion
+- Cross-file rename / cross-file go-to-def (workspace folders are
+  observed but each file is still analyzed independently).
+- Borrow-check diagnostics in the editor — `sdust check` from the CLI
+  still runs the full borrow checker.
+- Call hierarchy / type hierarchy.
+- Signature-help overload disambiguation by receiver type (we list
+  every candidate today).
+- Closure parameter inlay hints, argument-name inlay hints.
+- `inlayHint/resolve` (we don't yet attach lazy data).
 
 ## Editor setup
 
@@ -65,11 +91,13 @@ cd editor/vscode
 npm install
 npm run compile
 npx vsce package
-code --install-extension stardust-0.2.0.vsix
+code --install-extension stardust-0.5.0.vsix
 ```
 
 By default the extension launches whatever `sdust` is on `PATH`.
-Override via the `stardust.server.path` setting.
+Override via the `stardust.server.path` setting. Inlay hints are off
+by default (`stardust.inlayHints.enable = false`); enable them in your
+settings if you want them.
 
 ### Neovim (nvim-lspconfig)
 

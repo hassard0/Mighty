@@ -3,7 +3,7 @@
 Syntax highlighting plus the official Stardust Language Server (LSP) for
 `.sd` files.
 
-## Features
+## Features (v0.5)
 
 - Syntax highlighting (keywords, types, strings, numbers, duration/size
   suffixes, doc comments).
@@ -12,9 +12,21 @@ Syntax highlighting plus the official Stardust Language Server (LSP) for
 - Hover for fns, structs, enums, and other top-level definitions.
 - Go-to-definition for top-level item names.
 - Document formatting via `sdust fmt`.
-- Keyword + def-name completion (semantic / scope-aware completion
-  arrives in a follow-up release — see `LSP_PARTIAL.md` in the
-  Stardust repo).
+- **Completion** — keywords + top-level defs + locals in scope +
+  receiver-aware methods/fields after `.`.
+- **Semantic tokens** — overlays on the TextMate grammar to distinguish
+  user-defined types from primitives, fns from variables, parameters
+  from locals, etc.
+- **Rename (F2)** — single-file rename for locals and top-level items
+  with a prepareRename preview.
+- **Inlay hints** — `: T` annotations on `let` bindings and fn
+  parameters whose type was inferred. Off by default; toggle via
+  `stardust.inlayHints.enable`.
+- **Code actions** — quick fixes for `unresolved value` (SD2021),
+  `unresolved type` (SD2002), `use after move` (SD3001), and
+  `effect undeclared` (SD4001).
+- **Signature help** — pops up on `(` and `,` inside call sites, with
+  the active parameter highlighted.
 
 ## Requirements
 
@@ -35,10 +47,10 @@ npm run compile
 npx vsce package
 ```
 
-This produces `stardust-0.2.0.vsix` which you can install with:
+This produces `stardust-0.5.0.vsix` which you can install with:
 
 ```bash
-code --install-extension stardust-0.2.0.vsix
+code --install-extension stardust-0.5.0.vsix
 ```
 
 ## Settings
@@ -47,16 +59,32 @@ code --install-extension stardust-0.2.0.vsix
 | --- | --- | --- |
 | `stardust.server.path` | `sdust` | Path to the `sdust` binary. |
 | `stardust.trace.server` | `off` | LSP trace level (`off` / `messages` / `verbose`). |
+| `stardust.inlayHints.enable` | `false` | Show inferred-type hints next to `let` bindings and fn parameters. |
+| `stardust.semanticTokens.enable` | `true` | Use the LSP's semantic-token classifier to highlight identifiers more precisely than the TextMate grammar can. |
 
-## Known limitations (v0.2)
+## Commands
 
-- Go-to-definition resolves top-level items only (no locals, fields, or
-  methods).
-- Completion is keyword + top-level-def + (post-dot) built-in method.
-  Locals-in-scope and per-receiver semantic completion are deferred.
-- Formatting is whole-document (one `TextEdit` per file).
-- No workspace folders, code actions, inlay hints, rename, signature
-  help, or semantic tokens yet.
+| Command | Description |
+| --- | --- |
+| `Stardust: Restart Language Server` | Stop and restart `sdust lsp`. Useful after changing `stardust.server.path` or recovering from a server crash. |
+
+## Keybindings
+
+| Key | Command |
+| --- | --- |
+| `F2` | Rename symbol under cursor (Stardust files only). |
+
+## Known limitations (v0.5)
+
+- Rename is single-file. Cross-file rename arrives once the LSP builds
+  a workspace-wide resolve map.
+- Go-to-definition still resolves top-level items only (no locals,
+  fields, or methods).
+- Borrow-check diagnostics live in `sdust check` from the CLI, not in
+  the editor pipeline (latency).
+- Inlay hints don't yet cover closure parameters or argument names.
+- Signature help doesn't yet disambiguate trait-method overloads by
+  receiver type; it lists every candidate.
 
 ## License
 

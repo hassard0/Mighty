@@ -2,7 +2,7 @@
   "name": "stardust",
   "displayName": "Stardust",
   "description": "Stardust language support (syntax + LSP) for VS Code.",
-  "version": "0.2.0",
+  "version": "0.5.0",
   "publisher": "stardust-lang",
   "license": "Apache-2.0 OR MIT",
   "repository": {
@@ -41,6 +41,28 @@
         "path": "./syntaxes/stardust.tmLanguage.json"
       }
     ],
+    "commands": [
+      {
+        "command": "stardust.restartServer",
+        "title": "Stardust: Restart Language Server"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "editor.action.rename",
+        "key": "f2",
+        "when": "editorTextFocus && editorLangId == stardust"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "stardust",
+        "scopes": {
+          "macro": ["entity.name.function.macro.stardust"],
+          "property": ["variable.other.property.stardust"]
+        }
+      }
+    ],
     "configuration": {
       "title": "Stardust",
       "properties": {
@@ -58,6 +80,16 @@
           ],
           "default": "off",
           "description": "Trace the communication between VS Code and the Stardust LSP."
+        },
+        "stardust.inlayHints.enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show inferred-type hints next to `let` bindings and fn parameters. Off by default — toggle on if you prefer them visible."
+        },
+        "stardust.semanticTokens.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use the LSP's semantic-token classifier to highlight identifiers (functions, types, parameters, etc.) more precisely than the TextMate grammar can."
         }
       }
     }
