@@ -1,6 +1,6 @@
 # Stardust
 
-[![Status](https://img.shields.io/badge/status-v0.2-green)](https://github.com/hassard0/stardust/releases/tag/v0.2.0)
+[![Status](https://img.shields.io/badge/status-v0.3-green)](https://github.com/hassard0/stardust/releases/tag/v0.3.0)
 [![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)](#license)
 
 Stardust is an agent-first systems programming language. It is statically
@@ -10,14 +10,41 @@ native code (Cranelift JIT + AOT; LLVM behind `--features llvm`) and
 WebAssembly (Component Model by default; bare core modules via
 `--no-component`).
 
-**v0.2 is shipped.** The v0.2 milestone tag
-[`v0.2.0`](https://github.com/hassard0/stardust/releases/tag/v0.2.0)
-closes every v0.1 deferral: LSP server, package manager, doc generator,
-real stdlib, DWARF debug info, full SIR coverage in native codegen,
-and the Wasm Component Model wrapper. See [`RELEASE-v0.2.md`](RELEASE-v0.2.md)
-for the headline numbers and [`SLICE_V0_2.md`](SLICE_V0_2.md) for the
-shipped/deferred detail. The v0.1 milestone remains tagged
+**v0.3 is shipped.** The v0.3 milestone tag
+[`v0.3.0`](https://github.com/hassard0/stardust/releases/tag/v0.3.0)
+hardens soundness across the borrow checker (NLL last-use + field-level
+Places), the type checker (scope-aware tolerance + Sendable trait), and
+the runtime (cooperative mid-turn cancellation + OTLP telemetry +
+slab-pool mailboxes), and closes the v0.2 cleanup backlog (stdlib host
+install, 6/20→20/20 wasm Components, 5→2 ignored conformance cases).
+See [`RELEASE-v0.3.md`](RELEASE-v0.3.md) for the headline numbers and
+[`SLICE_V0_3.md`](SLICE_V0_3.md) for the shipped/deferred detail. The
+v0.2 milestone remains tagged
+[`v0.2.0`](https://github.com/hassard0/stardust/releases/tag/v0.2.0);
+the v0.1 milestone at
 [`v0.1.0`](https://github.com/hassard0/stardust/releases/tag/v0.1.0).
+
+### v0.3 highlights
+
+- **NLL last-use + field-level Places** — the borrow checker now
+  deactivates borrows at their last use and tracks disjoint fields
+  separately (A54/A55/A56)
+- **Scope-aware strict tolerance** — agent/handler/supervisor bodies
+  hard-error unresolved names with SD2021 (A65); permissive scopes
+  keep the slice-3 fresh-var fallback
+- **Sendable trait** — formal cross-agent message-arg contract (Copy
+  ∨ owned-Sized-no-refs ∨ `derive(Sendable)`); SD3011 at every
+  `!Msg(...)` / `?Msg(...)` site (A65.b)
+- **Cooperative mid-turn cancellation** — per-turn deadlines now
+  interrupt blocking handlers (A70); closes A41
+- **OTLP wire-format telemetry** — `STARDUST_OTLP_ENDPOINT` routes
+  spans/metrics to any collector via tonic-gRPC (A71); closes A38
+- **Slab-pool mailbox frames** — per-mailbox `SlabPool` reuses
+  pre-allocated `MessageFrame` slots (A72); closes A40
+- **Stdlib really runs under `sdust run`** — driver wired to
+  `sdust_stdlib::host::dispatch` via CLI bridge
+- **20/20 wasm Components** (was 14/20 in v0.2)
+- **623 tests pass** (+73 over v0.2), 0 clippy warnings
 
 ### v0.2 highlights
 
@@ -113,10 +140,10 @@ The compiler is a Rust workspace of nineteen crates:
 | `sdust-ast` | typed AST view over the CST |
 | `sdust-diagnostics` | diagnostic types, SD-coded labels, ariadne rendering |
 | `sdust-hir` | name-resolved HIR with arena storage |
-| `sdust-types` | resolved Ty, HM inference, bidirectional type checker, effects + capabilities |
-| `sdust-borrow` | ownership/move/borrow/affine/arena analysis |
+| `sdust-types` | resolved Ty, HM inference, bidirectional type checker, effects + capabilities; v0.3 scope-strict + Sendable |
+| `sdust-borrow` | ownership/move/borrow/affine/arena analysis; v0.3 field-level Places + NLL last-use |
 | `sdust-sir` | mid-level IR + tree-walking interpreter (slice 6) |
-| `sdust-runtime` | concurrent tokio runtime: agents, mailboxes, supervisors, budgets (slice 7) |
+| `sdust-runtime` | concurrent tokio runtime: agents, mailboxes, supervisors, budgets (slice 7); v0.3 mid-turn cancel + OTLP + slab pool |
 | `sdust-codegen-cranelift` | native backend — JIT + AOT object (slice 8 + v0.2 completion) |
 | `sdust-codegen-wasm` | wasm32-wasi / wasm32-web core module + Component Model emitter |
 | `sdust-codegen-llvm` | LLVM backend (real lowering behind `--features llvm`; v0.2) |
@@ -145,14 +172,15 @@ implemented or planned:
 | 7 | runtime MVP (scheduler, mailboxes, supervisors) | shipped (`v0.7.0-runtime`) |
 | 8 | native (Cranelift) and Wasm backends | shipped (`v0.8.0-codegen` / `v0.1.0`) |
 | **v0.2** | LSP + pkg + doc + full codegen + stdlib + DWARF + Wasm CM | **shipped (`v0.2.0`)** |
+| **v0.3** | Soundness hardening: NLL last-use + field Places, scope-strict + Sendable, mid-turn cancel + OTLP + slab mailboxes, v0.2 cleanup (stdlib install, 20/20 wasm-CM, 5→2 ignored) | **shipped (`v0.3.0`)** |
 
-### Post-v0.2 roadmap
+### Post-v0.3 roadmap
 
 | Slice | Scope | Status |
 |---|---|---|
-| v0.3 | Real `std.*` semantics in `sdust run`, WASI Preview 2, DWARF v5 + per-instr line program, backtracking pkg resolver | planned |
+| v0.4 | Polonius-style borrows, real cap-name resolution wiring, SIR-side cancellation polling, WASI Preview 2 + user WIT, DWARF v5 + per-instr line program, backtracking pkg resolver | planned |
 | - | `dyn` dispatch + closure capture in compiled code, real `loop { break }` lowering, `escalate` supervisor action | planned |
-| - | Multi-core scheduler, PGO/ThinLTO, distributed agents, procedural macros, true NLL / Polonius | future |
+| - | Multi-core scheduler, PGO/ThinLTO, distributed agents, procedural macros, effect-row polymorphism | future |
 
 ## License
 

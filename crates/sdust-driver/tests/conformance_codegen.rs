@@ -10,7 +10,7 @@
 use sdust_codegen_cranelift::artifact::BuildMode;
 use sdust_codegen_cranelift::jit::{build_jit, jit_compile_and_run_main, symbols_from};
 use sdust_codegen_cranelift::object::{compile_object, find_linker, link_executable};
-use sdust_codegen_wasm::{compile_program_to_bytes, WasmTarget};
+use sdust_codegen_wasm::{compile_program_to_bytes, emit_wit, wrap_as_component, WasmTarget};
 use sdust_driver::{lower, parse_source, type_and_borrow_check};
 use sdust_runtime::codegen_abi;
 use std::path::PathBuf;
@@ -313,6 +313,63 @@ fn aot_link_and_run_smoke() {
             }
         }
     }
+}
+
+/// v0.3 integrator gate: every ship example must wrap into a valid
+/// Wasm Component (the default `sdust build --target wasm` output).
+/// This third column complements `all_examples_compile_native` and
+/// `all_examples_compile_wasm` (which validate only the core module).
+#[test]
+fn all_examples_compile_wasm_component() {
+    let examples_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples");
+    let mut failed: Vec<(String, String)> = Vec::new();
+    for entry in std::fs::read_dir(&examples_root).unwrap() {
+        let p = entry.unwrap().path();
+        if p.extension().map(|e| e != "sd").unwrap_or(true) {
+            continue;
+        }
+        let name = p.file_stem().unwrap().to_string_lossy().to_string();
+        let src = std::fs::read_to_string(&p).unwrap();
+        let prog = lower_strict(src);
+        let core = match compile_program_to_bytes(&prog, WasmTarget::Wasi) {
+            Ok(b) => b,
+            Err(e) => {
+                failed.push((name, format!("core: {e}")));
+                continue;
+            }
+        };
+        let wit = match emit_wit(&prog, &name, WasmTarget::Wasi) {
+            Ok(w) => w,
+            Err(e) => {
+                failed.push((name, format!("wit: {e}")));
+                continue;
+            }
+        };
+        let comp = match wrap_as_component(&core, &wit) {
+            Ok(c) => c,
+            Err(e) => {
+                failed.push((name, format!("wrap: {e}")));
+                continue;
+            }
+        };
+        let mut v = wasmparser::Validator::new();
+        if let Err(e) = v.validate_all(&comp) {
+            failed.push((name, format!("validate: {e}")));
+        }
+    }
+    assert!(
+        failed.is_empty(),
+        "v0.3 wasm-component sweep — {} example(s) failed:\n{}",
+        failed.len(),
+        failed
+            .iter()
+            .map(|(n, e)| format!("  - {n}: {e}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
 }
 
 /// Sweep all 20 ship examples through the wasm path. Each compiled

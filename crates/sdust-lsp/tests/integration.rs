@@ -47,8 +47,19 @@ fn diagnostics_clean_file_has_none() {
 
 #[test]
 fn diagnostics_type_error_produces_at_least_one() {
-    // Calling an unresolved name forces a type-check error.
-    let src = "fn main() -> Unit { definitely_not_a_real_fn(1, 2, 3) }\n";
+    // v0.3 (A65): unresolved names in a TopLevelFn scope are now
+    // permissive (slice-3 A21 fresh-var fallback). We deliberately
+    // surface a strict-scope error here: an agent handler is a strict
+    // scope (`ScopeKind::HandlerBody`) so calling an unresolved helper
+    // promotes to SD2021. This keeps the LSP wired to a stable
+    // diagnostic that survives future tolerance-policy changes.
+    let src = "\
+        protocol Hi { Greet(name: Str) -> Str }\n\
+        agent Greeter: Hi {\n\
+          on Greet(name) -> {\n\
+            definitely_not_a_real_helper(name)\n\
+          }\n\
+        }\n";
     let doc = analyze(src);
     let publish = build_publish(uri(), &doc);
     assert!(
