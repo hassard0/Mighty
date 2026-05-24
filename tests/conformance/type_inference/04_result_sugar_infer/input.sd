@@ -7,7 +7,7 @@ fn parse(s: Str) -> I64!FooErr {
 fn main() {
   let r = parse("x")
   match r {
-    Ok(n) -> log(n.to_str()),
-    Err(_) -> log("err"),
+    Ok(n) => log(n.to_str())
+    Err(_) => log("err")
   }
 }

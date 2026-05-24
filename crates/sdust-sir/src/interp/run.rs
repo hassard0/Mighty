@@ -312,11 +312,12 @@ impl<'a> Interp<'a> {
                 let val = match self.eval_rvalue(host, rv) {
                     EvalOutcome::Value(v) => v,
                     EvalOutcome::CallPending(fn_id, args) => {
-                        // Roll back PC so we re-execute this Assign once
-                        // the callee returns and stores into _0; we'll
-                        // then read from the callee's _0 via last_return.
-                        self.stack.last_mut().unwrap().pc -= 1;
-                        return self.push_call_frame(fn_id, args);
+                        // Run the callee synchronously via the same
+                        // nested-loop path that agent ctors use. This
+                        // avoids the broken "roll back PC and rely on
+                        // last_return" protocol which infinitely
+                        // re-fired the same Call statement.
+                        self.run_subfn(host, fn_id, args)
                     }
                     EvalOutcome::Trap(code, msg) => return StepOutcome::Trap(code, msg),
                     EvalOutcome::ConsumedReturn(v) => v,

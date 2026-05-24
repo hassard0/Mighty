@@ -7,9 +7,9 @@
 //! For wasm cases, we compile and validate the resulting bytes via
 //! `wasmparser`.
 
+use sdust_codegen_cranelift::artifact::BuildMode;
 use sdust_codegen_cranelift::jit::{build_jit, jit_compile_and_run_main, symbols_from};
 use sdust_codegen_cranelift::object::{compile_object, find_linker, link_executable};
-use sdust_codegen_cranelift::artifact::BuildMode;
 use sdust_codegen_wasm::{compile_program_to_bytes, WasmTarget};
 use sdust_driver::{lower, parse_source, type_and_borrow_check};
 use sdust_runtime::codegen_abi;
@@ -228,8 +228,7 @@ fn all_examples_compile_native() {
         let src = std::fs::read_to_string(&p).unwrap();
         let prog = lower_strict(src);
         let st = codegen_abi::symbol_table();
-        let syms =
-            symbols_from(&st.iter().map(|(n, p)| (n.as_str(), *p)).collect::<Vec<_>>());
+        let syms = symbols_from(&st.iter().map(|(n, p)| (n.as_str(), *p)).collect::<Vec<_>>());
         if let Err(e) = build_jit(&prog, &syms) {
             failed.push((name, format!("{e}")));
         }

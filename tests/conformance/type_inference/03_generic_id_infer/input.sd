@@ -1,4 +1,4 @@
-fn id<T>(x: T) -> T { x }
+fn id[T](x: T) -> T { x }
 
 fn main() {
   let a = id(7)

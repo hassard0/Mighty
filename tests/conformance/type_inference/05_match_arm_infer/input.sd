@@ -1,7 +1,7 @@
 fn pick(b: Bool) -> I64 {
   match b {
-    true -> 1,
-    false -> 2,
+    true => 1
+    false => 2
   }
 }
 

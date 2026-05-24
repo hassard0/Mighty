@@ -1,19 +1,43 @@
 # Stardust
 
-[![Status](https://img.shields.io/badge/status-v0.1-green)](https://github.com/hassard0/stardust/releases/tag/v0.1.0)
+[![Status](https://img.shields.io/badge/status-v0.2-green)](https://github.com/hassard0/stardust/releases/tag/v0.2.0)
 [![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)](#license)
 
 Stardust is an agent-first systems programming language. It is statically
 typed, ownership-based, and treats agents, protocols, capabilities, effects,
 arenas, and budgets as first-class concepts. The toolchain targets both
-native code (via Cranelift in v0.1; LLVM scaffolded for v0.2) and
-WebAssembly (core modules in v0.1; full Component Model in v0.2).
+native code (Cranelift JIT + AOT; LLVM behind `--features llvm`) and
+WebAssembly (Component Model by default; bare core modules via
+`--no-component`).
 
-**v0.1 is shipped.** Slice 8 — native (Cranelift) and Wasm codegen — is tagged
-[`v0.8.0-codegen`](https://github.com/hassard0/stardust/releases/tag/v0.8.0-codegen),
-and the v0.1 milestone itself is tagged
+**v0.2 is shipped.** The v0.2 milestone tag
+[`v0.2.0`](https://github.com/hassard0/stardust/releases/tag/v0.2.0)
+closes every v0.1 deferral: LSP server, package manager, doc generator,
+real stdlib, DWARF debug info, full SIR coverage in native codegen,
+and the Wasm Component Model wrapper. See [`RELEASE-v0.2.md`](RELEASE-v0.2.md)
+for the headline numbers and [`SLICE_V0_2.md`](SLICE_V0_2.md) for the
+shipped/deferred detail. The v0.1 milestone remains tagged
 [`v0.1.0`](https://github.com/hassard0/stardust/releases/tag/v0.1.0).
-See [`RELEASE-v0.1.md`](RELEASE-v0.1.md) for the headline numbers.
+
+### v0.2 highlights
+
+- **`sdust lsp`** — LSP 3.17 server (diagnostics, hover, completion,
+  go-to-def) plus a VS Code extension scaffold
+- **`sdust pkg`** — package manager (resolver + lockfile + path/git
+  fetchers + publisher); CLI `add` / `remove` / `update` / `fetch` /
+  `list` / `publish`
+- **`sdust doc`** — doc generator producing markdown or HTML with an
+  item index, per-item pages, back-links, and a search index
+- **20/20 native + 20/20 wasm core-module compilation** across the
+  example corpus (Cranelift + wasm backend now cover ADT,
+  `?`-propagation, agent handlers, monomorphization)
+- **Real stdlib** (`std.json`, `std.tls`, `std.http`, `std.fs`,
+  `std.time`, `std.test`) backed by `rustls`, `hyper`, `serde_json`,
+  `tokio`
+- **DWARF v4 debug info** (Cranelift) + wasm `name` section +
+  source-map v3 sidecar
+- **Wasm Component Model output by default** (`wit-component`); use
+  `--no-component` for a bare core module
 
 ```bash
 # Compile and JIT-run
@@ -81,7 +105,7 @@ SDxxxx` prints a paragraph describing any diagnostic code emitted.
 
 ## Project layout
 
-The compiler is a Rust workspace of fourteen crates:
+The compiler is a Rust workspace of nineteen crates:
 
 | Crate | Responsibility |
 |---|---|
@@ -93,11 +117,16 @@ The compiler is a Rust workspace of fourteen crates:
 | `sdust-borrow` | ownership/move/borrow/affine/arena analysis |
 | `sdust-sir` | mid-level IR + tree-walking interpreter (slice 6) |
 | `sdust-runtime` | concurrent tokio runtime: agents, mailboxes, supervisors, budgets (slice 7) |
-| `sdust-codegen-cranelift` | native backend — JIT + AOT object (slice 8) |
-| `sdust-codegen-wasm` | wasm32-wasi / wasm32-web core-module emitter (slice 8) |
-| `sdust-codegen-llvm` | LLVM backend scaffold (feature-gated; v0.2 work) |
+| `sdust-codegen-cranelift` | native backend — JIT + AOT object (slice 8 + v0.2 completion) |
+| `sdust-codegen-wasm` | wasm32-wasi / wasm32-web core module + Component Model emitter |
+| `sdust-codegen-llvm` | LLVM backend (real lowering behind `--features llvm`; v0.2) |
+| `sdust-debuginfo` | DWARF v4 builder + wasm source-map + `name` section (v0.2) |
 | `sdust-fmt` | canonical formatter (Wadler/Lindig pretty-printer) |
 | `sdust-driver` | compilation pipeline and `star.toml` manifest loader |
+| `sdust-pkg` | package manager: resolver, lockfile, fetchers, publish (v0.2) |
+| `sdust-lsp` | LSP 3.17 server over stdio (v0.2) |
+| `sdust-doc` | doc generator (extract + render markdown/HTML) (v0.2) |
+| `sdust-stdlib` | real `std.json` / `tls` / `http` / `fs` / `time` / `test` (v0.2) |
 | `sdust-cli` | the `sdust` binary |
 
 ## Roadmap
@@ -114,18 +143,16 @@ implemented or planned:
 | 5 | effects, capabilities, traits, `dyn`, derives, strict protocols | shipped (`v0.5.0-effects`) |
 | 6 | SIR and interpreter | shipped (`v0.6.0-sir`) |
 | 7 | runtime MVP (scheduler, mailboxes, supervisors) | shipped (`v0.7.0-runtime`) |
-| 8 | native (Cranelift) and Wasm backends | **shipped (`v0.8.0-codegen` / `v0.1.0`)** |
+| 8 | native (Cranelift) and Wasm backends | shipped (`v0.8.0-codegen` / `v0.1.0`) |
+| **v0.2** | LSP + pkg + doc + full codegen + stdlib + DWARF + Wasm CM | **shipped (`v0.2.0`)** |
 
-### Post-v0.1 roadmap
+### Post-v0.2 roadmap
 
 | Slice | Scope | Status |
 |---|---|---|
-| 9 | LLVM backend (real lowering, currently scaffold) | planned |
-| 10 | Full SIR coverage in native codegen (ADT, `?`, agent dispatch) | planned |
-| 11 | Wasm Component Model (`wit-component`) + WASI bridge runtime | planned |
-| 12 | LSP server | planned |
-| 13 | Package manager + registry | planned |
-| - | Multi-core scheduler, PGO/ThinLTO, distributed agents | future |
+| v0.3 | Real `std.*` semantics in `sdust run`, WASI Preview 2, DWARF v5 + per-instr line program, backtracking pkg resolver | planned |
+| - | `dyn` dispatch + closure capture in compiled code, real `loop { break }` lowering, `escalate` supervisor action | planned |
+| - | Multi-core scheduler, PGO/ThinLTO, distributed agents, procedural macros, true NLL / Polonius | future |
 
 ## License
 
