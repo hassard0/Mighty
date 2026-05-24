@@ -1,0 +1,20 @@
+// Debug-print macro (v0.5 sdust-macros).
+//
+// `debug!(expr)` evaluates `expr` and prints both the expression's
+// source text and its computed value. The expression text is captured
+// at parse time via the macro template; the value is computed at run
+// time. Useful as a lightweight `printf`-debugging tool.
+//
+// Usage:
+//   use sdust_macros.debug
+//
+//   debug!(my_var)
+//   debug!(compute(x, y))
+//
+// Wire-format: prints `"<source-text> = <value>\n"` to stderr via
+// effect.io.eprintln. Replace the body if your project routes debug
+// output through a different channel.
+
+pub macro debug(expr) => {
+  effect.io.eprintln("debug: ", expr)
+}

@@ -92,8 +92,8 @@ pub fn item(p: &mut Parser) -> bool {
         // v0.5: `proc macro Name(input: TokenStream) -> TokenStream { body }`
         // `proc` lexes as IDENT (not a keyword), so we recognize the two-token
         // prefix here.
-        IDENT if p.tokens[p.pos].text == "proc"
-            && next_nontrivia_after(p, p.pos + 1) == MACRO_KW =>
+        IDENT
+            if p.tokens[p.pos].text == "proc" && next_nontrivia_after(p, p.pos + 1) == MACRO_KW =>
         {
             super::macros::proc_macro_decl(p, cp);
             true

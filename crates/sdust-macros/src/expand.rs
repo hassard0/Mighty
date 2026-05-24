@@ -220,7 +220,7 @@ fn harvest_pattern_idents(
     // inside when we hit an IDENT.
     #[derive(Copy, Clone, PartialEq, Eq)]
     enum BracketKind {
-        Tuple, // (
+        Tuple,  // (
         Struct, // {
     }
     let mut bracket_stack: Vec<BracketKind> = vec![];
@@ -256,21 +256,19 @@ fn harvest_pattern_idents(
                     add_binding(&body[idx].text, params, bound);
                 }
             }
-            SyntaxKind::COLON => {
+            SyntaxKind::COLON if bracket_stack.last().copied() == Some(BracketKind::Struct) => {
                 // Inside a struct pattern, the next IDENT after `:` is the
                 // binding name. Drop the pending field-name (it's just a
                 // field selector, not a binding).
-                if bracket_stack.last().copied() == Some(BracketKind::Struct) {
-                    struct_pending_field = None;
-                    // Skip trivia, then bind the next IDENT.
-                    let mut j = i + 1;
-                    while j < end && body[j].is_trivia() {
-                        j += 1;
-                    }
-                    if j < end && body[j].kind == SyntaxKind::IDENT {
-                        add_binding(&body[j].text, params, bound);
-                        i = j; // continue from the bound IDENT
-                    }
+                struct_pending_field = None;
+                // Skip trivia, then bind the next IDENT.
+                let mut j = i + 1;
+                while j < end && body[j].is_trivia() {
+                    j += 1;
+                }
+                if j < end && body[j].kind == SyntaxKind::IDENT {
+                    add_binding(&body[j].text, params, bound);
+                    i = j; // continue from the bound IDENT
                 }
             }
             SyntaxKind::MUT_KW | SyntaxKind::REF_KW => {
@@ -423,10 +421,7 @@ mod tests {
 
     #[test]
     fn tuple_pattern_bindings_are_mangled() {
-        let d = def(
-            "macro split(p) => { let (a, b) = p; a + b }\n",
-            "split",
-        );
+        let d = def("macro split(p) => { let (a, b) = p; a + b }\n", "split");
         let s = expand_to_source(&d, &["pair"], 7).unwrap();
         assert!(s.contains("let (__mac_7_a, __mac_7_b)"), "got: {s}");
         assert!(s.contains("__mac_7_a + __mac_7_b"), "got: {s}");
@@ -440,17 +435,17 @@ mod tests {
         );
         let s = expand_to_source(&d, &["u"], 3).unwrap();
         assert!(s.contains("__mac_3_id"), "shorthand id not mangled: {s}");
-        assert!(s.contains("__mac_3_name"), "shorthand name not mangled: {s}");
+        assert!(
+            s.contains("__mac_3_name"),
+            "shorthand name not mangled: {s}"
+        );
         // `User` and `id` (field selector) are not bindings — User stays.
         assert!(s.contains("User"), "User type was incorrectly mangled: {s}");
     }
 
     #[test]
     fn struct_pattern_bindings_are_mangled_renamed() {
-        let d = def(
-            "macro pick(u) => { let User { id: x } = u; x }\n",
-            "pick",
-        );
+        let d = def("macro pick(u) => { let User { id: x } = u; x }\n", "pick");
         let s = expand_to_source(&d, &["u"], 4).unwrap();
         // `x` is the binding; `id` is just the field selector.
         assert!(s.contains("__mac_4_x"), "x not mangled: {s}");
@@ -477,7 +472,10 @@ mod tests {
 
     #[test]
     fn mut_binding_is_mangled() {
-        let d = def("macro double(x) => { let mut y = x; y = y + y; y }\n", "double");
+        let d = def(
+            "macro double(x) => { let mut y = x; y = y + y; y }\n",
+            "double",
+        );
         let s = expand_to_source(&d, &["3"], 11).unwrap();
         assert!(s.contains("let mut __mac_11_y"), "got: {s}");
     }

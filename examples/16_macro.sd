@@ -1,7 +1,27 @@
+// Macros — v0.5.
+//
+// Stardust ships declarative token-substitution macros with hygiene
+// mangling. v0.5 adds a `name!(args)` invocation marker (Rust-style
+// trailing `!`); the v0.4 plain-call form (`name(args)` for a known
+// macro) still works for backwards-compat.
+//
+// See:
+//   * docs/spec/macros-v0.5.md  — v0.5 normative spec
+//   * docs/internals/macros.md  — implementation walkthrough
+//   * MACROS_V0_5_NOTES.md      — interpretation calls
+
+// A simple declarative macro: substitute the parameter `a` and `b`,
+// generate an `if`-check, and panic on mismatch.
 macro assert_eq(a, b) => {
   if a != b { panic("assert_eq failed") }
 }
 
 fn main() {
+  // v0.5 syntax: explicit `!` marker. Recommended for new code — the
+  // marker triggers SD6001 if the macro name is undeclared, which a
+  // plain call cannot do without a registered symbol.
+  assert_eq!(1 + 1, 2)
+
+  // v0.4 backwards-compat: a known-macro plain call still expands.
   assert_eq(1 + 1, 2)
 }

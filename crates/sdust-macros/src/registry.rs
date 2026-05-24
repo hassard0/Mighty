@@ -257,10 +257,7 @@ fn decl_is_pub(node: &SyntaxNode) -> bool {
     let mut sib = node.prev_sibling();
     while let Some(s) = sib {
         if s.kind() == SyntaxKind::VISIBILITY {
-            return s
-                .first_token()
-                .map(|t| t.text() == "pub")
-                .unwrap_or(false);
+            return s.first_token().map(|t| t.text() == "pub").unwrap_or(false);
         }
         sib = s.prev_sibling();
     }

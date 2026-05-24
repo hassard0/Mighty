@@ -28,10 +28,7 @@ fn tuple_pattern_does_not_capture_caller_a() {
     assert!(s.contains("__mac_42_a + __mac_42_b"), "got: {s}");
     // The literal `a` token must not appear unmangled in the binding or
     // use position (substituted arg is `(thing)`, not `a`).
-    assert!(
-        !s.contains("let (a,"),
-        "raw a in tuple binding leaks: {s}"
-    );
+    assert!(!s.contains("let (a,"), "raw a in tuple binding leaks: {s}");
 }
 
 #[test]
@@ -57,7 +54,10 @@ fn struct_renamed_pattern_only_mangles_the_alias() {
     let s = expand_to_source(def, &["x_outer"], 1).unwrap();
     // `x` is the binding; `id` is just the field selector.
     assert!(s.contains("__mac_1_x"), "got: {s}");
-    assert!(!s.contains("__mac_1_id"), "id is a selector, not a binding: {s}");
+    assert!(
+        !s.contains("__mac_1_id"),
+        "id is a selector, not a binding: {s}"
+    );
 }
 
 #[test]

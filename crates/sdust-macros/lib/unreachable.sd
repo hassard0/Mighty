@@ -1,0 +1,18 @@
+// Unreachable-arm macro (v0.5 sdust-macros).
+//
+// `unreachable!()` aborts with a clear message. Use it in match arms
+// that the type system can't prove are dead but you know logically
+// cannot be hit:
+//
+//   match flag {
+//     Flag::A => 1,
+//     Flag::B => 2,
+//     _ => unreachable!()
+//   }
+//
+// If execution actually reaches the macro, you have a logic bug; the
+// panic message includes a hint so it's not just a bare `panic`.
+
+pub macro unreachable() => {
+  panic("entered unreachable code")
+}

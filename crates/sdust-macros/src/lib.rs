@@ -20,16 +20,17 @@ pub mod diag;
 pub mod expand;
 pub mod proc;
 pub mod registry;
+pub mod stdlib;
 pub mod token;
 
 pub use diag::{
-    MACRO_ARITY_MISMATCH, MACRO_BODY_PARSE_FAILED, PROC_MACRO_IMPURE,
-    PROC_MACRO_UNSUPPORTED_V0_5, RECURSIVE_MACRO_TOO_DEEP, UNKNOWN_MACRO,
+    MACRO_ARITY_MISMATCH, MACRO_BODY_PARSE_FAILED, PROC_MACRO_IMPURE, PROC_MACRO_UNSUPPORTED_V0_5,
+    RECURSIVE_MACRO_TOO_DEEP, UNKNOWN_MACRO,
 };
 pub use expand::{expand, expand_to_source, ExpandError, MacroContext};
 pub use proc::{
-    check_proc_macro_purity, expand_proc, ImpurityReason, ProcMacroResult,
-    PROC_MACRO_MEM_BYTES, PROC_MACRO_STEPS, PROC_MACRO_WALL_MS,
+    check_proc_macro_purity, expand_proc, ImpurityReason, ProcMacroResult, PROC_MACRO_MEM_BYTES,
+    PROC_MACRO_STEPS, PROC_MACRO_WALL_MS,
 };
 pub use registry::{MacroDef, MacroKind, MacroRegistry, PackageMacros};
 pub use token::{tokens_from_body_node, tokens_to_source, Tok};

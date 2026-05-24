@@ -79,17 +79,11 @@ fn import_with_alias_rebinds_name() {
 
 #[test]
 fn alias_map_renames_during_bulk_use() {
-    let exporter_src = concat!(
-        "pub macro a() => { 1 }\n",
-        "pub macro b() => { 2 }\n",
-    );
+    let exporter_src = concat!("pub macro a() => { 1 }\n", "pub macro b() => { 2 }\n",);
     let exporter = PackageMacros::from_file(&parse_file(exporter_src));
 
     let mut importer = PackageMacros::new();
-    importer.register_use(
-        &exporter,
-        &[("a".to_string(), "alpha".to_string())],
-    );
+    importer.register_use(&exporter, &[("a".to_string(), "alpha".to_string())]);
     assert!(importer.local.contains("alpha"));
     assert!(importer.local.contains("b")); // un-aliased: keeps original name
     assert!(!importer.local.contains("a"));
@@ -97,9 +91,7 @@ fn alias_map_renames_during_bulk_use() {
 
 #[test]
 fn exported_proc_macros_also_carry_through() {
-    let exporter_src = concat!(
-        "pub proc macro identity(input: TokenStream) -> TokenStream { input }\n",
-    );
+    let exporter_src = "pub proc macro identity(input: TokenStream) -> TokenStream { input }\n";
     let exporter = PackageMacros::from_file(&parse_file(exporter_src));
     assert!(exporter.exported.contains("identity"));
     let def = exporter.exported.get("identity").unwrap();

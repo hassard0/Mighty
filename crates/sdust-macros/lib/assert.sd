@@ -1,0 +1,34 @@
+// Standard assertion macros (v0.5 sdust-macros).
+//
+// These macros are pure declarative templates. They expand inline at
+// the call site; SD6002 fires if the arity is wrong, and SD6003 fires
+// if the expanded body fails to re-parse.
+//
+// Usage:
+//   use sdust_macros.assert
+//   use sdust_macros.assert.{assert_eq, assert_ne}
+//
+//   assert!(x > 0)
+//   assert_eq!(actual, expected)
+//   assert_ne!(saw, forbidden)
+//
+// All three call `panic` on failure; replace `panic` with a project-
+// specific failure handler if your runtime needs structured errors.
+
+pub macro assert(cond) => {
+  if !cond {
+    panic("assertion failed")
+  }
+}
+
+pub macro assert_eq(a, b) => {
+  if a != b {
+    panic("assertion failed: left != right")
+  }
+}
+
+pub macro assert_ne(a, b) => {
+  if a == b {
+    panic("assertion failed: left == right")
+  }
+}

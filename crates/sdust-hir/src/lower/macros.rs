@@ -32,8 +32,8 @@ use sdust_diagnostics::{
     diagnostic::{Diagnostic, Label, Severity},
 };
 use sdust_macros::{
-    check_proc_macro_purity, expand_to_source, MacroContext, MacroDef, MacroKind,
-    MacroRegistry, MAX_EXPANSION_DEPTH,
+    check_proc_macro_purity, expand_to_source, MacroContext, MacroDef, MacroKind, MacroRegistry,
+    MAX_EXPANSION_DEPTH,
 };
 use sdust_syntax::{SyntaxKind, SyntaxNode};
 
@@ -131,7 +131,11 @@ pub fn preprocess(source: &str) -> Preprocessed {
         // sort by offset, apply right-to-left in one sweep.
         #[derive(Clone)]
         enum Rewrite {
-            Replace { start: usize, end: usize, with: String },
+            Replace {
+                start: usize,
+                end: usize,
+                with: String,
+            },
         }
         let mut rewrites: Vec<Rewrite> = vec![];
         for c in &calls {
@@ -405,7 +409,9 @@ fn try_macro_call_node<'a>(
 /// first child (PATH_EXPR); we want its single-segment name.
 fn macro_call_name(call: &SyntaxNode) -> Option<String> {
     debug_assert_eq!(call.kind(), SyntaxKind::MACRO_CALL);
-    let path_expr = call.children().find(|c| c.kind() == SyntaxKind::PATH_EXPR)?;
+    let path_expr = call
+        .children()
+        .find(|c| c.kind() == SyntaxKind::PATH_EXPR)?;
     callee_single_name(&path_expr)
 }
 
@@ -668,8 +674,7 @@ fn diag_proc_macro_unsupported(start: usize, end: usize, name: &str) -> Diagnost
         secondary: vec![],
         notes: vec![
             "v0.5 ships proc-macro parsing + storage; execution lands in v0.6".to_string(),
-            "the macro declaration is preserved so call-site source can stay stable"
-                .to_string(),
+            "the macro declaration is preserved so call-site source can stay stable".to_string(),
         ],
         helps: vec![],
     }

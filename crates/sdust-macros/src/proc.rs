@@ -137,16 +137,12 @@ pub fn check_proc_macro_purity(body: &[Tok]) -> Option<ImpurityReason> {
                     .unwrap_or_else(|| "<unknown>".to_string());
                 return Some(ImpurityReason::EffectCall(eff_name));
             }
-            if is_ident && next == Some(SyntaxKind::L_PAREN) {
-                if matches!(text, "time" | "env" | "io" | "model" | "rand") {
-                    return Some(ImpurityReason::BareImpureCall(text.to_string()));
-                }
-            }
-            if is_ident && next == Some(SyntaxKind::DOT) {
-                // `time.now()` etc.
-                if matches!(text, "time" | "env" | "io" | "model" | "rand") {
-                    return Some(ImpurityReason::BareImpureCall(text.to_string()));
-                }
+            if is_ident
+                && matches!(next, Some(SyntaxKind::L_PAREN) | Some(SyntaxKind::DOT))
+                && matches!(text, "time" | "env" | "io" | "model" | "rand")
+            {
+                // Either `time(...)` bare call or `time.now()` method call.
+                return Some(ImpurityReason::BareImpureCall(text.to_string()));
             }
         }
         i += 1;
@@ -171,10 +167,12 @@ mod tests {
 
     #[test]
     fn pure_proc_macro_is_unsupported_not_impure() {
-        let src =
-            "proc macro identity(input: TokenStream) -> TokenStream { input }\n";
+        let src = "proc macro identity(input: TokenStream) -> TokenStream { input }\n";
         let def = parse_proc(src, "identity");
-        assert!(matches!(expand_proc(&def, &[]), ProcMacroResult::Unsupported));
+        assert!(matches!(
+            expand_proc(&def, &[]),
+            ProcMacroResult::Unsupported
+        ));
     }
 
     #[test]
