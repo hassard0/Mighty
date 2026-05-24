@@ -14,6 +14,27 @@ fn next_nontrivia_kind(p: &Parser, from: usize) -> SyntaxKind {
     SyntaxKind::EOF
 }
 
+/// Like `next_nontrivia_kind` but returns EOF if any trivia between `from`
+/// and the next non-trivia token contains a newline. Used to disambiguate
+/// `expr?` vs `expr?Msg(args)` — the latter requires that `?` and `Msg`
+/// be on the same line, mirroring the spec's "no newline before `Msg`"
+/// rule for send/ask sugar.
+fn next_nontrivia_kind_same_line(p: &Parser, from: usize) -> SyntaxKind {
+    let mut i = from;
+    while i < p.tokens.len() {
+        let k = p.tokens[i].kind;
+        if k.is_trivia() {
+            if p.tokens[i].text.contains('\n') {
+                return SyntaxKind::EOF;
+            }
+            i += 1;
+            continue;
+        }
+        return k;
+    }
+    SyntaxKind::EOF
+}
+
 /// Index of the next non-trivia token starting at `from`.
 fn next_nontrivia_index(p: &Parser, from: usize) -> usize {
     let mut i = from;
@@ -404,8 +425,11 @@ fn try_postfix(p: &mut Parser, cp: rowan::Checkpoint) -> bool {
         }
         QUESTION => {
             // Disambiguate: `?Msg(args)` is ask; bare `?` is propagate.
-            // Trivia-aware lookahead for the next token after `?`.
-            let next = next_nontrivia_kind(p, p.pos + 1);
+            // Trivia-aware lookahead for the next token after `?` — but
+            // require the identifier to be on the same line so that
+            // `let body = fetch(url)?\n  parse(body)?` doesn't get glued
+            // together as one `?parse(...)` ask call.
+            let next = next_nontrivia_kind_same_line(p, p.pos + 1);
             if next == IDENT {
                 p.start_node_at(cp, ASK_EXPR);
                 p.bump(QUESTION);
@@ -424,8 +448,8 @@ fn try_postfix(p: &mut Parser, cp: rowan::Checkpoint) -> bool {
         }
         BANG => {
             // `!Msg(args)` is send; `!expr` is boolean-not (handled in unary, not postfix).
-            // Trivia-aware lookahead for the next token after `!`.
-            let next = next_nontrivia_kind(p, p.pos + 1);
+            // Same-line rule applies for the same reason as QUESTION (above).
+            let next = next_nontrivia_kind_same_line(p, p.pos + 1);
             if next == IDENT {
                 p.start_node_at(cp, SEND_EXPR);
                 p.bump(BANG);

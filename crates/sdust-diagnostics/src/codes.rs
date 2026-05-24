@@ -28,6 +28,33 @@ pub const DEPTH_LIMIT_EXCEEDED: DiagCode = DiagCode::new(30);
 pub const UNRESOLVED_NAME: DiagCode = DiagCode::new(1001);
 pub const USE_RESOLVES_TO_NOTHING: DiagCode = DiagCode::new(1002);
 
+// Type checker: SD2001..SD2099
+pub const TYPE_MISMATCH: DiagCode = DiagCode::new(2001);
+pub const UNRESOLVED_TYPE: DiagCode = DiagCode::new(2002);
+pub const CANNOT_INFER_TYPE: DiagCode = DiagCode::new(2003);
+pub const WRONG_GENERIC_ARITY: DiagCode = DiagCode::new(2004);
+pub const WRONG_ARG_COUNT: DiagCode = DiagCode::new(2005);
+pub const UNKNOWN_FIELD: DiagCode = DiagCode::new(2006);
+pub const UNKNOWN_METHOD: DiagCode = DiagCode::new(2007);
+pub const NOT_CALLABLE: DiagCode = DiagCode::new(2008);
+pub const UNKNOWN_VARIANT: DiagCode = DiagCode::new(2009);
+pub const QUESTION_OUTSIDE_RESULT: DiagCode = DiagCode::new(2010);
+pub const QUESTION_ERROR_MISMATCH: DiagCode = DiagCode::new(2011);
+pub const WRONG_VARIANT_ARITY: DiagCode = DiagCode::new(2012);
+pub const MISSING_STRUCT_FIELD: DiagCode = DiagCode::new(2013);
+pub const DUPLICATE_STRUCT_FIELD: DiagCode = DiagCode::new(2014);
+pub const NON_EXHAUSTIVE_MATCH: DiagCode = DiagCode::new(2015);
+pub const UNREACHABLE_MATCH_ARM: DiagCode = DiagCode::new(2016);
+pub const BINOP_TYPE_MISMATCH: DiagCode = DiagCode::new(2017);
+pub const IF_BRANCH_MISMATCH: DiagCode = DiagCode::new(2018);
+pub const RETURN_TYPE_MISMATCH: DiagCode = DiagCode::new(2019);
+pub const PUB_PARAM_NEEDS_TYPE: DiagCode = DiagCode::new(2020);
+pub const UNRESOLVED_VALUE: DiagCode = DiagCode::new(2021);
+pub const NOT_A_STRUCT: DiagCode = DiagCode::new(2022);
+pub const GENERIC_ARG_MISMATCH: DiagCode = DiagCode::new(2023);
+pub const LAMBDA_ARITY_MISMATCH: DiagCode = DiagCode::new(2024);
+pub const CANNOT_TAKE_REF: DiagCode = DiagCode::new(2025);
+
 /// Returns a 2-4 sentence human-readable explanation for a diagnostic
 /// code, suitable for `sdust explain SDxxxx`. Returns None for codes
 /// outside the assigned ranges.
@@ -98,6 +125,123 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  `use` does not name any importable item. Verify the package \
                  and module path; remember that paths use `.` as the \
                  separator."
+        }
+        2001 => {
+            "SD2001: Type mismatch. An expression's type does not match the \
+                 type required by context. The diagnostic shows the expected \
+                 type and the actual type; check the call site or annotation."
+        }
+        2002 => {
+            "SD2002: Unresolved type. The named type does not exist in scope. \
+                 Verify the spelling, the relevant `use` declaration, and \
+                 whether the type lives inside a module path (`foo.bar.Type`)."
+        }
+        2003 => {
+            "SD2003: Cannot infer type. The type checker could not determine \
+                 a binding's type from context. Add an explicit annotation \
+                 (`let x: T = ...`) or provide more usage."
+        }
+        2004 => {
+            "SD2004: Wrong number of generic arguments. The type or function \
+                 expects a specific number of `[T, ...]` arguments. Add or \
+                 remove arguments to match the declaration."
+        }
+        2005 => {
+            "SD2005: Wrong number of arguments. The function expects a specific \
+                 arity; the call site provides a different number. Check the \
+                 function's declaration."
+        }
+        2006 => {
+            "SD2006: Unknown field. The named field does not exist on the \
+                 struct. Check spelling and the struct declaration."
+        }
+        2007 => {
+            "SD2007: Unknown method. The named method does not exist on the \
+                 receiver type. Method resolution searches `impl` blocks and \
+                 a small built-in table; nothing matched."
+        }
+        2008 => {
+            "SD2008: Not callable. The value being applied does not have a \
+                 function type. Check that it refers to a function or a \
+                 callable agent constructor."
+        }
+        2009 => {
+            "SD2009: Unknown variant. The named variant does not exist on the \
+                 enum. Verify the spelling and the enum declaration."
+        }
+        2010 => {
+            "SD2010: `?` outside Result-returning function. The `?` operator \
+                 requires the enclosing function's return type to be \
+                 `Result[_, _]`. Change the signature, or replace `?` with an \
+                 explicit `match`."
+        }
+        2011 => {
+            "SD2011: `?` error-type mismatch. The error type of `?`'s operand \
+                 must match (or coerce to) the enclosing function's error \
+                 type. Slice 3 requires an exact match."
+        }
+        2012 => {
+            "SD2012: Wrong variant arity. The enum variant expects a specific \
+                 number of payload values; the call site provides a different \
+                 count."
+        }
+        2013 => {
+            "SD2013: Missing struct field. The struct literal omits a \
+                 required field. Add the field, or (if the field has a \
+                 default) use shorthand notation."
+        }
+        2014 => {
+            "SD2014: Duplicate struct field. The struct literal lists the same \
+                 field twice. Remove the duplicate."
+        }
+        2015 => {
+            "SD2015: Non-exhaustive match (warning). The match does not cover \
+                 every possible value of the scrutinee. Slice 3 issues this \
+                 as a warning; slice 5 will promote it to an error."
+        }
+        2016 => {
+            "SD2016: Unreachable match arm (warning). A later arm cannot be \
+                 reached because an earlier arm always matches first."
+        }
+        2017 => {
+            "SD2017: Binary operator type mismatch. The operator is not defined \
+                 for the given operand types. Slice 3 supports the standard \
+                 numeric/boolean operators only."
+        }
+        2018 => {
+            "SD2018: If/else branch type mismatch. The two branches of an `if` \
+                 produce incompatible types. Unify them, or remove the value \
+                 use of the `if`."
+        }
+        2019 => {
+            "SD2019: Return-type mismatch. The function declares one return \
+                 type but the body produces a different one."
+        }
+        2020 => {
+            "SD2020: Public function parameter requires explicit type. `pub` \
+                 functions must declare every parameter's type so callers in \
+                 other modules can rely on the signature."
+        }
+        2021 => {
+            "SD2021: Unresolved value. The named identifier does not refer to \
+                 any value in scope. Check the spelling and visibility."
+        }
+        2022 => {
+            "SD2022: Not a struct. The value cannot be initialized with a \
+                 struct literal because it is not a struct type."
+        }
+        2023 => {
+            "SD2023: Generic argument-kind mismatch. The type argument's kind \
+                 does not match the expected parameter kind (e.g. supplied a \
+                 lifetime where a type was expected)."
+        }
+        2024 => {
+            "SD2024: Lambda arity mismatch. The lambda's parameter count \
+                 differs from the expected function type."
+        }
+        2025 => {
+            "SD2025: Cannot take reference. The expression is not a place \
+                 (l-value), so `&` cannot apply."
         }
         _ => return None,
     })

@@ -429,6 +429,7 @@ dependencies = [
  "sdust-fmt",
  "sdust-hir",
  "sdust-syntax",
+ "sdust-types",
  "serde",
  "tempfile",
  "thiserror",
@@ -462,6 +463,18 @@ dependencies = [
  "insta",
  "logos",
  "rowan",
+]
+
+[[package]]
+name = "sdust-types"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "la-arena",
+ "sdust-ast",
+ "sdust-diagnostics",
+ "sdust-hir",
+ "sdust-syntax",
 ]
 
 [[package]]

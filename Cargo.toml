@@ -5,6 +5,7 @@ members = [
     "crates/sdust-ast",
     "crates/sdust-diagnostics",
     "crates/sdust-hir",
+    "crates/sdust-types",
     "crates/sdust-fmt",
     "crates/sdust-driver",
     "crates/sdust-cli",

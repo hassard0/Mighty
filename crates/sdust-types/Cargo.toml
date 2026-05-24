@@ -1,0 +1,18 @@
+[package]
+name = "sdust-types"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+la-arena.workspace = true
+sdust-hir = { path = "../sdust-hir" }
+sdust-diagnostics = { path = "../sdust-diagnostics" }
+
+[dev-dependencies]
+insta.workspace = true
+sdust-syntax = { path = "../sdust-syntax" }
+sdust-ast = { path = "../sdust-ast" }

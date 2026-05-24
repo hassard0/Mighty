@@ -74,11 +74,12 @@ fn lower_fn(ctx: &mut LoweringCtx, f: FnDecl) -> FnId {
         })
         .unwrap_or_default();
     let body = f.body().map(|b| super::exprs::lower_block(ctx, b));
+    let generics = lower_generics(&f.0);
     let hf = HirFn {
         name,
         is_pub,
         is_unsafe,
-        generics: vec![],
+        generics,
         params,
         ret,
         effects,
@@ -115,10 +116,11 @@ fn lower_struct(ctx: &mut LoweringCtx, s: StructDecl) -> StructId {
                 }
             })
             .collect();
+    let generics = lower_generics(&s.0);
     let hs = HirStruct {
         name,
         is_pub: has_visibility(&s.0),
-        generics: vec![],
+        generics,
         fields,
         span: span_of(&s.0),
     };
@@ -152,10 +154,11 @@ fn lower_enum(ctx: &mut LoweringCtx, e: EnumDecl) -> EnumId {
                 }
             })
             .collect();
+    let generics = lower_generics(&e.0);
     let he = HirEnum {
         name,
         is_pub: has_visibility(&e.0),
-        generics: vec![],
+        generics,
         variants,
         span: span_of(&e.0),
     };
@@ -173,10 +176,11 @@ fn lower_type_alias(ctx: &mut LoweringCtx, t: TypeAlias) -> TypeAliasId {
             .find(|c| is_type_node(c.kind()))
             .map(|n| super::types::lower_type(ctx, n))
             .unwrap_or_else(|| ctx.alloc_type(HirType::Unknown));
+    let generics = lower_generics(&t.0);
     let h = HirTypeAlias {
         name,
         is_pub: has_visibility(&t.0),
-        generics: vec![],
+        generics,
         ty,
         span: span_of(&t.0),
     };
@@ -233,4 +237,24 @@ pub fn is_type_node(k: SyntaxKind) -> bool {
 
 pub fn has_visibility(n: &SyntaxNode) -> bool {
     n.children().any(|c| c.kind() == SyntaxKind::VISIBILITY)
+}
+
+/// Collect generic parameter names from a `GENERIC_PARAM_LIST` child of `n`.
+/// Returns an empty vec if the node has no generic params.
+pub fn lower_generics(n: &SyntaxNode) -> Vec<String> {
+    let Some(list) = n
+        .children()
+        .find(|c| c.kind() == SyntaxKind::GENERIC_PARAM_LIST)
+    else {
+        return vec![];
+    };
+    list.children()
+        .filter(|c| c.kind() == SyntaxKind::GENERIC_PARAM)
+        .map(|p| {
+            p.children()
+                .find_map(sdust_ast::Name::cast)
+                .map(|n| n.text())
+                .unwrap_or_default()
+        })
+        .collect()
 }

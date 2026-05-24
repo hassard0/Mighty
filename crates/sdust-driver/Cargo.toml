@@ -17,6 +17,7 @@ sdust-ast = { path = "../sdust-ast" }
 sdust-hir = { path = "../sdust-hir" }
 sdust-diagnostics = { path = "../sdust-diagnostics" }
 sdust-fmt = { path = "../sdust-fmt" }
+sdust-types = { path = "../sdust-types" }
 
 [dev-dependencies]
 tempfile = "3"

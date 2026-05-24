@@ -41,3 +41,10 @@ pub fn lower(p: &ParsedFile) -> (Package, Vec<Diagnostic>) {
     all.extend(diag);
     (pkg, all)
 }
+
+/// Type-check a lowered package. Returns the list of type-checker
+/// diagnostics (errors + warnings). Callers typically concatenate these
+/// with the result of [`lower`].
+pub fn type_check(pkg: &Package) -> Vec<Diagnostic> {
+    sdust_types::check_package(pkg)
+}
