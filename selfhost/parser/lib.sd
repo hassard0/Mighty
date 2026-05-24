@@ -1,0 +1,41 @@
+// selfhost/parser/lib.sd
+//
+// v0.6 scaffolding for the self-hosted parser package.
+//
+// The runnable parser lives in `parser.sd` as a single consolidated
+// module — the v0.6 `sdust check` driver compiles one `.sd` file at a
+// time, same single-file constraint as the v0.4 lexer. This file
+// documents the intended v0.7 module layout once `sdust-pkg` lands
+// cross-file module resolution.
+//
+// ## v0.7 module layout
+//
+//   selfhost/parser/
+//     lib.sd            // this file — package root + public re-exports
+//     parser.sd         // cursor primitives + Parser type (the one
+//                       // file we currently ship as `parser.sd`)
+//     items.sd          // item dispatch (fn/struct/enum/use/mod/...)
+//     types.sd          // type expression parsing
+//     patterns.sd       // pattern parsing
+//     exprs.sd          // Pratt expression parser
+//     stmts.sd          // block + let + control-flow
+//     agents.sd         // agent/protocol/supervisor (v0.7+)
+//     concurrency.sd    // arena/task/budget/sandbox (v0.7+)
+//     recovery.sd       // sync_to + error recovery primitives
+//
+// ## Public surface
+//
+// The exported entry point is `parse()`, which reads the trusted Rust
+// lexer's token stream from the host bridge and emits CST events
+// (enter / exit / token / error) via the same bridge.
+//
+// pub fn parse() -> Unit
+//
+// The bootstrap test in crates/sdust-driver/tests/selfhost_parser.rs
+// installs a SelfhostParserHost that:
+//   1. seeds the token stream from the trusted Rust lexer
+//   2. captures the event stream
+//   3. rebuilds a CST tree from the events
+//   4. diffs against the Rust parser's tree
+
+package selfhost_parser_lib

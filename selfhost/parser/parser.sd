@@ -1,0 +1,1927 @@
+// selfhost/parser/parser.sd
+//
+// Self-hosted Stardust parser (v0.6) — STATIC SOURCE FORM.
+//
+// Mirrors the behavior of crates/sdust-syntax/src/parser/* as a
+// hand-written recursive-descent parser in Stardust source. `sdust check`s
+// clean and produces a CST tree shaped identically to the Rust parser for
+// the v0.6 supported subset.
+//
+// ## v0.6 status: SHIPPED-SUBSET
+//
+// The Rust parser is ~2600 LOC split across 13 files. Porting all of it
+// to Stardust would be ~5-7 KLOC and would exceed the v0.6 time budget.
+// We ship the productions exercised by examples 01-05 plus a handful of
+// closely-related ones:
+//
+//   - `fn` declarations (with simple params, no generics)
+//   - `struct` declarations (named fields)
+//   - `enum` declarations (tuple + unit variants)
+//   - `type` aliases
+//   - `use` declarations
+//   - block bodies + `let` statements
+//   - Pratt expression parser for arithmetic, comparison, logical, etc.
+//   - `if` / `else` / `match` / `for` / `while` / `loop`
+//   - postfix `()` `.field` `.method()` `[idx]` `?`
+//   - literals, identifiers, path exprs, call exprs
+//   - patterns: literal, binding, wildcard, enum, struct, tuple, range
+//   - types: path, borrow, tuple, array, fn, generic args, T!E sugar
+//   - `extern { fn ... }` blocks (parsed; bodies are stubs)
+//   - line/block/doc comments + whitespace (handled as trivia via the lexer)
+//
+// Deferred to v0.7+ (documented in SELFHOST_PARSER_V0_6_NOTES.md):
+//   - agent / protocol / supervisor / sandbox blocks
+//   - arena / task / budget blocks
+//   - effects + capabilities + requires clauses
+//   - send `!Msg` / ask `?Msg` postfix sugar
+//   - deadlines (`@duration`)
+//   - macro definitions + proc macros
+//   - unsafe blocks (parsed only as a wrapped block)
+//   - generic type parameters with bounds (`T: Trait + Bound`)
+//   - turbofish (`Path::[T]`)
+//   - HTML literals as expressions
+//
+// ## Bootstrap technique
+//
+// Same shape as the v0.5 self-host lexer: the parser talks to the host
+// through `std.io.<method>` effect calls. The bootstrap test installs a
+// `SelfhostParserHost` that:
+//   1. seeds the token stream from the trusted Rust lexer
+//   2. responds to cursor queries (`tok_kind(i)`, `tok_text(i)`, etc.)
+//   3. records each `enter`/`exit`/`token` event into a Vec<Event>
+//
+// After the run, the test rebuilds a CST tree from the event stream and
+// diffs it BFS against the Rust parser's tree (kinds + token texts).
+//
+// The bridge is intentionally larger than the lexer's because the parser
+// needs both read access (token cursor) and write access (event sink).
+//
+// ## Why one file in v0.6
+//
+// Same reason as v0.4 lexer: the v0.6 `sdust check` driver compiles one
+// `.sd` file at a time. `lib.sd` / `parser.sd` / `items.sd` etc. document
+// the intended decomposition for v0.7 when `sdust-pkg` lands cross-file
+// resolution.
+//
+// See SELFHOST_PARSER_V0_6_NOTES.md for the language-gap catalog this
+// port surfaced.
+
+package selfhost_parser
+
+// =====================================================================
+// Host bridge
+// =====================================================================
+//
+// All parser state lives in the host. The Stardust source is the pure
+// algorithm; the host is the mutable cursor + event sink.
+//
+// Cursor methods (read-only):
+//   std.io.tok_count()                -> USize         total tokens
+//   std.io.tok_kind(i)                -> Str           "FN_KW" etc.
+//   std.io.tok_text(i)                -> Str           verbatim
+//   std.io.tok_start(i)               -> USize
+//   std.io.tok_end(i)                 -> USize
+//   std.io.tok_is_trivia(i)           -> Bool
+//   std.io.tok_is_keyword(i)          -> Bool
+//
+// Cursor methods (mutating):
+//   std.io.cur_pos()                  -> USize         current position
+//   std.io.cur_set(i)                 -> Unit          set position
+//   std.io.cur_skip_trivia()          -> Unit          advance over trivia
+//
+// Event sink:
+//   std.io.ev_start(kind: Str)        -> Unit          enter SyntaxKind node
+//   std.io.ev_finish()                -> Unit          exit node
+//   std.io.ev_token(i)                -> Unit          consume token at i, advance cursor
+//   std.io.ev_error(msg, start, end)  -> Unit          parse error
+//
+// Checkpoints: the host maintains an internal stack. `ev_checkpoint()`
+// returns a marker; `ev_start_at(cp, kind)` retroactively wraps everything
+// emitted since the checkpoint into a new node of the given kind.
+//
+//   std.io.ev_checkpoint()            -> USize
+//   std.io.ev_start_at(cp, kind: Str) -> Unit
+//
+// Struct-literal context (used to disambiguate `if x { ... }`):
+//   std.io.no_struct_lit_get()        -> Bool
+//   std.io.no_struct_lit_set(b)       -> Unit
+
+// =====================================================================
+// SyntaxKind names
+// =====================================================================
+//
+// We pass kinds as strings to dodge the v0.6 cross-file module problem.
+// The bootstrap test maps these strings back to the Rust `SyntaxKind`
+// enum. Names are kept identical to crates/sdust-syntax/src/syntax_kind.rs
+// debug output so the diff is straight string equality.
+
+// =====================================================================
+// Cursor primitives
+// =====================================================================
+
+fn pos() -> USize { std.io.cur_pos() }
+
+fn peek_kind_at(i: USize) -> Str { std.io.tok_kind(i) }
+
+fn peek() -> Str {
+  let i = pos()
+  std.io.tok_kind(i)
+}
+
+fn at_kind(k: Str) -> Bool {
+  let p = peek()
+  p == k
+}
+
+fn bump_any() -> Unit {
+  // Consume current token unconditionally (unless EOF). Records a token
+  // event and advances the cursor.
+  let p = pos()
+  let k = peek_kind_at(p)
+  let is_eof = k == "EOF"
+  if is_eof == false {
+    std.io.ev_token(p)
+  }
+}
+
+fn skip_trivia() -> Unit {
+  std.io.cur_skip_trivia()
+}
+
+fn eat(k: Str) -> Bool {
+  let here = at_kind(k)
+  if here == true {
+    bump_any()
+    skip_trivia()
+    true
+  } else {
+    false
+  }
+}
+
+fn expect(k: Str) -> Unit {
+  let ok = eat(k)
+  if ok == false {
+    let p = pos()
+    let s = std.io.tok_start(p)
+    let e = std.io.tok_end(p)
+    std.io.ev_error("expected " + k, s, e)
+  }
+}
+
+fn start_node(kind: Str) -> Unit { std.io.ev_start(kind) }
+fn finish_node() -> Unit { std.io.ev_finish() }
+fn checkpoint() -> USize { std.io.ev_checkpoint() }
+fn start_node_at(cp: USize, kind: Str) -> Unit { std.io.ev_start_at(cp, kind) }
+
+// Lookahead: kind of the next non-trivia token at offset `off` from
+// current position. Mirrors `next_nontrivia_kind` in the Rust parser.
+fn next_nontrivia_kind(off: USize) -> Str {
+  let n = std.io.tok_count()
+  let mut i = pos() + off
+  loop {
+    if i >= n { return "EOF" }
+    let k = peek_kind_at(i)
+    let triv = std.io.tok_is_trivia(i)
+    if triv == false { return k }
+    i = i + 1
+  }
+  "EOF"
+}
+
+// Index of the next non-trivia token at offset `off`.
+fn next_nontrivia_index(off: USize) -> USize {
+  let n = std.io.tok_count()
+  let mut i = pos() + off
+  loop {
+    if i >= n { return i }
+    let triv = std.io.tok_is_trivia(i)
+    if triv == false { return i }
+    i = i + 1
+  }
+  i
+}
+
+// =====================================================================
+// File-level entry
+// =====================================================================
+
+pub fn parse() -> Unit {
+  start_node("FILE")
+  skip_trivia()
+  loop {
+    let p_eof = at_kind("EOF")
+    if p_eof == true { break }
+    let ok = item()
+    if ok == false {
+      // Unknown token: emit it as an error and skip to keep making progress.
+      let p = pos()
+      let s = std.io.tok_start(p)
+      let e = std.io.tok_end(p)
+      let text = std.io.tok_text(p)
+      std.io.ev_error("unexpected token " + text, s, e)
+      bump_any()
+      skip_trivia()
+    }
+  }
+  finish_node()
+}
+
+// =====================================================================
+// Items
+// =====================================================================
+
+fn item() -> Bool {
+  skip_trivia()
+  let cp = checkpoint()
+  // Optional attributes (#[derive(...)] or `derive Copy`).
+  loop {
+    let at_hash = at_kind("HASH")
+    let at_derive = at_kind("DERIVE_KW")
+    if at_hash == false {
+      if at_derive == false { break }
+    }
+    attribute()
+    skip_trivia()
+  }
+  // Optional pub visibility.
+  let is_pub = at_kind("PUB_KW")
+  if is_pub == true {
+    start_node("VISIBILITY")
+    bump_any()
+    finish_node()
+    skip_trivia()
+  }
+  let k = peek()
+  match k {
+    "USE_KW" => { use_decl(cp); true }
+    "MOD_KW" => { mod_decl(cp); true }
+    "PACKAGE_KW" => { package_decl(cp); true }
+    "FN_KW" => { fn_decl(cp); true }
+    "STRUCT_KW" => { struct_decl(cp); true }
+    "ENUM_KW" => { enum_decl(cp); true }
+    "TYPE_KW" => { type_alias(cp); true }
+    "IMPL_KW" => { impl_block(cp); true }
+    "TRAIT_KW" => { trait_decl(cp); true }
+    "CONST_KW" => { const_decl(cp); true }
+    "EXTERN_KW" => { extern_block(cp); true }
+    _ => false
+  }
+}
+
+fn attribute() -> Unit {
+  start_node("ATTR")
+  let saw_hash = eat("HASH")
+  if saw_hash == true {
+    expect("L_BRACK")
+    let _ = name_or_keyword()
+    let saw_lparen = eat("L_PAREN")
+    if saw_lparen == true {
+      loop {
+        let done = at_kind("R_PAREN")
+        if done == true { break }
+        let eof = at_kind("EOF")
+        if eof == true { break }
+        let _ = name_or_keyword()
+        let more = eat("COMMA")
+        if more == false { break }
+      }
+      expect("R_PAREN")
+    }
+    expect("R_BRACK")
+  } else {
+    let is_derive = at_kind("DERIVE_KW")
+    if is_derive == true {
+      // `derive Copy[, Hash]` shorthand.
+      start_node("NAME")
+      bump_any()
+      finish_node()
+      skip_trivia()
+      let _ = name_or_keyword()
+      loop {
+        let more = eat("COMMA")
+        if more == false { break }
+        let _ = name_or_keyword()
+      }
+    }
+  }
+  finish_node()
+  skip_trivia()
+}
+
+fn use_decl(cp: USize) -> Unit {
+  start_node_at(cp, "USE_DECL")
+  bump_any() // USE_KW
+  skip_trivia()
+  path()
+  // Either `use X.{a, b}` or `use X as Y` or just `use X`.
+  let dot_brace = at_kind("DOT")
+  if dot_brace == true {
+    let nxt = next_nontrivia_kind(1)
+    let is_brace = nxt == "L_BRACE"
+    if is_brace == true {
+      bump_any() // DOT
+      bump_any() // L_BRACE
+      skip_trivia()
+      loop {
+        let done = at_kind("R_BRACE")
+        if done == true { break }
+        name()
+        let saw_as = eat("AS_KW")
+        if saw_as == true { name() }
+        let more = eat("COMMA")
+        if more == false { break }
+      }
+      expect("R_BRACE")
+    }
+  } else {
+    let saw_as = eat("AS_KW")
+    if saw_as == true { name() }
+  }
+  let _ = eat("SEMI")
+  finish_node()
+  skip_trivia()
+}
+
+fn mod_decl(cp: USize) -> Unit {
+  start_node_at(cp, "MOD_DECL")
+  bump_any() // MOD_KW
+  skip_trivia()
+  path()
+  let _ = eat("SEMI")
+  finish_node()
+  skip_trivia()
+}
+
+fn package_decl(cp: USize) -> Unit {
+  start_node_at(cp, "PACKAGE_DECL")
+  bump_any() // PACKAGE_KW
+  skip_trivia()
+  path()
+  let _ = eat("SEMI")
+  finish_node()
+  skip_trivia()
+}
+
+fn fn_decl(cp: USize) -> Unit {
+  start_node_at(cp, "FN_DECL")
+  let _ = eat("UNSAFE_KW")
+  expect("FN_KW")
+  skip_trivia()
+  name()
+  generic_params()
+  fn_params()
+  let has_ret = eat("THIN_ARROW")
+  if has_ret == true {
+    start_node("RET_TYPE")
+    type_expr()
+    finish_node()
+    skip_trivia()
+  }
+  effect_clause()
+  // requires clauses + body or `= expr` short form.
+  loop {
+    let r = eat("REQUIRES_KW")
+    if r == false { break }
+    let _ = expr()
+    skip_trivia()
+  }
+  skip_trivia()
+  let eq = eat("EQ")
+  if eq == true {
+    let _ = expr()
+    let _ = eat("SEMI")
+  } else {
+    let lb = at_kind("L_BRACE")
+    if lb == true {
+      block()
+    } else {
+      // Trait method without body, or extern fn signature.
+      let _ = eat("SEMI")
+    }
+  }
+  finish_node()
+  skip_trivia()
+}
+
+fn fn_params() -> Unit {
+  start_node("FN_PARAM_LIST")
+  expect("L_PAREN")
+  skip_trivia()
+  let empty = at_kind("R_PAREN")
+  if empty == false {
+    param()
+    loop {
+      let more = eat("COMMA")
+      if more == false { break }
+      let done = at_kind("R_PAREN")
+      if done == true { break }
+      param()
+    }
+  }
+  expect("R_PAREN")
+  finish_node()
+  skip_trivia()
+}
+
+fn param() -> Unit {
+  start_node("FN_PARAM")
+  let is_self = at_kind("SELF_KW")
+  if is_self == true {
+    bump_any()
+    skip_trivia()
+    let saw_colon = eat("COLON")
+    if saw_colon == true { type_expr() }
+  } else {
+    name()
+    let saw_colon = eat("COLON")
+    if saw_colon == true { type_expr() }
+  }
+  finish_node()
+  skip_trivia()
+}
+
+fn struct_decl(cp: USize) -> Unit {
+  start_node_at(cp, "STRUCT_DECL")
+  bump_any() // STRUCT_KW
+  skip_trivia()
+  name()
+  generic_params()
+  expect("L_BRACE")
+  skip_trivia()
+  start_node("STRUCT_FIELD_LIST")
+  loop {
+    let done = at_kind("R_BRACE")
+    if done == true { break }
+    let eof = at_kind("EOF")
+    if eof == true { break }
+    start_node("STRUCT_FIELD")
+    name()
+    let saw_colon = eat("COLON")
+    if saw_colon == true { type_expr() }
+    finish_node()
+    let _ = eat("COMMA")
+    skip_trivia()
+  }
+  finish_node()
+  expect("R_BRACE")
+  finish_node()
+  skip_trivia()
+}
+
+fn enum_decl(cp: USize) -> Unit {
+  start_node_at(cp, "ENUM_DECL")
+  bump_any() // ENUM_KW
+  skip_trivia()
+  name()
+  generic_params()
+  expect("L_BRACE")
+  skip_trivia()
+  start_node("ENUM_VARIANT_LIST")
+  loop {
+    let done = at_kind("R_BRACE")
+    if done == true { break }
+    let eof = at_kind("EOF")
+    if eof == true { break }
+    start_node("ENUM_VARIANT")
+    name()
+    let has_payload = eat("L_PAREN")
+    if has_payload == true {
+      type_expr()
+      loop {
+        let more = eat("COMMA")
+        if more == false { break }
+        let close = at_kind("R_PAREN")
+        if close == true { break }
+        type_expr()
+      }
+      expect("R_PAREN")
+    }
+    finish_node()
+    let _ = eat("COMMA")
+    skip_trivia()
+  }
+  finish_node()
+  expect("R_BRACE")
+  finish_node()
+  skip_trivia()
+}
+
+fn type_alias(cp: USize) -> Unit {
+  start_node_at(cp, "TYPE_ALIAS")
+  bump_any() // TYPE_KW
+  skip_trivia()
+  name()
+  generic_params()
+  expect("EQ")
+  type_expr()
+  let _ = eat("SEMI")
+  finish_node()
+  skip_trivia()
+}
+
+fn impl_block(cp: USize) -> Unit {
+  start_node_at(cp, "IMPL_BLOCK")
+  bump_any() // IMPL_KW
+  skip_trivia()
+  generic_params()
+  type_expr()
+  let saw_for = eat("FOR_KW")
+  if saw_for == true { type_expr() }
+  expect("L_BRACE")
+  skip_trivia()
+  loop {
+    let done = at_kind("R_BRACE")
+    if done == true { break }
+    let eof = at_kind("EOF")
+    if eof == true { break }
+    let icp = checkpoint()
+    let is_pub = at_kind("PUB_KW")
+    if is_pub == true {
+      start_node("VISIBILITY")
+      bump_any()
+      finish_node()
+      skip_trivia()
+    }
+    let is_fn = at_kind("FN_KW")
+    if is_fn == true {
+      fn_decl(icp)
+    } else {
+      let is_type = at_kind("TYPE_KW")
+      if is_type == true {
+        type_alias(icp)
+      } else {
+        let p = pos()
+        let s = std.io.tok_start(p)
+        let e = std.io.tok_end(p)
+        std.io.ev_error("expected fn or type alias in impl", s, e)
+        bump_any()
+        skip_trivia()
+      }
+    }
+  }
+  expect("R_BRACE")
+  finish_node()
+  skip_trivia()
+}
+
+fn trait_decl(cp: USize) -> Unit {
+  start_node_at(cp, "TRAIT_DECL")
+  bump_any() // TRAIT_KW
+  skip_trivia()
+  name()
+  generic_params()
+  expect("L_BRACE")
+  skip_trivia()
+  loop {
+    let done = at_kind("R_BRACE")
+    if done == true { break }
+    let eof = at_kind("EOF")
+    if eof == true { break }
+    let cp2 = checkpoint()
+    let is_pub = at_kind("PUB_KW")
+    if is_pub == true {
+      start_node("VISIBILITY")
+      bump_any()
+      finish_node()
+      skip_trivia()
+    }
+    let is_fn = at_kind("FN_KW")
+    if is_fn == true {
+      start_node_at(cp2, "TRAIT_METHOD")
+      fn_decl(cp2)
+      finish_node()
+    } else {
+      let p = pos()
+      let s = std.io.tok_start(p)
+      let e = std.io.tok_end(p)
+      std.io.ev_error("expected fn in trait", s, e)
+      bump_any()
+      skip_trivia()
+    }
+  }
+  expect("R_BRACE")
+  finish_node()
+  skip_trivia()
+}
+
+fn const_decl(cp: USize) -> Unit {
+  start_node_at(cp, "CONST_DECL")
+  bump_any() // CONST_KW
+  skip_trivia()
+  name()
+  expect("COLON")
+  type_expr()
+  expect("EQ")
+  let _ = expr()
+  let _ = eat("SEMI")
+  finish_node()
+  skip_trivia()
+}
+
+fn extern_block(cp: USize) -> Unit {
+  // Parses `extern { fn name(...) -> T; ... }`. Bodies aren't permitted
+  // here; we recurse into fn_decl which handles the no-body case.
+  start_node_at(cp, "EXTERN_BLOCK")
+  bump_any() // EXTERN_KW
+  skip_trivia()
+  // Optional ABI string literal.
+  let is_str = at_kind("STRING_LITERAL")
+  if is_str == true {
+    bump_any()
+    skip_trivia()
+  }
+  expect("L_BRACE")
+  skip_trivia()
+  loop {
+    let done = at_kind("R_BRACE")
+    if done == true { break }
+    let eof = at_kind("EOF")
+    if eof == true { break }
+    let icp = checkpoint()
+    let is_pub = at_kind("PUB_KW")
+    if is_pub == true {
+      start_node("VISIBILITY")
+      bump_any()
+      finish_node()
+      skip_trivia()
+    }
+    let is_fn = at_kind("FN_KW")
+    if is_fn == true {
+      fn_decl(icp)
+    } else {
+      let p = pos()
+      let s = std.io.tok_start(p)
+      let e = std.io.tok_end(p)
+      std.io.ev_error("expected fn in extern block", s, e)
+      bump_any()
+      skip_trivia()
+    }
+  }
+  expect("R_BRACE")
+  finish_node()
+  skip_trivia()
+}
+
+// =====================================================================
+// Types
+// =====================================================================
+
+fn type_expr() -> Bool {
+  skip_trivia()
+  let k = peek()
+  match k {
+    "AMP" => { borrow_type(); true }
+    "STAR" => { ptr_type(); true }
+    "L_PAREN" => { tuple_type(); true }
+    "L_BRACK" => { array_type(); true }
+    "FN_KW" => { fn_type(); true }
+    "DYN_KW" => { dyn_type(); true }
+    "IDENT" => { path_type(); true }
+    _ => false
+  }
+}
+
+fn borrow_type() -> Unit {
+  start_node("TYPE_BORROW")
+  bump_any() // AMP
+  skip_trivia()
+  let _ = eat("MUT_KW")
+  let _ = type_expr()
+  finish_node()
+  skip_trivia()
+}
+
+fn ptr_type() -> Unit {
+  start_node("TYPE_BORROW")
+  bump_any() // STAR
+  skip_trivia()
+  let _ = type_expr()
+  finish_node()
+  skip_trivia()
+}
+
+fn tuple_type() -> Unit {
+  start_node("TYPE_TUPLE")
+  bump_any() // L_PAREN
+  skip_trivia()
+  let empty = at_kind("R_PAREN")
+  if empty == false {
+    let _ = type_expr()
+    loop {
+      let more = eat("COMMA")
+      if more == false { break }
+      let done = at_kind("R_PAREN")
+      if done == true { break }
+      let _ = type_expr()
+    }
+  }
+  expect("R_PAREN")
+  finish_node()
+  skip_trivia()
+}
+
+fn array_type() -> Unit {
+  start_node("TYPE_ARRAY")
+  bump_any() // L_BRACK
+  skip_trivia()
+  let _ = type_expr()
+  let has_len = eat("SEMI")
+  if has_len == true {
+    let _ = expr()
+  }
+  expect("R_BRACK")
+  finish_node()
+  skip_trivia()
+}
+
+fn fn_type() -> Unit {
+  start_node("TYPE_FN")
+  bump_any() // FN_KW
+  skip_trivia()
+  expect("L_PAREN")
+  let empty = at_kind("R_PAREN")
+  if empty == false {
+    let _ = type_expr()
+    loop {
+      let more = eat("COMMA")
+      if more == false { break }
+      let done = at_kind("R_PAREN")
+      if done == true { break }
+      let _ = type_expr()
+    }
+  }
+  expect("R_PAREN")
+  let has_ret = eat("THIN_ARROW")
+  if has_ret == true { let _ = type_expr() }
+  finish_node()
+  skip_trivia()
+}
+
+fn dyn_type() -> Unit {
+  start_node("TYPE_DYN")
+  bump_any() // DYN_KW
+  skip_trivia()
+  let is_id = at_kind("IDENT")
+  if is_id == true {
+    path()
+  } else {
+    let p = pos()
+    let s = std.io.tok_start(p)
+    let e = std.io.tok_end(p)
+    std.io.ev_error("expected trait name after dyn", s, e)
+  }
+  finish_node()
+  skip_trivia()
+}
+
+fn path_type() -> Unit {
+  let cp = checkpoint()
+  start_node("TYPE_PATH")
+  path()
+  let has_generic = at_kind("L_BRACK")
+  if has_generic == true {
+    generic_args()
+  }
+  finish_node()
+  // T!E or T!{E1, E2} result-sugar wraps the type-path node.
+  let bang = at_kind("BANG")
+  if bang == true {
+    start_node_at(cp, "TYPE_RESULT_SUGAR")
+    bump_any() // BANG
+    skip_trivia()
+    let lb = eat("L_BRACE")
+    if lb == true {
+      start_node("TYPE_UNION")
+      let _ = type_expr()
+      loop {
+        let more = eat("COMMA")
+        if more == false { break }
+        let done = at_kind("R_BRACE")
+        if done == true { break }
+        let _ = type_expr()
+      }
+      expect("R_BRACE")
+      finish_node()
+    } else {
+      let _ = type_expr()
+    }
+    finish_node()
+  }
+  skip_trivia()
+}
+
+fn generic_args() -> Unit {
+  start_node("GENERIC_ARG_LIST")
+  bump_any() // L_BRACK
+  skip_trivia()
+  let empty = at_kind("R_BRACK")
+  if empty == false {
+    start_node("GENERIC_ARG")
+    let _ = type_expr()
+    finish_node()
+    loop {
+      let more = eat("COMMA")
+      if more == false { break }
+      let done = at_kind("R_BRACK")
+      if done == true { break }
+      start_node("GENERIC_ARG")
+      let _ = type_expr()
+      finish_node()
+    }
+  }
+  expect("R_BRACK")
+  finish_node()
+  skip_trivia()
+}
+
+fn generic_params() -> Unit {
+  let here = at_kind("L_BRACK")
+  if here == false { return }
+  start_node("GENERIC_PARAM_LIST")
+  bump_any() // L_BRACK
+  skip_trivia()
+  let empty = at_kind("R_BRACK")
+  if empty == false {
+    generic_param()
+    loop {
+      let more = eat("COMMA")
+      if more == false { break }
+      let done = at_kind("R_BRACK")
+      if done == true { break }
+      generic_param()
+    }
+  }
+  expect("R_BRACK")
+  finish_node()
+  skip_trivia()
+}
+
+fn generic_param() -> Unit {
+  start_node("GENERIC_PARAM")
+  name()
+  let has_bound = eat("COLON")
+  if has_bound == true {
+    let _ = type_expr()
+    loop {
+      let more = eat("PLUS")
+      if more == false { break }
+      let _ = type_expr()
+    }
+  }
+  finish_node()
+  skip_trivia()
+}
+
+fn effect_clause() -> Unit {
+  let here = at_kind("EFFECT_KW")
+  if here == false { return }
+  start_node("EFFECT_CLAUSE")
+  bump_any() // EFFECT_KW
+  skip_trivia()
+  name_or_keyword()
+  loop {
+    let more = eat("COMMA")
+    if more == false { break }
+    name_or_keyword()
+  }
+  finish_node()
+  skip_trivia()
+}
+
+// =====================================================================
+// Paths + names
+// =====================================================================
+
+fn path() -> Bool {
+  let here = at_kind("IDENT")
+  if here == false { return false }
+  start_node("PATH")
+  path_segment()
+  skip_trivia()
+  loop {
+    let dot = at_kind("DOT")
+    if dot == false { break }
+    let nxt = next_nontrivia_kind(1)
+    let is_id = nxt == "IDENT"
+    if is_id == false { break }
+    bump_any() // DOT
+    skip_trivia()
+    path_segment()
+    skip_trivia()
+  }
+  finish_node()
+  true
+}
+
+fn path_segment() -> Unit {
+  start_node("PATH_SEGMENT")
+  start_node("NAME_REF")
+  bump_any() // IDENT
+  finish_node()
+  // Turbofish `::[T1, T2]` — peek for COLON_COLON then L_BRACK.
+  let cc = at_kind("COLON_COLON")
+  if cc == true {
+    let nxt = next_nontrivia_kind(1)
+    let is_brack = nxt == "L_BRACK"
+    if is_brack == true {
+      bump_any() // COLON_COLON
+      generic_args()
+    }
+  }
+  finish_node()
+}
+
+fn name() -> Bool {
+  let here = at_kind("IDENT")
+  if here == false { return false }
+  start_node("NAME")
+  bump_any() // IDENT
+  finish_node()
+  skip_trivia()
+  true
+}
+
+fn name_or_keyword() -> Bool {
+  let k = peek()
+  let is_id = k == "IDENT"
+  let p = pos()
+  let is_kw = std.io.tok_is_keyword(p)
+  if is_id == false {
+    if is_kw == false { return false }
+  }
+  start_node("NAME")
+  bump_any()
+  finish_node()
+  skip_trivia()
+  true
+}
+
+// =====================================================================
+// Patterns
+// =====================================================================
+
+fn pattern() -> Bool {
+  skip_trivia()
+  let cp = checkpoint()
+  let k = peek()
+  let mut ok = false
+  match k {
+    "IDENT" => {
+      let p = pos()
+      let text = std.io.tok_text(p)
+      let is_wild = text == "_"
+      if is_wild == true {
+        wildcard_pat()
+        ok = true
+      } else {
+        // Path-headed if next non-trivia is `(`, `{`, or `.`.
+        let nxt = next_nontrivia_kind(1)
+        let is_paren = nxt == "L_PAREN"
+        let is_brace = nxt == "L_BRACE"
+        let is_dot = nxt == "DOT"
+        let path_headed = is_paren || is_brace || is_dot
+        if path_headed == true {
+          path_headed_pat()
+        } else {
+          binding_pat()
+        }
+        ok = true
+      }
+    }
+    "INT_LITERAL" => { literal_pat(); ok = true }
+    "FLOAT_LITERAL" => { literal_pat(); ok = true }
+    "STRING_LITERAL" => { literal_pat(); ok = true }
+    "CHAR_LITERAL" => { literal_pat(); ok = true }
+    "TRUE_KW" => { literal_pat(); ok = true }
+    "FALSE_KW" => { literal_pat(); ok = true }
+    "AMP" => { ref_pat(); ok = true }
+    "L_PAREN" => { tuple_pat(); ok = true }
+    _ => {}
+  }
+  if ok == false { return false }
+  // Range pattern: `lo..hi` or `lo..=hi`.
+  let dd = at_kind("DOT_DOT")
+  let dde = at_kind("DOT_DOT_EQ")
+  let is_range = dd || dde
+  if is_range == true {
+    start_node_at(cp, "RANGE_PAT")
+    bump_any()
+    skip_trivia()
+    let _ = pattern()
+    finish_node()
+  }
+  true
+}
+
+fn literal_pat() -> Unit {
+  start_node("LITERAL_PAT")
+  bump_any()
+  finish_node()
+  skip_trivia()
+}
+
+fn binding_pat() -> Unit {
+  start_node("BINDING_PAT")
+  name()
+  let saw_at = eat("AT")
+  if saw_at == true { let _ = pattern() }
+  finish_node()
+  skip_trivia()
+}
+
+fn wildcard_pat() -> Unit {
+  start_node("WILDCARD_PAT")
+  bump_any() // IDENT `_`
+  finish_node()
+  skip_trivia()
+}
+
+fn ref_pat() -> Unit {
+  start_node("REF_PAT")
+  bump_any() // AMP
+  skip_trivia()
+  let _ = eat("MUT_KW")
+  let _ = pattern()
+  finish_node()
+  skip_trivia()
+}
+
+fn tuple_pat() -> Unit {
+  start_node("TUPLE_PAT")
+  bump_any() // L_PAREN
+  skip_trivia()
+  let empty = at_kind("R_PAREN")
+  if empty == false {
+    let _ = pattern()
+    loop {
+      let more = eat("COMMA")
+      if more == false { break }
+      let done = at_kind("R_PAREN")
+      if done == true { break }
+      let _ = pattern()
+    }
+  }
+  expect("R_PAREN")
+  finish_node()
+  skip_trivia()
+}
+
+fn path_headed_pat() -> Unit {
+  let cp = checkpoint()
+  path()
+  skip_trivia()
+  let saw_paren = eat("L_PAREN")
+  if saw_paren == true {
+    start_node_at(cp, "ENUM_PAT")
+    let empty = at_kind("R_PAREN")
+    if empty == false {
+      let _ = pattern()
+      loop {
+        let more = eat("COMMA")
+        if more == false { break }
+        let done = at_kind("R_PAREN")
+        if done == true { break }
+        let _ = pattern()
+      }
+    }
+    expect("R_PAREN")
+    finish_node()
+  } else {
+    let saw_brace = eat("L_BRACE")
+    if saw_brace == true {
+      start_node_at(cp, "STRUCT_PAT")
+      let empty = at_kind("R_BRACE")
+      if empty == false {
+        field_pat()
+        loop {
+          let more = eat("COMMA")
+          if more == false { break }
+          let done = at_kind("R_BRACE")
+          if done == true { break }
+          field_pat()
+        }
+      }
+      expect("R_BRACE")
+      finish_node()
+    } else {
+      // Path used as unit-variant pattern.
+      start_node_at(cp, "ENUM_PAT")
+      finish_node()
+    }
+  }
+  skip_trivia()
+}
+
+fn field_pat() -> Unit {
+  skip_trivia()
+  name()
+  let saw_colon = eat("COLON")
+  if saw_colon == true { let _ = pattern() }
+}
+
+// =====================================================================
+// Statements + blocks
+// =====================================================================
+
+fn block() -> Unit {
+  start_node("BLOCK")
+  expect("L_BRACE")
+  skip_trivia()
+  loop {
+    let done = at_kind("R_BRACE")
+    if done == true { break }
+    let eof = at_kind("EOF")
+    if eof == true { break }
+    let is_let = at_kind("LET_KW")
+    if is_let == true {
+      let_stmt()
+    } else {
+      let k = peek()
+      let can = can_start_expr(k)
+      if can == false {
+        let p = pos()
+        let s = std.io.tok_start(p)
+        let e = std.io.tok_end(p)
+        std.io.ev_error("expected statement or expression", s, e)
+        bump_any()
+      } else {
+        start_node("EXPR_STMT")
+        let _ = expr()
+        let _ = eat("SEMI")
+        finish_node()
+      }
+    }
+    skip_trivia()
+  }
+  expect("R_BRACE")
+  finish_node()
+  skip_trivia()
+}
+
+fn let_stmt() -> Unit {
+  start_node("LET_STMT")
+  bump_any() // LET_KW
+  skip_trivia()
+  let _ = eat("MUT_KW")
+  skip_trivia()
+  let _ = pattern()
+  let saw_colon = eat("COLON")
+  if saw_colon == true { let _ = type_expr() }
+  let saw_eq = eat("EQ")
+  if saw_eq == true { let _ = expr() }
+  let _ = eat("SEMI")
+  finish_node()
+  skip_trivia()
+}
+
+fn if_expr() -> Bool {
+  start_node("IF_EXPR")
+  bump_any() // IF_KW
+  skip_trivia()
+  // `if let Pattern = scrutinee { ... }`.
+  let is_letform = at_kind("LET_KW")
+  if is_letform == true {
+    bump_any()
+    skip_trivia()
+    let _ = pattern()
+    expect("EQ")
+    skip_trivia()
+  }
+  let prev = std.io.no_struct_lit_get()
+  std.io.no_struct_lit_set(true)
+  let _ = expr()
+  std.io.no_struct_lit_set(prev)
+  block()
+  let saw_else = eat("ELSE_KW")
+  if saw_else == true {
+    let chain = at_kind("IF_KW")
+    if chain == true {
+      let _ = if_expr()
+    } else {
+      block()
+    }
+  }
+  finish_node()
+  true
+}
+
+fn match_expr() -> Bool {
+  start_node("MATCH_EXPR")
+  bump_any() // MATCH_KW
+  skip_trivia()
+  let prev = std.io.no_struct_lit_get()
+  std.io.no_struct_lit_set(true)
+  let _ = expr()
+  std.io.no_struct_lit_set(prev)
+  expect("L_BRACE")
+  skip_trivia()
+  loop {
+    let done = at_kind("R_BRACE")
+    if done == true { break }
+    let eof = at_kind("EOF")
+    if eof == true { break }
+    match_arm()
+    skip_trivia()
+  }
+  expect("R_BRACE")
+  finish_node()
+  true
+}
+
+fn match_arm() -> Unit {
+  start_node("MATCH_ARM")
+  let _ = pattern()
+  let has_guard = eat("IF_KW")
+  if has_guard == true {
+    start_node("MATCH_GUARD")
+    let _ = expr()
+    finish_node()
+  }
+  expect("FAT_ARROW")
+  skip_trivia()
+  let is_block = at_kind("L_BRACE")
+  if is_block == true {
+    block()
+  } else {
+    let _ = expr()
+    let _ = eat("COMMA")
+  }
+  finish_node()
+  skip_trivia()
+}
+
+fn for_expr() -> Bool {
+  start_node("FOR_EXPR")
+  bump_any() // FOR_KW
+  skip_trivia()
+  let _ = pattern()
+  expect("IN_KW")
+  skip_trivia()
+  let prev = std.io.no_struct_lit_get()
+  std.io.no_struct_lit_set(true)
+  let _ = expr()
+  std.io.no_struct_lit_set(prev)
+  block()
+  finish_node()
+  true
+}
+
+fn while_expr() -> Bool {
+  start_node("WHILE_EXPR")
+  bump_any() // WHILE_KW
+  skip_trivia()
+  let prev = std.io.no_struct_lit_get()
+  std.io.no_struct_lit_set(true)
+  let _ = expr()
+  std.io.no_struct_lit_set(prev)
+  block()
+  finish_node()
+  true
+}
+
+fn loop_expr() -> Bool {
+  start_node("LOOP_EXPR")
+  bump_any() // LOOP_KW
+  skip_trivia()
+  block()
+  finish_node()
+  true
+}
+
+// =====================================================================
+// Expressions (Pratt)
+// =====================================================================
+
+fn expr() -> Bool {
+  expr_bp(0)
+}
+
+fn expr_bp(min_bp: U32) -> Bool {
+  skip_trivia()
+  let cp = checkpoint()
+  let primary = unary_or_primary()
+  if primary == false { return false }
+  loop {
+    skip_trivia()
+    let did_postfix = try_postfix(cp)
+    if did_postfix == true { continue }
+    let op_bp = infix_bp_of(peek())
+    if op_bp == 0 { break }
+    if op_bp < min_bp { break }
+    let right_assoc = infix_right_assoc(peek())
+    let mut right_bp = op_bp + 1
+    if right_assoc == true { right_bp = op_bp }
+    start_node_at(cp, "BINARY_EXPR")
+    bump_any()
+    skip_trivia()
+    let _ = expr_bp(right_bp)
+    finish_node()
+  }
+  true
+}
+
+// 0 means "not an infix operator". (The Rust parser uses Option; we use
+// sentinel 0 because v0.6 lacks Option in this surface.)
+fn infix_bp_of(k: Str) -> U32 {
+  match k {
+    "DOT_DOT" => 1
+    "DOT_DOT_EQ" => 1
+    "EQ" => 2
+    "PLUS_EQ" => 2
+    "MINUS_EQ" => 2
+    "STAR_EQ" => 2
+    "SLASH_EQ" => 2
+    "PERCENT_EQ" => 2
+    "AMP_EQ" => 2
+    "PIPE_EQ" => 2
+    "CARET_EQ" => 2
+    "SHL_EQ" => 2
+    "SHR_EQ" => 2
+    "PIPE_PIPE" => 3
+    "AMP_AMP" => 4
+    "EQ_EQ" => 5
+    "BANG_EQ" => 5
+    "LT" => 5
+    "LT_EQ" => 5
+    "GT" => 5
+    "GT_EQ" => 5
+    "PIPE" => 6
+    "CARET" => 7
+    "AMP" => 8
+    "SHL" => 9
+    "SHR" => 9
+    "PLUS" => 10
+    "MINUS" => 10
+    "STAR" => 11
+    "SLASH" => 11
+    "PERCENT" => 11
+    "AS_KW" => 12
+    _ => 0
+  }
+}
+
+fn infix_right_assoc(k: Str) -> Bool {
+  match k {
+    "EQ" => true
+    "PLUS_EQ" => true
+    "MINUS_EQ" => true
+    "STAR_EQ" => true
+    "SLASH_EQ" => true
+    "PERCENT_EQ" => true
+    "AMP_EQ" => true
+    "PIPE_EQ" => true
+    "CARET_EQ" => true
+    "SHL_EQ" => true
+    "SHR_EQ" => true
+    _ => false
+  }
+}
+
+fn unary_or_primary() -> Bool {
+  skip_trivia()
+  let k = peek()
+  match k {
+    "MINUS" => { unary_wrap(); true }
+    "BANG" => { unary_wrap(); true }
+    "STAR" => { unary_wrap(); true }
+    "AMP" => { borrow_expr(); true }
+    "MOVE_KW" => { move_expr(); true }
+    _ => primary()
+  }
+}
+
+fn unary_wrap() -> Unit {
+  start_node("UNARY_EXPR")
+  bump_any()
+  skip_trivia()
+  let _ = unary_or_primary()
+  finish_node()
+}
+
+fn borrow_expr() -> Unit {
+  start_node("BORROW_EXPR")
+  bump_any() // AMP
+  skip_trivia()
+  let _ = eat("MUT_KW")
+  let _ = unary_or_primary()
+  finish_node()
+}
+
+fn move_expr() -> Unit {
+  start_node("MOVE_EXPR")
+  bump_any() // MOVE_KW
+  skip_trivia()
+  let _ = unary_or_primary()
+  finish_node()
+}
+
+fn primary() -> Bool {
+  skip_trivia()
+  let k = peek()
+  match k {
+    "INT_LITERAL" => { lit_expr(); true }
+    "FLOAT_LITERAL" => { lit_expr(); true }
+    "STRING_LITERAL" => { lit_expr(); true }
+    "CHAR_LITERAL" => { lit_expr(); true }
+    "TRUE_KW" => { lit_expr(); true }
+    "FALSE_KW" => { lit_expr(); true }
+    "DURATION_LITERAL" => { lit_expr(); true }
+    "SIZE_LITERAL" => { lit_expr(); true }
+    "L_PAREN" => paren_or_tuple()
+    "L_BRACK" => array_lit()
+    "L_BRACE" => block_or_map()
+    "IF_KW" => if_expr()
+    "MATCH_KW" => match_expr()
+    "FOR_KW" => for_expr()
+    "WHILE_KW" => while_expr()
+    "LOOP_KW" => loop_expr()
+    "RETURN_KW" => { ret_expr(); true }
+    "BREAK_KW" => { brk_expr(); true }
+    "CONTINUE_KW" => { cont_expr(); true }
+    "FN_KW" => { lambda_expr(); true }
+    "IDENT" => path_expr_or_call()
+    "SELF_KW" => { self_expr(); true }
+    _ => false
+  }
+}
+
+fn lit_expr() -> Unit {
+  start_node("LITERAL_EXPR")
+  bump_any()
+  finish_node()
+}
+
+fn ret_expr() -> Unit {
+  start_node("RETURN_EXPR")
+  bump_any() // RETURN_KW
+  skip_trivia()
+  let k = peek()
+  let can = can_start_expr(k)
+  if can == true { let _ = expr() }
+  finish_node()
+}
+
+fn brk_expr() -> Unit {
+  start_node("BREAK_EXPR")
+  bump_any() // BREAK_KW
+  skip_trivia()
+  let k = peek()
+  let can = can_start_expr(k)
+  if can == true { let _ = expr() }
+  finish_node()
+}
+
+fn cont_expr() -> Unit {
+  start_node("CONTINUE_EXPR")
+  bump_any() // CONTINUE_KW
+  finish_node()
+}
+
+fn self_expr() -> Unit {
+  start_node("PATH_EXPR")
+  start_node("PATH")
+  start_node("PATH_SEGMENT")
+  start_node("NAME_REF")
+  bump_any() // SELF_KW
+  finish_node()
+  finish_node()
+  finish_node()
+  finish_node()
+  skip_trivia()
+}
+
+fn paren_or_tuple() -> Bool {
+  let cp = checkpoint()
+  bump_any() // L_PAREN
+  skip_trivia()
+  let empty = at_kind("R_PAREN")
+  if empty == true {
+    start_node_at(cp, "TUPLE_EXPR")
+    bump_any() // R_PAREN
+    finish_node()
+    return true
+  }
+  // Inside parens, struct literals are unambiguous again.
+  let prev = std.io.no_struct_lit_get()
+  std.io.no_struct_lit_set(false)
+  let _ = expr()
+  skip_trivia()
+  let is_comma = at_kind("COMMA")
+  if is_comma == true {
+    start_node_at(cp, "TUPLE_EXPR")
+    bump_any() // COMMA
+    skip_trivia()
+    loop {
+      let done = at_kind("R_PAREN")
+      if done == true { break }
+      let eof = at_kind("EOF")
+      if eof == true { break }
+      let _ = expr()
+      skip_trivia()
+      let more = eat("COMMA")
+      if more == false { break }
+    }
+    expect("R_PAREN")
+    finish_node()
+  } else {
+    expect("R_PAREN")
+    // bare parenthesized expr — leave as inner expr (no wrapper).
+  }
+  std.io.no_struct_lit_set(prev)
+  true
+}
+
+fn array_lit() -> Bool {
+  start_node("ARRAY_EXPR")
+  bump_any() // L_BRACK
+  skip_trivia()
+  let empty = at_kind("R_BRACK")
+  if empty == false {
+    let _ = expr()
+    skip_trivia()
+    loop {
+      let more = eat("COMMA")
+      if more == false { break }
+      let done = at_kind("R_BRACK")
+      if done == true { break }
+      let _ = expr()
+      skip_trivia()
+    }
+  }
+  expect("R_BRACK")
+  finish_node()
+  true
+}
+
+fn block_or_map() -> Bool {
+  let cp = checkpoint()
+  // Disambiguate: `{ IDENT : ... }` is a map literal; otherwise a block.
+  let after_brace = next_nontrivia_index(1)
+  let first_kind = next_nontrivia_kind(1)
+  let mut second_kind = "EOF"
+  let is_eof = first_kind == "EOF"
+  if is_eof == false {
+    // Compute next non-trivia AFTER first non-trivia.
+    let n = std.io.tok_count()
+    let mut j = after_brace + 1
+    loop {
+      if j >= n { break }
+      let triv = std.io.tok_is_trivia(j)
+      if triv == false {
+        second_kind = peek_kind_at(j)
+        break
+      }
+      j = j + 1
+    }
+  }
+  let is_id = first_kind == "IDENT"
+  let is_colon = second_kind == "COLON"
+  let looks_map = is_id && is_colon
+  if looks_map == true {
+    start_node_at(cp, "MAP_EXPR")
+    bump_any() // L_BRACE
+    skip_trivia()
+    loop {
+      let done = at_kind("R_BRACE")
+      if done == true { break }
+      let eof = at_kind("EOF")
+      if eof == true { break }
+      start_node("MAP_ENTRY")
+      name()
+      expect("COLON")
+      let _ = expr()
+      skip_trivia()
+      finish_node()
+      let more = eat("COMMA")
+      if more == false { break }
+    }
+    expect("R_BRACE")
+    finish_node()
+  } else {
+    block()
+  }
+  true
+}
+
+fn path_expr_or_call() -> Bool {
+  let cp = checkpoint()
+  start_node("PATH_EXPR")
+  path()
+  finish_node()
+  skip_trivia()
+  // Macro call: `Path!(args)` when BANG is immediately followed by L_PAREN.
+  let bang = at_kind("BANG")
+  if bang == true {
+    let nxt = next_nontrivia_kind(1)
+    let is_paren = nxt == "L_PAREN"
+    if is_paren == true {
+      start_node_at(cp, "MACRO_CALL")
+      bump_any() // BANG
+      skip_trivia()
+      token_tree()
+      finish_node()
+      return true
+    }
+  }
+  // Struct literal: `Path { field: expr, ... }` (suppressed in control-flow
+  // conditions via no_struct_lit).
+  let nostruct = std.io.no_struct_lit_get()
+  let brace = at_kind("L_BRACE")
+  let mut do_struct = false
+  if nostruct == false {
+    if brace == true {
+      let is_strlit = lookahead_struct_literal()
+      if is_strlit == true { do_struct = true }
+    }
+  }
+  if do_struct == true {
+    start_node_at(cp, "STRUCT_EXPR")
+    bump_any() // L_BRACE
+    skip_trivia()
+    loop {
+      let done = at_kind("R_BRACE")
+      if done == true { break }
+      let eof = at_kind("EOF")
+      if eof == true { break }
+      start_node("STRUCT_FIELD_EXPR")
+      name()
+      let saw_colon = eat("COLON")
+      if saw_colon == true {
+        let _ = expr()
+        skip_trivia()
+      }
+      finish_node()
+      let more = eat("COMMA")
+      if more == false { break }
+    }
+    expect("R_BRACE")
+    finish_node()
+  }
+  true
+}
+
+fn lookahead_struct_literal() -> Bool {
+  let after_brace = next_nontrivia_index(1)
+  let first = next_nontrivia_kind(1)
+  let is_rbrace = first == "R_BRACE"
+  if is_rbrace == true { return true }
+  let is_id = first == "IDENT"
+  if is_id == false { return false }
+  let n = std.io.tok_count()
+  let mut j = after_brace + 1
+  loop {
+    if j >= n { return false }
+    let triv = std.io.tok_is_trivia(j)
+    if triv == false {
+      let k = peek_kind_at(j)
+      let is_col = k == "COLON"
+      let is_com = k == "COMMA"
+      let is_rb = k == "R_BRACE"
+      let ok = is_col || is_com || is_rb
+      return ok
+    }
+    j = j + 1
+  }
+  false
+}
+
+fn try_postfix(cp: USize) -> Bool {
+  skip_trivia()
+  let k = peek()
+  match k {
+    "DOT" => postfix_dot(cp)
+    "L_PAREN" => { postfix_call(cp); true }
+    "L_BRACK" => { postfix_index(cp); true }
+    "QUESTION" => { postfix_question(cp); true }
+    _ => false
+  }
+}
+
+fn postfix_dot(cp: USize) -> Bool {
+  let after_dot = next_nontrivia_index(1)
+  let name_kind = next_nontrivia_kind(1)
+  let is_id = name_kind == "IDENT"
+  let p_after_dot = after_dot
+  let is_kw = std.io.tok_is_keyword(p_after_dot)
+  let mut is_word = false
+  if is_id == true { is_word = true }
+  if is_kw == true { is_word = true }
+  if is_word == false { return false }
+  // Is it a method call? Peek past the name for L_PAREN.
+  let n = std.io.tok_count()
+  let mut j = after_dot + 1
+  loop {
+    if j >= n { break }
+    let triv = std.io.tok_is_trivia(j)
+    if triv == false { break }
+    j = j + 1
+  }
+  let next_after_name = peek_kind_at(j)
+  let is_call = next_after_name == "L_PAREN"
+  if is_call == true {
+    start_node_at(cp, "METHOD_CALL_EXPR")
+    bump_any() // DOT
+    skip_trivia()
+    name_or_keyword()
+    args()
+    finish_node()
+  } else {
+    start_node_at(cp, "FIELD_EXPR")
+    bump_any() // DOT
+    skip_trivia()
+    name_or_keyword()
+    finish_node()
+  }
+  true
+}
+
+fn postfix_call(cp: USize) -> Unit {
+  start_node_at(cp, "CALL_EXPR")
+  args()
+  finish_node()
+}
+
+fn postfix_index(cp: USize) -> Unit {
+  start_node_at(cp, "INDEX_EXPR")
+  bump_any() // L_BRACK
+  skip_trivia()
+  let _ = expr()
+  skip_trivia()
+  expect("R_BRACK")
+  finish_node()
+}
+
+fn postfix_question(cp: USize) -> Unit {
+  // v0.6 subset: treat `?` as the propagate operator. The send/ask sugar
+  // (`?Msg(args)`) is deferred to v0.7.
+  start_node_at(cp, "QUESTION_EXPR")
+  bump_any() // QUESTION
+  finish_node()
+}
+
+fn args() -> Unit {
+  start_node("ARG_LIST")
+  bump_any() // L_PAREN
+  skip_trivia()
+  let empty = at_kind("R_PAREN")
+  if empty == false {
+    arg()
+    skip_trivia()
+    loop {
+      let more = eat("COMMA")
+      if more == false { break }
+      let done = at_kind("R_PAREN")
+      if done == true { break }
+      arg()
+      skip_trivia()
+    }
+  }
+  expect("R_PAREN")
+  finish_node()
+}
+
+fn arg() -> Unit {
+  // Named arg: IDENT COLON expr.
+  let is_id = at_kind("IDENT")
+  let mut named = false
+  if is_id == true {
+    let nxt = next_nontrivia_kind(1)
+    let is_col = nxt == "COLON"
+    if is_col == true { named = true }
+  }
+  if named == true {
+    start_node("NAMED_ARG")
+    name()
+    bump_any() // COLON
+    skip_trivia()
+    let _ = expr()
+    finish_node()
+  } else {
+    start_node("ARG")
+    let _ = expr()
+    finish_node()
+  }
+}
+
+fn lambda_expr() -> Unit {
+  start_node("LAMBDA_EXPR")
+  bump_any() // FN_KW
+  skip_trivia()
+  fn_params()
+  skip_trivia()
+  let has_ret = eat("THIN_ARROW")
+  if has_ret == true {
+    start_node("RET_TYPE")
+    let _ = type_expr()
+    finish_node()
+    skip_trivia()
+  }
+  let is_block = at_kind("L_BRACE")
+  if is_block == true {
+    block()
+  } else {
+    let p = pos()
+    let s = std.io.tok_start(p)
+    let e = std.io.tok_end(p)
+    std.io.ev_error("expected { to start lambda body", s, e)
+  }
+  finish_node()
+}
+
+fn can_start_expr(k: Str) -> Bool {
+  match k {
+    "INT_LITERAL" => true
+    "FLOAT_LITERAL" => true
+    "STRING_LITERAL" => true
+    "CHAR_LITERAL" => true
+    "TRUE_KW" => true
+    "FALSE_KW" => true
+    "DURATION_LITERAL" => true
+    "SIZE_LITERAL" => true
+    "IDENT" => true
+    "SELF_KW" => true
+    "L_PAREN" => true
+    "L_BRACK" => true
+    "L_BRACE" => true
+    "MINUS" => true
+    "BANG" => true
+    "STAR" => true
+    "AMP" => true
+    "MOVE_KW" => true
+    "IF_KW" => true
+    "MATCH_KW" => true
+    "FOR_KW" => true
+    "WHILE_KW" => true
+    "LOOP_KW" => true
+    "RETURN_KW" => true
+    "BREAK_KW" => true
+    "CONTINUE_KW" => true
+    "FN_KW" => true
+    _ => false
+  }
+}
+
+// Opaque paren-balanced token tree for `Path!(...)` macro invocations.
+fn token_tree() -> Unit {
+  start_node("TOKEN_TREE")
+  let here = at_kind("L_PAREN")
+  if here == false {
+    let p = pos()
+    let s = std.io.tok_start(p)
+    let e = std.io.tok_end(p)
+    std.io.ev_error("expected ( to start macro token tree", s, e)
+    finish_node()
+    return
+  }
+  bump_any() // L_PAREN
+  let mut depth: I32 = 1
+  loop {
+    if depth <= 0 { break }
+    let eof = at_kind("EOF")
+    if eof == true { break }
+    let k = peek()
+    let is_lp = k == "L_PAREN"
+    let is_lk = k == "L_BRACK"
+    let is_lb = k == "L_BRACE"
+    let is_rp = k == "R_PAREN"
+    let is_rk = k == "R_BRACK"
+    let is_rb = k == "R_BRACE"
+    if is_lp == true {
+      depth = depth + 1
+      bump_any()
+    } else if is_lk == true {
+      depth = depth + 1
+      bump_any()
+    } else if is_lb == true {
+      depth = depth + 1
+      bump_any()
+    } else if is_rp == true {
+      depth = depth - 1
+      bump_any()
+    } else if is_rk == true {
+      depth = depth - 1
+      bump_any()
+    } else if is_rb == true {
+      depth = depth - 1
+      bump_any()
+    } else {
+      bump_any()
+    }
+  }
+  finish_node()
+}
+
+// =====================================================================
+// Demo main
+// =====================================================================
+//
+// `sdust run selfhost/parser/parser.sd` will type/borrow check the source.
+// With the default (no installed host) the bridge calls return Unit/0 so
+// `tok_count()` is 0 and the parser exits immediately after emitting an
+// empty FILE node. That's the v0.6 acceptance shape.
+
+fn main() effect io {
+  parse()
+  log("selfhost_parser.parse completed")
+}
