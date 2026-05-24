@@ -25,9 +25,7 @@ pub fn lower_expr(ctx: &mut LoweringCtx, n: SyntaxNode) -> ExprId {
                 .map(|gl| {
                     gl.children()
                         .filter(|c| c.kind() == SyntaxKind::GENERIC_ARG)
-                        .filter_map(|g| {
-                            g.children().find(|c| super::items::is_type_node(c.kind()))
-                        })
+                        .filter_map(|g| g.children().find(|c| super::items::is_type_node(c.kind())))
                         .map(|t| super::types::lower_type(ctx, t))
                         .collect()
                 })
@@ -188,7 +186,9 @@ pub fn lower_expr(ctx: &mut LoweringCtx, n: SyntaxNode) -> ExprId {
             if has_let {
                 // pat = first pattern child, scrutinee = first expr child,
                 // then = first BLOCK, else_ = subsequent BLOCK or nested IF_EXPR.
-                let pat_idx = kids.iter().position(|c| super::patterns::is_pat_node(c.kind()));
+                let pat_idx = kids
+                    .iter()
+                    .position(|c| super::patterns::is_pat_node(c.kind()));
                 let pat = if let Some(i) = pat_idx {
                     super::patterns::lower_pat(ctx, kids.remove(i))
                 } else {
@@ -204,7 +204,10 @@ pub fn lower_expr(ctx: &mut LoweringCtx, n: SyntaxNode) -> ExprId {
                 let then = if let Some(i) = then_idx {
                     lower_block_node(ctx, kids.remove(i))
                 } else {
-                    ctx.alloc_block(HirBlock { stmts: vec![], tail: None })
+                    ctx.alloc_block(HirBlock {
+                        stmts: vec![],
+                        tail: None,
+                    })
                 };
                 let else_ = kids
                     .into_iter()
@@ -217,7 +220,12 @@ pub fn lower_expr(ctx: &mut LoweringCtx, n: SyntaxNode) -> ExprId {
                             lower_expr(ctx, c)
                         }
                     });
-                return ctx.alloc_expr(HirExpr::IfLet { pat, scrutinee, then, else_ });
+                return ctx.alloc_expr(HirExpr::IfLet {
+                    pat,
+                    scrutinee,
+                    then,
+                    else_,
+                });
             }
 
             // Plain if/else.

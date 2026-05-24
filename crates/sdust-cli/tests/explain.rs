@@ -16,18 +16,18 @@ fn sdust(args: &[&str]) -> (i32, String, String) {
 fn explain_known_code_succeeds() {
     let (code, stdout, _stderr) = sdust(&["explain", "SD0001"]);
     assert_eq!(code, 0);
-    assert!(
-        stdout.contains("Unexpected token"),
-        "stdout: {}",
-        stdout
-    );
+    assert!(stdout.contains("Unexpected token"), "stdout: {}", stdout);
 }
 
 #[test]
 fn explain_lowercase_prefix_works() {
     let (code, stdout, _) = sdust(&["explain", "sd0010"]);
     assert_eq!(code, 0);
-    assert!(stdout.to_lowercase().contains("expected an item"), "stdout: {}", stdout);
+    assert!(
+        stdout.to_lowercase().contains("expected an item"),
+        "stdout: {}",
+        stdout
+    );
 }
 
 #[test]

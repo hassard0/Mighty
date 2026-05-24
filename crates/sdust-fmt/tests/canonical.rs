@@ -46,7 +46,10 @@ fn types_path_simple() {
 #[test]
 fn types_path_generic() {
     let t = type_node("Map[Str, I32]");
-    assert_eq!(render(sdust_fmt::fmt::types::type_expr(&t)), "Map[Str, I32]");
+    assert_eq!(
+        render(sdust_fmt::fmt::types::type_expr(&t)),
+        "Map[Str, I32]"
+    );
 }
 
 #[test]
@@ -64,10 +67,7 @@ fn types_tuple() {
 #[test]
 fn types_result_sugar() {
     let t = type_node("I32!ParseErr");
-    assert_eq!(
-        render(sdust_fmt::fmt::types::type_expr(&t)),
-        "I32!ParseErr"
-    );
+    assert_eq!(render(sdust_fmt::fmt::types::type_expr(&t)), "I32!ParseErr");
 }
 
 #[test]
@@ -89,19 +89,13 @@ fn exprs_arith_canonicalizes_spacing() {
 #[test]
 fn exprs_method_call() {
     let e = expr_node("xs.map(square)");
-    assert_eq!(
-        render(sdust_fmt::fmt::exprs::expr(&e)),
-        "xs.map(square)"
-    );
+    assert_eq!(render(sdust_fmt::fmt::exprs::expr(&e)), "xs.map(square)");
 }
 
 #[test]
 fn exprs_send() {
     let e = expr_node("logger!Info(x)");
-    assert_eq!(
-        render(sdust_fmt::fmt::exprs::expr(&e)),
-        "logger!Info(x)"
-    );
+    assert_eq!(render(sdust_fmt::fmt::exprs::expr(&e)), "logger!Info(x)");
 }
 
 #[test]

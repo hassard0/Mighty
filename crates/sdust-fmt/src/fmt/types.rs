@@ -43,7 +43,10 @@ fn type_path(n: &SyntaxNode) -> Doc {
 /// segment may carry a `::[T,...]` turbofish suffix.
 pub fn path_node(n: &SyntaxNode) -> Doc {
     let mut segs = Vec::new();
-    for seg in n.children().filter(|c| c.kind() == SyntaxKind::PATH_SEGMENT) {
+    for seg in n
+        .children()
+        .filter(|c| c.kind() == SyntaxKind::PATH_SEGMENT)
+    {
         let name = seg
             .children()
             .find(|c| c.kind() == SyntaxKind::NAME_REF)

@@ -60,7 +60,7 @@ fn recovers_after_error() {
         .filter(|n| n.kind() == SyntaxKind::FN_DECL)
         .collect();
     assert!(
-        fns.len() >= 1,
+        !fns.is_empty(),
         "should recover and parse at least the second fn"
     );
 }
@@ -68,7 +68,7 @@ fn recovers_after_error() {
 #[test]
 fn deep_nesting_terminates() {
     // 100 nested parens — should not stack overflow on a modest depth.
-    let src: String = std::iter::repeat('(').take(100).collect();
+    let src: String = "(".repeat(100);
     let r = parse(&src);
     let root = SyntaxNode::new_root(r.green);
     assert_eq!(root.kind(), SyntaxKind::FILE);

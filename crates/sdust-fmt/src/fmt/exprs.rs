@@ -50,10 +50,7 @@ fn binary_expr(n: &SyntaxNode) -> Doc {
         .unwrap_or_default();
     Doc::concat(
         expr(&kids[0]),
-        Doc::concat(
-            Doc::text(format!(" {} ", op)),
-            expr(&kids[1]),
-        ),
+        Doc::concat(Doc::text(format!(" {} ", op)), expr(&kids[1])),
     )
 }
 
@@ -90,7 +87,10 @@ fn method_call_expr(n: &SyntaxNode) -> Doc {
         .find(|c| c.kind() == SyntaxKind::ARG_LIST)
         .map(arg_list)
         .unwrap_or(Doc::text("()"));
-    Doc::concat(receiver, Doc::concat(Doc::text("."), Doc::concat(name, args)))
+    Doc::concat(
+        receiver,
+        Doc::concat(Doc::text("."), Doc::concat(name, args)),
+    )
 }
 
 fn field_expr(n: &SyntaxNode) -> Doc {
@@ -107,7 +107,10 @@ fn index_expr(n: &SyntaxNode) -> Doc {
     let kids: Vec<SyntaxNode> = n.children().collect();
     let recv = kids.first().map(expr).unwrap_or(Doc::nil());
     let idx = kids.get(1).map(expr).unwrap_or(Doc::nil());
-    Doc::concat(recv, Doc::concat(Doc::text("["), Doc::concat(idx, Doc::text("]"))))
+    Doc::concat(
+        recv,
+        Doc::concat(Doc::text("["), Doc::concat(idx, Doc::text("]"))),
+    )
 }
 
 fn tuple_or_paren(n: &SyntaxNode) -> Doc {
@@ -138,7 +141,10 @@ fn send_or_ask(n: &SyntaxNode, sigil: &str) -> Doc {
         .find(|c| c.kind() == SyntaxKind::ARG_LIST)
         .map(arg_list)
         .unwrap_or(Doc::nil());
-    Doc::concat(target, Doc::concat(Doc::text(sigil.to_string()), Doc::concat(msg, args)))
+    Doc::concat(
+        target,
+        Doc::concat(Doc::text(sigil.to_string()), Doc::concat(msg, args)),
+    )
 }
 
 fn deadline_expr(n: &SyntaxNode) -> Doc {
