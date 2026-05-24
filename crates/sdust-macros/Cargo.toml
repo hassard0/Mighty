@@ -10,6 +10,7 @@ authors.workspace = true
 [dependencies]
 sdust-syntax = { path = "../sdust-syntax" }
 sdust-ast = { path = "../sdust-ast" }
+sdust-diagnostics = { path = "../sdust-diagnostics" }
 
 [dev-dependencies]
 sdust-syntax = { path = "../sdust-syntax" }

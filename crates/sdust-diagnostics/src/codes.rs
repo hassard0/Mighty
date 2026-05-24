@@ -103,6 +103,15 @@ pub const CODEGEN_LINKER_MISSING: DiagCode = DiagCode::new(8008);
 pub const CODEGEN_WASM_VALIDATION: DiagCode = DiagCode::new(8009);
 pub const CODEGEN_MONO_FAILED: DiagCode = DiagCode::new(8010);
 
+// Macros: SD6001..SD6099 (moved from sdust_macros::diag in v0.6
+// integrator pass — see SLICE_V0_6.md easy-win 2).
+pub const UNKNOWN_MACRO: DiagCode = DiagCode::new(6001);
+pub const MACRO_ARITY_MISMATCH: DiagCode = DiagCode::new(6002);
+pub const MACRO_BODY_PARSE_FAILED: DiagCode = DiagCode::new(6003);
+pub const RECURSIVE_MACRO_TOO_DEEP: DiagCode = DiagCode::new(6004);
+pub const PROC_MACRO_IMPURE: DiagCode = DiagCode::new(6005);
+pub const PROC_MACRO_UNSUPPORTED_V0_5: DiagCode = DiagCode::new(6006);
+
 // Borrow checker: SD3001..SD3099
 pub const USE_AFTER_MOVE: DiagCode = DiagCode::new(3001);
 pub const MOVE_OUT_OF_BORROW: DiagCode = DiagCode::new(3002);
@@ -630,6 +639,45 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  unresolved type parameters reached the codegen. The \
                  monomorphizer should have specialized or rejected it; \
                  if you see this, file a bug."
+        }
+        6001 => {
+            "SD6001: Unknown macro. The call site `name!(...)` refers to a name \
+             that is not a registered declarative or procedural macro. Declare it \
+             with `macro Name(...) => { ... }` above the call site, or check for \
+             a typo. Cross-file macros must be `pub macro` in the exporting file \
+             and imported with `use otherpkg.name`."
+        }
+        6002 => {
+            "SD6002: Macro arity mismatch. The macro was declared with a fixed \
+             number of parameters; the call site supplied a different count. \
+             v0.6 macros do not support variadic parameters."
+        }
+        6003 => {
+            "SD6003: Macro body did not parse after expansion. Substituting the \
+             call-site arguments into the body produced tokens that no longer \
+             form a valid expression or statement. Check for missing punctuation \
+             in the macro body, or for arguments that need parentheses to remain \
+             a single sub-expression after substitution."
+        }
+        6004 => {
+            "SD6004: Recursive macro expansion exceeded the depth cap (32). The \
+             macro called itself, directly or via another macro, more times \
+             than v0.6 permits. Rewrite the macro non-recursively, or wait for \
+             a future bounded-recursion proposal."
+        }
+        6005 => {
+            "SD6005: Procedural macro impurity. The proc-macro body contains a \
+             call that looks like an effect (I/O, time, env, model, rand). \
+             Procedural macros must be pure functions over TokenStream; effects \
+             are forbidden because expansion happens at compile time, inside a \
+             sandbox, with no access to the runtime environment."
+        }
+        6006 => {
+            "SD6006: Procedural macro execution is not supported yet. The \
+             declaration parses and is stored in the registry, but the body \
+             cannot run until the sandboxed compile-time interpreter ships. \
+             Replace the call with a hand-expanded equivalent, or wait for the \
+             proc-macro sandbox slice."
         }
         _ => return None,
     })
