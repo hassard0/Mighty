@@ -2,8 +2,10 @@ use sdust_runtime::budget::{Budget, BudgetTracker};
 
 #[test]
 fn host_allowlist_blocks_external() {
-    let mut b = Budget::default();
-    b.hosts = Some(vec!["api.example.com:443".into()]);
+    let b = Budget {
+        hosts: Some(vec!["api.example.com:443".into()]),
+        ..Default::default()
+    };
     let t = BudgetTracker::new(b);
     assert!(t.check_host("api.example.com:443").is_ok());
     assert!(t.check_host("evil.example.com:443").is_err());
@@ -11,8 +13,10 @@ fn host_allowlist_blocks_external() {
 
 #[test]
 fn read_path_allowlist_admits_prefix_dirs() {
-    let mut b = Budget::default();
-    b.read_paths = Some(vec!["/models".into(), "/tmp/input.json".into()]);
+    let b = Budget {
+        read_paths: Some(vec!["/models".into(), "/tmp/input.json".into()]),
+        ..Default::default()
+    };
     let t = BudgetTracker::new(b);
     assert!(t.check_read_path("/models/foo").is_ok());
     assert!(t.check_read_path("/models").is_ok());
@@ -22,9 +26,11 @@ fn read_path_allowlist_admits_prefix_dirs() {
 
 #[test]
 fn write_path_allowlist_independent_of_read() {
-    let mut b = Budget::default();
-    b.read_paths = Some(vec!["/models".into()]);
-    b.write_paths = Some(vec!["/tmp/out".into()]);
+    let b = Budget {
+        read_paths: Some(vec!["/models".into()]),
+        write_paths: Some(vec!["/tmp/out".into()]),
+        ..Default::default()
+    };
     let t = BudgetTracker::new(b);
     assert!(t.check_read_path("/models/x").is_ok());
     assert!(t.check_write_path("/models/x").is_err());

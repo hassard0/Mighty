@@ -130,7 +130,7 @@ pub fn run_file_with_runtime(src: String, source_id: String) -> i32 {
 
     let runtime = sdust_runtime::RuntimeBuilder::new().build(prog.clone());
     let exec = runtime.scheduler.rt.clone();
-    let main_exit = exec.block_on(async {
+    exec.block_on(async {
         if prog.fn_by_name("main").is_some() {
             // Slice-7 MVP: run main on the slice-6 interpreter (so user
             // code like `log("hello")` and synchronous business logic
@@ -159,7 +159,5 @@ pub fn run_file_with_runtime(src: String, source_id: String) -> i32 {
             let _ = runtime.shutdown().await;
             0
         }
-    });
-
-    main_exit
+    })
 }

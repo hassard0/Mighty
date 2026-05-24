@@ -47,8 +47,10 @@ fn spawned_tasks_breach() {
 
 #[test]
 fn host_allowlist_blocks_other_host() {
-    let mut b = Budget::default();
-    b.hosts = Some(vec!["api.example.com:443".into()]);
+    let b = Budget {
+        hosts: Some(vec!["api.example.com:443".into()]),
+        ..Default::default()
+    };
     let t = BudgetTracker::new(b);
     assert!(t.check_host("api.example.com:443").is_ok());
     assert!(matches!(
@@ -59,8 +61,10 @@ fn host_allowlist_blocks_other_host() {
 
 #[test]
 fn path_allowlist_prefix_matches() {
-    let mut b = Budget::default();
-    b.read_paths = Some(vec!["/models".into(), "/tmp/input.json".into()]);
+    let b = Budget {
+        read_paths: Some(vec!["/models".into(), "/tmp/input.json".into()]),
+        ..Default::default()
+    };
     let t = BudgetTracker::new(b);
     assert!(t.check_read_path("/models/foo").is_ok());
     assert!(t.check_read_path("/tmp/input.json").is_ok());
