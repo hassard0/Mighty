@@ -26,24 +26,56 @@ installation at build time. Install it per platform:
 ```bash
 brew install llvm@17
 export LLVM_SYS_170_PREFIX=$(brew --prefix llvm@17)
+# Verify llvm-config is on PATH and reports v17:
+"$LLVM_SYS_170_PREFIX/bin/llvm-config" --version
 cargo build -p sdust-codegen-llvm --features llvm
 ```
 
-### Ubuntu / Debian
+If `brew` reports a Homebrew Apple Silicon / Intel mismatch, prefer
+the architecture-native install (`arch -arm64 brew install llvm@17`
+on Apple Silicon).
+
+### Ubuntu 22.04+ / Debian 12+
 
 ```bash
-# LLVM apt repo
-sudo apt install llvm-17-dev libpolly-17-dev
+# Distro-packaged LLVM 17 (Ubuntu 22.04 jammy-updates, 24.04 noble,
+# Debian 12 bookworm-backports). Older releases need the upstream
+# LLVM apt repo at https://apt.llvm.org/.
+sudo apt install llvm-17-dev libpolly-17-dev libz-dev libzstd-dev
 export LLVM_SYS_170_PREFIX=/usr/lib/llvm-17
+llvm-config-17 --version          # → 17.0.x
 cargo build -p sdust-codegen-llvm --features llvm
+```
+
+For Ubuntu < 22.04 use the upstream apt repo:
+
+```bash
+wget https://apt.llvm.org/llvm.sh
+chmod +x llvm.sh
+sudo ./llvm.sh 17 all
+sudo apt install libpolly-17-dev
+export LLVM_SYS_170_PREFIX=/usr/lib/llvm-17
 ```
 
 ### Windows
 
-The simplest path is the official LLVM 17 Windows installer (from
-[releases.llvm.org](https://releases.llvm.org/)):
+Pick one of:
 
-1. Install LLVM 17 (with `Add to PATH` checked).
+**Chocolatey (recommended for CI / scripted installs):**
+
+```powershell
+choco install llvm --version=17.0.6 -y
+$env:LLVM_SYS_170_PREFIX = "C:\Program Files\LLVM"
+& "$env:LLVM_SYS_170_PREFIX\bin\llvm-config.exe" --version
+cargo build -p sdust-codegen-llvm --features llvm
+```
+
+**Official LLVM 17 Windows installer** (from
+[releases.llvm.org](https://releases.llvm.org/) — pick a 17.0.x
+`.exe`):
+
+1. Install LLVM 17 (with `Add LLVM to the system PATH for all users`
+   checked).
 2. Set `LLVM_SYS_170_PREFIX` to the install root (e.g.
    `C:\Program Files\LLVM`).
 3. Build:
@@ -53,10 +85,30 @@ $env:LLVM_SYS_170_PREFIX = "C:\Program Files\LLVM"
 cargo build -p sdust-codegen-llvm --features llvm
 ```
 
+### Verifying the install
+
+After setting `LLVM_SYS_170_PREFIX`, sanity-check the build before
+running the wider test suite:
+
+```bash
+cargo build -p sdust-codegen-llvm --features llvm
+cargo test  -p sdust-codegen-llvm --features llvm
+# Smoke-test against a real Stardust source:
+cargo run -p sdust-cli --features llvm-backend -- build --release \
+    examples/01_hello.sd
+```
+
 If `cargo build --features llvm` fails with
 `No suitable version of LLVM was found system-wide or pointed to by
 LLVM_SYS_170_PREFIX`, that's the documented condition — the feature
-stays off and the driver falls back to Cranelift cleanly.
+stays off and the driver falls back to Cranelift cleanly. Common
+causes:
+
+- `LLVM_SYS_170_PREFIX` points to an LLVM 16/18/19/20 install
+  (`llvm-sys 170.x` only accepts 17.x). Run
+  `$LLVM_SYS_170_PREFIX/bin/llvm-config --version` to confirm.
+- On Linux, libpolly is missing → install `libpolly-17-dev`.
+- On macOS, Xcode CLT is stale → `xcode-select --install`.
 
 ## Backend coverage
 

@@ -92,7 +92,11 @@ pub fn run_file(src: String, source_id: String) -> i32 {
     }
     let typed = sdust_types::check_package_typed(&pkg);
     let prog = sdust_sir::lower_package(&pkg, &typed);
-    let mut host = sdust_sir::interp::RealHost;
+    // v0.3 Task 1: use StdHost (not RealHost) so EffectOp::GenericCall
+    // routes through the dispatcher installed by `sdust_stdlib::host::install()`.
+    let mut host = sdust_runtime::host_std::StdHost::new(std::sync::Arc::new(
+        sdust_runtime::BudgetTracker::new(sdust_runtime::Budget::default()),
+    ));
     let res = sdust_sir::interp::run(&prog, &mut host);
     if let sdust_sir::interp::RunResult::Trap { code, message } = &res {
         eprintln!("trap {}: {}", code, message);
@@ -140,9 +144,12 @@ pub fn run_file_with_runtime(src: String, source_id: String) -> i32 {
             // we accept that the embedded AgentSpawn still uses the
             // synchronous slice-6 path. Long-running services should
             // instead embed via the programmatic Runtime API.
-            use sdust_sir::interp::host::RealHost;
+            // v0.3 Task 1: use StdHost (not RealHost) so `std.*` calls
+            // route through `sdust_stdlib::host::install()`'s dispatcher.
             use sdust_sir::interp::run::{run_fn_with_budget, RunResult};
-            let mut host = RealHost;
+            let mut host = sdust_runtime::host_std::StdHost::new(std::sync::Arc::new(
+                sdust_runtime::BudgetTracker::new(sdust_runtime::Budget::default()),
+            ));
             let res = run_fn_with_budget(&prog, "main", vec![], &mut host, 5_000_000);
             let _ = runtime.shutdown().await;
             match res {

@@ -2024,7 +2024,9 @@ dependencies = [
  "sdust-hir",
  "sdust-lsp",
  "sdust-pkg",
+ "sdust-runtime",
  "sdust-sir",
+ "sdust-stdlib",
  "sdust-syntax",
  "sdust-types",
 ]
