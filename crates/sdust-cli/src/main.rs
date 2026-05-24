@@ -107,7 +107,41 @@ enum Cmd {
     },
 }
 
+/// CLI-level `std.*` dispatcher (see V0_2_CLEANUP_NOTES.md, Task 1).
+///
+/// Wraps `sdust_stdlib::host::dispatch` so paths that lose the `std.`
+/// prefix (e.g. the SIR lowerer emits `["json"]` after a `use std.json`
+/// rewrite, instead of `["std", "json"]`) still route to the real
+/// implementation. We try the path verbatim first, then re-prepend
+/// `"std"` and try again.
+fn cli_std_dispatch(
+    path: &[String],
+    method: &str,
+    args: &[sdust_sir::interp::value::Value],
+) -> sdust_sir::interp::value::Value {
+    let v = sdust_stdlib::host::dispatch(path, method, args);
+    // If the first attempt didn't match a real impl (Value::Unit
+    // is the fallback for unmatched (module, method) pairs), retry
+    // with `std.` prepended.
+    if matches!(v, sdust_sir::interp::value::Value::Unit)
+        && path.first().map(String::as_str) != Some("std")
+    {
+        let mut prefixed = Vec::with_capacity(path.len() + 1);
+        prefixed.push("std".to_string());
+        prefixed.extend_from_slice(path);
+        sdust_stdlib::host::dispatch(&prefixed, method, args)
+    } else {
+        v
+    }
+}
+
 fn main() {
+    // v0.3 Task 1 (see V0_2_CLEANUP_NOTES.md): plug a stdlib-bridging
+    // dispatcher into the runtime before parsing any CLI args so every
+    // command path (Run / Build / Check / …) sees real `std.*`
+    // semantics. Idempotent: safe to call once per process.
+    sdust_runtime::host_std::install_dispatcher(cli_std_dispatch);
+
     let cli = Cli::parse();
     let code = match cli.cmd {
         Cmd::New { name } => cmd::new::run(&name),
