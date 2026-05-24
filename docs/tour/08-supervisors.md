@@ -1,5 +1,10 @@
 # 08 — Supervisors
 
+> **Slice 7 (`v0.7.0-runtime`):** supervisor strategies, restart
+> rate limits (`restart up_to N in DUR`), and uniform-jitter backoff
+> (`backoff D1..D2`) are now implemented at the runtime layer. See
+> `docs/internals/supervisors.md`.
+
 A supervisor owns a set of child agents and decides what to do when one
 fails. Stardust's supervisors borrow from Erlang/OTP: strategies are
 named, and each child gets an explicit restart policy.

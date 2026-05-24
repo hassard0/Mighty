@@ -1,5 +1,11 @@
 # 06 — Agents and protocols
 
+> **Slice 7 (`v0.7.0-runtime`):** agents now actually run on a
+> concurrent tokio executor with per-agent mailboxes. `spawn AgentName()`
+> creates a long-lived actor; `agent!Msg(args)` enqueues fire-and-forget;
+> `agent?Msg(args) @duration` enqueues a deadline-bounded ask. See
+> `docs/internals/runtime.md` for the executor model.
+
 An agent is an isolated unit of state, concurrency, failure, and
 capability. Agents communicate by typed messages described by a
 **protocol**.

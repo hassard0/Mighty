@@ -117,14 +117,15 @@ shallowly; full agent execution arrives in slice 7.
 
 ## Still deferred (slice 7 unless noted)
 
-- Concurrent scheduler + work stealing — slice 7
-- Real mailbox slabs — slice 7
-- Supervisor restart policies — slice 7
-- Budget / sandbox enforcement — slice 7
-- Real `extern { fn ... }` calls — slice 7
-- Real effect-system syscalls — slice 7
-- Real arena allocator — slice 7
-- Field-level borrow tracking — slice 7 (slice-4 still local-granular)
+- ~~Concurrent scheduler + work stealing~~ — **shipped in slice 7 (`v0.7.0-runtime`)**
+- ~~Real mailbox slabs~~ — **shipped in slice 7**
+- ~~Supervisor restart policies~~ — **strategies + restart-tracker shipped in slice 7;**
+  **automatic restart orchestrator lands with slice 8 codegen**
+- ~~Budget / sandbox enforcement~~ — **shipped in slice 7 (BudgetTracker + allowlists)**
+- Real `extern { fn ... }` calls — slice 8
+- Real effect-system syscalls — slice 8 (slice 7 wires the host trait + sandbox checks)
+- Real arena allocator — slice 8 (slice 7 ships approximate `mem_bytes` per A37)
+- Field-level borrow tracking — slice 8 (slice-4 still local-granular)
 - LLVM / Cranelift codegen — slice 8
 - Wasm component-model codegen — slice 8
 - Monomorphization of generics — slice 8
