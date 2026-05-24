@@ -1,0 +1,9 @@
+---
+source: crates/sdust-hir/tests/dump_snapshots.rs
+expression: "dump(\"fn main() { arena turn { let x = 1; x } }\")"
+---
+(package
+  (fn main ()
+    (arena turn (expr ...))
+  )
+)
