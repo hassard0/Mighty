@@ -2,6 +2,17 @@
 
 A minimal HTTP-shaped search service written in Stardust. Demonstrates:
 
+> **v0.5 dogfood update.** `std.http.serve(addr)` now binds a real
+> socket. The host dispatcher routes `std.http.serve` /
+> `std.http.shutdown` through the new
+> `sdust-stdlib::http_server` registry, which spins up a tokio
+> runtime and a hyper accept loop. A default dispatcher returns
+> `200 OK` JSON describing the request; the runtime's agent-binding
+> hook (post-v0.5) will replace that with a real `?Request(req)`
+> ask into the owning agent. See
+> `crates/sdust-stdlib/tests/http_serve_real.rs` for the
+> bound-socket roundtrip smoke test.
+
 - `package` + `use std.*` imports
 - A protocol with three messages and a backing agent
 - Per-handler state mutation (running counters)

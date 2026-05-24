@@ -4,6 +4,16 @@ A clickable counter rendered into a browser, backed by a Stardust agent
 compiled to a **Wasm Component Model component** via
 `sdust build --target wasm32-web`.
 
+> **v0.5 dogfood update.** The Wasm Component now imports the full
+> `stardust:web/dom` interface (`set-text`, `get-text`, `on-click`,
+> `query`) — see `crates/sdust-codegen-wasm/src/wit.rs`. The
+> companion JS shim at [`web/dom-shim.js`](web/dom-shim.js) satisfies
+> these imports against `document.*`, so the JS side no longer has
+> to parse log lines to update the counter. The `log("count=1")`
+> stopgap in this demo remains for back-compat with the existing
+> loader; the real DOM-binding path is exercised by
+> `crates/sdust-codegen-wasm/tests/dom_imports.rs`.
+
 ## Layout
 
 ```

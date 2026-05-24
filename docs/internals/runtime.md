@@ -199,12 +199,56 @@ See `crates/sdust-runtime/src/agent.rs::run_one_turn_async` for the
 implementation, and the test fixtures in
 `crates/sdust-runtime/tests/cancellation_mid_turn.rs`.
 
+## v0.5 dogfood — real `std.http.serve` binding
+
+> Closes Gap 1 in [`DEMOS_V0_4_NOTES.md`](../../DEMOS_V0_4_NOTES.md).
+
+`sdust-stdlib::http_server` ships a process-wide tokio runtime and
+a handle registry that backs the `std.http.serve` host bridge:
+
+```text
+SIR `std.http.serve(addr)`
+   │ host::dispatch
+   ▼
+http_server::start_blocking(addr)
+   │ tokio::TcpListener::bind
+   ▼
+spawn(accept_loop)
+   │ hyper::serve_connection
+   ▼
+AgentDispatch (closure)
+```
+
+`AgentDispatch` is an `Arc<dyn Fn(Request) -> Response + Send + Sync>`.
+The default dispatcher returns a deterministic `200 OK` JSON echo so
+end-to-end smoke tests can roundtrip without a runtime-side agent
+binding. The runtime calls `install_agent_dispatch` once at startup
+with a closure that does:
+
+1. Look up the owning `AgentDescriptor` from a handle id encoded in
+   the request path.
+2. Push a synthetic `Request(req)` ask through the agent's mailbox.
+3. `await` the reply.
+4. Marshal the agent's `Response` value back into HTTP.
+
+The dispatcher returns `Str("<handle_id>|<bound_addr>")` to the
+caller so the agent has a stable id for `std.http.shutdown` while
+still seeing the OS-assigned port when `:0` was requested.
+
+Tests:
+
+- `crates/sdust-stdlib/tests/http_serve_real.rs` — start /
+  roundtrip / shutdown / multi-server bound-port distinctness.
+- `crates/sdust-runtime/tests/http_serve_real.rs` — the older
+  runtime-level `serve_in_memory` shim still works.
+
 ## See also
 
 - `docs/internals/scheduler.md` — tokio executor wrapper
 - `docs/internals/mailboxes.md` — bounded MPSC + MessageFrame + slab pool
 - `docs/internals/supervisors.md` — strategies + restart limits
 - `docs/internals/budgets.md` — counters + sandbox allowlists
+- `docs/internals/sandbox-enforcement.md` — v0.5 budget + cap enforcement
 - `docs/internals/telemetry.md` — JSON event schema (legacy fallback)
 - `docs/internals/telemetry-otlp.md` — v0.3 OTLP wire format
-- `docs/spec/v0.1-amendments.md` — A36..A43, A70+ (v0.3)
+- `docs/spec/v0.1-amendments.md` — A36..A43, A70+ (v0.3), A85+ (v0.5)

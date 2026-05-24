@@ -228,3 +228,42 @@ wasmtime target/01_hello.wasm
 (slice 8 ships byte-only Wasm; the runtime's wasmtime integration is
 a v0.2 task. For now the user runs the emitted module under their
 own wasmtime/wasmer/JS host.)
+
+## v0.5 dogfood — DOM lowering for `wasm32-web`
+
+> Closes Gap 2 in [`DEMOS_V0_4_NOTES.md`](../../DEMOS_V0_4_NOTES.md).
+
+The web target now declares four DOM imports under the canonical
+`stardust:web/dom` module name. These match the expanded WIT
+interface so `wit-component::ComponentEncoder` can wire the import
+section to the typed DOM surface.
+
+| Wasm import name | Signature | WIT shape |
+|---|---|---|
+| `set-text` | `(i32 ptr, i32 len, i32 ptr, i32 len) -> ()` | `set-text: func(id: string, text: string)` |
+| `get-text` | `(i32 ptr, i32 len) -> i32` | `get-text: func(id: string) -> string` |
+| `on-click` | `(i32 ptr, i32 len, i32 ptr, i32 len) -> ()` | `on-click: func(id: string, callback-tag: string)` |
+| `query` | `(i32 ptr, i32 len) -> i32` | `query: func(selector: string) -> option<string>` |
+
+Each `(ptr, len)` pair points into the module's linear memory; the
+JS shim at
+[`demos/02_counter_web/web/dom-shim.js`](../../demos/02_counter_web/web/dom-shim.js)
+decodes them via `TextDecoder`. Return strings come back through a
+caller-allocated scratch buffer at offset 8192
+(`RETURN_BUF_OFFSET` in the shim).
+
+The legacy `get-element-by-id` / `set-text-handle` imports remain
+in the WIT for back-compat with the v0.4 loader.
+
+### Emitter state
+
+`Emitter` now carries four optional indices (`dom_set_text_idx`,
+`dom_get_text_idx`, `dom_on_click_idx`, `dom_query_idx`), populated
+inside `declare_imports` when `target == WasmTarget::Web`. The
+`emit_dom_call(op, &mut wfn)` helper translates a SIR method name
+like `dom.set_text` into a `Call(idx)` instruction; it's reserved
+for use when the SIR lowerer wires `BuiltinId::Dom(...)` calls in
+v0.6. The v0.5 ship-bar is the import declaration + WIT contract
+(verified by `crates/sdust-codegen-wasm/tests/dom_imports.rs`); the
+emitted module exposes the imports so a host shim can answer them
+even before the SIR-side lowering catches up.

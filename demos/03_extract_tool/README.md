@@ -5,6 +5,24 @@ budget and capability caps. The agent classifies candidate tokens
 against an in-process entity vocabulary; the sandbox header records
 the policy the runtime would enforce in a production deployment.
 
+> **v0.5 dogfood update.** Two enforcement gaps are now closed:
+>
+> 1. **Str method table** (`crates/sdust-sir/src/interp/run.rs::eval_method`)
+>    now implements real `contains`, `starts_with`, `ends_with`,
+>    `find`, `char_at`, `slice`, `to_lower`, `to_upper`, `trim`,
+>    `split`, etc. The per-token `==` workaround in this demo can
+>    be lifted; see `crates/sdust-sir/tests/string_methods.rs`.
+> 2. **CPU + memory budgets** auto-trip via a new
+>    `RunResult::MemBudgetExceeded` variant and an SD5009 trap when
+>    a sandboxed run exceeds its `cpu` / `memory` ceiling. The
+>    companion `breach.sd` now actually trips — see
+>    `crates/sdust-sir/tests/budget_charges.rs`.
+> 3. **FsCap allowlist enforcement** (`crates/sdust-stdlib/src/fs.rs`)
+>    consults a process-wide default cap installed from the sandbox
+>    manifest, so `std.fs.read("./outside")` returns
+>    `Result::Err(forbidden:...)` instead of silently reading the
+>    file.
+
 ## Layout
 
 ```

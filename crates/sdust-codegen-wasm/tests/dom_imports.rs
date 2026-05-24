@@ -1,0 +1,156 @@
+//! v0.5 dogfood Gap-2 — verify the Web target's WIT contains the
+//! expanded `stardust:web/dom` interface (set-text / get-text /
+//! on-click / query) and that the world imports it. Also verify the
+//! WIT parses cleanly via wit_parser.
+//!
+//! The companion JS shim at `demos/02_counter_web/web/dom-shim.js`
+//! satisfies these imports against `document.*`.
+
+use sdust_codegen_wasm::target::WasmTarget;
+use sdust_codegen_wasm::wit::emit_wit;
+use sdust_hir::SourceSpan;
+use sdust_sir::sir::{
+    Block, BlockId, Const, Function, LocalDecl, LocalSource, Operand, Program, SirFnId, SirTy, Term,
+};
+
+fn empty_main() -> Program {
+    let mut p = Program::default();
+    p.fns.push(Function {
+        id: SirFnId(0),
+        name: "main".into(),
+        params: vec![],
+        locals: vec![LocalDecl {
+            name: "_0".into(),
+            ty: SirTy::Unit,
+            mutable: false,
+            source: LocalSource::Return,
+        }],
+        blocks: vec![Block {
+            id: BlockId(0),
+            stmts: vec![],
+            terminator: Term::Return(Operand::Const(Const::Unit)),
+        }],
+        entry: BlockId(0),
+        ret_ty: SirTy::Unit,
+        effects: vec![],
+        hir_fn: None,
+        span: SourceSpan { start: 0, end: 0 },
+    });
+    p
+}
+
+#[test]
+fn web_target_imports_stardust_web_dom() {
+    let doc = emit_wit(&empty_main(), "demo", WasmTarget::Web).expect("emit");
+    assert!(
+        doc.text.contains("import stardust:web/dom"),
+        "world should import dom; text:\n{}",
+        doc.text
+    );
+}
+
+#[test]
+fn web_dom_interface_has_v0_5_methods() {
+    let doc = emit_wit(&empty_main(), "demo", WasmTarget::Web).expect("emit");
+    for method in [
+        "set-text: func(id: string, text: string)",
+        "get-text: func(id: string) -> string",
+        "on-click: func(id: string, callback-tag: string)",
+        "query: func(selector: string) -> option<string>",
+    ] {
+        assert!(
+            doc.text.contains(method),
+            "expected `{method}` in WIT:\n{}",
+            doc.text
+        );
+    }
+}
+
+#[test]
+fn web_dom_legacy_handle_methods_still_present() {
+    // The v0.4 JS host used `get-element-by-id` + `set-text-handle`;
+    // keep them so the existing demo loader doesn't break.
+    let doc = emit_wit(&empty_main(), "demo", WasmTarget::Web).expect("emit");
+    assert!(
+        doc.text.contains("get-element-by-id: func"),
+        "legacy op missing: {}",
+        doc.text
+    );
+    assert!(
+        doc.text.contains("set-text-handle: func"),
+        "legacy op missing: {}",
+        doc.text
+    );
+}
+
+#[test]
+fn wasi_target_does_not_import_dom() {
+    let doc = emit_wit(&empty_main(), "demo", WasmTarget::Wasi).expect("emit");
+    assert!(
+        !doc.text.contains("import stardust:web/dom"),
+        "wasi target must not pull in stardust:web/dom; text:\n{}",
+        doc.text
+    );
+}
+
+#[test]
+fn web_wit_round_trips_via_wit_parser() {
+    let doc = emit_wit(&empty_main(), "demo", WasmTarget::Web).expect("emit");
+    let _ = doc.resolve().expect("WIT should re-parse cleanly");
+}
+
+#[test]
+fn web_target_core_module_has_four_dom_imports() {
+    use sdust_codegen_wasm::emit::compile_program_to_bytes;
+    use wasmparser::Imports;
+    let bytes = compile_program_to_bytes(&empty_main(), WasmTarget::Web).expect("compile");
+    // Inspect imports via wasmparser. `ImportSectionReader` yields
+    // `Imports<'a>` *groups*: a single import or a packed group sharing
+    // a module name. The four DOM imports may come back as either
+    // shape depending on encoder packing, so handle both.
+    let mut dom_count = 0usize;
+    let mut dom_names: Vec<String> = Vec::new();
+    for payload in wasmparser::Parser::new(0).parse_all(&bytes) {
+        let p = payload.expect("payload");
+        if let wasmparser::Payload::ImportSection(reader) = p {
+            for group in reader {
+                match group.expect("import group") {
+                    Imports::Single(_, imp) => {
+                        if imp.module == "stardust:web/dom" {
+                            dom_count += 1;
+                            dom_names.push(imp.name.to_string());
+                        }
+                    }
+                    Imports::Compact1 { module, items } => {
+                        if module == "stardust:web/dom" {
+                            for it in items {
+                                let it = it.expect("item");
+                                dom_count += 1;
+                                dom_names.push(it.name.to_string());
+                            }
+                        }
+                    }
+                    Imports::Compact2 { module, names, .. } => {
+                        if module == "stardust:web/dom" {
+                            for n in names {
+                                let n = n.expect("name");
+                                dom_count += 1;
+                                dom_names.push(n.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(
+        dom_count, 4,
+        "expected 4 stardust:web/dom imports, got {dom_count}: {dom_names:?}"
+    );
+    for want in ["set-text", "get-text", "on-click", "query"] {
+        assert!(
+            dom_names.iter().any(|n| n == want),
+            "missing import name {want}; got {dom_names:?}"
+        );
+    }
+}
