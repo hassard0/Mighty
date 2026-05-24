@@ -96,15 +96,34 @@ pub fn link_executable(
     })
 }
 
-/// Implements A52: env override, then `cc`, `gcc`, `clang`, `link.exe`.
+/// Implements A52: env override, then `cc`, `gcc`, `clang`,
+/// `link.exe`. On Windows the bare `link` name is excluded because
+/// it commonly resolves to GNU coreutils' link (hardlink helper),
+/// not the MSVC linker. Users who want MSVC pass STARDUST_LINKER.
+///
+/// We also reject MSYS/Git-Bash's `/usr/bin/link.exe` (the coreutils
+/// shim) when found at that exact path, since it speaks GNU
+/// arg-syntax, not MSVC's.
 pub fn find_linker() -> Option<String> {
     if let Ok(env) = std::env::var("STARDUST_LINKER") {
         if !env.trim().is_empty() {
             return Some(env);
         }
     }
-    for cand in ["cc", "gcc", "clang", "link.exe", "link"] {
-        if which::which(cand).is_ok() {
+    let candidates: &[&str] = if cfg!(windows) {
+        &["clang.exe", "clang", "gcc.exe", "gcc", "cc.exe"]
+    } else {
+        &["cc", "gcc", "clang"]
+    };
+    for cand in candidates {
+        if let Ok(path) = which::which(cand) {
+            // Skip the coreutils `link.exe` shim that ships with
+            // MSYS/Git-Bash on Windows — it's a hardlink helper, not
+            // a linker.
+            let s = path.to_string_lossy();
+            if s.contains("/usr/bin/link") || s.contains("\\usr\\bin\\link") {
+                continue;
+            }
             return Some(cand.to_string());
         }
     }

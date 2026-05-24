@@ -1,3 +1,4 @@
+pub mod build;
 pub mod check;
 pub mod dump;
 pub mod explain;

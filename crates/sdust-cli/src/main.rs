@@ -44,6 +44,23 @@ enum Cmd {
         #[arg(long)]
         legacy_interp: bool,
     },
+    /// Build a Stardust source file to a runnable artifact (slice 8).
+    ///
+    /// Default target = `native` (host-architecture executable, via
+    /// Cranelift + the platform linker). Use `--target wasm32-wasi`
+    /// for a Wasm module runnable under `wasmtime`, or
+    /// `--target wasm32-web` for a browser-targeted module.
+    Build {
+        path: std::path::PathBuf,
+        #[arg(long)]
+        debug: bool,
+        #[arg(long)]
+        release: bool,
+        #[arg(long)]
+        target: Option<String>,
+        #[arg(long)]
+        out_dir: Option<std::path::PathBuf>,
+    },
     /// Print a human-readable explanation of a diagnostic code.
     Explain {
         /// e.g. SD0001, sd0001, 0001, 1
@@ -72,6 +89,13 @@ fn main() {
             path,
             legacy_interp,
         } => cmd::run::run(&path, legacy_interp),
+        Cmd::Build {
+            path,
+            debug,
+            release,
+            target,
+            out_dir,
+        } => cmd::build::run(&path, debug, release, target, out_dir),
         Cmd::Explain { code } => cmd::explain::run(&code),
     };
     std::process::exit(code);

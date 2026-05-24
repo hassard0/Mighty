@@ -19,6 +19,6 @@ pub mod error;
 pub mod target;
 
 pub use artifact::WasmArtifact;
-pub use emit::{compile_program, compile_program_to_bytes};
+pub use emit::{compile_program, compile_program_to_bytes, compile_program_to_file};
 pub use error::{CompileResult, WasmError};
 pub use target::WasmTarget;

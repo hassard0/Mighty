@@ -23,3 +23,5 @@ sdust-fmt = { path = "../sdust-fmt" }
 sdust-sir = { path = "../sdust-sir" }
 sdust-types = { path = "../sdust-types" }
 sdust-borrow = { path = "../sdust-borrow" }
+sdust-codegen-cranelift = { path = "../sdust-codegen-cranelift" }
+sdust-codegen-wasm = { path = "../sdust-codegen-wasm" }

@@ -6,15 +6,19 @@
 //! server surface.
 
 pub mod agent;
+pub mod arena;
 pub mod budget;
+pub mod codegen_abi;
 pub mod deterministic;
 pub mod error;
+pub mod extern_loader;
 pub mod host_std;
 pub mod http;
 pub mod mailbox;
 pub mod runtime;
 pub mod scheduler;
 pub mod supervisor;
+pub mod supervisor_orchestrator;
 pub mod telemetry;
 pub mod timer;
 

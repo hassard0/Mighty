@@ -23,10 +23,15 @@ pub struct JitCompiled {
     pub main_ptr: Option<*const u8>,
     /// True when codegen succeeded with no fallback paths.
     pub fully_compiled: bool,
+    /// True if `main` returns an integer (compiled via JitMainI64);
+    /// false for Unit-returning main (compiled via JitMain).
+    pub main_returns_int: bool,
 }
 
-/// Convenience newtype for a `main() -> i64` fn pointer.
-pub type JitMain = extern "C" fn() -> i64;
+/// Convenience newtype for a `main()` fn pointer (no return).
+pub type JitMain = extern "C" fn();
+/// Variant used when the program declared a `-> Int` main.
+pub type JitMainI64 = extern "C" fn() -> i64;
 
 /// Build a JIT module and lower every function in `prog`. The runtime
 /// symbol table is registered via `symbols`; pass the runtime's
@@ -92,19 +97,38 @@ pub fn build_jit(
         .map_err(|e| CodegenError::Module(format!("finalize: {e}")))?;
 
     let main_ptr = main_fn_id.map(|fid| module.get_finalized_function(fid));
+    // Capture main's return type so call_main knows which transmute
+    // shape to use.
+    let main_returns_int = prog
+        .fn_by_name("main")
+        .map(|f| {
+            !matches!(
+                f.ret_ty,
+                sdust_sir::sir::SirTy::Unit | sdust_sir::sir::SirTy::Never
+            )
+        })
+        .unwrap_or(false);
     Ok(JitCompiled {
         module,
         main_ptr,
         fully_compiled: fully,
+        main_returns_int,
     })
 }
 
 impl JitCompiled {
-    /// Call `main` if present. Returns the int-coerced return value.
+    /// Call `main` if present. Returns the int-coerced return value,
+    /// or 0 for a Unit-returning main.
     pub fn call_main(&self) -> Option<i64> {
         let p = self.main_ptr?;
-        let f: JitMain = unsafe { std::mem::transmute(p) };
-        Some(f())
+        if self.main_returns_int {
+            let f: JitMainI64 = unsafe { std::mem::transmute(p) };
+            Some(f())
+        } else {
+            let f: JitMain = unsafe { std::mem::transmute(p) };
+            f();
+            Some(0)
+        }
     }
 }
 
