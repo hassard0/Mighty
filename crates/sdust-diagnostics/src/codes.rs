@@ -82,6 +82,11 @@ pub const ARENA_ESCAPE_RUNTIME: DiagCode = DiagCode::new(5007);
 pub const UNCALLABLE_BUILTIN: DiagCode = DiagCode::new(5008);
 pub const BUDGET_EXCEEDED: DiagCode = DiagCode::new(5009);
 pub const SANDBOX_VIOLATION: DiagCode = DiagCode::new(5010);
+pub const DEADLINE_EXCEEDED: DiagCode = DiagCode::new(5011);
+pub const MAILBOX_FULL: DiagCode = DiagCode::new(5012);
+pub const SUPERVISOR_ESCALATED: DiagCode = DiagCode::new(5013);
+pub const RESTART_LIMIT_EXCEEDED: DiagCode = DiagCode::new(5014);
+pub const CAPABILITY_OUTSIDE_SANDBOX: DiagCode = DiagCode::new(5015);
 pub const AGENT_HANDLER_MISSING: DiagCode = DiagCode::new(5020);
 pub const SEND_TO_DEAD_AGENT: DiagCode = DiagCode::new(5021);
 pub const EXTERN_FN_UNIMPL: DiagCode = DiagCode::new(5050);
@@ -490,9 +495,37 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  suspension point was reached that slice 6 cannot honor."
         }
         5010 => {
-            "SD5010: Sandbox violation. Slice 6 does not enforce sandbox \
-                 entries, so this code is reserved; slice 7 wires real \
-                 enforcement."
+            "SD5010: Sandbox violation. The runtime denied a capability \
+                 call because the active sandbox's allowlist (fs.read, \
+                 fs.write, or net) does not cover the requested target."
+        }
+        5011 => {
+            "SD5011: Deadline exceeded. An `?Msg(args) @duration` ask \
+                 did not receive a reply within the requested duration. \
+                 The runtime cancels the reply oneshot and the caller \
+                 observes Result::Err(DeadlineExceeded) — or a typed-error \
+                 variant when the protocol declares one."
+        }
+        5012 => {
+            "SD5012: Mailbox full. An agent's mailbox is at its declared \
+                 `mb` depth and the budget policy is `drop` or `fail`. \
+                 Under the default `block` policy the sender back-pressures \
+                 instead of trapping."
+        }
+        5013 => {
+            "SD5013: Supervisor escalated. A supervisor's `escalate` \
+                 strategy propagated a child failure to its parent. At \
+                 the top of the supervisor tree this terminates the run."
+        }
+        5014 => {
+            "SD5014: Restart limit exceeded. A child agent exceeded its \
+                 `restart up_to N in DUR` budget. The supervisor escalates \
+                 per its strategy."
+        }
+        5015 => {
+            "SD5015: Capability outside sandbox. A capability call \
+                 attempted to reach a path or host not on the active \
+                 sandbox allowlist. The runtime denies the call."
         }
         5020 => {
             "SD5020: Agent handler missing. A `send` or `ask` referenced \
