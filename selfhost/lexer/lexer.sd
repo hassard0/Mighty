@@ -1,24 +1,32 @@
 // selfhost/lexer/lexer.sd
 //
-// Self-hosted Stardust lexer (v0.4).
+// Self-hosted Stardust lexer (v0.4) — STATIC SOURCE FORM.
 //
-// Mirrors the behavior of crates/sdust-syntax/src/lexer.rs.
+// Mirrors the behavior of crates/sdust-syntax/src/lexer.rs as a
+// hand-written state machine in Stardust source. `sdust check`s clean
+// and demonstrates the full token surface (every keyword, every
+// punctuation token, every literal kind, comments, identifiers).
 //
-// ## Bootstrap technique (see docs/internals/self-hosting.md)
+// ## v0.4 status: SUBSET — compiles, does not execute end-to-end
 //
-// The v0.3 interpreter (sdust-sir::interp) only exposes a permissive
-// stub for `Str` methods — `s.contains(...)` always returns false,
-// `s.chars()` is not lowered, and there is no `&str` byte slicing.
-// A real character-driven state machine cannot run on stdlib alone.
+// The v0.3 SIR interpreter lowers `while` / `loop` / `for` as
+// **single-iteration** by design (see
+// crates/sdust-sir/src/lower/exprs.rs lower_while/lower_loop/lower_for
+// — explicit "Slice 6: avoid infinite loops at run time by jumping
+// straight to exit"). A real lexer iterates over the source, so this
+// hard-blocks running the self-hosted lexer through `sdust run` until
+// the v0.5 interpreter gains real iterative loops.
 //
-// To make this lexer *runnable*, it talks to the source via a small
-// set of `extern` host fns. The host (the bootstrap test in
-// crates/sdust-driver/tests/selfhost_lexer.rs) implements them via the
-// `Host::extern_call` hook. This is the v0.4 bootstrap shape: the
-// Stardust code owns the *logic* (state machine, keyword table,
-// longest-match punctuation), the Rust host owns *byte access*
-// (peek/advance/substring), and tokens come back through `lex_emit`
-// so the test can capture them.
+// The bootstrap test (crates/sdust-driver/tests/selfhost_lexer.rs) is
+// therefore split:
+//   1. compile + type/borrow-check the lexer source (passes in v0.4)
+//   2. round-trip a single token via the std.io host bridge (the
+//      first FN_KW lex works; the loop then terminates after one
+//      iteration — documented v0.3 gap)
+//   3. full diff against the Rust lexer (gated on the v0.5 loop fix)
+//
+// See SELFHOST_V0_4_NOTES.md for the full gap catalog and
+// docs/internals/self-hosting.md for the roadmap.
 //
 // ## Why one file in v0.4
 //
