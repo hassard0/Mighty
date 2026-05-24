@@ -1,0 +1,17 @@
+// Slice-7: sandbox parses, type-checks, and lowers. Runtime
+// enforcement of the entries is exercised via the programmatic
+// BudgetTracker (see crates/sdust-runtime/tests/sandbox_enforcement.rs).
+// Here we just confirm the runnable harness reaches main.
+sandbox ToolRun with {
+  fs.read = ["/models"]
+  cpu = 150ms
+  wall = 2s
+  memory = 128MiB
+  mailbox = 1k
+} {
+  log("sandbox lowered")
+}
+
+fn main() {
+  log("ok")
+}

@@ -640,6 +640,24 @@ impl<'a> Interp<'a> {
             Some((_, f)) => *f,
             None => return Value::Unit,
         };
+
+        // Slice-7 path: delegate to run_handler_isolated. It creates a
+        // throwaway interpreter with a properly-aliased self-ref so
+        // (*self).fN writes go through. We snapshot the state, run, and
+        // write the new state back.
+        let state_in = self.agent_states[handle.state_idx].clone();
+        let (rr, new_state, reply) =
+            run_handler_isolated(self.prog, handler, state_in, args, host);
+        if matches!(rr, RunResult::Ok { .. }) {
+            self.agent_states[handle.state_idx] = new_state;
+        }
+        return reply;
+
+        // ---- slice-6 legacy path retained below for reference ----
+        // (unreachable; left in place as documentation for the
+        // historical state-passing hack until slice-8 cleanup.)
+        #[allow(unreachable_code)]
+        {
         // Build args: &mut self ref + msg args.
         let state_ref = Value::Ref(Reference {
             scope: ScopeId(handle.id),
@@ -782,6 +800,7 @@ impl<'a> Interp<'a> {
         }
 
         reply
+        }
     }
 
     fn eval_operand(&self, o: &Operand) -> Value {

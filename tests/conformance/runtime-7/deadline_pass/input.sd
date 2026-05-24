@@ -1,0 +1,13 @@
+protocol P {
+  Hit() -> Str
+}
+
+agent A: P {
+  on Hit() -> "fast"
+}
+
+fn main() {
+  let h = spawn A()
+  let r = h?Hit() @500ms
+  log(r)
+}

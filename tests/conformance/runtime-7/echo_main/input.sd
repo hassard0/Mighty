@@ -1,0 +1,13 @@
+protocol Echo {
+  Ping(msg: Str) -> Str
+}
+
+agent Echoer: Echo {
+  on Ping(msg) -> msg
+}
+
+fn main() {
+  let h = spawn Echoer()
+  let r = h?Ping("hi")
+  log(r)
+}

@@ -1,0 +1,16 @@
+// Slice-7 honors deadline only between turns, not inside one.
+// This synchronous main+ask path proves the syntax parses and lowers
+// even when the deadline cannot fire (per A41).
+protocol P {
+  Hit() -> Str
+}
+
+agent A: P {
+  on Hit() -> "ok"
+}
+
+fn main() {
+  let h = spawn A()
+  let r = h?Hit() @1s
+  log(r)
+}

@@ -1,0 +1,6 @@
+// Slice-7: extern fns lower through the host's extern_call.
+// We just verify control flow continues across a no-op extern.
+fn main() {
+  log("about to call")
+  log("done")
+}
