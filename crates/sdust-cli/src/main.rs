@@ -34,6 +34,11 @@ enum Cmd {
         #[arg(long)]
         hir: bool,
     },
+    /// Print a human-readable explanation of a diagnostic code.
+    Explain {
+        /// e.g. SD0001, sd0001, 0001, 1
+        code: String,
+    },
 }
 
 fn main() {
@@ -52,6 +57,7 @@ fn main() {
             cst,
             hir,
         } => cmd::dump::run(&path, ast, cst, hir),
+        Cmd::Explain { code } => cmd::explain::run(&code),
     };
     std::process::exit(code);
 }
