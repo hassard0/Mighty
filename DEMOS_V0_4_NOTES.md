@@ -10,8 +10,8 @@ stopgap — none are silent compromises.
 ### Decision: drive handlers from `main()` rather than `http.serve`
 
 **Why.** `std.http.serve` ships as a real `hyper`-backed API in
-`crates/sdust-stdlib/src/http.rs::serve`, but the v0.3 generic-call
-dispatcher in `crates/sdust-stdlib/src/host.rs::dispatch` only routes
+`crates/mty-stdlib/src/http.rs::serve`, but the v0.3 generic-call
+dispatcher in `crates/mty-stdlib/src/host.rs::dispatch` only routes
 `std.http.get` and `std.http.post` today. The serve path also needs
 an agent-side `Handler` adapter that lets the runtime invoke an
 `AgentRef[T]` when a request lands; that bridge is post-v0.4.
@@ -38,9 +38,9 @@ deterministically.
 
 ### Decision: parse imported `log` stream from JS instead of using DOM
 
-**Why.** `crates/sdust-codegen-wasm/src/wit.rs` emits WIT stubs for
-the `stardust:web/dom` interface (`get-element-by-id`, `set-text`)
-but the slice-8 lowerer in `crates/sdust-codegen-wasm/src/emit.rs`
+**Why.** `crates/mty-codegen-wasm/src/wit.rs` emits WIT stubs for
+the `mighty:web/dom` interface (`get-element-by-id`, `set-text`)
+but the slice-8 lowerer in `crates/mty-codegen-wasm/src/emit.rs`
 only wires the `log` import end-to-end — DOM call lowering is open
 work. The `dom.set_text("#count", n.to_str())` calls in
 `examples/20_frontend_component.sd` lower to extern stubs that aren't
@@ -48,10 +48,10 @@ present in the emitted core module.
 
 **Stopgap.** The agent calls `log("count++")` (a deterministic tag);
 the JS host in `web/index.html` parses those log lines and updates
-the visible DOM counter. The Stardust agent is still the source of
+the visible DOM counter. The Mighty agent is still the source of
 truth for the count — the JS just renders it.
 
-**v0.5 follow-up.** Bind the `stardust:web/dom` interface in
+**v0.5 follow-up.** Bind the `mighty:web/dom` interface in
 `emit.rs` parallel to the existing log path; switch the demo body to
 `dom.set_text(...)` and drop the JS-side parsing.
 
@@ -75,8 +75,8 @@ script that drops the user into a known-good loader.
 
 ### Decision: drive the extractor by string equality, not tokenisation
 
-**Why.** The slice-6 SIR interpreter's method table
-(`crates/sdust-sir/src/interp/run.rs::eval_method`) only binds:
+**Why.** The slice-6 MtyIR interpreter's method table
+(`crates/mty-sir/src/interp/run.rs::eval_method`) only binds:
 
 - `len`, `to_str` / `to_string` / `as_str`, `is_empty`
 - `unwrap`, `unwrap_or`, `ok`, `ok_or`
@@ -106,13 +106,13 @@ memory checks only fire on the next capability-marked call. The
 slice-6 interpreter is synchronous and has no auto-charging for
 pure-compute loops (A37), so the impossible-cap sandbox in
 `src/breach.sd` runs to completion today. When v0.5 wires
-auto-charging through the SIR interpreter the breach will start
+auto-charging through the MtyIR interpreter the breach will start
 trapping with `MT5009 budget_exceeded`. The smoke script tolerates
 both outcomes.
 
 ### Decision: fs.read fixture is consumed in-process
 
-**Why.** `std.fs.read` (via `crates/sdust-stdlib/src/host.rs::fs_read`)
+**Why.** `std.fs.read` (via `crates/mty-stdlib/src/host.rs::fs_read`)
 uses an unrestricted `FsCap::unrestricted()` — the path allow-list in
 the sandbox header is recorded but not enforced against this bridge.
 Loading `inputs/sample.json` through it wouldn't exercise the cap
@@ -120,7 +120,7 @@ check meaningfully; running the demo without fs at all keeps the
 output deterministic and platform-independent.
 
 **v0.5 follow-up.** When the cap-checked `Fs` handle is plumbed
-end-to-end (it exists in `sdust-stdlib::fs::FsCap` but the
+end-to-end (it exists in `mty-stdlib::fs::FsCap` but the
 generic-call bridge bypasses it), the demo body switches to
 `fs.read("./inputs/sample.json")` and the breach test gains a fs-out-
 of-allowlist case.
@@ -143,7 +143,7 @@ of-allowlist case.
 | Demo | Next-most-valuable v0.5 feature |
 |------|--------------------------------|
 | 01 | `host::dispatch` route for `std.http.serve` + agent-side `Handler` adapter |
-| 02 | `stardust:web/dom` import lowering in `sdust-codegen-wasm/src/emit.rs` |
-| 03 | Auto-charging in the SIR interpreter so cpu/mem caps trip on pure-compute loops |
+| 02 | `mighty:web/dom` import lowering in `mty-codegen-wasm/src/emit.rs` |
+| 03 | Auto-charging in the MtyIR interpreter so cpu/mem caps trip on pure-compute loops |
 
 None of these block the alpha gate.

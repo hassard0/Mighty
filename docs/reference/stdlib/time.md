@@ -40,7 +40,7 @@ supported platform. `Instant.elapsed_since(other)` returns
 - `sleep` is async (`tokio::time::sleep`) — use inside agent handlers
   and other tokio contexts.
 - `sleep_blocking` is the synchronous fallback (`std::thread::sleep`)
-  — used by the SIR interpreter when no tokio runtime is on the
+  — used by the MtyIR interpreter when no tokio runtime is on the
   stack (e.g. for tests).
 
 ## Example

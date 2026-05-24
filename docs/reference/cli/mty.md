@@ -1,24 +1,24 @@
-# sdust
+# mty
 
-The Stardust compiler CLI.
+The Mighty compiler CLI.
 
 ## Synopsis
 
 ```
-sdust <COMMAND>
+mty <COMMAND>
 ```
 
 ## Commands
 
 | Command | Purpose |
 |---|---|
-| [`new`](sdust-new.md) | Scaffold a new Stardust package |
-| [`fmt`](sdust-fmt.md) | Format `.sd` files (or stdin) |
-| [`check`](sdust-check.md) | Parse + HIR-lower; emit diagnostics |
-| [`dump`](sdust-dump.md) | Dump intermediate representations |
-| [`explain`](sdust-explain.md) | Print a human-readable explanation of a diagnostic code |
-| [`lsp`](sdust-lsp.md) | Run the Stardust Language Server (LSP 3.17) over stdio |
-| `help` | Print help for `sdust` or a subcommand |
+| [`new`](mty-new.md) | Scaffold a new Mighty package |
+| [`fmt`](mty-fmt.md) | Format `.sd` files (or stdin) |
+| [`check`](mty-check.md) | Parse + HIR-lower; emit diagnostics |
+| [`dump`](mty-dump.md) | Dump intermediate representations |
+| [`explain`](mty-explain.md) | Print a human-readable explanation of a diagnostic code |
+| [`lsp`](mty-lsp.md) | Run the Mighty Language Server (LSP 3.17) over stdio |
+| `help` | Print help for `mty` or a subcommand |
 
 ## Global options
 

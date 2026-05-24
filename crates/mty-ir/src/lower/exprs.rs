@@ -123,7 +123,7 @@ pub fn lower_expr(ctx: &mut LowerCtx, fb: &mut FnBuilder, eid: ExprId) -> Operan
             let arg_ops: Vec<Operand> = args.iter().map(|a| lower_expr(ctx, fb, a.value)).collect();
             // v0.6: DOM cap receiver -> first-class `BuiltinId::DomOp`.
             // The wasm32-web backend routes this through `emit_dom_call`
-            // to the `stardust:web/dom` import set; the SIR interpreter
+            // to the `mty:web/dom` import set; the SIR interpreter
             // routes it through `host.extern_call("dom.<op>", args)` so
             // headless tests don't crash. Receiver is implicit (the JS
             // shim is the only DOM there is), so we pass only the

@@ -1,12 +1,12 @@
-# sdust check
+# mty check
 
-Lex, parse, HIR-lower, and type-check a single Stardust source file;
+Lex, parse, HIR-lower, and type-check a single Mighty source file;
 emit diagnostics.
 
 ## Synopsis
 
 ```
-sdust check <PATH>
+mty check <PATH>
 ```
 
 ## Arguments
@@ -33,7 +33,7 @@ sdust check <PATH>
   (colorized when stderr is a TTY) and exits 1.
 - Otherwise prints `ok: <path>` to stdout and exits 0.
 
-As of slice 3, `sdust check` performs:
+As of slice 3, `mty check` performs:
 
 1. Lex (MT0001..MT0004)
 2. Parse (MT0010..MT0030)
@@ -57,12 +57,12 @@ See the [diagnostic codes](../diagnostics.md) page for the registry of
 ## Examples
 
 ```bash
-sdust check src/main.sd
-sdust check examples/07_agent_echo.sd
+mty check src/main.sd
+mty check examples/07_agent_echo.sd
 ```
 
 In CI:
 
 ```bash
-for f in examples/*.sd; do sdust check "$f" || exit 1; done
+for f in examples/*.sd; do mty check "$f" || exit 1; done
 ```

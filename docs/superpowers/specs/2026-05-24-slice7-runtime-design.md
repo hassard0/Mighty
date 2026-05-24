@@ -1,12 +1,12 @@
 # Slice 7 — Runtime MVP (spec §25 + §31.5)
 
 **Date:** 2026-05-24
-**Predecessor:** `v0.6.0-sir` (`068af1a`) — SIR + synchronous interpreter
+**Predecessor:** `v0.6.0-sir` (`068af1a`) — MtyIR + synchronous interpreter
 **Target tag:** `v0.7.0-runtime`
 
 ## Goal
 
-Make Stardust's interpreter a real, concurrent, deadline-aware,
+Make Mighty's interpreter a real, concurrent, deadline-aware,
 supervisor-managed runtime. Slice 6 ships a single-thread tree-walker
 with metadata-only agents, budgets, and sandboxes. Slice 7 wires those
 metadata pieces into an actual asynchronous executor so:
@@ -23,7 +23,7 @@ metadata pieces into an actual asynchronous executor so:
   (path / host allowlists) are enforced at runtime, raising the
   reserved MT5009 / MT5010 traps;
 - a deterministic mode replays controlled interleavings against the
-  same SIR program;
+  same MtyIR program;
 - `std.http.serve(":8080", api)` opens a real TCP listener and
   dispatches HTTP requests to the bound `Api` agent;
 - a telemetry emitter writes OpenTelemetry-shaped spans (JSON) to
@@ -42,12 +42,12 @@ Out of scope (deferred to slice 8 or post-v0.1):
 
 ## Architecture
 
-A new crate `sdust-runtime` sits between `sdust-sir` and the OS:
+A new crate `mty-runtime` sits between `mty-sir` and the OS:
 
 ```
-sdust-driver --> sdust-runtime --> tokio (executor + timers)
+mty-driver --> mty-runtime --> tokio (executor + timers)
                        |
-                       +-- sdust-sir::interp (per-turn evaluator)
+                       +-- mty-sir::interp (per-turn evaluator)
                        |
                        +-- std host (real net/fs/time/rand)
 ```
@@ -60,7 +60,7 @@ supervisor logic, and the live `Host` implementation.
 ### Crate layout
 
 ```
-crates/sdust-runtime/
+crates/mty-runtime/
   src/
     lib.rs              # public API
     runtime.rs          # Runtime, RuntimeBuilder
@@ -116,7 +116,7 @@ impl Runtime {
 }
 ```
 
-The `sdust run <file>` command builds a `Runtime` from the lowered
+The `mty run <file>` command builds a `Runtime` from the lowered
 `Program`, spawns `main` on it, and pumps the executor until either
 `main` returns or all agents quiesce.
 
@@ -137,7 +137,7 @@ pub struct AgentDescriptor {
 
 `AgentState` wraps a `Value::Struct` produced by the slice-6 ctor
 function so the per-turn evaluator can read/write it through normal
-SIR projections.
+MtyIR projections.
 
 ### Mailbox slabs (spec §25.3)
 
@@ -187,7 +187,7 @@ jitter between `D1` and `D2`).
 
 `Ask { deadline_ms: Some(d), .. }` wraps the response oneshot in
 `tokio::time::timeout(Duration::from_millis(d), recv)`. On expiry the
-reply resolves to `Result::Err(DeadlineExceeded)`; the SIR
+reply resolves to `Result::Err(DeadlineExceeded)`; the MtyIR
 interpreter materialises this as the appropriate `Result::Err`
 variant when the typed error union is known, otherwise as a generic
 `RuntimeError::Deadline` that the caller can match with `?`.
@@ -250,7 +250,7 @@ single-thread cooperative scheduler:
 
 This backs the `test deterministic "name" { runtime.det { ... } }`
 syntax: slice 7 parses + lowers this to a `Stmt::DeterministicScope`
-hint that the runtime honours when `sdust run` sees it inside the
+hint that the runtime honours when `mty run` sees it inside the
 `main` body. Standalone test files run via the deterministic mode by
 default.
 
@@ -284,7 +284,7 @@ A36 records this as the slice-7 stdlib surface.
 - **A40** — Mailbox default depth 1024 (`mb`), default policy `block`.
 - **A41** — `task scope @D` cancels via `tokio::time::sleep` guard;
   slice-7 cancellation kicks in **at the next await point** (no
-  preemption inside a synchronous SIR turn). The next-await behaviour
+  preemption inside a synchronous MtyIR turn). The next-await behaviour
   is fine because slice-7 turns are bounded by step budget (default
   1 M steps); a turn cannot run forever.
 - **A42** — `restart up_to N in DUR` denies after N restarts within a
@@ -294,7 +294,7 @@ A36 records this as the slice-7 stdlib surface.
 
 ## Testing strategy
 
-- **Unit tests in `sdust-runtime`** (target ~60 new tests):
+- **Unit tests in `mty-runtime`** (target ~60 new tests):
   - Mailbox FIFO, bounded behaviour, drop-on-full policy, send-block.
   - Timer wheel — deadlines fire at the expected logical time in
     deterministic mode.
@@ -304,7 +304,7 @@ A36 records this as the slice-7 stdlib surface.
   - Restart rate-limit window (5 restarts in 1 s denies the 6th).
   - Backoff jitter is within range.
   - Telemetry emits the documented shapes for each kind.
-- **Integration tests** wiring SIR programs through the runtime:
+- **Integration tests** wiring MtyIR programs through the runtime:
   - Agent echo (example 07) — spawn, send, observe state.
   - Counter (example 08) — three sends, ask state, expect 3.
   - Send + ask + deadline (example 09) — succeeds + times out.
@@ -320,9 +320,9 @@ A36 records this as the slice-7 stdlib surface.
 
 ## Concrete deliverables
 
-1. New crate `sdust-runtime` (~3 000 lines target, comparable to
-   `sdust-sir`).
-2. `sdust-driver` and `sdust-cli` rewired so `sdust run` uses the
+1. New crate `mty-runtime` (~3 000 lines target, comparable to
+   `mty-sir`).
+2. `mty-driver` and `mty-cli` rewired so `mty run` uses the
    runtime (slice-6 synchronous fallback retained behind
    `--legacy-interp` for diagnostic comparison).
 3. Examples 07/08/09/10/11/18/19 run end-to-end (vs lower-only).
@@ -335,7 +335,7 @@ A36 records this as the slice-7 stdlib surface.
 6. Documentation: `docs/internals/runtime.md`,
    `docs/internals/scheduler.md`, `docs/internals/mailboxes.md`,
    `docs/internals/supervisors.md`, `docs/internals/budgets.md`,
-   `docs/internals/telemetry.md`, `docs/reference/cli/sdust-run.md`
+   `docs/internals/telemetry.md`, `docs/reference/cli/mty-run.md`
    updated with runtime flags, tour pages for agents/supervisors/
    budgets updated with "now actually runs!" markers.
 7. Amendments A36..A43 added to `docs/spec/v0.1-amendments.md`.
@@ -355,26 +355,26 @@ A36 records this as the slice-7 stdlib surface.
 
 | Risk | Mitigation |
 |------|------------|
-| Tokio leaks into too many crates and bloats build times | Keep `tokio` confined to `sdust-runtime`; `sdust-driver` only re-exports `Runtime`. |
+| Tokio leaks into too many crates and bloats build times | Keep `tokio` confined to `mty-runtime`; `mty-driver` only re-exports `Runtime`. |
 | Real HTTP serve is fragile in CI (port binding, firewall) | Provide `STARDUST_HTTP_MOCK=1` to bypass TCP in tests. |
 | Determinism mode drifts from spec §25.5 | Pin a "replay" test that runs example 09 ten times under one seed and diffs the telemetry stream. |
 | Per-turn arena byte accounting is approximate | Documented as A37; slice 8 will integrate a real arena allocator. |
 | Supervisor restart loops chew CPU under failing child | Restart rate limit (A42) caps it; backoff jitter prevents thundering herd. |
-| Tokio + Windows TCP edge cases | `http.serve` is gated by env var; default `sdust run examples/19_backend_service.sd` prints a hint and exits 0 if `STARDUST_HTTP_REAL=1` is not set. |
+| Tokio + Windows TCP edge cases | `http.serve` is gated by env var; default `mty run examples/19_backend_service.sd` prints a hint and exits 0 if `STARDUST_HTTP_REAL=1` is not set. |
 
 ## Success criteria
 
 - `cargo test --workspace` passes (~350 tests, no failures).
 - `cargo clippy --workspace --all-targets -- -D warnings` clean.
-- `sdust run examples/07_agent_echo.sd` exercises spawn + send.
-- `sdust run examples/10_supervisor.sd` reports a restart sequence
+- `mty run examples/07_agent_echo.sd` exercises spawn + send.
+- `mty run examples/10_supervisor.sd` reports a restart sequence
   for a child that intentionally fails (example 10 lacks a body that
   causes failure today; we add a `main()` to make it executable and
   introduce a `fail_after_n` helper in the prelude so the run is
   observable).
-- `sdust run examples/11_budget_block.sd` traps with MT5009 when
+- `mty run examples/11_budget_block.sd` traps with MT5009 when
   `cpu 150ms` is exceeded by an infinite-loop helper.
-- `STARDUST_HTTP_REAL=1 sdust run examples/19_backend_service.sd`
+- `STARDUST_HTTP_REAL=1 mty run examples/19_backend_service.sd`
   starts listening on `:8080` and serves at least one mock request
   (verified by a curl-style test in `tests/http_serve.rs`).
 - Determinism replay: 10 runs of example 09 under

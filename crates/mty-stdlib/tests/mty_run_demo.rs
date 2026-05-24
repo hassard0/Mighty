@@ -3,7 +3,7 @@
 //! > A Mighty example file using `use std.json` + `json.parse(...)`
 //! > actually parses and executes through `mty run`.
 //!
-//! We don't shell out to the `sdust` binary — we link directly against
+//! We don't shell out to the `mty` binary — we link directly against
 //! the driver so the test stays hermetic.
 
 #![cfg(feature = "runner")]

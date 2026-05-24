@@ -1,10 +1,10 @@
 // selfhost/lexer/syntax_kind.sd
 //
-// Stardust mirror of crates/sdust-syntax/src/syntax_kind.rs.
+// Mighty mirror of crates/mty-syntax/src/syntax_kind.rs.
 //
 // Variant names are kept identical to the Rust SyntaxKind so the diff
-// between the trusted Rust lexer and the self-hosted Stardust lexer
-// can be compared by name (see crates/sdust-driver/tests/selfhost_lexer.rs).
+// between the trusted Rust lexer and the self-hosted Mighty lexer
+// can be compared by name (see crates/mty-driver/tests/selfhost_lexer.rs).
 //
 // Only the *token* variants of SyntaxKind are mirrored here. Node kinds
 // (FILE, USE_DECL, BINARY_EXPR, …) are produced by the parser, which is

@@ -82,7 +82,7 @@ Nested sandboxes intersect allowlists.
 
 Per A37: without a real arena allocator (slice 8 work), `mem_bytes`
 is approximate. Slice 7 records bytes on explicit `record_mem(n)`
-calls only; the SIR interpreter does not auto-count allocations. This
+calls only; the MtyIR interpreter does not auto-count allocations. This
 makes the check pessimistic — programs may breach in production that
 slice-7 tests miss. Slice 8 wires the real allocator.
 

@@ -1,6 +1,6 @@
-# Stardust Registry
+# Mighty Registry
 
-The Stardust package registry is a thin convention layered on **GitHub
+The Mighty package registry is a thin convention layered on **GitHub
 Releases**. There is no central server: a registry is just a GitHub
 repository (`<owner>/<repo>`) whose Releases host one tag per published
 `(package-name, version)`. This document covers:
@@ -16,7 +16,7 @@ repository (`<owner>/<repo>`) whose Releases host one tag per published
 - [Roadmap](#roadmap)
 
 > **Status.** The registry transport shipped in v0.4. The *official*
-> registry (`stardust-pkg/registry`) is not yet created on GitHub — that
+> registry (`mighty-pkg/registry`) is not yet created on GitHub — that
 > belongs to the v0.5 cloud control plane. Until then, configure
 > `[registry].default` to point at any GitHub repo that follows the
 > storage convention below.
@@ -31,7 +31,7 @@ repository with:
 | Tag          | `<package-name>-<version>` (e.g. `otel-0.1.0`)              |
 | Asset 1      | `<package-name>-<version>.tar.gz` — gzipped tar of the source |
 | Asset 2      | `<package-name>-<version>.tar.gz.sha256` — sidecar (hex hash + filename) |
-| Release body | Verbatim `star.toml` from the published version             |
+| Release body | Verbatim `mighty.toml` from the published version             |
 
 Package names may contain dashes; the tag parser splits on the **last
 dash before a digit**, so `my-lib-1.2.3` parses as `(my-lib, 1.2.3)`.
@@ -46,12 +46,12 @@ The sidecar file is a single line in the `sha256sum -b` shape:
 <hex-digest>  <name>-<version>.tar.gz
 ```
 
-`sdust pkg fetch` accepts either the bare hex digest, the
+`mty pkg fetch` accepts either the bare hex digest, the
 `sha256:<hex>` form, or the full sha256sum line.
 
 ## Index discovery and caching
 
-`sdust-pkg` discovers releases via the standard GitHub Releases REST
+`mty-pkg` discovers releases via the standard GitHub Releases REST
 API:
 
 ```
@@ -65,16 +65,16 @@ registry). Each release whose `tag_name` parses into
 The parsed catalogue is cached locally per package, under:
 
 ```
-<package-root>/.stardust/registry/<owner>__<repo>/index.json
+<package-root>/.mighty/registry/<owner>__<repo>/index.json
 ```
 
 - **TTL**: 1 hour. After expiry the next operation that needs the
   index revalidates via `If-Modified-Since` (304 → bump the cache
   timestamp, keep the existing list).
-- **Force refresh**: `sdust pkg update --refresh` re-pulls every
+- **Force refresh**: `mty pkg update --refresh` re-pulls every
   configured registry's index.
 
-Resolution (`sdust pkg add`, `sdust pkg update`) is intentionally
+Resolution (`mty pkg add`, `mty pkg update`) is intentionally
 **offline-first**: it only reads the on-disk cache, never the
 network. This keeps `add` fast and reproducible. If you want the
 latest available versions, `update --refresh` first.
@@ -92,7 +92,7 @@ For each registry dep:
 4. If no registry has a match (no cache, empty index, package
    missing), fall back to synthesising the version from the
    requirement floor (`^0.3.2` → `0.3.2`). The lockfile still pins
-   the default registry's slug; `sdust pkg fetch` will then surface a
+   the default registry's slug; `mty pkg fetch` will then surface a
    clear "release not found" error if the package truly isn't there.
 
 The lockfile records the chosen registry slug:
@@ -101,18 +101,18 @@ The lockfile records the chosen registry slug:
 [[package]]
 name = "otel"
 version = "0.1.0"
-source = "registry+gh://stardust-pkg/registry"
+source = "registry+gh://mighty-pkg/registry"
 hash = "sha256:..."
 ```
 
 ## Multiple registries
 
-A package's `star.toml` may opt into additional registries:
+A package's `mighty.toml` may opt into additional registries:
 
 ```toml
 [registry]
-default = "stardust-pkg/registry"            # the official one
-extras = ["myorg/private-stardust-pkgs"]     # additional registries
+default = "mighty-pkg/registry"            # the official one
+extras = ["myorg/private-mighty-pkgs"]     # additional registries
 ```
 
 Lookup order is `default`, then `extras` in declared order. On
@@ -122,7 +122,7 @@ Omitting `[registry]` is equivalent to:
 
 ```toml
 [registry]
-default = "stardust-pkg/registry"
+default = "mighty-pkg/registry"
 extras = []
 ```
 
@@ -139,25 +139,25 @@ Two layers exist:
    at:
 
    ```
-   ~/.config/sdust/auth.toml
+   ~/.config/mty/auth.toml
    ```
 
-   (Windows: `%APPDATA%\sdust\auth.toml`). The file shape:
+   (Windows: `%APPDATA%\mty\auth.toml`). The file shape:
 
    ```toml
    [tokens]
-   "myorg/private-stardust-pkgs" = "ghp_..."
-   "stardust-pkg/registry"       = "ghp_..."
+   "myorg/private-mighty-pkgs" = "ghp_..."
+   "mighty-pkg/registry"       = "ghp_..."
    ```
 
    On Unix, `auth.toml` is written with mode `0600`. The same
    storage model as `gh` CLI's `~/.config/gh/hosts.yml`.
 
-   Configure tokens with `sdust pkg login`:
+   Configure tokens with `mty pkg login`:
 
    ```sh
    # token must be provided via env-var (v0.4 disables interactive prompts)
-   SDUST_PKG_LOGIN_TOKEN=ghp_xxxxx sdust pkg login myorg/private-stardust-pkgs
+   SDUST_PKG_LOGIN_TOKEN=ghp_xxxxx mty pkg login myorg/private-mighty-pkgs
    ```
 
 Lookup precedence: the per-slug token in `auth.toml` first, then
@@ -175,13 +175,13 @@ The required GitHub-token scopes:
 
 ```sh
 # Bundle + (when authed) upload as a GitHub Release.
-sdust pkg publish
+mty pkg publish
 ```
 
 `publish` always writes the local artefacts:
 
-- `.stardust/publish/<name>-<version>.tar.gz`
-- `.stardust/publish/<name>-<version>.tar.gz.sha256`
+- `.mighty/publish/<name>-<version>.tar.gz`
+- `.mighty/publish/<name>-<version>.tar.gz.sha256`
 
 When a token is available for the configured default registry, it
 proceeds to:
@@ -201,7 +201,7 @@ Files under these top-level paths are **excluded** from the tarball:
 
 - `.git/`
 - `target/`
-- `.stardust/` (your local cache lives here)
+- `.mighty/` (your local cache lives here)
 
 There is no `package.include`/`exclude` field yet — that's tracked as
 a post-v0.5 enhancement.
@@ -209,17 +209,17 @@ a post-v0.5 enhancement.
 ## Hosting your own registry
 
 1. Create a public or private GitHub repository, e.g.
-   `myorg/our-stardust-pkgs`. The repo's README + LICENSE are
+   `myorg/our-mighty-pkgs`. The repo's README + LICENSE are
    optional; the registry only cares about Releases.
 2. For each package you want to publish, follow the [storage
-   convention](#storage-convention). The easiest path is `sdust pkg
-   publish` from inside the package directory, after a `sdust pkg
-   login myorg/our-stardust-pkgs`.
+   convention](#storage-convention). The easiest path is `mty pkg
+   publish` from inside the package directory, after a `mty pkg
+   login myorg/our-mighty-pkgs`.
 3. Point consumers at your registry:
 
    ```toml
    [registry]
-   default = "myorg/our-stardust-pkgs"
+   default = "myorg/our-mighty-pkgs"
    ```
 
 That's it. No custom server, no DNS, no infra. GitHub handles
@@ -230,7 +230,7 @@ storage, integrity (release tags + commit signatures), and bandwidth.
 | Threat                              | Mitigation                                          |
 |-------------------------------------|-----------------------------------------------------|
 | Tarball tampered in transit         | sha256 sidecar verified pre-extract                 |
-| Tarball tampered post-fetch         | `star.lock` pins sha256; subsequent fetches fail   |
+| Tarball tampered post-fetch         | `mighty.lock` pins sha256; subsequent fetches fail   |
 | Malicious tarball path-traversal    | Extraction rejects `..`, root, and drive-prefix    |
 | Compromised registry repo           | Use a private/owned registry; pin lock hashes      |
 | Leaked publish token                | Per-slug tokens; revoke individually in GitHub UI  |
@@ -248,7 +248,7 @@ Beyond v0.4:
   with a clear consumer-side warning. Lockfile pin still works, but
   `pkg add` skips yanked versions.
 - **Security advisories.** A separate `security/` directory in the
-  registry repo with one Markdown file per advisory; `sdust pkg
+  registry repo with one Markdown file per advisory; `mty pkg
   audit` cross-references it.
 - **Signed releases.** GitHub release artefacts have ETags but no
   built-in signing today; a sigstore + cosign pipeline would

@@ -1,9 +1,9 @@
 {
-  "name": "stardust",
-  "displayName": "Stardust",
-  "description": "Stardust language support (syntax + LSP) for VS Code.",
-  "version": "0.5.0",
-  "publisher": "stardust-lang",
+  "name": "mighty",
+  "displayName": "Mighty",
+  "description": "Mighty language support (syntax + LSP) for VS Code.",
+  "version": "0.7.0",
+  "publisher": "mighty-lang",
   "license": "Apache-2.0 OR MIT",
   "repository": {
     "type": "git",
@@ -17,61 +17,61 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "onLanguage:stardust"
+    "onLanguage:mighty"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "languages": [
       {
-        "id": "stardust",
+        "id": "mighty",
         "aliases": [
-          "Stardust",
-          "sdust"
+          "Mighty",
+          "mty"
         ],
         "extensions": [
-          ".sd"
+          ".mty"
         ],
         "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
       {
-        "language": "stardust",
-        "scopeName": "source.stardust",
-        "path": "./syntaxes/stardust.tmLanguage.json"
+        "language": "mighty",
+        "scopeName": "source.mty",
+        "path": "./syntaxes/mighty.tmLanguage.json"
       }
     ],
     "commands": [
       {
-        "command": "stardust.restartServer",
-        "title": "Stardust: Restart Language Server"
+        "command": "mighty.restartServer",
+        "title": "Mighty: Restart Language Server"
       }
     ],
     "keybindings": [
       {
         "command": "editor.action.rename",
         "key": "f2",
-        "when": "editorTextFocus && editorLangId == stardust"
+        "when": "editorTextFocus && editorLangId == mighty"
       }
     ],
     "semanticTokenScopes": [
       {
-        "language": "stardust",
+        "language": "mighty",
         "scopes": {
-          "macro": ["entity.name.function.macro.stardust"],
-          "property": ["variable.other.property.stardust"]
+          "macro": ["entity.name.function.macro.mighty"],
+          "property": ["variable.other.property.mighty"]
         }
       }
     ],
     "configuration": {
-      "title": "Stardust",
+      "title": "Mighty",
       "properties": {
-        "stardust.server.path": {
+        "mighty.server.path": {
           "type": "string",
-          "default": "sdust",
-          "description": "Path to the `sdust` binary. The extension launches `<path> lsp` over stdio."
+          "default": "mty",
+          "description": "Path to the `mty` binary. The extension launches `<path> lsp` over stdio."
         },
-        "stardust.trace.server": {
+        "mighty.trace.server": {
           "type": "string",
           "enum": [
             "off",
@@ -79,14 +79,14 @@
             "verbose"
           ],
           "default": "off",
-          "description": "Trace the communication between VS Code and the Stardust LSP."
+          "description": "Trace the communication between VS Code and the Mighty LSP."
         },
-        "stardust.inlayHints.enable": {
+        "mighty.inlayHints.enable": {
           "type": "boolean",
           "default": false,
           "description": "Show inferred-type hints next to `let` bindings and fn parameters. Off by default — toggle on if you prefer them visible."
         },
-        "stardust.semanticTokens.enable": {
+        "mighty.semanticTokens.enable": {
           "type": "boolean",
           "default": true,
           "description": "Use the LSP's semantic-token classifier to highlight identifiers (functions, types, parameters, etc.) more precisely than the TextMate grammar can."

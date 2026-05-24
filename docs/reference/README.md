@@ -2,12 +2,12 @@
 
 Authoritative descriptions of the tooling surface.
 
-- [CLI](cli/sdust.md) — the `sdust` binary.
-  - [`sdust new`](cli/sdust-new.md)
-  - [`sdust fmt`](cli/sdust-fmt.md)
-  - [`sdust check`](cli/sdust-check.md)
-  - [`sdust dump`](cli/sdust-dump.md)
-- [Manifest format](manifest.md) — the `star.toml` schema.
+- [CLI](cli/mty.md) — the `mty` binary.
+  - [`mty new`](cli/mty-new.md)
+  - [`mty fmt`](cli/mty-fmt.md)
+  - [`mty check`](cli/mty-check.md)
+  - [`mty dump`](cli/mty-dump.md)
+- [Manifest format](manifest.md) — the `mighty.toml` schema.
 - [Diagnostic codes](diagnostics.md) — the `SDxxxx` registry.
 
 For language semantics see the [language specification](../spec/v0.1.md).

@@ -27,7 +27,7 @@ N-worker pool on top of tokio's `current_thread` runtime + the
                 |                                                     |
                 |   driver runtime: Arc<tokio::Runtime (current_thread)>
                 |   |                                                  |
-                |   used by sdust-driver's `runtime.scheduler.rt       |
+                |   used by mty-driver's `runtime.scheduler.rt       |
                 |       .block_on(user_main_async)`                    |
                 |                                                     |
                 |   workers: Vec<Arc<WorkerHandle>>                   |
@@ -147,7 +147,7 @@ struct WorkerStatsSnapshot {
 ```
 
 These are wired into the OTLP exporter (slice-7 infrastructure) as
-gauges: `sdust.scheduler.worker.<id>.<metric>`. The exporter side is
+gauges: `mty.scheduler.worker.<id>.<metric>`. The exporter side is
 a follow-on PR in the OTLP swarm; the snapshot API is already
 available for embedders.
 
@@ -155,31 +155,31 @@ available for embedders.
 
 - **No lossless live migration** — see "Load monitor" above.
 - **No front-end affinity syntax** — parsing the `with affinity =
-  sticky` clause requires `sdust-syntax`/`sdust-ast` changes that are
+  sticky` clause requires `mty-syntax`/`mty-ast` changes that are
   out of scope for the scheduler agent.
 - **No NUMA awareness** — workers are scheduled by the OS.
 - **No per-core CPU pinning** — workers run as ordinary OS threads.
-- **No perf benchmarks** — the `sdust-bench` crate is owned by the
+- **No perf benchmarks** — the `mty-bench` crate is owned by the
   bench swarm; v0.6 just provides the scheduler the benches will
   measure.
 
 ## Test surface
 
-- `crates/sdust-runtime/src/scheduler.rs` — unit tests for the
+- `crates/mty-runtime/src/scheduler.rs` — unit tests for the
   primitive (`mod tests` at bottom).
-- `crates/sdust-runtime/tests/worker_steal.rs` — stealing balances
+- `crates/mty-runtime/tests/worker_steal.rs` — stealing balances
   load across 4 workers.
-- `crates/sdust-runtime/tests/cross_worker_send.rs` — agents pinned
+- `crates/mty-runtime/tests/cross_worker_send.rs` — agents pinned
   to different workers exchange messages correctly.
-- `crates/sdust-runtime/tests/affinity_sticky.rs` — sticky agent
+- `crates/mty-runtime/tests/affinity_sticky.rs` — sticky agent
   pins to worker 0 and is filtered from migration suggestions.
-- `crates/sdust-runtime/tests/load_balance.rs` — synthetic skew
+- `crates/mty-runtime/tests/load_balance.rs` — synthetic skew
   triggers a migration suggestion.
-- `crates/sdust-runtime/tests/deterministic_mode.rs` — `.workers(1)
+- `crates/mty-runtime/tests/deterministic_mode.rs` — `.workers(1)
   .deterministic(seed)` reproduces v0.5 behavior.
-- `crates/sdust-runtime/tests/multicore_fifo.rs` — companion to
+- `crates/mty-runtime/tests/multicore_fifo.rs` — companion to
   conformance case 06.
-- `crates/sdust-runtime/tests/multicore_throughput_smoke.rs` —
+- `crates/mty-runtime/tests/multicore_throughput_smoke.rs` —
   companion to conformance case 07.
 
 ## See also

@@ -1,16 +1,16 @@
-# Doc generator (sdust-doc)
+# Doc generator (mty-doc)
 
-`sdust-doc` is the Stardust documentation generator. It walks a parsed
+`mty-doc` is the Mighty documentation generator. It walks a parsed
 `.sd` source file, harvests `///` and `//!` comments, and renders the
 result in three flavours:
 
-1. **Go-style stdout** — `sdust doc` (whole package) or `sdust doc Item`
+1. **Go-style stdout** — `mty doc` (whole package) or `mty doc Item`
    (one item with full body). The format intentionally echoes Go's
    `go doc` tool: section headers in caps (FUNCTIONS, TYPES, …), a
    signature on its own line, and the synopsis indented underneath.
-2. **Markdown** — `sdust doc --markdown`. One file per item plus an
+2. **Markdown** — `mty doc --markdown`. One file per item plus an
    index, suitable for hosting on GitHub.
-3. **HTML** — `sdust doc --html`. Per-item pages, an index, an embedded
+3. **HTML** — `mty doc --html`. Per-item pages, an index, an embedded
    stylesheet, and a search index served as a static JSON file with a
    ~50-line client-side fuzzy matcher.
 
@@ -127,7 +127,7 @@ for per-item markdown / HTML pages.
 - **Body** — the whole CommonMark source (synopsis included). The
   renderer is responsible for either re-extracting the synopsis or
   rendering the body verbatim.
-- **Examples** — fenced code blocks tagged `sd` or `stardust` are
+- **Examples** — fenced code blocks tagged `sd` or `mighty` are
   extracted as `DocExample { code, language }`.
 - **Since** — text following a `# Since` heading. Two forms accepted:
   same-line (`# Since 0.2.0`, `# Since: 0.2.0`) or next-non-empty-line
@@ -204,7 +204,7 @@ output directory if needed.
 
 ## CLI surface
 
-See `docs/reference/cli/sdust-doc.md` for the user-facing reference.
+See `docs/reference/cli/mty-doc.md` for the user-facing reference.
 
 ## Tests
 
@@ -214,4 +214,4 @@ See `docs/reference/cli/sdust-doc.md` for the user-facing reference.
 - `tests/render_html.rs` — HTML linkified signatures, since blocks,
   static asset emission.
 - `tests/cli.rs` — end-to-end shape (matches what
-  `crates/sdust-cli/src/cmd/doc.rs` calls).
+  `crates/mty-cli/src/cmd/doc.rs` calls).

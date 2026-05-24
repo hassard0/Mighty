@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace]
-# Standalone crate so it doesn't get sucked into the Stardust workspace.
+# Standalone crate so it doesn't get sucked into the Mighty workspace.
 
 [dependencies]
 logos = "0.14"

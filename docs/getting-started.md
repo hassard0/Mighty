@@ -1,7 +1,7 @@
 # Getting Started
 
-This page walks through installing the Stardust compiler, scaffolding a
-package, and running the `sdust` CLI against your first program.
+This page walks through installing the Mighty compiler, scaffolding a
+package, and running the `mty` CLI against your first program.
 
 ## Install
 
@@ -10,32 +10,32 @@ recent Rust toolchain (1.85+; slice 8 bumped MSRV).
 
 ```bash
 git clone https://github.com/hassard0/stardust
-cd stardust
-cargo install --path crates/sdust-cli
+cd mighty
+cargo install --path crates/mty-cli
 ```
 
-This places `sdust` on your `PATH`. Verify with:
+This places `mty` on your `PATH`. Verify with:
 
 ```bash
-sdust --version
+mty --version
 ```
 
 ## Scaffold a package
 
 ```bash
-sdust new hello
+mty new hello
 ```
 
 This creates:
 
 ```
 hello/
-├── star.toml
+├── mighty.toml
 └── src/
     └── main.sd
 ```
 
-`star.toml` is the package manifest. The generated file is minimal:
+`mighty.toml` is the package manifest. The generated file is minimal:
 
 ```toml
 [package]
@@ -51,7 +51,7 @@ profile = "host"
 
 ```sd
 fn main() {
-  log("hello, Stardust")
+  log("hello, Mighty")
 }
 ```
 
@@ -62,68 +62,68 @@ schema.
 
 ```bash
 cd hello
-sdust check src/main.sd
+mty check src/main.sd
 ```
 
-`sdust check` parses the source, builds the CST and HIR, runs the type
+`mty check` parses the source, builds the CST and HIR, runs the type
 checker, the effect / capability checker, and the borrow checker, and
 prints any diagnostics. On success it prints `ok: <path>` and exits 0.
 
 ## Run it
 
 ```bash
-sdust run src/main.sd
+mty run src/main.sd
 ```
 
-`sdust run` runs the full `check` pipeline, lowers the program to SIR,
-JIT-compiles via Cranelift, and invokes `main`. Programs whose SIR
+`mty run` runs the full `check` pipeline, lowers the program to MtyIR,
+JIT-compiles via Cranelift, and invokes `main`. Programs whose MtyIR
 the slice-8 backend can't yet lower fall back to the slice-7 runtime
 (tokio executor + per-turn interpreter) transparently. The above
-program prints `hello, Stardust` and exits 0. See
-[reference/cli/sdust-run.md](reference/cli/sdust-run.md) for details on
+program prints `hello, Mighty` and exits 0. See
+[reference/cli/mty-run.md](reference/cli/mty-run.md) for details on
 exit codes, traps, and the effect-handling model.
 
 ## Build it
 
 ```bash
-sdust build src/main.sd
+mty build src/main.sd
 # → wrote target/hello   (or hello.exe on Windows)
 
-sdust build --target wasm32-wasi src/main.sd
+mty build --target wasm32-wasi src/main.sd
 # → wrote target/hello.wasm
 ```
 
-`sdust build` produces a real, runnable artifact. The native target
+`mty build` produces a real, runnable artifact. The native target
 uses Cranelift to emit a host-format `.o`, then links via the
 platform C linker (`clang` / `gcc` / `cc`). If no linker is on
 PATH, the `.o` is left in `target/` and a helpful message tells you
 how to link manually. The Wasm target produces a core Wasm module
 runnable under `wasmtime`/`wasmer` or a browser host.
 
-See [reference/cli/sdust-build.md](reference/cli/sdust-build.md) for
+See [reference/cli/mty-build.md](reference/cli/mty-build.md) for
 flags, exit codes, and the v0.1 backend coverage matrix (slice-8
-native + wasm cover a narrow SIR subset; richer programs will
-require the v0.2 LLVM backend or fall back to `sdust run`).
+native + wasm cover a narrow MtyIR subset; richer programs will
+require the v0.2 LLVM backend or fall back to `mty run`).
 
 ## Test
 
 ```bash
-sdust-test
+mty-test
 ```
 
-`sdust-test` walks `tests/` in the current package, runs every
-`fn test_*` it finds via the SIR interpreter, and prints a
+`mty-test` walks `tests/` in the current package, runs every
+`fn test_*` it finds via the MtyIR interpreter, and prints a
 `cargo test`-style report. Exit code: 0 on all-pass, 1 on any
 failure. Pass `--dir <path>` to test a directory other than
 `tests/`. See [reference/stdlib/test.md](reference/stdlib/test.md)
 for the full discovery + execution model.
 
-In v0.3 this merges into the main `sdust` CLI as `sdust test`.
+In v0.3 this merges into the main `mty` CLI as `mty test`.
 
 ## Format
 
 ```bash
-sdust fmt src/main.sd
+mty fmt src/main.sd
 ```
 
 The slice 1 formatter is an identity pass: it re-emits the source verbatim
@@ -136,18 +136,18 @@ from standard input.
 ## Inspect intermediate forms
 
 ```bash
-sdust dump --cst src/main.sd
-sdust dump --ast src/main.sd
-sdust dump --hir src/main.sd
-sdust dump --sir src/main.sd
+mty dump --cst src/main.sd
+mty dump --ast src/main.sd
+mty dump --hir src/main.sd
+mty dump --sir src/main.sd
 ```
 
 Use these to debug parser/lowering behavior or to write your own tooling
-against the compiler. See [reference/cli/sdust-dump.md](reference/cli/sdust-dump.md).
+against the compiler. See [reference/cli/mty-dump.md](reference/cli/mty-dump.md).
 
 ## Your first agent
 
-The smallest interesting program in Stardust is an agent. Create
+The smallest interesting program in Mighty is an agent. Create
 `src/echo.sd`:
 
 ```sd
@@ -163,7 +163,7 @@ agent Echoer: Echo {
 Then:
 
 ```bash
-sdust check src/echo.sd
+mty check src/echo.sd
 ```
 
 `protocol` declares a typed message contract. `agent` declares a unit of
@@ -183,5 +183,5 @@ compose into real programs.
 
 - Work through the [tour](tour/README.md) chapter by chapter.
 - Read the [language specification](spec/v0.1.md).
-- Browse the [CLI reference](reference/cli/sdust.md).
+- Browse the [CLI reference](reference/cli/mty.md).
 - Check the [FAQ](faq.md) for the most common questions.

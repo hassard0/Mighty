@@ -1,9 +1,9 @@
-# Stardust
+# Mighty
 
 [![Status](https://img.shields.io/badge/status-v0.6-green)](https://github.com/hassard0/stardust/releases/tag/v0.6.0)
 [![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)](#license)
 
-Stardust is an agent-first systems programming language. It is statically
+Mighty is an agent-first systems programming language. It is statically
 typed, ownership-based, and treats agents, protocols, capabilities, effects,
 arenas, and budgets as first-class concepts. The toolchain targets both
 native code (Cranelift JIT + AOT; LLVM behind `--features llvm`) and
@@ -15,12 +15,12 @@ WebAssembly (Component Model by default; bare core modules via
 is the multi-core + benchmarks + self-host-parser release: the
 runtime defaults to one worker per available core with per-worker
 tokio runtimes + crossbeam-deque work-stealing (A101..A106), the
-first honest cross-language benchmarks ship as a new `sdust-bench`
+first honest cross-language benchmarks ship as a new `mty-bench`
 crate spanning six categories (parse / agent send / mailbox / HTTP /
-native compile / wasm size), the Stardust source parser is itself
-ported to Stardust at ~1930 LOC and bootstraps examples 01-05
+native compile / wasm size), the Mighty source parser is itself
+ported to Mighty at ~1930 LOC and bootstraps examples 01-05
 clean through a host bridge, and three v0.5 loose ends land inline:
-`BuiltinId::DomOp` + DOM SIR lowering closes the v0.5
+`BuiltinId::DomOp` + DOM MtyIR lowering closes the v0.5
 `emit_dom_call` `#[allow(dead_code)]` (A108), the MT6001-MT6006
 macro codes merge into the central `sdust_diagnostics::codes`
 catalog (A107), and per-call `FsCap` isolation gains a contract
@@ -52,7 +52,7 @@ Prior milestones remain tagged:
   spawn (A103); per-worker telemetry via `Scheduler::stats()` (A104).
   23 new runtime tests + 2 new conformance cases under
   `mailbox_ordering/06_multicore_fifo` + `07_multicore_throughput_smoke`.
-- **First honest benchmarks** — new `sdust-bench` workspace crate
+- **First honest benchmarks** — new `mty-bench` workspace crate
   covers six categories (parse_throughput, agent_send_latency,
   mailbox_throughput, http_server_throughput, compile_to_native,
   wasm_size) with criterion harness + a CLI runner + per-category
@@ -61,18 +61,18 @@ Prior milestones remain tagged:
   `wasm32-rust`), Go (`chan`, `net/http`, `TinyGo`), and C++
   (`asio coro`, `cpp-httplib`, `clang`, `Emscripten`).
 - **Self-host parser subset** — `selfhost/parser/parser.sd` at
-  ~1930 LOC parses Stardust source through the SIR interpreter via
+  ~1930 LOC parses Mighty source through the MtyIR interpreter via
   a `SelfhostParserHost` bootstrap bridge; the v0.6 production
   matrix covers everything examples 01-05 reach (fn/struct/enum
   decls, all type shapes, Pratt expressions, generics, lambdas,
   macro calls, …) with 13/13 bootstrap tests passing.
-- **DOM SIR lowering** — `BuiltinId::DomOp(name)` SIR variant
-  + lowerer + wasm32-web `emit_dom_call` dispatch (A108) — Stardust
+- **DOM MtyIR lowering** — `BuiltinId::DomOp(name)` MtyIR variant
+  + lowerer + wasm32-web `emit_dom_call` dispatch (A108) — Mighty
   source `d.set_text(...)` on a `Dom` cap now lowers to a real
-  `stardust:web/dom` import call instead of an opaque MethodCall.
+  `mighty:web/dom` import call instead of an opaque MethodCall.
 - **Central SD catalog** — MT6001-MT6006 (macro band) move to
   `sdust_diagnostics::codes`; `sdust_macros::diag` re-exports the
-  `u16`s for compat (A107). `sdust explain SDxxxx` is single-sourced.
+  `u16`s for compat (A107). `mty explain SDxxxx` is single-sourced.
 - **FsCap per-call isolation** — contract test pins that two
   `FsCap` values with disjoint allowlists in one process never leak
   across the divide on read/write/exists/list_dir (A109).
@@ -94,10 +94,10 @@ Prior milestones remain tagged:
   `selfhost_lexer_full_diff_against_rust` test now passes
   byte-for-byte (loop CF + iterators unblocked it).
 - **Dogfood completion (5 gaps)** — `std.http.serve` binds a real
-  TCP socket (A96), `stardust:web/dom` ships as a 4-method WIT
+  TCP socket (A96), `mighty:web/dom` ships as a 4-method WIT
   interface + 4 core imports (A97), the `Str` method table has
   real impls for contains/find/slice/trim/replace/etc. (A98),
-  the SIR interp gains `MemBudgetExceeded` with byte-level
+  the MtyIR interp gains `MemBudgetExceeded` with byte-level
   charging on `AdtInit`/`TupleInit`/`ArrayInit` (A99), and the
   `FsCap` allowlist is enforced process-wide with `Forbidden(path)`
   results (A100).
@@ -130,7 +130,7 @@ Prior milestones remain tagged:
   three new CLI subcommands (`search` / `info` / `login`),
   offline-first (`pkg add` / `update` use cache; `--refresh` for
   network) (A59/A60/A61)
-- **Hygienic declarative macros** — new `sdust-macros` crate;
+- **Hygienic declarative macros** — new `mty-macros` crate;
   `let IDENT` bindings mangled per expansion site so macros don't
   collide with caller-scope names; MT6001..MT6004 catch unknown /
   arity-mismatch / depth-exceeded / bad-arg conditions; capped at
@@ -140,7 +140,7 @@ Prior milestones remain tagged:
   token through the host bridge (`std.io.lex_init` /
   `lex_byte_at` / `lex_emit` etc.); seven v0.3 language gaps
   catalogued in `SELFHOST_V0_4_NOTES.md` (A63)
-- **SIR loop terminator fix** — `crates/sdust-sir/src/lower/exprs.rs`
+- **MtyIR loop terminator fix** — `crates/mty-sir/src/lower/exprs.rs`
   previously collapsed every `while` / `loop` / `for` into a single
   iteration; v0.4 routes each body's terminator to `Goto(header)`
   so loops genuinely iterate. Bounded by the step budget pending
@@ -166,19 +166,19 @@ Prior milestones remain tagged:
   spans/metrics to any collector via tonic-gRPC (A71); closes A38
 - **Slab-pool mailbox frames** — per-mailbox `SlabPool` reuses
   pre-allocated `MessageFrame` slots (A72); closes A40
-- **Stdlib really runs under `sdust run`** — driver wired to
+- **Stdlib really runs under `mty run`** — driver wired to
   `sdust_stdlib::host::dispatch` via CLI bridge
 - **20/20 wasm Components** (was 14/20 in v0.2)
 - **623 tests pass** (+73 over v0.2), 0 clippy warnings
 
 ### v0.2 highlights
 
-- **`sdust lsp`** — LSP 3.17 server (diagnostics, hover, completion,
+- **`mty lsp`** — LSP 3.17 server (diagnostics, hover, completion,
   go-to-def) plus a VS Code extension scaffold
-- **`sdust pkg`** — package manager (resolver + lockfile + path/git
+- **`mty pkg`** — package manager (resolver + lockfile + path/git
   fetchers + publisher); CLI `add` / `remove` / `update` / `fetch` /
   `list` / `publish`
-- **`sdust doc`** — doc generator producing markdown or HTML with an
+- **`mty doc`** — doc generator producing markdown or HTML with an
   item index, per-item pages, back-links, and a search index
 - **20/20 native + 20/20 wasm core-module compilation** across the
   example corpus (Cranelift + wasm backend now cover ADT,
@@ -193,22 +193,22 @@ Prior milestones remain tagged:
 
 ```bash
 # Compile and JIT-run
-sdust run examples/01_hello.sd
-# → hello, Stardust
+mty run examples/01_hello.sd
+# → hello, Mighty
 
 # Build a native executable (linker-permitting)
-sdust build examples/01_hello.sd
+mty build examples/01_hello.sd
 # wrote target/01_hello
 
 # Build a WebAssembly module
-sdust build --target wasm32-wasi examples/01_hello.sd
+mty build --target wasm32-wasi examples/01_hello.sd
 # wrote target/01_hello.wasm
 ```
 
-The CLI ships `sdust new`, `sdust check`, `sdust fmt`, `sdust dump`,
-`sdust run`, `sdust build`, and `sdust explain`. Runtime diagnostics
+The CLI ships `mty new`, `mty check`, `mty fmt`, `mty dump`,
+`mty run`, `mty build`, and `mty explain`. Runtime diagnostics
 range from `MT0001` (parse errors) through `MT8010` (codegen traps);
-`sdust explain SDxxxx` prints a paragraph describing each.
+`mty explain SDxxxx` prints a paragraph describing each.
 
 ## Install
 
@@ -216,33 +216,33 @@ A versioned release is not yet published. Build from source:
 
 ```bash
 git clone https://github.com/hassard0/stardust
-cd stardust
-cargo install --path crates/sdust-cli
+cd mighty
+cargo install --path crates/mty-cli
 ```
 
-This installs the `sdust` binary. The minimum supported Rust version is
+This installs the `mty` binary. The minimum supported Rust version is
 1.85 (slice 8 bumped from 1.82 because the cranelift dependency chain
 pulls in `indexmap 2.14`, which requires edition2024).
 
-## Hello, Stardust
+## Hello, Mighty
 
 ```bash
-sdust new hello
+mty new hello
 cd hello
-sdust check src/main.sd
+mty check src/main.sd
 ```
 
-`sdust new` produces:
+`mty new` produces:
 
 ```sd
 fn main() {
-  log("hello, Stardust")
+  log("hello, Mighty")
 }
 ```
 
-`sdust check` lexes, parses, lowers, type-checks, and borrow-checks
-the source, reporting any diagnostics. `sdust run src/main.sd`
-executes the program under the slice-6 interpreter. `sdust explain
+`mty check` lexes, parses, lowers, type-checks, and borrow-checks
+the source, reporting any diagnostics. `mty run src/main.sd`
+executes the program under the slice-6 interpreter. `mty explain
 SDxxxx` prints a paragraph describing any diagnostic code emitted.
 
 ## Documentation
@@ -261,26 +261,26 @@ The compiler is a Rust workspace of twenty crates:
 
 | Crate | Responsibility |
 |---|---|
-| `sdust-syntax` | lexer (logos), CST (rowan), parser |
-| `sdust-ast` | typed AST view over the CST |
-| `sdust-diagnostics` | diagnostic types, SD-coded labels, ariadne rendering |
-| `sdust-hir` | name-resolved HIR with arena storage; v0.4 macro preprocessor hook |
-| `sdust-types` | resolved Ty, HM inference, bidirectional type checker, effects + capabilities; v0.3 scope-strict + Sendable |
-| `sdust-borrow` | ownership/move/borrow/affine/arena analysis; v0.3 field-level Places + NLL last-use |
-| `sdust-sir` | mid-level IR + tree-walking interpreter (slice 6); v0.4 loop terminator fix |
-| `sdust-runtime` | concurrent tokio runtime: agents, mailboxes, supervisors, budgets (slice 7); v0.3 mid-turn cancel + OTLP + slab pool |
-| `sdust-codegen-cranelift` | native backend — JIT + AOT object (slice 8 + v0.2 completion) |
-| `sdust-codegen-wasm` | wasm32-wasi / wasm32-web core module + Component Model emitter |
-| `sdust-codegen-llvm` | LLVM backend (real lowering behind `--features llvm`; v0.2) |
-| `sdust-debuginfo` | DWARF v4 builder + wasm source-map + `name` section (v0.2) |
-| `sdust-fmt` | canonical formatter (Wadler/Lindig pretty-printer) |
-| `sdust-driver` | compilation pipeline and `star.toml` manifest loader |
-| `sdust-pkg` | package manager: resolver, lockfile, fetchers, publish (v0.2); v0.4 GH Releases registry transport |
-| `sdust-lsp` | LSP 3.17 server over stdio (v0.2) |
-| `sdust-doc` | doc generator (extract + render markdown/HTML) (v0.2) |
-| `sdust-stdlib` | real `std.json` / `tls` / `http` / `fs` / `time` / `test` (v0.2) |
-| `sdust-macros` | declarative-macro registry + expander + hygiene (v0.4) |
-| `sdust-cli` | the `sdust` binary |
+| `mty-syntax` | lexer (logos), CST (rowan), parser |
+| `mty-ast` | typed AST view over the CST |
+| `mty-diagnostics` | diagnostic types, SD-coded labels, ariadne rendering |
+| `mty-hir` | name-resolved HIR with arena storage; v0.4 macro preprocessor hook |
+| `mty-types` | resolved Ty, HM inference, bidirectional type checker, effects + capabilities; v0.3 scope-strict + Sendable |
+| `mty-borrow` | ownership/move/borrow/affine/arena analysis; v0.3 field-level Places + NLL last-use |
+| `mty-sir` | mid-level IR + tree-walking interpreter (slice 6); v0.4 loop terminator fix |
+| `mty-runtime` | concurrent tokio runtime: agents, mailboxes, supervisors, budgets (slice 7); v0.3 mid-turn cancel + OTLP + slab pool |
+| `mty-codegen-cranelift` | native backend — JIT + AOT object (slice 8 + v0.2 completion) |
+| `mty-codegen-wasm` | wasm32-wasi / wasm32-web core module + Component Model emitter |
+| `mty-codegen-llvm` | LLVM backend (real lowering behind `--features llvm`; v0.2) |
+| `mty-debuginfo` | DWARF v4 builder + wasm source-map + `name` section (v0.2) |
+| `mty-fmt` | canonical formatter (Wadler/Lindig pretty-printer) |
+| `mty-driver` | compilation pipeline and `mighty.toml` manifest loader |
+| `mty-pkg` | package manager: resolver, lockfile, fetchers, publish (v0.2); v0.4 GH Releases registry transport |
+| `mty-lsp` | LSP 3.17 server over stdio (v0.2) |
+| `mty-doc` | doc generator (extract + render markdown/HTML) (v0.2) |
+| `mty-stdlib` | real `std.json` / `tls` / `http` / `fs` / `time` / `test` (v0.2) |
+| `mty-macros` | declarative-macro registry + expander + hygiene (v0.4) |
+| `mty-cli` | the `mty` binary |
 
 ## Roadmap
 
@@ -294,14 +294,14 @@ implemented or planned:
 | 3 | type checker, generics MVP, `?` propagation | shipped (`v0.3.0-typeck`) |
 | 4 | ownership / borrow / affine / arena + slice-3 hardening | shipped (`v0.4.0-borrowck`) |
 | 5 | effects, capabilities, traits, `dyn`, derives, strict protocols | shipped (`v0.5.0-effects`) |
-| 6 | SIR and interpreter | shipped (`v0.6.0-sir`) |
+| 6 | MtyIR and interpreter | shipped (`v0.6.0-sir`) |
 | 7 | runtime MVP (scheduler, mailboxes, supervisors) | shipped (`v0.7.0-runtime`) |
 | 8 | native (Cranelift) and Wasm backends | shipped (`v0.8.0-codegen` / `v0.1.0`) |
 | **v0.2** | LSP + pkg + doc + full codegen + stdlib + DWARF + Wasm CM | **shipped (`v0.2.0`)** |
 | **v0.3** | Soundness hardening: NLL last-use + field Places, scope-strict + Sendable, mid-turn cancel + OTLP + slab mailboxes, v0.2 cleanup (stdlib install, 20/20 wasm-CM, 5→2 ignored) | **shipped (`v0.3.0`)** |
-| **v0.4** | Dogfood demos (3), real GH-Releases registry transport, hygienic declarative macros (MT6001..MT6004), self-host lexer (subset bootstrap via `std.io`), SIR loop terminator fix | **shipped (`v0.4.0`)** |
+| **v0.4** | Dogfood demos (3), real GH-Releases registry transport, hygienic declarative macros (MT6001..MT6004), self-host lexer (subset bootstrap via `std.io`), MtyIR loop terminator fix | **shipped (`v0.4.0`)** |
 | **v0.5** | `break` / `continue` HIR + iterator protocol + bounded-fixed-point loop borrows, self-host lexer full diff, dogfood completion (5 gaps: real http.serve, Wasm DOM imports, full Str methods, mem-budget auto-charge, FsCap allowlist), macros completion (`name!(args)`, extended hygiene, cross-file `pub macro`, proc-macro skeleton, stdlib macros), LSP advanced (semantic tokens, rename, inlay hints, code actions, signature help, workspace folders, semantic completion) | **shipped (`v0.5.0`)** |
-| **v0.6** | Multi-core scheduler (per-worker tokio runtimes + crossbeam-deque work-stealing + affinity hints + lightweight migration + per-worker stats), first honest benchmarks (sdust-bench crate + 6 categories with Rust/Go/C++ comparators), self-host parser subset (~1930 LOC, 13/13 bootstrap tests, examples 01-05 covered), DOM SIR lowering (`BuiltinId::DomOp` end-to-end), central MT6001-MT6006 catalog merge, per-call FsCap isolation contract | **shipped (`v0.6.0`)** |
+| **v0.6** | Multi-core scheduler (per-worker tokio runtimes + crossbeam-deque work-stealing + affinity hints + lightweight migration + per-worker stats), first honest benchmarks (mty-bench crate + 6 categories with Rust/Go/C++ comparators), self-host parser subset (~1930 LOC, 13/13 bootstrap tests, examples 01-05 covered), DOM MtyIR lowering (`BuiltinId::DomOp` end-to-end), central MT6001-MT6006 catalog merge, per-call FsCap isolation contract | **shipped (`v0.6.0`)** |
 
 ### Post-v0.6 roadmap
 
@@ -311,13 +311,13 @@ implemented or planned:
 | - | Lossless live migration, per-message work-stealing, OTLP exporter wiring for `Scheduler::stats()` gauges, `agent X with affinity = sticky` front-end syntax | planned |
 | - | Proc-macro sandboxed execution, set-of-scopes hygiene, `format!`-style variadic macros, canonical-ABI return-area bridge for `get-text` / `query`, `install_agent_dispatch` runtime wiring, per-call FsCap materialisation from sandbox manifest | planned (finishes the v0.5/v0.6 dogfood end-to-end) |
 | - | LSP workspace resolve map (cross-file rename / go-to-def), receiver-chain + method-call-receiver completion, borrow check in the LSP pipeline | planned |
-| - | Polonius-style borrows, real cap-name resolution wiring, SIR-side cancellation polling, WASI Preview 2 + user WIT, DWARF v5 + per-instr line program | planned |
+| - | Polonius-style borrows, real cap-name resolution wiring, MtyIR-side cancellation polling, WASI Preview 2 + user WIT, DWARF v5 + per-instr line program | planned |
 | - | `dyn` dispatch + closure capture in compiled code, `escalate` supervisor action | planned |
 | - | PGO/ThinLTO, distributed agents, effect-row polymorphism | future |
 
 ## License
 
-Stardust is dual-licensed under either of
+Mighty is dual-licensed under either of
 
 - Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
 - MIT license ([LICENSE-MIT](LICENSE-MIT))

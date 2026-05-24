@@ -3,11 +3,11 @@
 Interpretation calls + open work for the v0.6 multi-core scheduler.
 Agent: scheduler-swarm. Branch: main. Owner files:
 
-- `crates/sdust-runtime/src/scheduler.rs` (rewritten)
-- `crates/sdust-runtime/src/runtime.rs` (updated for worker-aware spawn)
-- `crates/sdust-runtime/src/lib.rs` (exports)
-- `crates/sdust-runtime/Cargo.toml` (added crossbeam deps)
-- `crates/sdust-runtime/tests/{worker_steal,cross_worker_send,affinity_sticky,load_balance,deterministic_mode,multicore_fifo,multicore_throughput_smoke}.rs`
+- `crates/mty-runtime/src/scheduler.rs` (rewritten)
+- `crates/mty-runtime/src/runtime.rs` (updated for worker-aware spawn)
+- `crates/mty-runtime/src/lib.rs` (exports)
+- `crates/mty-runtime/Cargo.toml` (added crossbeam deps)
+- `crates/mty-runtime/tests/{worker_steal,cross_worker_send,affinity_sticky,load_balance,deterministic_mode,multicore_fifo,multicore_throughput_smoke}.rs`
 - `tests/conformance/mailbox_ordering/0{6,7}_multicore_*`
 - `docs/internals/scheduler.md` (rewritten)
 - `docs/internals/multi-core.md` (new)
@@ -36,7 +36,7 @@ is actively block_on'd, which is negligible vs the worker overhead.
 ### IC-2: Crossbeam-deque task granularity
 
 The crossbeam-deque API expects "tasks" — units of work the worker
-pops + executes. The natural unit in Stardust is "the per-turn
+pops + executes. The natural unit in Mighty is "the per-turn
 execution of one mailbox message". But the existing slice-7 design
 has each agent as a long-running tokio task that loops on
 `mailbox.recv()`. Refactoring to push per-turn work units onto a
@@ -92,7 +92,7 @@ scheduler agent's owned files).
 ### IC-5: Front-end affinity syntax
 
 Parsing `agent X(...): Y with affinity = sticky` requires changes in
-`sdust-syntax`, `sdust-ast`, `sdust-hir`. Those are outside the
+`mty-syntax`, `mty-ast`, `mty-hir`. Those are outside the
 scheduler agent's owned files.
 
 **Call**: Expose only the runtime API
@@ -122,9 +122,9 @@ should switch to `.deterministic(seed)` or `.workers(1)`.
    Would convert the agent loop from "one tokio task" to "one
    work-stealing job per turn", giving real per-message parallelism
    across cores.
-3. **Front-end affinity syntax parse + lower** — sdust-syntax/ast
+3. **Front-end affinity syntax parse + lower** — mty-syntax/ast
    changes to recognise `with affinity = sticky|elastic` and pass
-   it through HIR → SIR → runtime.
+   it through HIR → MtyIR → runtime.
 4. **OTLP gauge wiring for WorkerStats** — wire `Scheduler::stats()`
    into the telemetry sink so the gauges flow to OTLP collectors
    automatically.
@@ -133,7 +133,7 @@ should switch to `.deterministic(seed)` or `.workers(1)`.
 6. **Smarter steal strategy** — replace random rotation with a
    nearest-neighbor topology when worker count >= 16.
 7. **Conformance harness for runtime-level cases** — the existing
-   `conformance_full.rs` runs through the SIR interp; add a parallel
+   `conformance_full.rs` runs through the MtyIR interp; add a parallel
    harness that drives `mailbox_ordering/06*`/`07*` through the
    multi-worker runtime + diffs stdout the same way.
 
@@ -152,11 +152,11 @@ honest multi-core throughput. Expect:
 
 ## Build / test caveat
 
-At time of writing the `sdust-bench` workspace member listed in
+At time of writing the `mty-bench` workspace member listed in
 `Cargo.toml` (commit `ef031d2`) had not yet been created on disk by
-the bench swarm agent. `cargo build -p sdust-runtime` therefore
-fails until the bench-swarm creates `crates/sdust-bench/Cargo.toml`.
+the bench swarm agent. `cargo build -p mty-runtime` therefore
+fails until the bench-swarm creates `crates/mty-bench/Cargo.toml`.
 This is a sync-point coordination issue between swarm agents, not a
-defect in the scheduler implementation itself. Once `sdust-bench`
+defect in the scheduler implementation itself. Once `mty-bench`
 exists on disk, all the new tests + the existing 76 baseline should
 pass.

@@ -33,7 +33,7 @@ agent Echoer: Echo {
 Run it:
 
 ```bash
-sdust check examples/07_agent_echo.sd
+mty check examples/07_agent_echo.sd
 ```
 
 ## Stateful agents
@@ -60,7 +60,7 @@ agent Counter: Count {
 Run it:
 
 ```bash
-sdust check examples/08_agent_state.sd
+mty check examples/08_agent_state.sd
 ```
 
 ## Isolation rules

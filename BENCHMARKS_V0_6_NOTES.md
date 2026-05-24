@@ -32,7 +32,7 @@ have an aggregate to anchor.
 
 | Category | Comparator choice | Why |
 |---|---|---|
-| parse_throughput | Rust/Go/C++ hand-written lexers | "Stardust's lexer + CST" vs "idiomatic lexer". Rust's logos comparator is a near-identical control. |
+| parse_throughput | Rust/Go/C++ hand-written lexers | "Mighty's lexer + CST" vs "idiomatic lexer". Rust's logos comparator is a near-identical control. |
 | agent_send_latency | tokio mpsc / Go chan / asio coro | All three are the "best in class" inter-task primitive for their language. |
 | mailbox_throughput | same as above | One producer + one consumer = simplest fair shape. |
 | http_server_throughput | hyper / net/http / cpp-httplib | The default HTTP stack each ecosystem reaches for. |
@@ -41,7 +41,7 @@ have an aggregate to anchor.
 
 We did **not** pick:
 
-- Akka / Erlang (too far from Stardust's tokio-based shape).
+- Akka / Erlang (too far from Mighty's tokio-based shape).
 - Nginx / Envoy (too much config required to be apples-to-apples).
 - LLVM directly (rustc already wraps it; same for clang).
 
@@ -50,7 +50,7 @@ We did **not** pick:
 The native cranelift backend requires an external linker. On Windows
 that's `link.exe` from MSVC, which isn't always installed. The
 wasm-core backend goes through the same `parse → lower → typeck →
-borrowck → SIR → emit` pipeline minus the link step, so it's the
+borrowck → MtyIR → emit` pipeline minus the link step, so it's the
 most portable measure of the compiler's hot path.
 
 For a true "native" number, swap the runner's `BuildTarget::Wasm`
@@ -131,7 +131,7 @@ Each item references the category doc that motivates it.
 ### http_server_throughput
 
 - [ ] Keep-alive support
-- [ ] Header parsing on the SIR side (today: hardcoded request line)
+- [ ] Header parsing on the MtyIR side (today: hardcoded request line)
 - [ ] Opt-in `hyper` backend for HTTP/2
 
 ### compile_to_native
@@ -148,13 +148,13 @@ Each item references the category doc that motivates it.
 
 ## Acceptance checklist
 
-- [x] `cargo bench -p sdust-bench` runs cleanly
-- [x] `cargo test -p sdust-bench` passes (8 tests)
-- [x] `cargo build -p sdust-cli` not broken
-- [x] `cargo clippy -p sdust-bench --all-targets -- -D warnings` clean
-  (for sdust-bench itself; lib-crate warnings come from the scheduler
+- [x] `cargo bench -p mty-bench` runs cleanly
+- [x] `cargo test -p mty-bench` passes (8 tests)
+- [x] `cargo build -p mty-cli` not broken
+- [x] `cargo clippy -p mty-bench --all-targets -- -D warnings` clean
+  (for mty-bench itself; lib-crate warnings come from the scheduler
   swarm's WIP and are out of our scope)
-- [x] All 6 categories have at least the Stardust impl + 1 comparator
+- [x] All 6 categories have at least the Mighty impl + 1 comparator
   shipped as code
 - [x] Documented numbers in `docs/benchmarks/*.md` are real (from a
   real run on this host)
@@ -162,10 +162,10 @@ Each item references the category doc that motivates it.
 ## Files added
 
 ```
-crates/sdust-bench/
+crates/mty-bench/
   Cargo.toml
   src/{lib,fixtures,http,metrics}.rs
-  src/bin/sdust-bench-runner.rs
+  src/bin/mty-bench-runner.rs
   benches/{parse_throughput,agent_send_latency,mailbox_throughput,
            http_server_throughput,compile_to_native,wasm_size}.rs
   tests/{fixture_load,criterion_smoke}.rs
@@ -174,7 +174,7 @@ benches/
   README.md
   run.sh
   .gitignore
-  parse_throughput/{stardust,rust,go,cpp}/...
+  parse_throughput/{mighty,rust,go,cpp}/...
   agent_send_latency/{rust-tokio,go-channels,cpp-asio}/...
   mailbox_throughput/{rust-tokio,go-channels,cpp-asio}/...
   http_server_throughput/{rust-hyper,go-stdhttp,cpp-cppserver}/...

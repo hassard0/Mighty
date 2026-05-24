@@ -1,9 +1,9 @@
-// Stardust VS Code extension: spawns `sdust lsp` over stdio and wires
+// Mighty VS Code extension: spawns `mty lsp` over stdio and wires
 // it up via vscode-languageclient.
 //
 // Build:  npm install && npm run compile
-// Package: npx vsce package  → produces stardust-0.5.0.vsix
-// Install: code --install-extension stardust-0.5.0.vsix
+// Package: npx vsce package  → produces mighty-0.7.0.vsix
+// Install: code --install-extension mighty-0.7.0.vsix
 //
 // v0.5 features: semantic tokens, rename, inlay hints, code actions,
 // signature help (in addition to the v0.2 baseline of diagnostics,
@@ -20,10 +20,10 @@ import {
 let client: LanguageClient | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
-  const config = vscode.workspace.getConfiguration("stardust");
-  const command = (config.get<string>("server.path") || "sdust").trim();
+  const config = vscode.workspace.getConfiguration("mighty");
+  const command = (config.get<string>("server.path") || "mty").trim();
 
-  // `sdust lsp` speaks LSP 3.17 over stdio.
+  // `mty lsp` speaks LSP 3.17 over stdio.
   const serverOptions: ServerOptions = {
     run: { command, args: ["lsp"], transport: TransportKind.stdio },
     debug: { command, args: ["lsp"], transport: TransportKind.stdio },
@@ -31,21 +31,21 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const clientOptions: LanguageClientOptions = {
     documentSelector: [
-      { scheme: "file", language: "stardust" },
-      { scheme: "untitled", language: "stardust" },
+      { scheme: "file", language: "mighty" },
+      { scheme: "untitled", language: "mighty" },
     ],
     synchronize: {
-      fileEvents: vscode.workspace.createFileSystemWatcher("**/*.sd"),
-      // Forward stardust.* settings changes so the server sees them.
-      configurationSection: "stardust",
+      fileEvents: vscode.workspace.createFileSystemWatcher("**/*.mty"),
+      // Forward mighty.* settings changes so the server sees them.
+      configurationSection: "mighty",
     },
     // The server declares semantic-token and inlay-hint providers; the
     // language client picks those up automatically.
   };
 
   client = new LanguageClient(
-    "stardust",
-    "Stardust Language Server",
+    "mighty",
+    "Mighty Language Server",
     serverOptions,
     clientOptions,
   );
@@ -53,11 +53,11 @@ export function activate(context: vscode.ExtensionContext): void {
   // Expose an explicit "restart" command for users who change the
   // server.path setting or recover from a server crash.
   context.subscriptions.push(
-    vscode.commands.registerCommand("stardust.restartServer", async () => {
+    vscode.commands.registerCommand("mighty.restartServer", async () => {
       if (!client) return;
       await client.stop();
       await client.start();
-      vscode.window.showInformationMessage("Stardust language server restarted.");
+      vscode.window.showInformationMessage("Mighty language server restarted.");
     }),
   );
 

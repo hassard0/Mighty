@@ -1,16 +1,16 @@
-# A Tour of Stardust
+# A Tour of Mighty
 
 The tour walks through the twenty canonical example programs that ship
 with the compiler. Each chapter introduces one or two language features,
 shows the source, explains what is interesting about it, and tells you how
-to feed it to `sdust check`.
+to feed it to `mty check`.
 
 If you have not installed the compiler yet, see
 [../getting-started.md](../getting-started.md).
 
 ## Contents
 
-1. [Hello, Stardust](01-hello.md) — the smallest program.
+1. [Hello, Mighty](01-hello.md) — the smallest program.
 2. [Types](02-types.md) — structs, enums, type aliases, pattern matching.
 3. [Generics](03-generics.md) — generic functions and `Option`.
 4. [Errors](04-errors.md) — the `T!E` sugar and `?` propagation.
@@ -36,7 +36,7 @@ tour chapters; read them directly under
 ## Running every example
 
 ```bash
-for f in examples/*.sd; do sdust check "$f"; done
+for f in examples/*.sd; do mty check "$f"; done
 ```
 
 Every shipped example parses, format-roundtrips, and HIR-lowers

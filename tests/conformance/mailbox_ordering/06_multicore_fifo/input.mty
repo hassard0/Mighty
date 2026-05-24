@@ -3,7 +3,7 @@
 // same caller. Cross-worker dispatch must not reorder.
 //
 // The SIR-level runner just exercises the spec semantics; the
-// `crates/sdust-runtime/tests/multicore_fifo.rs` integration test
+// `crates/mty-runtime/tests/multicore_fifo.rs` integration test
 // exercises the same shape under the actual multi-worker runtime
 // with 4 workers.
 

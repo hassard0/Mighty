@@ -1,7 +1,7 @@
 # `std.test`
 
-Stardust-native test runner. Distinct from `cargo test` (which tests
-the compiler); this runs `.sd` test files inside a Stardust package.
+Mighty-native test runner. Distinct from `cargo test` (which tests
+the compiler); this runs `.sd` test files inside a Mighty package.
 
 ## Quick start
 
@@ -9,7 +9,7 @@ Put test files under `tests/` in your package:
 
 ```
 my-package/
-├── star.toml
+├── mighty.toml
 ├── src/
 │   └── main.sd
 └── tests/
@@ -32,7 +32,7 @@ fn test_panics_fails() {
 Run with:
 
 ```bash
-sdust-test
+mty-test
 # tests/basic_test.sd ... ok
 # tests/basic_test.sd ... FAILED
 #   reason: trap MT0901: intentional
@@ -52,7 +52,7 @@ Exit code: 0 on all-pass, 1 on any failure.
 ## Execution
 
 Each test file is parsed → HIR-lowered → type-+borrow-checked →
-SIR-lowered → invoked through the SIR interpreter
+MtyIR-lowered → invoked through the MtyIR interpreter
 (`run_fn_with_budget`) with a 5,000,000-step budget per test.
 
 A test passes if its body returns normally. A test fails if it traps
@@ -73,7 +73,7 @@ test result: 1 passed; 1 failed; 2 total
 
 ## Determinism
 
-The runner uses the slice-6 SIR interpreter, which is fully
+The runner uses the slice-6 MtyIR interpreter, which is fully
 deterministic given the same input. v0.3 will add a `--seed <N>`
 flag (spec §A39) for tests that exercise the deterministic-runtime
 seed surface.
@@ -81,13 +81,13 @@ seed surface.
 ## CLI surface
 
 ```
-sdust-test [--dir <path>]
+mty-test [--dir <path>]
 ```
 
 - `--dir <path>` overrides the default `tests/`.
 - `--help` prints usage.
 
-In v0.3 this merges into the main `sdust` CLI as `sdust test`.
+In v0.3 this merges into the main `mty` CLI as `mty test`.
 
 ## Known limits (v0.2)
 

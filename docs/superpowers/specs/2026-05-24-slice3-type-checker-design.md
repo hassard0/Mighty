@@ -1,17 +1,17 @@
-# Stardust Slice 3 Design — Type Checker MVP
+# Mighty Slice 3 Design — Type Checker MVP
 
 **Date:** 2026-05-24
 **Status:** Approved (autonomous build — user away, slice-leader = Claude)
-**Source spec:** `C:\Users\ihass\Downloads\stardust_language_spec_v0_1.md` (Stardust Language Specification v0.1)
-**Slice maps to:** Spec §31.3 Phase 2 — Types. First slice that gives `sdust check` real semantic meaning.
+**Source spec:** `C:\Users\ihass\Downloads\stardust_language_spec_v0_1.md` (Mighty Language Specification v0.1)
+**Slice maps to:** Spec §31.3 Phase 2 — Types. First slice that gives `mty check` real semantic meaning.
 **Prior slice:** `v0.2.0-phase1-polish` (commit `0368831`), summary in `SLICE2.md`.
-**Repo:** `C:\Users\ihass\stardust` (remote `hassard0/stardust`).
+**Repo:** `C:\Users\ihass\mighty` (remote `hassard0/stardust`).
 
 ---
 
 ## 1. Goal
 
-Add a working type checker to Stardust. After this slice, `sdust check` performs lex → parse → HIR-lower → name-resolve → type-check, and the 20 canonical examples (plus a healthy negative-test corpus) all type-check clean. The type system implements:
+Add a working type checker to Mighty. After this slice, `mty check` performs lex → parse → HIR-lower → name-resolve → type-check, and the 20 canonical examples (plus a healthy negative-test corpus) all type-check clean. The type system implements:
 
 - Resolved types `Ty` (distinct from `HirType`) with arena allocation
 - Hindley-Milner inference with bidirectional checking and constraint-style unification
@@ -26,7 +26,7 @@ The acceptance gate is:
 - `cargo test --workspace` green (174 → 250+ tests)
 - `cargo clippy --workspace --all-targets -- -D warnings` clean
 - `cargo fmt --all -- --check` clean
-- All 20 examples `sdust check` clean (now meaning fully type-checked)
+- All 20 examples `mty check` clean (now meaning fully type-checked)
 - A negative corpus (`tests/typeck_neg/`) of ~15 hand-written .sd files exercising each SD2xxx code
 
 ## 2. Non-goals for slice 3
@@ -40,26 +40,26 @@ These belong to later slices:
 - Match exhaustiveness errors (only warning in slice 3) — slice 5
 - Higher-rank polymorphism, GATs, dependent types — post-v0.1
 - Const-generic expressions — post-v0.1
-- SIR lowering, codegen, runtime — slices 6+
+- MtyIR lowering, codegen, runtime — slices 6+
 
 ## 3. Architecture
 
 ### 3.1 Crate layout
 
-Add a new crate `sdust-types`. Rationale: the type system is large enough that putting it in `sdust-hir` would force unrelated consumers (the formatter, the dumper) to compile against the inference engine. A separate crate keeps the dependency graph honest: `sdust-types` depends on `sdust-hir`, `sdust-diagnostics`. The driver depends on `sdust-types`.
+Add a new crate `mty-types`. Rationale: the type system is large enough that putting it in `mty-hir` would force unrelated consumers (the formatter, the dumper) to compile against the inference engine. A separate crate keeps the dependency graph honest: `mty-types` depends on `mty-hir`, `mty-diagnostics`. The driver depends on `mty-types`.
 
 ```
-sdust-syntax → sdust-ast → sdust-hir → sdust-types
+mty-syntax → mty-ast → mty-hir → mty-types
                                           ↑
-                                    sdust-driver → sdust-cli
+                                    mty-driver → mty-cli
 ```
 
-`sdust-fmt` continues to depend only on `sdust-syntax` (CST-only).
+`mty-fmt` continues to depend only on `mty-syntax` (CST-only).
 
-### 3.2 `sdust-types` module structure
+### 3.2 `mty-types` module structure
 
 ```
-crates/sdust-types/
+crates/mty-types/
   Cargo.toml
   src/
     lib.rs              — re-exports
@@ -137,7 +137,7 @@ pub struct ParamDef { pub name: String, pub bounds: Vec<TyId> }   // bounds unus
 
 ### 3.5 Name resolution
 
-A new module `sdust-types::resolve` walks the HIR top-level and produces:
+A new module `mty-types::resolve` walks the HIR top-level and produces:
 
 ```rust
 pub struct DefMap {
@@ -419,11 +419,11 @@ Parsed effects are stored on `Ty::Fn`. No call-site narrowing check. Mismatched 
 
 ## 6. Incremental adoption strategy
 
-Tasks are ordered so the workspace compiles and 174 tests stay green after every commit. The type checker is built behind a function (`sdust_types::check_package(pkg) -> Vec<Diagnostic>`) and wired into the driver as the *final* pipeline stage in the last task. Until that wiring lands, `sdust check` behaves exactly as it does in slice 2 (parse + lower).
+Tasks are ordered so the workspace compiles and 174 tests stay green after every commit. The type checker is built behind a function (`sdust_types::check_package(pkg) -> Vec<Diagnostic>`) and wired into the driver as the *final* pipeline stage in the last task. Until that wiring lands, `mty check` behaves exactly as it does in slice 2 (parse + lower).
 
 Order:
 
-1. Scaffold `sdust-types` crate.
+1. Scaffold `mty-types` crate.
 2. `Ty`, `TyArena`, `IntKind`, `FloatKind`, `intern`.
 3. `AdtDef`, `FnDef`, `DefMap`.
 4. Prelude builder.
@@ -438,7 +438,7 @@ Order:
 13. Item-level checking + pub-signature validation.
 14. Agent/protocol handler shape.
 15. Diagnostic builders.
-16. Wire into `sdust-driver`.
+16. Wire into `mty-driver`.
 17. Example sweep + amendments.
 18. Negative test corpus.
 19. Docs + tour updates.

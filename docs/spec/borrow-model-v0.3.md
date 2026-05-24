@@ -1,6 +1,6 @@
 # Borrow Model — v0.3
 
-Formal-ish specification of Stardust's borrow checker as of v0.3.
+Formal-ish specification of Mighty's borrow checker as of v0.3.
 Supersedes the slice-4 description in `docs/internals/borrowck.md`
 sections 1–10, which remain accurate but are now augmented by
 sections 17–19 covering A54/A55/A56.
@@ -172,9 +172,9 @@ which v0.3 fixes (A56).
 
 | Concern                       | File                                       |
 |-------------------------------|--------------------------------------------|
-| Place algebra                 | `crates/sdust-borrow/src/place.rs`         |
-| NLL pre-pass / LastUseMap     | `crates/sdust-borrow/src/nll.rs`           |
-| Borrow ledger                 | `crates/sdust-borrow/src/state.rs`         |
+| Place algebra                 | `crates/mty-borrow/src/place.rs`         |
+| NLL pre-pass / LastUseMap     | `crates/mty-borrow/src/nll.rs`           |
+| Borrow ledger                 | `crates/mty-borrow/src/state.rs`         |
 | Conflict detection            | `flow.rs::try_place_borrow`                |
 | MT3009 detection              | `flow.rs::check_deref_move`                |
 | Decay hook                    | `flow.rs::maybe_decay_after_use`           |

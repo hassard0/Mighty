@@ -13,39 +13,39 @@ post-v0.3 follow-on list.
 
 ## Files added
 
-- `crates/sdust-runtime/src/cancel.rs` — `CancellationToken` + `CancelReason`.
-- `crates/sdust-runtime/src/slab_pool.rs` — `SlabPool` + `PooledFrame`.
-- `crates/sdust-runtime/src/delay_timers.rs` — `DelayScheduler`.
-- `crates/sdust-runtime/src/otlp.rs` — `OtlpHandle` (feature-gated).
-- `crates/sdust-runtime/tests/cancellation_mid_turn.rs`.
-- `crates/sdust-runtime/tests/mailbox_slab_pool.rs`.
-- `crates/sdust-runtime/tests/delay_queue_timers.rs`.
-- `crates/sdust-runtime/tests/otlp_export.rs`.
+- `crates/mty-runtime/src/cancel.rs` — `CancellationToken` + `CancelReason`.
+- `crates/mty-runtime/src/slab_pool.rs` — `SlabPool` + `PooledFrame`.
+- `crates/mty-runtime/src/delay_timers.rs` — `DelayScheduler`.
+- `crates/mty-runtime/src/otlp.rs` — `OtlpHandle` (feature-gated).
+- `crates/mty-runtime/tests/cancellation_mid_turn.rs`.
+- `crates/mty-runtime/tests/mailbox_slab_pool.rs`.
+- `crates/mty-runtime/tests/delay_queue_timers.rs`.
+- `crates/mty-runtime/tests/otlp_export.rs`.
 - `tests/conformance/budget_violation/{05_wall_cancels_mid_turn,06_cpu_step_budget}/`.
 - `tests/conformance/mailbox_ordering/{04_slab_reuse_fifo,05_backpressure_block}/`.
 - `docs/internals/telemetry-otlp.md`.
 
 ## Files modified
 
-- `crates/sdust-runtime/Cargo.toml` — opentelemetry-* + tokio-util deps, `otlp` feature.
-- `crates/sdust-runtime/src/lib.rs` — module list + re-exports.
-- `crates/sdust-runtime/src/mailbox.rs` — slab-backed admit path.
-- `crates/sdust-runtime/src/agent.rs` — `run_one_turn_async` + shared reply.
-- `crates/sdust-runtime/src/telemetry.rs` — `Otlp` sink variant.
-- `crates/sdust-runtime/src/runtime.rs` — `shutdown_token`, cancellation-aware agent loop.
+- `crates/mty-runtime/Cargo.toml` — opentelemetry-* + tokio-util deps, `otlp` feature.
+- `crates/mty-runtime/src/lib.rs` — module list + re-exports.
+- `crates/mty-runtime/src/mailbox.rs` — slab-backed admit path.
+- `crates/mty-runtime/src/agent.rs` — `run_one_turn_async` + shared reply.
+- `crates/mty-runtime/src/telemetry.rs` — `Otlp` sink variant.
+- `crates/mty-runtime/src/runtime.rs` — `shutdown_token`, cancellation-aware agent loop.
 - `docs/internals/runtime.md` — A70 architecture section.
 - `docs/internals/mailboxes.md` — A72 slab section.
 - `docs/spec/v0.1-amendments.md` — A70..A73 appended.
 
 ## Interpretation calls
 
-1. **No edits to `sdust-sir`.** The scope rule forbids it, so
+1. **No edits to `mty-sir`.** The scope rule forbids it, so
    cooperative cancellation is implemented by wrapping each
    synchronous `run_handler_isolated` call in `spawn_blocking`,
    racing the join handle against a `CancellationToken`, and
    *detaching* the blocking thread on cancel. The worst-case wall
-   time of the detached thread is bounded by the SIR step budget
-   (1 M steps). A future v0.4 SIR change can replace this with
+   time of the detached thread is bounded by the MtyIR step budget
+   (1 M steps). A future v0.4 MtyIR change can replace this with
    real interpreter-side cancellation polling.
 
 2. **Reply oneshot via shared slot.** To guarantee exactly-once
@@ -67,7 +67,7 @@ post-v0.3 follow-on list.
    exercising the inline-vs-overflow split for realistic memory
    pressure.
 
-5. **OTLP is feature-gated, default-on.** `cargo build -p sdust-runtime`
+5. **OTLP is feature-gated, default-on.** `cargo build -p mty-runtime`
    pulls the exporter by default so `STARDUST_OTLP_ENDPOINT` Just
    Works. `--no-default-features` strips it for minimum-binary
    builds. Init failure (collector unreachable) silently falls
@@ -87,22 +87,22 @@ post-v0.3 follow-on list.
    `MessageFrame` is `pub(crate)`, so downstream code is unaffected.
 
 8. **Conformance new cases.** The harness in
-   `crates/sdust-driver/tests/conformance_full.rs` drives cases
-   through the SIR interp directly, *not* through `sdust-runtime`.
+   `crates/mty-driver/tests/conformance_full.rs` drives cases
+   through the MtyIR interp directly, *not* through `mty-runtime`.
    The new conformance cases (`05_wall_cancels_mid_turn`,
    `06_cpu_step_budget`, `04_slab_reuse_fifo`, `05_backpressure_block`)
    are shape-only at the harness layer: they compile + run as
    trivial programs and produce expected stdout, while the actual
    v0.3 invariants live at the runtime-test layer
-   (`crates/sdust-runtime/tests/`). This avoids modifying the
+   (`crates/mty-runtime/tests/`). This avoids modifying the
    harness (out of scope for this swarm).
 
 ## Open follow-on (post v0.3)
 
-- **SIR-side cancellation polling.** Have `run_handler_isolated`
+- **MtyIR-side cancellation polling.** Have `run_handler_isolated`
   check a passed-in cancel token every N steps so the runtime can
   truly interrupt mid-turn instead of detaching. Requires
-  sdust-sir changes.
+  mty-sir changes.
 
 - **CpuBudget reason wiring.** The reason variant exists but no
   current code path fires it. A future per-agent CPU-time aggregator
@@ -123,7 +123,7 @@ post-v0.3 follow-on list.
 
 - **Slab pool benchmark.** A criterion-driven `send`-latency
   benchmark would land here once the bench harness is set up (no
-  bench harness exists for sdust-runtime today).
+  bench harness exists for mty-runtime today).
 
 - **`Mailbox::with_pool` plumbed through `RuntimeBuilder`.** Today
   the runtime always creates a fresh slab per mailbox; tests can
@@ -132,8 +132,8 @@ post-v0.3 follow-on list.
 
 ## Acceptance status
 
-- Build: `cargo build -p sdust-runtime` passes (clean).
-- Tests: `cargo test -p sdust-runtime` — see latest run for live
+- Build: `cargo build -p mty-runtime` passes (clean).
+- Tests: `cargo test -p mty-runtime` — see latest run for live
   count; new tests added: cancellation_mid_turn (3),
   mailbox_slab_pool (8), delay_queue_timers (2), otlp_export (3) +
   inline `#[cfg(test)] mod tests` in cancel.rs (4), slab_pool.rs (4),

@@ -1,4 +1,4 @@
-# Stardust macros — v0.5 spec
+# Mighty macros — v0.5 spec
 
 Status: **shipped in v0.5**.
 Supersedes [`macros-v0.4.md`](./macros-v0.4.md) for everything below;
@@ -25,7 +25,7 @@ the v0.4 doc remains the historical record of the v0.4 surface.
 
 * **Predictable.** A v0.5 declarative macro is still a *token template*
   parameterised by named parameters. Expansion is deterministic and
-  visible in `sdust dump --hir`.
+  visible in `mty dump --hir`.
 * **Hygienic.** Macro-introduced bindings cannot capture or be captured
   by the caller's bindings, across more pattern shapes than v0.4.
 * **Sandboxed by shape.** Declarative macros still execute zero user
@@ -69,7 +69,7 @@ cross-file visibility: the macro is registered in the package's
 
 v0.5 accepts both forms:
 
-```sdust
+```mty
 // v0.5 syntax (recommended for new code).
 assert_eq!(1 + 1, 2)
 
@@ -121,7 +121,7 @@ bindings are *mangled*; everything else is *passed through*.
 
 ## Cross-file `pub macro`
 
-```sdust
+```mty
 // in package "math":
 pub macro double(x) => { x + x }
 
@@ -136,14 +136,14 @@ into the importer's `local` set with the bound name (`double`, or a
 renamed `as` form). Private macros never appear in `exported` and
 cannot be imported.
 
-The end-to-end pkg → HIR import wiring lights up once sdust-pkg pipes
+The end-to-end pkg → HIR import wiring lights up once mty-pkg pipes
 its symbol table into HIR lowering. v0.5 ships the `PackageMacros`
 surface and an in-memory two-file fixture test; the connector slice is
 strictly additive.
 
 ## Procedural macros — declaration only in v0.5
 
-```sdust
+```mty
 proc macro upcase(input: TokenStream) -> TokenStream {
   // body that manipulates `input` and returns a new TokenStream.
   input
@@ -154,7 +154,7 @@ fn main() {
 }
 ```
 
-A procedural macro is a Stardust function over `TokenStream`. The body
+A procedural macro is a Mighty function over `TokenStream`. The body
 is stored verbatim in the registry. v0.5 enforces two rules:
 
 1. **Purity check** at decl time. If the body references `effect.…(…)`
@@ -176,7 +176,7 @@ When the v0.6 interpreter ships, proc-macro execution will be capped:
 
 * **Wall clock:** 100 ms per expansion.
 * **Memory:** 16 MB intermediate state.
-* **Step count:** 100 000 SIR steps.
+* **Step count:** 100 000 MtyIR steps.
 
 These constants are exposed today as
 `sdust_macros::proc::PROC_MACRO_{WALL_MS,MEM_BYTES,STEPS}` so spec and
@@ -184,7 +184,7 @@ implementation cannot drift before v0.6.
 
 ## Standard macro library
 
-`sdust-macros` ships these macros under `crates/sdust-macros/lib/`:
+`mty-macros` ships these macros under `crates/mty-macros/lib/`:
 
 | Macro             | Behavior                                            |
 |-------------------|-----------------------------------------------------|
@@ -195,7 +195,7 @@ implementation cannot drift before v0.6.
 | `unreachable!()`  | Panic with `"entered unreachable code"`.            |
 
 All five are `pub macro`. Projects load them via
-`sdust_macros::stdlib::load_into(&mut pm)`; sdust-pkg will eventually
+`sdust_macros::stdlib::load_into(&mut pm)`; mty-pkg will eventually
 auto-import them as part of the prelude.
 
 ## Diagnostics
@@ -221,5 +221,5 @@ new in v0.5.
   parse as a normal expression.
 * **New cross-file flow.** Mark macros `pub macro …` to export them.
   Add `use otherpkg.foo` to import. The flow is end-to-end once
-  sdust-pkg pipes its symbol table; until then, projects can use
+  mty-pkg pipes its symbol table; until then, projects can use
   `PackageMacros::register_use` programmatically.

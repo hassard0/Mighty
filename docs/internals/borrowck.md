@@ -1,7 +1,7 @@
 # Borrow Checker Internals (Slice 4 + v0.3 hardening)
 
-Stardust's ownership / borrow / affine / arena analysis lives in the
-**`sdust-borrow`** crate. It runs after `sdust-types` and consumes the
+Mighty's ownership / borrow / affine / arena analysis lives in the
+**`mty-borrow`** crate. It runs after `mty-types` and consumes the
 typed-HIR side tables produced by `sdust_types::check_package_typed`.
 
 This document mirrors `docs/internals/typeck.md` and is the load-bearing
@@ -12,10 +12,10 @@ see also `docs/spec/borrow-model-v0.3.md`).
 ## 1. Place in the pipeline
 
 ```
-sdust-syntax → sdust-ast → sdust-hir → sdust-types → sdust-borrow
+mty-syntax → mty-ast → mty-hir → mty-types → mty-borrow
 ```
 
-`sdust-borrow` only runs if `sdust-types` produced no Error-severity
+`mty-borrow` only runs if `mty-types` produced no Error-severity
 diagnostics (warnings, such as MT2026 `protocol_msg_unknown`, are
 tolerated). The driver wires this up via
 `sdust_driver::type_and_borrow_check(pkg)`.
@@ -23,7 +23,7 @@ tolerated). The driver wires this up via
 The CLI calls the combined stage:
 
 ```
-sdust check foo.sd  →  lex → parse → lower → typeck → borrowck
+mty check foo.sd  →  lex → parse → lower → typeck → borrowck
 ```
 
 ## 2. Inputs
@@ -68,7 +68,7 @@ makes Move into a no-op.
 
 ## 4. Copy rule
 
-`crates/sdust-borrow/src/copy.rs::is_copy(ty, arena, defs) -> bool`:
+`crates/mty-borrow/src/copy.rs::is_copy(ty, arena, defs) -> bool`:
 
 - Primitives (Bool, Int*, Float*, Char, Unit, Duration, Size) — yes
 - `&T` (shared ref) — yes; `&mut T` — no
@@ -168,7 +168,7 @@ post-v0.1.
 
 At each scope-pop, `pop_frame` walks the frame's local names and emits a
 `DropEntry { local_name, span }` for each Owned non-Copy local. Slice 4
-does not codegen the drops (no SIR yet); the `DropPlan` is held internally
+does not codegen the drops (no MtyIR yet); the `DropPlan` is held internally
 and discarded by `flow::run`. Future codegen consumers can re-thread it.
 
 ## 10. Diagnostics
@@ -265,30 +265,30 @@ Tracked as out-of-scope for slice 4:
 - Effect closure + capability narrowing — slice 5
 - `move *ref` modelling for MT3009 — slice 5
 - Tighter MT3002 vs MT3008 distinction — slice 5
-- Real codegen of drop() calls + SIR consumption of DropPlan — slice 6+
+- Real codegen of drop() calls + MtyIR consumption of DropPlan — slice 6+
 
 ## 16. Source map
 
-- `crates/sdust-borrow/src/lib.rs` — entry points (`check_package`,
+- `crates/mty-borrow/src/lib.rs` — entry points (`check_package`,
   `type_and_borrow_check`)
-- `crates/sdust-borrow/src/state.rs` — `Ownership`, `LocalState`,
+- `crates/mty-borrow/src/state.rs` — `Ownership`, `LocalState`,
   `ScopeFrame`, `join_states`, `BorrowLedger`/`BorrowRecord` (v0.3)
-- `crates/sdust-borrow/src/place.rs` — `Place`/`Proj` algebra (v0.3)
-- `crates/sdust-borrow/src/nll.rs` — `LastUseMap`/`compute_last_use` (v0.3)
-- `crates/sdust-borrow/src/copy.rs` — `is_copy`
-- `crates/sdust-borrow/src/sendable.rs` — `is_sendable`
-- `crates/sdust-borrow/src/flow.rs` — `BorrowCx`, walker, per-position
+- `crates/mty-borrow/src/place.rs` — `Place`/`Proj` algebra (v0.3)
+- `crates/mty-borrow/src/nll.rs` — `LastUseMap`/`compute_last_use` (v0.3)
+- `crates/mty-borrow/src/copy.rs` — `is_copy`
+- `crates/mty-borrow/src/sendable.rs` — `is_sendable`
+- `crates/mty-borrow/src/flow.rs` — `BorrowCx`, walker, per-position
   state updates, `try_place_borrow`, `check_deref_move`
-- `crates/sdust-borrow/src/arena_region.rs` — `ArenaCounter`
-- `crates/sdust-borrow/src/drop_plan.rs` — `DropPlan`, `DropEntry`
-- `crates/sdust-borrow/src/diag.rs` — SD3xxx constructors
-- `crates/sdust-diagnostics/src/codes.rs` — SD3xxx code + explain text
-- `crates/sdust-types/src/items.rs` — typed-side-table emission,
+- `crates/mty-borrow/src/arena_region.rs` — `ArenaCounter`
+- `crates/mty-borrow/src/drop_plan.rs` — `DropPlan`, `DropEntry`
+- `crates/mty-borrow/src/diag.rs` — SD3xxx constructors
+- `crates/mty-diagnostics/src/codes.rs` — SD3xxx code + explain text
+- `crates/mty-types/src/items.rs` — typed-side-table emission,
   defaulting pass, tolerance-set construction, protocol-aware handler
   param binding
-- `crates/sdust-types/src/check.rs` — scope-aware `synth_path`, real
+- `crates/mty-types/src/check.rs` — scope-aware `synth_path`, real
   method dispatch
-- `crates/sdust-types/src/resolve.rs` — `impl_methods` + `protocol_msgs`
+- `crates/mty-types/src/resolve.rs` — `impl_methods` + `protocol_msgs`
   indexing
 
 ## 17. v0.3 / A54 — Place algebra and field-level borrows
@@ -401,6 +401,6 @@ to support real loops without spinning the checker.
 
 `break <value>` flows the value at `Position::Move`; `continue` is a
 no-op for the walker — its only role is to truncate the body's
-remaining statements at the SIR level, which the borrow check doesn't
+remaining statements at the MtyIR level, which the borrow check doesn't
 need to see because the join already covers every possible post-body
 state.

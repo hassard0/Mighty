@@ -1,11 +1,11 @@
-# sdust dump
+# mty dump
 
-Dump compiler intermediate representations of a Stardust source file.
+Dump compiler intermediate representations of a Mighty source file.
 
 ## Synopsis
 
 ```
-sdust dump [OPTIONS] <PATH>
+mty dump [OPTIONS] <PATH>
 ```
 
 ## Arguments
@@ -46,7 +46,7 @@ flags may be combined; the dumps appear in CST, AST, HIR order.
 ## Examples
 
 ```bash
-sdust dump --cst examples/01_hello.sd
-sdust dump --ast examples/02_struct_enum.sd
-sdust dump --hir examples/07_agent_echo.sd
+mty dump --cst examples/01_hello.sd
+mty dump --ast examples/02_struct_enum.sd
+mty dump --hir examples/07_agent_echo.sd
 ```

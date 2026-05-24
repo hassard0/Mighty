@@ -1,7 +1,7 @@
-# star.toml — Package Manifest
+# mighty.toml — Package Manifest
 
-Every Stardust package contains a `star.toml` at its root. The slice 1
-loader (in `sdust-driver`) parses `[package]` and `[deps]`; v0.2
+Every Mighty package contains a `mighty.toml` at its root. The slice 1
+loader (in `mty-driver`) parses `[package]` and `[deps]`; v0.2
 extends `[deps]` with detailed source specifications and adds an
 optional `[build]` section.
 
@@ -20,7 +20,7 @@ profile = "host"
 [deps]
 ```
 
-This is exactly what [`sdust new`](cli/sdust-new.md) emits.
+This is exactly what [`mty new`](cli/mty-new.md) emits.
 
 ## `[package]`
 
@@ -35,8 +35,8 @@ This is exactly what [`sdust new`](cli/sdust-new.md) emits.
 
 A table of dependency name → source specification. Empty by default.
 
-v0.2's package manager (`sdust pkg`, see
-[`docs/reference/cli/sdust-pkg.md`](cli/sdust-pkg.md)) consumes this
+v0.2's package manager (`mty pkg`, see
+[`docs/reference/cli/mty-pkg.md`](cli/mty-pkg.md)) consumes this
 section. Slice 1's compiler driver does *not* — it only parses.
 
 Each value can take one of four forms.
@@ -51,10 +51,10 @@ otel = "0.1"
 
 Equivalent to a detailed dep with `version = "0.1"` and no other
 source. v0.2's registry is a stub; see
-[the CLI reference](cli/sdust-pkg.md) for the caveat.
+[the CLI reference](cli/mty-pkg.md) for the caveat.
 
 The version string follows the small semver subset described in
-[`semver.rs`](../../crates/sdust-pkg/src/semver.rs):
+[`semver.rs`](../../crates/mty-pkg/src/semver.rs):
 
 - `"1.2.3"` — caret-equivalent (`^1.2.3`).
 - `"=1.2.3"` — exact.
@@ -69,7 +69,7 @@ The version string follows the small semver subset described in
 mylib = { path = "../mylib" }
 ```
 
-The resolver loads the target's `star.toml` to discover its version
+The resolver loads the target's `mighty.toml` to discover its version
 and transitive deps. Paths are resolved relative to the manifest's
 directory.
 
@@ -124,9 +124,9 @@ allow_fs = ["target/"]
 A manifest carrying `[build]` parses fine even on slice-1 toolchains
 *after* v0.2 — the field is optional.
 
-## `star.lock`
+## `mighty.lock`
 
-Generated alongside `star.toml` by any mutating `sdust pkg` command.
+Generated alongside `mighty.toml` by any mutating `mty pkg` command.
 TOML, content-addressed. See
 [the package-manager internals](../internals/package-manager.md#lockfile-schema)
 for the full schema.
@@ -137,12 +137,12 @@ version = 1
 [[package]]
 name = "std"
 version = "0.1.0"
-source = "registry+https://pkg.stardust.dev"
+source = "registry+https://pkg.mighty.dev"
 hash = "sha256:..."
 dependencies = []
 ```
 
-Commit `star.lock` alongside `star.toml`: it records the exact bytes
+Commit `mighty.lock` alongside `mighty.toml`: it records the exact bytes
 your builds resolved.
 
 ## Errors
@@ -150,4 +150,4 @@ your builds resolved.
 Manifest parse errors propagate from the underlying `toml` crate. The
 driver wraps them in `ManifestError::Toml`; I/O failures in
 `ManifestError::Io`; serialise failures in `ManifestError::TomlSer`.
-`sdust pkg <subcmd>` surfaces these on stderr and exits non-zero.
+`mty pkg <subcmd>` surfaces these on stderr and exits non-zero.

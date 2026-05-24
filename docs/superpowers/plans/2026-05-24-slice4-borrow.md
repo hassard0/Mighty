@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship Stardust's ownership/borrow/affine checker (spec §7), close the slice-3 hardening backlog, and ensure all 20 canonical examples + the new negative borrow corpus stay green. Tag `v0.4.0-borrowck`.
+**Goal:** Ship Mighty's ownership/borrow/affine checker (spec §7), close the slice-3 hardening backlog, and ensure all 20 canonical examples + the new negative borrow corpus stay green. Tag `v0.4.0-borrowck`.
 
-**Architecture:** New `sdust-borrow` crate that consumes the typed-HIR side tables produced by `sdust-types::check_package_typed`. Linear top-down walk over typed HIR with per-local Ownership state. Lexical borrow regions only (NLL / Polonius post-v0.1). See design doc in `docs/superpowers/specs/2026-05-24-slice4-borrow-design.md`.
+**Architecture:** New `mty-borrow` crate that consumes the typed-HIR side tables produced by `mty-types::check_package_typed`. Linear top-down walk over typed HIR with per-local Ownership state. Lexical borrow regions only (NLL / Polonius post-v0.1). See design doc in `docs/superpowers/specs/2026-05-24-slice4-borrow-design.md`.
 
 **Tech Stack:** Rust 1.82, la-arena (already used). Same workspace as slice 3.
 
@@ -13,37 +13,37 @@
 ## File Structure
 
 **Create:**
-- `crates/sdust-borrow/Cargo.toml`
-- `crates/sdust-borrow/src/lib.rs` — `check_package` entry; re-exports
-- `crates/sdust-borrow/src/state.rs` — `Ownership`, `LocalState`, `ScopeFrame`
-- `crates/sdust-borrow/src/copy.rs` — `is_copy(TyId, &TyArena, &DefMap)`
-- `crates/sdust-borrow/src/sendable.rs` — `is_sendable(TyId, ...)`
-- `crates/sdust-borrow/src/flow.rs` — `BorrowCx`, linear walker, expr/stmt handlers
-- `crates/sdust-borrow/src/arena.rs` — arena region tracking
-- `crates/sdust-borrow/src/drop.rs` — drop-intent emission
-- `crates/sdust-borrow/src/diag.rs` — SD3xxx constructors
-- `crates/sdust-borrow/tests/basic.rs`
-- `crates/sdust-borrow/tests/borrows.rs`
-- `crates/sdust-borrow/tests/arena.rs`
-- `crates/sdust-borrow/tests/sendable.rs`
-- `crates/sdust-borrow/tests/examples.rs`
-- `crates/sdust-borrow/tests/negatives.rs`
+- `crates/mty-borrow/Cargo.toml`
+- `crates/mty-borrow/src/lib.rs` — `check_package` entry; re-exports
+- `crates/mty-borrow/src/state.rs` — `Ownership`, `LocalState`, `ScopeFrame`
+- `crates/mty-borrow/src/copy.rs` — `is_copy(TyId, &TyArena, &DefMap)`
+- `crates/mty-borrow/src/sendable.rs` — `is_sendable(TyId, ...)`
+- `crates/mty-borrow/src/flow.rs` — `BorrowCx`, linear walker, expr/stmt handlers
+- `crates/mty-borrow/src/arena.rs` — arena region tracking
+- `crates/mty-borrow/src/drop.rs` — drop-intent emission
+- `crates/mty-borrow/src/diag.rs` — SD3xxx constructors
+- `crates/mty-borrow/tests/basic.rs`
+- `crates/mty-borrow/tests/borrows.rs`
+- `crates/mty-borrow/tests/arena.rs`
+- `crates/mty-borrow/tests/sendable.rs`
+- `crates/mty-borrow/tests/examples.rs`
+- `crates/mty-borrow/tests/negatives.rs`
 - `tests/borrow_neg/*.sd` — 12 negative-test inputs
 - `docs/internals/borrowck.md`
 - `docs/tour/14-ownership.md`
 - `SLICE4.md`
 
 **Modify:**
-- `Cargo.toml` — add `crates/sdust-borrow` to members
-- `crates/sdust-driver/Cargo.toml` — depend on `sdust-borrow`
-- `crates/sdust-driver/src/pipeline.rs` — `borrow_check(pkg) -> Vec<Diagnostic>` stage
-- `crates/sdust-cli/src/cmd/check.rs` — run the new stage after type-check
-- `crates/sdust-diagnostics/src/codes.rs` — add MT2026 + MT3001..MT3015 + `explain` entries
-- `crates/sdust-types/src/lib.rs` — export `TypedPackage`, `check_package_typed`
-- `crates/sdust-types/src/items.rs` — track typed-HIR side tables; replace warning severity on MT2015 with Error; defaulting pass
-- `crates/sdust-types/src/check.rs` — scope-aware tolerance set; real method dispatch; protocol-message handler param types
-- `crates/sdust-types/src/diag.rs` — `non_exhaustive_match` severity Error; new MT2026 `protocol_msg_unknown`
-- `crates/sdust-types/src/infer.rs` — `default_inference` walks expr_ty + local_ty and rewrites IntInfer/FloatInfer
+- `Cargo.toml` — add `crates/mty-borrow` to members
+- `crates/mty-driver/Cargo.toml` — depend on `mty-borrow`
+- `crates/mty-driver/src/pipeline.rs` — `borrow_check(pkg) -> Vec<Diagnostic>` stage
+- `crates/mty-cli/src/cmd/check.rs` — run the new stage after type-check
+- `crates/mty-diagnostics/src/codes.rs` — add MT2026 + MT3001..MT3015 + `explain` entries
+- `crates/mty-types/src/lib.rs` — export `TypedPackage`, `check_package_typed`
+- `crates/mty-types/src/items.rs` — track typed-HIR side tables; replace warning severity on MT2015 with Error; defaulting pass
+- `crates/mty-types/src/check.rs` — scope-aware tolerance set; real method dispatch; protocol-message handler param types
+- `crates/mty-types/src/diag.rs` — `non_exhaustive_match` severity Error; new MT2026 `protocol_msg_unknown`
+- `crates/mty-types/src/infer.rs` — `default_inference` walks expr_ty + local_ty and rewrites IntInfer/FloatInfer
 - `examples/06_for_while_loop.sd` — add `-> Unit!WorkErr`
 - `examples/11_budget_block.sd` — `-> Unit!RunErr` (was `Result!RunErr`)
 - `docs/spec/v0.1-amendments.md` — A13..A21
@@ -57,9 +57,9 @@
 
 ---
 
-## Task 1: Type-check side-tables in `sdust-types`
+## Task 1: Type-check side-tables in `mty-types`
 
-**Files:** `crates/sdust-types/src/lib.rs`, `crates/sdust-types/src/items.rs`, `crates/sdust-types/src/check.rs`
+**Files:** `crates/mty-types/src/lib.rs`, `crates/mty-types/src/items.rs`, `crates/mty-types/src/check.rs`
 
 Extract the typed-HIR side tables produced during checking so the borrow checker can consume them.
 
@@ -91,21 +91,21 @@ In `Cx`, add `pub expr_ty: &'a mut HashMap<ExprId, TyId>;` etc. Every place `syn
 - [ ] Record `fn_params` + `fn_ret` per fn
 - [ ] All slice-3 tests still green
 
-## Task 2: `sdust-borrow` crate scaffolding
+## Task 2: `mty-borrow` crate scaffolding
 
-**Files:** `crates/sdust-borrow/Cargo.toml`, `crates/sdust-borrow/src/lib.rs`, root `Cargo.toml`
+**Files:** `crates/mty-borrow/Cargo.toml`, `crates/mty-borrow/src/lib.rs`, root `Cargo.toml`
 
 ```toml
 [package]
-name = "sdust-borrow"
+name = "mty-borrow"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-sdust-hir.workspace = true
-sdust-types.workspace = true
-sdust-diagnostics.workspace = true
+mty-hir.workspace = true
+mty-types.workspace = true
+mty-diagnostics.workspace = true
 la-arena.workspace = true
 ```
 
@@ -126,13 +126,13 @@ pub fn check_package(typed: &TypedPackage) -> Vec<Diagnostic> {
 }
 ```
 
-- [ ] Add the crate; `cargo build -p sdust-borrow` succeeds
+- [ ] Add the crate; `cargo build -p mty-borrow` succeeds
 - [ ] Add to workspace members
 - [ ] Module skeleton compiles
 
 ## Task 3: `Copy` predicate
 
-**Files:** `crates/sdust-borrow/src/copy.rs`
+**Files:** `crates/mty-borrow/src/copy.rs`
 
 `pub fn is_copy(ty: TyId, arena: &TyArena, defs: &DefMap) -> bool` per the design doc §3.6.
 
@@ -141,7 +141,7 @@ pub fn check_package(typed: &TypedPackage) -> Vec<Diagnostic> {
 
 ## Task 4: `Sendable` predicate
 
-**Files:** `crates/sdust-borrow/src/sendable.rs`
+**Files:** `crates/mty-borrow/src/sendable.rs`
 
 `pub fn is_sendable(ty, arena, defs) -> bool` per §3.7. Slice 4: Copy ∨ owned-String/Bytes ∨ owned-Adt (opaque or all-Sendable-payload) ∨ tuple/array of Sendable ∨ Param/Var (conservative permissive). Refs / raw ptrs / fns are not Sendable.
 
@@ -150,7 +150,7 @@ pub fn check_package(typed: &TypedPackage) -> Vec<Diagnostic> {
 
 ## Task 5: State types
 
-**Files:** `crates/sdust-borrow/src/state.rs`
+**Files:** `crates/mty-borrow/src/state.rs`
 
 ```rust
 #[derive(Clone, Debug)]
@@ -185,7 +185,7 @@ pub struct ScopeFrame {
 
 ## Task 6: Per-fn linear walker
 
-**Files:** `crates/sdust-borrow/src/flow.rs`
+**Files:** `crates/mty-borrow/src/flow.rs`
 
 Define `BorrowCx<'a>` holding the typed package, locals table (`HashMap<String, LocalState>`), scope stack, diagnostic buffer, arena counter. Implement `walk_block`, `walk_stmt`, `walk_expr`. The expr walker classifies usage:
 
@@ -220,7 +220,7 @@ Define `BorrowCx<'a>` holding the typed package, locals table (`HashMap<String, 
 
 ## Task 7: Arena escape
 
-**Files:** `crates/sdust-borrow/src/arena.rs`, integrated into `flow.rs`
+**Files:** `crates/mty-borrow/src/arena.rs`, integrated into `flow.rs`
 
 Push `ArenaRegionId` on entry to `HirExpr::Arena`, pop on exit. Locals introduced inside an arena body carry the region id. On arena exit, inspect the *tail expression* of the body: if it's a `Path([name])` and `name` resolves to a local with the active region, emit `MT3010 arena_escape`. For block-bodied arenas, the tail is the block's `tail` field. For the short form `arena name: expr`, the tail is the expression directly.
 
@@ -232,7 +232,7 @@ Push `ArenaRegionId` on entry to `HirExpr::Arena`, pop on exit. Locals introduce
 
 ## Task 8: Drop intent
 
-**Files:** `crates/sdust-borrow/src/drop.rs`
+**Files:** `crates/mty-borrow/src/drop.rs`
 
 At each scope exit, walk locals introduced in that scope; for any whose state is `Owned` and `!is_copy`, record `DropEntry { local: LocalKey, span: SourceSpan }` in a `DropPlan`. The plan is returned alongside diagnostics from `check_package` as a side artifact (we don't expose it through `pipeline.rs` for slice 4, but we do unit-test it). Locals in `Moved` state at scope exit produce no drop.
 
@@ -243,9 +243,9 @@ At each scope exit, walk locals introduced in that scope; for any whose state is
 
 ## Task 9: SD3xxx + MT2026 diagnostic codes
 
-**Files:** `crates/sdust-diagnostics/src/codes.rs`, `crates/sdust-borrow/src/diag.rs`
+**Files:** `crates/mty-diagnostics/src/codes.rs`, `crates/mty-borrow/src/diag.rs`
 
-Add MT3001..MT3015 plus MT2026; wire each into `explain()` with 2-4 sentence text per slice-3 style. Constructors in `sdust-borrow::diag` mirror `sdust-types::diag` shape.
+Add MT3001..MT3015 plus MT2026; wire each into `explain()` with 2-4 sentence text per slice-3 style. Constructors in `mty-borrow::diag` mirror `mty-types::diag` shape.
 
 - [ ] All codes declared
 - [ ] All explain entries
@@ -254,7 +254,7 @@ Add MT3001..MT3015 plus MT2026; wire each into `explain()` with 2-4 sentence tex
 
 ## Task 10: Scope-aware tolerance set (slice-3 hardening)
 
-**Files:** `crates/sdust-types/src/check.rs`, `crates/sdust-types/src/items.rs`
+**Files:** `crates/mty-types/src/check.rs`, `crates/mty-types/src/items.rs`
 
 Build a `ToleranceSet { names: HashSet<String>, allow_any: bool }` per body. The set is populated by the body's enclosing scope kind (agent / supervisor / sandbox / budget / unsafe / extern) plus the agent's state/method names. `allow_any = true` for extern bodies, macro bodies, and the inside of `unsafe` blocks beyond the first level.
 
@@ -268,7 +268,7 @@ In `synth_path` for a single-segment unresolved value: if the name is in the tol
 
 ## Task 11: Real method dispatch on user ADTs
 
-**Files:** `crates/sdust-types/src/resolve.rs`, `crates/sdust-types/src/check.rs`, `crates/sdust-types/src/defs.rs`
+**Files:** `crates/mty-types/src/resolve.rs`, `crates/mty-types/src/check.rs`, `crates/mty-types/src/defs.rs`
 
 Index `HirImpl` blocks: for each impl, map `(self_adt_id, method_name) → FnDef`. Method-call resolution:
 
@@ -283,7 +283,7 @@ Index `HirImpl` blocks: for each impl, map `(self_adt_id, method_name) → FnDef
 
 ## Task 12: Protocol-aware handler param types
 
-**Files:** `crates/sdust-types/src/items.rs`, `crates/sdust-types/src/resolve.rs`
+**Files:** `crates/mty-types/src/items.rs`, `crates/mty-types/src/resolve.rs`
 
 Build `protocol_msg_index: HashMap<String, HashMap<String, Vec<TyId>>>` mapping `(protocol_name, msg_name) → param_types`. When checking an agent body, gather every protocol the agent implements (via the agent's HIR `protocols: Vec<TypeId>` list), then for each `on Msg(p1,...)` handler:
 
@@ -299,9 +299,9 @@ Build `protocol_msg_index: HashMap<String, HashMap<String, Vec<TyId>>>` mapping 
 
 ## Task 13: Match exhaustiveness as error
 
-**Files:** `crates/sdust-types/src/diag.rs`
+**Files:** `crates/mty-types/src/diag.rs`
 
-Flip `non_exhaustive_match` severity from Warning to Error. Update the diagnostic message ("non-exhaustive match") and the `sdust explain` entry for MT2015.
+Flip `non_exhaustive_match` severity from Warning to Error. Update the diagnostic message ("non-exhaustive match") and the `mty explain` entry for MT2015.
 
 - [ ] Severity flipped
 - [ ] Updated explain text
@@ -310,7 +310,7 @@ Flip `non_exhaustive_match` severity from Warning to Error. Update the diagnosti
 
 ## Task 14: Defaulting pass
 
-**Files:** `crates/sdust-types/src/infer.rs`, `crates/sdust-types/src/items.rs`
+**Files:** `crates/mty-types/src/infer.rs`, `crates/mty-types/src/items.rs`
 
 Implement `default_typed_package(typed: &mut TypedPackage)`:
 - Walk `expr_ty` map; for each entry, fully resolve via subst, and if the resolved kind is `IntInfer` rebind to `I32`; if `FloatInfer` rebind to `F64`.
@@ -324,7 +324,7 @@ Call after each fn-body check completes.
 
 ## Task 15: Driver/CLI wiring
 
-**Files:** `crates/sdust-driver/Cargo.toml`, `crates/sdust-driver/src/pipeline.rs`, `crates/sdust-cli/src/cmd/check.rs`
+**Files:** `crates/mty-driver/Cargo.toml`, `crates/mty-driver/src/pipeline.rs`, `crates/mty-cli/src/cmd/check.rs`
 
 Add `borrow_check(pkg: &Package) -> Vec<Diagnostic>` to the pipeline:
 1. Run `check_package_typed`
@@ -335,7 +335,7 @@ In the CLI `check.rs`, run lex+parse+lower+type-check+borrow-check; exit code no
 
 - [ ] `borrow_check` stage added
 - [ ] CLI invokes it
-- [ ] All 20 examples still `sdust check` clean
+- [ ] All 20 examples still `mty check` clean
 
 ## Task 16: Source edits to examples 06 + 11
 
@@ -343,24 +343,24 @@ In the CLI `check.rs`, run lex+parse+lower+type-check+borrow-check; exit code no
 
 Per slice-3 deferral note, amend the return types so the `?` operator's strict rule applies:
 
-```sdust
+```mty
 fn process(items: &[I32]) -> Unit!WorkErr {
   ...
 }
 ```
 
-```sdust
+```mty
 fn run_job(input: Bytes) -> Unit!RunErr {
   ...
 }
 ```
 
 - [ ] Edit the two files
-- [ ] `sdust check` clean for both
+- [ ] `mty check` clean for both
 
 ## Task 17: Negative borrow corpus
 
-**Files:** `tests/borrow_neg/*.sd`, `crates/sdust-driver/tests/borrow_negatives.rs`
+**Files:** `tests/borrow_neg/*.sd`, `crates/mty-driver/tests/borrow_negatives.rs`
 
 Twelve small inputs, one per SD3xxx + a couple combos:
 
@@ -385,7 +385,7 @@ Driver test enumerates the folder and asserts each file emits its target code.
 
 ## Task 18: Borrow-checker unit tests (per-crate)
 
-**Files:** `crates/sdust-borrow/tests/*.rs`
+**Files:** `crates/mty-borrow/tests/*.rs`
 
 - `basic.rs` — pure copy fn body (no diagnostics), pure no-op
 - `borrows.rs` — shared borrow + mut borrow rules
@@ -398,7 +398,7 @@ Driver test enumerates the folder and asserts each file emits its target code.
 
 ## Task 19: MT2015 → error update + tolerance check
 
-**Files:** `crates/sdust-types/tests/`, `tests/typeck_neg/`
+**Files:** `crates/mty-types/tests/`, `tests/typeck_neg/`
 
 Update any slice-3 typeck-neg fixture that was expecting Warning on MT2015 to expect Error.
 
@@ -463,7 +463,7 @@ Add the SD3xxx table + MT2026 row + flip MT2015 severity.
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-for f in examples/*.sd; do cargo run -q -p sdust-cli -- check $f || exit 1; done
+for f in examples/*.sd; do cargo run -q -p mty-cli -- check $f || exit 1; done
 ```
 
 - [ ] fmt clean

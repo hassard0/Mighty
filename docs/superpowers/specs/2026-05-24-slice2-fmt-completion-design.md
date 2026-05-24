@@ -1,11 +1,11 @@
-# Stardust Slice 2 Design — Formatter Completion + Syntactic Polish
+# Mighty Slice 2 Design — Formatter Completion + Syntactic Polish
 
 **Date:** 2026-05-24
 **Status:** Approved (autonomous build — user away, slice-leader = Claude)
-**Source spec:** `C:\Users\ihass\Downloads\stardust_language_spec_v0_1.md` (Stardust Language Specification v0.1)
+**Source spec:** `C:\Users\ihass\Downloads\stardust_language_spec_v0_1.md` (Mighty Language Specification v0.1)
 **Slice maps to:** Spec §31.2 Phase 1 polish — close the slice-1 deferrals before slice 3 (the type checker).
 **Prior slice:** `v0.1.0-phase1` (commit `308feb4`), summary in `SLICE1.md`.
-**Repo:** `C:\Users\ihass\stardust` (remote `hassard0/stardust`).
+**Repo:** `C:\Users\ihass\mighty` (remote `hassard0/stardust`).
 
 ---
 
@@ -16,15 +16,15 @@ Close every slice-1 deferral that is in scope for "complete the surface syntax +
 - Real per-node Wadler/Lindig formatter that emits canonical source per spec §11 + §28.1.
 - Lambda expressions, `if let`, turbofish, keyword-tolerant method/field names, decimal size suffixes, `run <expr>` in sandbox body.
 - Restore examples 19 and 20 to spec-original syntax.
-- `sdust explain <CODE>` for diagnostic discoverability.
+- `mty explain <CODE>` for diagnostic discoverability.
 
 The acceptance gate is:
 
 - `cargo test --workspace` green.
 - `cargo clippy --workspace --all-targets -- -D warnings` clean.
 - `cargo fmt --all -- --check` clean.
-- All 20 examples `sdust check` clean (including restored 19 & 20).
-- All 20 examples idempotent under `sdust fmt`.
+- All 20 examples `mty check` clean (including restored 19 & 20).
+- All 20 examples idempotent under `mty fmt`.
 - All 20 examples round-trip-stable (CST item-shape preserved).
 
 ## 2. Non-goals for slice 2
@@ -33,7 +33,7 @@ These still belong to later slices:
 
 - Type checker, inference, borrow/affine checking, effect/capability enforcement. (Slice 3.)
 - HIR `tail` semantics beyond what slice 1 already infers. (Slice 3 will revisit.)
-- SIR lowering, runtime, codegen, LSP. (Slices 4–6.)
+- MtyIR lowering, runtime, codegen, LSP. (Slices 4–6.)
 - Procedural macros, dependent types, distributed agents. (v0.2+ per spec §30.2.)
 - HTML template interpolation parsing. (Library-level, deferred.)
 
@@ -235,9 +235,9 @@ After 3.1–3.6 land:
 
 - `dom.listen("#inc", "click", c)` → `dom.on("#inc", "click", fn() { c!Click() })`. Requires §3.1 (lambda) + §3.4 (keyword method name).
 
-### 3.9 `sdust explain <CODE>`
+### 3.9 `mty explain <CODE>`
 
-**Behavior:** `sdust explain MT0001` prints a paragraph describing the diagnostic. The data lives in `crates/sdust-diagnostics/src/codes.rs` as a `pub fn explain(code: DiagCode) -> Option<&'static str>` lookup table.
+**Behavior:** `mty explain MT0001` prints a paragraph describing the diagnostic. The data lives in `crates/mty-diagnostics/src/codes.rs` as a `pub fn explain(code: DiagCode) -> Option<&'static str>` lookup table.
 
 **CLI:** add `Cmd::Explain { code: String }` to `main.rs`, handler in `cmd::explain::run`.
 
@@ -249,7 +249,7 @@ The slice-1 formatter is identity-passthrough (it emits `node.text()`). Slice 2 
 
 ### 4.1 Architecture
 
-`crates/sdust-fmt/src/fmt/*.rs` becomes the body of the formatter, one module per syntactic category:
+`crates/mty-fmt/src/fmt/*.rs` becomes the body of the formatter, one module per syntactic category:
 
 - `items.rs` — file, use, mod, package, fn, struct, enum, type alias, impl, trait, const, export, extern
 - `agents.rs` — protocol, agent, supervisor
@@ -313,9 +313,9 @@ Default 100 columns (already in `Layout::default`). When a group fits, render fl
     - keyword method names — `dom.on("click")`, `agent.spawn()`, `x.match(...)`.
     - sandbox body `run` — `sandbox X with { ... } { run job(x) }`.
 - **HIR** (`tests/lower_items.rs`): new `lower_lambda`, `lower_if_let`, `lower_run`, `lower_path_generic`.
-- **CLI** (`tests/explain.rs` new): `sdust explain MT0001` prints non-empty body, exits 0; `sdust explain MT9999` exits 1 with "unknown code".
+- **CLI** (`tests/explain.rs` new): `mty explain MT0001` prints non-empty body, exits 0; `mty explain MT9999` exits 1 with "unknown code".
 - **Formatter** (`tests/fmt/canonical/`): add fixture files exercising each canonical rule. Sweep test (`tests/idempotence.rs`) verifies idempotence on all examples + fixtures.
-- **End-to-end** (`tests/conformance/`): `sdust check examples/19_backend_service.sd` passes with restored syntax. Same for #20.
+- **End-to-end** (`tests/conformance/`): `mty check examples/19_backend_service.sd` passes with restored syntax. Same for #20.
 
 ## 6. Risks
 
@@ -342,5 +342,5 @@ Repository state at slice end:
 - `SLICE1.md` updated to remove closed deferrals.
 - `SLICE2.md` summarizes what landed and what's still open.
 - Tour pages 06 and 12 updated to reflect lambdas and the new examples.
-- CLI reference documents `sdust explain`.
+- CLI reference documents `mty explain`.
 - `docs/spec/v0.1-amendments.md` documents the `k`/`m` size suffix amendment and the `::[T]` turbofish choice.

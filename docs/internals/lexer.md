@@ -2,12 +2,12 @@
 
 The lexer turns a UTF-8 source string into a sequence of tokens. It is
 built on [logos](https://docs.rs/logos) and lives in
-[`crates/sdust-syntax/src/lexer.rs`](../../crates/sdust-syntax/src/lexer.rs).
+[`crates/mty-syntax/src/lexer.rs`](../../crates/mty-syntax/src/lexer.rs).
 
 ## Token kinds
 
 All token kinds are variants of the
-[`SyntaxKind`](../../crates/sdust-syntax/src/syntax_kind.rs) enum.
+[`SyntaxKind`](../../crates/mty-syntax/src/syntax_kind.rs) enum.
 Variant attributes carry the logos patterns:
 
 ```rust

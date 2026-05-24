@@ -5,7 +5,7 @@
 //! Exit code: 0 on all-pass, 1 on any failure.
 //!
 //! v0.3 plan: merge this into `mty test` as a subcommand of the main
-//! `sdust` CLI. We ship it as a standalone binary in v0.2 to respect
+//! `mty` CLI. We ship it as a standalone binary in v0.2 to respect
 //! the wave-2 work-area constraints documented in `STDLIB_V0_2_NOTES.md`.
 
 use std::path::PathBuf;

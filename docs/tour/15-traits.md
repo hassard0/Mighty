@@ -1,6 +1,6 @@
 # Traits
 
-Stardust traits group related behavior behind a shared method set,
+Mighty traits group related behavior behind a shared method set,
 analogous to Rust traits or interfaces.
 
 ## Declaration

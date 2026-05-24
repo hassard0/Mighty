@@ -1,17 +1,17 @@
-# Stardust for VS Code
+# Mighty for VS Code
 
-Syntax highlighting plus the official Stardust Language Server (LSP) for
-`.sd` files.
+Syntax highlighting plus the official Mighty Language Server (LSP) for
+`.mty` files.
 
 ## Features (v0.5)
 
 - Syntax highlighting (keywords, types, strings, numbers, duration/size
   suffixes, doc comments).
-- Real-time diagnostics from the Stardust compiler pipeline
+- Real-time diagnostics from the Mighty compiler pipeline
   (parse + HIR-lowering + type-check).
 - Hover for fns, structs, enums, and other top-level definitions.
 - Go-to-definition for top-level item names.
-- Document formatting via `sdust fmt`.
+- Document formatting via `mty fmt`.
 - **Completion** — keywords + top-level defs + locals in scope +
   receiver-aware methods/fields after `.`.
 - **Semantic tokens** — overlays on the TextMate grammar to distinguish
@@ -21,7 +21,7 @@ Syntax highlighting plus the official Stardust Language Server (LSP) for
   with a prepareRename preview.
 - **Inlay hints** — `: T` annotations on `let` bindings and fn
   parameters whose type was inferred. Off by default; toggle via
-  `stardust.inlayHints.enable`.
+  `mighty.inlayHints.enable`.
 - **Code actions** — quick fixes for `unresolved value` (MT2021),
   `unresolved type` (MT2002), `use after move` (MT3001), and
   `effect undeclared` (MT4001).
@@ -30,12 +30,12 @@ Syntax highlighting plus the official Stardust Language Server (LSP) for
 
 ## Requirements
 
-A `sdust` binary on your `PATH`, or configure `stardust.server.path` to
-point at one. The extension spawns `sdust lsp` over stdio.
+A `mty` binary on your `PATH`, or configure `mighty.server.path` to
+point at one. The extension spawns `mty lsp` over stdio.
 
 ```bash
-cd /path/to/stardust
-cargo install --path crates/sdust-cli
+cd /path/to/mighty
+cargo install --path crates/mty-cli
 ```
 
 ## Build the extension locally
@@ -47,32 +47,32 @@ npm run compile
 npx vsce package
 ```
 
-This produces `stardust-0.5.0.vsix` which you can install with:
+This produces `mighty-0.5.0.vsix` which you can install with:
 
 ```bash
-code --install-extension stardust-0.5.0.vsix
+code --install-extension mighty-0.5.0.vsix
 ```
 
 ## Settings
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `stardust.server.path` | `sdust` | Path to the `sdust` binary. |
-| `stardust.trace.server` | `off` | LSP trace level (`off` / `messages` / `verbose`). |
-| `stardust.inlayHints.enable` | `false` | Show inferred-type hints next to `let` bindings and fn parameters. |
-| `stardust.semanticTokens.enable` | `true` | Use the LSP's semantic-token classifier to highlight identifiers more precisely than the TextMate grammar can. |
+| `mighty.server.path` | `mty` | Path to the `mty` binary. |
+| `mighty.trace.server` | `off` | LSP trace level (`off` / `messages` / `verbose`). |
+| `mighty.inlayHints.enable` | `false` | Show inferred-type hints next to `let` bindings and fn parameters. |
+| `mighty.semanticTokens.enable` | `true` | Use the LSP's semantic-token classifier to highlight identifiers more precisely than the TextMate grammar can. |
 
 ## Commands
 
 | Command | Description |
 | --- | --- |
-| `Stardust: Restart Language Server` | Stop and restart `sdust lsp`. Useful after changing `stardust.server.path` or recovering from a server crash. |
+| `Mighty: Restart Language Server` | Stop and restart `mty lsp`. Useful after changing `mighty.server.path` or recovering from a server crash. |
 
 ## Keybindings
 
 | Key | Command |
 | --- | --- |
-| `F2` | Rename symbol under cursor (Stardust files only). |
+| `F2` | Rename symbol under cursor (Mighty files only). |
 
 ## Known limitations (v0.5)
 
@@ -80,7 +80,7 @@ code --install-extension stardust-0.5.0.vsix
   a workspace-wide resolve map.
 - Go-to-definition still resolves top-level items only (no locals,
   fields, or methods).
-- Borrow-check diagnostics live in `sdust check` from the CLI, not in
+- Borrow-check diagnostics live in `mty check` from the CLI, not in
   the editor pipeline (latency).
 - Inlay hints don't yet cover closure parameters or argument names.
 - Signature help doesn't yet disambiguate trait-method overloads by

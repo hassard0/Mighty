@@ -1,23 +1,23 @@
 # Runtime (slice 7)
 
-**Crate:** `sdust-runtime`
+**Crate:** `mty-runtime`
 **Spec:** §25 Runtime Architecture, §31.5 Phase 4 Runtime MVP
 **Shipped:** v0.7.0-runtime (2026-05-24)
 
 ## Overview
 
-The slice-7 runtime turns the slice-6 SIR interpreter into a real
+The slice-7 runtime turns the slice-6 MtyIR interpreter into a real
 concurrent, deadline-aware, supervisor-managed runtime. Spec §25 lays
 out the architectural pieces — scheduler, agent registry, mailbox
 allocator, supervisor engine, timer wheel, arena allocator, capability
 table, budget tracker, telemetry emitter, panic/trap handler. Slice 7
-ships those as Rust modules under `crates/sdust-runtime/`, with a
+ships those as Rust modules under `crates/mty-runtime/`, with a
 tokio executor underneath.
 
 ## Crate layout
 
 ```
-crates/sdust-runtime/src/
+crates/mty-runtime/src/
   lib.rs           public re-exports
   runtime.rs       Runtime + RuntimeBuilder (entry point)
   scheduler.rs     tokio executor wrapper
@@ -113,7 +113,7 @@ hooks in slice 8 once codegen lands; slice 7 ships the primitives and
 the executor swap, but the full `test deterministic` syntax lowers to
 a runtime hint that is honoured by the executor swap only.
 
-Replay invariant (per A39): given the same SIR program and seed, the
+Replay invariant (per A39): given the same MtyIR program and seed, the
 emitted telemetry sequence is byte-identical. Verified by replaying
 example 09 ten times in `tests/conformance/runtime-7/deadline_pass`
 (slice 8 wires the diff).
@@ -121,17 +121,17 @@ example 09 ten times in `tests/conformance/runtime-7/deadline_pass`
 ## Where this fits in the pipeline
 
 ```
-parse → HIR → typeck → borrowck → SIR-lower → ┬─ sdust-runtime (default) → tokio
+parse → HIR → typeck → borrowck → MtyIR-lower → ┬─ mty-runtime (default) → tokio
                                               └─ slice-6 interp (--legacy-interp)
 ```
 
-`sdust run <file>` invokes the runtime path by default. Pass
+`mty run <file>` invokes the runtime path by default. Pass
 `--legacy-interp` to fall back to the slice-6 synchronous
 interpreter for diagnostic comparison.
 
 ## v0.3 cooperative cancellation (closes A41)
 
-Slice-7 deadlines fired only *between* turns: the SIR interpreter
+Slice-7 deadlines fired only *between* turns: the MtyIR interpreter
 ran synchronously on a worker thread, so a handler stuck in an
 unbounded loop only finished when its step budget gave out. v0.3
 adds in-turn cooperative cancellation:
@@ -152,7 +152,7 @@ Specifically:
 2. Each per-turn invocation gets a **child token** (`per_turn`) so
    `Runtime::shutdown` cancels all in-flight turns by firing the
    root once.
-3. The SIR interpreter call (`run_handler_isolated`) is dispatched
+3. The MtyIR interpreter call (`run_handler_isolated`) is dispatched
    via `tokio::task::spawn_blocking`, so the async parent can race
    the blocking thread against `per_turn.cancelled()`.
 4. When the wall-budget timer expires, the child token is fired
@@ -160,7 +160,7 @@ Specifically:
    `BudgetBreach` telemetry event (MT5009) and notifies the
    `ask`-side `reply` oneshot with the error.
 5. The blocking thread is **detached** — never joined. Worst-case
-   wall time on its end is bounded by the SIR interpreter's
+   wall time on its end is bounded by the MtyIR interpreter's
    per-handler step budget (default 1 000 000 steps).
 
 The shared reply slot guarantees exactly-once notification:
@@ -195,19 +195,19 @@ runaway handler would block until the channel was dropped.
   `Mutex<Value>` is read into a clone before the blocking call and
   written back synchronously on success.
 
-See `crates/sdust-runtime/src/agent.rs::run_one_turn_async` for the
+See `crates/mty-runtime/src/agent.rs::run_one_turn_async` for the
 implementation, and the test fixtures in
-`crates/sdust-runtime/tests/cancellation_mid_turn.rs`.
+`crates/mty-runtime/tests/cancellation_mid_turn.rs`.
 
 ## v0.5 dogfood — real `std.http.serve` binding
 
 > Closes Gap 1 in [`DEMOS_V0_4_NOTES.md`](../../DEMOS_V0_4_NOTES.md).
 
-`sdust-stdlib::http_server` ships a process-wide tokio runtime and
+`mty-stdlib::http_server` ships a process-wide tokio runtime and
 a handle registry that backs the `std.http.serve` host bridge:
 
 ```text
-SIR `std.http.serve(addr)`
+MtyIR `std.http.serve(addr)`
    │ host::dispatch
    ▼
 http_server::start_blocking(addr)
@@ -237,9 +237,9 @@ still seeing the OS-assigned port when `:0` was requested.
 
 Tests:
 
-- `crates/sdust-stdlib/tests/http_serve_real.rs` — start /
+- `crates/mty-stdlib/tests/http_serve_real.rs` — start /
   roundtrip / shutdown / multi-server bound-port distinctness.
-- `crates/sdust-runtime/tests/http_serve_real.rs` — the older
+- `crates/mty-runtime/tests/http_serve_real.rs` — the older
   runtime-level `serve_in_memory` shim still works.
 
 ## See also

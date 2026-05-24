@@ -81,7 +81,7 @@ that calls `spawn_agent_loop` again is a slice-8 deliverable.
 
 ## Tests
 
-`crates/sdust-runtime/tests/supervisor_strategies.rs`:
+`crates/mty-runtime/tests/supervisor_strategies.rs`:
 
 1. Strategy enum ordering matches the int discriminants.
 2. `RestartTracker` denies the (N+1)-th attempt within the window.

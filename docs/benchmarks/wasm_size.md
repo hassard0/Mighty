@@ -1,6 +1,6 @@
 # wasm_size
 
-**Workload:** emit a 50-unit (~500-line) synthetic Stardust source as
+**Workload:** emit a 50-unit (~500-line) synthetic Mighty source as
 a wasm-core module, release mode, no Component-Model wrapper, no
 debug info. Record the byte size.
 
@@ -12,7 +12,7 @@ matter.
 
 | Impl | Bytes | Bytes/unit | Notes |
 |---|---|---|---|
-| Stardust v0.6 → wasm-core (release) | 2 068 | ~41 | 50 structs + 50 fns; no debug info |
+| Mighty v0.6 → wasm-core (release) | 2 068 | ~41 | 50 structs + 50 fns; no debug info |
 | Rust → wasm32-unknown-unknown (release) | (pending) | | `cargo build --release --target wasm32` |
 | TinyGo → wasi (release) | (pending) | | `tinygo build -target=wasi -no-debug` |
 | Emscripten → wasm | (pending) | | `emcc -O3 -s STANDALONE_WASM` |
@@ -37,7 +37,7 @@ and elides debug info in release mode. For perspective:
 - An Emscripten `puts("hello")` is ~15-40 KB (libc + runtime).
 
 So a 2 KB wasm for 100 declarations is competitive with hand-written
-wat. The trade-off: Stardust's wasm output is minimal but doesn't
+wat. The trade-off: Mighty's wasm output is minimal but doesn't
 embed a richer runtime (no panic handler, no async scheduler — those
 live host-side and are wired via imports).
 

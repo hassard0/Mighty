@@ -1,11 +1,11 @@
-# Package Manager (`sdust-pkg`)
+# Package Manager (`mty-pkg`)
 
-The package manager owns `star.toml` parsing, dependency resolution,
-the `star.lock` lockfile, source fetching, and the bundle/publish
+The package manager owns `mighty.toml` parsing, dependency resolution,
+the `mighty.lock` lockfile, source fetching, and the bundle/publish
 pipeline. It is the v0.2/v0.4 implementation of spec §5.
 
 The CLI surface is documented separately in
-[`docs/reference/cli/sdust-pkg.md`](../reference/cli/sdust-pkg.md);
+[`docs/reference/cli/mty-pkg.md`](../reference/cli/mty-pkg.md);
 the manifest schema in [`docs/reference/manifest.md`](../reference/manifest.md);
 the registry concept + storage convention in
 [`docs/reference/registry.md`](../reference/registry.md).
@@ -13,7 +13,7 @@ This document covers the *internals*: data shapes, algorithms, and
 the boundaries that v0.4 leaves open for later slices.
 
 > **v0.4 added:** real GitHub-Releases registry transport (replacing
-> the v0.2 `pkg.stardust.dev` stub), per-package `[registry]` config,
+> the v0.2 `pkg.mighty.dev` stub), per-package `[registry]` config,
 > on-disk index cache, auth store, real tar.gz publish bundles, and
 > the `search` / `info` / `login` CLI subcommands.
 
@@ -21,13 +21,13 @@ the boundaries that v0.4 leaves open for later slices.
 
 ```
                 ┌──────────────┐
-                │ star.toml    │
+                │ mighty.toml    │
                 │ (Manifest)   │
                 └──────┬───────┘
                        │ Resolver::resolve
                        ▼
                 ┌──────────────┐
-                │ star.lock    │
+                │ mighty.lock    │
                 │ (Lockfile)   │
                 └──────┬───────┘
                        │ fetch::fetch_one (dispatch on source kind)
@@ -44,14 +44,14 @@ the boundaries that v0.4 leaves open for later slices.
         └──────────────┼──────────────────┘
                        ▼
             ┌──────────────────────────┐
-            │ .stardust/pkgs/<name>-<v>│
+            │ .mighty/pkgs/<name>-<v>│
             │ + sha256 verified vs lock│
             └──────────────────────────┘
 ```
 
-`sdust pkg <subcmd>` is a thin wrapper. Mutating subcommands (`add` /
-`remove` / `update`) round-trip `star.toml`, re-run the resolver, and
-rewrite `star.lock`. Read-only subcommands (`list` / `fetch` /
+`mty pkg <subcmd>` is a thin wrapper. Mutating subcommands (`add` /
+`remove` / `update`) round-trip `mighty.toml`, re-run the resolver, and
+rewrite `mighty.lock`. Read-only subcommands (`list` / `fetch` /
 `publish`) operate against the existing lockfile.
 
 ## Manifest schema (extended)
@@ -83,21 +83,21 @@ enforced; see [§Build sandbox scaffold](#build-sandbox-scaffold) below.
 
 ## Registry config (`[registry]`)
 
-v0.4 adds an optional `[registry]` section to `star.toml`:
+v0.4 adds an optional `[registry]` section to `mighty.toml`:
 
 ```toml
 [registry]
-default = "stardust-pkg/registry"          # default registry slug
-extras = ["myorg/private-stardust-pkgs"]   # additional registries
+default = "mighty-pkg/registry"          # default registry slug
+extras = ["myorg/private-mighty-pkgs"]   # additional registries
 ```
 
-This section lives **outside** the `Manifest` struct in `sdust-driver`
-— `sdust-pkg` re-parses `star.toml` independently via
-[`registry::load_registry_config`](../../crates/sdust-pkg/src/registry.rs).
+This section lives **outside** the `Manifest` struct in `mty-driver`
+— `mty-pkg` re-parses `mighty.toml` independently via
+[`registry::load_registry_config`](../../crates/mty-pkg/src/registry.rs).
 That keeps the slice from touching the driver crate.
 
 Lookup is offline-first: resolution walks the **cached** index, never
-the network. `sdust pkg update --refresh` re-pulls every configured
+the network. `mty pkg update --refresh` re-pulls every configured
 registry's index before re-resolving.
 
 ## Lockfile schema
@@ -111,7 +111,7 @@ version = 1
 [[package]]
 name = "std"
 version = "0.1.0"
-source = "registry+https://pkg.stardust.dev"
+source = "registry+https://pkg.mighty.dev"
 hash = "sha256:abc..."
 dependencies = []
 ```
@@ -127,7 +127,7 @@ without a schema bump. Recognised kinds:
 - `git+<url>` or `git+<url>#<rev>` — `git2` clone + optional rev
   checkout.
 
-`hash` is optional in `star.lock` after `pkg add`/`update` (the
+`hash` is optional in `mighty.lock` after `pkg add`/`update` (the
 registry stub doesn't know the bytes yet). It becomes mandatory after
 `pkg fetch` — that call pins the actual sha256 of what landed on disk.
 
@@ -156,7 +156,7 @@ walk(manifest, manifest_dir):
       continue
     chosen[name] = ChosenDep(version, source, [])
     if first_visit(name) and sub_dir is not None:
-      sub_manifest = load(sub_dir / "star.toml")
+      sub_manifest = load(sub_dir / "mighty.toml")
       chosen[name].dependencies = direct_deps(sub_manifest)
       walk(sub_manifest, sub_dir)
 ```
@@ -170,7 +170,7 @@ walk(manifest, manifest_dir):
 | registry | highest version in cached index satisfying req      | none                  |
 
 v0.4 wires the registry case to the cached
-[`RegistryIndex`](../../crates/sdust-pkg/src/registry.rs). For each
+[`RegistryIndex`](../../crates/mty-pkg/src/registry.rs). For each
 registry slug (default first, extras after) we look up `(name, req)`
 and stop at the first match. When no cached index matches (no index
 at all, package missing), the resolver falls back to the v0.2
@@ -188,11 +188,11 @@ for a `pkg update --refresh` later.
    should re-walk to discover that git dep's transitive deps. v0.2
    intentionally skips this.
 4. Pre-release tags and build metadata are unsupported by the semver
-   matcher (see [`semver.rs`](../../crates/sdust-pkg/src/semver.rs)).
+   matcher (see [`semver.rs`](../../crates/mty-pkg/src/semver.rs)).
 
 ## Fetchers
 
-Each fetcher writes into `<repo_root>/.stardust/pkgs/<name>-<version>/`
+Each fetcher writes into `<repo_root>/.mighty/pkgs/<name>-<version>/`
 and returns a `Fetched { root, hash }`. Hashes are sha256 over either
 the tree contents (path / git) or the tarball bytes (registry).
 
@@ -204,7 +204,7 @@ the tree contents (path / git) or the tarball bytes (registry).
   1. Resolve the registry slug from
      `registry+gh://<owner>/<repo>` in the lockfile.
   2. Ensure a cached index exists for that slug
-     (`.stardust/registry/<owner>__<repo>/index.json`, 1-hour TTL).
+     (`.mighty/registry/<owner>__<repo>/index.json`, 1-hour TTL).
   3. Look up the `(name, version)` release; download its `.tar.gz`
      asset + the `.tar.gz.sha256` sidecar.
   4. Verify sidecar hash, then verify against the lockfile's pinned
@@ -232,10 +232,10 @@ Both helpers return `sha256:<hex>` (lowercase, no separators).
 ## Publishing
 
 `publish::bundle(repo_root)` walks the package tree (excluding
-`.git`, `target`, `.stardust`), feeds the sorted entries into a
+`.git`, `target`, `.mighty`), feeds the sorted entries into a
 `tar::Builder` with deterministic header settings (mode 0644, mtime
 0, uid/gid 0, GNU header), and writes the gzipped output to
-`.stardust/publish/<name>-<version>.tar.gz`. A sidecar file
+`.mighty/publish/<name>-<version>.tar.gz`. A sidecar file
 `<name>-<version>.tar.gz.sha256` is written next to it with the
 standard `sha256sum -b` shape:
 
@@ -248,7 +248,7 @@ extraction produces a tidy single root. Re-running `bundle` yields
 byte-identical artefacts.
 
 `publish::upload(slug, outcome)` is the optional second step. Given a
-GitHub token (per-slug entry in `~/.config/sdust/auth.toml` or
+GitHub token (per-slug entry in `~/.config/mty/auth.toml` or
 `GITHUB_TOKEN`), it:
 
 1. `POST /repos/<owner>/<repo>/releases` with tag, manifest body,
@@ -279,31 +279,31 @@ introduces the build-script execution path.
 
 ## Cross-crate boundary
 
-`sdust-pkg` depends on `sdust-driver` purely for the `Manifest` types
+`mty-pkg` depends on `mty-driver` purely for the `Manifest` types
 re-exported from `sdust_driver::manifest`. Conceptually those types
-belong to `sdust-pkg`, but keeping them in the driver preserves the
+belong to `mty-pkg`, but keeping them in the driver preserves the
 existing slice-1 loader and avoids ripping up call sites in the
-compiler pipeline. A future cleanup can move them into `sdust-pkg`
+compiler pipeline. A future cleanup can move them into `mty-pkg`
 and have the driver re-export.
 
-`sdust-cli` depends on `sdust-pkg` only through the `commands` module;
+`mty-cli` depends on `mty-pkg` only through the `commands` module;
 the CLI subcommand surface (`PkgCmd`) is a thin adapter.
 
 ## File map
 
-- `crates/sdust-pkg/src/lib.rs` — surface re-exports, constants.
-- `crates/sdust-pkg/src/semver.rs` — version + requirement matcher.
-- `crates/sdust-pkg/src/lockfile.rs` — `Lockfile` / `LockedPackage`.
-- `crates/sdust-pkg/src/resolver.rs` — DFS resolver.
-- `crates/sdust-pkg/src/fetch/mod.rs` — fetcher dispatch.
-- `crates/sdust-pkg/src/fetch/path.rs` — path-source fetcher.
-- `crates/sdust-pkg/src/fetch/git.rs` — git-source fetcher.
-- `crates/sdust-pkg/src/fetch/registry.rs` — GitHub Releases fetcher
+- `crates/mty-pkg/src/lib.rs` — surface re-exports, constants.
+- `crates/mty-pkg/src/semver.rs` — version + requirement matcher.
+- `crates/mty-pkg/src/lockfile.rs` — `Lockfile` / `LockedPackage`.
+- `crates/mty-pkg/src/resolver.rs` — DFS resolver.
+- `crates/mty-pkg/src/fetch/mod.rs` — fetcher dispatch.
+- `crates/mty-pkg/src/fetch/path.rs` — path-source fetcher.
+- `crates/mty-pkg/src/fetch/git.rs` — git-source fetcher.
+- `crates/mty-pkg/src/fetch/registry.rs` — GitHub Releases fetcher
   + index cache management (v0.4).
-- `crates/sdust-pkg/src/registry.rs` — `[registry]` config, index
+- `crates/mty-pkg/src/registry.rs` — `[registry]` config, index
   schema, auth store, slug parsing (v0.4).
-- `crates/sdust-pkg/src/hash.rs` — sha256 helpers.
-- `crates/sdust-pkg/src/publish.rs` — tar.gz bundle + GitHub Releases
+- `crates/mty-pkg/src/hash.rs` — sha256 helpers.
+- `crates/mty-pkg/src/publish.rs` — tar.gz bundle + GitHub Releases
   upload (v0.4).
-- `crates/sdust-pkg/src/commands.rs` — high-level `pkg add/remove/...`.
-- `crates/sdust-cli/src/cmd/pkg.rs` — CLI shim.
+- `crates/mty-pkg/src/commands.rs` — high-level `pkg add/remove/...`.
+- `crates/mty-cli/src/cmd/pkg.rs` — CLI shim.

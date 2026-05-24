@@ -1,6 +1,6 @@
-# Contributing to Stardust
+# Contributing to Mighty
 
-Stardust is pre-alpha. The fastest way to contribute is to:
+Mighty is pre-alpha. The fastest way to contribute is to:
 
 1. Pick an open issue, or file one describing what you want to do.
 2. Fork the repo, branch off `main`.

@@ -67,7 +67,7 @@ budget entries.
 
 ## Tests
 
-`crates/sdust-runtime/tests/mailbox_basic.rs` exercises:
+`crates/mty-runtime/tests/mailbox_basic.rs` exercises:
 
 1. FIFO ordering under bounded capacity.
 2. `try_send` Fail-policy behaviour on full mailbox.
@@ -161,10 +161,10 @@ is an internal implementation detail attached via the new
 
 ### Tests
 
-- `crates/sdust-runtime/tests/mailbox_slab_pool.rs` — FIFO under
+- `crates/mty-runtime/tests/mailbox_slab_pool.rs` — FIFO under
   reuse, Block backpressure, Fail MT5012, overflow path, slot
   leak-detection via `pool.stats()`.
-- `crates/sdust-runtime/tests/mailbox_basic.rs` — slice-7 surface
+- `crates/mty-runtime/tests/mailbox_basic.rs` — slice-7 surface
   contracts (unchanged).
 
 ## See also

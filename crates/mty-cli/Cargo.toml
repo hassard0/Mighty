@@ -29,7 +29,7 @@ mty-lsp = { path = "../mty-lsp" }
 mty-doc = { path = "../mty-doc" }
 mty-pkg = { path = "../mty-pkg" }
 # v0.3 Task 1: install the stdlib host dispatcher at CLI startup so
-# `sdust run` programs that call `std.*` get the real implementations
+# `mty run` programs that call `std.*` get the real implementations
 # (json/fs/time/http) instead of `Value::Unit`. We disable the `runner`
 # feature here to avoid the mty-stdlib → mty-driver dep cycle that
 # blocked v0.2 (see STDLIB_V0_2_NOTES.md).

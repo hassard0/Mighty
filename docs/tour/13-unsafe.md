@@ -1,6 +1,6 @@
 # 13 — Unsafe
 
-Stardust has an explicit `unsafe` block for operations the compiler
+Mighty has an explicit `unsafe` block for operations the compiler
 cannot prove safe — raw pointer dereferences, transmutes, FFI, and the
 like. Unsafe is lexically scoped, audit-tracked, and reported in package
 metadata.
@@ -38,7 +38,7 @@ See [spec §21](../spec/v0.1.md) for the unsafe rules in full.
 ## Run it
 
 ```bash
-sdust check examples/17_unsafe.sd
+mty check examples/17_unsafe.sd
 ```
 
 ## Where to go from here

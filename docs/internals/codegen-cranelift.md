@@ -1,9 +1,9 @@
 # Internals — Cranelift native backend (slice 8)
 
-`sdust-codegen-cranelift` translates the slice-6 SIR into Cranelift
-IR and produces either a JIT'd in-process fn pointer (`sdust run`)
+`mty-codegen-cranelift` translates the slice-6 MtyIR into Cranelift
+IR and produces either a JIT'd in-process fn pointer (`mty run`)
 or a host-format object file linked into an executable
-(`sdust build --target native`).
+(`mty build --target native`).
 
 It is the slice-8 default native backend — see
 [A46](../spec/v0.1-amendments.md#a46) for why LLVM is feature-gated.
@@ -11,11 +11,11 @@ It is the slice-8 default native backend — see
 ## Pipeline
 
 ```
-.sd → AST → HIR → typed HIR → borrow-checked → SIR
+.sd → AST → HIR → typed HIR → borrow-checked → MtyIR
                                                 ↓
                                        Monomorphizer
                                                 ↓
-                                    sdust-codegen-cranelift
+                                    mty-codegen-cranelift
                                        ┌────────┴────────┐
                                        │                 │
                                       JIT              Object
@@ -34,7 +34,7 @@ It is the slice-8 default native backend — see
 | `lib.rs` | re-exports |
 | `error.rs` | `CodegenError`, `CompileResult` |
 | `artifact.rs` | `NativeArtifact`, `BuildMode` |
-| `abi.rs` | call-conv selection, SIR-type → cranelift type |
+| `abi.rs` | call-conv selection, MtyIR-type → cranelift type |
 | `layout.rs` | size / align / field-offset for ADTs |
 | `runtime_imports.rs` | C-ABI symbols the runtime exposes |
 | `mono.rs` | generic-fn monomorphization (slice-8: strip-and-defer) |
@@ -44,7 +44,7 @@ It is the slice-8 default native backend — see
 
 ## Type lowering
 
-| SIR type | Cranelift type | Notes |
+| MtyIR type | Cranelift type | Notes |
 |----------|----------------|-------|
 | `Bool` | `I8` | |
 | `Int(I8/U8)` | `I8` | |
@@ -101,13 +101,13 @@ linker resolve against `libsdust_runtime.so` / `.dylib` / `.lib`
 
 ## Conservative-by-default lowering
 
-The `FnLower` raises `CodegenError::Unsupported(reason)` when a SIR
-shape can't be lowered. The driver catches Unsupported in `sdust run`
+The `FnLower` raises `CodegenError::Unsupported(reason)` when a MtyIR
+shape can't be lowered. The driver catches Unsupported in `mty run`
 and falls back to the interpreter, so the user sees correct behaviour
-transparently. v0.2 closed the major SIR-coverage gaps:
+transparently. v0.2 closed the major MtyIR-coverage gaps:
 
 - integer / bool / float / char arithmetic & comparisons (incl. float-int
-  bitcast for SIR-typeck mismatches)
+  bitcast for MtyIR-typeck mismatches)
 - `let` / `=` / `if` / `goto` / `return` / `unreachable` / `panic`
 - direct fn-to-fn calls (with unit-arg filtering + per-param coercion)
 - `log` / `print` / `panic` via the runtime ABI bridge
@@ -141,14 +141,14 @@ Out-of-scope (still interp fallback):
 | `Str`/`String`/`Bytes` | `(ptr, len)` pair, passed as pointer |
 | Reference / RawPtr | i64 pointer |
 
-The function signature is built from the SIR types; the lowerer adds
-stack slots lazily when a SIR local is first written to via
+The function signature is built from the MtyIR types; the lowerer adds
+stack slots lazily when a MtyIR local is first written to via
 `AdtInit`/`TupleInit`. Parameters that are aggregate-typed keep the
 caller's pointer untouched.
 
 Enum layout: `[u32 tag][padding to max-payload-align][payload bytes]`,
 matching the `layout` module's natural-alignment scheme. Struct layout:
-same minus the tag. See [`aggregate.rs`](../../crates/sdust-codegen-cranelift/src/aggregate.rs).
+same minus the tag. See [`aggregate.rs`](../../crates/mty-codegen-cranelift/src/aggregate.rs).
 
 ## JIT driver
 

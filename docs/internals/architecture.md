@@ -8,29 +8,29 @@ This page sketches the compilation pipeline as it stands at slice 1.
             source bytes (.sd)
                   |
                   v
-        +-------------------+      sdust-syntax::lex
+        +-------------------+      mty-syntax::lex
         |       lexer       |      logos-based
         +-------------------+
                   |  Vec<LexedToken>
                   v
-        +-------------------+      sdust-syntax::parser
+        +-------------------+      mty-syntax::parser
         |      parser       |      hand-rolled RD + Pratt
         +-------------------+
                   |  GreenNode (rowan)
                   v
-        +-------------------+      sdust-syntax::SyntaxNode
+        +-------------------+      mty-syntax::SyntaxNode
         |       CST         |      lossless concrete tree
         +-------------------+
                   |
                   +--------------+
                   |              v
-                  |     +-----------------+      sdust-ast
+                  |     +-----------------+      mty-ast
                   |     |  typed AST view |      cast wrappers
                   |     +-----------------+
                   |              |
                   v              v
         +-------------------+   +-------------------+
-        |    formatter      |   |   HIR lowering    |   sdust-hir
+        |    formatter      |   |   HIR lowering    |   mty-hir
         |  (Wadler/Lindig)  |   |    (LoweringCtx)  |
         +-------------------+   +-------------------+
                   |                       |
@@ -38,8 +38,8 @@ This page sketches the compilation pipeline as it stands at slice 1.
               fmt output            Package + Vec<Diagnostic>
 ```
 
-`sdust-driver` chains parser → AST cast → HIR lowering and surfaces the
-combined diagnostics. `sdust-cli` is the user-facing entry point.
+`mty-driver` chains parser → AST cast → HIR lowering and surfaces the
+combined diagnostics. `mty-cli` is the user-facing entry point.
 
 ## Future stages
 
@@ -49,7 +49,7 @@ The full spec pipeline (spec §24.1) adds:
         HIR -> type/effect/capability check
             -> ownership/borrow check
             -> AIR (agent IR)
-            -> SIR (Stardust mid-level IR)
+            -> MtyIR (Mighty mid-level IR)
             -> optimization
             -> LLVM IR    (native release)
             -> Cranelift  (debug/JIT)
@@ -62,25 +62,25 @@ None of these stages exist yet. They map to slices 3–8 of the
 ## Crate dependency graph
 
 ```
-sdust-cli
+mty-cli
    |
    v
-sdust-driver
+mty-driver
    |
-   +--> sdust-syntax
-   +--> sdust-ast --> sdust-syntax
-   +--> sdust-hir --> sdust-ast, sdust-diagnostics
-   +--> sdust-fmt --> sdust-syntax
-   +--> sdust-diagnostics
+   +--> mty-syntax
+   +--> mty-ast --> mty-syntax
+   +--> mty-hir --> mty-ast, mty-diagnostics
+   +--> mty-fmt --> mty-syntax
+   +--> mty-diagnostics
 ```
 
-No cycles. `sdust-syntax` is the foundation; everything else depends on
+No cycles. `mty-syntax` is the foundation; everything else depends on
 it directly or transitively.
 
 ## Errors
 
 Every stage produces typed errors that bubble up as
-[`Diagnostic`](../../crates/sdust-diagnostics/src/diagnostic.rs) values
+[`Diagnostic`](../../crates/mty-diagnostics/src/diagnostic.rs) values
 with stable [SD codes](../reference/diagnostics.md). The CLI renders
 them through ariadne; library callers can render or process them as
 they wish.

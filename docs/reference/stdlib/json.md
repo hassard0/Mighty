@@ -1,7 +1,7 @@
 # `std.json`
 
 Real JSON parser + emitter. Wraps `serde_json` but exposes a
-Stardust-shaped `Json` enum.
+Mighty-shaped `Json` enum.
 
 ## Surface
 

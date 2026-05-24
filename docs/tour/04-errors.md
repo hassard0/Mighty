@@ -1,6 +1,6 @@
 # 04 — Errors
 
-Stardust has typed recoverable errors and an explicit propagation
+Mighty has typed recoverable errors and an explicit propagation
 operator. Recoverable failures are values of type `Result[T, E]`. The
 sugar `T!E` desugars to `Result[T, E]`.
 
@@ -34,7 +34,7 @@ fn load(url: Url) -> Page!{NetErr, ParseErr} {
 ## Run it
 
 ```bash
-sdust check examples/04_result_propagation.sd
+mty check examples/04_result_propagation.sd
 ```
 
 ## Type errors you might see

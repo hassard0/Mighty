@@ -3,19 +3,19 @@
 **Date:** 2026-05-24
 **Predecessor:** `v0.7.0-runtime` (`e02b122`) — runtime MVP
 **Target tag:** `v0.8.0-codegen` (with `v0.1.0` rolled on top if green)
-**Status:** FINAL slice of Stardust v0.1.
+**Status:** FINAL slice of Mighty v0.1.
 
 ## Goal
 
-Compile SIR to real, runnable artifacts. Stop being an interpreter.
+Compile MtyIR to real, runnable artifacts. Stop being an interpreter.
 
 After this slice:
 
-- `sdust build src/main.sd` produces a **native executable** that runs
+- `mty build src/main.sd` produces a **native executable** that runs
   without the interpreter being present.
-- `sdust build --target wasm32-wasi src/main.sd` produces a
+- `mty build --target wasm32-wasi src/main.sd` produces a
   **Wasm module** runnable under `wasmtime`/`wasmer`.
-- `sdust run` JIT-compiles via Cranelift and executes — replacing the
+- `mty run` JIT-compiles via Cranelift and executes — replacing the
   slice-7 per-turn interpreter call with a compiled function pointer.
 - Agents, mailboxes, supervisors, budgets, timers (all of slice-7) keep
   working — runtime crate is unchanged; only the per-turn callback
@@ -32,7 +32,7 @@ fallback explicit in the dispatch:
 > for native" with a documented amendment (A46) if LLVM isn't installed.
 
 We're taking the fallback. Slice 8 ships **Cranelift-only for native**,
-with Wasm via pure-Rust `wasm-encoder`. The `sdust-codegen-llvm` crate is
+with Wasm via pure-Rust `wasm-encoder`. The `mty-codegen-llvm` crate is
 **scaffolded behind a `cfg(feature = "llvm")` flag** so a future host
 with LLVM installed can flip it on, but the default build path is
 Cranelift everywhere for native and `wasm-encoder` for Wasm.
@@ -43,24 +43,24 @@ This is documented as **Amendment A46**.
 
 In-scope:
 
-1. SIR → Cranelift IR lowering (replaces LLVM lowering for slice 8).
-2. JIT-compile via `cranelift-jit` for `sdust run` and `sdust build --debug`.
-3. AOT object emission via `cranelift-object` for `sdust build --release`.
-4. SIR → Wasm core module via `wasm-encoder`. Component-model wrapper
+1. MtyIR → Cranelift IR lowering (replaces LLVM lowering for slice 8).
+2. JIT-compile via `cranelift-jit` for `mty run` and `mty build --debug`.
+3. AOT object emission via `cranelift-object` for `mty build --release`.
+4. MtyIR → Wasm core module via `wasm-encoder`. Component-model wrapper
    via lightweight WIT sidecar (deferred to v0.2 for full
    `wit-component` integration; we emit core module + capability
    imports for slice 8).
-5. New `sdust build` subcommand with `--debug`, `--release`,
+5. New `mty build` subcommand with `--debug`, `--release`,
    `--target {native,wasm32-wasi,wasm32-web}`, `--out DIR`.
-6. Runtime adapter so `sdust run` invokes the compiled main fn via JIT
-   when possible, falling back to interpreter for unsupported SIR
+6. Runtime adapter so `mty run` invokes the compiled main fn via JIT
+   when possible, falling back to interpreter for unsupported MtyIR
    features.
 7. Generic monomorphization — emit one specialized fn per (fn, type
    args) tuple. Slice-8-acceptable code bloat.
 8. Real bumpalo-backed arena allocator inside the runtime, charging
    bytes against `BudgetTracker::mem_bytes`.
 9. Real C ABI `extern { fn ... }` calls via `libloading`. Defaults to
-   libc; user can specify alternate libs in `star.toml`.
+   libc; user can specify alternate libs in `mighty.toml`.
 10. Supervisor auto-restart orchestrator wiring (deferred from slice 7).
 11. Examples 01, 07, 08, 11, 19 produce runnable artifacts.
 12. Conformance corpus `tests/conformance/codegen/` (8 native + 4 wasm).
@@ -88,17 +88,17 @@ Three new crates, one optional via feature:
 
 ```
 crates/
-  sdust-codegen-cranelift/    — default native backend (JIT + object)
-  sdust-codegen-wasm/         — Wasm core module emission
-  sdust-codegen-llvm/         — feature-gated, scaffold-only
+  mty-codegen-cranelift/    — default native backend (JIT + object)
+  mty-codegen-wasm/         — Wasm core module emission
+  mty-codegen-llvm/         — feature-gated, scaffold-only
 ```
 
-A small `sdust-codegen-shared` crate hosts the SIR-to-backend translation
+A small `mty-codegen-shared` crate hosts the MtyIR-to-backend translation
 machinery shared between Cranelift and the future LLVM backend (type
 lowering tables, layout calculation, monomorphization queue, calling
 convention helpers).
 
-For Slice 8 we collapse `sdust-codegen-shared` into a `lower` module
+For Slice 8 we collapse `mty-codegen-shared` into a `lower` module
 inside each backend crate to avoid a fifth new crate; we re-evaluate
 extraction once LLVM lands.
 
@@ -118,12 +118,12 @@ extraction once LLVM lands.
   → executable | .o / .wasm
 ```
 
-### `sdust build` flow
+### `mty build` flow
 
-1. Driver: parse → lower → typeck → borrowck → SIR.
+1. Driver: parse → lower → typeck → borrowck → MtyIR.
 2. Pick backend by `--target` flag:
-   - `native` (default) → `sdust-codegen-cranelift`.
-   - `wasm32-wasi` / `wasm32-web` → `sdust-codegen-wasm`.
+   - `native` (default) → `mty-codegen-cranelift`.
+   - `wasm32-wasi` / `wasm32-web` → `mty-codegen-wasm`.
 3. Monomorphize generic call sites.
 4. Build Cranelift module / Wasm module.
 5. Emit:
@@ -133,9 +133,9 @@ extraction once LLVM lands.
    - wasm: write `.wasm` bytes to `target/<name>.wasm`.
 6. Print artifact path.
 
-### `sdust run` flow (NEW)
+### `mty run` flow (NEW)
 
-1. Driver: parse → lower → typeck → borrowck → SIR.
+1. Driver: parse → lower → typeck → borrowck → MtyIR.
 2. Monomorphize.
 3. Build Cranelift JIT module.
 4. Look up `main` fn pointer.
@@ -143,14 +143,14 @@ extraction once LLVM lands.
 6. If agents are declared, start the runtime, but per-turn now calls
    into compiled handler fn pointers (via the JIT module's symbol
    table) rather than `interp::run_handler_isolated`.
-7. Interpreter fallback: any SIR shape the codegen rejects (extern C,
+7. Interpreter fallback: any MtyIR shape the codegen rejects (extern C,
    complex effect ops) still routes to the interpreter via a
    `CompileResult::Unsupported(reason)` path. This is the slice-8
    safety valve — we degrade rather than crash.
 
 ### Cranelift type lowering
 
-| SIR type        | Cranelift type                              |
+| MtyIR type        | Cranelift type                              |
 |-----------------|---------------------------------------------|
 | `Bool`          | `I8`                                        |
 | `Int(I32)`      | `I32`                                       |
@@ -177,15 +177,15 @@ computed deterministically (alignment-respecting sequential layout).
 
 ### Wasm lowering
 
-Wasm core module per package. Each SIR function emits a Wasm function
+Wasm core module per package. Each MtyIR function emits a Wasm function
 with the same calling convention rules as Cranelift (Wasm has no
 multi-return for some toolchains, so we marshal via stack pointer for
-returns >2 i32s). Capabilities are imports (`(import "stardust" "cap_open"
+returns >2 i32s). Capabilities are imports (`(import "mighty" "cap_open"
 (func ...))`). Memory: linear memory of 16 pages initial, grows on
 demand. Strings encoded as `(ptr i32, len i32)` pairs into linear memory.
 
 We do NOT emit a Component Model wrapper for slice 8. A WIT sketch is
-hand-written and saved at `runtime/wit/stardust.wit` for documentation.
+hand-written and saved at `runtime/wit/mighty.wit` for documentation.
 
 ### Calling convention
 
@@ -212,12 +212,12 @@ This keeps the runtime crate free of cranelift dependencies.
 
 A pass before codegen:
 
-1. Walk SIR fns, collect every `Call { func, args }` where the callee
+1. Walk MtyIR fns, collect every `Call { func, args }` where the callee
    is generic. For each, compute the concrete type-args from the call
-   site (recorded by typeck and threaded through to SIR via slice-3
+   site (recorded by typeck and threaded through to MtyIR via slice-3
    metadata).
 2. Maintain a worklist `Set<(SirFnId, TypeArgs)>`. Pop, emit a
-   specialized SIR fn (clones the source fn, substitutes
+   specialized MtyIR fn (clones the source fn, substitutes
    `SirTy::Param` occurrences with concrete `SirTy`), recurse for
    further generic calls discovered.
 3. Update the call graph: every generic call site is rewritten to a
@@ -240,7 +240,7 @@ counted against `mem_bytes` limit.
 `extern { fn foo(...) -> ... }` declarations get resolved at runtime
 startup via `libloading::Library::open(...)`. Default library on linux
 is `libc.so.6`, on macos `libSystem.dylib`, on win `msvcrt.dll`. Users
-can override per-extern via `[extern]` table in `star.toml`:
+can override per-extern via `[extern]` table in `mighty.toml`:
 
 ```toml
 [extern]
@@ -262,7 +262,7 @@ path. On failure the orchestrator:
 
 The slice-7 code shipped all the pieces; slice 8 just wires the
 orchestrator into the loop. Tests live in
-`crates/sdust-runtime/tests/supervisor_orchestrator.rs`.
+`crates/mty-runtime/tests/supervisor_orchestrator.rs`.
 
 ### Panic & trap handling
 
@@ -278,7 +278,7 @@ integration to v0.2.
 ## Crate dependencies
 
 ```
-sdust-codegen-cranelift/Cargo.toml:
+mty-codegen-cranelift/Cargo.toml:
   cranelift-codegen = "0.116"
   cranelift-frontend = "0.116"
   cranelift-module = "0.116"
@@ -286,17 +286,17 @@ sdust-codegen-cranelift/Cargo.toml:
   cranelift-object = "0.116"
   cranelift-native = "0.116"
   target-lexicon = "0.12"
-  sdust-sir = { workspace = true }
-  sdust-types = { workspace = true }
-  sdust-diagnostics = { workspace = true }
+  mty-sir = { workspace = true }
+  mty-types = { workspace = true }
+  mty-diagnostics = { workspace = true }
 
-sdust-codegen-wasm/Cargo.toml:
+mty-codegen-wasm/Cargo.toml:
   wasm-encoder = "0.220"
   wasmparser = "0.220"
-  sdust-sir = { workspace = true }
-  sdust-types = { workspace = true }
+  mty-sir = { workspace = true }
+  mty-types = { workspace = true }
 
-sdust-codegen-llvm/Cargo.toml:
+mty-codegen-llvm/Cargo.toml:
   # feature-gated scaffold; not built by default
   [features]
   default = []
@@ -351,7 +351,7 @@ Target test count: **390+**.
   for native in v0.1.
 - **A47** — Wasm Component Model deferred to v0.2; slice 8 ships core
   modules with capability imports and a hand-written WIT sketch.
-- **A48** — `sdust run` switches default execution path to Cranelift
+- **A48** — `mty run` switches default execution path to Cranelift
   JIT; `--legacy-interp` retained as escape hatch (now means "use
   slice-6 tree-walking interpreter").
 - **A49** — Generic monomorphization strategy: per-(fn, type-args)
@@ -364,7 +364,7 @@ Target test count: **390+**.
   `cc` → `gcc` → `clang` → MSVC `link.exe`. First found wins. If none,
   emit `.o` only and instruct user.
 - **A53** — Extern-fn resolution via `libloading` against host libc by
-  default; per-extern overrides in `star.toml [extern]` table.
+  default; per-extern overrides in `mighty.toml [extern]` table.
 
 ## Risks & mitigations
 
@@ -372,7 +372,7 @@ Target test count: **390+**.
 |------|------------|
 | Cranelift API churn (0.x crate) | Pin minor version; CI exercises full pipeline |
 | `link.exe` not on PATH (Windows dev) | Fall back to MSVC if `cc` missing; document |
-| Cranelift can't lower exotic SIR | `CompileResult::Unsupported(reason)`; interpreter falls back transparently |
+| Cranelift can't lower exotic MtyIR | `CompileResult::Unsupported(reason)`; interpreter falls back transparently |
 | `wasm-encoder` API surface | Stay on stable ops; vendor a shim if needed |
 | `bumpalo` reset semantics | Drop-aware wrapper; verified by unit tests |
 | `libloading` symbol-resolution UB | Mark `unsafe`; restrict to `extern` block-declared names |
@@ -381,11 +381,11 @@ Target test count: **390+**.
 
 - `cargo test --workspace` ≥ 390 passing, 0 failing.
 - `cargo clippy --workspace --all-targets -- -D warnings` clean.
-- `sdust build examples/01_hello.sd` produces `target/hello` and
-  `./target/hello` prints `hello, Stardust`.
-- `sdust build --target wasm32-wasi examples/01_hello.sd` produces
+- `mty build examples/01_hello.sd` produces `target/hello` and
+  `./target/hello` prints `hello, Mighty`.
+- `mty build --target wasm32-wasi examples/01_hello.sd` produces
   `target/hello.wasm`, validates via `wasmparser`.
-- `sdust run examples/08_agent_state.sd` produces `1 2 3` (via JIT).
+- `mty run examples/08_agent_state.sd` produces `1 2 3` (via JIT).
 - All 327 existing tests pass.
 - Tag `v0.8.0-codegen` pushed; `v0.1.0` tag pushed on top.
 - `RELEASE-v0.1.md`, `SLICE8.md` committed.

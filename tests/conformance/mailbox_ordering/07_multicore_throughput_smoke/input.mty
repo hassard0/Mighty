@@ -1,6 +1,6 @@
 // v0.6 throughput smoke: a single accumulator gets a small batch of
 // asks and the result is the sum. The companion Rust integration test
-// in `crates/sdust-runtime/tests/multicore_throughput_smoke.rs`
+// in `crates/mty-runtime/tests/multicore_throughput_smoke.rs`
 // stresses the same shape with 4 workers x 4 agents x 10k messages
 // under the multi-worker runtime.
 

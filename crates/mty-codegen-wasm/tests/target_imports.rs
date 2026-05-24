@@ -1,5 +1,5 @@
 //! Per-target import shape: `wasm32-wasi` should pull host fns from
-//! `wasi:*`; `wasm32-web` should pull them from `stardust:web/*`.
+//! `wasi:*`; `wasm32-web` should pull them from `mty:web/*`.
 
 mod common;
 
@@ -15,8 +15,8 @@ fn wasi_target_imports_use_wasi_namespace() {
         doc.text
     );
     assert!(
-        !doc.text.contains("import stardust:web"),
-        "wasi target should not import stardust:web"
+        !doc.text.contains("import mty:web"),
+        "wasi target should not import mty:web"
     );
 }
 
@@ -25,8 +25,8 @@ fn web_target_imports_use_stardust_web_namespace() {
     let prog = common::empty_main();
     let doc = emit_wit(&prog, "hello", WasmTarget::Web).expect("emit");
     assert!(
-        doc.text.contains("import stardust:web/log"),
-        "web target missing stardust:web import. wit was: {}",
+        doc.text.contains("import mty:web/log"),
+        "web target missing mty:web import. wit was: {}",
         doc.text
     );
     assert!(
@@ -78,7 +78,7 @@ fn caps_imports_emitted_for_cap_typed_locals() {
     });
     let doc = emit_wit(&prog, "demo", WasmTarget::Wasi).expect("emit");
     assert!(
-        doc.text.contains("import stardust:caps/fs"),
+        doc.text.contains("import mty:caps/fs"),
         "expected caps/fs import. wit was: {}",
         doc.text
     );

@@ -1,7 +1,7 @@
 # Conformance triage — v0.3
 
 Per-case analysis of the five `INTENTIONALLY_IGNORED` entries in
-`crates/sdust-driver/tests/conformance_full.rs`.
+`crates/mty-driver/tests/conformance_full.rs`.
 
 ## Closed in v0.3 (3)
 
@@ -26,7 +26,7 @@ now runs and passes.
 The v0.2 entry said:
 
 > restart-rate-limit accounting is Slice-7+; supervisor orchestrator
-> does not yet drive the count from the SIR interp
+> does not yet drive the count from the MtyIR interp
 
 Same situation. The case's `main` just `log("rate_limit declared")`
 — the supervisor block declares restart-rate-limit syntax but never
@@ -39,11 +39,11 @@ passes.
 
 The v0.2 entry said:
 
-> SIR slice-6 lowers `loop` as single-iteration (no `break` codegen
+> MtyIR slice-6 lowers `loop` as single-iteration (no `break` codegen
 > yet) so the case never trips MT5009
 
 That's a real interpreter limitation that we can't fix without
-touching `sdust-sir` (another agent's crate). But the *intent* of the
+touching `mty-sir` (another agent's crate). But the *intent* of the
 case — "exceed the step budget → trap with MT5009 → exit 3" — is
 realisable with a different unbounded shape. We rewrote
 `input.sd` to use recursion:
@@ -72,7 +72,7 @@ Result: case runs, traps with MT5009, exit 3, matching
 
 ## Still ignored in v0.3 (2)
 
-### `capability_checking/03_narrow_to_ro` — needs sdust-types changes
+### `capability_checking/03_narrow_to_ro` — needs mty-types changes
 
 The case:
 
@@ -94,11 +94,11 @@ capability returns an opaque `Cap` that the checker can't equate
 with the parameter `Fs` type — that's the slice-8 cap-narrowing impl
 gap that A40 reserved.
 
-Fix would require sdust-types/sdust-borrow work that's reserved for
+Fix would require mty-types/mty-borrow work that's reserved for
 other agents this swarm; entry stays in `INTENTIONALLY_IGNORED`
 with the reason updated to point at the right crate.
 
-### `supervisor_restart/02_escalate` — needs sdust-syntax changes
+### `supervisor_restart/02_escalate` — needs mty-syntax changes
 
 The case:
 
@@ -110,13 +110,13 @@ supervisor Critical(strategy: one_for_one) {
 }
 ```
 
-`sdust-syntax`'s `agents::sup_action` parser only accepts `restart`
+`mty-syntax`'s `agents::sup_action` parser only accepts `restart`
 and `backoff` actions; `escalate` is a planned A60+ addition that
 hasn't landed. Today the case panics with `MT0001` (parse error).
 
-Fix is a ~5-line addition to `crates/sdust-syntax/src/parser/agents.rs`
+Fix is a ~5-line addition to `crates/mty-syntax/src/parser/agents.rs`
 + the matching `SyntaxKind::ESCALATE_KW` definition + an AST node.
-Out of scope for this agent (sdust-syntax is owned by the
+Out of scope for this agent (mty-syntax is owned by the
 parser-soundness swarm). Entry stays in `INTENTIONALLY_IGNORED`
 with the v0.4 grammar-expansion target noted.
 

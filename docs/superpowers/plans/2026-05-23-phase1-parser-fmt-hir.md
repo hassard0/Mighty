@@ -1,8 +1,8 @@
-# Stardust Phase 1 Implementation Plan — Lexer, Parser, Formatter, HIR
+# Mighty Phase 1 Implementation Plan — Lexer, Parser, Formatter, HIR
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the Stardust compiler frontend — lexer, lossless CST, parser, typed AST view, name-resolved HIR, diagnostics, idempotent formatter, and the `sdust` CLI — plus the 20 canonical example programs that form the conformance corpus.
+**Goal:** Build the Mighty compiler frontend — lexer, lossless CST, parser, typed AST view, name-resolved HIR, diagnostics, idempotent formatter, and the `mty` CLI — plus the 20 canonical example programs that form the conformance corpus.
 
 **Architecture:** Three-layer pipeline (CST → AST view → HIR) with rowan as the lossless source of truth, hand-rolled recursive-descent parser with Pratt expression precedence, ariadne diagnostics, and a Wadler/Lindig pretty-printer for the formatter. Multi-crate Cargo workspace; each crate has one clear responsibility.
 
@@ -16,12 +16,12 @@
 ## File Structure
 
 ```
-stardust/
+mighty/
 ├── Cargo.toml                                  workspace manifest
 ├── rust-toolchain.toml                         MSRV pin
-├── star.toml                                   placeholder Stardust manifest (unused in slice 1)
+├── mighty.toml                                   placeholder Mighty manifest (unused in slice 1)
 ├── crates/
-│   ├── sdust-syntax/
+│   ├── mty-syntax/
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs                          re-exports
@@ -42,12 +42,12 @@ stardust/
 │   │       │   ├── macros.rs                   macro decls
 │   │       │   └── unsafe_.rs                  unsafe blocks/fns
 │   │       └── tests/                          parser + lexer integration tests
-│   ├── sdust-ast/
+│   ├── mty-ast/
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs                          re-exports
 │   │       └── generated.rs                    typed accessor structs over rowan SyntaxNode
-│   ├── sdust-diagnostics/
+│   ├── mty-diagnostics/
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
@@ -56,7 +56,7 @@ stardust/
 │   │       └── render/
 │   │           ├── mod.rs
 │   │           └── ariadne.rs                  terminal render
-│   ├── sdust-hir/
+│   ├── mty-hir/
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
@@ -72,7 +72,7 @@ stardust/
 │   │       │   ├── patterns.rs
 │   │       │   └── agents.rs                   agents, protocols, supervisors + desugaring
 │   │       └── dump.rs                         S-expression dump
-│   ├── sdust-fmt/
+│   ├── mty-fmt/
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs                          public format() entry
@@ -87,13 +87,13 @@ stardust/
 │   │           ├── exprs.rs
 │   │           ├── agents.rs
 │   │           └── concurrency.rs
-│   ├── sdust-driver/
+│   ├── mty-driver/
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── manifest.rs                     star.toml parsing
+│   │       ├── manifest.rs                     mighty.toml parsing
 │   │       └── pipeline.rs                     source -> CST -> AST -> HIR
-│   └── sdust-cli/
+│   └── mty-cli/
 │       ├── Cargo.toml
 │       └── src/
 │           ├── main.rs                         clap entry
@@ -119,7 +119,7 @@ stardust/
 **Files:**
 - Create: `Cargo.toml`
 - Create: `rust-toolchain.toml`
-- Create: `star.toml`
+- Create: `mighty.toml`
 
 - [ ] **Step 1: Write `rust-toolchain.toml`**
 
@@ -136,13 +136,13 @@ profile = "minimal"
 [workspace]
 resolver = "2"
 members = [
-    "crates/sdust-syntax",
-    "crates/sdust-ast",
-    "crates/sdust-diagnostics",
-    "crates/sdust-hir",
-    "crates/sdust-fmt",
-    "crates/sdust-driver",
-    "crates/sdust-cli",
+    "crates/mty-syntax",
+    "crates/mty-ast",
+    "crates/mty-diagnostics",
+    "crates/mty-hir",
+    "crates/mty-fmt",
+    "crates/mty-driver",
+    "crates/mty-cli",
 ]
 
 [workspace.package]
@@ -174,11 +174,11 @@ lto = "thin"
 codegen-units = 1
 ```
 
-- [ ] **Step 3: Write placeholder `star.toml`**
+- [ ] **Step 3: Write placeholder `mighty.toml`**
 
 ```toml
 [package]
-name = "stardust-stdlib-placeholder"
+name = "mighty-stdlib-placeholder"
 version = "0.1.0"
 edition = "2026"
 profile = "host"
@@ -194,7 +194,7 @@ Expected: error about no members existing yet (crates not created). This is fine
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Cargo.toml rust-toolchain.toml star.toml
+git add Cargo.toml rust-toolchain.toml mighty.toml
 git commit -m "Bootstrap Cargo workspace + toolchain pin"
 ```
 
@@ -203,19 +203,19 @@ git commit -m "Bootstrap Cargo workspace + toolchain pin"
 ## Task 2: Crate skeletons
 
 **Files:**
-- Create: `crates/sdust-syntax/Cargo.toml`, `crates/sdust-syntax/src/lib.rs`
-- Create: `crates/sdust-ast/Cargo.toml`, `crates/sdust-ast/src/lib.rs`
-- Create: `crates/sdust-diagnostics/Cargo.toml`, `crates/sdust-diagnostics/src/lib.rs`
-- Create: `crates/sdust-hir/Cargo.toml`, `crates/sdust-hir/src/lib.rs`
-- Create: `crates/sdust-fmt/Cargo.toml`, `crates/sdust-fmt/src/lib.rs`
-- Create: `crates/sdust-driver/Cargo.toml`, `crates/sdust-driver/src/lib.rs`
-- Create: `crates/sdust-cli/Cargo.toml`, `crates/sdust-cli/src/main.rs`
+- Create: `crates/mty-syntax/Cargo.toml`, `crates/mty-syntax/src/lib.rs`
+- Create: `crates/mty-ast/Cargo.toml`, `crates/mty-ast/src/lib.rs`
+- Create: `crates/mty-diagnostics/Cargo.toml`, `crates/mty-diagnostics/src/lib.rs`
+- Create: `crates/mty-hir/Cargo.toml`, `crates/mty-hir/src/lib.rs`
+- Create: `crates/mty-fmt/Cargo.toml`, `crates/mty-fmt/src/lib.rs`
+- Create: `crates/mty-driver/Cargo.toml`, `crates/mty-driver/src/lib.rs`
+- Create: `crates/mty-cli/Cargo.toml`, `crates/mty-cli/src/main.rs`
 
-- [ ] **Step 1: Each `crates/sdust-X/Cargo.toml` follows this template** (substitute name + deps)
+- [ ] **Step 1: Each `crates/mty-X/Cargo.toml` follows this template** (substitute name + deps)
 
 ```toml
 [package]
-name = "sdust-syntax"
+name = "mty-syntax"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -232,29 +232,29 @@ insta.workspace = true
 ```
 
 Specific per-crate dep lists:
-- `sdust-syntax`: `logos`, `rowan`
-- `sdust-ast`: `rowan`, `sdust-syntax = { path = "../sdust-syntax" }`
-- `sdust-diagnostics`: `ariadne`, `thiserror`
-- `sdust-hir`: `la-arena`, `sdust-ast = { path = "../sdust-ast" }`, `sdust-syntax = { path = "../sdust-syntax" }`, `sdust-diagnostics = { path = "../sdust-diagnostics" }`
-- `sdust-fmt`: `rowan`, `sdust-syntax = { path = "../sdust-syntax" }`
-- `sdust-driver`: `serde`, `toml`, `thiserror`, plus path deps on `sdust-syntax`, `sdust-ast`, `sdust-hir`, `sdust-diagnostics`, `sdust-fmt`
-- `sdust-cli` (binary): `clap`, `ariadne`, plus path dep on `sdust-driver`
+- `mty-syntax`: `logos`, `rowan`
+- `mty-ast`: `rowan`, `mty-syntax = { path = "../mty-syntax" }`
+- `mty-diagnostics`: `ariadne`, `thiserror`
+- `mty-hir`: `la-arena`, `mty-ast = { path = "../mty-ast" }`, `mty-syntax = { path = "../mty-syntax" }`, `mty-diagnostics = { path = "../mty-diagnostics" }`
+- `mty-fmt`: `rowan`, `mty-syntax = { path = "../mty-syntax" }`
+- `mty-driver`: `serde`, `toml`, `thiserror`, plus path deps on `mty-syntax`, `mty-ast`, `mty-hir`, `mty-diagnostics`, `mty-fmt`
+- `mty-cli` (binary): `clap`, `ariadne`, plus path dep on `mty-driver`
 
 - [ ] **Step 2: Each `src/lib.rs` for library crates is minimal**
 
 ```rust
-//! sdust-syntax: lexer, CST, parser.
+//! mty-syntax: lexer, CST, parser.
 ```
 
-For `sdust-cli/src/main.rs`:
+For `mty-cli/src/main.rs`:
 
 ```rust
 fn main() {
-    println!("sdust placeholder");
+    println!("mty placeholder");
 }
 ```
 
-For `sdust-cli/Cargo.toml`, add `[[bin]] name = "sdust" path = "src/main.rs"`.
+For `mty-cli/Cargo.toml`, add `[[bin]] name = "mty" path = "src/main.rs"`.
 
 - [ ] **Step 3: Verify the workspace builds**
 
@@ -263,8 +263,8 @@ Expected: builds clean with 7 crates compiled, no warnings.
 
 - [ ] **Step 4: Verify the binary runs**
 
-Run: `cargo run -p sdust-cli`
-Expected: prints `sdust placeholder`.
+Run: `cargo run -p mty-cli`
+Expected: prints `mty placeholder`.
 
 - [ ] **Step 5: Commit**
 
@@ -278,8 +278,8 @@ git commit -m "Add empty crate skeletons (syntax/ast/diagnostics/hir/fmt/driver/
 ## Task 3: SyntaxKind enum
 
 **Files:**
-- Create: `crates/sdust-syntax/src/syntax_kind.rs`
-- Modify: `crates/sdust-syntax/src/lib.rs`
+- Create: `crates/mty-syntax/src/syntax_kind.rs`
+- Modify: `crates/mty-syntax/src/lib.rs`
 
 Defines every token kind and every CST node kind. Used by both `logos` (as `Logos` derive) and `rowan` (as the language's syntax kind). Order matters only for stability of serialized snapshots; group by category.
 
@@ -498,14 +498,14 @@ impl From<SyntaxKind> for rowan::SyntaxKind {
 - [ ] **Step 2: Update `lib.rs`**
 
 ```rust
-//! sdust-syntax: lexer, CST, parser.
+//! mty-syntax: lexer, CST, parser.
 pub mod syntax_kind;
 pub use syntax_kind::SyntaxKind;
 ```
 
 - [ ] **Step 3: Write a smoke test**
 
-`crates/sdust-syntax/tests/syntax_kind.rs`:
+`crates/mty-syntax/tests/syntax_kind.rs`:
 
 ```rust
 use sdust_syntax::SyntaxKind;
@@ -533,13 +533,13 @@ fn rowan_conversion() {
 
 - [ ] **Step 4: Run tests**
 
-Run: `cargo test -p sdust-syntax`
+Run: `cargo test -p mty-syntax`
 Expected: 3 passed.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-syntax/
+git add crates/mty-syntax/
 git commit -m "Define SyntaxKind enum covering all tokens + CST node kinds"
 ```
 
@@ -548,9 +548,9 @@ git commit -m "Define SyntaxKind enum covering all tokens + CST node kinds"
 ## Task 4: Lexer with literal callbacks
 
 **Files:**
-- Create: `crates/sdust-syntax/src/lexer.rs`
-- Modify: `crates/sdust-syntax/src/lib.rs`
-- Create: `crates/sdust-syntax/tests/lexer.rs`
+- Create: `crates/mty-syntax/src/lexer.rs`
+- Modify: `crates/mty-syntax/src/lib.rs`
+- Create: `crates/mty-syntax/tests/lexer.rs`
 
 The `Logos` derive on `SyntaxKind` already produces a lexer; this task wraps it in an iterator that emits `(SyntaxKind, &str)` pairs and validates duration/size suffixes (the regex accepts the lexical shape; the wrapper rejects malformed numbers and uppercase units like `1ns` vs `1NS`).
 
@@ -663,13 +663,13 @@ fn line_comment_is_trivia() {
 
 - [ ] **Step 4: Run tests**
 
-Run: `cargo test -p sdust-syntax --test lexer`
+Run: `cargo test -p mty-syntax --test lexer`
 Expected: 8 passed.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-syntax/src/lexer.rs crates/sdust-syntax/src/lib.rs crates/sdust-syntax/tests/lexer.rs
+git add crates/mty-syntax/src/lexer.rs crates/mty-syntax/src/lib.rs crates/mty-syntax/tests/lexer.rs
 git commit -m "Add logos-based lexer with duration/size/typed-numeric literal support"
 ```
 
@@ -678,8 +678,8 @@ git commit -m "Add logos-based lexer with duration/size/typed-numeric literal su
 ## Task 5: rowan Language impl + GreenNode builder
 
 **Files:**
-- Create: `crates/sdust-syntax/src/language.rs`
-- Modify: `crates/sdust-syntax/src/lib.rs`
+- Create: `crates/mty-syntax/src/language.rs`
+- Modify: `crates/mty-syntax/src/lib.rs`
 
 Bridge between `SyntaxKind` and rowan's typed tree.
 
@@ -689,9 +689,9 @@ Bridge between `SyntaxKind` and rowan's typed tree.
 use crate::SyntaxKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Stardust {}
+pub enum Mighty {}
 
-impl rowan::Language for Stardust {
+impl rowan::Language for Mighty {
     type Kind = SyntaxKind;
 
     fn kind_from_raw(raw: rowan::SyntaxKind) -> Self::Kind {
@@ -706,10 +706,10 @@ impl rowan::Language for Stardust {
     }
 }
 
-pub type SyntaxNode = rowan::SyntaxNode<Stardust>;
-pub type SyntaxToken = rowan::SyntaxToken<Stardust>;
-pub type SyntaxElement = rowan::SyntaxElement<Stardust>;
-pub type SyntaxNodeChildren = rowan::SyntaxNodeChildren<Stardust>;
+pub type SyntaxNode = rowan::SyntaxNode<Mighty>;
+pub type SyntaxToken = rowan::SyntaxToken<Mighty>;
+pub type SyntaxElement = rowan::SyntaxElement<Mighty>;
+pub type SyntaxNodeChildren = rowan::SyntaxNodeChildren<Mighty>;
 pub type GreenNode = rowan::GreenNode;
 ```
 
@@ -721,16 +721,16 @@ pub mod lexer;
 pub mod language;
 pub use syntax_kind::SyntaxKind;
 pub use lexer::{lex, LexedToken};
-pub use language::{Stardust, SyntaxNode, SyntaxToken, SyntaxElement, SyntaxNodeChildren, GreenNode};
+pub use language::{Mighty, SyntaxNode, SyntaxToken, SyntaxElement, SyntaxNodeChildren, GreenNode};
 ```
 
 - [ ] **Step 3: Smoke test**
 
-`crates/sdust-syntax/tests/language.rs`:
+`crates/mty-syntax/tests/language.rs`:
 
 ```rust
 use rowan::GreenNodeBuilder;
-use sdust_syntax::{Stardust, SyntaxKind, SyntaxNode};
+use sdust_syntax::{Mighty, SyntaxKind, SyntaxNode};
 
 #[test]
 fn build_minimal_tree() {
@@ -749,13 +749,13 @@ fn build_minimal_tree() {
 
 - [ ] **Step 4: Run tests**
 
-Run: `cargo test -p sdust-syntax`
+Run: `cargo test -p mty-syntax`
 Expected: all tests pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-syntax/src/language.rs crates/sdust-syntax/src/lib.rs crates/sdust-syntax/tests/language.rs
+git add crates/mty-syntax/src/language.rs crates/mty-syntax/src/lib.rs crates/mty-syntax/tests/language.rs
 git commit -m "Wire rowan Language impl + type aliases"
 ```
 
@@ -764,16 +764,16 @@ git commit -m "Wire rowan Language impl + type aliases"
 ## Task 6: Parser foundation + token stream
 
 **Files:**
-- Create: `crates/sdust-syntax/src/parser/mod.rs`
-- Create: `crates/sdust-syntax/src/parser/recovery.rs`
-- Modify: `crates/sdust-syntax/src/lib.rs`
+- Create: `crates/mty-syntax/src/parser/mod.rs`
+- Create: `crates/mty-syntax/src/parser/recovery.rs`
+- Modify: `crates/mty-syntax/src/lib.rs`
 
 The `Parser` struct owns a token cursor and a green-tree builder. It exposes `bump`, `peek`, `eat`, `expect`, `start_node`, `finish_node`, `error`, and `sync_to`. All grammar productions are methods on `Parser`.
 
 - [ ] **Step 1: Write `parser/mod.rs`**
 
 ```rust
-use crate::{lexer::LexedToken, SyntaxKind, language::Stardust};
+use crate::{lexer::LexedToken, SyntaxKind, language::Mighty};
 use rowan::GreenNodeBuilder;
 
 pub mod recovery;
@@ -957,7 +957,7 @@ pub use parser::{parse, ParseResult, ParseError};
 
 - [ ] **Step 5: Smoke test + commit**
 
-`crates/sdust-syntax/tests/parser_smoke.rs`:
+`crates/mty-syntax/tests/parser_smoke.rs`:
 
 ```rust
 #[test]
@@ -968,11 +968,11 @@ fn empty_file_parses() {
 }
 ```
 
-Run: `cargo test -p sdust-syntax`
+Run: `cargo test -p mty-syntax`
 Expected: all pass (the parser does nothing useful yet, but compiles and handles empty input).
 
 ```bash
-git add crates/sdust-syntax/src/parser/ crates/sdust-syntax/src/lib.rs crates/sdust-syntax/tests/parser_smoke.rs
+git add crates/mty-syntax/src/parser/ crates/mty-syntax/src/lib.rs crates/mty-syntax/tests/parser_smoke.rs
 git commit -m "Add Parser scaffolding, token cursor, error recovery primitives"
 ```
 
@@ -981,8 +981,8 @@ git commit -m "Add Parser scaffolding, token cursor, error recovery primitives"
 ## Task 7: Parse use/mod/package declarations + paths
 
 **Files:**
-- Modify: `crates/sdust-syntax/src/parser/items.rs`
-- Create: `crates/sdust-syntax/src/parser/paths.rs`
+- Modify: `crates/mty-syntax/src/parser/items.rs`
+- Create: `crates/mty-syntax/src/parser/paths.rs`
 
 Productions:
 
@@ -1114,7 +1114,7 @@ pub mod paths;
 
 - [ ] **Step 4: Tests with insta snapshots**
 
-`crates/sdust-syntax/tests/parse_items.rs`:
+`crates/mty-syntax/tests/parse_items.rs`:
 
 ```rust
 use insta::assert_snapshot;
@@ -1132,13 +1132,13 @@ fn dump(src: &str) -> String {
 #[test] fn package_decl()  { assert_snapshot!(dump("package search_api")); }
 ```
 
-Run: `cargo test -p sdust-syntax --test parse_items`
+Run: `cargo test -p mty-syntax --test parse_items`
 Then: `cargo insta review` and accept the snapshots after inspecting them.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-syntax/src/parser/ crates/sdust-syntax/tests/parse_items.rs crates/sdust-syntax/tests/snapshots/
+git add crates/mty-syntax/src/parser/ crates/mty-syntax/tests/parse_items.rs crates/mty-syntax/tests/snapshots/
 git commit -m "Parse package/use/mod declarations and dotted paths"
 ```
 
@@ -1147,7 +1147,7 @@ git commit -m "Parse package/use/mod declarations and dotted paths"
 ## Task 8: Parse types (incl. T!E sugar, generics, borrows)
 
 **Files:**
-- Modify: `crates/sdust-syntax/src/parser/types.rs`
+- Modify: `crates/mty-syntax/src/parser/types.rs`
 
 Productions:
 
@@ -1321,7 +1321,7 @@ pub fn effect_clause(p: &mut Parser) {
 
 - [ ] **Step 2: Tests**
 
-`crates/sdust-syntax/tests/parse_types.rs`:
+`crates/mty-syntax/tests/parse_types.rs`:
 
 ```rust
 use insta::assert_snapshot;
@@ -1335,7 +1335,7 @@ fn dump(src: &str) -> String {
 }
 
 // NOTE: this test needs a small test-only `parse_type_only(src)` helper.
-// Add it to crates/sdust-syntax/src/parser/mod.rs guarded by #[cfg(test)] or as pub-in-crate:
+// Add it to crates/mty-syntax/src/parser/mod.rs guarded by #[cfg(test)] or as pub-in-crate:
 //
 //   pub fn parse_type(src: &str) -> ParseResult { ... wraps src in a FILE > TYPE_ROOT node ... }
 
@@ -1365,13 +1365,13 @@ Implement the test `dump` helper to call `parse_type` and snapshot the tree.
 
 - [ ] **Step 3: Run + review snapshots**
 
-Run: `cargo test -p sdust-syntax --test parse_types`
+Run: `cargo test -p mty-syntax --test parse_types`
 Then: `cargo insta review`.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/sdust-syntax/src/parser/types.rs crates/sdust-syntax/src/parser/mod.rs crates/sdust-syntax/tests/parse_types.rs crates/sdust-syntax/tests/snapshots/
+git add crates/mty-syntax/src/parser/types.rs crates/mty-syntax/src/parser/mod.rs crates/mty-syntax/tests/parse_types.rs crates/mty-syntax/tests/snapshots/
 git commit -m "Parse type expressions (borrows, tuples, arrays, fn types, generics, T!E sugar)"
 ```
 
@@ -1380,7 +1380,7 @@ git commit -m "Parse type expressions (borrows, tuples, arrays, fn types, generi
 ## Task 9: Parse patterns
 
 **Files:**
-- Modify: `crates/sdust-syntax/src/parser/patterns.rs`
+- Modify: `crates/mty-syntax/src/parser/patterns.rs`
 
 Productions:
 
@@ -1529,16 +1529,16 @@ pub fn pattern(p: &mut Parser) -> bool {
 
 - [ ] **Step 2: Tests via snapshots**
 
-Add `pub fn parse_pattern(src: &str) -> ParseResult` test-only entry to `parser/mod.rs`. Test file `crates/sdust-syntax/tests/parse_patterns.rs` snapshots: `Some(x)`, `Ok(v)`, `Err(e)`, `_`, `User { id, name }`, `1..5`, `&mut buf`, `(a, b, _)`.
+Add `pub fn parse_pattern(src: &str) -> ParseResult` test-only entry to `parser/mod.rs`. Test file `crates/mty-syntax/tests/parse_patterns.rs` snapshots: `Some(x)`, `Ok(v)`, `Err(e)`, `_`, `User { id, name }`, `1..5`, `&mut buf`, `(a, b, _)`.
 
 - [ ] **Step 3: Run + accept snapshots**
 
-Run: `cargo test -p sdust-syntax --test parse_patterns && cargo insta review`.
+Run: `cargo test -p mty-syntax --test parse_patterns && cargo insta review`.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/sdust-syntax/src/parser/patterns.rs crates/sdust-syntax/src/parser/mod.rs crates/sdust-syntax/tests/parse_patterns.rs crates/sdust-syntax/tests/snapshots/
+git add crates/mty-syntax/src/parser/patterns.rs crates/mty-syntax/src/parser/mod.rs crates/mty-syntax/tests/parse_patterns.rs crates/mty-syntax/tests/snapshots/
 git commit -m "Parse patterns (literal, binding, struct, enum, tuple, range, ref, wildcard)"
 ```
 
@@ -1547,7 +1547,7 @@ git commit -m "Parse patterns (literal, binding, struct, enum, tuple, range, ref
 ## Task 10: Parse expressions (Pratt precedence + postfix)
 
 **Files:**
-- Modify: `crates/sdust-syntax/src/parser/exprs.rs`
+- Modify: `crates/mty-syntax/src/parser/exprs.rs`
 
 Precedence table (lowest → highest binding):
 
@@ -1931,17 +1931,17 @@ pub fn parse_expr(src: &str) -> ParseResult {
 }
 ```
 
-`crates/sdust-syntax/tests/parse_exprs.rs` snapshots: `1 + 2 * 3`, `a == b && c != d`, `f(x).y[0]`, `arr[i + 1]`, `xs.map(square)`, `obj?.method()` (no — Stardust doesn't have `?.`; use `obj?` chain test), `obj?Msg(x) @2s`, `logger!Info("started")`, `let v = move x`, `&mut buf`, `arena turn: lower(parse(tokenize(input))?)`, `Some(x)`, `User { id, name }`, `{ a: 1, b: 2 }`.
+`crates/mty-syntax/tests/parse_exprs.rs` snapshots: `1 + 2 * 3`, `a == b && c != d`, `f(x).y[0]`, `arr[i + 1]`, `xs.map(square)`, `obj?.method()` (no — Mighty doesn't have `?.`; use `obj?` chain test), `obj?Msg(x) @2s`, `logger!Info("started")`, `let v = move x`, `&mut buf`, `arena turn: lower(parse(tokenize(input))?)`, `Some(x)`, `User { id, name }`, `{ a: 1, b: 2 }`.
 
 - [ ] **Step 3: Run + accept snapshots**
 
-Run: `cargo test -p sdust-syntax --test parse_exprs && cargo insta review`.
+Run: `cargo test -p mty-syntax --test parse_exprs && cargo insta review`.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/sdust-syntax/src/parser/exprs.rs crates/sdust-syntax/src/parser/mod.rs crates/sdust-syntax/tests/parse_exprs.rs crates/sdust-syntax/tests/snapshots/
-git commit -m "Parse expressions with Pratt precedence + Stardust postfix (!Msg, ?Msg, @dur)"
+git add crates/mty-syntax/src/parser/exprs.rs crates/mty-syntax/src/parser/mod.rs crates/mty-syntax/tests/parse_exprs.rs crates/mty-syntax/tests/snapshots/
+git commit -m "Parse expressions with Pratt precedence + Mighty postfix (!Msg, ?Msg, @dur)"
 ```
 
 ---
@@ -1949,7 +1949,7 @@ git commit -m "Parse expressions with Pratt precedence + Stardust postfix (!Msg,
 ## Task 11: Parse statements, blocks, control flow
 
 **Files:**
-- Modify: `crates/sdust-syntax/src/parser/stmts.rs`
+- Modify: `crates/mty-syntax/src/parser/stmts.rs`
 
 Productions:
 
@@ -2077,12 +2077,12 @@ pub fn loop_expr(p: &mut Parser) -> bool {
 
 - [ ] **Step 3: Run + accept**
 
-Run: `cargo test -p sdust-syntax --test parse_stmts && cargo insta review`.
+Run: `cargo test -p mty-syntax --test parse_stmts && cargo insta review`.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/sdust-syntax/src/parser/stmts.rs crates/sdust-syntax/tests/parse_stmts.rs crates/sdust-syntax/tests/snapshots/
+git add crates/mty-syntax/src/parser/stmts.rs crates/mty-syntax/tests/parse_stmts.rs crates/mty-syntax/tests/snapshots/
 git commit -m "Parse statements, blocks, if/match/for/while/loop"
 ```
 
@@ -2091,7 +2091,7 @@ git commit -m "Parse statements, blocks, if/match/for/while/loop"
 ## Task 12: Parse fn / struct / enum / type alias / impl / trait / const
 
 **Files:**
-- Modify: `crates/sdust-syntax/src/parser/items.rs`
+- Modify: `crates/mty-syntax/src/parser/items.rs`
 
 Productions:
 
@@ -2303,13 +2303,13 @@ const PAGE: USize = 4096
 - [ ] **Step 3: Run + accept**
 
 ```bash
-cargo test -p sdust-syntax --test parse_decls && cargo insta review
+cargo test -p mty-syntax --test parse_decls && cargo insta review
 ```
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/sdust-syntax/
+git add crates/mty-syntax/
 git commit -m "Parse fn/struct/enum/type/impl/trait/const declarations"
 ```
 
@@ -2318,8 +2318,8 @@ git commit -m "Parse fn/struct/enum/type/impl/trait/const declarations"
 ## Task 13: Parse agents, protocols, supervisors
 
 **Files:**
-- Modify: `crates/sdust-syntax/src/parser/agents.rs`
-- Modify: `crates/sdust-syntax/src/parser/items.rs` (add dispatch)
+- Modify: `crates/mty-syntax/src/parser/agents.rs`
+- Modify: `crates/mty-syntax/src/parser/items.rs` (add dispatch)
 
 Productions (from spec §12, §13, §15):
 
@@ -2559,13 +2559,13 @@ Also expose `fn_decl_pub` (rename in items.rs from `fn_decl` to `fn_decl_pub` an
 - [ ] **Step 4: Run + accept**
 
 ```bash
-cargo test -p sdust-syntax --test parse_agents && cargo insta review
+cargo test -p mty-syntax --test parse_agents && cargo insta review
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-syntax/
+git add crates/mty-syntax/
 git commit -m "Parse agents, protocols, supervisors with state/on/composition/strategies"
 ```
 
@@ -2574,7 +2574,7 @@ git commit -m "Parse agents, protocols, supervisors with state/on/composition/st
 ## Task 14: Parse arenas, task scopes, budgets, sandboxes
 
 **Files:**
-- Modify: `crates/sdust-syntax/src/parser/concurrency.rs`
+- Modify: `crates/mty-syntax/src/parser/concurrency.rs`
 
 Productions:
 
@@ -2680,13 +2680,13 @@ pub fn sandbox_block(p: &mut Parser) -> bool {
 - [ ] **Step 3: Run + accept**
 
 ```bash
-cargo test -p sdust-syntax --test parse_concurrency && cargo insta review
+cargo test -p mty-syntax --test parse_concurrency && cargo insta review
 ```
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/sdust-syntax/
+git add crates/mty-syntax/
 git commit -m "Parse arena/task scope/budget/sandbox blocks"
 ```
 
@@ -2695,10 +2695,10 @@ git commit -m "Parse arena/task scope/budget/sandbox blocks"
 ## Task 15: Parse extern blocks, export decls, macros, unsafe blocks
 
 **Files:**
-- Modify: `crates/sdust-syntax/src/parser/extern_.rs`
-- Modify: `crates/sdust-syntax/src/parser/macros.rs`
-- Modify: `crates/sdust-syntax/src/parser/unsafe_.rs`
-- Modify: `crates/sdust-syntax/src/parser/items.rs`
+- Modify: `crates/mty-syntax/src/parser/extern_.rs`
+- Modify: `crates/mty-syntax/src/parser/macros.rs`
+- Modify: `crates/mty-syntax/src/parser/unsafe_.rs`
+- Modify: `crates/mty-syntax/src/parser/items.rs`
 
 Productions:
 
@@ -2844,13 +2844,13 @@ while p.eat(REQUIRES_KW) { super::exprs::expr(p); }
 - [ ] **Step 6: Run + accept**
 
 ```bash
-cargo test -p sdust-syntax --test parse_extern_macro && cargo insta review
+cargo test -p mty-syntax --test parse_extern_macro && cargo insta review
 ```
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/sdust-syntax/
+git add crates/mty-syntax/
 git commit -m "Parse extern blocks, export decls, macros, unsafe blocks, requires clauses"
 ```
 
@@ -2859,7 +2859,7 @@ git commit -m "Parse extern blocks, export decls, macros, unsafe blocks, require
 ## Task 16: Parser recovery sweep + EOF/junk tests
 
 **Files:**
-- Create: `crates/sdust-syntax/tests/parse_recovery.rs`
+- Create: `crates/mty-syntax/tests/parse_recovery.rs`
 
 Validate the parser doesn't infinite-loop, always produces a green tree, and emits diagnostics for malformed input.
 
@@ -2895,23 +2895,23 @@ fn parse_ok_shape(src: &str) {
 
 - [ ] **Step 2: Run**
 
-Run: `cargo test -p sdust-syntax --test parse_recovery`
+Run: `cargo test -p mty-syntax --test parse_recovery`
 Expected: 9 passed. If `recovers_after_error` fails, audit the `sync_to` calls in `items::item` to make sure they consume to the next item-start token.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add crates/sdust-syntax/tests/parse_recovery.rs
+git add crates/mty-syntax/tests/parse_recovery.rs
 git commit -m "Add parser recovery + EOF safety tests"
 ```
 
 ---
 
-## Task 17: AST view crate (`sdust-ast`)
+## Task 17: AST view crate (`mty-ast`)
 
 **Files:**
-- Modify: `crates/sdust-ast/src/lib.rs`
-- Create: `crates/sdust-ast/src/generated.rs`
+- Modify: `crates/mty-ast/src/lib.rs`
+- Create: `crates/mty-ast/src/generated.rs`
 
 Typed accessor structs over `SyntaxNode`. One struct per CST node kind that downstream consumers need. Pattern from rust-analyzer.
 
@@ -3070,7 +3070,7 @@ impl AgentDecl {
 
 - [ ] **Step 3: Tests**
 
-`crates/sdust-ast/tests/cast.rs`:
+`crates/mty-ast/tests/cast.rs`:
 
 ```rust
 use sdust_ast::{AstNode, File, FnDecl, AgentDecl};
@@ -3101,13 +3101,13 @@ fn casts_agent_with_handlers() {
 
 - [ ] **Step 4: Run**
 
-Run: `cargo test -p sdust-ast`
+Run: `cargo test -p mty-ast`
 Expected: 2 passed.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-ast/
+git add crates/mty-ast/
 git commit -m "Add typed AST view over rowan CST"
 ```
 
@@ -3116,9 +3116,9 @@ git commit -m "Add typed AST view over rowan CST"
 ## Task 18: Diagnostics core types + DiagCode
 
 **Files:**
-- Modify: `crates/sdust-diagnostics/src/lib.rs`
-- Create: `crates/sdust-diagnostics/src/diagnostic.rs`
-- Create: `crates/sdust-diagnostics/src/codes.rs`
+- Modify: `crates/mty-diagnostics/src/lib.rs`
+- Create: `crates/mty-diagnostics/src/diagnostic.rs`
+- Create: `crates/mty-diagnostics/src/codes.rs`
 
 - [ ] **Step 1: Write `codes.rs`**
 
@@ -3203,7 +3203,7 @@ pub mod ariadne;
 
 - [ ] **Step 4: Tests**
 
-`crates/sdust-diagnostics/tests/basic.rs`:
+`crates/mty-diagnostics/tests/basic.rs`:
 
 ```rust
 use sdust_diagnostics::*;
@@ -3225,13 +3225,13 @@ fn build_diagnostic() {
 }
 ```
 
-Run: `cargo test -p sdust-diagnostics`
+Run: `cargo test -p mty-diagnostics`
 Expected: 2 passed.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-diagnostics/
+git add crates/mty-diagnostics/
 git commit -m "Define DiagCode, Diagnostic, Severity, Label types"
 ```
 
@@ -3240,7 +3240,7 @@ git commit -m "Define DiagCode, Diagnostic, Severity, Label types"
 ## Task 19: ariadne renderer
 
 **Files:**
-- Modify: `crates/sdust-diagnostics/src/render/ariadne.rs`
+- Modify: `crates/mty-diagnostics/src/render/ariadne.rs`
 
 - [ ] **Step 1: Write the renderer**
 
@@ -3289,7 +3289,7 @@ pub fn render_all(diags: &[Diagnostic], source_id: &str, source: &str) -> String
 
 - [ ] **Step 2: Test**
 
-`crates/sdust-diagnostics/tests/render.rs`:
+`crates/mty-diagnostics/tests/render.rs`:
 
 ```rust
 use sdust_diagnostics::{Diagnostic, Label, codes::UNEXPECTED_TOKEN, render::ariadne::render};
@@ -3305,13 +3305,13 @@ fn renders_one_line() {
 }
 ```
 
-Run: `cargo test -p sdust-diagnostics`
+Run: `cargo test -p mty-diagnostics`
 Expected: 3 passed.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add crates/sdust-diagnostics/src/render/
+git add crates/mty-diagnostics/src/render/
 git commit -m "Render diagnostics via ariadne"
 ```
 
@@ -3320,9 +3320,9 @@ git commit -m "Render diagnostics via ariadne"
 ## Task 20: HIR types + arena IDs
 
 **Files:**
-- Modify: `crates/sdust-hir/src/lib.rs`
-- Create: `crates/sdust-hir/src/ids.rs`
-- Create: `crates/sdust-hir/src/nodes.rs`
+- Modify: `crates/mty-hir/src/lib.rs`
+- Create: `crates/mty-hir/src/ids.rs`
+- Create: `crates/mty-hir/src/nodes.rs`
 
 - [ ] **Step 1: Write `ids.rs`**
 
@@ -3603,7 +3603,7 @@ Stub the `lower`, `resolve`, `dump` modules with empty `mod` files; real impls i
 
 - [ ] **Step 4: Smoke test**
 
-`crates/sdust-hir/tests/types_compile.rs`:
+`crates/mty-hir/tests/types_compile.rs`:
 
 ```rust
 #[test]
@@ -3613,13 +3613,13 @@ fn package_default() {
 }
 ```
 
-Run: `cargo test -p sdust-hir`
+Run: `cargo test -p mty-hir`
 Expected: 1 passed.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-hir/
+git add crates/mty-hir/
 git commit -m "Define HIR node types + arenas (package, items, exprs, pats, types)"
 ```
 
@@ -3628,10 +3628,10 @@ git commit -m "Define HIR node types + arenas (package, items, exprs, pats, type
 ## Task 21: HIR lowering (items, types, patterns)
 
 **Files:**
-- Modify: `crates/sdust-hir/src/lower/mod.rs`
-- Create: `crates/sdust-hir/src/lower/items.rs`
-- Create: `crates/sdust-hir/src/lower/types.rs`
-- Create: `crates/sdust-hir/src/lower/patterns.rs`
+- Modify: `crates/mty-hir/src/lower/mod.rs`
+- Create: `crates/mty-hir/src/lower/items.rs`
+- Create: `crates/mty-hir/src/lower/types.rs`
+- Create: `crates/mty-hir/src/lower/patterns.rs`
 
 - [ ] **Step 1: `lower/mod.rs` LoweringCtx + entry**
 
@@ -3924,7 +3924,7 @@ fn path_segments(n: &SyntaxNode) -> Vec<String> {
 
 - [ ] **Step 5: Snapshot test + commit**
 
-`crates/sdust-hir/tests/lower_items.rs`:
+`crates/mty-hir/tests/lower_items.rs`:
 
 ```rust
 use sdust_syntax::{parse, SyntaxNode};
@@ -3951,10 +3951,10 @@ fn lower(src: &str) -> sdust_hir::Package {
 }
 ```
 
-Run: `cargo test -p sdust-hir`
+Run: `cargo test -p mty-hir`
 
 ```bash
-git add crates/sdust-hir/
+git add crates/mty-hir/
 git commit -m "HIR lowering for items, types, patterns"
 ```
 
@@ -3963,8 +3963,8 @@ git commit -m "HIR lowering for items, types, patterns"
 ## Task 22: HIR lowering (expressions, blocks, agents)
 
 **Files:**
-- Create: `crates/sdust-hir/src/lower/exprs.rs`
-- Create: `crates/sdust-hir/src/lower/agents.rs`
+- Create: `crates/mty-hir/src/lower/exprs.rs`
+- Create: `crates/mty-hir/src/lower/agents.rs`
 
 These two are large but mostly mechanical mapping from CST → HIR enum variants.
 
@@ -4084,13 +4084,13 @@ pub fn lower_supervisor(ctx: &mut LoweringCtx, s: SupervisorDecl) -> SupervisorI
 }
 ```
 
-- [ ] **Step 3: Snapshot tests** in `crates/sdust-hir/tests/lower_exprs.rs` and `lower_agents.rs` covering enough cases to validate the lowering doesn't lose semantics. Lean on `insta` with the `dump` from Task 23 (forward reference — write the test in step 4 once `dump` exists).
+- [ ] **Step 3: Snapshot tests** in `crates/mty-hir/tests/lower_exprs.rs` and `lower_agents.rs` covering enough cases to validate the lowering doesn't lose semantics. Lean on `insta` with the `dump` from Task 23 (forward reference — write the test in step 4 once `dump` exists).
 
 - [ ] **Step 4: Run + commit**
 
 ```bash
-cargo test -p sdust-hir
-git add crates/sdust-hir/
+cargo test -p mty-hir
+git add crates/mty-hir/
 git commit -m "HIR lowering for expressions, blocks, agents/protocols/supervisors"
 ```
 
@@ -4099,7 +4099,7 @@ git commit -m "HIR lowering for expressions, blocks, agents/protocols/supervisor
 ## Task 23: HIR S-expression dump
 
 **Files:**
-- Create: `crates/sdust-hir/src/dump.rs`
+- Create: `crates/mty-hir/src/dump.rs`
 
 Stable, deterministic textual format suitable for snapshot tests.
 
@@ -4251,7 +4251,7 @@ fn dump_lit(l: &HirLiteral) -> String {
 
 - [ ] **Step 2: Snapshot tests for HIR dumps**
 
-`crates/sdust-hir/tests/dump_snapshots.rs`:
+`crates/mty-hir/tests/dump_snapshots.rs`:
 
 ```rust
 use insta::assert_snapshot;
@@ -4274,12 +4274,12 @@ fn dump(src: &str) -> String {
 }
 ```
 
-Run + accept: `cargo test -p sdust-hir --test dump_snapshots && cargo insta review`.
+Run + accept: `cargo test -p mty-hir --test dump_snapshots && cargo insta review`.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add crates/sdust-hir/
+git add crates/mty-hir/
 git commit -m "HIR S-expression dump for snapshot testing"
 ```
 
@@ -4288,9 +4288,9 @@ git commit -m "HIR S-expression dump for snapshot testing"
 ## Task 24: Formatter Doc combinators + printer
 
 **Files:**
-- Modify: `crates/sdust-fmt/src/lib.rs`
-- Create: `crates/sdust-fmt/src/doc.rs`
-- Create: `crates/sdust-fmt/src/printer.rs`
+- Modify: `crates/mty-fmt/src/lib.rs`
+- Create: `crates/mty-fmt/src/doc.rs`
+- Create: `crates/mty-fmt/src/printer.rs`
 
 Implement Wadler/Lindig pretty-printing. Two phases: build a `Doc` from the CST, then render `Doc` to text within a column budget.
 
@@ -4437,7 +4437,7 @@ pub fn file(node: &SyntaxNode) -> Doc {
 
 - [ ] **Step 5: Smoke test + commit**
 
-`crates/sdust-fmt/tests/printer.rs`:
+`crates/mty-fmt/tests/printer.rs`:
 
 ```rust
 use sdust_fmt::doc::Doc;
@@ -4468,11 +4468,11 @@ fn group_breaks_when_too_wide() {
 }
 ```
 
-Run: `cargo test -p sdust-fmt`
+Run: `cargo test -p mty-fmt`
 Expected: 3 passed.
 
 ```bash
-git add crates/sdust-fmt/
+git add crates/mty-fmt/
 git commit -m "Add Wadler/Lindig Doc combinators + pretty-printer"
 ```
 
@@ -4481,11 +4481,11 @@ git commit -m "Add Wadler/Lindig Doc combinators + pretty-printer"
 ## Task 25: Formatter for items, types, expressions, blocks
 
 **Files:**
-- Modify: `crates/sdust-fmt/src/fmt/items.rs`
-- Modify: `crates/sdust-fmt/src/fmt/types.rs`
-- Modify: `crates/sdust-fmt/src/fmt/exprs.rs`
-- Modify: `crates/sdust-fmt/src/fmt/patterns.rs`
-- Modify: `crates/sdust-fmt/src/fmt/mod.rs`
+- Modify: `crates/mty-fmt/src/fmt/items.rs`
+- Modify: `crates/mty-fmt/src/fmt/types.rs`
+- Modify: `crates/mty-fmt/src/fmt/exprs.rs`
+- Modify: `crates/mty-fmt/src/fmt/patterns.rs`
+- Modify: `crates/mty-fmt/src/fmt/mod.rs`
 
 The dispatcher walks the CST and emits `Doc`s. Style rules per design doc §11:
 - 2-space indent.
@@ -4671,7 +4671,7 @@ The executor's job in this task is to flesh out the expression dispatcher: liter
 
 - [ ] **Step 4: Tests**
 
-`crates/sdust-fmt/tests/format_items.rs`:
+`crates/mty-fmt/tests/format_items.rs`:
 
 ```rust
 use sdust_syntax::parse;
@@ -4696,7 +4696,7 @@ Add tests as the formatter is filled out. Initial tests may fall back to whateve
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-fmt/
+git add crates/mty-fmt/
 git commit -m "Format items, types, patterns, expressions, blocks"
 ```
 
@@ -4705,9 +4705,9 @@ git commit -m "Format items, types, patterns, expressions, blocks"
 ## Task 26: Formatter for agents, supervisors, concurrency + comment attachment
 
 **Files:**
-- Modify: `crates/sdust-fmt/src/fmt/agents.rs`
-- Modify: `crates/sdust-fmt/src/fmt/concurrency.rs`
-- Modify: `crates/sdust-fmt/src/trivia.rs`
+- Modify: `crates/mty-fmt/src/fmt/agents.rs`
+- Modify: `crates/mty-fmt/src/fmt/concurrency.rs`
+- Modify: `crates/mty-fmt/src/trivia.rs`
 
 - [ ] **Step 1: Implement `fmt/agents.rs`**
 
@@ -4842,7 +4842,7 @@ Update `fmt/mod.rs::node_doc` to wrap each top-level item with `trivia::with_lea
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-fmt/
+git add crates/mty-fmt/
 git commit -m "Format agents/supervisors/concurrency; attach leading comments"
 ```
 
@@ -4855,11 +4855,11 @@ git commit -m "Format agents/supervisors/concurrency; attach leading comments"
 - Create: `tests/fmt/round_trip.rs`
 - Modify: `Cargo.toml` (add an integration-tests workspace member or use the cli's tests dir)
 
-The sweep tests live in the workspace top-level `tests/` directory and run via `cargo test --test idempotence` after we wire them as integration tests on the `sdust-fmt` crate.
+The sweep tests live in the workspace top-level `tests/` directory and run via `cargo test --test idempotence` after we wire them as integration tests on the `mty-fmt` crate.
 
 - [ ] **Step 1: Decide location**
 
-Place sweep tests inside the existing `sdust-fmt` crate at `crates/sdust-fmt/tests/idempotence.rs` and `crates/sdust-fmt/tests/round_trip.rs`. They iterate `../../examples/*.sd` and `../../tests/fmt/fixtures/*.sd` (paths resolved at test compile time). Create the fixtures dir.
+Place sweep tests inside the existing `mty-fmt` crate at `crates/mty-fmt/tests/idempotence.rs` and `crates/mty-fmt/tests/round_trip.rs`. They iterate `../../examples/*.sd` and `../../tests/fmt/fixtures/*.sd` (paths resolved at test compile time). Create the fixtures dir.
 
 - [ ] **Step 2: Write `idempotence.rs`**
 
@@ -4936,25 +4936,25 @@ fn main() {
 - [ ] **Step 5: Run + commit**
 
 ```bash
-cargo test -p sdust-fmt --test idempotence
-cargo test -p sdust-fmt --test round_trip
+cargo test -p mty-fmt --test idempotence
+cargo test -p mty-fmt --test round_trip
 ```
 
 (Expected: pass on `00_smoke.sd`. Failures on real examples surface as we add them in Task 31; iterate the formatter until they all pass.)
 
 ```bash
-git add crates/sdust-fmt/tests/ tests/fmt/fixtures/
+git add crates/mty-fmt/tests/ tests/fmt/fixtures/
 git commit -m "Add formatter idempotence + round-trip sweep tests"
 ```
 
 ---
 
-## Task 28: Driver crate — pipeline + star.toml
+## Task 28: Driver crate — pipeline + mighty.toml
 
 **Files:**
-- Modify: `crates/sdust-driver/src/lib.rs`
-- Create: `crates/sdust-driver/src/manifest.rs`
-- Create: `crates/sdust-driver/src/pipeline.rs`
+- Modify: `crates/mty-driver/src/lib.rs`
+- Create: `crates/mty-driver/src/manifest.rs`
+- Create: `crates/mty-driver/src/pipeline.rs`
 
 - [ ] **Step 1: `manifest.rs`**
 
@@ -5041,7 +5041,7 @@ pub use pipeline::{parse_source, lower, ParsedFile};
 #[test]
 fn loads_minimal_manifest() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("star.toml");
+    let path = dir.path().join("mighty.toml");
     std::fs::write(&path, br#"
 [package]
 name = "x"
@@ -5054,28 +5054,28 @@ edition = "2026"
 }
 ```
 
-Add `tempfile` to dev-dependencies in `sdust-driver/Cargo.toml`.
+Add `tempfile` to dev-dependencies in `mty-driver/Cargo.toml`.
 
-Run: `cargo test -p sdust-driver`
+Run: `cargo test -p mty-driver`
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-driver/
-git commit -m "Driver crate: pipeline (parse+lower) + star.toml loader"
+git add crates/mty-driver/
+git commit -m "Driver crate: pipeline (parse+lower) + mighty.toml loader"
 ```
 
 ---
 
-## Task 29: CLI `sdust` binary
+## Task 29: CLI `mty` binary
 
 **Files:**
-- Modify: `crates/sdust-cli/src/main.rs`
-- Create: `crates/sdust-cli/src/cmd/mod.rs`
-- Create: `crates/sdust-cli/src/cmd/new.rs`
-- Create: `crates/sdust-cli/src/cmd/fmt.rs`
-- Create: `crates/sdust-cli/src/cmd/check.rs`
-- Create: `crates/sdust-cli/src/cmd/dump.rs`
+- Modify: `crates/mty-cli/src/main.rs`
+- Create: `crates/mty-cli/src/cmd/mod.rs`
+- Create: `crates/mty-cli/src/cmd/new.rs`
+- Create: `crates/mty-cli/src/cmd/fmt.rs`
+- Create: `crates/mty-cli/src/cmd/check.rs`
+- Create: `crates/mty-cli/src/cmd/dump.rs`
 
 - [ ] **Step 1: `main.rs`** clap entry
 
@@ -5085,7 +5085,7 @@ use clap::{Parser, Subcommand};
 mod cmd;
 
 #[derive(Parser)]
-#[command(name = "sdust", version, about = "Stardust compiler CLI")]
+#[command(name = "mty", version, about = "Mighty compiler CLI")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -5093,7 +5093,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Scaffold a new Stardust package.
+    /// Scaffold a new Mighty package.
     New { name: String },
     /// Format .sd files in place (or stdin).
     Fmt {
@@ -5134,7 +5134,7 @@ pub fn run(name: &str) -> i32 {
     let dir = Path::new(name);
     if dir.exists() { eprintln!("directory `{}` already exists", name); return 1; }
     fs::create_dir_all(dir.join("src")).unwrap();
-    fs::write(dir.join("star.toml"), format!(r#"[package]
+    fs::write(dir.join("mighty.toml"), format!(r#"[package]
 name = "{}"
 version = "0.1.0"
 edition = "2026"
@@ -5142,7 +5142,7 @@ profile = "host"
 
 [deps]
 "#, name)).unwrap();
-    fs::write(dir.join("src/main.sd"), "fn main() {\n  log(\"hello, Stardust\")\n}\n").unwrap();
+    fs::write(dir.join("src/main.sd"), "fn main() {\n  log(\"hello, Mighty\")\n}\n").unwrap();
     println!("created {}/", name);
     0
 }
@@ -5264,16 +5264,16 @@ pub mod dump;
 - [ ] **Step 7: Build + smoke test**
 
 ```bash
-cargo build -p sdust-cli
-cargo run -p sdust-cli -- new demo
-cd demo && cargo run -p sdust-cli --manifest-path ../Cargo.toml -- fmt src/main.sd
+cargo build -p mty-cli
+cargo run -p mty-cli -- new demo
+cd demo && cargo run -p mty-cli --manifest-path ../Cargo.toml -- fmt src/main.sd
 ```
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add crates/sdust-cli/
-git commit -m "CLI: sdust binary with new/fmt/check/dump commands"
+git add crates/mty-cli/
+git commit -m "CLI: mty binary with new/fmt/check/dump commands"
 ```
 
 ---
@@ -5289,7 +5289,7 @@ Each file must parse, format idempotently, and lower to HIR without errors. Verb
 
 ```sd
 fn main() {
-  log("hello, Stardust")
+  log("hello, Mighty")
 }
 ```
 
@@ -5417,8 +5417,8 @@ supervisor SearchFlow(strategy: one_for_one) {
 
 ```bash
 for f in examples/*.sd; do
-  cargo run -q -p sdust-cli -- check "$f" || { echo "FAILED: $f"; exit 1; }
-  cargo run -q -p sdust-cli -- fmt --check "$f" || { echo "FMT CHANGED: $f"; exit 1; }
+  cargo run -q -p mty-cli -- check "$f" || { echo "FAILED: $f"; exit 1; }
+  cargo run -q -p mty-cli -- fmt --check "$f" || { echo "FMT CHANGED: $f"; exit 1; }
 done
 ```
 
@@ -5546,10 +5546,10 @@ sandbox ToolRun with {
 - [ ] **Step 11: Verify the harder examples**
 
 ```bash
-cargo run -p sdust-cli -- check examples/19_backend_service.sd
-cargo run -p sdust-cli -- check examples/20_frontend_component.sd
-cargo test -p sdust-fmt --test idempotence
-cargo test -p sdust-fmt --test round_trip
+cargo run -p mty-cli -- check examples/19_backend_service.sd
+cargo run -p mty-cli -- check examples/20_frontend_component.sd
+cargo test -p mty-fmt --test idempotence
+cargo test -p mty-fmt --test round_trip
 ```
 
 Expected: all green. If `19_backend_service.sd` or `20_frontend_component.sd` reveal parser/HIR gaps, fix the gap and add a regression test in the appropriate crate.
@@ -5577,9 +5577,9 @@ Per spec §37, these are the test categories. Slice 1 populates only the first t
 `tests/conformance/README.md`:
 
 ```markdown
-# Stardust Conformance Suite
+# Mighty Conformance Suite
 
-Per Stardust v0.1 spec §37. Each subdirectory holds tests for one category.
+Per Mighty v0.1 spec §37. Each subdirectory holds tests for one category.
 
 Slice-1 categories (populated): `lexical/`, `parser/`, `formatter_idempotence/`.
 Other categories are placeholders; later slices fill them.
@@ -5587,9 +5587,9 @@ Other categories are placeholders; later slices fill them.
 ## Running
 
 ```
-cargo test -p sdust-syntax --test parse_recovery
-cargo test -p sdust-fmt --test idempotence
-cargo test -p sdust-fmt --test round_trip
+cargo test -p mty-syntax --test parse_recovery
+cargo test -p mty-fmt --test idempotence
+cargo test -p mty-fmt --test round_trip
 ```
 
 ## Adding a test
@@ -5666,9 +5666,9 @@ In PowerShell:
 ```powershell
 $failed = @()
 Get-ChildItem examples\*.sd | ForEach-Object {
-    & cargo run -q -p sdust-cli -- check $_.FullName
+    & cargo run -q -p mty-cli -- check $_.FullName
     if ($LASTEXITCODE -ne 0) { $failed += "check: $($_.Name)" }
-    & cargo run -q -p sdust-cli -- fmt --check $_.FullName
+    & cargo run -q -p mty-cli -- fmt --check $_.FullName
     if ($LASTEXITCODE -ne 0) { $failed += "fmt: $($_.Name)" }
 }
 if ($failed.Count -gt 0) { Write-Error "FAILED: $($failed -join ', ')" } else { Write-Host "all 20 examples pass" }
@@ -5676,10 +5676,10 @@ if ($failed.Count -gt 0) { Write-Error "FAILED: $($failed -join ', ')" } else { 
 
 Expected: "all 20 examples pass".
 
-- [ ] **Step 6: `sdust fmt examples/` is a no-op on the formatted tree**
+- [ ] **Step 6: `mty fmt examples/` is a no-op on the formatted tree**
 
 ```bash
-cargo run -p sdust-cli -- fmt examples/
+cargo run -p mty-cli -- fmt examples/
 git diff --stat examples/
 ```
 
@@ -5688,8 +5688,8 @@ Expected: empty diff.
 - [ ] **Step 7: Heaviest examples lower without diagnostics**
 
 ```bash
-cargo run -p sdust-cli -- check examples/19_backend_service.sd
-cargo run -p sdust-cli -- check examples/20_frontend_component.sd
+cargo run -p mty-cli -- check examples/19_backend_service.sd
+cargo run -p mty-cli -- check examples/20_frontend_component.sd
 ```
 
 Expected: `ok: examples/19_backend_service.sd` and `ok: examples/20_frontend_component.sd`.
@@ -5697,7 +5697,7 @@ Expected: `ok: examples/19_backend_service.sd` and `ok: examples/20_frontend_com
 - [ ] **Step 8: HIR dump round-trips through snapshot review**
 
 ```bash
-cargo test -p sdust-hir --test dump_snapshots
+cargo test -p mty-hir --test dump_snapshots
 cargo insta review     # accept anything reviewed; no surprises expected
 ```
 
@@ -5730,7 +5730,7 @@ Per the autonomous build mandate's review gate (memory: `feedback_cani_autonomou
 
 **Spec coverage check** — design doc §1 deliverables:
 
-- ✅ `sdust` CLI with `new`/`fmt`/`check`/`dump` — Tasks 29, 30
+- ✅ `mty` CLI with `new`/`fmt`/`check`/`dump` — Tasks 29, 30
 - ✅ 20 canonical examples — Tasks 30, 31
 - ✅ Stable AST + HIR dumps — Tasks 17, 23
 - ✅ Syntax error recovery + ariadne diagnostics — Tasks 6, 16, 18, 19
@@ -5754,7 +5754,7 @@ Per the autonomous build mandate's review gate (memory: `feedback_cani_autonomou
 - ✅ `T!E`, `T!{A,B}`, `?` propagation — Tasks 8, 10
 - ✅ All pattern kinds — Task 9
 
-**Non-goals confirmed deferred** (design doc §2): type checking, borrow checking, effect/capability checking, SIR, runtime, codegen, LSP, package manager. No task implements these.
+**Non-goals confirmed deferred** (design doc §2): type checking, borrow checking, effect/capability checking, MtyIR, runtime, codegen, LSP, package manager. No task implements these.
 
 **Placeholder scan**: no `TBD`/`TODO`/`fill in later` in the plan. Every step shows the actual code or the specific command.
 

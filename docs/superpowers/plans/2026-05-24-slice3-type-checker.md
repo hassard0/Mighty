@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship a working Hindley-Milner type checker for Stardust that handles all 20 canonical examples, with first-order generics, the `Result[T,E]` sugar, `?` propagation, and pub-signature validation. Effect/capability signatures are *carried* but not enforced. Ownership/borrow checking is deferred to slice 4.
+**Goal:** Ship a working Hindley-Milner type checker for Mighty that handles all 20 canonical examples, with first-order generics, the `Result[T,E]` sugar, `?` propagation, and pub-signature validation. Effect/capability signatures are *carried* but not enforced. Ownership/borrow checking is deferred to slice 4.
 
-**Architecture:** New `sdust-types` crate. Types are interned arena values. Name resolution maps HIR types/paths to a `DefMap`. Inference is bidirectional with constraint-style unification + occurs check. Prelude provides built-ins (Option, Result, primitives, intrinsic methods/types referenced by examples).
+**Architecture:** New `mty-types` crate. Types are interned arena values. Name resolution maps HIR types/paths to a `DefMap`. Inference is bidirectional with constraint-style unification + occurs check. Prelude provides built-ins (Option, Result, primitives, intrinsic methods/types referenced by examples).
 
 **Tech Stack:** Rust 1.82, la-arena, rustc-hash (transitive). Same workspace as slice 2.
 
@@ -13,37 +13,37 @@
 ## File Structure
 
 **Create:**
-- `crates/sdust-types/Cargo.toml`
-- `crates/sdust-types/src/lib.rs` — re-exports
-- `crates/sdust-types/src/ty.rs` — `TyData`, `TyId`, `IntKind`, `FloatKind`, `TyArena`, interner
-- `crates/sdust-types/src/defs.rs` — `AdtDef`, `FnDef`, `DefMap`, `DefRef`, `BuiltinDef`
-- `crates/sdust-types/src/prelude.rs` — build `std.core` (Option, Result, primitives, intrinsics, opaque modules + types)
-- `crates/sdust-types/src/resolve.rs` — `resolve_hir_type`, `resolve_value_path`, build `DefMap` from HIR
-- `crates/sdust-types/src/infer.rs` — `InferCtx`, `Substitution`, `unify`, `occurs_check`, defaulting
-- `crates/sdust-types/src/check.rs` — `check_expr` / `synth_expr`, statement checking, block tail
-- `crates/sdust-types/src/items.rs` — top-level item checker; pub-signature validator
-- `crates/sdust-types/src/diag.rs` — SD2xxx diagnostic constructors
-- `crates/sdust-types/tests/primitives.rs`
-- `crates/sdust-types/tests/generics.rs`
-- `crates/sdust-types/tests/result_question.rs`
-- `crates/sdust-types/tests/examples.rs`
-- `crates/sdust-types/tests/negatives.rs`
+- `crates/mty-types/Cargo.toml`
+- `crates/mty-types/src/lib.rs` — re-exports
+- `crates/mty-types/src/ty.rs` — `TyData`, `TyId`, `IntKind`, `FloatKind`, `TyArena`, interner
+- `crates/mty-types/src/defs.rs` — `AdtDef`, `FnDef`, `DefMap`, `DefRef`, `BuiltinDef`
+- `crates/mty-types/src/prelude.rs` — build `std.core` (Option, Result, primitives, intrinsics, opaque modules + types)
+- `crates/mty-types/src/resolve.rs` — `resolve_hir_type`, `resolve_value_path`, build `DefMap` from HIR
+- `crates/mty-types/src/infer.rs` — `InferCtx`, `Substitution`, `unify`, `occurs_check`, defaulting
+- `crates/mty-types/src/check.rs` — `check_expr` / `synth_expr`, statement checking, block tail
+- `crates/mty-types/src/items.rs` — top-level item checker; pub-signature validator
+- `crates/mty-types/src/diag.rs` — SD2xxx diagnostic constructors
+- `crates/mty-types/tests/primitives.rs`
+- `crates/mty-types/tests/generics.rs`
+- `crates/mty-types/tests/result_question.rs`
+- `crates/mty-types/tests/examples.rs`
+- `crates/mty-types/tests/negatives.rs`
 - `tests/typeck_neg/*.sd` — 15 negative test inputs
 - `docs/internals/typeck.md` — internals doc
 - `SLICE3.md` — slice summary
 
 **Modify:**
-- `Cargo.toml` — add `crates/sdust-types` to members
-- `crates/sdust-driver/Cargo.toml` — depend on `sdust-types`
-- `crates/sdust-driver/src/pipeline.rs` — add `type_check(pkg) -> Vec<Diagnostic>` stage
-- `crates/sdust-cli/src/cmd/check.rs` — invoke type-check stage
-- `crates/sdust-diagnostics/src/codes.rs` — add MT2001..MT2025 + explain entries
-- `crates/sdust-hir/src/lower/items.rs` — capture struct/enum/fn generics into HIR (currently dropped); preserve `effect` clauses (already done); add `agent` ctor param types
-- `crates/sdust-hir/src/nodes.rs` — fn/struct/enum `generics: Vec<HirGenericParam>` (was `Vec<String>`)
+- `Cargo.toml` — add `crates/mty-types` to members
+- `crates/mty-driver/Cargo.toml` — depend on `mty-types`
+- `crates/mty-driver/src/pipeline.rs` — add `type_check(pkg) -> Vec<Diagnostic>` stage
+- `crates/mty-cli/src/cmd/check.rs` — invoke type-check stage
+- `crates/mty-diagnostics/src/codes.rs` — add MT2001..MT2025 + explain entries
+- `crates/mty-hir/src/lower/items.rs` — capture struct/enum/fn generics into HIR (currently dropped); preserve `effect` clauses (already done); add `agent` ctor param types
+- `crates/mty-hir/src/nodes.rs` — fn/struct/enum `generics: Vec<HirGenericParam>` (was `Vec<String>`)
 - `examples/06_for_while_loop.sd` — return `Unit!WorkErr` so `?` is legal
 - `examples/11_budget_block.sd` — return `Unit!RunErr` (was `Result!RunErr`)
 - `docs/spec/v0.1-amendments.md` — add A7 (`?` strictly), A8 (integer defaults), A9 (`String` as type+fn), A10 (built-in method table)
-- `docs/reference/cli/sdust-check.md` — new
+- `docs/reference/cli/mty-check.md` — new
 - `docs/reference/diagnostics.md` — new SD2xxx section
 - `docs/tour/01-hello.md` through `docs/tour/12-extern.md` — add "Type errors you might see" subsections (where relevant)
 - `README.md` — roadmap mark slice 3 shipped
@@ -51,11 +51,11 @@
 
 ---
 
-## Task 1: Scaffold `sdust-types` crate
+## Task 1: Scaffold `mty-types` crate
 
-**Files:** `crates/sdust-types/Cargo.toml`, `crates/sdust-types/src/lib.rs`, root `Cargo.toml`
+**Files:** `crates/mty-types/Cargo.toml`, `crates/mty-types/src/lib.rs`, root `Cargo.toml`
 
-Add the crate to the workspace. Dependencies: `sdust-hir`, `sdust-diagnostics`, `la-arena`. Re-export the top-level entry point.
+Add the crate to the workspace. Dependencies: `mty-hir`, `mty-diagnostics`, `la-arena`. Re-export the top-level entry point.
 
 ```rust
 // lib.rs
@@ -82,14 +82,14 @@ pub fn check_package(pkg: &Package) -> Vec<Diagnostic> {
 }
 ```
 
-- [ ] Create `crates/sdust-types/Cargo.toml`
-- [ ] Create `crates/sdust-types/src/lib.rs` with module skeletons
+- [ ] Create `crates/mty-types/Cargo.toml`
+- [ ] Create `crates/mty-types/src/lib.rs` with module skeletons
 - [ ] Update root `Cargo.toml` workspace members
-- [ ] `cargo build -p sdust-types` succeeds
+- [ ] `cargo build -p mty-types` succeeds
 
 ## Task 2: `Ty` representation + interner
 
-**Files:** `crates/sdust-types/src/ty.rs`
+**Files:** `crates/mty-types/src/ty.rs`
 
 Define `TyData`, `TyId`, `IntKind`, `FloatKind`. Implement `TyArena` with a hashmap interner so equal `TyData` collapses to the same `TyId`. Provide pretty-printer `pretty_ty(ty: TyId, arena: &TyArena) -> String`.
 
@@ -103,7 +103,7 @@ Define `TyData`, `TyId`, `IntKind`, `FloatKind`. Implement `TyArena` with a hash
 
 ## Task 3: `AdtDef`, `FnDef`, `DefMap`
 
-**Files:** `crates/sdust-types/src/defs.rs`
+**Files:** `crates/mty-types/src/defs.rs`
 
 ```rust
 pub struct AdtDef { name, kind: AdtKind, generics: Vec<ParamDef>, variants: Vec<VariantDef> }
@@ -122,7 +122,7 @@ pub enum BuiltinDef { OpaqueModule(String), OpaqueType(AdtId), Fn(FnDefId) }
 
 ## Task 4: Prelude builder
 
-**Files:** `crates/sdust-types/src/prelude.rs`
+**Files:** `crates/mty-types/src/prelude.rs`
 
 Implement `build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds`. Adds:
 
@@ -142,7 +142,7 @@ To keep this manageable, methods that aren't shape-specific (e.g. `.encode`, `.e
 
 ## Task 5: Type resolution (HirType → TyId)
 
-**Files:** `crates/sdust-types/src/resolve.rs`
+**Files:** `crates/mty-types/src/resolve.rs`
 
 ```rust
 pub fn resolve_hir_type(ty: &HirType, pkg: &Package, defs: &DefMap, arena: &mut TyArena, locals: &ParamScope, diag: &mut Vec<Diagnostic>) -> TyId
@@ -168,7 +168,7 @@ Cases:
 
 ## Task 6: Generic param capture in HIR
 
-**Files:** `crates/sdust-hir/src/nodes.rs`, `crates/sdust-hir/src/lower/items.rs`, `crates/sdust-hir/src/lower/agents.rs`
+**Files:** `crates/mty-hir/src/nodes.rs`, `crates/mty-hir/src/lower/items.rs`, `crates/mty-hir/src/lower/agents.rs`
 
 Currently fn/struct/enum/agent/protocol/trait `generics: Vec<String>` — but lowering writes `vec![]`! Walk the CST for `GENERIC_PARAMS` and capture identifier list. Same for trait impl methods.
 
@@ -178,7 +178,7 @@ Currently fn/struct/enum/agent/protocol/trait `generics: Vec<String>` — but lo
 
 ## Task 7: Build DefMap from HIR
 
-**Files:** `crates/sdust-types/src/resolve.rs`
+**Files:** `crates/mty-types/src/resolve.rs`
 
 ```rust
 pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> (DefMap, Vec<Diagnostic>)
@@ -201,7 +201,7 @@ Agents: register the agent as an opaque ADT named `<AgentName>`. Methods on the 
 
 ## Task 8: InferCtx + Substitution + unify
 
-**Files:** `crates/sdust-types/src/infer.rs`
+**Files:** `crates/mty-types/src/infer.rs`
 
 ```rust
 pub struct Substitution(Vec<Option<TyId>>);
@@ -225,7 +225,7 @@ pub fn occurs_check(var: TyVarId, ty: TyId, subst: &Substitution, arena: &TyAren
 
 ## Task 9: Bidirectional expr checking — literals, paths, blocks, if
 
-**Files:** `crates/sdust-types/src/check.rs`
+**Files:** `crates/mty-types/src/check.rs`
 
 Two functions:
 ```rust
@@ -250,7 +250,7 @@ Implement for:
 
 ## Task 10: Calls + generic instantiation
 
-**Files:** `crates/sdust-types/src/check.rs`
+**Files:** `crates/mty-types/src/check.rs`
 
 For `HirExpr::Call { callee, args }`:
 1. Synth `callee` type.
@@ -268,7 +268,7 @@ For `HirExpr::PathGeneric { segments, generics }`: resolve segments + check gene
 
 ## Task 11: Struct literals, field access, method calls
 
-**Files:** `crates/sdust-types/src/check.rs`
+**Files:** `crates/mty-types/src/check.rs`
 
 - `Struct { path, fields }`: resolve path to ADT, instantiate generics, type-check each field expr against declared field type, error if missing/duplicate/unknown fields.
 - `Field { receiver, name }`: synth receiver, resolve field name on type.
@@ -286,7 +286,7 @@ For `HirExpr::PathGeneric { segments, generics }`: resolve segments + check gene
 
 ## Task 12: Match + patterns
 
-**Files:** `crates/sdust-types/src/check.rs`
+**Files:** `crates/mty-types/src/check.rs`
 
 `Match { scrutinee, arms }`:
 1. Synth scrutinee type S.
@@ -311,7 +311,7 @@ Pattern handling (`check_pattern(pat, ty)`):
 
 ## Task 13: `?` operator + Result handling
 
-**Files:** `crates/sdust-types/src/check.rs`
+**Files:** `crates/mty-types/src/check.rs`
 
 `HirExpr::Question(inner)`:
 1. Synth inner type.
@@ -325,7 +325,7 @@ Pattern handling (`check_pattern(pat, ty)`):
 
 ## Task 14: Item-level checking + pub-signature validator
 
-**Files:** `crates/sdust-types/src/items.rs`
+**Files:** `crates/mty-types/src/items.rs`
 
 ```rust
 pub fn check(pkg: &Package) -> Vec<Diagnostic>
@@ -346,7 +346,7 @@ For handlers: bind handler-arg names to `Ty::Var` (or to the protocol-message ar
 
 ## Task 15: Diagnostic codes + builders
 
-**Files:** `crates/sdust-types/src/diag.rs`, `crates/sdust-diagnostics/src/codes.rs`
+**Files:** `crates/mty-types/src/diag.rs`, `crates/mty-diagnostics/src/codes.rs`
 
 Add `MT2001..MT2025` constants. Add `explain` entries. Diag builder functions like `mismatch(expected, found, span) -> Diagnostic`.
 
@@ -354,9 +354,9 @@ Add `MT2001..MT2025` constants. Add `explain` entries. Diag builder functions li
 - [ ] Add explain entries
 - [ ] Builder fns
 
-## Task 16: Wire into `sdust-driver`
+## Task 16: Wire into `mty-driver`
 
-**Files:** `crates/sdust-driver/Cargo.toml`, `crates/sdust-driver/src/pipeline.rs`, `crates/sdust-driver/src/lib.rs`
+**Files:** `crates/mty-driver/Cargo.toml`, `crates/mty-driver/src/pipeline.rs`, `crates/mty-driver/src/lib.rs`
 
 ```rust
 pub fn type_check(pkg: &Package) -> Vec<Diagnostic> { sdust_types::check_package(pkg) }
@@ -368,9 +368,9 @@ Update `pipeline.rs` to expose `check(pkg) -> Vec<Diagnostic>`. `lower()` return
 - [ ] Re-export
 - [ ] Tests against 01_hello smoke
 
-## Task 17: Wire into CLI `sdust check`
+## Task 17: Wire into CLI `mty check`
 
-**Files:** `crates/sdust-cli/src/cmd/check.rs`, `crates/sdust-cli/Cargo.toml`
+**Files:** `crates/mty-cli/src/cmd/check.rs`, `crates/mty-cli/Cargo.toml`
 
 ```rust
 let (pkg, mut diags) = lower(&parsed);
@@ -388,7 +388,7 @@ diags.extend(type_check(&pkg));
 - 06: change `fn process(items: &[I32])` → `fn process(items: &[I32]) -> Unit!WorkErr` so `?` is legal.
 - 11: change `Result!RunErr` → `Unit!RunErr`.
 
-Run `sdust check` on every example; iterate until all pass.
+Run `mty check` on every example; iterate until all pass.
 
 - [ ] Apply example tweaks
 - [ ] Run all 20
@@ -396,7 +396,7 @@ Run `sdust check` on every example; iterate until all pass.
 
 ## Task 19: Negative test corpus
 
-**Files:** `tests/typeck_neg/*.sd`, `crates/sdust-types/tests/negatives.rs`
+**Files:** `tests/typeck_neg/*.sd`, `crates/mty-types/tests/negatives.rs`
 
 15 files, each producing exactly one SD2xxx code (or marked as multi-error tolerant).
 
@@ -411,10 +411,10 @@ The driver:
 
 ## Task 20: Docs
 
-**Files:** `docs/internals/typeck.md`, `docs/reference/cli/sdust-check.md`, `docs/reference/diagnostics.md`, `docs/tour/0X-*.md`, `docs/spec/v0.1-amendments.md`, `README.md`, `SLICE2.md`, `SLICE3.md`
+**Files:** `docs/internals/typeck.md`, `docs/reference/cli/mty-check.md`, `docs/reference/diagnostics.md`, `docs/tour/0X-*.md`, `docs/spec/v0.1-amendments.md`, `README.md`, `SLICE2.md`, `SLICE3.md`
 
 - Internals doc covers: arch, Ty model, inference algo, prelude/tolerance, current limits
-- CLI ref: `sdust check` now type-checks
+- CLI ref: `mty check` now type-checks
 - Diagnostics ref: SD2xxx table
 - Tour pages where relevant get a "Type errors you might see" subsection
 - Amendments: A7-A10
@@ -430,7 +430,7 @@ The driver:
 - [ ] `cargo test --workspace` green (250+ tests)
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` clean
 - [ ] `cargo fmt --all -- --check` clean
-- [ ] All 20 examples `sdust check` clean
+- [ ] All 20 examples `mty check` clean
 - [ ] Tag `v0.3.0-typeck`; push tag
 
 ---

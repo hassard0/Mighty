@@ -3,7 +3,7 @@
 Real HTTP/1.1 client + server via [`hyper`](https://github.com/hyperium/hyper)
 1.x and [`hyper-util`](https://github.com/hyperium/hyper-util).
 
-Supersedes the slice-7 minimal in-memory server (`sdust-runtime::http`),
+Supersedes the slice-7 minimal in-memory server (`mty-runtime::http`),
 which is still re-exported for backwards compatibility with existing
 runtime tests.
 

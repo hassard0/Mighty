@@ -1,4 +1,4 @@
-# Stardust v0.6 — Complete
+# Mighty v0.6 — Complete
 
 **Tag:** `v0.6.0`
 **Date:** 2026-05-24
@@ -6,16 +6,16 @@
 "multi-core + benchmarks + self-host parser" milestone: the runtime
 finally distributes work across N OS threads with a per-worker tokio
 runtime + crossbeam-deque work-stealing scheduler, the first honest
-cross-language benchmarks land alongside a `sdust-bench` crate, the
-Stardust source parser is itself ported to Stardust and runs through
-the bootstrap host bridge, and the v0.5 loose-end DOM SIR lowering /
+cross-language benchmarks land alongside a `mty-bench` crate, the
+Mighty source parser is itself ported to Mighty and runs through
+the bootstrap host bridge, and the v0.5 loose-end DOM MtyIR lowering /
 central SD catalog / per-call FsCap isolation are folded in inline.
 
 v0.6 was built by a three-agent autonomous swarm (multi-core
 scheduler / cross-language benchmarks / self-host parser) over a
 single session, then integrated through this slice document. Three
 v0.5 loose-end "easy wins" landed during integration: `BuiltinId::DomOp`
-+ DOM SIR lowering (closes the v0.5 `#[allow(dead_code)]` on
++ DOM MtyIR lowering (closes the v0.5 `#[allow(dead_code)]` on
 `emit_dom_call`), the MT6001-MT6006 macro catalog merge into
 `sdust_diagnostics::codes`, and an FsCap cross-cap isolation test.
 The v0.5 "loose ends" agent was killed before committing anything;
@@ -72,16 +72,16 @@ to a later slice).
 The v0.5 stats were green-and-passing but had no perf data.
 v0.6 introduces the first honest cross-language benchmarks.
 
-- **New `sdust-bench` workspace crate.** Six measurable categories,
-  each with `benches/<category>/{stardust.rs, rust/, go/, cpp/, …}/`
-  scaffolds + a `sdust-bench-runner` CLI:
+- **New `mty-bench` workspace crate.** Six measurable categories,
+  each with `benches/<category>/{mighty.rs, rust/, go/, cpp/, …}/`
+  scaffolds + a `mty-bench-runner` CLI:
   - `parse_throughput` (vs Rust hand-written lexer + Rust `logos`)
   - `agent_send_latency` (vs `tokio::sync::mpsc`, Go `chan`, C++ asio coro)
   - `mailbox_throughput` (same comparators, one producer + one consumer)
   - `http_server_throughput` (vs `hyper`, Go `net/http`, `cpp-httplib`)
   - `compile_to_native` (vs `rustc` / `go` / `clang`)
   - `wasm_size` (vs Rust `wasm32`, TinyGo, Emscripten)
-- **Criterion harness** (`cargo bench -p sdust-bench`) — 100+ iters
+- **Criterion harness** (`cargo bench -p mty-bench`) — 100+ iters
   publication-grade; the CLI runner uses 30 iters for quick-look.
 - **CI workflow** (`.github/workflows/bench.yml`) records every
   push's perf delta as a build artifact.
@@ -98,13 +98,13 @@ which comparator hosts are pending on the Windows build host).
 ### Self-host parser — selfhost-swarm agent (commits `a9c89c8`, `1b41b22`)
 
 The v0.5 self-host work hit the lexer (4/4 full byte-for-byte diff
-against the Rust lexer). v0.6 climbs the next rung: the Stardust
-source **parser** is itself ported to Stardust.
+against the Rust lexer). v0.6 climbs the next rung: the Mighty
+source **parser** is itself ported to Mighty.
 
-- **`selfhost/parser/parser.sd` — ~1930 LOC**, `sdust check`s clean,
-  type-checks + borrow-checks clean, runs end-to-end through the SIR
+- **`selfhost/parser/parser.sd` — ~1930 LOC**, `mty check`s clean,
+  type-checks + borrow-checks clean, runs end-to-end through the MtyIR
   interpreter via a new `SelfhostParserHost` bootstrap bridge
-  (`crates/sdust-driver/tests/selfhost_parser.rs`).
+  (`crates/mty-driver/tests/selfhost_parser.rs`).
 - **Production matrix coverage** (see
   `SELFHOST_PARSER_V0_6_NOTES.md` Table 1): `fn`/`struct`/`enum`/
   `type`/`use`/`mod`/`package`/`impl`/`trait`/`const`/`extern`,
@@ -133,29 +133,29 @@ The "v0.5 loose ends" swarm agent was killed before committing
 anything. The integrator picked up three items that fit inside a
 10-file-edit budget:
 
-- **`BuiltinId::DomOp(name)` + DOM SIR lowering** (A108). The v0.5
+- **`BuiltinId::DomOp(name)` + DOM MtyIR lowering** (A108). The v0.5
   Wasm Component DOM surface shipped the WIT contract + the four
-  `stardust:web/dom` imports but `emit_dom_call` was
-  `#[allow(dead_code)]` because the SIR had no way to emit Dom-cap
+  `mighty:web/dom` imports but `emit_dom_call` was
+  `#[allow(dead_code)]` because the MtyIR had no way to emit Dom-cap
   method calls. v0.6 adds a `BuiltinId::DomOp(String)` variant; the
   lowerer routes any method call whose receiver type is
   `Cap { family: CapFamily::Dom, .. }` to a
   `Call { func: BuiltinId::DomOp(method) }` (both the
   `HirExpr::MethodCall` chained-receiver path and the
   `local.method(args)` Call-as-Path shortcut). The wasm32-web backend
-  routes DomOp through `emit_dom_call` end-to-end; the SIR
+  routes DomOp through `emit_dom_call` end-to-end; the MtyIR
   interpreter routes it through `host.extern_call("dom.<op>", args)`
   so headless tests don't crash; the cranelift backend stubs DomOp
   to a zero placeholder (DOM cap has no native target). Closes v0.5
-  deferral #6. **Tests**: 3 SIR lowering shape tests (positive,
+  deferral #6. **Tests**: 3 MtyIR lowering shape tests (positive,
   multi-op, negative control over non-Dom methods) + 1 wasm-emit
-  smoke (a SIR with a DomOp call still produces valid wasm).
+  smoke (a MtyIR with a DomOp call still produces valid wasm).
 - **Central SD catalog merge** (A107). The MT6001-MT6006 macro-band
   codes that lived in `sdust_macros::diag` as bare `u16`s move into
   `sdust_diagnostics::codes` as `DiagCode` constants. `sdust_macros`
   picks up a path-dep on `sdust_diagnostics` and re-exports the
-  `u16` values so existing call-sites in `sdust-hir` compile
-  unchanged. `sdust explain SDxxxx` is now single-sourced on the
+  `u16` values so existing call-sites in `mty-hir` compile
+  unchanged. `mty explain SDxxxx` is now single-sourced on the
   catalog. Closes v0.5 deferral #8.
 - **Per-call FsCap isolation contract** (A109). The
   `sdust_stdlib::fs::{read, write, exists, list_dir}` API already
@@ -170,7 +170,7 @@ anything. The integrator picked up three items that fit inside a
 
 - **Workspace: 885 passing** (0 failures, 2 ignored — network /
   pending) — was 839 in v0.5. **+46 tests** (23 multi-core scheduler,
-  8 sdust-bench, 13 self-host parser, 3 dom_lowering, 1 dom_imports
+  8 mty-bench, 13 self-host parser, 3 dom_lowering, 1 dom_imports
   wasm-emit smoke, 1 fs cap isolation).
 - **Conformance:** all categories pass; new
   `mailbox_ordering/06_multicore_fifo` + `07_multicore_throughput_smoke`
@@ -198,25 +198,25 @@ acknowledges as already-closed-by-design) the following:
 
 **Closed by the swarm**:
 - Multi-core scheduler / multi-worker runtime (A101..A106)
-- First honest benchmarks (sdust-bench crate + 6 categories)
+- First honest benchmarks (mty-bench crate + 6 categories)
 - Self-host parser subset (lexer was v0.5; parser is v0.6)
 
 **Closed by integrator easy-wins**:
-- DOM SIR lowering (A108) — closes v0.5 deferral #6
+- DOM MtyIR lowering (A108) — closes v0.5 deferral #6
 - Central MT6001-MT6006 catalog (A107) — closes v0.5 deferral #8
 - Per-call FsCap isolation contract (A109) — closes v0.5 deferral #7
   modulo per-call materialisation from sandbox manifest (the API
   shape was already correct; the test is the contract)
 
 **Carried forward to v0.7** (too invasive for v0.6 integration scope):
-- Proc-macro sandboxed execution (needs SIR sub-interp work)
+- Proc-macro sandboxed execution (needs MtyIR sub-interp work)
 - Real per-agent HTTP routing via `install_agent_dispatch` wiring
 - Set-of-scopes macro hygiene (replaces v0.5 mangling pass — large
   macro surgery)
 - LSP workspace resolve map for cross-file rename / go-to-def
 - Canonical-ABI return-area bridge so `get-text` / `query` return
   `string` / `option<string>` instead of `u32` handles
-- Per-call FsCap materialisation from sandbox manifest at the SIR
+- Per-call FsCap materialisation from sandbox manifest at the MtyIR
   lower (A109 ships the contract; this lifts the cap into each
   call site)
 - Labelled `break 'outer` / iterator trait surface
@@ -235,7 +235,7 @@ A104 — Per-worker scheduler telemetry (v0.6)
 A105 — Scheduler driver runtime separation (v0.6)
 A106 — Default worker count = available_parallelism (v0.6)
 A107 — Central diagnostic catalog for MT6001-MT6006 (v0.6, integrator)
-A108 — BuiltinId::DomOp(name) SIR variant (v0.6, integrator)
+A108 — BuiltinId::DomOp(name) MtyIR variant (v0.6, integrator)
 A109 — Per-call FsCap isolation contract (v0.6, integrator)
 ```
 
@@ -251,9 +251,9 @@ from the integrator pass.
 | Agent affinity | n/a | `AffinityHint::Sticky` + `Sticky(worker_id)` (A102) |
 | Per-worker telemetry | n/a | `Scheduler::stats()` -> `WorkerStats` (A104) |
 | Cross-language performance numbers | none | 6 categories, code shipped + scaffolds for Rust/Go/C++ comparators |
-| Stardust parser written in Stardust | only lexer | parser at ~1930 LOC, 13/13 bootstrap tests pass |
-| `dom.set_text(...)` in Stardust source | typeck only — never reaches `emit_dom_call` | full SIR lowering + wasm call (A108) |
-| `sdust explain MT6001` | resolves via `sdust_macros::diag` (separate catalog) | resolves via the single `sdust_diagnostics::codes` catalog (A107) |
+| Mighty parser written in Mighty | only lexer | parser at ~1930 LOC, 13/13 bootstrap tests pass |
+| `dom.set_text(...)` in Mighty source | typeck only — never reaches `emit_dom_call` | full MtyIR lowering + wasm call (A108) |
+| `mty explain MT6001` | resolves via `sdust_macros::diag` (separate catalog) | resolves via the single `sdust_diagnostics::codes` catalog (A107) |
 | `FsCap` isolation between two caps in one process | implicit | contract pinned by test (A109) |
 
 ## Cross-cut fixes applied during integration
@@ -279,8 +279,8 @@ for v0.6" backlog above.
    the existing agent-loop async infrastructure.
 3. **OTLP exporter wiring** for `Scheduler::stats()` gauges.
 4. **`agent X with affinity = sticky` syntax** — runtime API exists;
-   front-end syntax requires `sdust-syntax` / `sdust-ast` /
-   `sdust-hir` work.
+   front-end syntax requires `mty-syntax` / `mty-ast` /
+   `mty-hir` work.
 
 ### Benchmarks
 
@@ -315,7 +315,7 @@ for v0.6" backlog above.
 16. **Canonical-ABI return-area bridge** so `get-text` / `query`
     return real `string` / `option<string>`.
 17. **Per-call FsCap materialisation from sandbox manifest** at the
-    SIR lower (A109 pins the contract; this is the lifting work).
+    MtyIR lower (A109 pins the contract; this is the lifting work).
 18. **Labelled `break 'outer` / iterator trait surface**.
 19. **`format!`-style variadic macro args**.
 20. **Receiver-chain LSP completion** + **method-call receiver typing**.
@@ -325,7 +325,7 @@ for v0.6" backlog above.
 21-47. Two-phase borrows, deeper field paths, index-aware
 disjointness, Polonius joins, cross-fn region inference, supervisor
 strict cap-name resolution, fn-signature cap narrowing, cross-pkg
-Sendable propagation, Sendable lambda capture, SIR mid-turn
+Sendable propagation, Sendable lambda capture, MtyIR mid-turn
 cancellation polling, CpuBudget reason wiring, HTTP/protobuf OTLP
 transport selector, OTel resource-attr env-vars, DelayScheduler as
 default per-turn timer, WASI Preview 2 + user-authored WIT, DWARF v5
@@ -342,7 +342,7 @@ capture in compiled code, LLVM backend smoke on Linux/LLVM 17,
   (plus the `ef031d2` prep commit before tag).
 - **+9000 insertions / -183 deletions** across **99 files** (this
   slice).
-- **Workspace stays at 21 crates** (+1 from v0.5: new `sdust-bench`).
+- **Workspace stays at 21 crates** (+1 from v0.5: new `mty-bench`).
 - **+46 new tests** (839 → 885).
 - **0 clippy warnings** with `-D warnings`.
 - **20/20 examples** build to native + wasm32-web Components.
@@ -359,7 +359,7 @@ capture in compiled code, LLVM backend smoke on Linux/LLVM 17,
 2. **Benchmark comparators are code-only on this host.** Go / g++ /
    TinyGo / Emscripten aren't installed on the v0.6 build host, so
    the "Reference env" column in `docs/benchmarks/*.md` is marked
-   pending. The Stardust numbers are real (recorded by criterion).
+   pending. The Mighty numbers are real (recorded by criterion).
 3. **Self-host parser is a subset.** ~1930 LOC covers everything
    examples 01-05 reach; the productions in the deferral list above
    (send sugar, HTML literals, agent/protocol/supervisor, etc.) wait
@@ -398,5 +398,5 @@ v0.7 picks up the deferral catalogue above. Likely themes:
 
 The aspirational v0.7 tagline: *"the compiler runs its own
 type-checker, the scheduler steals work message-by-message, and
-proc-macros run inside the same SIR sandbox the rest of the language
+proc-macros run inside the same MtyIR sandbox the rest of the language
 runs in."*

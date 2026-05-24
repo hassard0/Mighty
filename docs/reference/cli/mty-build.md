@@ -1,23 +1,23 @@
-# `sdust build`
+# `mty build`
 
-Compile a Stardust source file to a runnable artifact (slice 8).
+Compile a Mighty source file to a runnable artifact (slice 8).
 
 ## Synopsis
 
 ```
-sdust build <PATH> [--debug | --release] [--target TARGET] [--out-dir DIR] [--no-component]
+mty build <PATH> [--debug | --release] [--target TARGET] [--out-dir DIR] [--no-component]
 ```
 
 ## Description
 
-`sdust build` runs the same parse → lower → typeck → borrowck →
-SIR pipeline as `sdust run`, then hands the program to the
+`mty build` runs the same parse → lower → typeck → borrowck →
+MtyIR pipeline as `mty run`, then hands the program to the
 configured backend. Two backends ship in v0.1:
 
-- **native** (default) — Cranelift via `sdust-codegen-cranelift`.
+- **native** (default) — Cranelift via `mty-codegen-cranelift`.
   Produces a host-format object (`.o`) and links it into an
   executable via the platform linker.
-- **wasm32-wasi** / **wasm32-web** — `sdust-codegen-wasm`. Emits a
+- **wasm32-wasi** / **wasm32-web** — `mty-codegen-wasm`. Emits a
   core Wasm module (`.wasm`).
 
 Per [A46](../../spec/v0.1-amendments.md#a46), LLVM is not the
@@ -66,7 +66,7 @@ For native builds, the discovery order is:
 The MSYS/Git-Bash `/usr/bin/link.exe` shim is **skipped** because
 it's a hardlink helper, not a linker.
 
-If no linker is found, `sdust build` still succeeds for the object
+If no linker is found, `mty build` still succeeds for the object
 file. The exit message is:
 
 ```
@@ -84,22 +84,22 @@ clang target/01_hello.o -o target/01_hello
 
 ```bash
 # Default: native debug build → target/01_hello (or .exe)
-sdust build examples/01_hello.sd
+mty build examples/01_hello.sd
 
 # Native release build with a custom out dir:
-sdust build --release --out-dir dist/ src/main.sd
+mty build --release --out-dir dist/ src/main.sd
 
 # Wasm WASI build → Component Model component (v0.2 default):
-sdust build --target wasm32-wasi examples/01_hello.sd
+mty build --target wasm32-wasi examples/01_hello.sd
 # Wasmtime requires the component-model flag:
 wasmtime --wasm component-model target/01_hello.wasm
 
 # Bare core wasm module (skip component wrapper):
-sdust build --no-component --target wasm32-wasi examples/01_hello.sd
+mty build --no-component --target wasm32-wasi examples/01_hello.sd
 wasmtime target/01_hello.wasm                          # works without --wasm component-model
 
 # Browser-targeted Wasm → Component Model, transpile via jco:
-sdust build --target wasm32-web src/widget.sd
+mty build --target wasm32-web src/widget.sd
 jco transpile target/widget.wasm -o dist/widget       # emits ESM glue + .wasm core
 # then load dist/widget/widget.js as a module in your page
 ```
@@ -123,10 +123,10 @@ the v0.2 coverage matrix, format details, and known limitations
 (coarse line table, no `.debug_loc` location lists yet).
 
 ```bash
-sdust build --debug examples/01_hello.sd
+mty build --debug examples/01_hello.sd
 objdump --dwarf=info target/01_hello.o   # native DWARF
 
-sdust build --debug --target wasm32-wasi examples/01_hello.sd
+mty build --debug --target wasm32-wasi examples/01_hello.sd
 ls target/01_hello.wasm target/01_hello.wasm.map
 ```
 
@@ -152,9 +152,9 @@ ls target/01_hello.wasm target/01_hello.wasm.map
 ## Backend coverage matrix
 
 The slice-8 native and wasm backends cover a deliberately narrow
-SIR subset. Programs the backend can't lower trigger
-`CodegenError::Unsupported(reason)`. For `sdust run` this falls
-back to the interpreter transparently; for `sdust build` it
+MtyIR subset. Programs the backend can't lower trigger
+`CodegenError::Unsupported(reason)`. For `mty run` this falls
+back to the interpreter transparently; for `mty build` it
 surfaces as exit 2 with a `build error: ...` message.
 
 See [SLICE8.md](../../../SLICE8.md) for the per-example matrix and
@@ -162,9 +162,9 @@ the v0.2 backlog.
 
 ## See also
 
-- `sdust run` — JIT-compile and execute in one step
-- `sdust check` — type / borrow check without lowering
-- `sdust dump` — emit AST / CST / HIR / SIR for inspection
+- `mty run` — JIT-compile and execute in one step
+- `mty check` — type / borrow check without lowering
+- `mty dump` — emit AST / CST / HIR / MtyIR for inspection
 - [Codegen internals: Cranelift](../../internals/codegen-cranelift.md)
 - [Codegen internals: Wasm](../../internals/codegen-wasm.md)
 - [Codegen internals: LLVM scaffold](../../internals/codegen-llvm.md)

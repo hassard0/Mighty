@@ -1,4 +1,4 @@
-# Stardust Slice 7 — Complete
+# Mighty Slice 7 — Complete
 
 **Tag:** `v0.7.0-runtime`
 **Date:** 2026-05-24
@@ -7,7 +7,7 @@
 
 ### Runtime crate (spec §25 + §31.5)
 
-- New crate `sdust-runtime` (~1 800 lines + tests).
+- New crate `mty-runtime` (~1 800 lines + tests).
 - Tokio-backed executor (multi-thread by default; current-thread for
   deterministic mode).
 - Per-agent `AgentDescriptor` with bounded mailbox, atomic budget
@@ -32,7 +32,7 @@
 - `StdHost` routes effect calls through the budget tracker so net
   hosts and fs paths get gated.
 
-### SIR per-turn evaluator hooks
+### MtyIR per-turn evaluator hooks
 
 - `sdust_sir::interp::run::run_handler_isolated(prog, handler, state,
   args, host)` — single-handler execution with proper self-ref state
@@ -43,7 +43,7 @@
   (A44) so `(*self).fN = v` actually mutates state. The slice-6
   `invoke_handler` now delegates to `run_handler_isolated`, so the
   Counter example (08) returns the correct 1, 2, 3 sequence under
-  both `sdust run` and the programmatic Runtime API.
+  both `mty run` and the programmatic Runtime API.
 - Top-frame locals snapshot on outer return so callers can recover
   synthetic state-holder values.
 
@@ -55,9 +55,9 @@
 - MT5014 restart_limit_exceeded
 - MT5015 capability_outside_sandbox
 
-All have `sdust explain SD5xxx` entries.
+All have `mty explain SD5xxx` entries.
 
-### `sdust run` upgrade
+### `mty run` upgrade
 
 - Default path now runs through the runtime
   (`pipeline::run_file_with_runtime`).
@@ -92,15 +92,15 @@ All have `sdust explain SD5xxx` entries.
 | A42 | `restart up_to N in DUR` semantics |
 | A43 | top-level `sandbox` executes as a child runtime |
 | A44 | slice-7 deref-of-ref write path (fixes counter mutation) |
-| A45 | `sdust run --legacy-interp` opt-out |
+| A45 | `mty run --legacy-interp` opt-out |
 
 ## Stats
 
 - **327 tests pass** (slice 6: 290 → slice 7: +37)
 - 5 new SD5xxx diagnostic codes
 - 8 runtime-7 conformance cases
-- New crate `sdust-runtime`
-- `sdust-driver` + `sdust-cli` rewired so `sdust run` defaults to runtime
+- New crate `mty-runtime`
+- `mty-driver` + `mty-cli` rewired so `mty run` defaults to runtime
 
 ## Still deferred (slice 8 unless noted)
 
@@ -123,25 +123,25 @@ All have `sdust explain SD5xxx` entries.
 
 ## Files of note
 
-- `crates/sdust-runtime/src/runtime.rs` — Runtime + RuntimeBuilder
-- `crates/sdust-runtime/src/agent.rs` — AgentDescriptor, run_one_turn
-- `crates/sdust-runtime/src/mailbox.rs` — bounded MPSC + MessageFrame
-- `crates/sdust-runtime/src/supervisor.rs` — RestartTracker, strategies
-- `crates/sdust-runtime/src/budget.rs` — BudgetTracker, allowlists
-- `crates/sdust-runtime/src/timer.rs` — deadline helper
-- `crates/sdust-runtime/src/telemetry.rs` — JSON emitter
-- `crates/sdust-runtime/src/deterministic.rs` — SeededRng, LogicalClock
-- `crates/sdust-runtime/src/http.rs` — minimal HTTP/1.1 server
-- `crates/sdust-runtime/src/host_std.rs` — real OS host with sandbox gates
-- `crates/sdust-runtime/src/error.rs` — RuntimeError taxonomy
-- `crates/sdust-sir/src/interp/run.rs` — `run_handler_isolated`,
+- `crates/mty-runtime/src/runtime.rs` — Runtime + RuntimeBuilder
+- `crates/mty-runtime/src/agent.rs` — AgentDescriptor, run_one_turn
+- `crates/mty-runtime/src/mailbox.rs` — bounded MPSC + MessageFrame
+- `crates/mty-runtime/src/supervisor.rs` — RestartTracker, strategies
+- `crates/mty-runtime/src/budget.rs` — BudgetTracker, allowlists
+- `crates/mty-runtime/src/timer.rs` — deadline helper
+- `crates/mty-runtime/src/telemetry.rs` — JSON emitter
+- `crates/mty-runtime/src/deterministic.rs` — SeededRng, LogicalClock
+- `crates/mty-runtime/src/http.rs` — minimal HTTP/1.1 server
+- `crates/mty-runtime/src/host_std.rs` — real OS host with sandbox gates
+- `crates/mty-runtime/src/error.rs` — RuntimeError taxonomy
+- `crates/mty-sir/src/interp/run.rs` — `run_handler_isolated`,
   `run_fn_with_budget`, deref-of-ref write path, top-frame snapshot
-- `crates/sdust-driver/src/pipeline.rs` — `run_file_with_runtime`
-- `crates/sdust-cli/src/cmd/run.rs` — `--legacy-interp` flag wiring
-- `crates/sdust-diagnostics/src/codes.rs` — MT5011..MT5015 + explain
+- `crates/mty-driver/src/pipeline.rs` — `run_file_with_runtime`
+- `crates/mty-cli/src/cmd/run.rs` — `--legacy-interp` flag wiring
+- `crates/mty-diagnostics/src/codes.rs` — MT5011..MT5015 + explain
 - `docs/internals/runtime.md`, `scheduler.md`, `mailboxes.md`,
   `supervisors.md`, `budgets.md`, `telemetry.md` — new
 - `docs/spec/v0.1-amendments.md` — A36..A45
 - `tests/conformance/runtime-7/*` — 8 runtime cases
-- `crates/sdust-driver/tests/conformance_runtime_7.rs` — corpus driver
-- `crates/sdust-runtime/tests/*.rs` — 8 integration tests
+- `crates/mty-driver/tests/conformance_runtime_7.rs` — corpus driver
+- `crates/mty-runtime/tests/*.rs` — 8 integration tests

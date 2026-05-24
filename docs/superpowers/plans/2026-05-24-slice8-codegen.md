@@ -9,8 +9,8 @@
    - Confirms A46 fallback decision; LLVM crate is scaffold-only.
 
 2. **T02 — Workspace plumbing**
-   - Add `crates/sdust-codegen-cranelift`, `crates/sdust-codegen-wasm`,
-     `crates/sdust-codegen-llvm` to `Cargo.toml` workspace members.
+   - Add `crates/mty-codegen-cranelift`, `crates/mty-codegen-wasm`,
+     `crates/mty-codegen-llvm` to `Cargo.toml` workspace members.
    - Workspace deps additions: `cranelift-codegen`, `cranelift-frontend`,
      `cranelift-module`, `cranelift-jit`, `cranelift-object`,
      `cranelift-native`, `target-lexicon`, `wasm-encoder`,
@@ -23,7 +23,7 @@
      returning `Err(NotYetImplemented)` to confirm wiring.
 
 4. **T04 — Diagnostic codes MT8001..MT8010**
-   - Reserve in `sdust-diagnostics/src/codes.rs`.
+   - Reserve in `mty-diagnostics/src/codes.rs`.
    - Wire `explain` for each.
 
 5. **T05 — Amendment A46..A53 entries**
@@ -41,7 +41,7 @@
    - `layout_of(&SirTy, &AdtCatalog) -> Layout { size, align, fields }`.
 
 8. **T08 — Function emission skeleton**
-   - For each SIR fn: declare signature; build `FunctionBuilder`.
+   - For each MtyIR fn: declare signature; build `FunctionBuilder`.
    - Walk blocks: emit terminators (`Goto`, `If`, `Return`).
 
 9. **T09 — Statement lowering — Assign / Const / BinOp**
@@ -63,7 +63,7 @@
     - Load (ptr, len) pair at use site.
 
 13. **T13 — Monomorphization pass**
-    - Walk SIR; collect generic call sites; specialize per (FnId, args).
+    - Walk MtyIR; collect generic call sites; specialize per (FnId, args).
     - Rewrite call graph to specialized ids; drop generic originals.
 
 14. **T14 — JIT driver**
@@ -97,7 +97,7 @@
     - Aggregates: encode via stack pointer + linear memory.
 
 20. **T20 — Wasm function bodies**
-    - Per SIR fn, build a `Function` body via `wasm-encoder::Function`.
+    - Per MtyIR fn, build a `Function` body via `wasm-encoder::Function`.
     - Lower stmts: const, binop, local set/get, return.
 
 21. **T21 — Wasm memory + data**
@@ -106,7 +106,7 @@
     - Bump-allocator helper fn emitted inline.
 
 22. **T22 — Wasm capability imports**
-    - `(import "stardust" "log" (func (param i32 i32)))`.
+    - `(import "mighty" "log" (func (param i32 i32)))`.
     - One import per capability surface present in the program.
 
 23. **T23 — `wasm32-wasi` adapter**
@@ -122,20 +122,20 @@
 
 ## Phase 3 — Driver / CLI Wiring (5 tasks)
 
-26. **T26 — `sdust build` subcommand**
+26. **T26 — `mty build` subcommand**
     - clap subcommand with `--debug`, `--release`,
       `--target {native,wasm32-wasi,wasm32-web}`, `--out PATH`,
       `--profile {core}`.
     - Dispatches to codegen-cranelift or codegen-wasm.
     - Writes artifact to `target/`.
 
-27. **T27 — `sdust run` switches to JIT**
+27. **T27 — `mty run` switches to JIT**
     - Default path: compile via cranelift-jit, find `main`, invoke.
     - Fallback to interpreter on `CompileResult::Unsupported`.
     - `--legacy-interp` flag keeps slice-6 tree-walker.
 
 28. **T28 — Manifest plumbing**
-    - `star.toml [extern]` table → propagated through pipeline.
+    - `mighty.toml [extern]` table → propagated through pipeline.
     - Build-mode defaults (`build.default-mode = "debug"` etc.).
 
 29. **T29 — Driver compile entry**
@@ -175,11 +175,11 @@
 
 36. **T36 — Conformance: native (8 cases)**
     - `tests/conformance/codegen/native_*/input.sd` + `expected.txt`.
-    - Runner in `crates/sdust-driver/tests/conformance_codegen_native.rs`.
+    - Runner in `crates/mty-driver/tests/conformance_codegen_native.rs`.
 
 37. **T37 — Conformance: wasm (4 cases)**
     - `tests/conformance/codegen/wasm_*/input.sd` + expected validation.
-    - Runner in `crates/sdust-driver/tests/conformance_codegen_wasm.rs`.
+    - Runner in `crates/mty-driver/tests/conformance_codegen_wasm.rs`.
 
 38. **T38 — Examples sweep**
     - Verify 01, 07, 08, 11, 19 build to native binary.
@@ -191,7 +191,7 @@
       binary.
 
 40. **T40 — Update `getting-started.md`**
-    - Add `sdust build` flow section; show artifact paths.
+    - Add `mty build` flow section; show artifact paths.
 
 ## Phase 6 — Docs + Release (8 tasks)
 
@@ -204,14 +204,14 @@
 43. **T43 — `docs/internals/codegen-llvm.md`**
     - Scaffold notes, why feature-gated, future-work outline.
 
-44. **T44 — `docs/reference/cli/sdust-build.md`**
+44. **T44 — `docs/reference/cli/mty-build.md`**
     - Full flag reference, examples, exit codes.
 
 45. **T45 — Diagnostics ref update**
     - Add MT8001..MT8010 to `docs/reference/diagnostics.md`.
 
 46. **T46 — README update**
-    - Roadmap shows slice 8 shipped; v0.1 = complete; add `sdust build`
+    - Roadmap shows slice 8 shipped; v0.1 = complete; add `mty build`
       to quickstart.
 
 47. **T47 — `RELEASE-v0.1.md`**

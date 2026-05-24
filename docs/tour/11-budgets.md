@@ -42,7 +42,7 @@ For the long form (`sandbox ... with { ... } { run ... }`), see
 ## Run it
 
 ```bash
-sdust check examples/11_budget_block.sd
+mty check examples/11_budget_block.sd
 ```
 
 ## Next

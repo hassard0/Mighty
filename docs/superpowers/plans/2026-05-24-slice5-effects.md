@@ -1,7 +1,7 @@
-# Stardust Slice 5 Plan — Effects, Capabilities, Traits
+# Mighty Slice 5 Plan — Effects, Capabilities, Traits
 
 **Spec:** `docs/superpowers/specs/2026-05-24-slice5-effects-design.md`
-**Repo:** `C:\Users\ihass\stardust` (main, push direct)
+**Repo:** `C:\Users\ihass\mighty` (main, push direct)
 **Acceptance:** 266+ tests pass, clippy clean, fmt clean, 20 examples
 clean, `v0.5.0-effects` tag pushed.
 
@@ -28,14 +28,14 @@ clean, `v0.5.0-effects` tag pushed.
 
 ### Part B — Effect inference
 
-5. **New `sdust-types::effects` module** — `infer_fn_effects(fn_def, body, defs, ...)`
+5. **New `mty-types::effects` module** — `infer_fn_effects(fn_def, body, defs, ...)`
    walks the body and returns a `HashSet<EffectId>`. Per spec rules.
 6. **Fixpoint over the call graph** — `infer_all_effects(typed: &mut TypedPackage)`
    builds an initial empty effect map, then iterates body walks until
    no set changes. Bound by O(N × E).
 7. **Public-fn declared vs inferred check** — `validate_pub_effects(...)`
    emits `MT4001 effect_undeclared` listing missing effects.
-8. **Strict profile (`profile = "core"`) check** — load `star.toml`,
+8. **Strict profile (`profile = "core"`) check** — load `mighty.toml`,
    read `profile` field. If `"core"`, emit `MT4002 alloc_in_core` for
    any inferred `alloc`.
 9. **TypedPackage extension** — add `fn_effects: HashMap<FnId, Vec<EffectId>>`
@@ -118,13 +118,13 @@ clean, `v0.5.0-effects` tag pushed.
 
 ### Part I — Wire + ship
 
-34. **SD4xxx + `sdust explain`** — register every new code in `codes.rs`
+34. **SD4xxx + `mty explain`** — register every new code in `codes.rs`
     with explain text. Update SDxxxx reference doc.
 35. **Negative-test corpus** — `tests/effects_neg/`, `tests/caps_neg/`,
     `tests/traits_neg/`, `tests/derive_neg/`, `tests/protocol_neg/`.
     One fixture per slice-5 diagnostic.
 36. **Driver pipeline** — `type_check_and_effect_infer_and_borrow_check`
-    chain in `sdust-driver`. Effect inference runs only when
+    chain in `mty-driver`. Effect inference runs only when
     type-check has no errors.
 37. **Example source updates** — examples 04, 06, 11, 18, 19, 20 get
     explicit `effect ...` clauses on `pub`/`export` fns.
@@ -142,7 +142,7 @@ clean, `v0.5.0-effects` tag pushed.
 
 - Compile: `cargo check --workspace` clean.
 - Tests: at least the existing 266 pass; new fixtures pass.
-- Examples: `sdust check examples/<n>.sd` clean for all 20.
+- Examples: `mty check examples/<n>.sd` clean for all 20.
 - Lint: `cargo clippy --workspace --all-targets -- -D warnings` clean.
 - Format: `cargo fmt --all -- --check` clean.
 

@@ -1,7 +1,7 @@
 # EFFECTS_V0_3_NOTES — v0.3 soundness-hardening interpretation log
 
 Owner: effect / capability hardening sub-agent of the v0.3 swarm.
-Scope: `crates/sdust-types/`, `tests/conformance/{effect_checking,
+Scope: `crates/mty-types/`, `tests/conformance/{effect_checking,
 capability_checking,agent_protocol}/`, the v0.3 sections of
 `docs/internals/{typeck,sendable,effects,capabilities,traits}.md`,
 and the A65 amendments in `docs/spec/v0.1-amendments.md`.
@@ -84,7 +84,7 @@ unit test `crate::effects::tests::core_profile_rejects_alloc`.
 The conformance case shape lives at
 `tests/conformance/effect_checking/05_strict_core_profile/` but
 asserts the no-error (host) outcome because the harness reads the
-workspace's `star.toml` directly. Per-case `star.toml` overrides
+workspace's `mighty.toml` directly. Per-case `mighty.toml` overrides
 are flagged as v0.3.1 work in the case README.
 
 ### IC5 — Sendable handling of `AgentRef[T]`
@@ -111,8 +111,8 @@ and refine this.
    flip `tolerance_open=false` in the SupervisorBody /
    CapNarrowBody branches; the existing strict ScopeKind will
    pick up MT2021 automatically.
-2. **Per-case `star.toml` in the conformance harness.** Today the
-   harness reads the workspace `star.toml`; adding per-case
+2. **Per-case `mighty.toml` in the conformance harness.** Today the
+   harness reads the workspace `mighty.toml`; adding per-case
    overrides enables direct conformance assertion of MT4002 (and
    future profile-driven diagnostics).
 3. **Function-signature cap-narrowing.** MT4010 fires only at
@@ -148,34 +148,34 @@ re-aimed.)
 
 ## Test count delta
 
-- 22 → 25 unit tests inside `sdust-types` (added Sendable + two
+- 22 → 25 unit tests inside `mty-types` (added Sendable + two
   effects-profile tests).
 - 0 → 14 new integration tests under
-  `crates/sdust-types/tests/` (scope-strict / scope-permissive /
+  `crates/mty-types/tests/` (scope-strict / scope-permissive /
   sendable / protocol-param-strict / cap-subsumption files).
 - 4 new conformance cases under `tests/conformance/`.
 
 ## Files modified
 
-- `crates/sdust-types/src/check.rs` — added `ScopeKind`,
+- `crates/mty-types/src/check.rs` — added `ScopeKind`,
   `check_sendable_arg`, scope_kind plumbing in sub-scope openers,
   rewrote `synth_path` strict/permissive fork.
-- `crates/sdust-types/src/items.rs` — set scope_kind for each
+- `crates/mty-types/src/items.rs` — set scope_kind for each
   Cx construction (TopLevelFn / AgentBody / HandlerBody /
   SupervisorBody), added local-protocol MT4031 post-check, added
   helpers `is_handler_protocol_local` / `first_protocol_name`.
-- `crates/sdust-types/src/defs.rs` — added `DefMap::user_sendable`.
-- `crates/sdust-types/src/resolve.rs` — `derive(Sendable)` handler.
-- `crates/sdust-types/src/sendable.rs` (NEW) — Sendable rule.
-- `crates/sdust-types/src/lib.rs` — wire `sendable` module.
-- `crates/sdust-types/src/diag.rs` — added
+- `crates/mty-types/src/defs.rs` — added `DefMap::user_sendable`.
+- `crates/mty-types/src/resolve.rs` — `derive(Sendable)` handler.
+- `crates/mty-types/src/sendable.rs` (NEW) — Sendable rule.
+- `crates/mty-types/src/lib.rs` — wire `sendable` module.
+- `crates/mty-types/src/diag.rs` — added
   `unresolved_value_strict`, `protocol_param_type_mismatch`,
   `non_sendable_message_arg`; updated derive_unknown text path.
-- `crates/sdust-types/src/effects.rs` — added strict-profile +
+- `crates/mty-types/src/effects.rs` — added strict-profile +
   parse-profile unit tests.
-- `crates/sdust-types/Cargo.toml` — add `sdust-driver` dev-dep
+- `crates/mty-types/Cargo.toml` — add `mty-driver` dev-dep
   for the integration tests' end-to-end pipeline.
-- `crates/sdust-diagnostics/src/codes.rs` — updated MT2021, MT3011,
+- `crates/mty-diagnostics/src/codes.rs` — updated MT2021, MT3011,
   MT4031, MT4041 explain text.
 - `docs/internals/{typeck,sendable,effects,capabilities,traits}.md`
   — A65 documentation.
@@ -185,7 +185,7 @@ re-aimed.)
   `tests/conformance/capability_checking/04_cap_too_broad/`,
   `tests/conformance/agent_protocol/05_handler_param_type/` —
   new conformance cases.
-- `crates/sdust-types/tests/{scope_strict_agent.rs,
+- `crates/mty-types/tests/{scope_strict_agent.rs,
   scope_strict_supervisor.rs, scope_permissive_extern.rs,
   sendable_copy_passes.rs, sendable_non_copy_fails.rs,
   protocol_param_strict.rs, cap_subsumption.rs}` — new

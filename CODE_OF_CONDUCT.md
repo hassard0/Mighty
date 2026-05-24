@@ -1,6 +1,6 @@
 # Code of Conduct
 
-Stardust adopts the [Contributor Covenant version 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/)
+Mighty adopts the [Contributor Covenant version 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/)
 as its project code of conduct. The canonical text is available at the
 link above.
 

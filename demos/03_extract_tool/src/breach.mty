@@ -1,7 +1,7 @@
 // demos/03_extract_tool/src/breach.sd — companion to main.sd that
 // trips a budget cap on purpose. Used by smoke.sh to verify the
 // runtime actually wires the sandbox/budget records into the
-// `BudgetTracker` (see crates/sdust-runtime/src/budget.rs).
+// `BudgetTracker` (see crates/mty-runtime/src/budget.rs).
 //
 // What we do:
 //   * Wrap the same Extractor agent in a *deliberately impossible*
@@ -15,7 +15,7 @@
 // interpreter is single-thread synchronous so a 1-frame mailbox cap
 // is the easiest one to trip. If nothing trips, the demo exits 0
 // (still a valid v0.4 state — the cap recording shape is verified by
-// the unit tests in crates/sdust-runtime/tests/).
+// the unit tests in crates/mty-runtime/tests/).
 
 package extract_breach
 

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Close every slice-1 deferral that belongs to the formatter + surface syntax: real Wadler/Lindig per-node formatter, lambdas, if-let, turbofish, keyword method/field names, decimal size suffixes, `run <expr>`, restored examples 19/20, `sdust explain`.
+**Goal:** Close every slice-1 deferral that belongs to the formatter + surface syntax: real Wadler/Lindig per-node formatter, lambdas, if-let, turbofish, keyword method/field names, decimal size suffixes, `run <expr>`, restored examples 19/20, `mty explain`.
 
-**Architecture:** Extend `sdust-syntax` lexer + parser for the 6 surface additions, mirror them in `sdust-hir` lowering, fill in the 6 stub modules in `sdust-fmt` with per-node `Doc` builders, ship `sdust explain` in `sdust-cli`. Tests via insta snapshots, the existing fmt-sweep, and end-to-end `sdust check` on the canonical examples.
+**Architecture:** Extend `mty-syntax` lexer + parser for the 6 surface additions, mirror them in `mty-hir` lowering, fill in the 6 stub modules in `mty-fmt` with per-node `Doc` builders, ship `mty explain` in `mty-cli`. Tests via insta snapshots, the existing fmt-sweep, and end-to-end `mty check` on the canonical examples.
 
 **Tech Stack:** Rust 1.82, logos 0.14, rowan 0.16, la-arena, ariadne, clap, insta. Same workspace as slice 1.
 
@@ -13,20 +13,20 @@
 ## File Structure
 
 **Modify:**
-- `crates/sdust-syntax/src/syntax_kind.rs` — add `RUN_EXPR`, `IF_LET_*` (none — reuse IF_EXPR), `LAMBDA_EXPR` (already exists), update `SIZE_LITERAL` regex.
-- `crates/sdust-syntax/src/parser/exprs.rs` — lambdas, turbofish, run expr, keyword-tolerant `.` postfix.
-- `crates/sdust-syntax/src/parser/stmts.rs` — `if let` branch in `if_expr`.
-- `crates/sdust-syntax/src/parser/paths.rs` — `name_or_keyword`, generic args on path segments.
-- `crates/sdust-syntax/src/parser/types.rs` — extend `effect_clause` for keyword names.
-- `crates/sdust-hir/src/nodes.rs` — `HirExpr::Lambda`, `HirExpr::IfLet`, `HirExpr::Run`, `HirExpr::PathGeneric`.
-- `crates/sdust-hir/src/lower/exprs.rs` — lower the 4 new variants.
-- `crates/sdust-hir/src/dump.rs` — S-expr dump for new variants.
-- `crates/sdust-diagnostics/src/codes.rs` — add `explain(code)` lookup table.
-- `crates/sdust-cli/src/main.rs` — `Cmd::Explain`.
-- `crates/sdust-cli/src/cmd/mod.rs` — add `explain` module.
-- `crates/sdust-fmt/src/lib.rs` — wire real formatter.
-- `crates/sdust-fmt/src/fmt/{mod,items,exprs,patterns,types,agents,concurrency}.rs` — per-node printers.
-- `crates/sdust-fmt/src/trivia.rs` — leading/trailing trivia collection.
+- `crates/mty-syntax/src/syntax_kind.rs` — add `RUN_EXPR`, `IF_LET_*` (none — reuse IF_EXPR), `LAMBDA_EXPR` (already exists), update `SIZE_LITERAL` regex.
+- `crates/mty-syntax/src/parser/exprs.rs` — lambdas, turbofish, run expr, keyword-tolerant `.` postfix.
+- `crates/mty-syntax/src/parser/stmts.rs` — `if let` branch in `if_expr`.
+- `crates/mty-syntax/src/parser/paths.rs` — `name_or_keyword`, generic args on path segments.
+- `crates/mty-syntax/src/parser/types.rs` — extend `effect_clause` for keyword names.
+- `crates/mty-hir/src/nodes.rs` — `HirExpr::Lambda`, `HirExpr::IfLet`, `HirExpr::Run`, `HirExpr::PathGeneric`.
+- `crates/mty-hir/src/lower/exprs.rs` — lower the 4 new variants.
+- `crates/mty-hir/src/dump.rs` — S-expr dump for new variants.
+- `crates/mty-diagnostics/src/codes.rs` — add `explain(code)` lookup table.
+- `crates/mty-cli/src/main.rs` — `Cmd::Explain`.
+- `crates/mty-cli/src/cmd/mod.rs` — add `explain` module.
+- `crates/mty-fmt/src/lib.rs` — wire real formatter.
+- `crates/mty-fmt/src/fmt/{mod,items,exprs,patterns,types,agents,concurrency}.rs` — per-node printers.
+- `crates/mty-fmt/src/trivia.rs` — leading/trailing trivia collection.
 - `examples/19_backend_service.sd` — restore spec syntax.
 - `examples/20_frontend_component.sd` — restore spec syntax.
 - `examples/11_budget_block.sd`, `18_sandbox.sd` — remove divergence notes (`mb 1k`, `run job(input)`).
@@ -36,9 +36,9 @@
 - `docs/reference/cli/explain.md` (new), `docs/reference/diagnostics.md`.
 
 **Create:**
-- `crates/sdust-cli/src/cmd/explain.rs` — handler.
-- `crates/sdust-cli/tests/explain.rs` — CLI test.
-- `crates/sdust-fmt/tests/canonical.rs` — golden canonical-form fixtures.
+- `crates/mty-cli/src/cmd/explain.rs` — handler.
+- `crates/mty-cli/tests/explain.rs` — CLI test.
+- `crates/mty-fmt/tests/canonical.rs` — golden canonical-form fixtures.
 - `tests/fmt/canonical/` — fixture .sd files.
 - `docs/spec/v0.1-amendments.md` — document `k`/`m` suffix + `::[T]` turbofish.
 - `SLICE2.md` — slice summary.
@@ -48,12 +48,12 @@
 ## Task 1: Lexer — add `k`/`m` decimal size suffixes
 
 **Files:**
-- Modify: `crates/sdust-syntax/src/syntax_kind.rs:27-28`
-- Test: `crates/sdust-syntax/tests/lexer.rs`
+- Modify: `crates/mty-syntax/src/syntax_kind.rs:27-28`
+- Test: `crates/mty-syntax/tests/lexer.rs`
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `crates/sdust-syntax/tests/lexer.rs`:
+Append to `crates/mty-syntax/tests/lexer.rs`:
 
 ```rust
 #[test]
@@ -83,14 +83,14 @@ fn lex_binary_size_suffix_still_works() {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cargo test -p sdust-syntax lex_decimal_size_suffix
+cargo test -p mty-syntax lex_decimal_size_suffix
 ```
 
 Expected: the first two FAIL because `1k` and `4096m` currently tokenize as INT_LITERAL + IDENT.
 
 - [ ] **Step 3: Extend the SIZE_LITERAL regex**
 
-In `crates/sdust-syntax/src/syntax_kind.rs:27-28`, replace:
+In `crates/mty-syntax/src/syntax_kind.rs:27-28`, replace:
 
 ```rust
     #[regex(r"[0-9]+(?:B|KiB|MiB|GiB)")]
@@ -109,7 +109,7 @@ Note the order: multi-char `KiB`/`MiB`/`GiB` must come before single-char `B`/`k
 - [ ] **Step 4: Run lexer tests**
 
 ```bash
-cargo test -p sdust-syntax
+cargo test -p mty-syntax
 ```
 
 Expected: all pass.
@@ -117,7 +117,7 @@ Expected: all pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-syntax/src/syntax_kind.rs crates/sdust-syntax/tests/lexer.rs
+git add crates/mty-syntax/src/syntax_kind.rs crates/mty-syntax/tests/lexer.rs
 git commit -m "$(cat <<'EOF'
 Lexer: accept decimal k/m as SIZE_LITERAL suffixes
 
@@ -137,12 +137,12 @@ EOF
 ## Task 2: Parser — lambda expressions
 
 **Files:**
-- Modify: `crates/sdust-syntax/src/parser/exprs.rs`
-- Test: `crates/sdust-syntax/tests/parse_exprs.rs`
+- Modify: `crates/mty-syntax/src/parser/exprs.rs`
+- Test: `crates/mty-syntax/tests/parse_exprs.rs`
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `crates/sdust-syntax/tests/parse_exprs.rs`:
+Append to `crates/mty-syntax/tests/parse_exprs.rs`:
 
 ```rust
 #[test]
@@ -176,14 +176,14 @@ fn parse_lambda_with_params_and_ret() {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cargo test -p sdust-syntax parse_lambda
+cargo test -p mty-syntax parse_lambda
 ```
 
 Expected: FAIL — `fn` is rejected in expression position.
 
 - [ ] **Step 3: Implement the lambda parser**
 
-In `crates/sdust-syntax/src/parser/exprs.rs`, add `FN_KW` to `primary()`:
+In `crates/mty-syntax/src/parser/exprs.rs`, add `FN_KW` to `primary()`:
 
 ```rust
         FN_KW => lambda_expr(p),
@@ -220,12 +220,12 @@ fn lambda_expr(p: &mut Parser) -> bool {
 }
 ```
 
-Check `crates/sdust-syntax/src/parser/items.rs` for the actual name of the param-list helper; rename `fn_param_list` to match (it is `fn_params` or similar). If it's private inside items.rs, change `pub(crate) fn` so exprs can call it.
+Check `crates/mty-syntax/src/parser/items.rs` for the actual name of the param-list helper; rename `fn_param_list` to match (it is `fn_params` or similar). If it's private inside items.rs, change `pub(crate) fn` so exprs can call it.
 
 - [ ] **Step 4: Inspect items.rs and adjust**
 
 ```bash
-grep -n "fn_param\|FN_PARAM" crates/sdust-syntax/src/parser/items.rs
+grep -n "fn_param\|FN_PARAM" crates/mty-syntax/src/parser/items.rs
 ```
 
 If the existing helper is named `params` and private, expose it as `pub(crate) fn fn_params(p: &mut Parser)`. Reuse it; do not duplicate.
@@ -233,15 +233,15 @@ If the existing helper is named `params` and private, expose it as `pub(crate) f
 - [ ] **Step 5: Run lambda tests**
 
 ```bash
-cargo test -p sdust-syntax parse_lambda
+cargo test -p mty-syntax parse_lambda
 ```
 
-Expected: PASS. Also run `cargo test -p sdust-syntax` to verify no regressions.
+Expected: PASS. Also run `cargo test -p mty-syntax` to verify no regressions.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add crates/sdust-syntax/src/parser/exprs.rs crates/sdust-syntax/src/parser/items.rs crates/sdust-syntax/tests/parse_exprs.rs
+git add crates/mty-syntax/src/parser/exprs.rs crates/mty-syntax/src/parser/items.rs crates/mty-syntax/tests/parse_exprs.rs
 git commit -m "$(cat <<'EOF'
 Parser: lambda expressions in expression position
 
@@ -260,12 +260,12 @@ EOF
 ## Task 3: Parser — if let
 
 **Files:**
-- Modify: `crates/sdust-syntax/src/parser/stmts.rs`
-- Test: `crates/sdust-syntax/tests/parse_stmts.rs`
+- Modify: `crates/mty-syntax/src/parser/stmts.rs`
+- Test: `crates/mty-syntax/tests/parse_stmts.rs`
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `crates/sdust-syntax/tests/parse_stmts.rs`:
+Append to `crates/mty-syntax/tests/parse_stmts.rs`:
 
 ```rust
 #[test]
@@ -298,14 +298,14 @@ fn parse_if_let_ok_no_else() {
 - [ ] **Step 2: Run to confirm failure**
 
 ```bash
-cargo test -p sdust-syntax parse_if_let
+cargo test -p mty-syntax parse_if_let
 ```
 
 Expected: FAIL — `let` after `if` is parsed as a stand-alone keyword and aborts.
 
 - [ ] **Step 3: Extend `if_expr` in stmts.rs**
 
-Replace `pub fn if_expr(p: &mut Parser) -> bool` body in `crates/sdust-syntax/src/parser/stmts.rs:43-58` with:
+Replace `pub fn if_expr(p: &mut Parser) -> bool` body in `crates/mty-syntax/src/parser/stmts.rs:43-58` with:
 
 ```rust
 pub fn if_expr(p: &mut Parser) -> bool {
@@ -336,7 +336,7 @@ pub fn if_expr(p: &mut Parser) -> bool {
 - [ ] **Step 4: Run tests**
 
 ```bash
-cargo test -p sdust-syntax
+cargo test -p mty-syntax
 ```
 
 Expected: all pass.
@@ -344,7 +344,7 @@ Expected: all pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-syntax/src/parser/stmts.rs crates/sdust-syntax/tests/parse_stmts.rs
+git add crates/mty-syntax/src/parser/stmts.rs crates/mty-syntax/tests/parse_stmts.rs
 git commit -m "$(cat <<'EOF'
 Parser: if let Pattern = expr { ... } else { ... }
 
@@ -362,12 +362,12 @@ EOF
 ## Task 4: Parser — `run <expr>` and keyword-tolerant method/field names + keyword effects
 
 **Files:**
-- Modify: `crates/sdust-syntax/src/parser/exprs.rs`, `paths.rs`, `types.rs`, `syntax_kind.rs`
-- Test: `crates/sdust-syntax/tests/parse_exprs.rs`
+- Modify: `crates/mty-syntax/src/parser/exprs.rs`, `paths.rs`, `types.rs`, `syntax_kind.rs`
+- Test: `crates/mty-syntax/tests/parse_exprs.rs`
 
 - [ ] **Step 1: Add RUN_EXPR kind**
 
-In `crates/sdust-syntax/src/syntax_kind.rs`, add to the node-kind block (after `JOIN_EXPR`):
+In `crates/mty-syntax/src/syntax_kind.rs`, add to the node-kind block (after `JOIN_EXPR`):
 
 ```rust
     RUN_EXPR,
@@ -375,7 +375,7 @@ In `crates/sdust-syntax/src/syntax_kind.rs`, add to the node-kind block (after `
 
 - [ ] **Step 2: Write failing tests for run/keyword-method/keyword-effect**
 
-Append to `crates/sdust-syntax/tests/parse_exprs.rs`:
+Append to `crates/mty-syntax/tests/parse_exprs.rs`:
 
 ```rust
 #[test]
@@ -407,7 +407,7 @@ fn parse_field_with_keyword_name() {
 }
 ```
 
-And in `crates/sdust-syntax/tests/parse_items.rs` add:
+And in `crates/mty-syntax/tests/parse_items.rs` add:
 
 ```rust
 #[test]
@@ -421,14 +421,14 @@ fn parse_effect_with_keyword_name() {
 - [ ] **Step 3: Run to confirm failures**
 
 ```bash
-cargo test -p sdust-syntax parse_run_expr parse_method_with_keyword parse_field_with_keyword parse_effect_with_keyword
+cargo test -p mty-syntax parse_run_expr parse_method_with_keyword parse_field_with_keyword parse_effect_with_keyword
 ```
 
 Expected: all FAIL.
 
 - [ ] **Step 4: Implement `run_expr` and `name_or_keyword`**
 
-In `crates/sdust-syntax/src/parser/paths.rs`, add:
+In `crates/mty-syntax/src/parser/paths.rs`, add:
 
 ```rust
 /// Like [`name`], but also accepts a keyword token in name position.
@@ -447,7 +447,7 @@ pub fn name_or_keyword(p: &mut Parser) -> bool {
 }
 ```
 
-In `crates/sdust-syntax/src/parser/exprs.rs`:
+In `crates/mty-syntax/src/parser/exprs.rs`:
 
 1. Add `RUN_KW => run_expr(p)` to the `primary()` match.
 2. Add `RUN_KW` to `can_start_expr`.
@@ -520,7 +520,7 @@ fn run_expr(p: &mut Parser) -> bool {
 }
 ```
 
-In `crates/sdust-syntax/src/parser/types.rs`, change `effect_clause` (line ~180):
+In `crates/mty-syntax/src/parser/types.rs`, change `effect_clause` (line ~180):
 
 ```rust
 pub fn effect_clause(p: &mut Parser) {
@@ -542,7 +542,7 @@ pub fn effect_clause(p: &mut Parser) {
 - [ ] **Step 5: Run tests**
 
 ```bash
-cargo test -p sdust-syntax
+cargo test -p mty-syntax
 ```
 
 Expected: all pass.
@@ -550,7 +550,7 @@ Expected: all pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add crates/sdust-syntax/src/syntax_kind.rs crates/sdust-syntax/src/parser/exprs.rs crates/sdust-syntax/src/parser/paths.rs crates/sdust-syntax/src/parser/types.rs crates/sdust-syntax/tests/parse_exprs.rs crates/sdust-syntax/tests/parse_items.rs
+git add crates/mty-syntax/src/syntax_kind.rs crates/mty-syntax/src/parser/exprs.rs crates/mty-syntax/src/parser/paths.rs crates/mty-syntax/src/parser/types.rs crates/mty-syntax/tests/parse_exprs.rs crates/mty-syntax/tests/parse_items.rs
 git commit -m "$(cat <<'EOF'
 Parser: run <expr>, keyword-tolerant .method/.field, keyword effects
 
@@ -576,12 +576,12 @@ EOF
 ## Task 5: Parser — turbofish on path segments
 
 **Files:**
-- Modify: `crates/sdust-syntax/src/parser/paths.rs`
-- Test: `crates/sdust-syntax/tests/parse_exprs.rs`
+- Modify: `crates/mty-syntax/src/parser/paths.rs`
+- Test: `crates/mty-syntax/tests/parse_exprs.rs`
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `crates/sdust-syntax/tests/parse_exprs.rs`:
+Append to `crates/mty-syntax/tests/parse_exprs.rs`:
 
 ```rust
 #[test]
@@ -617,14 +617,14 @@ fn parse_turbofish_struct_literal() {
 - [ ] **Step 2: Run to confirm failure**
 
 ```bash
-cargo test -p sdust-syntax parse_turbofish
+cargo test -p mty-syntax parse_turbofish
 ```
 
 Expected: FAIL — `::` is not consumed inside a path.
 
 - [ ] **Step 3: Extend path parser**
 
-Replace `crates/sdust-syntax/src/parser/paths.rs` with:
+Replace `crates/mty-syntax/src/parser/paths.rs` with:
 
 ```rust
 use super::Parser;
@@ -688,7 +688,7 @@ pub fn name_or_keyword(p: &mut Parser) -> bool {
 - [ ] **Step 4: Run tests**
 
 ```bash
-cargo test -p sdust-syntax
+cargo test -p mty-syntax
 ```
 
 Expected: all pass. Check that the `parse_turbofish_struct_literal` test passes — the existing `lookahead_is_struct_literal` checks for `{` after the path; since the path now consumes `::[...]` first, the `{` lookahead still fires at the right cursor position.
@@ -696,7 +696,7 @@ Expected: all pass. Check that the `parse_turbofish_struct_literal` test passes 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-syntax/src/parser/paths.rs crates/sdust-syntax/tests/parse_exprs.rs
+git add crates/mty-syntax/src/parser/paths.rs crates/mty-syntax/tests/parse_exprs.rs
 git commit -m "$(cat <<'EOF'
 Parser: turbofish ::[T1, T2] on expression-position paths
 
@@ -716,12 +716,12 @@ EOF
 ## Task 6: HIR — lower lambdas, if-let, run, path-generic
 
 **Files:**
-- Modify: `crates/sdust-hir/src/nodes.rs`, `lower/exprs.rs`, `dump.rs`
-- Test: `crates/sdust-hir/tests/lower_items.rs`
+- Modify: `crates/mty-hir/src/nodes.rs`, `lower/exprs.rs`, `dump.rs`
+- Test: `crates/mty-hir/tests/lower_items.rs`
 
 - [ ] **Step 1: Extend HirExpr**
 
-In `crates/sdust-hir/src/nodes.rs`, after the `Cast { ... }` arm (around line 343), add:
+In `crates/mty-hir/src/nodes.rs`, after the `Cast { ... }` arm (around line 343), add:
 
 ```rust
     Lambda {
@@ -744,7 +744,7 @@ In `crates/sdust-hir/src/nodes.rs`, after the `Cast { ... }` arm (around line 34
 
 - [ ] **Step 2: Write failing HIR tests**
 
-Append to `crates/sdust-hir/tests/lower_items.rs`:
+Append to `crates/mty-hir/tests/lower_items.rs`:
 
 ```rust
 #[test]
@@ -792,19 +792,19 @@ fn lower_turbofish_path() {
 }
 ```
 
-If `pipeline::compile` has a different signature, look at `crates/sdust-driver/src/pipeline.rs` and adjust. Expected: it's `pub fn compile(src: &str) -> Compilation` returning a struct with `package: Package` and `diagnostics: Vec<...>`.
+If `pipeline::compile` has a different signature, look at `crates/mty-driver/src/pipeline.rs` and adjust. Expected: it's `pub fn compile(src: &str) -> Compilation` returning a struct with `package: Package` and `diagnostics: Vec<...>`.
 
 - [ ] **Step 3: Run to confirm failure**
 
 ```bash
-cargo test -p sdust-hir lower_lambda_expr lower_if_let_expr lower_run_expr lower_turbofish_path
+cargo test -p mty-hir lower_lambda_expr lower_if_let_expr lower_run_expr lower_turbofish_path
 ```
 
 Expected: FAIL — the lowerer doesn't produce these variants yet.
 
 - [ ] **Step 4: Lower LAMBDA_EXPR, IF_LET (via IF_EXPR), RUN_EXPR**
 
-In `crates/sdust-hir/src/lower/exprs.rs`:
+In `crates/mty-hir/src/lower/exprs.rs`:
 
 1. Add `LAMBDA_EXPR` and `RUN_EXPR` to the `is_expr_node` matches list. The existing list already has `LAMBDA_EXPR`; add `RUN_EXPR`:
 
@@ -959,10 +959,10 @@ In `crates/sdust-hir/src/lower/exprs.rs`:
 
 - [ ] **Step 5: Update dump.rs**
 
-In `crates/sdust-hir/src/dump.rs`, find the `HirExpr` match and add cases for the new variants. Look at the existing structure first:
+In `crates/mty-hir/src/dump.rs`, find the `HirExpr` match and add cases for the new variants. Look at the existing structure first:
 
 ```bash
-grep -n "HirExpr::" crates/sdust-hir/src/dump.rs
+grep -n "HirExpr::" crates/mty-hir/src/dump.rs
 ```
 
 Then add to the match (after `Cast` case):
@@ -994,7 +994,7 @@ Match the exact function-name conventions already in `dump.rs` (`dump_pat`, `dum
 - [ ] **Step 6: Run HIR tests**
 
 ```bash
-cargo test -p sdust-hir
+cargo test -p mty-hir
 ```
 
 Expected: all pass.
@@ -1002,7 +1002,7 @@ Expected: all pass.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/sdust-hir/
+git add crates/mty-hir/
 git commit -m "$(cat <<'EOF'
 HIR: lower Lambda, IfLet, Run, PathGeneric
 
@@ -1148,13 +1148,13 @@ export fn mount(dom: Dom) {
 }
 ```
 
-- [ ] **Step 5: Run sdust check on each**
+- [ ] **Step 5: Run mty check on each**
 
 ```bash
-cargo run -p sdust-cli -- check examples/11_budget_block.sd
-cargo run -p sdust-cli -- check examples/18_sandbox.sd
-cargo run -p sdust-cli -- check examples/19_backend_service.sd
-cargo run -p sdust-cli -- check examples/20_frontend_component.sd
+cargo run -p mty-cli -- check examples/11_budget_block.sd
+cargo run -p mty-cli -- check examples/18_sandbox.sd
+cargo run -p mty-cli -- check examples/19_backend_service.sd
+cargo run -p mty-cli -- check examples/20_frontend_component.sd
 ```
 
 Expected: each exits 0 with no diagnostics.
@@ -1162,7 +1162,7 @@ Expected: each exits 0 with no diagnostics.
 - [ ] **Step 6: Run sweep tests**
 
 ```bash
-cargo test -p sdust-fmt
+cargo test -p mty-fmt
 cargo test --workspace
 ```
 
@@ -1191,19 +1191,19 @@ EOF
 
 ---
 
-## Task 8: CLI — `sdust explain <CODE>`
+## Task 8: CLI — `mty explain <CODE>`
 
 **Files:**
-- Modify: `crates/sdust-diagnostics/src/codes.rs`, `crates/sdust-cli/src/main.rs`, `crates/sdust-cli/src/cmd/mod.rs`
-- Create: `crates/sdust-cli/src/cmd/explain.rs`, `crates/sdust-cli/tests/explain.rs`
+- Modify: `crates/mty-diagnostics/src/codes.rs`, `crates/mty-cli/src/main.rs`, `crates/mty-cli/src/cmd/mod.rs`
+- Create: `crates/mty-cli/src/cmd/explain.rs`, `crates/mty-cli/tests/explain.rs`
 
 - [ ] **Step 1: Add explain lookup to codes.rs**
 
-Append to `crates/sdust-diagnostics/src/codes.rs`:
+Append to `crates/mty-diagnostics/src/codes.rs`:
 
 ```rust
 /// Returns a 2-4 sentence human-readable explanation for a diagnostic
-/// code, suitable for `sdust explain SDxxxx`. Returns None for unknown
+/// code, suitable for `mty explain SDxxxx`. Returns None for unknown
 /// codes.
 pub fn explain(code: DiagCode) -> Option<&'static str> {
     Some(match code.0 {
@@ -1216,7 +1216,7 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
         3 => "MT0003: Invalid escape sequence. The character after \\ in a \
               string or char literal is not a recognized escape. Valid \
               escapes: \\n, \\t, \\r, \\\\, \\\", \\', \\x{HH}, \\u{HHHH}.",
-        4 => "MT0004: Unknown duration unit. Stardust duration literals use \
+        4 => "MT0004: Unknown duration unit. Mighty duration literals use \
               one of `ns`, `us`, `ms`, `s`, `m`, `h` as the trailing unit.",
         10 => "MT0010: Expected an item. At the top level (or inside a mod), \
                the parser expected one of: fn, struct, enum, type, use, mod, \
@@ -1253,16 +1253,16 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
 
 - [ ] **Step 2: Write the failing CLI test**
 
-Create `crates/sdust-cli/tests/explain.rs`:
+Create `crates/mty-cli/tests/explain.rs`:
 
 ```rust
 use std::process::Command;
 
-fn sdust(args: &[&str]) -> (i32, String, String) {
+fn mty(args: &[&str]) -> (i32, String, String) {
     let out = Command::new(env!("CARGO_BIN_EXE_sdust"))
         .args(args)
         .output()
-        .expect("run sdust");
+        .expect("run mty");
     (
         out.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -1272,21 +1272,21 @@ fn sdust(args: &[&str]) -> (i32, String, String) {
 
 #[test]
 fn explain_known_code_succeeds() {
-    let (code, stdout, _stderr) = sdust(&["explain", "MT0001"]);
+    let (code, stdout, _stderr) = mty(&["explain", "MT0001"]);
     assert_eq!(code, 0);
     assert!(stdout.contains("Unexpected token"), "stdout: {}", stdout);
 }
 
 #[test]
 fn explain_unknown_code_fails() {
-    let (code, _stdout, stderr) = sdust(&["explain", "MT9999"]);
+    let (code, _stdout, stderr) = mty(&["explain", "MT9999"]);
     assert_ne!(code, 0);
     assert!(stderr.to_lowercase().contains("unknown"), "stderr: {}", stderr);
 }
 
 #[test]
 fn explain_bad_format_fails() {
-    let (code, _stdout, stderr) = sdust(&["explain", "wat"]);
+    let (code, _stdout, stderr) = mty(&["explain", "wat"]);
     assert_ne!(code, 0);
     assert!(stderr.to_lowercase().contains("expected"), "stderr: {}", stderr);
 }
@@ -1295,14 +1295,14 @@ fn explain_bad_format_fails() {
 - [ ] **Step 3: Run to confirm failure**
 
 ```bash
-cargo test -p sdust-cli explain
+cargo test -p mty-cli explain
 ```
 
 Expected: FAIL — `explain` subcommand doesn't exist.
 
 - [ ] **Step 4: Add the CLI subcommand and handler**
 
-Create `crates/sdust-cli/src/cmd/explain.rs`:
+Create `crates/mty-cli/src/cmd/explain.rs`:
 
 ```rust
 use sdust_diagnostics::codes;
@@ -1335,9 +1335,9 @@ pub fn run(arg: &str) -> i32 {
 }
 ```
 
-In `crates/sdust-cli/src/cmd/mod.rs`, add `pub mod explain;`.
+In `crates/mty-cli/src/cmd/mod.rs`, add `pub mod explain;`.
 
-In `crates/sdust-cli/src/main.rs`, extend `Cmd`:
+In `crates/mty-cli/src/main.rs`, extend `Cmd`:
 
 ```rust
     /// Print a human-readable explanation of a diagnostic code.
@@ -1353,7 +1353,7 @@ And in `main()`:
 - [ ] **Step 5: Run tests**
 
 ```bash
-cargo test -p sdust-cli
+cargo test -p mty-cli
 ```
 
 Expected: all pass.
@@ -1361,13 +1361,13 @@ Expected: all pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add crates/sdust-diagnostics/src/codes.rs crates/sdust-cli/
+git add crates/mty-diagnostics/src/codes.rs crates/mty-cli/
 git commit -m "$(cat <<'EOF'
-CLI: add `sdust explain <CODE>` subcommand
+CLI: add `mty explain <CODE>` subcommand
 
 `codes::explain(DiagCode) -> Option<&'static str>` ships a static
 lookup table of human-readable explanations for every assigned code.
-`sdust explain MT0001` prints the body and exits 0; unknown codes
+`mty explain MT0001` prints the body and exits 0; unknown codes
 exit 1; malformed input exits 2.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
@@ -1380,14 +1380,14 @@ EOF
 ## Task 9: Formatter — types & patterns printers
 
 **Files:**
-- Modify: `crates/sdust-fmt/src/fmt/types.rs`, `crates/sdust-fmt/src/fmt/patterns.rs`, `crates/sdust-fmt/src/fmt/mod.rs`
-- Test: `crates/sdust-fmt/tests/printer.rs`
+- Modify: `crates/mty-fmt/src/fmt/types.rs`, `crates/mty-fmt/src/fmt/patterns.rs`, `crates/mty-fmt/src/fmt/mod.rs`
+- Test: `crates/mty-fmt/tests/printer.rs`
 
 The formatter strategy: each module exports `pub fn <node_kind_lower>(n: &SyntaxNode) -> Doc`. Fall back to `Doc::text(n.text().to_string())` for anything not yet implemented. This keeps the slice-1 sweeps green while we add per-node printers incrementally.
 
 - [ ] **Step 1: Add a shared fallback helper in fmt/mod.rs**
 
-Replace `crates/sdust-fmt/src/fmt/mod.rs` with:
+Replace `crates/mty-fmt/src/fmt/mod.rs` with:
 
 ```rust
 use crate::doc::Doc;
@@ -1415,7 +1415,7 @@ pub fn file(node: &SyntaxNode) -> Doc {
 
 - [ ] **Step 2: Implement types.rs printers**
 
-Replace `crates/sdust-fmt/src/fmt/types.rs` with:
+Replace `crates/mty-fmt/src/fmt/types.rs` with:
 
 ```rust
 use crate::doc::Doc;
@@ -1567,7 +1567,7 @@ fn type_union(n: &SyntaxNode) -> Doc {
 
 - [ ] **Step 3: Implement patterns.rs printers**
 
-Replace `crates/sdust-fmt/src/fmt/patterns.rs` with:
+Replace `crates/mty-fmt/src/fmt/patterns.rs` with:
 
 ```rust
 use crate::doc::Doc;
@@ -1625,13 +1625,13 @@ fn enum_pat(n: &SyntaxNode) -> Doc {
 - [ ] **Step 4: Verify slice-1 sweep still passes**
 
 ```bash
-cargo test -p sdust-fmt
+cargo test -p mty-fmt
 ```
 
 Expected: all pass — since `items::file` still doesn't exist, `mod.rs::file` will not compile. Fix this by having `items.rs` initially export a trivial passthrough:
 
 ```rust
-// crates/sdust-fmt/src/fmt/items.rs
+// crates/mty-fmt/src/fmt/items.rs
 use crate::doc::Doc;
 use sdust_syntax::SyntaxNode;
 
@@ -1646,7 +1646,7 @@ Now the workspace builds. Tests pass because the file formatter is still verbati
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-fmt/src/fmt/
+git add crates/mty-fmt/src/fmt/
 git commit -m "$(cat <<'EOF'
 fmt: canonical printers for types and patterns
 
@@ -1667,12 +1667,12 @@ EOF
 ## Task 10: Formatter — expression printers (literals, paths, ops, calls, blocks)
 
 **Files:**
-- Modify: `crates/sdust-fmt/src/fmt/exprs.rs`
-- Test: `crates/sdust-fmt/tests/canonical.rs` (create)
+- Modify: `crates/mty-fmt/src/fmt/exprs.rs`
+- Test: `crates/mty-fmt/tests/canonical.rs` (create)
 
 - [ ] **Step 1: Write canonical-form fixture test**
 
-Create `crates/sdust-fmt/tests/canonical.rs`:
+Create `crates/mty-fmt/tests/canonical.rs`:
 
 ```rust
 use sdust_syntax::parse;
@@ -1708,7 +1708,7 @@ fn fmt_idempotent_on_examples() {
 
 - [ ] **Step 2: Implement expression printers**
 
-Replace `crates/sdust-fmt/src/fmt/exprs.rs` with a per-node printer that handles the common shapes and falls back to verbatim. This intentionally avoids restructuring multi-line constructs (those stay verbatim) so round-trip stays trivially safe:
+Replace `crates/mty-fmt/src/fmt/exprs.rs` with a per-node printer that handles the common shapes and falls back to verbatim. This intentionally avoids restructuring multi-line constructs (those stay verbatim) so round-trip stays trivially safe:
 
 ```rust
 use crate::doc::Doc;
@@ -1909,7 +1909,7 @@ fn named_arg(n: &SyntaxNode) -> Doc {
 
 - [ ] **Step 3: Expose types::type_path_inner**
 
-Add to `crates/sdust-fmt/src/fmt/types.rs` (at the end):
+Add to `crates/mty-fmt/src/fmt/types.rs` (at the end):
 
 ```rust
 /// Exposed for exprs.rs to render PATH children of PATH_EXPR uniformly.
@@ -1921,7 +1921,7 @@ pub fn type_path_inner(n: &SyntaxNode) -> Doc {
 - [ ] **Step 4: Run tests**
 
 ```bash
-cargo test -p sdust-fmt
+cargo test -p mty-fmt
 ```
 
 These new printers are only invoked when `items::file` dispatches to them — that's the next task. For now this task just compiles & the existing verbatim file printer still drives idempotence/round-trip sweeps. Expected: all pass.
@@ -1929,7 +1929,7 @@ These new printers are only invoked when `items::file` dispatches to them — th
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-fmt/src/fmt/exprs.rs crates/sdust-fmt/src/fmt/types.rs crates/sdust-fmt/tests/canonical.rs
+git add crates/mty-fmt/src/fmt/exprs.rs crates/mty-fmt/src/fmt/types.rs crates/mty-fmt/tests/canonical.rs
 git commit -m "$(cat <<'EOF'
 fmt: per-node printers for the common expression shapes
 
@@ -1949,13 +1949,13 @@ EOF
 ## Task 11: Formatter — items dispatch + canonical blank-line normalization
 
 **Files:**
-- Modify: `crates/sdust-fmt/src/fmt/items.rs`, `mod.rs`, `lib.rs`
+- Modify: `crates/mty-fmt/src/fmt/items.rs`, `mod.rs`, `lib.rs`
 
 The strategy: `items::file` walks the FILE node's children and emits each as verbatim, separated by exactly one blank line (canonical). This is the **safe** real-formatter step: it normalizes inter-item spacing without restructuring any item internals (each item still emits its source text).
 
 - [ ] **Step 1: Implement items::file**
 
-Replace `crates/sdust-fmt/src/fmt/items.rs` with:
+Replace `crates/mty-fmt/src/fmt/items.rs` with:
 
 ```rust
 use crate::doc::Doc;
@@ -2030,10 +2030,10 @@ fn item_doc(item: &SyntaxNode) -> Doc {
 
 - [ ] **Step 2: Wire items::file into lib.rs**
 
-`crates/sdust-fmt/src/lib.rs` already calls `fmt::file(&root)` which currently delegates to `items::file`. No change needed if Task 9 already updated `mod.rs` to call `items::file`. Verify:
+`crates/mty-fmt/src/lib.rs` already calls `fmt::file(&root)` which currently delegates to `items::file`. No change needed if Task 9 already updated `mod.rs` to call `items::file`. Verify:
 
 ```bash
-grep -n "items::file" crates/sdust-fmt/src/fmt/mod.rs
+grep -n "items::file" crates/mty-fmt/src/fmt/mod.rs
 ```
 
 Should show one match.
@@ -2041,7 +2041,7 @@ Should show one match.
 - [ ] **Step 3: Run sweep tests**
 
 ```bash
-cargo test -p sdust-fmt
+cargo test -p mty-fmt
 ```
 
 Expected: all pass. Both idempotence and round-trip sweeps should remain green because per-item content stays verbatim and we only normalize inter-item whitespace (which the parser preserves losslessly: a re-parse produces the same item kinds).
@@ -2049,7 +2049,7 @@ Expected: all pass. Both idempotence and round-trip sweeps should remain green b
 If they fail, the most likely cause is trailing-trivia handling. Inspect a failure with:
 
 ```bash
-cargo run -p sdust-cli -- fmt --stdin < examples/01_hello.sd
+cargo run -p mty-cli -- fmt --stdin < examples/01_hello.sd
 ```
 
 and compare to the file content.
@@ -2057,7 +2057,7 @@ and compare to the file content.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/sdust-fmt/
+git add crates/mty-fmt/
 git commit -m "$(cat <<'EOF'
 fmt: dispatch per-item with canonical inter-item spacing
 
@@ -2077,11 +2077,11 @@ EOF
 ## Task 12: Formatter — sweep regression hardening
 
 **Files:**
-- Modify: `crates/sdust-fmt/tests/idempotence.rs`, `crates/sdust-fmt/tests/round_trip.rs`
+- Modify: `crates/mty-fmt/tests/idempotence.rs`, `crates/mty-fmt/tests/round_trip.rs`
 
 - [ ] **Step 1: Strengthen the idempotence sweep**
 
-Add a token-text-stream equality check. Append a second test to `crates/sdust-fmt/tests/idempotence.rs`:
+Add a token-text-stream equality check. Append a second test to `crates/mty-fmt/tests/idempotence.rs`:
 
 ```rust
 #[test]
@@ -2113,7 +2113,7 @@ fn fmt_preserves_non_trivia_token_stream() {
 - [ ] **Step 2: Run**
 
 ```bash
-cargo test -p sdust-fmt
+cargo test -p mty-fmt
 ```
 
 Expected: all pass. If a file fails, it indicates the formatter is dropping/reordering tokens — debug by printing both streams for the failing file.
@@ -2121,7 +2121,7 @@ Expected: all pass. If a file fails, it indicates the formatter is dropping/reor
 - [ ] **Step 3: Commit**
 
 ```bash
-git add crates/sdust-fmt/tests/
+git add crates/mty-fmt/tests/
 git commit -m "$(cat <<'EOF'
 fmt: token-stream-equality sweep test
 
@@ -2152,7 +2152,7 @@ cargo test --workspace
 
 - [ ] **Step 2: Fix any warnings or failures inline**
 
-Common: an unused import in fmt/mod.rs, a missing `pub(crate)` after the items.rs refactor, a stale snapshot in sdust-hir. Address each in place, commit fixes per-issue:
+Common: an unused import in fmt/mod.rs, a missing `pub(crate)` after the items.rs refactor, a stale snapshot in mty-hir. Address each in place, commit fixes per-issue:
 
 ```bash
 git add -p
@@ -2164,7 +2164,7 @@ git commit -m "Slice-2 gate fixes: clippy/fmt/snapshot updates"
 ```bash
 for f in examples/*.sd; do
     echo "=== $f ==="
-    cargo run --quiet -p sdust-cli -- check "$f" || exit 1
+    cargo run --quiet -p mty-cli -- check "$f" || exit 1
 done
 ```
 
@@ -2191,7 +2191,7 @@ git commit -am "Slice-2: final gate cleanup"
 Create `docs/spec/v0.1-amendments.md`:
 
 ```markdown
-# Stardust v0.1 Spec Amendments
+# Mighty v0.1 Spec Amendments
 
 This file tracks decisions made during implementation that extend or
 clarify the v0.1 language specification. Each amendment carries the
@@ -2225,7 +2225,7 @@ already denotes index access.
 Slice 2 adopts the Rust-flavored turbofish: in expression position,
 `Path::[T1, T2]` carries the generic arguments. Examples:
 
-```sdust
+```mty
 let m = Map::[Str, Json]{}
 let s = Some::[I32](42)
 ```
@@ -2239,14 +2239,14 @@ unchanged — `Result[T, E]`, `Map[K, V]` etc. retain bracket-only form.
 Create `docs/reference/cli/explain.md`:
 
 ```markdown
-# sdust explain
+# mty explain
 
-Print a human-readable explanation of a Stardust diagnostic code.
+Print a human-readable explanation of a Mighty diagnostic code.
 
 ## Synopsis
 
 ```
-sdust explain <CODE>
+mty explain <CODE>
 ```
 
 ## Arguments
@@ -2260,12 +2260,12 @@ sdust explain <CODE>
 ## Examples
 
 ```sh
-$ sdust explain MT0001
+$ mty explain MT0001
 MT0001: Unexpected token. The lexer or parser found a token that
 doesn't fit the current grammar context. Check for typos, missing
 punctuation, or a misplaced keyword.
 
-$ sdust explain MT9999
+$ mty explain MT9999
 error: unknown diagnostic code MT9999
 $ echo $?
 1
@@ -2276,23 +2276,23 @@ $ echo $?
 | Code | Meaning |
 |------|---------|
 | 0    | The code was recognized; explanation printed to stdout. |
-| 1    | The code is well-formed but not a known Stardust diagnostic. |
+| 1    | The code is well-formed but not a known Mighty diagnostic. |
 | 2    | The argument is not a valid diagnostic-code string. |
 
 ## See also
 
 - `docs/reference/diagnostics.md` — full list of assigned codes
-- `crates/sdust-diagnostics/src/codes.rs` — source of truth
+- `crates/mty-diagnostics/src/codes.rs` — source of truth
 ```
 
 - [ ] **Step 3: Update docs/reference/diagnostics.md**
 
-Open `docs/reference/diagnostics.md` and add a paragraph at the bottom (or near the top) noting that `sdust explain <CODE>` is available. Brief:
+Open `docs/reference/diagnostics.md` and add a paragraph at the bottom (or near the top) noting that `mty explain <CODE>` is available. Brief:
 
 ```markdown
 ## Discovering explanations
 
-For any code below, `sdust explain <CODE>` prints a short paragraph
+For any code below, `mty explain <CODE>` prints a short paragraph
 describing the diagnostic, suggested fixes, and related codes. See
 `docs/reference/cli/explain.md` for the full command reference.
 ```
@@ -2355,7 +2355,7 @@ The following slice-1 deferrals shipped in slice 2:
 Create `SLICE2.md`:
 
 ```markdown
-# Stardust Slice 2 — Complete
+# Mighty Slice 2 — Complete
 
 **Tag:** `v0.2.0-phase1-polish`
 **HEAD:** _(filled at tag time)_
@@ -2363,7 +2363,7 @@ Create `SLICE2.md`:
 
 ## What landed
 
-- **Real per-node formatter** (`sdust-fmt`): Wadler/Lindig printers for
+- **Real per-node formatter** (`mty-fmt`): Wadler/Lindig printers for
   types, patterns, common expression shapes; canonical inter-item
   blank-line normalization; verbatim fallback for not-yet-canonicalized
   nodes. All 20 examples remain idempotent and round-trip stable, with
@@ -2384,7 +2384,7 @@ Create `SLICE2.md`:
   Parseable anywhere an expression is allowed.
 - **Spec-original examples**: 11, 18, 19, 20 restored to the syntax in
   spec §16.1/§34/§35. Divergence comments removed.
-- **`sdust explain <CODE>`**: ships a static explanation table for
+- **`mty explain <CODE>`**: ships a static explanation table for
   every assigned diagnostic code.
 
 ## Spec interpretation calls (validate in slice 3)
@@ -2423,7 +2423,7 @@ git commit -m "$(cat <<'EOF'
 Docs: slice-2 amendments, CLI ref, tour updates, slice summary
 
 - docs/spec/v0.1-amendments.md: A1 k/m size suffix, A2 turbofish
-- docs/reference/cli/explain.md: sdust explain reference
+- docs/reference/cli/explain.md: mty explain reference
 - docs/reference/diagnostics.md: discovery note
 - docs/tour/: remove obsolete slice-1 disclaimers
 - README.md: roadmap marks slice 2 shipped

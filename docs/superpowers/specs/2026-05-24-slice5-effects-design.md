@@ -1,17 +1,17 @@
-# Stardust Slice 5 Design — Effects, Capabilities, Traits, Protocol Strictness
+# Mighty Slice 5 Design — Effects, Capabilities, Traits, Protocol Strictness
 
 **Date:** 2026-05-24
 **Status:** Approved (autonomous build — user away, slice-leader = Claude)
-**Source spec:** `C:\Users\ihass\Downloads\stardust_language_spec_v0_1.md` (Stardust Language Specification v0.1) — §8 (Capabilities), §9 (Effects), §13 (Protocols), §15 (Supervisors), §16 (Budgets and Sandboxing), §19 (Traits / `dyn`).
+**Source spec:** `C:\Users\ihass\Downloads\stardust_language_spec_v0_1.md` (Mighty Language Specification v0.1) — §8 (Capabilities), §9 (Effects), §13 (Protocols), §15 (Supervisors), §16 (Budgets and Sandboxing), §19 (Traits / `dyn`).
 **Slice maps to:** Spec §31.3 Phase 3 — Authority. Closes §8 + §9, hardens §13, ships first-class trait coherence + `dyn` dispatch.
 **Prior slice:** `v0.4.0-borrowck` (commit `23c3c1f`), summary in `SLICE4.md`.
-**Repo:** `C:\Users\ihass\stardust` (remote `hassard0/stardust`).
+**Repo:** `C:\Users\ihass\mighty` (remote `hassard0/stardust`).
 
 ---
 
 ## 1. Goal
 
-Add Stardust's **effect system** (§9), **capability narrowing + delegation**
+Add Mighty's **effect system** (§9), **capability narrowing + delegation**
 (§8), **real trait dispatch with coherence checking** (§19), `dyn Trait`
 dispatch, `derive(Copy)` on user ADTs, top-level `sandbox` items (§16.1),
 and strict protocol-handler signature checks (slice-4 deferral A18).
@@ -44,7 +44,7 @@ The acceptance gate:
 - `cargo test --workspace` green (≥ 266 baseline + new slice-5 fixtures)
 - `cargo clippy --workspace --all-targets -- -D warnings` clean
 - `cargo fmt --all -- --check` clean
-- All 20 canonical examples `sdust check` clean
+- All 20 canonical examples `mty check` clean
 - New SD4xxx negative corpus
 
 ## 2. Non-goals for slice 5
@@ -55,7 +55,7 @@ The acceptance gate:
 - `Self`-in-method `dyn` (true object safety table) — post-v0.1
 - Full `derive` macro system — slice 5 ships hardcoded handlers for
   `Copy`, `Hash`, and `Eq` derives only
-- SIR / interpreter (slice 6)
+- MtyIR / interpreter (slice 6)
 - Runtime (slice 7)
 - Codegen (slice 8)
 - Real serializer registry for cross-agent Sendable — slice 6+
@@ -68,12 +68,12 @@ The acceptance gate:
 
 ### 3.1 Crate layout
 
-Extend `sdust-types` with a new module `effects.rs` for inference; add a
+Extend `mty-types` with a new module `effects.rs` for inference; add a
 new module `traits.rs` to host the coherence table + dispatch resolver.
 Capability typing extends `Ty` directly. No new crate.
 
 ```
-sdust-syntax → sdust-ast → sdust-hir → sdust-types → sdust-borrow
+mty-syntax → mty-ast → mty-hir → mty-types → mty-borrow
                                        (+ effects, traits, caps)
 ```
 
@@ -161,7 +161,7 @@ Public-fn discipline:
 
 Profile gate:
 
-- `star.toml` may declare `profile = "core"`. When set, the inferred set
+- `mighty.toml` may declare `profile = "core"`. When set, the inferred set
   may not include `alloc` (catches hidden heap allocations in
   embedded-target code). On violation: `MT4002 alloc_in_core`.
 - Default profile in slice 5 is `host` (permissive). The 20 examples use
@@ -429,7 +429,7 @@ ship-fast.
 
 ## 5. Examples — sweep + expected adjustments
 
-Each canonical example must remain `sdust check` clean. We will:
+Each canonical example must remain `mty check` clean. We will:
 
 - **04, 06, 11, 18, 19**: explicitly declare `effect`s on public fns
   where the inference says we need them. Slice 5 emits MT4001 on
@@ -482,7 +482,7 @@ Broad order:
 11. Strict protocol handler checks (MT4030/31/32/33).
 12. MT3009 `move *ref` modelling + MT3002 vs MT3008 split.
 13. Field-level borrow tracking (stretch).
-14. SD4xxx + `sdust explain` entries.
+14. SD4xxx + `mty explain` entries.
 15. Negative-test corpus.
 16. Driver/CLI wiring (effect inference runs in pipeline).
 17. Source edits to examples 04/06/11/18/19/20 + tour pages.

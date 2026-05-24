@@ -1,8 +1,8 @@
 # Formatter
 
-The Stardust formatter is a Wadler/Lindig pretty-printer that operates
+The Mighty formatter is a Wadler/Lindig pretty-printer that operates
 over the rowan CST. It lives in
-[`crates/sdust-fmt/`](../../crates/sdust-fmt/).
+[`crates/mty-fmt/`](../../crates/mty-fmt/).
 
 In slice 1 the formatter is an identity pass: it parses the source,
 walks the CST, and re-emits the text verbatim. The combinator engine is
@@ -16,7 +16,7 @@ pub fn format(green: GreenNode) -> String;
 
 ## Doc combinators
 
-[`doc.rs`](../../crates/sdust-fmt/src/doc.rs) defines `Doc`, the
+[`doc.rs`](../../crates/mty-fmt/src/doc.rs) defines `Doc`, the
 abstract document description:
 
 ```rust
@@ -37,7 +37,7 @@ Constructor methods: `Doc::nil()`, `Doc::text(s)`, `Doc::line()`,
 
 ## Printer
 
-[`printer.rs`](../../crates/sdust-fmt/src/printer.rs) implements the
+[`printer.rs`](../../crates/mty-fmt/src/printer.rs) implements the
 standard Wadler/Lindig layout algorithm:
 
 ```rust
@@ -53,7 +53,7 @@ become newlines.
 
 ## Per-node rules
 
-[`fmt/`](../../crates/sdust-fmt/src/fmt/) is the per-node dispatch.
+[`fmt/`](../../crates/mty-fmt/src/fmt/) is the per-node dispatch.
 Submodules:
 
 | Module | Productions |
@@ -70,7 +70,7 @@ Submodules:
 
 ## Trivia
 
-[`trivia.rs`](../../crates/sdust-fmt/src/trivia.rs) tracks comments
+[`trivia.rs`](../../crates/mty-fmt/src/trivia.rs) tracks comments
 and blank lines that the per-node formatter must preserve. Real
 formatting needs to attach trivia to its nearest node and re-emit it
 in the right place. Slice 2 wires this into the per-node rules.
@@ -78,11 +78,11 @@ in the right place. Slice 2 wires this into the per-node rules.
 ## Round-trip tests
 
 [`tests/fmt/`](../../tests/fmt/) feeds every example file through
-`sdust fmt` and asserts byte-identity. This is how slice 1 proves the
+`mty fmt` and asserts byte-identity. This is how slice 1 proves the
 identity pass actually preserves source — and how slice 2 will prove
 the real formatter is idempotent.
 
 ## See also
 
-- [Reference: `sdust fmt`](../reference/cli/sdust-fmt.md)
+- [Reference: `mty fmt`](../reference/cli/mty-fmt.md)
 - [Architecture](architecture.md)

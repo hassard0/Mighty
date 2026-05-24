@@ -1,4 +1,4 @@
-# Stardust v0.3 — Release Notes
+# Mighty v0.3 — Release Notes
 
 **Tag:** `v0.3.0`
 **Date:** 2026-05-25
@@ -6,7 +6,7 @@
 across the borrow checker, type/effect checker, and runtime; closes
 the v0.2 cleanup backlog.
 
-Stardust v0.1 walked the spec §31 ladder end-to-end (parser through
+Mighty v0.1 walked the spec §31 ladder end-to-end (parser through
 codegen). v0.2 lit up every surface the v0.1 deferral list named
 (LSP, package manager, doc generator, stdlib, debug info, Wasm
 Component Model). v0.3 turns the screws: the borrow checker grows
@@ -19,15 +19,15 @@ INTENTIONALLY_IGNORED conformance cases).
 ## What you can do (new in v0.3)
 
 ```bash
-# `sdust run` now exercises real std.* semantics
-sdust run examples/01_hello.sd
+# `mty run` now exercises real std.* semantics
+mty run examples/01_hello.sd
 
 # OTLP telemetry — point at any collector
-STARDUST_OTLP_ENDPOINT=http://localhost:4317 sdust run my-agent.sd
+STARDUST_OTLP_ENDPOINT=http://localhost:4317 mty run my-agent.sd
 
 # 20/20 wasm-Component builds — examples with helpers + no top-level
 # main now ship with --no-component-friendly _-prefixed helpers
-sdust build --target wasm32-wasi examples/14_extern_c.sd
+mty build --target wasm32-wasi examples/14_extern_c.sd
 
 # Borrow checker accepts disjoint field borrows
 # (compiles where v0.2 over-rejected)
@@ -53,9 +53,9 @@ boundaries, then integrated through this release:
 
 | Agent | Crates / files | Commits |
 |---|---|---|
-| borrow | `sdust-borrow`, borrow-model spec, conformance | `d888ef2`, `8b98669` |
-| effect/cap | `sdust-types`, Sendable, A65 spec | `e239b30` |
-| runtime | `sdust-runtime`, OTLP, slab pool, cancel | `6600f4c` |
+| borrow | `mty-borrow`, borrow-model spec, conformance | `d888ef2`, `8b98669` |
+| effect/cap | `mty-types`, Sendable, A65 spec | `e239b30` |
+| runtime | `mty-runtime`, OTLP, slab pool, cancel | `6600f4c` |
 | v0.2-cleanup | CLI bridge, 6 example mains, 3 ignored→passing | `955291d` |
 
 Plus one prep commit (`7ff5629`) that added the OpenTelemetry +
@@ -97,13 +97,13 @@ All four "loose ends" from v0.2 cleanup brief are addressed:
 
 - **Stdlib host install** — fixed via CLI-side bridge
   (`sdust_runtime::host_std::install_dispatcher` in
-  `sdust-cli::main`); `sdust run` now executes real `std.*` calls
+  `mty-cli::main`); `mty run` now executes real `std.*` calls
 - **6/20 wasm-CM build failures** — closed (all 20 examples wrap as
   Components; non-main top-level identifiers prefixed with `_`)
 - **5 INTENTIONALLY_IGNORED conformance cases** — 3 closed; the
   remaining 2 (`capability_checking/03_narrow_to_ro`,
-  `supervisor_restart/02_escalate`) need work in sdust-types /
-  sdust-syntax that's outside v0.3 scope
+  `supervisor_restart/02_escalate`) need work in mty-types /
+  mty-syntax that's outside v0.3 scope
 - **LLVM backend untested** — install docs improved; smoke deferred
   (no LLVM 17 host available)
 
@@ -142,12 +142,12 @@ No new SD codes minted; existing codes were re-aimed:
   local protocols
 - **MT4041** (derive_unknown) — text lists `Sendable`
 
-`sdust explain SDxxxx` carries the updated text for each.
+`mty explain SDxxxx` carries the updated text for each.
 
 ## Toolchain
 
 - **MSRV: Rust 1.85** (unchanged from v0.2)
-- New default-on `otlp` feature on `sdust-runtime` (build with
+- New default-on `otlp` feature on `mty-runtime` (build with
   `--no-default-features` to strip the OpenTelemetry exporter for
   minimum-binary builds)
 - All-platform: Windows, macOS, Linux
@@ -164,7 +164,7 @@ Highlights:
 - **Effects / caps**: real cap-name resolution wiring (slice-7),
   function-signature cap-narrowing, cross-package Sendable
   propagation, Sendable lambda capture analysis
-- **Runtime**: SIR-side cancellation polling (true mid-turn
+- **Runtime**: MtyIR-side cancellation polling (true mid-turn
   interrupt), CpuBudget reason wiring, HTTP/protobuf OTLP transport
   selector, OTel resource-attribute env-vars, DelayScheduler as
   default per-turn timer
@@ -177,9 +177,9 @@ Highlights:
 ## Known issues
 
 1. **2 conformance cases still `INTENTIONALLY_IGNORED`**:
-   - `capability_checking/03_narrow_to_ro` — needs sdust-types
+   - `capability_checking/03_narrow_to_ro` — needs mty-types
      `Fs.ro` cap narrowing
-   - `supervisor_restart/02_escalate` — needs sdust-syntax
+   - `supervisor_restart/02_escalate` — needs mty-syntax
      `escalate` grammar
 2. **Borrow checker conservatism**: see `BORROW_V0_3_NOTES.md` for
    six over-restriction patterns (two-phase, deeper fields, indices,
@@ -220,7 +220,7 @@ unchanged.
 
 ## Acknowledgments
 
-v0.3 is the second Stardust release built by autonomous parallel
+v0.3 is the second Mighty release built by autonomous parallel
 agents. The four swarm agents shipped tightly because each touched
 disjoint crates — borrow vs types vs runtime vs CLI/cleanup — and
 the integrator only needed to apply two test-side cross-cuts (LSP
@@ -231,13 +231,13 @@ infrastructure, the tower-lsp wiring, and the conformance harness
 all carried forward without rewrites.
 
 Big thanks to the `opentelemetry`, `tonic`, `tokio-util`, `dashmap`,
-`gimli`, and `tower-lsp` teams — Stardust v0.3 stands on those
+`gimli`, and `tower-lsp` teams — Mighty v0.3 stands on those
 shoulders too.
 
 ## What's next
 
 v0.4 picks up the 28-item deferral catalogue: Polonius-style borrow
-checking, real cap-name resolution wiring, SIR-side cancellation,
+checking, real cap-name resolution wiring, MtyIR-side cancellation,
 WASI Preview 2, DWARF v5, backtracking pkg resolver. The
 aspirational v0.4 tagline: *"every soundness assertion the spec
 makes is enforceable end-to-end, and the compiler tells you why

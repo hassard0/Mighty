@@ -4,7 +4,7 @@
 // inject `profile = "core"` into the working dir's `star.toml`. The
 // conformance_full harness today reads the workspace's star.toml
 // (host-profile), so the diagnostic is currently produced only via the
-// dedicated sdust-types unit test `core_profile_rejects_alloc`. The
+// dedicated mty-types unit test `core_profile_rejects_alloc`. The
 // case-shape is preserved here so that when slice-7 wires per-case
 // `star.toml` overrides we get the MT4002 emission for free.
 pub fn alloc_in_core(name: Str) -> String effect alloc {

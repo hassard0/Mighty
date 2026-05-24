@@ -1,4 +1,4 @@
-# Stardust macros — v0.4 spec
+# Mighty macros — v0.4 spec
 
 Status: **shipped in v0.4**.
 Supersedes the placeholder discussion in spec §20.3 (v0.1).
@@ -9,7 +9,7 @@ feature index).
 
 * **Predictable.** A v0.4 macro is a *token template* parameterised by
   named parameters. Expansion is deterministic and visible in
-  `sdust dump --hir`.
+  `mty dump --hir`.
 * **Hygienic.** Macro-introduced bindings cannot capture or be captured
   by the caller's bindings.
 * **Sandboxed by shape.** A macro body is data; the macro system
@@ -45,7 +45,7 @@ v0.4; cross-file macro export is v0.5 territory).
 v0.4 has no syntactic marker for macro calls. A macro is invoked using
 ordinary function-call syntax:
 
-```sdust
+```mty
 macro assert_eq(a, b) => {
   if a != b { panic("assert_eq failed") }
 }
@@ -111,7 +111,7 @@ code or wait for v0.5's set-of-scopes hygiene.
 
 ## Worked acceptance example
 
-```sdust
+```mty
 macro assert_eq(a, b) => {
   if a != b { panic("assert_eq failed") }
 }
@@ -126,8 +126,8 @@ After expansion, `fn main` lowers to a `HirExpr::If` over
 same HIR as if the user had typed the `if` by hand. Verifiable via:
 
 ```
-sdust check examples/16_macro.sd   # passes
-sdust dump --hir examples/16_macro.sd
+mty check examples/16_macro.sd   # passes
+mty dump --hir examples/16_macro.sd
 ```
 
 ## Compatibility

@@ -1,16 +1,16 @@
 # Demo 01 — `search_api`
 
-A minimal HTTP-shaped search service written in Stardust. Demonstrates:
+A minimal HTTP-shaped search service written in Mighty. Demonstrates:
 
 > **v0.5 dogfood update.** `std.http.serve(addr)` now binds a real
 > socket. The host dispatcher routes `std.http.serve` /
 > `std.http.shutdown` through the new
-> `sdust-stdlib::http_server` registry, which spins up a tokio
+> `mty-stdlib::http_server` registry, which spins up a tokio
 > runtime and a hyper accept loop. A default dispatcher returns
 > `200 OK` JSON describing the request; the runtime's agent-binding
 > hook (post-v0.5) will replace that with a real `?Request(req)`
 > ask into the owning agent. See
-> `crates/sdust-stdlib/tests/http_serve_real.rs` for the
+> `crates/mty-stdlib/tests/http_serve_real.rs` for the
 > bound-socket roundtrip smoke test.
 
 - `package` + `use std.*` imports
@@ -23,7 +23,7 @@ A minimal HTTP-shaped search service written in Stardust. Demonstrates:
 
 ```
 01_search_api/
-  star.toml           # package manifest (host profile, no deps)
+  mighty.toml           # package manifest (host profile, no deps)
   src/main.sd         # the search service
   smoke.sh / smoke.ps1 # cross-platform behavioural test
   README.md           # this file
@@ -31,25 +31,25 @@ A minimal HTTP-shaped search service written in Stardust. Demonstrates:
 
 ## Build / run
 
-From the Stardust repo root:
+From the Mighty repo root:
 
 ```bash
 # build the compiler (once)
-cargo build -p sdust-cli
+cargo build -p mty-cli
 
 # type-check
-./target/debug/sdust check demos/01_search_api/src/main.sd
+./target/debug/mty check demos/01_search_api/src/main.sd
 
 # run — exercises every endpoint, prints golden output
-./target/debug/sdust run   demos/01_search_api/src/main.sd
+./target/debug/mty run   demos/01_search_api/src/main.sd
 ```
 
 PowerShell:
 
 ```powershell
-cargo build -p sdust-cli
-.\target\debug\sdust.exe check demos\01_search_api\src\main.sd
-.\target\debug\sdust.exe run   demos\01_search_api\src\main.sd
+cargo build -p mty-cli
+.\target\debug\mty.exe check demos\01_search_api\src\main.sd
+.\target\debug\mty.exe run   demos\01_search_api\src\main.sd
 ```
 
 Expected output:
@@ -58,7 +58,7 @@ Expected output:
 == health ==
 {"status":"ok"}
 == search ==
-{"q":"stardust","hits":[]}
+{"q":"mighty","hits":[]}
 == search-2 ==
 {"q":"agents","hits":[]}
 == metrics ==
@@ -85,16 +85,16 @@ Either prints `01_search_api: PASS` on success.
 
 ## What this demo does NOT (yet) do
 
-The Stardust standard library's `std.http.serve` is a real
-`hyper`-backed Rust API (see `crates/sdust-stdlib/src/http.rs`), but
+The Mighty standard library's `std.http.serve` is a real
+`hyper`-backed Rust API (see `crates/mty-stdlib/src/http.rs`), but
 the v0.3 generic-call dispatcher in
-`crates/sdust-stdlib/src/host.rs::dispatch` only routes `get` and `post`
-calls today — there is no host shim that lets a Stardust agent be
-*invoked* by an inbound HTTP request inside the SIR interpreter. The
+`crates/mty-stdlib/src/host.rs::dispatch` only routes `get` and `post`
+calls today — there is no host shim that lets a Mighty agent be
+*invoked* by an inbound HTTP request inside the MtyIR interpreter. The
 spec calls this out under amendment A36 / A47.
 
 That means: this demo **does not bind a TCP socket** when run under
-`sdust run`. Instead, `main()` drives the handler bodies directly so
+`mty run`. Instead, `main()` drives the handler bodies directly so
 the demo's behaviour is observable on stdout (and exercisable by the
 smoke scripts). The shape of the agent — protocol, state, handler
 bodies — is exactly what would back a real `http.serve` once the bridge
@@ -116,9 +116,9 @@ a `rust:1` stage and copies both the compiler and the demo source into
 a slim runtime image. Run with:
 
 ```bash
-docker build -t stardust-search-api -f demos/01_search_api/Dockerfile .
-docker run --rm stardust-search-api
+docker build -t mighty-search-api -f demos/01_search_api/Dockerfile .
+docker run --rm mighty-search-api
 ```
 
-The container's entrypoint runs `sdust run src/main.sd`, which prints
+The container's entrypoint runs `mty run src/main.sd`, which prints
 the same deterministic golden output the smoke script checks against.

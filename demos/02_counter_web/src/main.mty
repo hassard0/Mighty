@@ -1,6 +1,6 @@
 // demo 02_counter_web — a tiny counter rendered into the browser.
 //
-// Compiles with `sdust build --target wasm32-web` to a Component Model
+// Compiles with `mty build --target wasm32-web` to a Component Model
 // component that imports a single host function:
 //
 //   import stardust:web/log#log(msg: string)
@@ -17,9 +17,9 @@
 //
 // v0.4 caveats:
 //   * The wasm32-web backend wires `log` but not yet a full DOM
-//     binding (see `crates/sdust-codegen-wasm/src/wit.rs`). The
+//     binding (see `crates/mty-codegen-wasm/src/wit.rs`). The
 //     counter state is *materialised on the JS side* by parsing the
-//     emitted log lines — the Stardust agent is the source of truth.
+//     emitted log lines — the Mighty agent is the source of truth.
 
 package counter_web
 

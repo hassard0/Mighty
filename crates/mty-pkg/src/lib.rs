@@ -11,7 +11,7 @@
 //!   TTL and honours `If-Modified-Since` for cheap refetches.
 //! - The lockfile records sources as `registry+gh://<owner>/<repo>`.
 //! - Auth (for private registries + publish) is per-user, stored in
-//!   `~/.config/sdust/auth.toml` (plaintext, `0600` on Unix).
+//!   `~/.config/mighty/auth.toml` (plaintext, `0600` on Unix).
 //! - Publish bundles the package as a real `tar.gz` + sha256 sidecar
 //!   and creates a GitHub release when a token is available.
 //!

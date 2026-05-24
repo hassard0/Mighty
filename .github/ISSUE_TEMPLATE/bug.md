@@ -10,7 +10,7 @@ labels: bug
 
 ## Repro
 
-<!-- Minimal Stardust source + the exact `sdust` command that triggered it. -->
+<!-- Minimal Mighty source + the exact `mty` command that triggered it. -->
 
 ```sd
 fn main() {
@@ -19,7 +19,7 @@ fn main() {
 ```
 
 ```bash
-sdust check path/to/file.sd
+mty check path/to/file.mty
 ```
 
 ## Expected vs actual
@@ -29,7 +29,7 @@ Actual:   <!-- what did happen, with the diagnostic / panic / wrong output -->
 
 ## Environment
 
-- `sdust --version`:
+- `mty --version`:
 - Rust toolchain (`rustc --version`):
 - OS and version:
-- Stardust commit / tag:
+- Mighty commit / tag:

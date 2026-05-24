@@ -80,7 +80,7 @@ fn render_named_def(doc: &DocAnalysis, name: &str) -> Option<String> {
                 " effect <...>".to_string()
             };
             Some(format!(
-                "```sdust\n{vis}fn {}({}) -> {}{}\n```",
+                "```mty\n{vis}fn {}({}) -> {}{}\n```",
                 f.name,
                 params.join(", "),
                 ret,
@@ -94,15 +94,15 @@ fn render_named_def(doc: &DocAnalysis, name: &str) -> Option<String> {
                 mty_types::AdtKind::Enum => "enum",
                 mty_types::AdtKind::Opaque => "type",
             };
-            Some(format!("```sdust\n{kw} {}\n```", a.name))
+            Some(format!("```mty\n{kw} {}\n```", a.name))
         }
         DefRef::Variant(id, idx) => {
             let a = doc.typed.def_map.adt(*id)?;
             let v = a.variants.get(*idx)?;
-            Some(format!("```sdust\n{}.{}\n```", a.name, v.name))
+            Some(format!("```mty\n{}.{}\n```", a.name, v.name))
         }
-        DefRef::Module(_) => Some(format!("```sdust\nmod {}\n```", name)),
-        DefRef::Param(_) => Some(format!("```sdust\ntype param {}\n```", name)),
+        DefRef::Module(_) => Some(format!("```mty\nmod {}\n```", name)),
+        DefRef::Param(_) => Some(format!("```mty\ntype param {}\n```", name)),
     }
 }
 

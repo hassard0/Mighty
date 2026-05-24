@@ -2,7 +2,7 @@
 
 ## Why another systems language?
 
-Stardust bets that "agent-era" software needs a language where
+Mighty bets that "agent-era" software needs a language where
 concurrency, authority, failure, memory, and observability are
 compiler-visible semantics rather than framework conventions. The
 intent is *faster than idiomatic C++* on targeted workloads by making
@@ -25,18 +25,18 @@ self-hosts (post v0.2), the bootstrap host stops mattering.
 Short, unambiguous, and the spec recommends it. The avoided acronym is
 `SDL`, which already means Simple DirectMedia Layer.
 
-## Why `sdust` and not `stardust`?
+## Why `mty` and not `mighty`?
 
-A short binary name pays for itself every time you type it. `sdust` is
+A short binary name pays for itself every time you type it. `mty` is
 unambiguous and consistent with the other ecosystem identifiers
-(`star.toml`, `.sd`, `sdust pkg`).
+(`mighty.toml`, `.sd`, `mty pkg`).
 
 ## What works today (slice 1)?
 
 - Lexing, parsing, CST and AST views.
 - HIR lowering with desugarings.
 - Diagnostics rendered through ariadne.
-- The `sdust` CLI with `new`, `fmt`, `check`, `dump`.
+- The `mty` CLI with `new`, `fmt`, `check`, `dump`.
 - 20 canonical example programs.
 
 ## What does *not* work today?
@@ -45,12 +45,12 @@ unambiguous and consistent with the other ecosystem identifiers
   them are implemented yet.
 - Codegen — no LLVM, no Cranelift, no Wasm backend.
 - The runtime — no scheduler, no mailboxes, no supervisors.
-- `sdust build`, `run`, `test`, `lint`, `doc`, `bench`, `pkg`, `lsp` —
+- `mty build`, `run`, `test`, `lint`, `doc`, `bench`, `pkg`, `lsp` —
   these CLI commands are spec'd but not implemented.
 
 See the [roadmap](../README.md#roadmap) and [SLICE1.md](../SLICE1.md).
 
-## Why doesn't `sdust check` catch this obviously wrong program?
+## Why doesn't `mty check` catch this obviously wrong program?
 
 In slice 1, `check` only catches lexical, syntactic, and HIR-lowering
 errors. Type errors, borrow violations, missing effects, and capability
@@ -71,13 +71,13 @@ effects.
 
 ## What's the difference between an agent and an actor?
 
-Stardust agents have all four: isolation, asynchrony, typed protocols,
+Mighty agents have all four: isolation, asynchrony, typed protocols,
 and capability boundaries. Most actor libraries pick two or three.
 Spec §2.3 lists the full set: "isolated state owner, concurrency unit,
 failure boundary, capability boundary, observability boundary,
 scheduling boundary."
 
-## Can I use Stardust for embedded or kernel work?
+## Can I use Mighty for embedded or kernel work?
 
 That is the `core` profile. It forbids global GC, dynamic dispatch by
 default, and a managed heap. Slice 1 does not yet enforce the profile

@@ -1,4 +1,4 @@
-# Methodology — Stardust v0.6 benchmarks
+# Methodology — Mighty v0.6 benchmarks
 
 This document describes **how** the v0.6 benchmark numbers were
 collected and **what** the comparison rules are. It is the
@@ -23,7 +23,7 @@ count (msgs/sec, bytes/sec).
 
 ## Sample counts
 
-| Category | Stardust iters | Comparator iters |
+| Category | Mighty iters | Comparator iters |
 |---|---|---|
 | parse_throughput | 30 | 30 |
 | agent_send_latency | 30 (1000 inside criterion) | 1000 |
@@ -53,21 +53,21 @@ P99 is dominated by tokio scheduling jitter on the slowest sample).
 ### Same-shape, not same-API
 
 Each comparator runs an **operation of the same shape** as the
-Stardust impl — not a port of Stardust's API. For example, the
+Mighty impl — not a port of Mighty's API. For example, the
 mailbox_throughput Rust comparator uses `tokio::mpsc`, not a wrapper
 that mimics `sdust_runtime::Mailbox`. This means:
 
 - We're not measuring API binding overhead.
 - We *are* measuring the host language's idiomatic concurrency
-  primitive against Stardust's.
-- A 2x slowdown in Stardust means "tokio + our bookkeeping is 2x
+  primitive against Mighty's.
+- A 2x slowdown in Mighty means "tokio + our bookkeeping is 2x
   slower than tokio alone", which is a fair v0.7+ optimisation target.
 
 ### Toolchain versions
 
 | Tool | Version |
 |---|---|
-| Stardust | v0.6, this PR |
+| Mighty | v0.6, this PR |
 | Rust | 1.95.0 (stable) |
 | Go | 1.22 (reference env) |
 | C++ | g++ 13 or clang++ 17 with `-O3 -std=c++20` |
@@ -79,7 +79,7 @@ Pinned in each comparator's `Cargo.toml` / `go.mod` / `Makefile`.
 The numbers in `docs/benchmarks/*.md` use one of two labels:
 
 - **(This host)** — measured on the same Windows 11 host that ran the
-  Stardust impl.
+  Mighty impl.
 - **(Reference env)** — Linux Ubuntu 24.04, Intel Core i7-12700,
   32 GB RAM. Used for Go/C++ comparators on hosts without those
   toolchains.
@@ -91,10 +91,10 @@ ready to be invoked.
 ## Reproducing
 
 ```bash
-# 1. Stardust: criterion HTML + raw JSON
-cargo bench -p sdust-bench
-cargo build --release -p sdust-bench
-./target/release/sdust-bench-runner --all --iters 30 \
+# 1. Mighty: criterion HTML + raw JSON
+cargo bench -p mty-bench
+cargo build --release -p mty-bench
+./target/release/mty-bench-runner --all --iters 30 \
     --out target/bench-results.json
 
 # 2. Comparators: each is a standalone Cargo crate / go module / Makefile
@@ -104,7 +104,7 @@ cargo build --release -p sdust-bench
 ./benches/run.sh --all     # require all
 
 # 3. Sanity-check the fixtures
-cargo test -p sdust-bench
+cargo test -p mty-bench
 ```
 
 ## Adding a new benchmark

@@ -1,6 +1,6 @@
 # 12 — Extern
 
-Stardust talks to other ABIs through `extern` blocks. The two ABIs
+Mighty talks to other ABIs through `extern` blocks. The two ABIs
 supported in v0.1 are `c` for the C ABI and `js` for JavaScript when
 targeting the web.
 
@@ -19,14 +19,14 @@ export c fn add(a: I32, b: I32) -> I32 = a + b
 - `*U8` is a raw pointer to a byte. Raw pointers are unsafe to
   dereference — you need an `unsafe` block. See
   [chapter 13](13-unsafe.md).
-- `export c fn add(...) -> I32 = a + b` exports a Stardust function
+- `export c fn add(...) -> I32 = a + b` exports a Mighty function
   through the C ABI. The expression body (`= a + b`) is the canonical
   one-line form (spec §10.1).
 
 Run it:
 
 ```bash
-sdust check examples/14_extern_c.sd
+mty check examples/14_extern_c.sd
 ```
 
 ## JavaScript interop
@@ -48,7 +48,7 @@ extern js {
 Run it:
 
 ```bash
-sdust check examples/15_extern_js.sd
+mty check examples/15_extern_js.sd
 ```
 
 ## Next

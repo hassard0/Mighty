@@ -7,7 +7,7 @@ exceeding a cap traps with MT5009 (budget_exceeded) or MT5012
 
 ## v0.2 conformance gap
 
-The slice-7 SIR interpreter (used by the conformance harness)
+The slice-7 MtyIR interpreter (used by the conformance harness)
 applies a single coarse step-budget. Fine-grained `cpu` / `wall`
 sub-budgets and mid-turn deadline firing are tokio-runtime-only.
 

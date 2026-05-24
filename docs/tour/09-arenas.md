@@ -39,7 +39,7 @@ fn turn_short(input: Str) -> Lowered!ParseErr {
 ## Run it
 
 ```bash
-sdust check examples/12_arena.sd
+mty check examples/12_arena.sd
 ```
 
 ## Next

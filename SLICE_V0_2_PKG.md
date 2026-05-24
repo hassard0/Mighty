@@ -1,24 +1,24 @@
-# Slice v0.2 — Package Manager (`sdust-pkg`)
+# Slice v0.2 — Package Manager (`mty-pkg`)
 
 Notes for the slice-leader consolidating the v0.2 swarm. This file
-documents interpretation calls the `sdust-pkg` agent made.
+documents interpretation calls the `mty-pkg` agent made.
 
 ## Scope shipped
 
-- `crates/sdust-pkg/` — full crate (lib + 4 integration tests).
-- `crates/sdust-cli/src/cmd/pkg.rs` — CLI subcommand wired into
-  `sdust-cli/src/main.rs` as the `Pkg` variant.
-- `crates/sdust-driver/src/manifest.rs` — extended `Dep` enum +
+- `crates/mty-pkg/` — full crate (lib + 4 integration tests).
+- `crates/mty-cli/src/cmd/pkg.rs` — CLI subcommand wired into
+  `mty-cli/src/main.rs` as the `Pkg` variant.
+- `crates/mty-driver/src/manifest.rs` — extended `Dep` enum +
   `BuildConfig` scaffold + `manifest::save` round-trip.
 - Docs:
   - `docs/internals/package-manager.md` (new)
-  - `docs/reference/cli/sdust-pkg.md` (new)
+  - `docs/reference/cli/mty-pkg.md` (new)
   - `docs/reference/manifest.md` (extended)
 
 ## Interpretation calls
 
 1. **`Manifest.deps` value type promoted from `String` to `Dep`.**
-   This is an in-place breaking change to the `sdust-driver` public
+   This is an in-place breaking change to the `mty-driver` public
    `Manifest` shape. The driver's existing tests still pass because
    they only use `.len()` and `.contains_key()`. No other crate
    consumes `.deps` values today.
@@ -29,7 +29,7 @@ documents interpretation calls the `sdust-pkg` agent made.
 
 3. **Resolver does not auto-walk git deps post-fetch.** v0.2 records
    the git dep at synthesised version `0.0.0` and stops. The walker
-   could re-load the cloned `star.toml` after fetch, but that mixes
+   could re-load the cloned `mighty.toml` after fetch, but that mixes
    resolve + fetch concerns and is out of scope here. Flagged as
    post-v0.2 work in `docs/internals/package-manager.md`.
 
@@ -57,7 +57,7 @@ documents interpretation calls the `sdust-pkg` agent made.
 
 ## Tests
 
-`cargo test -p sdust-pkg` covers:
+`cargo test -p mty-pkg` covers:
 
 - `tests/resolver.rs` — happy path, transitive via path dep, version
   conflict detection.
@@ -75,10 +75,10 @@ splitting, publish determinism, and command-layer round-trips.
 
 | file                                                | nature of change          |
 |-----------------------------------------------------|---------------------------|
-| `crates/sdust-driver/src/manifest.rs`               | extended (additive + Dep enum) |
-| `crates/sdust-cli/src/main.rs`                      | added `Pkg` variant + dispatch |
-| `crates/sdust-cli/src/cmd/mod.rs`                   | added `pub mod pkg;`      |
-| `crates/sdust-cli/Cargo.toml`                       | added `sdust-pkg = { path = ".." }` |
+| `crates/mty-driver/src/manifest.rs`               | extended (additive + Dep enum) |
+| `crates/mty-cli/src/main.rs`                      | added `Pkg` variant + dispatch |
+| `crates/mty-cli/src/cmd/mod.rs`                   | added `pub mod pkg;`      |
+| `crates/mty-cli/Cargo.toml`                       | added `mty-pkg = { path = ".." }` |
 
 ## Post-v0.2 follow-ups
 

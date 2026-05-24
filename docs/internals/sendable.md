@@ -1,13 +1,13 @@
 # Sendable — Cross-Agent Message Marker Trait
 
 > Status: v0.3 (amendment A65). Implemented in
-> `crates/sdust-types/src/sendable.rs`. Enforced at every `!Msg(...)`
+> `crates/mty-types/src/sendable.rs`. Enforced at every `!Msg(...)`
 > and `?Msg(...)` call site; diagnostic code MT3011
 > (`non_sendable_message_arg`).
 
 ## Why
 
-Stardust agents share nothing. Every value crossing an agent boundary
+Mighty agents share nothing. Every value crossing an agent boundary
 must be *self-contained*: it must not point back into the sender's
 memory, must not name a resource the receiver cannot independently
 acquire, and must satisfy the static guarantees the receiver assumes
@@ -73,7 +73,7 @@ violations at the send site.
 
 ## Examples
 
-```stardust
+```mighty
 protocol Hi { Greet(name: Str) -> Str }
 
 agent Greeter: Hi { on Greet(name) -> name }
@@ -97,7 +97,7 @@ fn bad_cap(s: SomeAgent, fs: Fs) -> Unit {
 
 ## Relationship to the borrow checker
 
-The borrow checker (`sdust-borrow`) handles the *liveness* contract:
+The borrow checker (`mty-borrow`) handles the *liveness* contract:
 the value at the send site must be unborrowed (Owned), so the sender
 can give it up. Sendable handles the *type-shape* contract: the type
 itself must not embed authority the receiver can't honour.

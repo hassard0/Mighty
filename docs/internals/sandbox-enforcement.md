@@ -4,14 +4,14 @@
 > [`DEMOS_V0_4_NOTES.md`](../../DEMOS_V0_4_NOTES.md) are closed by
 > this document.
 
-Stardust ships two complementary enforcement mechanisms for the
+Mighty ships two complementary enforcement mechanisms for the
 [`sandbox`](../spec/v0.1.md#161-sandboxes) block:
 
-1. **CPU / memory budgets** — caught inside the SIR interpreter as
-   typed [`RunResult`](../../crates/sdust-sir/src/interp/run.rs)
+1. **CPU / memory budgets** — caught inside the MtyIR interpreter as
+   typed [`RunResult`](../../crates/mty-sir/src/interp/run.rs)
    variants.
 2. **Capability allow-lists** — enforced at the host bridge between
-   the SIR interpreter and `sdust-stdlib`, via a process-wide
+   the MtyIR interpreter and `mty-stdlib`, via a process-wide
    default cap installed by the driver.
 
 The two share the same source of truth (`BudgetTracker` on the
@@ -21,7 +21,7 @@ times.
 
 ## Budget charging — CPU steps + memory
 
-`sdust-sir::interp::run::Interp` tracks two scalars:
+`mty-sir::interp::run::Interp` tracks two scalars:
 
 - `budget: u64` — remaining "steps". Every executed statement +
   terminator decrements it. When it hits 0 the interpreter returns
@@ -53,11 +53,11 @@ When `mem_used > mem_budget` after a charge:
    notices `mem_used > mem_budget`, and returns
    [`RunResult::MemBudgetExceeded { used, limit }`].
 3. Callers map the variant onto exit code `4` and an MT5009 trap
-   message. See `crates/sdust-driver/src/pipeline.rs::run_file_with_runtime`.
+   message. See `crates/mty-driver/src/pipeline.rs::run_file_with_runtime`.
 
 ## Capability allow-lists — fs.read / fs.write
 
-`sdust-stdlib::fs::FsCap` is the in-process representation of a
+`mty-stdlib::fs::FsCap` is the in-process representation of a
 capability value. It carries an `allowed: Vec<PathBuf>` list; an
 empty list is "unrestricted" (tests + un-sandboxed CLI runs).
 
@@ -67,9 +67,9 @@ incoming path; otherwise it returns
 
 ### Process-wide default cap
 
-The stdlib's `host::dispatch` is invoked from the SIR interpreter's
+The stdlib's `host::dispatch` is invoked from the MtyIR interpreter's
 `EffectOp::GenericCall` path without an explicit cap value (today's
-SIR lowerer doesn't materialise per-call caps from the sandbox
+MtyIR lowerer doesn't materialise per-call caps from the sandbox
 manifest yet — that's the v0.6 work). To still enforce the
 manifest's `fs.read = [...]` allow-list, the dispatcher consults a
 process-wide default cap:
@@ -85,16 +85,16 @@ install_default_write_cap(FsCap::rooted(["./outputs"]));
 Subsequent `std.fs.read("./outside")` calls land in
 `host::fs_read`, which clones the current cap via
 `current_default_read_cap()` and short-circuits to
-`IoErr::Forbidden(...)`. The Stardust-visible result is a
+`IoErr::Forbidden(...)`. The Mighty-visible result is a
 [`Result::Err(forbidden:<path>)`] variant — agents can pattern-match
 on it just like any other failure.
 
 ### Why the global slot?
 
-The SIR dispatcher signature is `(path, method, args) -> Value`. It
+The MtyIR dispatcher signature is `(path, method, args) -> Value`. It
 has no `&mut Interp` and no way to thread per-agent state through. A
 global slot lets the driver install the cap once at agent startup
-without touching the SIR shape.
+without touching the MtyIR shape.
 
 When the v0.6 lowerer materialises per-call caps, this global slot
 becomes the *fallback* path: if the call shape carries an explicit
@@ -103,13 +103,13 @@ cap.
 
 ## Tests
 
-- `crates/sdust-sir/tests/budget_charges.rs` — CPU + mem trips.
-- `crates/sdust-stdlib/tests/fs_capability_allowlist.rs` —
+- `crates/mty-sir/tests/budget_charges.rs` — CPU + mem trips.
+- `crates/mty-stdlib/tests/fs_capability_allowlist.rs` —
   Forbidden surface + install/restore roundtrip.
 
 ## v0.6 follow-ups
 
-- Lower `sandbox` manifest's `fs.read = [...]` into a SIR
+- Lower `sandbox` manifest's `fs.read = [...]` into a MtyIR
   `Rvalue::CapValue { family: Fs, constraint: PathList(...) }` and
   thread it through every `std.fs.*` call.
 - Replace the heuristic `estimate_value_bytes` with a proper arena

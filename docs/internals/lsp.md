@@ -1,15 +1,15 @@
-# LSP (sdust-lsp)
+# LSP (mty-lsp)
 
-Live editor integration for Stardust. Implements LSP 3.17 over stdio
+Live editor integration for Mighty. Implements LSP 3.17 over stdio
 via [`tower-lsp`](https://crates.io/crates/tower-lsp) 0.20.
 
 This is the **internals** doc. The user-facing CLI reference lives at
-[`docs/reference/cli/sdust-lsp.md`](../reference/cli/sdust-lsp.md).
+[`docs/reference/cli/mty-lsp.md`](../reference/cli/mty-lsp.md).
 
 ## Crate layout
 
 ```
-crates/sdust-lsp/
+crates/mty-lsp/
 ├── Cargo.toml
 ├── src/
 │   ├── lib.rs              # module wiring, re-exports tower_lsp::lsp_types
@@ -74,10 +74,10 @@ The v0.2/v0.5 LSP intentionally skips the borrow check. Two reasons:
    roughly doubles per-change analysis time on typical files. For an
    editor that runs the pipeline on every keystroke, that's enough to
    feel sluggish.
-2. **Dep weight.** `sdust-borrow` pulls in additional state; the LSP
+2. **Dep weight.** `mty-borrow` pulls in additional state; the LSP
    crate keeps its dep set lean (only what the in-scope features need).
 
-Borrow-check diagnostics still surface via `sdust check`. A future
+Borrow-check diagnostics still surface via `mty check`. A future
 amendment will incrementalize the borrow checker so the LSP can include
 its output without the latency hit.
 
@@ -141,7 +141,7 @@ surface them.
 
 `completion::complete(doc, position)` returns the union of:
 
-1. The full Stardust keyword set (57 entries) tagged
+1. The full Mighty keyword set (57 entries) tagged
    `CompletionItemKind::KEYWORD`.
 2. Every name in `DefMap::by_name` tagged with the appropriate kind
    (Function / Struct / EnumMember / Module / TypeParameter).
@@ -310,7 +310,7 @@ If/when tower-lsp upgrades to lsp-types 0.97+, we can drop the alias.
 
 ## Testing strategy
 
-Integration tests under `crates/sdust-lsp/tests/` construct a
+Integration tests under `crates/mty-lsp/tests/` construct a
 `DocAnalysis` directly and invoke each feature module, asserting on the
 lsp-types result. This catches the same regressions as a full JSON-RPC
 round-trip but stays fast and deterministic.
@@ -318,7 +318,7 @@ round-trip but stays fast and deterministic.
 Run:
 
 ```bash
-cargo test -p sdust-lsp
+cargo test -p mty-lsp
 ```
 
 v0.5 ships 45 tests:

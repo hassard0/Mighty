@@ -24,10 +24,10 @@ calls made during the build so future slices can revisit them with context.
 5. **Procedural macro skeleton**: `proc macro` declarations parse and
    register, but execution is gated behind **MT6006**
    `proc_macro_unsupported_v0_5`. The proc-macro interpreter needs a
-   sandboxed SIR sub-context that doesn't exist yet; v0.6 closure.
+   sandboxed MtyIR sub-context that doesn't exist yet; v0.6 closure.
 6. **Standard macros library**: `assert!`, `assert_eq!`, `assert_ne!`,
    `debug!`, `unreachable!` shipped as source fixtures under
-   `crates/sdust-macros/lib/`. Loadable by `use sdust_macros.assert`
+   `crates/mty-macros/lib/`. Loadable by `use sdust_macros.assert`
    etc.
 
 ## Interpretation calls
@@ -58,8 +58,8 @@ maximum flexibility for future variadic macros (`format!(...)`,
 public API. The HIR lowering loop wires it up when `use otherpkg.foo`
 is encountered. For v0.5 the cross-file test uses an in-memory
 two-file fixture: package resolution beyond the current file is a
-sdust-pkg concern and shouldn't bloat this slice. Real cross-file
-flow lights up automatically once sdust-pkg pipes its symbol table
+mty-pkg concern and shouldn't bloat this slice. Real cross-file
+flow lights up automatically once mty-pkg pipes its symbol table
 into HIR lowering (work owned by another agent's slice).
 
 ### IC4: Extended hygiene walks patterns lexically, not via the parser
@@ -77,16 +77,16 @@ scope, only its own.
 
 ### IC5: Stdlib macros ship as source fixtures, not Rust strings
 
-`crates/sdust-macros/lib/*.sd` are real Stardust source files. The
+`crates/mty-macros/lib/*.sd` are real Mighty source files. The
 test harness `include_str!`s them and feeds them through the same
 registry as user code. Keeps the macros readable + lets users see
 exactly what `assert!` expands to. The standard library "wiring"
 (automatic registration when a project imports `use std.macros`)
-is left for sdust-pkg integration — v0.5 only ships the source.
+is left for mty-pkg integration — v0.5 only ships the source.
 
 ### IC6: Proc-macro grammar uses `proc macro` not `#[proc_macro]`
 
-Stardust attributes (v0.5) don't support functional positions
+Mighty attributes (v0.5) don't support functional positions
 yet (`#[proc_macro]` would need a real attribute system). We
 introduce `proc macro` as a two-keyword item form. PROC_MACRO_DECL
 is a new SyntaxKind. Body is a single `fn`-shape expression that
@@ -107,15 +107,15 @@ picked `name!(...)` (Rust-style) because:
 
 - The lexer already produces BANG; no new lexer work.
 - Less verbose at call sites — matters because macros are common.
-- Familiar to Rust devs; Stardust's audience overlaps heavily.
+- Familiar to Rust devs; Mighty's audience overlaps heavily.
 
 ## Open follow-ups for v0.6
 
-- Proc-macro execution: needs a sandboxed SIR sub-interpreter with
-  CPU/memory/wall caps. Owner: sdust-sir + sdust-runtime.
+- Proc-macro execution: needs a sandboxed MtyIR sub-interpreter with
+  CPU/memory/wall caps. Owner: mty-sir + mty-runtime.
 - Set-of-scopes hygiene: replace the lexical mangler. Owner:
-  sdust-macros + sdust-hir resolver.
-- Real package-aware macro import: sdust-pkg pipes exported symbol
+  mty-macros + mty-hir resolver.
+- Real package-aware macro import: mty-pkg pipes exported symbol
   table into HIR lowering's `PackageMacros::register_use`.
 - Variadic macros: `format!("{} {}", a, b)`. Token-tree grammar
   needs `$(...)*` repetition syntax similar to Rust macro_rules.

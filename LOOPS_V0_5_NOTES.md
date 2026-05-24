@@ -11,7 +11,7 @@ Status: SHIPPED (HEAD == d6e65de at commit time).
 | HIR                      | no nodes                                  | `HirExpr::Break(Option<ExprId>)`, `HirExpr::Continue`                       |
 | Type checker             | n/a                                       | Both synth as `never` (matches `Return`)                                    |
 | Borrow checker           | one-pass walk over loop body              | Bounded fixed-point (16 iter cap, conservative `join_states + join_ledgers`)|
-| SIR lowering             | header → body → header                    | header → body → continue_tgt → header; break sets result_local, gotos exit  |
+| MtyIR lowering             | header → body → header                    | header → body → continue_tgt → header; break sets result_local, gotos exit  |
 | Iterator                 | no exhaustion check                       | `__sdust_iter_next` wire protocol; range + array built-ins                  |
 | Self-host bootstrap      | `#[ignore]` w/ "scan_* never returns"     | UN-IGNORED — full token diff vs Rust lexer passes byte-for-byte             |
 
@@ -43,7 +43,7 @@ additions).
    result type, but doing so requires walking back up through
    nested expressions to find the enclosing loop's type variable.
    v0.5 takes the simpler route: the loop expression's result type
-   is whatever the SIR lowering emits (`Unit` for `while`/`for`,
+   is whatever the MtyIR lowering emits (`Unit` for `while`/`for`,
    `result_local`'s carried value for `loop`). v0.6 will land
    proper unification with labels.
 
@@ -74,8 +74,8 @@ additions).
    counts between two iterations is a sound convergence condition.
    This avoids deep structural comparison on every iteration.
 
-7. **sdust-doc minimal edit.** The plan says "do not modify
-   sdust-doc," but adding a new `HirExpr` variant breaks its
+7. **mty-doc minimal edit.** The plan says "do not modify
+   mty-doc," but adding a new `HirExpr` variant breaks its
    exhaustive match. I added Break/Continue arms to the one match
    in `extract.rs` — the minimum needed to keep the workspace
    building. Documented in the commit message.

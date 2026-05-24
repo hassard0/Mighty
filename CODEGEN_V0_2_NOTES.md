@@ -1,4 +1,4 @@
-# Stardust v0.2 — Codegen Completion Notes
+# Mighty v0.2 — Codegen Completion Notes
 
 This file tracks the choices made by the codegen swarm during the
 v0.2 build. It complements `SLICE8.md` and the per-backend
@@ -6,10 +6,10 @@ v0.2 build. It complements `SLICE8.md` and the per-backend
 
 ## Scope
 
-1. Close the SIR-coverage gaps in `sdust-codegen-cranelift` so all 20
+1. Close the MtyIR-coverage gaps in `mty-codegen-cranelift` so all 20
    examples either build natively or fall back to the interpreter
    only for known unsupported features (extern resolution, dyn dispatch).
-2. Replicate the same coverage in `sdust-codegen-wasm`.
+2. Replicate the same coverage in `mty-codegen-wasm`.
 3. Stand up the LLVM backend (behind the `llvm` feature gate). The
    build host did **not** have LLVM 17 installed, so the LLVM path is
    shipped as opt-in code that compiles to "feature disabled" without
@@ -40,7 +40,7 @@ already emit this when `ret_ty` is non-scalar.
 
 ## `?` propagation
 
-The SIR exposes `Term::TryReturnErr(payload)`. The cranelift lowerer
+The MtyIR exposes `Term::TryReturnErr(payload)`. The cranelift lowerer
 materialises the payload, builds a `Result::Err(payload)` enum value
 in a temporary buffer, then returns that buffer's pointer. Wasm uses
 the analogous shape with `i32` pointer + linear memory.
@@ -53,7 +53,7 @@ The `Monomorphizer` walks `main` reachability, discovers generic
 call sites, and emits a fresh `Function` per concrete type tuple. The
 codegen backend treats each specialized fn as ordinary monomorphic.
 
-Slice-8 did not propagate type-arg lists through SIR call sites
+Slice-8 did not propagate type-arg lists through MtyIR call sites
 because the typeck didn't surface them. v0.2 ships a conservative
 walker that picks up explicit `[T=…]` annotations from the typed-HIR
 and falls back to leaving the call to interp dispatch when the type
@@ -76,7 +76,7 @@ calls at module-init time to populate the dispatch table.
 
 ## LLVM backend status (build host)
 
-- `cargo build -p sdust-codegen-llvm --features llvm` fails on this
+- `cargo build -p mty-codegen-llvm --features llvm` fails on this
   host with `No suitable version of LLVM was found system-wide`. This
   is the documented A46 condition.
 - The crate's default features remain OFF. CI/dev hosts with LLVM 17

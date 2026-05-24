@@ -6,12 +6,12 @@ revisit them with context.
 
 ## Crate layout
 
-* `crates/sdust-macros/` — registry + expander + diag-code constants.
+* `crates/mty-macros/` — registry + expander + diag-code constants.
   Pure library, no I/O, no other crate's runtime types.
-* `crates/sdust-hir/src/lower/macros.rs` — integration: walks the
+* `crates/mty-hir/src/lower/macros.rs` — integration: walks the
   source, calls `sdust_macros::preprocess`, plugs the rewritten
   source back into the parser before the normal lowering walk.
-* `crates/sdust-hir/src/lower/mod.rs` — registers the macros module
+* `crates/mty-hir/src/lower/mod.rs` — registers the macros module
   *and* invokes `preprocess` from `LoweringCtx::lower_file`. This is
   technically more than the "one-line registration" the slice scope
   describes, but the integration genuinely has nowhere else to go
@@ -22,7 +22,7 @@ revisit them with context.
 
 1. **SD6xxx codes live in `sdust_macros::diag` as bare `u16`** rather
    than in `sdust_diagnostics::codes`. Per the slice scope we cannot
-   modify `sdust-diagnostics`. The HIR integration wraps the constants
+   modify `mty-diagnostics`. The HIR integration wraps the constants
    in `DiagCode::new(N)` at the point of emission. A future cleanup
    slice may absorb them into the central catalog.
 

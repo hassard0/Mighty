@@ -1,4 +1,4 @@
-# Slice 6 — SIR + Interpreter (design)
+# Slice 6 — MtyIR + Interpreter (design)
 
 **Date:** 2026-05-24
 **Slice:** 6 (Phase 3 from spec §31.4)
@@ -6,48 +6,48 @@
 
 ## Goal
 
-Give Stardust a working evaluator. After slice 6, `sdust run examples/01_hello.sd`
-prints `hello, Stardust` and exits 0. SIR is the mid-level representation
-defined in spec §24.4; the interpreter walks SIR directly. Native and Wasm
+Give Mighty a working evaluator. After slice 6, `mty run examples/01_hello.sd`
+prints `hello, Mighty` and exits 0. MtyIR is the mid-level representation
+defined in spec §24.4; the interpreter walks MtyIR directly. Native and Wasm
 codegen are deferred to slice 8.
 
 ## Non-goals (deferred)
 
 - Concurrent task scheduler, real mailboxes, real supervisors → **slice 7**
 - LLVM/Cranelift codegen, Wasm codegen → **slice 8**
-- Optimizations on SIR (DCE, inlining, escape analysis) → post-v0.1
+- Optimizations on MtyIR (DCE, inlining, escape analysis) → post-v0.1
 - Polonius / NLL extensions → post-v0.1
 - Effect-row polymorphism → post-v0.1
 - Real `extern c` / `extern js` calls → post-v0.1 (interpreter stubs)
 - AIR (agent IR) as a separate IR layer — slice 6 inlines AIR concerns
-  into SIR for examples that need them, and the runtime in slice 7 will
+  into MtyIR for examples that need them, and the runtime in slice 7 will
   drive whatever AIR shape is needed; we don't pre-build an AIR crate now
 
 ## Architecture decisions
 
-### D1 — New crate `sdust-sir`
+### D1 — New crate `mty-sir`
 
 Mirrors the slice-3/4/5 pattern. The crate exposes:
 
 - `sir::Program` — collection of `Function`s + `Const`s indexed by
   `SirFnId`.
 - `sir::Function` — locals, blocks, terminators.
-- `lower::lower_package(pkg, typed) -> Program` — HIR→SIR lowering.
+- `lower::lower_package(pkg, typed) -> Program` — HIR→MtyIR lowering.
 - `interp::run(prog, host) -> ExitCode` — interpreter entry.
 - `dump::dump_program(prog) -> String` — pretty-printer.
 
-It depends on `sdust-hir`, `sdust-types`, `sdust-borrow`, and
-`sdust-diagnostics`. It does **not** depend on `sdust-driver`; the driver
+It depends on `mty-hir`, `mty-types`, `mty-borrow`, and
+`mty-diagnostics`. It does **not** depend on `mty-driver`; the driver
 exposes a `lower_to_sir` helper that chains it on after borrow check.
 
-### D2 — SIR shape: basic-block form with explicit moves and copies
+### D2 — MtyIR shape: basic-block form with explicit moves and copies
 
 We pick **basic-block + per-block straight-line statements**, not SSA
 with phi nodes. Rationale:
 
 - Phi-style SSA pays back in optimization-heavy backends; slice 6 has no
   optimizer.
-- The borrow checker already produced ownership decisions; SIR records
+- The borrow checker already produced ownership decisions; MtyIR records
   them as `Move` vs `Copy` opcodes and we don't need value-renumbering.
 - A straight-line form composes naturally with a stack-machine
   interpreter and a future LLVM lowering that uses LLVM's own SSA.
@@ -193,7 +193,7 @@ yields MT5002 at access time.
 and `ArenaPop(id)` after the tail expression. At runtime, the
 interpreter keeps a stack of arena scopes; any heap-like allocations
 (currently `Vec`/`Map` placeholders for slice 6 are inline so this is a
-no-op for correctness, but the scope is still tracked so SIR dumps and
+no-op for correctness, but the scope is still tracked so MtyIR dumps and
 the future runtime have hooks). The interpreter does **not** trap arena
 escape at run-time — it relies on borrow-check MT3010 (Amendment **A31**:
 runtime arena enforcement is a slice-7 obligation).
@@ -212,7 +212,7 @@ bb_cont:
 
 We synthesize the enclosing fn's `Err` type by widening the inner `Err`
 into the outer error union, which the type checker already validated.
-If the outer return type is not a `Result`, the lowerer emits no SIR for
+If the outer return type is not a `Result`, the lowerer emits no MtyIR for
 that fn (it would have errored in typeck; MT2010).
 
 ### D11 — Match lowering
@@ -228,7 +228,7 @@ keeps it simple — patterns are evaluated top-down:
 - Struct constructor → field accesses + sub-pat tests AND-folded.
 - Range → two `BinOp` + `If`.
 
-We do not check exhaustiveness at SIR-lowering time (typeck MT2015
+We do not check exhaustiveness at MtyIR-lowering time (typeck MT2015
 already does). If the runtime falls off the end (e.g. typeck disabled),
 it traps MT5005 *unreachable_match*.
 
@@ -341,9 +341,9 @@ appears only when slice-7's work-stealing scheduler is enabled.
 ### D19 — CLI shape
 
 ```
-sdust run <file>         # compile + execute; exit code from main
-sdust run <file> -- arg1 arg2   # forward args to main as &[Str]
-sdust dump --sir <file>  # print SIR text
+mty run <file>         # compile + execute; exit code from main
+mty run <file> -- arg1 arg2   # forward args to main as &[Str]
+mty dump --sir <file>  # print MtyIR text
 ```
 
 The `dump --sir` flag joins `--ast --cst --hir`. The `run` subcommand
@@ -351,10 +351,10 @@ short-circuits with exit 1 if any prior phase reported errors.
 
 ### D20 — Test layout
 
-- `crates/sdust-sir/src/` — unit tests for lowering specific shapes.
-- `crates/sdust-driver/tests/sir_lower_examples.rs` — every example
-  lowers without panic, snapshot the SIR for a chosen subset.
-- `crates/sdust-driver/tests/interp_examples.rs` — runnable examples
+- `crates/mty-sir/src/` — unit tests for lowering specific shapes.
+- `crates/mty-driver/tests/sir_lower_examples.rs` — every example
+  lowers without panic, snapshot the MtyIR for a chosen subset.
+- `crates/mty-driver/tests/interp_examples.rs` — runnable examples
   produce expected stdout.
 - `tests/conformance/runtime/<name>/input.sd` + `expected.txt`
   pairs driven by a single `runtime_conformance.rs` test.
@@ -362,7 +362,7 @@ short-circuits with exit 1 if any prior phase reported errors.
 ### D21 — Build-time targets
 
 - 274 existing tests stay green.
-- Add ~40-60 SIR tests + ~10 interpreter tests + 5+ conformance tests.
+- Add ~40-60 MtyIR tests + ~10 interpreter tests + 5+ conformance tests.
 - No clippy warnings.
 
 ## Risks + mitigations
@@ -378,7 +378,7 @@ short-circuits with exit 1 if any prior phase reported errors.
 
 ## Open questions (resolved)
 
-- **Q1**: Should we build AIR? → No, inline AIR into SIR (D1 note).
+- **Q1**: Should we build AIR? → No, inline AIR into MtyIR (D1 note).
 - **Q2**: SSA vs basic-block? → Basic-block (D2).
 - **Q3**: Mailbox in slice 6? → No, sync dispatch (D12).
 - **Q4**: Budget enforcement? → Metadata only, slice 7 enforces (D14).
@@ -386,10 +386,10 @@ short-circuits with exit 1 if any prior phase reported errors.
 
 ## Acceptance
 
-- `sdust run examples/01_hello.sd` prints `hello, Stardust` and exits 0.
-- `sdust run` works for the 5+ examples with a runnable `main()`.
-- All 20 examples lower to SIR without internal errors.
+- `mty run examples/01_hello.sd` prints `hello, Mighty` and exits 0.
+- `mty run` works for the 5+ examples with a runnable `main()`.
+- All 20 examples lower to MtyIR without internal errors.
 - 5+ runtime conformance tests pass.
-- SIR dumps are deterministic across runs.
+- MtyIR dumps are deterministic across runs.
 - 274 + new tests pass, no clippy warnings.
 - Tag `v0.6.0-sir` pushed.

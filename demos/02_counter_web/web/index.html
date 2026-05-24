@@ -97,7 +97,7 @@
       }
       appendLog(`boot: core module ${core.length} bytes`);
 
-      // The core module imports a single function: stardust:web/log#log
+      // The core module imports a single function: mty:web/log#log
       // The slice-8 wasm lowerer collapses this to a 2-arg
       // (ptr: i32, len: i32) -> () import named just `log` under the
       // canonical module namespace. We provide BOTH common names so
@@ -112,7 +112,7 @@
           appendLog(`log decode error: ${e}`);
         }
       };
-      for (const ns of ['stardust:web/log', 'stardust', 'env', 'wasi:cli/log']) {
+      for (const ns of ['mty:web/log', 'stardust', 'env', 'wasi:cli/log']) {
         imports[ns] = { log: logShim };
       }
       let instance;

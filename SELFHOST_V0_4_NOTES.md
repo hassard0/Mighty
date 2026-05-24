@@ -1,7 +1,7 @@
 # Self-hosting v0.4 — language gap catalog
 
 This file is the running log of v0.3 language gaps discovered while
-porting the lexer to Stardust source. Every entry has:
+porting the lexer to Mighty source. Every entry has:
 
 - a minimal reproducer
 - the v0.3 behavior
@@ -40,7 +40,7 @@ done
 
 (One iteration, then unconditional fall-through to the loop exit.)
 
-**Root cause:** `crates/sdust-sir/src/lower/exprs.rs` lowers `while`,
+**Root cause:** `crates/mty-sir/src/lower/exprs.rs` lowers `while`,
 `loop`, and `for` with their body's terminator set to
 `Term::Goto(exit)`, not back to the loop header. The lowerer's
 comment is explicit:
@@ -113,8 +113,8 @@ fn main() {
 **v0.3 behavior:** `host_call("hello")` produces no host-visible side
 effect. The Rust-side `Host::extern_call` is never invoked.
 
-**Root cause:** `crates/sdust-sir/src/lower/items.rs` (around line 269)
-turns extern fns with no body into trivial-return SIR functions:
+**Root cause:** `crates/mty-sir/src/lower/items.rs` (around line 269)
+turns extern fns with no body into trivial-return MtyIR functions:
 
 ```rust
 let body = match &f.body {
@@ -135,8 +135,8 @@ which DOES dispatch through `Host::extern_call` — only fires for
 *unresolved* fn paths.
 
 **Workaround in lexer.sd:** route the bridge through the registered
-prelude module `std.io`. The HIR -> SIR lowerer (`receiver_module_path`
-in `crates/sdust-sir/src/lower/exprs.rs`) recognises module-typed
+prelude module `std.io`. The HIR -> MtyIR lowerer (`receiver_module_path`
+in `crates/mty-sir/src/lower/exprs.rs`) recognises module-typed
 receivers and rewrites `std.io.<method>(args)` into
 `Stmt::EffectInvoke { effect: io, op: GenericCall { path, method }, args }`
 which `Host::effect_call` services.
@@ -149,20 +149,20 @@ sees real invocations.
 
 **Reproducer:** put `pub enum SyntaxKind { ... }` in `a.sd`, write
 `fn classify(k: SyntaxKind) -> Str { ... }` in `b.sd`, run
-`sdust check b.sd`.
+`mty check b.sd`.
 
 **v0.3 output:** `MT2002 Error: cannot find type SyntaxKind in scope`
 
 **Root cause:** the v0.3 driver compiles a single file at a time. The
 `use a.SyntaxKind` mechanism is parsed but not yet wired through to
-`def_map` cross-file. `sdust-pkg` is the staging ground for v0.5
+`def_map` cross-file. `mty-pkg` is the staging ground for v0.5
 module resolution.
 
 **Workaround in lexer.sd:** consolidate every type and helper the
 lexer needs into one file (`lexer.sd`). The decomposed shape lives in
 `lib.sd` + `syntax_kind.sd` as the v0.5 spec.
 
-**v0.5 fix:** wire `sdust-pkg`'s module table into the resolver so
+**v0.5 fix:** wire `mty-pkg`'s module table into the resolver so
 `use selfhost_lexer.SyntaxKind` resolves transparently.
 
 ## 5. Permissive `Str` method stubs
@@ -178,7 +178,7 @@ fn main() {
 
 **v0.3 output:** `no` (whereas the correct output is `yes`).
 
-**Root cause:** `crates/sdust-sir/src/interp/run.rs` `eval_method`:
+**Root cause:** `crates/mty-sir/src/interp/run.rs` `eval_method`:
 
 ```rust
 "contains" | "starts_with" | "ends_with" => Bool(false),
@@ -233,7 +233,7 @@ if b0 == 46 && b1 == 46 && b2 == 61 {
 ```
 
 `return` from inside an `if` inside a `pub fn` works (type-checks +
-SIR-lowers cleanly). Listed here because the pattern is load-bearing
+MtyIR-lowers cleanly). Listed here because the pattern is load-bearing
 for the lexer and we want it on the watch-list for v0.5 regression
 testing.
 

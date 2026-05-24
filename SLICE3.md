@@ -1,12 +1,12 @@
-# Stardust Slice 3 — Complete
+# Mighty Slice 3 — Complete
 
 **Tag:** `v0.3.0-typeck`
 **Date:** 2026-05-24
 
 ## What landed
 
-- **New crate `sdust-types`** implementing the type checker MVP.
-  Distinct from `sdust-hir` so the dep graph stays honest (formatter +
+- **New crate `mty-types`** implementing the type checker MVP.
+  Distinct from `mty-hir` so the dep graph stays honest (formatter +
   dumper don't depend on the inference engine).
 - **Resolved type representation (`Ty`)**: interned arena;
   `Bool`/`Int(IntKind)`/`Float(FloatKind)`/`Char`/`Str`/`String`/`Bytes`/
@@ -40,10 +40,10 @@
 - **Unification engine** with occurs check, IntInfer/FloatInfer flex,
   `Error`/`Never` poison-passes-through.
 - **Pub-signature validation** (`MT2020 pub_param_needs_type`).
-- **25 new diagnostic codes** MT2001..MT2025 with `sdust explain`
+- **25 new diagnostic codes** MT2001..MT2025 with `mty explain`
   entries.
 - **Driver integration**: `pipeline::type_check(pkg)` runs the checker;
-  `sdust check` now does lex + parse + lower + type-check, returning
+  `mty check` now does lex + parse + lower + type-check, returning
   non-zero only on errors (warnings tolerated).
 - **Negative test corpus** (`tests/typeck_neg/*.sd` + driver test).
 - **Examples integration test**: every canonical example asserted
@@ -52,26 +52,26 @@
 ## All 20 examples type-check clean
 
 ```
-sdust check examples/01_hello.sd            → ok
-sdust check examples/02_struct_enum.sd      → ok
-sdust check examples/03_generic_fn.sd       → ok
-sdust check examples/04_result_propagation  → ok
-sdust check examples/05_match_expr.sd       → ok
-sdust check examples/06_for_while_loop.sd   → ok
-sdust check examples/07_agent_echo.sd       → ok
-sdust check examples/08_agent_state.sd      → ok
-sdust check examples/09_send_ask_deadline   → ok
-sdust check examples/10_supervisor.sd       → ok
-sdust check examples/11_budget_block.sd     → ok
-sdust check examples/12_arena.sd            → ok
-sdust check examples/13_capabilities.sd     → ok
-sdust check examples/14_extern_c.sd         → ok
-sdust check examples/15_extern_js.sd        → ok
-sdust check examples/16_macro.sd            → ok
-sdust check examples/17_unsafe.sd           → ok
-sdust check examples/18_sandbox.sd          → ok
-sdust check examples/19_backend_service.sd  → ok
-sdust check examples/20_frontend_component  → ok
+mty check examples/01_hello.sd            → ok
+mty check examples/02_struct_enum.sd      → ok
+mty check examples/03_generic_fn.sd       → ok
+mty check examples/04_result_propagation  → ok
+mty check examples/05_match_expr.sd       → ok
+mty check examples/06_for_while_loop.sd   → ok
+mty check examples/07_agent_echo.sd       → ok
+mty check examples/08_agent_state.sd      → ok
+mty check examples/09_send_ask_deadline   → ok
+mty check examples/10_supervisor.sd       → ok
+mty check examples/11_budget_block.sd     → ok
+mty check examples/12_arena.sd            → ok
+mty check examples/13_capabilities.sd     → ok
+mty check examples/14_extern_c.sd         → ok
+mty check examples/15_extern_js.sd        → ok
+mty check examples/16_macro.sd            → ok
+mty check examples/17_unsafe.sd           → ok
+mty check examples/18_sandbox.sd          → ok
+mty check examples/19_backend_service.sd  → ok
+mty check examples/20_frontend_component  → ok
 ```
 
 ## Spec interpretation calls (validate in slice 4+)
@@ -108,7 +108,7 @@ revisit if any look wrong.
 ## Stats
 
 - **224 tests pass** (slice 2: 174 → slice 3: +50)
-- ~3 000 lines of Rust added (sdust-types)
+- ~3 000 lines of Rust added (mty-types)
 - 25 new SD2xxx diagnostic codes
 - 12 negative-test fixtures
 - 20 integration tests (one per example)
@@ -116,7 +116,7 @@ revisit if any look wrong.
 ## Still deferred (slice 5+)
 
 CLOSED in slice 4:
-- ~~Ownership / move / affine / borrow checking~~ — sdust-borrow crate
+- ~~Ownership / move / affine / borrow checking~~ — mty-borrow crate
 - ~~Explicit defaulting pass for `IntInfer`/`FloatInfer`~~ — A19
 - ~~Match exhaustiveness as an error~~ — A16 (MT2015 flipped to Error)
 - ~~Real protocol message-type checking for agent handlers~~ — A18
@@ -133,15 +133,15 @@ Still open:
 
 ## Files of note
 
-- `crates/sdust-types/` — new crate
+- `crates/mty-types/` — new crate
 - `docs/internals/typeck.md` — type-checker internals
 - `docs/spec/v0.1-amendments.md` — A7..A12
 - `docs/reference/diagnostics.md` — MT2001..MT2025 table
-- `docs/reference/cli/sdust-check.md` — updated semantics
+- `docs/reference/cli/mty-check.md` — updated semantics
 - `docs/superpowers/specs/2026-05-24-slice3-type-checker-design.md`
   — slice design
 - `docs/superpowers/plans/2026-05-24-slice3-type-checker.md` —
   implementation plan
 - `tests/typeck_neg/` — negative test corpus
-- `crates/sdust-driver/tests/{examples_typeck,typeck_negatives}.rs`
+- `crates/mty-driver/tests/{examples_typeck,typeck_negatives}.rs`
   — integration tests

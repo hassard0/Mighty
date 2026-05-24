@@ -29,7 +29,7 @@
 //! `(name, version)`, the **first-listed** registry wins (the default,
 //! then each extra in order).
 //!
-//! Auth tokens are stored in `~/.config/sdust/auth.toml`; see
+//! Auth tokens are stored in `~/.config/mighty/auth.toml`; see
 //! [`AuthStore`].
 
 use serde::{Deserialize, Serialize};
@@ -342,11 +342,11 @@ pub fn slug_from_source(source: &str) -> Option<&str> {
 }
 
 // ============================================================
-// Auth store: ~/.config/sdust/auth.toml
+// Auth store: ~/.config/mighty/auth.toml
 // ============================================================
 
 /// Persisted per-registry auth tokens. Stored as plaintext at
-/// `~/.config/sdust/auth.toml`; the file is created with `0600`
+/// `~/.config/mighty/auth.toml`; the file is created with `0600`
 /// permissions on Unix (a no-op on Windows).
 ///
 /// Security tradeoff: plaintext is the same model `gh` CLI uses for

@@ -5,7 +5,7 @@ name: bench
 # default GitHub runner usually lacks Go/C++ toolchains, and our
 # acceptance numbers in docs/benchmarks/*.md are recorded on a
 # reference host. This workflow exists to catch perf regressions in
-# the Stardust impl itself.
+# the Mighty impl itself.
 
 on:
   push:
@@ -25,7 +25,7 @@ env:
 
 jobs:
   bench:
-    name: sdust-bench (${{ matrix.os }})
+    name: mty-bench (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -45,15 +45,15 @@ jobs:
           shared-key: bench-${{ matrix.os }}
 
       - name: cargo test (smoke + fixture tests)
-        run: cargo test -p sdust-bench
+        run: cargo test -p mty-bench
 
       - name: build release runner
-        run: cargo build --release -p sdust-bench --bin sdust-bench-runner
+        run: cargo build --release -p mty-bench --bin mty-bench-runner
 
       - name: run CLI bench
         run: |
           mkdir -p target/bench-results
-          ./target/release/sdust-bench-runner \
+          ./target/release/mty-bench-runner \
               --all \
               --iters ${{ github.event.inputs.iters || '20' }} \
               --out target/bench-results/ci-${{ github.run_id }}.json

@@ -1,6 +1,6 @@
 # Internals — LLVM backend (v0.2)
 
-`sdust-codegen-llvm` provides an opt-in LLVM 17 backend behind the
+`mty-codegen-llvm` provides an opt-in LLVM 17 backend behind the
 `llvm` cargo feature flag. v0.1 shipped a *scaffold only* (A46) because
 the slice-8 build host had no LLVM/`llvm-config` installed; v0.2 keeps
 the opt-in stance — the host is still LLVM-free — but lands a real
@@ -9,7 +9,7 @@ SIR→LLVM IR lowerer that activates whenever the feature compiles.
 ```rust
 use sdust_codegen_llvm::{compile, LlvmError, LlvmOptLevel, OutputKind};
 
-let prog: sdust_sir::sir::Program = /* lowered from your Stardust source */;
+let prog: sdust_sir::sir::Program = /* lowered from your Mighty source */;
 compile(&prog)?;                                     // verify only
 compile_to_path(&prog, Path::new("out.o"),
     OutputKind::Object, LlvmOptLevel::O2)?;          // emit object
@@ -28,7 +28,7 @@ brew install llvm@17
 export LLVM_SYS_170_PREFIX=$(brew --prefix llvm@17)
 # Verify llvm-config is on PATH and reports v17:
 "$LLVM_SYS_170_PREFIX/bin/llvm-config" --version
-cargo build -p sdust-codegen-llvm --features llvm
+cargo build -p mty-codegen-llvm --features llvm
 ```
 
 If `brew` reports a Homebrew Apple Silicon / Intel mismatch, prefer
@@ -44,7 +44,7 @@ on Apple Silicon).
 sudo apt install llvm-17-dev libpolly-17-dev libz-dev libzstd-dev
 export LLVM_SYS_170_PREFIX=/usr/lib/llvm-17
 llvm-config-17 --version          # → 17.0.x
-cargo build -p sdust-codegen-llvm --features llvm
+cargo build -p mty-codegen-llvm --features llvm
 ```
 
 For Ubuntu < 22.04 use the upstream apt repo:
@@ -67,7 +67,7 @@ Pick one of:
 choco install llvm --version=17.0.6 -y
 $env:LLVM_SYS_170_PREFIX = "C:\Program Files\LLVM"
 & "$env:LLVM_SYS_170_PREFIX\bin\llvm-config.exe" --version
-cargo build -p sdust-codegen-llvm --features llvm
+cargo build -p mty-codegen-llvm --features llvm
 ```
 
 **Official LLVM 17 Windows installer** (from
@@ -82,7 +82,7 @@ cargo build -p sdust-codegen-llvm --features llvm
 
 ```powershell
 $env:LLVM_SYS_170_PREFIX = "C:\Program Files\LLVM"
-cargo build -p sdust-codegen-llvm --features llvm
+cargo build -p mty-codegen-llvm --features llvm
 ```
 
 ### Verifying the install
@@ -91,10 +91,10 @@ After setting `LLVM_SYS_170_PREFIX`, sanity-check the build before
 running the wider test suite:
 
 ```bash
-cargo build -p sdust-codegen-llvm --features llvm
-cargo test  -p sdust-codegen-llvm --features llvm
-# Smoke-test against a real Stardust source:
-cargo run -p sdust-cli --features llvm-backend -- build --release \
+cargo build -p mty-codegen-llvm --features llvm
+cargo test  -p mty-codegen-llvm --features llvm
+# Smoke-test against a real Mighty source:
+cargo run -p mty-cli --features llvm-backend -- build --release \
     examples/01_hello.sd
 ```
 
@@ -148,7 +148,7 @@ The LLVM `PassBuilder` runs at the chosen `LlvmOptLevel`:
 | `O2`  | release standard | `default<O2>` |
 | `O3`  | aggressive | `default<O3>` |
 
-The default for `sdust build --release` is `O2`. Custom pipelines
+The default for `mty build --release` is `O2`. Custom pipelines
 (PGO, ThinLTO) are post-v0.2 work.
 
 ## Verification
@@ -163,7 +163,7 @@ diagnostics instead of crashing.
 
 The runtime ABI (`stardust_runtime_*` symbols) is identical for LLVM
 and Cranelift — they both link against the same C-ABI fns provided by
-`sdust-runtime::codegen_abi`. The `runtime_imports::RUNTIME_IMPORTS`
+`mty-runtime::codegen_abi`. The `runtime_imports::RUNTIME_IMPORTS`
 table in the Cranelift crate is the canonical source of truth; the
 LLVM lowerer declares the same set with matching signatures.
 
@@ -171,17 +171,17 @@ LLVM lowerer declares the same set with matching signatures.
 
 | Use case | Recommended |
 |----------|-------------|
-| `sdust run` JIT | Cranelift (faster compile, lower mem) |
-| `sdust build --debug` | Cranelift |
-| `sdust build --release` (host with LLVM 17) | LLVM (better code gen) |
-| `sdust build --release` (host without LLVM) | Cranelift (the only option) |
+| `mty run` JIT | Cranelift (faster compile, lower mem) |
+| `mty build --debug` | Cranelift |
+| `mty build --release` (host with LLVM 17) | LLVM (better code gen) |
+| `mty build --release` (host without LLVM) | Cranelift (the only option) |
 | Targeting an exotic triple Cranelift doesn't support | LLVM |
 
 ## Monomorphization
 
 The LLVM backend reuses the same monomorphization pass as Cranelift
 (`sdust_codegen_cranelift::mono::Monomorphizer`). For each
-(fn, type-args) tuple, a specialized SIR function is produced; the
+(fn, type-args) tuple, a specialized MtyIR function is produced; the
 LLVM lowerer then treats each specialization as ordinary monomorphic
 code.
 

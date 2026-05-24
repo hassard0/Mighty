@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-  "name": "Stardust",
-  "scopeName": "source.stardust",
-  "fileTypes": ["sd"],
+  "name": "Mighty",
+  "scopeName": "source.mty",
+  "fileTypes": ["mty"],
   "patterns": [
     { "include": "#comments" },
     { "include": "#strings" },
@@ -16,15 +16,15 @@
     "comments": {
       "patterns": [
         {
-          "name": "comment.line.documentation.stardust",
+          "name": "comment.line.documentation.mighty",
           "match": "///.*$"
         },
         {
-          "name": "comment.line.double-slash.stardust",
+          "name": "comment.line.double-slash.mighty",
           "match": "//.*$"
         },
         {
-          "name": "comment.block.stardust",
+          "name": "comment.block.mighty",
           "begin": "/\\*",
           "end": "\\*/"
         }
@@ -33,29 +33,29 @@
     "strings": {
       "patterns": [
         {
-          "name": "string.quoted.double.html.stardust",
+          "name": "string.quoted.double.html.mighty",
           "begin": "html\"",
           "end": "\"",
           "patterns": [
             {
-              "name": "constant.character.escape.stardust",
+              "name": "constant.character.escape.mighty",
               "match": "\\\\."
             }
           ]
         },
         {
-          "name": "string.quoted.double.stardust",
+          "name": "string.quoted.double.mighty",
           "begin": "\"",
           "end": "\"",
           "patterns": [
             {
-              "name": "constant.character.escape.stardust",
+              "name": "constant.character.escape.mighty",
               "match": "\\\\(x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]+\\}|[nrt0\\\\\"'])"
             }
           ]
         },
         {
-          "name": "string.quoted.single.stardust",
+          "name": "string.quoted.single.mighty",
           "match": "'([^'\\\\]|\\\\.)'"
         }
       ]
@@ -63,19 +63,19 @@
     "numbers": {
       "patterns": [
         {
-          "name": "constant.numeric.duration.stardust",
+          "name": "constant.numeric.duration.mighty",
           "match": "\\b[0-9_]+(ns|us|ms|s|m|h)\\b"
         },
         {
-          "name": "constant.numeric.size.stardust",
+          "name": "constant.numeric.size.mighty",
           "match": "\\b[0-9_]+(KiB|MiB|GiB|B|k|M)\\b"
         },
         {
-          "name": "constant.numeric.float.stardust",
+          "name": "constant.numeric.float.mighty",
           "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*(f32|f64)?\\b"
         },
         {
-          "name": "constant.numeric.integer.stardust",
+          "name": "constant.numeric.integer.mighty",
           "match": "\\b[0-9][0-9_]*([iuf](8|16|32|64|128))?\\b"
         }
       ]
@@ -83,23 +83,23 @@
     "keywords": {
       "patterns": [
         {
-          "name": "keyword.control.stardust",
+          "name": "keyword.control.mighty",
           "match": "\\b(if|else|match|for|while|loop|return|in|yield|await|break|continue)\\b"
         },
         {
-          "name": "keyword.declaration.stardust",
+          "name": "keyword.declaration.mighty",
           "match": "\\b(fn|struct|enum|type|trait|impl|agent|protocol|supervisor|sup|macro|const|mod|use|import|package|extern|export|sandbox|state|on|child|on_fail|restart|backoff|up_to)\\b"
         },
         {
-          "name": "keyword.modifier.stardust",
+          "name": "keyword.modifier.mighty",
           "match": "\\b(pub|mut|ref|move|unsafe|async|spawn|task|detach|join|scope|run|arena|budget|with|where|requires|derive|dyn|self|cap|effect|as)\\b"
         },
         {
-          "name": "storage.type.stardust",
+          "name": "storage.type.mighty",
           "match": "\\b(let)\\b"
         },
         {
-          "name": "constant.language.bool.stardust",
+          "name": "constant.language.bool.mighty",
           "match": "\\b(true|false)\\b"
         }
       ]
@@ -107,11 +107,11 @@
     "types": {
       "patterns": [
         {
-          "name": "support.type.primitive.stardust",
+          "name": "support.type.primitive.mighty",
           "match": "\\b(Bool|Char|Str|String|Bytes|Unit|Never|Duration|Size|I8|I16|I32|I64|I128|U8|U16|U32|U64|U128|ISize|USize|F32|F64|Result|Option)\\b"
         },
         {
-          "name": "entity.name.type.stardust",
+          "name": "entity.name.type.mighty",
           "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
         }
       ]
@@ -119,18 +119,18 @@
     "functions": {
       "patterns": [
         {
-          "name": "entity.name.function.stardust",
+          "name": "entity.name.function.mighty",
           "match": "\\b(fn)\\s+([a-z_][A-Za-z0-9_]*)",
           "captures": {
-            "1": { "name": "keyword.declaration.stardust" },
-            "2": { "name": "entity.name.function.stardust" }
+            "1": { "name": "keyword.declaration.mighty" },
+            "2": { "name": "entity.name.function.mighty" }
           }
         },
         {
-          "name": "meta.function-call.stardust",
+          "name": "meta.function-call.mighty",
           "match": "\\b([a-z_][A-Za-z0-9_]*)\\s*\\(",
           "captures": {
-            "1": { "name": "entity.name.function.stardust" }
+            "1": { "name": "entity.name.function.mighty" }
           }
         }
       ]
@@ -138,31 +138,31 @@
     "operators": {
       "patterns": [
         {
-          "name": "keyword.operator.assignment.stardust",
+          "name": "keyword.operator.assignment.mighty",
           "match": "(=|\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>=)"
         },
         {
-          "name": "keyword.operator.comparison.stardust",
+          "name": "keyword.operator.comparison.mighty",
           "match": "(==|!=|<=|>=|<|>)"
         },
         {
-          "name": "keyword.operator.logical.stardust",
+          "name": "keyword.operator.logical.mighty",
           "match": "(&&|\\|\\||!)"
         },
         {
-          "name": "keyword.operator.arithmetic.stardust",
+          "name": "keyword.operator.arithmetic.mighty",
           "match": "(\\+|-|\\*|/|%)"
         },
         {
-          "name": "keyword.operator.range.stardust",
+          "name": "keyword.operator.range.mighty",
           "match": "(\\.\\.=|\\.\\.)"
         },
         {
-          "name": "keyword.operator.message.stardust",
+          "name": "keyword.operator.message.mighty",
           "match": "(!|\\?)"
         },
         {
-          "name": "keyword.operator.borrow.stardust",
+          "name": "keyword.operator.borrow.mighty",
           "match": "(&mut|&)"
         }
       ]

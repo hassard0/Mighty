@@ -1,6 +1,6 @@
 # Effect Inference (slice 5)
 
-Stardust effects describe observable authority and runtime behavior
+Mighty effects describe observable authority and runtime behavior
 (spec §9). Slice 5 ships the inference + validation pipeline.
 
 ## Pipeline
@@ -36,7 +36,7 @@ borrow checker.
    verify the declared `effect ...` clause is a superset. Else
    `MT4001 effect_undeclared` with the missing effects listed.
 
-4. **Profile gate:** if `star.toml` declares `profile = "core"`, any
+4. **Profile gate:** if `mighty.toml` declares `profile = "core"`, any
    `pub fn` with `alloc` in its inferred set triggers
    `MT4002 alloc_in_core`.
 
@@ -61,7 +61,7 @@ docs) read from here.
 ## v0.3 (A65) tightening
 
 v0.3 didn't touch the inference algorithm itself. The strict-scope
-revisions in `crates/sdust-types/src/check.rs` (see `docs/internals/
+revisions in `crates/mty-types/src/check.rs` (see `docs/internals/
 typeck.md#scope-aware-permissivestrict-policy-v03--a65`) and the
 Sendable check at message-send sites (see
 `docs/internals/sendable.md`) interact with effects only insofar as
@@ -71,4 +71,4 @@ The conformance corpus gains two new effect-checking cases —
 `effect_checking/05_strict_core_profile` (case-shape for the MT4002
 positive fire under `profile = "core"`, with the positive assertion
 running through the dedicated `core_profile_rejects_alloc` unit
-test until the harness supports per-case `star.toml` overrides).
+test until the harness supports per-case `mighty.toml` overrides).

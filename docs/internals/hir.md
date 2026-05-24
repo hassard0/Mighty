@@ -1,10 +1,10 @@
 # HIR
 
 The HIR (high-level IR) is the first semantically-shaped view of a
-Stardust program. It is name-resolved (slice 1: per-file scope), arena-
+Mighty program. It is name-resolved (slice 1: per-file scope), arena-
 allocated, and indexed by stable `Idx<_>` ids.
 
-It lives in [`crates/sdust-hir/`](../../crates/sdust-hir/).
+It lives in [`crates/mty-hir/`](../../crates/mty-hir/).
 
 ## Storage shape
 
@@ -41,7 +41,7 @@ pub type ExprId = Idx<HirExpr>;
 
 This shape is good for **cheap cloning, snapshot dumping, and
 incremental analysis** in later slices. It is bad for **graph-shaped
-mutations**; those are intentionally pushed into later IRs (AIR, SIR).
+mutations**; those are intentionally pushed into later IRs (AIR, MtyIR).
 
 ## Lowering entry
 
@@ -79,7 +79,7 @@ Slice 1 normalizes a small set of surface forms:
 ## Dumping
 
 `dump::dump_package(&pkg) -> String` returns a stable S-expression
-form, used by snapshot tests and the `sdust dump --hir` command.
+form, used by snapshot tests and the `mty dump --hir` command.
 
 ## Resolve
 

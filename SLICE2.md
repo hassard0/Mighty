@@ -1,4 +1,4 @@
-# Stardust Slice 2 — Complete
+# Mighty Slice 2 — Complete
 
 **Tag:** `v0.2.0-phase1-polish`
 **HEAD:** `263e5c919898ec2a1bc348e01d632872faba6d07`
@@ -6,7 +6,7 @@
 
 ## What landed
 
-- **Real per-node formatter** (`sdust-fmt`): Wadler/Lindig per-node
+- **Real per-node formatter** (`mty-fmt`): Wadler/Lindig per-node
   printers for types, patterns, and the common expression shapes;
   canonical inter-item blank-line normalization at file level;
   verbatim fallback for not-yet-canonicalized nodes. All 20 examples
@@ -29,7 +29,7 @@
   syntax. Divergence notes removed from 19 and 20; example 18 still
   wraps the sandbox in `fn tool_run` (top-level sandbox items are
   slice 3) and now uses `run job(input)?` inside the body.
-- **`sdust explain <CODE>`**: ships a static explanation table for
+- **`mty explain <CODE>`**: ships a static explanation table for
   every assigned diagnostic code (MT0001..MT0030, MT1001..MT1002).
 - **Side-effect parser fix**: `no_struct_literal` context flag set
   by `if`/`while`/`for`/`match` condition parsing so `if x { ... }`
@@ -60,7 +60,7 @@
 - 174 tests pass (slice 1: 132 → slice 2: 174; +42 new tests)
 - 45 commits
 - ~8.5k lines of Rust
-- 20 examples all `sdust check` clean with spec-original syntax for
+- 20 examples all `mty check` clean with spec-original syntax for
   examples 19 and 20 fully restored
 
 ## Still deferred to slice 3+
@@ -86,7 +86,7 @@
 
 - `docs/spec/v0.1-amendments.md` — six amendments (A1-A6) explaining
   the slice-2 syntax choices
-- `docs/reference/cli/sdust-explain.md` — new CLI subcommand reference
+- `docs/reference/cli/mty-explain.md` — new CLI subcommand reference
 - `docs/superpowers/specs/2026-05-24-slice2-fmt-completion-design.md`
   — slice design
 - `docs/superpowers/plans/2026-05-24-slice2-fmt-completion.md` —

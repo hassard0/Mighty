@@ -314,7 +314,7 @@ pub fn login(slug: Option<&str>, root: &Path) -> Result<String, PkgError> {
         ))
     })?;
     let auth_path = AuthStore::default_path().ok_or_else(|| {
-        PkgError::AuthRequired("could not locate ~/.config/sdust/auth.toml".into())
+        PkgError::AuthRequired("could not locate ~/.config/mighty/auth.toml".into())
     })?;
     let mut store = AuthStore::load(&auth_path)?;
     store.set_token(&slug, token);

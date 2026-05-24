@@ -1,9 +1,9 @@
-// v0.5 dogfood Gap-2 — JS implementation of the `stardust:web/dom`
+// v0.5 dogfood Gap-2 — JS implementation of the `mty:web/dom`
 // component interface declared in
 // `crates/sdust-codegen-wasm/src/wit.rs`.
 //
 // The Stardust compiler emits core-wasm imports under the canonical
-// `stardust:web/dom` module with `(ptr, len)` argument pairs for each
+// `mty:web/dom` module with `(ptr, len)` argument pairs for each
 // string. This shim wraps a WebAssembly Instance to satisfy those
 // imports against `document.*`.
 //
@@ -24,7 +24,7 @@ const RETURN_BUF_OFFSET = 8192;
 const RETURN_BUF_CAPACITY = 4096;
 
 /**
- * Build the `stardust:web/dom` import object. Each function reads
+ * Build the `mty:web/dom` import object. Each function reads
  * `(ptr, len)` pairs from `wasmMem` using a fresh DataView (so it
  * stays correct after `memory.grow`).
  */
@@ -121,17 +121,17 @@ export async function instantiateWithDomShim(
 
   const dom = makeDomImports(getMemory, onClickCallbacks);
   const imports = {
-    'stardust:web/log': { log: logImport },
-    'stardust:web/dom': dom,
+    'mty:web/log': { log: logImport },
+    'mty:web/dom': dom,
     // v0.5 caps stubs — return Forbidden-like sentinels by default
     // so a sandboxed wasm module doesn't crash.
-    'stardust:caps/fs': {
+    'mty:caps/fs': {
       read: (_p, _pl) => 0,
       write: (_p, _pl, _d, _dl) => 0,
     },
-    'stardust:caps/net': { get: (_p, _pl) => 0 },
-    'stardust:caps/clock': { 'now-millis': () => BigInt(Date.now()) },
-    'stardust:caps/model': { invoke: (_p, _pl) => 0 },
+    'mty:caps/net': { get: (_p, _pl) => 0 },
+    'mty:caps/clock': { 'now-millis': () => BigInt(Date.now()) },
+    'mty:caps/model': { invoke: (_p, _pl) => 0 },
   };
 
   const module = await WebAssembly.compile(wasmBytes);

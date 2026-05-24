@@ -1,7 +1,7 @@
-# selfhost — Stardust source written in Stardust
+# selfhost — Mighty source written in Mighty
 
-This tree holds the parts of the Stardust compiler that are themselves
-written in Stardust source. It is the self-hosting milestone — see
+This tree holds the parts of the Mighty compiler that are themselves
+written in Mighty source. It is the self-hosting milestone — see
 [`docs/internals/self-hosting.md`](../docs/internals/self-hosting.md)
 for the full architectural story.
 
@@ -9,8 +9,8 @@ for the full architectural story.
 
 | Phase | Location | Latest status | Bootstrap test |
 |---|---|---|---|
-| Lexer | `lexer/` | v0.5: DONE — full byte-for-byte diff against Rust lexer | `crates/sdust-driver/tests/selfhost_lexer.rs` |
-| Parser | `parser/` | **v0.6: SHIPPED-SUBSET — 13 bootstrap tests pass** | `crates/sdust-driver/tests/selfhost_parser.rs` |
+| Lexer | `lexer/` | v0.5: DONE — full byte-for-byte diff against Rust lexer | `crates/mty-driver/tests/selfhost_lexer.rs` |
+| Parser | `parser/` | **v0.6: SHIPPED-SUBSET — 13 bootstrap tests pass** | `crates/mty-driver/tests/selfhost_parser.rs` |
 | HIR lowering | `hir/` | future (v0.7) | — |
 | Codegen | `codegen/` | future (v0.8) | — |
 
@@ -18,9 +18,9 @@ for the full architectural story.
 
 The lexer source in `lexer/lexer.sd`:
 
-- `sdust check`s clean (no errors, no warnings)
+- `mty check`s clean (no errors, no warnings)
 - type-checks and borrow-checks clean
-- compiles to SIR via the v0.3 pipeline
+- compiles to MtyIR via the v0.3 pipeline
 - exercises the **full token surface**: every keyword in `spec §3.3`,
   every punctuation token in `spec §3.4`, every literal kind
   (int / float / duration / size / string / char / html-string),
@@ -28,7 +28,7 @@ The lexer source in `lexer/lexer.sd`:
   identifier classification with the 56-entry keyword table.
 
 What it cannot do in v0.4: **execute end-to-end** on a real input.
-The v0.3 SIR interpreter lowers `while` / `loop` / `for` as
+The v0.3 MtyIR interpreter lowers `while` / `loop` / `for` as
 single-iteration (a documented Slice 6 simplification). The bootstrap
 test exercises the path as far as the runtime allows — the first
 token round-trips correctly through the `std.io` effect bridge to
@@ -39,7 +39,7 @@ iterative-loop interpreter fix"]`.
 ## Running the bootstrap test
 
 ```bash
-cargo test -p sdust-driver --test selfhost_lexer
+cargo test -p mty-driver --test selfhost_lexer
 ```
 
 Three live tests pass + one v0.5-gated test is `#[ignore]`d:
@@ -52,25 +52,25 @@ test selfhost_lexer_full_diff_against_rust .............. ignored
 ```
 
 To re-enable the gated test when v0.5 lands real loops, remove the
-`#[ignore]` annotation in `crates/sdust-driver/tests/selfhost_lexer.rs`.
+`#[ignore]` annotation in `crates/mty-driver/tests/selfhost_lexer.rs`.
 
 ## Compiling the lexer source directly
 
 ```bash
-sdust check selfhost/lexer/lexer.sd
-sdust run   selfhost/lexer/lexer.sd
+mty check selfhost/lexer/lexer.sd
+mty run   selfhost/lexer/lexer.sd
 ```
 
-`sdust run` with no installed host returns cleanly: the demo `main` in
+`mty run` with no installed host returns cleanly: the demo `main` in
 `lexer.sd` calls `lex("fn main() { log(\"hi\") }")`; the interpreter's
 default effect_call returns `Unit` for the host bridge, so the lexer
 sees an empty source and exits.
 
-`lib.sd` and `syntax_kind.sd` `sdust check` independently too:
+`lib.sd` and `syntax_kind.sd` `mty check` independently too:
 
 ```bash
-sdust check selfhost/lexer/lib.sd
-sdust check selfhost/lexer/syntax_kind.sd
+mty check selfhost/lexer/lib.sd
+mty check selfhost/lexer/syntax_kind.sd
 ```
 
 These two files document the intended v0.5+ module layout
@@ -112,7 +112,7 @@ Each gap has a v0.7+ plan in the parser notes file.
 ## Running the parser bootstrap test
 
 ```bash
-cargo test -p sdust-driver --test selfhost_parser
+cargo test -p mty-driver --test selfhost_parser
 ```
 
 13 live tests pass (no `#[ignore]` markers):
@@ -136,7 +136,7 @@ test selfhost_parser_example_05 ............ ok
 ## Compiling the parser source directly
 
 ```bash
-sdust check selfhost/parser/parser.sd
+mty check selfhost/parser/parser.sd
 ```
 
 ## Why ship a subset?
@@ -144,7 +144,7 @@ sdust check selfhost/parser/parser.sd
 Self-hosting is a milestone of intent as much as runtime behavior.
 Shipping `lexer.sd` now:
 
-- locks in the lexer's *semantic surface* in Stardust syntax,
+- locks in the lexer's *semantic surface* in Mighty syntax,
   letting future versions diff against a fixed spec when they
   reorganize the Rust implementation
 - exercises the language at lexer-level complexity and surfaces gaps

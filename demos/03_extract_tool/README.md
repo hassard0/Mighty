@@ -7,17 +7,17 @@ the policy the runtime would enforce in a production deployment.
 
 > **v0.5 dogfood update.** Two enforcement gaps are now closed:
 >
-> 1. **Str method table** (`crates/sdust-sir/src/interp/run.rs::eval_method`)
+> 1. **Str method table** (`crates/mty-sir/src/interp/run.rs::eval_method`)
 >    now implements real `contains`, `starts_with`, `ends_with`,
 >    `find`, `char_at`, `slice`, `to_lower`, `to_upper`, `trim`,
 >    `split`, etc. The per-token `==` workaround in this demo can
->    be lifted; see `crates/sdust-sir/tests/string_methods.rs`.
+>    be lifted; see `crates/mty-sir/tests/string_methods.rs`.
 > 2. **CPU + memory budgets** auto-trip via a new
 >    `RunResult::MemBudgetExceeded` variant and an MT5009 trap when
 >    a sandboxed run exceeds its `cpu` / `memory` ceiling. The
 >    companion `breach.sd` now actually trips — see
->    `crates/sdust-sir/tests/budget_charges.rs`.
-> 3. **FsCap allowlist enforcement** (`crates/sdust-stdlib/src/fs.rs`)
+>    `crates/mty-sir/tests/budget_charges.rs`.
+> 3. **FsCap allowlist enforcement** (`crates/mty-stdlib/src/fs.rs`)
 >    consults a process-wide default cap installed from the sandbox
 >    manifest, so `std.fs.read("./outside")` returns
 >    `Result::Err(forbidden:...)` instead of silently reading the
@@ -27,7 +27,7 @@ the policy the runtime would enforce in a production deployment.
 
 ```
 03_extract_tool/
-  star.toml                # package manifest (host profile)
+  mighty.toml                # package manifest (host profile)
   src/
     main.sd                # Extractor agent + sandbox-wrapped driver
     breach.sd              # companion: deliberately impossible caps
@@ -40,17 +40,17 @@ the policy the runtime would enforce in a production deployment.
 ## Build / run
 
 ```bash
-cargo build -p sdust-cli
-./target/debug/sdust check demos/03_extract_tool/src/main.sd
-./target/debug/sdust run   demos/03_extract_tool/src/main.sd
+cargo build -p mty-cli
+./target/debug/mty check demos/03_extract_tool/src/main.sd
+./target/debug/mty run   demos/03_extract_tool/src/main.sd
 ```
 
 PowerShell:
 
 ```powershell
-cargo build -p sdust-cli
-.\target\debug\sdust.exe check demos\03_extract_tool\src\main.sd
-.\target\debug\sdust.exe run   demos\03_extract_tool\src\main.sd
+cargo build -p mty-cli
+.\target\debug\mty.exe check demos\03_extract_tool\src\main.sd
+.\target\debug\mty.exe run   demos\03_extract_tool\src\main.sd
 ```
 
 Expected stdout (also in `expected_output.txt`):
@@ -76,7 +76,7 @@ miss: fox
 == sample-3 ==
 miss: Built
 miss: with
-hit: Stardust
+hit: Mighty
 == snapshot ==
 {"hits":7}
 ```
@@ -102,8 +102,8 @@ Two v0.4 limitations show up:
 1. **Path-based capability checks are recorded, not enforced.** The
    `fs.read = ["./inputs"]` and `fs.write = ["./outputs"]` entries in
    the sandbox block parse into the `Budget` struct
-   (`crates/sdust-runtime/src/budget.rs`), but the v0.3 `std.fs`
-   host bridge (`crates/sdust-stdlib/src/host.rs::fs_read`) uses an
+   (`crates/mty-runtime/src/budget.rs`), but the v0.3 `std.fs`
+   host bridge (`crates/mty-stdlib/src/host.rs::fs_read`) uses an
    unrestricted `FsCap`. A real deployment that wired `Fs` as a
    genuine capability handle would see `BudgetBreach::Path` fire on
    any out-of-allowlist access; that wiring is post-v0.4. The
@@ -112,7 +112,7 @@ Two v0.4 limitations show up:
    via `fs.read`), but the sandbox header still demonstrates the
    shape a future enforcement pass will check against.
 2. **Cpu / wall / memory budgets need a capability-marked call to
-   trip.** The slice-6 SIR interpreter is synchronous (see A35), so
+   trip.** The slice-6 MtyIR interpreter is synchronous (see A35), so
    the `wall = 3s` budget is checked the next time a capability call
    yields back to the runtime. A pure-compute loop never trips it
    today. The cpu/mem trackers are charged only by explicit
@@ -126,7 +126,7 @@ A third limitation tilts the implementation more than the surface:
 
 3. **String-pattern stdlib is stubbed.** The slice-6 `eval_method`
    table only binds `len`, `to_str`, `is_empty`, plus a handful of
-   Result helpers (see `crates/sdust-sir/src/interp/run.rs`). String
+   Result helpers (see `crates/mty-sir/src/interp/run.rs`). String
    pattern methods (`contains`, `find`, `char_at`, `slice`) return
    permissive defaults. The extractor therefore drives off `==`
    on whole tokens against a small inlined vocabulary instead of

@@ -1,6 +1,6 @@
 # Debug info (v0.2)
 
-`sdust build --debug` produces artifacts that downstream debuggers can
+`mty build --debug` produces artifacts that downstream debuggers can
 load. v0.2 ships two surfaces:
 
 | Target | Format | Tooling |
@@ -10,12 +10,12 @@ load. v0.2 ships two surfaces:
 
 The implementation lives in three places:
 
-- `crates/sdust-debuginfo/` — backend-neutral builders (`DwarfBuilder`,
+- `crates/mty-debuginfo/` — backend-neutral builders (`DwarfBuilder`,
   `SourceMap`, `NameSection`).
-- `crates/sdust-codegen-cranelift/src/debug.rs` — converts SIR + source
+- `crates/mty-codegen-cranelift/src/debug.rs` — converts MtyIR + source
   bytes into DWARF DIEs and attaches the encoded sections to the
   cranelift `ObjectProduct` before linking.
-- `crates/sdust-codegen-wasm/src/sourcemap.rs` — produces the `name`
+- `crates/mty-codegen-wasm/src/sourcemap.rs` — produces the `name`
   custom section and source-map sidecar, then appends both as wasm
   custom sections (the Component Model wrapper preserves them).
 
@@ -29,7 +29,7 @@ same artifact, stripped of debug info.
 For every program we emit one compilation unit:
 
 - `DW_TAG_compile_unit`
-  - `DW_AT_producer = "stardust-0.2"`
+  - `DW_AT_producer = "mighty-0.2"`
   - `DW_AT_language = DW_LANG_Rust` (closest semantic match in DWARF v4)
   - `DW_AT_name`, `DW_AT_comp_dir` from the build inputs
   - `DW_AT_low_pc = 0`, `DW_AT_high_pc = total_code_size`
@@ -63,7 +63,7 @@ Per platform:
 ### Inspecting
 
 ```bash
-sdust build --debug examples/01_hello.sd
+mty build --debug examples/01_hello.sd
 objdump --dwarf=info target/01_hello.o
 # or
 llvm-dwarfdump target/01_hello.o
@@ -86,19 +86,19 @@ lldb target/01_hello
 - **Coarse line table.** We emit one line-program row at the fn entry,
   not one per machine instruction. Cranelift exposes per-instr
   `MachSrcLoc` events via `compiled_code()`, but the lowerer doesn't
-  yet propagate SIR-statement spans far enough to make those rows
+  yet propagate MtyIR-statement spans far enough to make those rows
   meaningful. v0.3.
 - **No `.debug_loc` location lists.** Per-local variables carry a
   `DW_AT_data_member_location` constant (the frame offset, when known),
   but not a proper location expression. v0.3.
-- **No inlining info.** SIR doesn't track inlining either; that's a
+- **No inlining info.** MtyIR doesn't track inlining either; that's a
   multi-slice undertaking.
 
 ## Wasm source maps + `name` section
 
 ### What we emit
 
-When `sdust build --debug --target wasm32-*` runs:
+When `mty build --debug --target wasm32-*` runs:
 
 1. The core module is emitted by `compile_program_to_bytes` (slice 8
    pipeline, untouched by debug info).
@@ -138,7 +138,7 @@ the header.
 ### Known limitations (v0.2)
 
 - **Coarse mapping.** One source position per fn — not per instruction.
-  Once SIR statements carry `SourceSpan`, the wasm emitter can record
+  Once MtyIR statements carry `SourceSpan`, the wasm emitter can record
   per-instruction byte offsets and we'll regenerate the mappings
   string.
 - **No local-name subsection.** Subsection id 2 (locals) is empty.
@@ -152,13 +152,13 @@ the header.
 
 The debuginfo builders are exercised by:
 
-- `crates/sdust-debuginfo/tests/dwarf_roundtrip.rs` — builds DWARF,
+- `crates/mty-debuginfo/tests/dwarf_roundtrip.rs` — builds DWARF,
   parses it back with `gimli::read`, asserts `DW_TAG_subprogram` for
   `main` is present.
-- `crates/sdust-codegen-cranelift/tests/debug.rs` — builds a real
+- `crates/mty-codegen-cranelift/tests/debug.rs` — builds a real
   object file, re-parses with the `object` crate, walks DWARF with
   `gimli`, confirms `DW_TAG_subprogram name=main` appears.
-- `crates/sdust-codegen-wasm/tests/sourcemap.rs` — emits a wasm with
+- `crates/mty-codegen-wasm/tests/sourcemap.rs` — emits a wasm with
   the `name` + `sourceMappingURL` custom sections and writes the
   sidecar; parses with `wasmparser` and `serde_json` to confirm both
   are structurally valid.

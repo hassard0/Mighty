@@ -6,13 +6,13 @@ Releases"; this file records the decisions we made implementing it.
 
 ## What shipped
 
-- New `crates/sdust-pkg/src/registry.rs` — `[registry]` config,
+- New `crates/mty-pkg/src/registry.rs` — `[registry]` config,
   `RegistryIndex`, `AuthStore`, slug + tag parsing.
-- Rewrite of `crates/sdust-pkg/src/fetch/registry.rs` — GitHub
+- Rewrite of `crates/mty-pkg/src/fetch/registry.rs` — GitHub
   Releases REST client, on-disk index cache with 1-hour TTL +
   `If-Modified-Since`, sha256 sidecar verification, gzipped tar
   extraction with path-traversal guard.
-- Rewrite of `crates/sdust-pkg/src/publish.rs` — real `tar.gz` +
+- Rewrite of `crates/mty-pkg/src/publish.rs` — real `tar.gz` +
   sidecar bundles plus optional GitHub Releases upload.
 - Resolver wired to the cached index; falls back to the v0.2
   requirement-floor synthesis when no index is available.
@@ -22,7 +22,7 @@ Releases"; this file records the decisions we made implementing it.
 - Five new integration test files (28 → 64 active tests +
   2 `#[ignore]` network tests).
 - Three docs files updated (`docs/internals/package-manager.md`,
-  `docs/reference/cli/sdust-pkg.md`) plus one new
+  `docs/reference/cli/mty-pkg.md`) plus one new
   (`docs/reference/registry.md`).
 
 ## Interpretation calls
@@ -30,46 +30,46 @@ Releases"; this file records the decisions we made implementing it.
 ### 1. Source URL scheme — `registry+gh://<owner>/<repo>`
 
 The spec didn't pin a syntax. The v0.2 lockfile used
-`registry+https://pkg.stardust.dev`; we wanted a shape that:
+`registry+https://pkg.mighty.dev`; we wanted a shape that:
 
 - Clearly names the backend (GitHub Releases — not just "HTTP").
 - Encodes the registry slug compactly enough that a human reading
-  `star.lock` can identify the source repo at a glance.
+  `mighty.lock` can identify the source repo at a glance.
 - Coexists with the legacy form without confusing the parser.
 
 Chose `registry+gh://<owner>/<repo>`. The fetcher rejects the
 legacy `registry+https://...` form with a clear "re-run
-`sdust pkg update` to migrate" error rather than silently treating
+`mty pkg update` to migrate" error rather than silently treating
 it as `gh://`. Adding a true mirror/HTTP backend later would land
 as `registry+https://...` again, this time with an actual handler.
 
 ### 2. `[registry]` lives outside `Manifest`
 
-The `Manifest` struct lives in `sdust-driver`. The slice rules
-prohibit touching the driver, so `sdust-pkg` re-parses `star.toml`
+The `Manifest` struct lives in `mty-driver`. The slice rules
+prohibit touching the driver, so `mty-pkg` re-parses `mighty.toml`
 for the `[registry]` table only when it needs the config. This
 keeps blast radius small and avoids a driver-version churn just
 for a config block, at the cost of one extra TOML parse per
 package operation.
 
-A future cleanup can move `Manifest` itself into `sdust-pkg` (the
+A future cleanup can move `Manifest` itself into `mty-pkg` (the
 internals doc already flags this) and consolidate.
 
 ### 3. Offline-first resolution
 
-`sdust pkg add` / `update` never hits the network — they read the
+`mty pkg add` / `update` never hits the network — they read the
 on-disk cache only. The user opts into a network refresh with
-`sdust pkg update --refresh`. Rationale: a flaky network shouldn't
+`mty pkg update --refresh`. Rationale: a flaky network shouldn't
 break `add`, and `add` should always be deterministic across
 invocations on the same cache.
 
 Side effect: on a fresh checkout with no cache, `add foo` will
 synthesise the requirement floor for `foo`'s version (because the
 index it would consult doesn't exist yet). The user's expected
-follow-up is `sdust pkg update --refresh && sdust pkg fetch`, which
+follow-up is `mty pkg update --refresh && mty pkg fetch`, which
 revalidates and pins.
 
-### 4. Token storage = plaintext at `~/.config/sdust/auth.toml`
+### 4. Token storage = plaintext at `~/.config/mty/auth.toml`
 
 The user spec explicitly asked us to document this tradeoff. We
 copy the model `gh` CLI uses (`~/.config/gh/hosts.yml`) and
@@ -85,7 +85,7 @@ post-v0.5.
 
 We considered shelling out to a TUI password prompt, but the
 agent-friendly path is "set an env-var, run a command". Plus, the
-agent has no PTY here. So `sdust pkg login` consumes
+agent has no PTY here. So `mty pkg login` consumes
 `SDUST_PKG_LOGIN_TOKEN` and persists it; a future slice can layer
 an interactive prompt on top without changing the storage shape.
 
@@ -126,13 +126,13 @@ disk is itself useful (air-gapped distribution, manual upload).
 Hard-erroring would penalise that path. The user can drive the
 CI policy with their own grep on the output if they need to.
 
-### 10. Skipped: actually creating `stardust-pkg/registry` on GitHub
+### 10. Skipped: actually creating `mighty-pkg/registry` on GitHub
 
 The spec explicitly told us not to. The default-slug constant
-points at `stardust-pkg/registry` so the v0.5 cloud control plane
+points at `mighty-pkg/registry` so the v0.5 cloud control plane
 can create it without code changes. Until then, any fetch against
 the default produces a clean 404 from GitHub which surfaces as
-"registry `stardust-pkg/registry` not found on GitHub".
+"registry `mighty-pkg/registry` not found on GitHub".
 
 The `#[ignore]`d network smoke test (`registry_fetch.rs`) points
 at `octocat/Hello-World` instead so it exercises real transport
@@ -142,11 +142,11 @@ without depending on a not-yet-existing repo.
 
 - Create `hassard0/stardust-pkg-registry` (or similar slug) and
   seed it with the stdlib.
-- Move `Manifest` into `sdust-pkg`, leave a re-export in
-  `sdust-driver`.
+- Move `Manifest` into `mty-pkg`, leave a re-export in
+  `mty-driver`.
 - `[package].include` / `.exclude` globs for bundle contents.
 - Yanked-version support (release-body marker + consumer warning).
-- Security advisory cross-referencing (`sdust pkg audit`).
+- Security advisory cross-referencing (`mty pkg audit`).
 - Signed releases via sigstore/cosign.
 - Pluggable secret store (Keychain / Credential Manager / libsecret).
 - Interactive `pkg login` (post-TUI).
@@ -157,21 +157,21 @@ without depending on a not-yet-existing repo.
 ## Files touched
 
 ```
-crates/sdust-pkg/Cargo.toml                       # +tar, +flate2, +dirs, +serde_json
-crates/sdust-pkg/src/lib.rs                       # registry module + re-exports
-crates/sdust-pkg/src/registry.rs                  # NEW
-crates/sdust-pkg/src/fetch/registry.rs            # rewrite
-crates/sdust-pkg/src/publish.rs                   # rewrite (bundle + upload)
-crates/sdust-pkg/src/resolver.rs                  # registry-index aware
-crates/sdust-pkg/src/commands.rs                  # +search, +info, +login, +refresh_indexes
-crates/sdust-pkg/tests/registry_index_parse.rs    # NEW
-crates/sdust-pkg/tests/registry_fetch.rs          # NEW (#[ignore] network)
-crates/sdust-pkg/tests/publish_bundle.rs          # NEW
-crates/sdust-pkg/tests/multi_registry_resolve.rs  # NEW
-crates/sdust-pkg/tests/auth_token_load.rs         # NEW
-crates/sdust-cli/src/cmd/pkg.rs                   # +Search,+Info,+Login + Update --refresh
+crates/mty-pkg/Cargo.toml                       # +tar, +flate2, +dirs, +serde_json
+crates/mty-pkg/src/lib.rs                       # registry module + re-exports
+crates/mty-pkg/src/registry.rs                  # NEW
+crates/mty-pkg/src/fetch/registry.rs            # rewrite
+crates/mty-pkg/src/publish.rs                   # rewrite (bundle + upload)
+crates/mty-pkg/src/resolver.rs                  # registry-index aware
+crates/mty-pkg/src/commands.rs                  # +search, +info, +login, +refresh_indexes
+crates/mty-pkg/tests/registry_index_parse.rs    # NEW
+crates/mty-pkg/tests/registry_fetch.rs          # NEW (#[ignore] network)
+crates/mty-pkg/tests/publish_bundle.rs          # NEW
+crates/mty-pkg/tests/multi_registry_resolve.rs  # NEW
+crates/mty-pkg/tests/auth_token_load.rs         # NEW
+crates/mty-cli/src/cmd/pkg.rs                   # +Search,+Info,+Login + Update --refresh
 docs/internals/package-manager.md                 # v0.4 section + diagram update
-docs/reference/cli/sdust-pkg.md                   # search/info/login/publish/update docs
+docs/reference/cli/mty-pkg.md                   # search/info/login/publish/update docs
 docs/reference/registry.md                        # NEW
 REGISTRY_V0_4_NOTES.md                            # NEW (this file)
 ```

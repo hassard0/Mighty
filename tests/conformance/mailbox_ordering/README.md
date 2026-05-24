@@ -4,9 +4,9 @@ Spec §25.3 + slice-7 design. Agents process messages in FIFO order;
 back-to-back `?Msg(...)` from the same caller observe a monotonic
 view of the agent's state.
 
-The conformance harness runs these through the slice-6 SIR
+The conformance harness runs these through the slice-6 MtyIR
 interpreter (deterministic by construction). The tokio runtime (used
-by `sdust run` in production) preserves FIFO per agent via the
+by `mty run` in production) preserves FIFO per agent via the
 `tokio::sync::mpsc` mailbox.
 
 ## Cases

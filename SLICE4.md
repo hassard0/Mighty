@@ -1,12 +1,12 @@
-# Stardust Slice 4 — Complete
+# Mighty Slice 4 — Complete
 
 **Tag:** `v0.4.0-borrowck`
 **Date:** 2026-05-24
 
 ## What landed
 
-- **New crate `sdust-borrow`** implementing the ownership / borrow / affine
-  / arena checker. Distinct from `sdust-types` so the dep graph stays
+- **New crate `mty-borrow`** implementing the ownership / borrow / affine
+  / arena checker. Distinct from `mty-types` so the dep graph stays
   honest (the type checker stays usable in isolation).
 - **`Copy` predicate** — primitives, shared refs, raw ptrs, fn ptrs,
   `Str`, tuples/arrays of Copy, opaque ADTs. NOT Copy: `&mut T`,
@@ -31,7 +31,7 @@
   `target!Msg(args)` / `target?Msg(args)` validated via `is_sendable`.
 - **Drop intent** — at scope exit, `DropPlan` accumulates entries for
   every Owned non-Copy local. Codegen consumes this in a later slice.
-- **15 SD3xxx diagnostics** + `sdust explain` text for each.
+- **15 SD3xxx diagnostics** + `mty explain` text for each.
 - **Slice-3 hardening**:
   - **Scope-aware tolerance** (A21) — replaces blanket permissive policy;
     `MT2021` fires on top-level fn bodies' unresolved names
@@ -52,9 +52,9 @@
 ## All 20 examples type-check + borrow-check clean
 
 ```
-sdust check examples/01_hello.sd            → ok
+mty check examples/01_hello.sd            → ok
 ... (all 20)
-sdust check examples/20_frontend_component  → ok
+mty check examples/20_frontend_component  → ok
 ```
 
 Examples 06 and 11 were amended (per the slice-3 deferral) with explicit
@@ -79,11 +79,11 @@ operator rule applies cleanly.
 ## Stats
 
 - **266 tests pass** (slice 3: 224 → slice 4: +42)
-- ~2 500 lines of Rust added (sdust-borrow + items.rs/check.rs/resolve.rs
+- ~2 500 lines of Rust added (mty-borrow + items.rs/check.rs/resolve.rs
   extensions)
 - 15 new SD3xxx + MT2026 diagnostic codes
 - 12 negative borrow fixtures (one per SD3xxx-reachable code)
-- 20 example-borrowck integration tests + 4 sdust-borrow direct tests +
+- 20 example-borrowck integration tests + 4 mty-borrow direct tests +
   17 unit tests in copy/sendable/state
 
 ## Still deferred (post-v0.1 unless noted)
@@ -98,21 +98,21 @@ operator rule applies cleanly.
 - Effect closure + capability narrowing enforcement — slice 5
 - `move *ref` modelling for MT3009 — slice 5
 - Tighter MT3002 vs MT3008 distinction — slice 5
-- Real codegen of `drop()` calls + SIR consumption of `DropPlan` —
+- Real codegen of `drop()` calls + MtyIR consumption of `DropPlan` —
   slice 6+
 - Pattern-typed locals (struct field types in patterns) — slice 5
 
 ## Files of note
 
-- `crates/sdust-borrow/` — new crate
-- `crates/sdust-types/src/{lib,items,check,resolve}.rs` — typed side
+- `crates/mty-borrow/` — new crate
+- `crates/mty-types/src/{lib,items,check,resolve}.rs` — typed side
   tables + tolerance + dispatch + defaulting
-- `crates/sdust-hir/src/{nodes,lower/items,lower/agents,lower/exprs}.rs`
+- `crates/mty-hir/src/{nodes,lower/items,lower/agents,lower/exprs}.rs`
   — `let mut`, extern blocks, agent methods
-- `crates/sdust-driver/src/pipeline.rs` — `type_and_borrow_check`
+- `crates/mty-driver/src/pipeline.rs` — `type_and_borrow_check`
 - `docs/internals/borrowck.md` — internals reference
 - `docs/spec/v0.1-amendments.md` — A13..A21
 - `docs/tour/14-ownership.md` — new tour chapter
 - `tests/borrow_neg/*.sd` — 12 negative borrow fixtures
-- `crates/sdust-driver/tests/{borrow_negatives,examples_borrowck}.rs`
+- `crates/mty-driver/tests/{borrow_negatives,examples_borrowck}.rs`
   — integration tests

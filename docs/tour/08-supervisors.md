@@ -6,7 +6,7 @@
 > `docs/internals/supervisors.md`.
 
 A supervisor owns a set of child agents and decides what to do when one
-fails. Stardust's supervisors borrow from Erlang/OTP: strategies are
+fails. Mighty's supervisors borrow from Erlang/OTP: strategies are
 named, and each child gets an explicit restart policy.
 
 ## The program
@@ -37,7 +37,7 @@ supervisor SearchFlow(strategy: one_for_one) {
 ## Run it
 
 ```bash
-sdust check examples/10_supervisor.sd
+mty check examples/10_supervisor.sd
 ```
 
 ## Next

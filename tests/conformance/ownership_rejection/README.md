@@ -2,7 +2,7 @@
 
 Spec §7.1 + slice-4 design (borrow checker). Each sub-case is a
 program that violates an ownership rule and must be rejected by
-`sdust check` with the corresponding SD3xxx code.
+`mty check` with the corresponding SD3xxx code.
 
 ## Cases
 

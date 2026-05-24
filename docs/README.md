@@ -1,6 +1,6 @@
-# Stardust Documentation
+# Mighty Documentation
 
-Stardust is a statically typed, ownership-based, agent-first systems
+Mighty is a statically typed, ownership-based, agent-first systems
 language that compiles to native code and to WebAssembly components. These
 docs cover the language as it stands at the **slice 1** milestone
 (`v0.1.0-phase1`): lexer, parser, formatter, HIR, CLI, and twenty
@@ -13,16 +13,16 @@ yet enforced, it is marked **(spec only)**.
 ## Learn the language
 
 - [Getting started](getting-started.md) — install, scaffold a package,
-  run `sdust check`.
-- [Tour of Stardust](tour/README.md) — work through the canonical examples
+  run `mty check`.
+- [Tour of Mighty](tour/README.md) — work through the canonical examples
   one chapter at a time.
 - [Language specification v0.1](spec/v0.1.md) — the normative reference.
 
 ## Use the tools
 
 - [Reference](reference/README.md)
-  - [CLI](reference/cli/sdust.md) — `sdust new`, `fmt`, `check`, `dump`.
-  - [Manifest format](reference/manifest.md) — the `star.toml` schema.
+  - [CLI](reference/cli/mty.md) — `mty new`, `fmt`, `check`, `dump`.
+  - [Manifest format](reference/manifest.md) — the `mighty.toml` schema.
   - [Diagnostic codes](reference/diagnostics.md) — the `SDxxxx` registry.
 
 ## Hack on the compiler

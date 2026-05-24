@@ -1,10 +1,10 @@
 // selfhost/lexer/lib.sd
 //
-// Package root for the self-hosted Stardust lexer.
+// Package root for the self-hosted Mighty lexer.
 //
 // The actual implementation is consolidated in `lexer.sd` for v0.4
 // (single-file compilation) — the `lib.sd` / `syntax_kind.sd` / `lexer.sd`
-// split documents the intended v0.5+ module structure once `sdust-pkg`
+// split documents the intended v0.5+ module structure once `mty-pkg`
 // supports cross-file `use selfhost_lexer.SyntaxKind` resolution.
 //
 // See `selfhost/README.md` for the roadmap and
@@ -21,7 +21,7 @@ package selfhost_lexer
 //
 // For v0.4 the v0.3 driver only compiles a single file at a time, so
 // every consumer goes through `lexer.sd` directly. This file exists so
-// the package directory has a conventional entry-point name; `sdust
+// the package directory has a conventional entry-point name; `mty
 // check selfhost/lexer/lib.sd` validates that the package decl parses
 // and the prelude resolves.
 

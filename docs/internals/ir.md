@@ -1,29 +1,29 @@
-# SIR — Stardust Mid-Level IR
+# MtyIR — Mighty Mid-Level IR
 
 > Compiler internals doc — current of slice 6 (`v0.6.0-sir`).
 
-SIR (the **S**tardust mid-level **IR**) is the basic-block representation
+MtyIR (the **S**tardust mid-level **IR**) is the basic-block representation
 the compiler hands to its execution and codegen backends. Slice 6 ships
-SIR plus a tree-walking interpreter; later slices will reuse SIR as the
+MtyIR plus a tree-walking interpreter; later slices will reuse MtyIR as the
 input to LLVM / Cranelift / Wasm lowering.
 
 ## Pipeline position
 
 ```
 Source (.sd)
-  → CST / AST       (sdust-syntax, sdust-ast)
-  → HIR             (sdust-hir)
-  → type check      (sdust-types)
-  → borrow check    (sdust-borrow)
-  → SIR             (sdust-sir, this doc) ←
-  → interpreter     (sdust-sir::interp, slice 6)
+  → CST / AST       (mty-syntax, mty-ast)
+  → HIR             (mty-hir)
+  → type check      (mty-types)
+  → borrow check    (mty-borrow)
+  → MtyIR             (mty-sir, this doc) ←
+  → interpreter     (mty-sir::interp, slice 6)
   → codegen         (slice 8)
 ```
 
-SIR consumes the *typed + borrow-checked* HIR — the lowerer assumes
+MtyIR consumes the *typed + borrow-checked* HIR — the lowerer assumes
 every name resolves, every type is known (or `Error`-poisoned), and
 every move/copy decision is already pinned down. The lowerer never
-emits new diagnostics; if upstream phases reported errors the SIR is
+emits new diagnostics; if upstream phases reported errors the MtyIR is
 still produced (best-effort) but should not be executed.
 
 ## Shape
@@ -126,7 +126,7 @@ Slice-6 projections: `Field(i)`, `TupleIndex(i)`, `Deref`,
 
 ## Capabilities + effects
 
-Capabilities live in SIR as `SirTy::Cap{family, constraint}` and as
+Capabilities live in MtyIR as `SirTy::Cap{family, constraint}` and as
 `Rvalue::CapValue{}` literals. Their constraint algebra is carried
 verbatim from `sdust_types::CapConstraint` (A23). Effect calls lower
 to `Stmt::EffectInvoke{effect, op, args, out}` with `op =
@@ -193,12 +193,12 @@ scheduler arrive in slice 7.
 
 ## File index
 
-- `crates/sdust-sir/src/sir.rs` — data types
-- `crates/sdust-sir/src/dump.rs` — text dump
-- `crates/sdust-sir/src/lower/mod.rs` — lowering entry
-- `crates/sdust-sir/src/lower/items.rs` — fn / struct / enum / agent
-- `crates/sdust-sir/src/lower/exprs.rs` — expression lowering
-- `crates/sdust-sir/src/lower/pats.rs` — pattern matching
-- `crates/sdust-sir/src/lower/ty.rs` — type translation
-- `crates/sdust-sir/src/interp/` — interpreter
+- `crates/mty-sir/src/sir.rs` — data types
+- `crates/mty-sir/src/dump.rs` — text dump
+- `crates/mty-sir/src/lower/mod.rs` — lowering entry
+- `crates/mty-sir/src/lower/items.rs` — fn / struct / enum / agent
+- `crates/mty-sir/src/lower/exprs.rs` — expression lowering
+- `crates/mty-sir/src/lower/pats.rs` — pattern matching
+- `crates/mty-sir/src/lower/ty.rs` — type translation
+- `crates/mty-sir/src/interp/` — interpreter
 - `docs/internals/interpreter.md` — interpreter design notes

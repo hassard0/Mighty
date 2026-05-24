@@ -1,19 +1,19 @@
-# Stardust v0.6 — Release Notes
+# Mighty v0.6 — Release Notes
 
 **Tag:** `v0.6.0`
 **Date:** 2026-05-24
 **Status:** SHIPPED — sixth milestone release. The runtime
 distributes work across N OS threads with per-worker tokio runtimes
 + crossbeam-deque work-stealing, the first honest cross-language
-benchmarks land alongside a new `sdust-bench` crate, the Stardust
-source parser is itself ported to Stardust (~1930 LOC running through
+benchmarks land alongside a new `mty-bench` crate, the Mighty
+source parser is itself ported to Mighty (~1930 LOC running through
 a bootstrap host bridge), and three v0.5 loose ends close inline:
-DOM SIR lowering reaches `emit_dom_call` end-to-end, the
+DOM MtyIR lowering reaches `emit_dom_call` end-to-end, the
 MT6001-MT6006 macro codes merge into the central
 `sdust_diagnostics` catalog, and per-call `FsCap` isolation gains a
 contract test.
 
-Stardust v0.1 walked the spec §31 ladder end-to-end. v0.2 lit up
+Mighty v0.1 walked the spec §31 ladder end-to-end. v0.2 lit up
 every surface the v0.1 deferral list named. v0.3 hardened
 soundness. v0.4 was dogfood + ecosystem. v0.5 was self-hosting
 (lexer) + dogfood completion + LSP advanced. v0.6 is the
@@ -25,36 +25,36 @@ its own source.
 
 ```bash
 # Multi-core scheduler — defaults to one worker per core
-STARDUST_RUNTIME_THREADS=8 sdust run examples/07_agent_echo.sd
-# (or just `sdust run ...` — N defaults to available_parallelism())
+STARDUST_RUNTIME_THREADS=8 mty run examples/07_agent_echo.sd
+# (or just `mty run ...` — N defaults to available_parallelism())
 
 # Per-worker scheduler stats
-cargo test -p sdust-runtime --test load_balance
+cargo test -p mty-runtime --test load_balance
 # → 5 passed (worker_steal / cross_worker_send / affinity_sticky /
 #   load_balance / deterministic_mode)
 
 # First honest cross-language benchmarks
-cargo bench -p sdust-bench --bench parse_throughput
-cargo bench -p sdust-bench --bench agent_send_latency
-# (CLI runner with 30 iters: `cargo run -p sdust-bench --bin sdust-bench-runner`)
+cargo bench -p mty-bench --bench parse_throughput
+cargo bench -p mty-bench --bench agent_send_latency
+# (CLI runner with 30 iters: `cargo run -p mty-bench --bin mty-bench-runner`)
 
-# The Stardust parser is now itself written in Stardust
-cargo test -p sdust-driver --test selfhost_parser
+# The Mighty parser is now itself written in Mighty
+cargo test -p mty-driver --test selfhost_parser
 # → 13 passed (examples 01-05 bootstrap through the host bridge)
 
-# DOM SIR lowering now reaches the wasm32-web import table
-cargo test -p sdust-sir --test dom_lowering
+# DOM MtyIR lowering now reaches the wasm32-web import table
+cargo test -p mty-sir --test dom_lowering
 # → 3 passed (`d.set_text("#id", "x")` lowers to BuiltinId::DomOp("set_text"))
 
-# Central SD catalog: `sdust explain` resolves MT6001-MT6006 the
+# Central SD catalog: `mty explain` resolves MT6001-MT6006 the
 # same way it resolves every other code
-sdust explain MT6001
+mty explain MT6001
 # → MT6001: Unknown macro. ...
-sdust explain MT6006
+mty explain MT6006
 # → MT6006: Procedural macro execution is not supported yet. ...
 
 # Per-call FsCap isolation contract is pinned
-cargo test -p sdust-stdlib --test fs_capability_allowlist
+cargo test -p mty-stdlib --test fs_capability_allowlist
 # → 5 passed (including the new two_disjoint_caps_isolate_in_the_same_process)
 ```
 
@@ -73,14 +73,14 @@ the killed "loose ends" swarm agent left on the table:
 
 | Agent | Crates / files | Commits |
 |---|---|---|
-| multi-core scheduler | `sdust-runtime` (scheduler, runtime, lib, Cargo), 7 new tests, conformance `mailbox_ordering/06+07`, `docs/internals/{scheduler,multi-core}.md`, spec A101..A106 | `ee5d83b`, `f071f12` |
-| benchmarks | new `sdust-bench` workspace member, 6 categories × {Rust / Go / C++ comparators}, criterion harness + CLI runner, `docs/benchmarks/*.md`, CI workflow | `a678e41`, `3f6fb89`, `b303cee` |
-| self-host parser | `selfhost/parser/parser.sd` (~1930 LOC), `crates/sdust-driver/tests/selfhost_parser.rs` (host bridge), `docs/internals/self-hosting.md`, `SELFHOST_PARSER_V0_6_NOTES.md` | `a9c89c8`, `1b41b22` |
-| integrator easy wins | `sdust-diagnostics::codes` (MT6001-MT6006), `sdust-macros::diag` (re-exports), `sdust-sir::BuiltinId::DomOp` + lowering, `sdust-codegen-wasm::emit_call` (DomOp dispatch + dead-code removal), `sdust-codegen-cranelift::lower_call` (DomOp stub), 3 new sir tests + 1 new wasm-emit test + 1 new fs cap isolation test | `03c74fd`, `697cd79`, `76e962c` |
+| multi-core scheduler | `mty-runtime` (scheduler, runtime, lib, Cargo), 7 new tests, conformance `mailbox_ordering/06+07`, `docs/internals/{scheduler,multi-core}.md`, spec A101..A106 | `ee5d83b`, `f071f12` |
+| benchmarks | new `mty-bench` workspace member, 6 categories × {Rust / Go / C++ comparators}, criterion harness + CLI runner, `docs/benchmarks/*.md`, CI workflow | `a678e41`, `3f6fb89`, `b303cee` |
+| self-host parser | `selfhost/parser/parser.sd` (~1930 LOC), `crates/mty-driver/tests/selfhost_parser.rs` (host bridge), `docs/internals/self-hosting.md`, `SELFHOST_PARSER_V0_6_NOTES.md` | `a9c89c8`, `1b41b22` |
+| integrator easy wins | `mty-diagnostics::codes` (MT6001-MT6006), `mty-macros::diag` (re-exports), `mty-sir::BuiltinId::DomOp` + lowering, `mty-codegen-wasm::emit_call` (DomOp dispatch + dead-code removal), `mty-codegen-cranelift::lower_call` (DomOp stub), 3 new sir tests + 1 new wasm-emit test + 1 new fs cap isolation test | `03c74fd`, `697cd79`, `76e962c` |
 
 A fourth "v0.5 loose ends" agent was killed before committing
 anything; the integrator picked up the three items that fit inside
-a 10-file-edit budget (DOM SIR lowering, central SD catalog,
+a 10-file-edit budget (DOM MtyIR lowering, central SD catalog,
 per-call FsCap test). The other v0.5 loose ends roll into v0.7
 (proc-macro sandboxed execution, real per-agent HTTP routing,
 set-of-scopes hygiene, LSP workspace resolve map).
@@ -94,7 +94,7 @@ set-of-scopes hygiene, LSP workspace resolve map).
   isolation)
 - **0 clippy warnings** with `-D warnings`
 - **`cargo fmt --check` clean**
-- **21 crates** in the workspace (+1 from v0.5: `sdust-bench`)
+- **21 crates** in the workspace (+1 from v0.5: `mty-bench`)
 - **11 commits** since `v0.4.0` → **8 commits** since `v0.5.0` (+1
   prep commit `ef031d2` before tag)
 - **9,000 insertions / 183 deletions** across 99 files
@@ -123,10 +123,10 @@ set-of-scopes hygiene, LSP workspace resolve map).
 | Agent affinity | n/a | `AffinityHint::Sticky` + `Sticky(worker_id)` (A102) |
 | Lightweight migration | n/a | routing-table retargeting on next spawn (A103) |
 | Per-worker telemetry | n/a | `Scheduler::stats()` -> `WorkerStats { queue_depth, executed, stolen, parks }` (A104) |
-| Per-token-stream perf number | absent | parse / send / mailbox / HTTP / native-compile / wasm-size shipped via `sdust-bench` |
-| Stardust parser written in Stardust | only lexer | parser at ~1930 LOC, 13/13 bootstrap tests pass |
-| `d.set_text(...)` on a `Dom` cap | typeck only — never reaches `emit_dom_call` | full SIR lowering + wasm `stardust:web/dom` call (A108) |
-| `sdust explain MT6001` | resolved via `sdust_macros::diag` (separate catalog) | single-sourced on `sdust_diagnostics::codes` (A107) |
+| Per-token-stream perf number | absent | parse / send / mailbox / HTTP / native-compile / wasm-size shipped via `mty-bench` |
+| Mighty parser written in Mighty | only lexer | parser at ~1930 LOC, 13/13 bootstrap tests pass |
+| `d.set_text(...)` on a `Dom` cap | typeck only — never reaches `emit_dom_call` | full MtyIR lowering + wasm `mighty:web/dom` call (A108) |
+| `mty explain MT6001` | resolved via `sdust_macros::diag` (separate catalog) | single-sourced on `sdust_diagnostics::codes` (A107) |
 | `FsCap` isolation between two caps in one process | implicit | contract pinned by test (A109) |
 
 ## Closed deferrals from v0.5
@@ -139,7 +139,7 @@ The v0.5 deferral list named 47 carry-over items. v0.6 closes:
   migration + per-worker stats)
 
 **Benchmarks**:
-- **First honest perf data** — shipped (`sdust-bench` crate +
+- **First honest perf data** — shipped (`mty-bench` crate +
   6 categories with Rust/Go/C++ comparators + criterion harness)
 
 **Self-host**:
@@ -147,7 +147,7 @@ The v0.5 deferral list named 47 carry-over items. v0.6 closes:
   tests, examples 01-05 covered)
 
 **Integrator easy wins** (closed inline):
-- **DOM SIR lowering** (A108) — closes v0.5 deferral #6
+- **DOM MtyIR lowering** (A108) — closes v0.5 deferral #6
   (`emit_dom_call` `#[allow(dead_code)]`)
 - **Central MT6001-MT6006 catalog** (A107) — closes v0.5 deferral #8
 - **Per-call FsCap isolation contract** (A109) — closes v0.5
@@ -162,7 +162,7 @@ scope):
 - LSP workspace resolve map for cross-file rename / go-to-def
 - Canonical-ABI return-area bridge so `get-text` / `query` return
   `string` / `option<string>` instead of `u32` handles
-- Per-call FsCap materialisation from sandbox manifest at the SIR
+- Per-call FsCap materialisation from sandbox manifest at the MtyIR
   lower (A109 ships the contract; this lifts the cap into each
   call site)
 - Labelled `break 'outer` / iterator trait surface
@@ -182,7 +182,7 @@ A104 — Per-worker scheduler telemetry (scheduler swarm)
 A105 — Scheduler driver runtime separation (scheduler swarm)
 A106 — Default worker count = available_parallelism (scheduler swarm)
 A107 — Central diagnostic catalog for MT6001-MT6006 (integrator)
-A108 — BuiltinId::DomOp(name) SIR variant (integrator)
+A108 — BuiltinId::DomOp(name) MtyIR variant (integrator)
 A109 — Per-call FsCap isolation contract (integrator)
 ```
 
@@ -194,8 +194,8 @@ No new SD codes in v0.6. The MT6001-MT6006 macro band (introduced
 in v0.4 + v0.5) relocates from `sdust_macros::diag` to
 `sdust_diagnostics::codes` (A107); `sdust_macros::diag` keeps the
 historical bare-`u16` constants but re-exports their values from
-the central catalog so existing call-sites in `sdust-hir` compile
-unchanged. `sdust explain SDxxxx` is now single-sourced.
+the central catalog so existing call-sites in `mty-hir` compile
+unchanged. `mty explain SDxxxx` is now single-sourced.
 
 ## Benchmarks
 
@@ -205,28 +205,28 @@ v0.7+ optimisation backlog (3-5 items per category).
 
 The comparators ship as code:
 
-| Category | Stardust impl | Comparators |
+| Category | Mighty impl | Comparators |
 |---|---|---|
-| parse_throughput | `crates/sdust-bench/benches/parse_throughput/stardust.rs` | Rust hand-written lexer + `logos` |
-| agent_send_latency | crates/sdust-bench/benches/agent_send_latency/stardust.rs | `tokio::sync::mpsc`, Go `chan`, C++ asio coro |
-| mailbox_throughput | crates/sdust-bench/benches/mailbox_throughput/stardust.rs | same as above (1 producer + 1 consumer) |
-| http_server_throughput | crates/sdust-bench/benches/http_server_throughput/stardust.rs | `hyper`, Go `net/http`, `cpp-httplib` |
-| compile_to_native | crates/sdust-bench/benches/compile_to_native/stardust.rs | `rustc`, `go`, `clang` |
-| wasm_size | crates/sdust-bench/benches/wasm_size/stardust.rs | `wasm32-rust`, TinyGo, Emscripten |
+| parse_throughput | `crates/mty-bench/benches/parse_throughput/mighty.rs` | Rust hand-written lexer + `logos` |
+| agent_send_latency | crates/mty-bench/benches/agent_send_latency/mighty.rs | `tokio::sync::mpsc`, Go `chan`, C++ asio coro |
+| mailbox_throughput | crates/mty-bench/benches/mailbox_throughput/mighty.rs | same as above (1 producer + 1 consumer) |
+| http_server_throughput | crates/mty-bench/benches/http_server_throughput/mighty.rs | `hyper`, Go `net/http`, `cpp-httplib` |
+| compile_to_native | crates/mty-bench/benches/compile_to_native/mighty.rs | `rustc`, `go`, `clang` |
+| wasm_size | crates/mty-bench/benches/wasm_size/mighty.rs | `wasm32-rust`, TinyGo, Emscripten |
 
 The v0.6 build host (Windows 11, Rust 1.95.0, Python 3.11) doesn't
 have Go / g++ / TinyGo / Emscripten installed, so the comparator
 numbers are marked `(pending — Reference env)` in each category doc.
-The Stardust numbers themselves are real (recorded by criterion).
+The Mighty numbers themselves are real (recorded by criterion).
 
 ## Toolchain
 
 - **MSRV unchanged**
-- **One new workspace crate** (`sdust-bench`) — 21 crates total
-- `sdust-runtime` gains `crossbeam-deque` for work-stealing; the
+- **One new workspace crate** (`mty-bench`) — 21 crates total
+- `mty-runtime` gains `crossbeam-deque` for work-stealing; the
   scheduler is a complete rewrite from the slice-7 single-threaded
   design (A101..A106)
-- `sdust-macros` picks up a path-dep on `sdust-diagnostics` so the
+- `mty-macros` picks up a path-dep on `mty-diagnostics` so the
   MT6001-MT6006 codes can re-export from the central catalog (A107)
 
 ## Known issues

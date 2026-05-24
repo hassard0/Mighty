@@ -1,18 +1,18 @@
-# Stardust Slice 4 Design — Ownership and Borrow Checker
+# Mighty Slice 4 Design — Ownership and Borrow Checker
 
 **Date:** 2026-05-24
 **Status:** Approved (autonomous build — user away, slice-leader = Claude)
-**Source spec:** `C:\Users\ihass\Downloads\stardust_language_spec_v0_1.md` (Stardust Language Specification v0.1)
+**Source spec:** `C:\Users\ihass\Downloads\stardust_language_spec_v0_1.md` (Mighty Language Specification v0.1)
 **Slice maps to:** Spec §31.3 Phase 2 — Memory model. Closes spec §7 (Ownership and Memory Model).
 **Prior slice:** `v0.3.0-typeck` (commit `04c7e92`), summary in `SLICE3.md`.
-**Repo:** `C:\Users\ihass\stardust` (remote `hassard0/stardust`).
+**Repo:** `C:\Users\ihass\mighty` (remote `hassard0/stardust`).
 
 ---
 
 ## 1. Goal
 
-Add Stardust's **ownership and borrow checker** plus the carry-over hardening
-deferred from slice 3. After this slice, `sdust check` performs lex → parse →
+Add Mighty's **ownership and borrow checker** plus the carry-over hardening
+deferred from slice 3. After this slice, `mty check` performs lex → parse →
 HIR-lower → name-resolve → type-check → **borrow-check**, and every canonical
 example both type-checks and borrow-checks cleanly. The system implements:
 
@@ -70,7 +70,7 @@ The acceptance gate:
 - `cargo test --workspace` green (224 → 270+ tests)
 - `cargo clippy --workspace --all-targets -- -D warnings` clean
 - `cargo fmt --all -- --check` clean
-- All 20 canonical examples `sdust check` clean (now meaning fully
+- All 20 canonical examples `mty check` clean (now meaning fully
   borrow-checked too)
 - A negative borrow corpus (`tests/borrow_neg/`) of ~12 hand-written .sd
   files covering each new SD3xxx code
@@ -92,26 +92,26 @@ The acceptance gate:
 
 ### 3.1 Crate layout
 
-**Add a new crate `sdust-borrow`.** Rationale parallels slice 3's split of
-`sdust-types`: the ownership-and-borrow analysis is conceptually distinct
+**Add a new crate `mty-borrow`.** Rationale parallels slice 3's split of
+`mty-types`: the ownership-and-borrow analysis is conceptually distinct
 from inference and has its own state shape. Keeping it as a separate crate
 ensures the type checker remains usable in isolation (e.g., for the
 language server). The borrow checker depends on:
 
-- `sdust-hir` (HIR)
-- `sdust-types` (typed-HIR side tables, primitive Copy info, DefMap)
-- `sdust-diagnostics`
+- `mty-hir` (HIR)
+- `mty-types` (typed-HIR side tables, primitive Copy info, DefMap)
+- `mty-diagnostics`
 
 ```
-sdust-syntax → sdust-ast → sdust-hir → sdust-types → sdust-borrow
+mty-syntax → mty-ast → mty-hir → mty-types → mty-borrow
                                                           ↑
-                                              sdust-driver → sdust-cli
+                                              mty-driver → mty-cli
 ```
 
-### 3.2 `sdust-borrow` module structure
+### 3.2 `mty-borrow` module structure
 
 ```
-crates/sdust-borrow/
+crates/mty-borrow/
   Cargo.toml
   src/
     lib.rs              — re-exports + check_package entry
@@ -132,7 +132,7 @@ crates/sdust-borrow/
 
 ### 3.3 Types passed in
 
-`sdust-types::check_package` currently returns `Vec<Diagnostic>` only.
+`mty-types::check_package` currently returns `Vec<Diagnostic>` only.
 Slice 4 extends it to **also** return a "typed HIR side table" carrying:
 
 - `expr_ty: ArenaMap<ExprId, TyId>` — resolved type of every expression
@@ -255,7 +255,7 @@ locals) get `arena_region = Some(region_id)`. When the arena body ends:
 At the end of each block, the walker walks the locals introduced in that
 block; for each `Owned` local whose type is **non-Copy**, it records a
 `DropEntry { local_id, span }` on the block. Slice 4 does **not** codegen
-the drop call (no SIR/codegen yet), but the entries are stored in a
+the drop call (no MtyIR/codegen yet), but the entries are stored in a
 `DropPlan` side table returned from `check_package_typed`. This makes
 later slices' codegen trivial.
 
@@ -298,8 +298,8 @@ Inside a body, an unresolved value name that *is* in the tolerance set
 silently resolves to a fresh inference variable (slice-3 permissive
 behaviour). Names *not* in the tolerance set emit MT2021.
 
-This change is implemented in `sdust-types`'s `check.rs::synth_path`; not
-in `sdust-borrow`.
+This change is implemented in `mty-types`'s `check.rs::synth_path`; not
+in `mty-borrow`.
 
 ### 3.12 Method dispatch (slice-3 hardening)
 
@@ -472,7 +472,7 @@ The plan is in `docs/superpowers/plans/2026-05-24-slice4-borrow.md`. The
 broad order:
 
 1. Type-check side-table extraction (`TypedPackage` return shape)
-2. `sdust-borrow` crate scaffolding + `Copy` + `Sendable`
+2. `mty-borrow` crate scaffolding + `Copy` + `Sendable`
 3. Flow-state types + per-fn linear walker
 4. Borrow rules
 5. Move rules
@@ -482,7 +482,7 @@ broad order:
 9. Slice-3 hardening (tolerance, dispatch, exhaustiveness, defaulting,
    protocol handler types)
 10. Source edits to examples 06 + 11
-11. SD3xxx + `sdust explain` entries
+11. SD3xxx + `mty explain` entries
 12. Negative-test corpus
 13. Driver/CLI wiring
 14. Docs: `docs/internals/borrowck.md`, tour pages, `SLICE4.md`,

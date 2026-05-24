@@ -7,7 +7,7 @@
 
 ## Crate layout
 
-The type checker lives in `crates/sdust-types`:
+The type checker lives in `crates/mty-types`:
 
 ```
 src/
@@ -178,7 +178,7 @@ capability-typed parameters.
 
 Slice 3 reserves `MT2001..MT2099`. Currently assigned: `MT2001`
 (type_mismatch) through `MT2025` (cannot_take_ref). See
-`crates/sdust-diagnostics/src/codes.rs` and
+`crates/mty-diagnostics/src/codes.rs` and
 `docs/reference/diagnostics.md`.
 
 ## Tested invariants
@@ -186,10 +186,10 @@ Slice 3 reserves `MT2001..MT2099`. Currently assigned: `MT2001`
 - All 20 canonical examples in `examples/` type-check clean.
 - The negative test corpus under `tests/typeck_neg/` exercises every
   load-bearing SD2xxx code.
-- Unit tests in `crates/sdust-types/src/{ty,defs,infer,prelude}.rs`
+- Unit tests in `crates/mty-types/src/{ty,defs,infer,prelude}.rs`
   cover interning, lookup, unification (15+ scenarios), and the
   prelude-builder.
-- The integration tests in `crates/sdust-driver/tests/` drive the full
+- The integration tests in `crates/mty-driver/tests/` drive the full
   pipeline.
 
 ## Future work (slice 4+)

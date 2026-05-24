@@ -12,7 +12,7 @@ they (transitively) perform. The `core` profile additionally bans
   declaration, check is clean.
 - `03_undeclared_fs` — MT4001 against `fs.read`.
 
-ALLOC_IN_CORE (MT4002) requires a `star.toml` with `profile = "core"`
+ALLOC_IN_CORE (MT4002) requires a `mighty.toml` with `profile = "core"`
 on disk at the time of check. Because the conformance driver runs in
 the workspace root (which does not have such a manifest), the MT4002
 case is documented in `CONFORMANCE_V0_2_FINDINGS.md` rather than

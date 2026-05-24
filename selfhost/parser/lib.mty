@@ -3,9 +3,9 @@
 // v0.6 scaffolding for the self-hosted parser package.
 //
 // The runnable parser lives in `parser.sd` as a single consolidated
-// module — the v0.6 `sdust check` driver compiles one `.sd` file at a
+// module — the v0.6 `mty check` driver compiles one `.sd` file at a
 // time, same single-file constraint as the v0.4 lexer. This file
-// documents the intended v0.7 module layout once `sdust-pkg` lands
+// documents the intended v0.7 module layout once `mty-pkg` lands
 // cross-file module resolution.
 //
 // ## v0.7 module layout
@@ -31,7 +31,7 @@
 //
 // pub fn parse() -> Unit
 //
-// The bootstrap test in crates/sdust-driver/tests/selfhost_parser.rs
+// The bootstrap test in crates/mty-driver/tests/selfhost_parser.rs
 // installs a SelfhostParserHost that:
 //   1. seeds the token stream from the trusted Rust lexer
 //   2. captures the event stream

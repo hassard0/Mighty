@@ -7,7 +7,7 @@
 //
 // Compiles and runs through the SIR-interp-driven harness as a
 // trivial main; the real positive-fire path lives at the runtime
-// layer (see crates/sdust-runtime/tests/cancellation_mid_turn.rs).
+// layer (see crates/mty-runtime/tests/cancellation_mid_turn.rs).
 
 fn main() {
   log("noop")

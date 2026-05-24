@@ -1,19 +1,19 @@
 # Diagnostic codes
 
-Stardust diagnostics carry a stable `SDxxxx` code. Codes are assigned
+Mighty diagnostics carry a stable `SDxxxx` code. Codes are assigned
 once and never renumbered. This page is the authoritative registry.
 
 The codes live in
-[`crates/sdust-diagnostics/src/codes.rs`](../../crates/sdust-diagnostics/src/codes.rs).
+[`crates/mty-diagnostics/src/codes.rs`](../../crates/mty-diagnostics/src/codes.rs).
 
 ## Discovering explanations
 
-For any assigned code, [`sdust explain <CODE>`](cli/sdust-explain.md)
+For any assigned code, [`mty explain <CODE>`](cli/mty-explain.md)
 prints a short paragraph describing the diagnostic and suggested
 fixes. Example:
 
 ```sh
-$ sdust explain MT0001
+$ mty explain MT0001
 MT0001: Unexpected token. ...
 ```
 

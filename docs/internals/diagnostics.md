@@ -2,7 +2,7 @@
 
 Diagnostics are span-tracked, severity-tagged messages with a stable
 `SDxxxx` code. They live in
-[`crates/sdust-diagnostics/`](../../crates/sdust-diagnostics/).
+[`crates/mty-diagnostics/`](../../crates/mty-diagnostics/).
 
 ## Types
 
@@ -38,7 +38,7 @@ Diagnostic::error(codes::EXPECTED_ITEM, primary_label)
 
 `DiagCode(pub u16)` with a formatted `as_str()` of `SD{:04}`. All
 codes are defined as `pub const` in
-[`codes.rs`](../../crates/sdust-diagnostics/src/codes.rs). Once
+[`codes.rs`](../../crates/mty-diagnostics/src/codes.rs). Once
 assigned, a code is never renumbered.
 
 See the [diagnostic registry](../reference/diagnostics.md) for the
@@ -74,4 +74,4 @@ the CLI.
 
 - Source-mapped JSON output for editor / LSP integration.
 - Severity policy per profile (warnings-as-errors in strict mode).
-- Suggested-edit metadata so `sdust fmt` can apply auto-fixes.
+- Suggested-edit metadata so `mty fmt` can apply auto-fixes.

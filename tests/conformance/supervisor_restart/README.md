@@ -12,9 +12,9 @@ react per strategy:
 
 The slice-7 runtime declares supervisors and registers them with the
 orchestrator, but the conformance harness routes `run` through the
-slice-6 SIR interpreter (deterministic + fast). The interp accepts
+slice-6 MtyIR interpreter (deterministic + fast). The interp accepts
 supervisor declarations and runs `main`; actual restart sequencing
-happens in the tokio runtime, exercised by `crates/sdust-runtime/tests`.
+happens in the tokio runtime, exercised by `crates/mty-runtime/tests`.
 
 These cases lock in the **declaration grammar + lowering**: every
 strategy must parse, type-check, and run a trivial main cleanly.

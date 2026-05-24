@@ -1,4 +1,4 @@
-# Slice 6 — SIR + Interpreter (plan)
+# Slice 6 — MtyIR + Interpreter (plan)
 
 **Design:** `docs/superpowers/specs/2026-05-24-slice6-sir-interpreter-design.md`
 **Slice:** 6 — Phase 3
@@ -12,16 +12,16 @@ earlier ones.
 
 ## Group A — Foundation (sequential)
 
-### T1. Create `sdust-sir` crate skeleton
+### T1. Create `mty-sir` crate skeleton
 
-- Add `crates/sdust-sir/{Cargo.toml,src/lib.rs}`
+- Add `crates/mty-sir/{Cargo.toml,src/lib.rs}`
 - Workspace: add to `Cargo.toml` members list
-- Dependencies: `sdust-hir`, `sdust-types`, `sdust-borrow`,
-  `sdust-diagnostics`, `la-arena`, `serde`
+- Dependencies: `mty-hir`, `mty-types`, `mty-borrow`,
+  `mty-diagnostics`, `la-arena`, `serde`
 - `lib.rs` exports `pub mod sir; pub mod lower; pub mod interp; pub mod
   dump;`
 
-### T2. Define SIR data types (`sir.rs`)
+### T2. Define MtyIR data types (`sir.rs`)
 
 - `SirFnId`, `SirAdtId`, `Local`, `BlockId`, `ArenaId` newtype wrappers
 - `Program { fns: Vec<Function>, adts: Vec<AdtRef>, agents: Vec<Agent> }`
@@ -31,12 +31,12 @@ earlier ones.
 - `Stmt`, `Rvalue`, `Operand`, `Place`, `Projection`, `Term`, `Const`,
   `FnRef`, `BuiltinId`, `EffectOp`, `SirTy`
 - `LocalDecl { name, ty, mutable, source }`
-- Re-export `CapFamily`/`CapConstraint` from `sdust-types`
+- Re-export `CapFamily`/`CapConstraint` from `mty-types`
 - Add Display impls behind `dump.rs`
 
-### T3. Add SIR-specific diagnostic codes MT5001..MT5050
+### T3. Add MtyIR-specific diagnostic codes MT5001..MT5050
 
-- Edit `crates/sdust-diagnostics/src/codes.rs`: add constants from D17
+- Edit `crates/mty-diagnostics/src/codes.rs`: add constants from D17
 - Add explain() arms for each code
 - Add a `// Runtime: MT5001..MT5099` section comment
 
@@ -99,13 +99,13 @@ earlier ones.
 - `lower_struct` — synthesize an `AdtRef { id, kind=Struct, fields }`
 - `lower_enum` — synthesize `AdtRef { kind=Enum, variants }`
 - `lower_agent` — emit synthesized constructor + per-handler `Function`s
-- Skip Protocol / Trait / Impl / Use / Mod / Extern at SIR layer (their
+- Skip Protocol / Trait / Impl / Use / Mod / Extern at MtyIR layer (their
   signatures already live in DefMap; impl methods are lowered as plain
   fns)
 - For `extern { fn foo(...) }` declarations, register the fn name as a
   `BuiltinId::Extern(name)` entry
 
-### T9. HIR type → SIR type translation (`lower/types.rs`)
+### T9. HIR type → MtyIR type translation (`lower/types.rs`)
 
 - `SirTy` mirrors a subset of `TyData`: Bool, Int, Float, Char, Str,
   String, Bytes, Unit, Never, Tuple, Array, Ref, Adt, Fn, Cap, Dyn, Error
@@ -193,7 +193,7 @@ earlier ones.
 
 ## Group D — CLI + dump + driver wiring
 
-### T17. SIR dump (`dump.rs`)
+### T17. MtyIR dump (`dump.rs`)
 
 - `dump_program(p) -> String` — pretty-print like MIR:
   ```
@@ -202,32 +202,32 @@ earlier ones.
     let _1: Str
 
     bb0:
-      _1 := const "hello, Stardust"
+      _1 := const "hello, Mighty"
       _0 := call log(move _1)
       return move _0
   }
   ```
 - Stable ordering (fn id ascending; blocks already ordered)
 
-### T18. Driver hook (`crates/sdust-driver/src/pipeline.rs`)
+### T18. Driver hook (`crates/mty-driver/src/pipeline.rs`)
 
 - Add `pub fn lower_to_sir(typed: &TypedPackage, pkg: &Package) ->
   sdust_sir::Program`
 - Add `pub fn run_program(prog: &Program) -> i32` thin wrapper around
   `interp::run` with a `RealHost`
 
-### T19. `sdust dump --sir` (`crates/sdust-cli/src/cmd/dump.rs`)
+### T19. `mty dump --sir` (`crates/mty-cli/src/cmd/dump.rs`)
 
-- Add `--sir` flag; when set, run pipeline → SIR → dump_program → stdout
+- Add `--sir` flag; when set, run pipeline → MtyIR → dump_program → stdout
 
-### T20. `sdust run` (`crates/sdust-cli/src/cmd/run.rs`)
+### T20. `mty run` (`crates/mty-cli/src/cmd/run.rs`)
 
 - New file, registered in `mod.rs`
-- Run lower + typed + borrow + SIR; abort if errors
+- Run lower + typed + borrow + MtyIR; abort if errors
 - Build Program, invoke interpreter with RealHost
 - Forward stdout/stderr; exit code = interpreter's exit code
 
-### T21. CLI subcommand wiring (`crates/sdust-cli/src/main.rs`)
+### T21. CLI subcommand wiring (`crates/mty-cli/src/main.rs`)
 
 - Add `Run { path, args }` and `--sir` flag wiring
 
@@ -235,16 +235,16 @@ earlier ones.
 
 ## Group E — Tests + examples
 
-### T22. SIR unit tests
+### T22. MtyIR unit tests
 
-- `crates/sdust-sir/src/sir.rs` — round-trip Const printing
-- `crates/sdust-sir/src/lower/mod.rs` — smoke test lowering `fn id(x:
+- `crates/mty-sir/src/sir.rs` — round-trip Const printing
+- `crates/mty-sir/src/lower/mod.rs` — smoke test lowering `fn id(x:
   I32) -> I32 { x }`
 - Cover If / Match / `?` / Arena / Send / Spawn / Method call shapes
 
 ### T23. Examples lower smoke (`tests/examples_sir_lower.rs`)
 
-- For each of 20 examples: `lower → check → SIR`. Assert no panic and
+- For each of 20 examples: `lower → check → MtyIR`. Assert no panic and
   the Program contains ≥ 1 function (or 0 only for examples with no
   fn item).
 
@@ -263,7 +263,7 @@ earlier ones.
 ### T25. Conformance harness
 
 - `tests/conformance/runtime/<name>/{input.sd,expected.txt}`
-- `crates/sdust-driver/tests/conformance_runtime.rs` discovers
+- `crates/mty-driver/tests/conformance_runtime.rs` discovers
   subdirectories and runs each pair
 - Initial cases (≥ 5):
   1. `hello` — `log("hello")` → "hello\n"
@@ -287,20 +287,20 @@ earlier ones.
 ### T27. `docs/internals/sir.md`
 
 - Architecture, basic-block form, locals, projections, terminators,
-  examples of HIR→SIR transforms (hello, if, match, ?, arena, agent)
+  examples of HIR→MtyIR transforms (hello, if, match, ?, arena, agent)
 
 ### T28. `docs/internals/interpreter.md`
 
 - Value model, frames, drop semantics, references, Host trait,
   built-ins, determinism guarantees, step budget
 
-### T29. `docs/reference/cli/sdust-run.md`
+### T29. `docs/reference/cli/mty-run.md`
 
 - Usage, exit codes, arg passing, env var handling (none), examples
 
 ### T30. Update `docs/getting-started.md`
 
-- Add `sdust run` section right after `sdust check`
+- Add `mty run` section right after `mty check`
 
 ### T31. Update `docs/spec/v0.1-amendments.md`
 
@@ -327,13 +327,13 @@ earlier ones.
 
 ### T35. SLICE5.md amendments
 
-- Update deferrals list: remove "SIR / interpreter — slice 6" (delivered)
+- Update deferrals list: remove "MtyIR / interpreter — slice 6" (delivered)
 - Add "field-level borrow tracking" reaffirmed for slice 7 if not done
 
-### T36. Run all 20 examples through `sdust check` + `sdust run`
+### T36. Run all 20 examples through `mty check` + `mty run`
 
 - For runnable subset, confirm exit codes
-- For lowering-only subset, confirm `sdust dump --sir` succeeds
+- For lowering-only subset, confirm `mty dump --sir` succeeds
 
 ### T37. Commit slice-6 implementation
 
@@ -342,7 +342,7 @@ earlier ones.
 
 ### T38. Tag `v0.6.0-sir` and push
 
-- `git tag v0.6.0-sir -m "Slice 6: SIR + interpreter"`
+- `git tag v0.6.0-sir -m "Slice 6: MtyIR + interpreter"`
 - `git push origin main`
 - `git push origin v0.6.0-sir`
 

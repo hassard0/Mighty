@@ -1,9 +1,9 @@
 // selfhost/lexer/lexer.sd
 //
-// Self-hosted Stardust lexer (v0.4) — STATIC SOURCE FORM.
+// Self-hosted Mighty lexer (v0.4) — STATIC SOURCE FORM.
 //
-// Mirrors the behavior of crates/sdust-syntax/src/lexer.rs as a
-// hand-written state machine in Stardust source. `sdust check`s clean
+// Mirrors the behavior of crates/mty-syntax/src/lexer.rs as a
+// hand-written state machine in Mighty source. `mty check`s clean
 // and demonstrates the full token surface (every keyword, every
 // punctuation token, every literal kind, comments, identifiers).
 //
@@ -11,13 +11,13 @@
 //
 // The v0.3 SIR interpreter lowers `while` / `loop` / `for` as
 // **single-iteration** by design (see
-// crates/sdust-sir/src/lower/exprs.rs lower_while/lower_loop/lower_for
+// crates/mty-sir/src/lower/exprs.rs lower_while/lower_loop/lower_for
 // — explicit "Slice 6: avoid infinite loops at run time by jumping
 // straight to exit"). A real lexer iterates over the source, so this
-// hard-blocks running the self-hosted lexer through `sdust run` until
+// hard-blocks running the self-hosted lexer through `mty run` until
 // the v0.5 interpreter gains real iterative loops.
 //
-// The bootstrap test (crates/sdust-driver/tests/selfhost_lexer.rs) is
+// The bootstrap test (crates/mty-driver/tests/selfhost_lexer.rs) is
 // therefore split:
 //   1. compile + type/borrow-check the lexer source (passes in v0.4)
 //   2. round-trip a single token via the std.io host bridge (the
@@ -30,9 +30,9 @@
 //
 // ## Why one file in v0.4
 //
-// The v0.4 `sdust check` driver compiles a single `.sd` file at a
+// The v0.4 `mty check` driver compiles a single `.sd` file at a
 // time; cross-file `use selfhost_lexer.SyntaxKind` resolution is
-// waiting on the v0.5 `sdust-pkg` pass. We therefore inline the
+// waiting on the v0.5 `mty-pkg` pass. We therefore inline the
 // `SyntaxKind` enum + helpers here. The decomposed view lives in
 // `lib.sd` and `syntax_kind.sd` for documentation purposes — see
 // `selfhost/README.md` for the roadmap.
@@ -41,7 +41,7 @@ package selfhost_lexer
 
 // ---- SyntaxKind --------------------------------------------------------
 //
-// Stardust mirror of the token variants of crates/sdust-syntax/src/syntax_kind.rs.
+// Mighty mirror of the token variants of crates/mty-syntax/src/syntax_kind.rs.
 // Order kept identical so the bootstrap test can compare by name.
 
 pub enum SyntaxKind {
@@ -693,7 +693,7 @@ pub fn lex(src: Str) -> USize {
 
 // ---- Demo main ---------------------------------------------------------
 //
-// `sdust run selfhost/lexer/lexer.sd` exercises the lexer end-to-end on
+// `mty run selfhost/lexer/lexer.sd` exercises the lexer end-to-end on
 // a small canned input. With no host installed, the extern fns return
 // Unit/0 via `BufferHost::extern_call`, so the lexer scans an empty
 // source: it exits cleanly, demonstrating the pipeline compiles + runs.

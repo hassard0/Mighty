@@ -1,4 +1,4 @@
-# Stardust v0.2 — Complete
+# Mighty v0.2 — Complete
 
 **Tag:** `v0.2.0`
 **Date:** 2026-05-24
@@ -11,11 +11,11 @@ conformance corpus, stdlib, debug info, and Wasm Component Model.
 
 ## What landed
 
-### Package manager — `sdust-pkg` (commit `c0577a1`)
+### Package manager — `mty-pkg` (commit `c0577a1`)
 
-- New crate `crates/sdust-pkg/` with resolver, lockfile, fetchers,
+- New crate `crates/mty-pkg/` with resolver, lockfile, fetchers,
   publisher, and CLI surface.
-- `sdust pkg add / remove / update / fetch / list / publish`
+- `mty pkg add / remove / update / fetch / list / publish`
   subcommands wired into the main CLI.
 - `Manifest.deps` extended from `String` to `Dep` enum (short form
   `"0.1"` + detailed table form) — additive, preserves existing
@@ -25,31 +25,31 @@ conformance corpus, stdlib, debug info, and Wasm Component Model.
   network test), registry fetcher (verbatim tarball, `tar`+`flate2`
   deferred to v0.3).
 - Docs: `docs/internals/package-manager.md`,
-  `docs/reference/cli/sdust-pkg.md`, extended
+  `docs/reference/cli/mty-pkg.md`, extended
   `docs/reference/manifest.md`.
 
 See `SLICE_V0_2_PKG.md` for interpretation calls.
 
-### LSP server — `sdust-lsp` (commit `11df117`)
+### LSP server — `mty-lsp` (commit `11df117`)
 
-- New crate `crates/sdust-lsp/` built on `tower-lsp` 0.20.
-- `sdust lsp` CLI subcommand serves LSP 3.17 over stdio.
+- New crate `crates/mty-lsp/` built on `tower-lsp` 0.20.
+- `mty lsp` CLI subcommand serves LSP 3.17 over stdio.
 - Diagnostics on open / change with debounce; hover, completion,
   go-to-definition for top-level symbols.
 - VS Code extension scaffold under `editors/vscode/`.
 
-### Doc generator — `sdust-doc` (commits `f7d6d78`, `033e1ca`)
+### Doc generator — `mty-doc` (commits `f7d6d78`, `033e1ca`)
 
-- New crate `crates/sdust-doc/` extracting `///` doc comments from
+- New crate `crates/mty-doc/` extracting `///` doc comments from
   `.sd` sources into a `DocPackage` tree.
-- `sdust doc` CLI renders to markdown or HTML (configurable
+- `mty doc` CLI renders to markdown or HTML (configurable
   `--format`), with an item index, per-item pages, back-links, and a
   search index.
 - Comment-separated-by-blank-line handling, since-block rendering,
   signature pretty-printing, example extraction.
 - 19 tests across extract / render-markdown / render-html / CLI smoke.
 - Docs: `docs/internals/doc-generator.md`,
-  `docs/reference/cli/sdust-doc.md`.
+  `docs/reference/cli/mty-doc.md`.
 
 See `DOC_V0_2_NOTES.md` for scope cuts (single-file packages,
 `--check-examples` no-op, etc.).
@@ -61,7 +61,7 @@ See `DOC_V0_2_NOTES.md` for scope cuts (single-file packages,
   `stardust_runtime_register_handler`), per-(fn, type-args)
   monomorphization with name mangling.
 - **Wasm backend**: tolerant lowering for the same shapes; falls back
-  to `unreachable` for genuinely-unsupported SIR shapes so the module
+  to `unreachable` for genuinely-unsupported MtyIR shapes so the module
   still validates.
 - **LLVM backend**: real `inkwell`-based lowering behind the
   `--features llvm` gate (default off because the build host lacks
@@ -91,9 +91,9 @@ See `CODEGEN_V0_2_NOTES.md`.
 - 30 cases discovered, 25 ran, 5 `INTENTIONALLY_IGNORED` (3 from the
   original landing + 2 added during integration — see below).
 
-### Real stdlib — `sdust-stdlib` (commit `c3c1cba`)
+### Real stdlib — `mty-stdlib` (commit `c3c1cba`)
 
-- New crate `crates/sdust-stdlib/` shipping real implementations of
+- New crate `crates/mty-stdlib/` shipping real implementations of
   `std.json`, `std.tls`, `std.http`, `std.fs`, `std.time`,
   `std.test` behind a function-pointer dispatcher installed via
   `sdust_stdlib::host::install()`.
@@ -107,19 +107,19 @@ See `CODEGEN_V0_2_NOTES.md`.
   `hyper-util` (HTTPS client + HTTP/2 server deferred to v0.3).
 - `std.fs` capability-gated with prefix-allowlist `FsCap`.
 - `std.time` monotonic `Instant` + tokio `sleep` + blocking fallback.
-- `std.test` Stardust-native test runner (`tests/**/*.sd` discovery,
+- `std.test` Mighty-native test runner (`tests/**/*.sd` discovery,
   `test_`-prefix convention, JSON/markdown reporter, exit nonzero on
-  failure). Ships as standalone `sdust-test` binary; v0.3 merges into
-  `sdust test`.
+  failure). Ships as standalone `mty-test` binary; v0.3 merges into
+  `mty test`.
 
 See `STDLIB_V0_2_NOTES.md`. **Note**: the driver does NOT yet call
 `sdust_stdlib::host::install()` (cycle: stdlib's `runner` feature
 depends on driver). v0.3 will resolve this with a smaller driver
 shim crate.
 
-### Debug info — `sdust-debuginfo` (commits `fdae40d`, `d26f67f`)
+### Debug info — `mty-debuginfo` (commits `fdae40d`, `d26f67f`)
 
-- New crate `crates/sdust-debuginfo/` wrapping `gimli::write` for
+- New crate `crates/mty-debuginfo/` wrapping `gimli::write` for
   DWARF v4 + `wasm_encoder` `name` section + source-map v3.
 - Cranelift backend: `compile_object_with_debug` attaches per-platform
   DWARF sections (ELF `.debug_*`, COFF `.debug_*`, Mach-O
@@ -132,14 +132,14 @@ shim crate.
 
 ### Wasm Component Model (commits `09568c3`, `39b3f82`) — closes A47
 
-- `sdust-codegen-wasm` v0.2: `wit.rs` emits a WIT document from the
-  SIR program; `component.rs` wraps the slice-8 core module via
+- `mty-codegen-wasm` v0.2: `wit.rs` emits a WIT document from the
+  MtyIR program; `component.rs` wraps the slice-8 core module via
   `wit_component::ComponentEncoder`.
 - `--no-component` CLI flag (default = component output) plumbed
-  through `sdust-driver::build_wasm`.
+  through `mty-driver::build_wasm`.
 - Canonical import names: `wasi:cli/log` for `wasm32-wasi` and
-  `stardust:web/log` for `wasm32-web` (behavior change from v0.1's
-  `(import "stardust" "log" ...)` — see "Cross-cuts" below).
+  `mighty:web/log` for `wasm32-web` (behavior change from v0.1's
+  `(import "mighty" "log" ...)` — see "Cross-cuts" below).
 - Effect annotations surface as informational `// effects: ...`
   comments on the world declaration.
 
@@ -153,17 +153,17 @@ See `WASM_CM_V0_2_NOTES.md`.
 | v0.2.0 | **550** | **+174** |
 
 0 failures, 1 ignored (a network-bound git-fetch test in
-`sdust-pkg`). `cargo clippy --workspace --all-targets -- -D warnings`
+`mty-pkg`). `cargo clippy --workspace --all-targets -- -D warnings`
 clean; `cargo fmt --all -- --check` clean.
 
 ## New crates (5)
 
 ```
-crates/sdust-pkg/         package manager
-crates/sdust-lsp/         LSP server
-crates/sdust-doc/         doc generator
-crates/sdust-stdlib/      real stdlib + Stardust-native test runner
-crates/sdust-debuginfo/   DWARF + wasm source-map builder
+crates/mty-pkg/         package manager
+crates/mty-lsp/         LSP server
+crates/mty-doc/         doc generator
+crates/mty-stdlib/      real stdlib + Mighty-native test runner
+crates/mty-debuginfo/   DWARF + wasm source-map builder
 ```
 
 Workspace now has **19 crates** (was 14).
@@ -171,12 +171,12 @@ Workspace now has **19 crates** (was 14).
 ## Cross-cut fixes applied during integration
 
 1. **Clippy `doc_overindented_list_items`** in
-   `crates/sdust-driver/tests/conformance_full.rs` — restructured the
+   `crates/mty-driver/tests/conformance_full.rs` — restructured the
    module-doc bullet list to use 2-space continuation. (Module doc
    syntax landed by the conformance agent triggered a newly-strict
    lint in clippy 1.95.)
-2. **SIR interpreter call-result protocol bug**
-   (`crates/sdust-sir/src/interp/run.rs`) — when an `Assign(_, Call)`
+2. **MtyIR interpreter call-result protocol bug**
+   (`crates/mty-sir/src/interp/run.rs`) — when an `Assign(_, Call)`
    statement returned `CallPending`, the old protocol rolled back the
    PC and pushed the callee frame, intending to re-execute the Assign
    and pick up the result from `last_return`. The re-execution
@@ -190,9 +190,9 @@ Workspace now has **19 crates** (was 14).
 3. **Conformance corpus syntax mismatches** (3 cases) authored by
    the conformance swarm agent against an older grammar draft:
    - `type_inference/03_generic_id_infer/input.sd`: `fn id<T>(...)`
-     → `fn id[T](...)` (Stardust uses square-bracket generics).
+     → `fn id[T](...)` (Mighty uses square-bracket generics).
    - `type_inference/04_result_sugar_infer/input.sd`: match arms
-     `pat -> body,` → `pat => body` (Stardust match uses `=>`,
+     `pat -> body,` → `pat => body` (Mighty match uses `=>`,
      no trailing comma).
    - `type_inference/05_match_arm_infer/input.sd`: same `->` → `=>`
      fix.
@@ -208,13 +208,13 @@ Carrying forward the deferral list from `RELEASE-v0.1.md`:
 
 | Item | Status in v0.2 |
 |---|---|
-| LSP server | **shipped** (`sdust-lsp`) |
-| Package manager + registry | **shipped** (`sdust-pkg`; registry-side wire format is post-v0.2) |
+| LSP server | **shipped** (`mty-lsp`) |
+| Package manager + registry | **shipped** (`mty-pkg`; registry-side wire format is post-v0.2) |
 | LLVM backend code generation | **shipped behind `--features llvm`** (build host lacks LLVM 17 so default-off) |
 | Full Wasm Component Model + `wit-component` | **shipped** (closes A47) |
-| Full SIR coverage in native codegen (ADT, `?`, agent dispatch) | **shipped** (Cranelift; wasm mostly shipped, some shapes still trap) |
+| Full MtyIR coverage in native codegen (ADT, `?`, agent dispatch) | **shipped** (Cranelift; wasm mostly shipped, some shapes still trap) |
 | Per-(fn, type-args) shared-generic monomorphization | **shipped** |
-| DWARF / Wasm source maps | **shipped** (`sdust-debuginfo`) |
+| DWARF / Wasm source maps | **shipped** (`mty-debuginfo`) |
 | PGO / ThinLTO | deferred |
 | Multi-core work-stealing scheduler | deferred |
 | Cross-machine distributed agents | deferred |
@@ -232,7 +232,7 @@ discoveries:
 ### Stdlib
 
 1. Driver wiring: call `sdust_stdlib::host::install()` from
-   `sdust_driver::pipeline::run_file_with_runtime` so `sdust run`
+   `sdust_driver::pipeline::run_file_with_runtime` so `mty run`
    programs see real `std.*` semantics. (Blocked on a dep-cycle
    resolution: move the runner-feature glue to a small shim crate.)
 2. `Json::Int(i64)` + `Json::Uint(u64)` variants to preserve precision
@@ -241,15 +241,15 @@ discoveries:
 4. `std.http` HTTPS client (`hyper-rustls`) + HTTP/2 server.
 5. `std.test` syntax: real `test fn` / `#[test]` instead of the
    `test_`-prefix convention (parser change).
-6. Merge `sdust-test` binary into `sdust test` subcommand.
+6. Merge `mty-test` binary into `mty test` subcommand.
 7. Strategy-B stdlib migration: ship `.sd` source files for each
-   `std.*` module via `sdust-pkg`.
+   `std.*` module via `mty-pkg`.
 
 ### Wasm Component Model
 
 8. Full WASI Preview 2 bindings (currently stub `wasi:cli/log` only).
 9. User-authored WIT: accept `--wit <file>` or a `wit/` directory.
-10. Resource types: lower Stardust agents to `resource agent { ... }`
+10. Resource types: lower Mighty agents to `resource agent { ... }`
     instead of opaque `i32` handles.
 11. Component linking via `wit_component::Linker` (single fat
     component per package).
@@ -262,7 +262,7 @@ discoveries:
 14. `Address::Symbol` for `low_pc` / `high_pc` (requires plumbing
     `ObjectProduct.functions[]` into `DwarfBuilder` + adding
     relocations).
-15. Per-instr line program (needs SIR-statement `SourceSpan` + cranelift
+15. Per-instr line program (needs MtyIR-statement `SourceSpan` + cranelift
     `MachSrcLoc` plumbing).
 16. `.debug_loc` per-local location lists.
 17. `name` subsection id 2 (locals).
@@ -284,10 +284,10 @@ discoveries:
 ### Documentation generator
 
 26. Multi-file package walks (currently single-file only).
-27. Manifest version from `Stardust.toml` (currently hard-coded
+27. Manifest version from `Mighty.toml` (currently hard-coded
     `"0.0.0"`).
 28. `--check-examples` actually pipes example bodies through
-    `sdust check`.
+    `mty check`.
 29. Typed back-link computation (name-resolved, not syntactic).
 30. Askama-templated HTML.
 31. `--check` mode for CI drift detection.
@@ -303,7 +303,7 @@ discoveries:
 
 ### Conformance + interp
 
-38. Real `loop { ... }` lowering with `break` codegen (SIR lowerer
+38. Real `loop { ... }` lowering with `break` codegen (MtyIR lowerer
     currently emits single-iteration to avoid runaway tests; trips
     `budget_violation/02_step_budget_exceeded`).
 39. `escalate` action in supervisor `on_fail` (parser only accepts
@@ -320,22 +320,22 @@ be appended to `docs/spec/v0.1-amendments.md` in a follow-up commit:
 - **A54** — `Manifest.deps` value type promoted from `String` to
   `Dep` enum (short + detailed forms).
 - **A55** — Wasm Component Model canonical import names:
-  `wasi:cli/log` (wasm32-wasi) and `stardust:web/log` (wasm32-web).
+  `wasi:cli/log` (wasm32-wasi) and `mighty:web/log` (wasm32-web).
 - **A56** — Wasm CM `world` declarations emit the per-fn effect set
   as an informational `// effects: ...` comment.
 - **A57** — DWARF emission targets v4 (not v5); `DW_LANG_Rust`
-  (`0x001c`) used for `DW_AT_language` until DWARF gains a Stardust
+  (`0x001c`) used for `DW_AT_language` until DWARF gains a Mighty
   identifier.
 - **A58** — Stdlib host dispatcher is a process-wide function pointer
   registered via `sdust_stdlib::host::install()`; the driver is NOT
   required to call it for v0.2 (the function-pointer architecture
   preserves the dep graph and lets the stdlib's public Rust API stay
   usable).
-- **A59** — SIR interpreter pending-call protocol uses the synchronous
+- **A59** — MtyIR interpreter pending-call protocol uses the synchronous
   `run_subfn` nested-loop path (not the rollback-and-resume protocol
   the slice-6 code originally documented). Cleared a latent infinite
   recursion on bound call results.
-- **A60** — `sdust build --target wasm32-*` defaults to Component
+- **A60** — `mty build --target wasm32-*` defaults to Component
   Model output. `--no-component` opts back to a bare core module.
   Examples without a top-level `main` fn are rejected by the
   Component wrapper (intentional: WIT worlds require at least one
@@ -343,7 +343,7 @@ be appended to `docs/spec/v0.1-amendments.md` in a follow-up commit:
 
 ## Known issues (v0.2 ships with these)
 
-1. **`std.*` calls from `sdust run` return `Value::Unit`** instead of
+1. **`std.*` calls from `mty run` return `Value::Unit`** instead of
    real values, because the driver doesn't call
    `sdust_stdlib::host::install()`. The stdlib's public Rust API
    (called by `std.test` and other tools) carries the real semantics.
@@ -360,7 +360,7 @@ be appended to `docs/spec/v0.1-amendments.md` in a follow-up commit:
      accounting is slice-7+
    - `supervisor_restart/02_escalate` — parser doesn't accept
      `escalate` action
-   - `budget_violation/02_step_budget_exceeded` — SIR `loop` is
+   - `budget_violation/02_step_budget_exceeded` — MtyIR `loop` is
      single-iteration in slice-6
 4. **LLVM backend not exercised on this build host** (no LLVM 17
    available). Code is shipped behind `--features llvm` and compiles
@@ -370,8 +370,8 @@ be appended to `docs/spec/v0.1-amendments.md` in a follow-up commit:
 
 - **17 commits since v0.1.0**
 - **20,861 insertions / 400 deletions** across 295 files
-- **5 new crates** (sdust-pkg, sdust-lsp, sdust-doc, sdust-stdlib,
-  sdust-debuginfo) — workspace now 19 crates total
+- **5 new crates** (mty-pkg, mty-lsp, mty-doc, mty-stdlib,
+  mty-debuginfo) — workspace now 19 crates total
 - **174 new tests** (376 → 550)
 - **0 clippy warnings** with `-D warnings`
 - **20/20 examples build to native objects**
@@ -389,7 +389,7 @@ be appended to `docs/spec/v0.1-amendments.md` in a follow-up commit:
 
 v0.3 picks up the 40-item deferral list above. The headline themes:
 
-- Real `std.*` semantics in `sdust run` (driver wiring + small shim
+- Real `std.*` semantics in `mty run` (driver wiring + small shim
   crate)
 - WASI Preview 2 bindings + user-authored WIT
 - DWARF v5 + per-instruction line program + symbol relocations

@@ -1,6 +1,6 @@
 # 14 — Ownership, Borrows, and Drop
 
-Stardust enforces single-owner semantics for non-Copy values. The
+Mighty enforces single-owner semantics for non-Copy values. The
 compiler tracks every binding's ownership state through the body of each
 fn / handler / lambda, and reports moves, borrows, and drops with
 matching diagnostics in the **MT3001..MT3099** range.
@@ -20,7 +20,7 @@ let b = move a
 // a is now invalid; reading it errors MT3001
 ```
 
-Without the explicit `move` keyword Stardust does NOT silently move the
+Without the explicit `move` keyword Mighty does NOT silently move the
 value — assignment requires being clear about intent. (Calling a fn that
 takes a non-Copy value also moves; see "Calls and parameters" below.)
 

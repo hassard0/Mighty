@@ -28,28 +28,28 @@ silently falls through to the next sink and prints one diagnostic
 line to stderr. **OTLP failure never aborts runtime construction.**
 
 The `otlp` feature flag is on by default; build with
-`cargo build -p sdust-runtime --no-default-features` to strip the
+`cargo build -p mty-runtime --no-default-features` to strip the
 exporter and its transitive deps (e.g. for minimum-binary builds).
 
 ## Semantic conventions
 
-Stardust emits spans under the `stardust.*` namespace:
+Mighty emits spans under the `mighty.*` namespace:
 
 | Event            | Span name                   | Attributes                                    |
 |------------------|-----------------------------|-----------------------------------------------|
-| `TurnStart`      | `stardust.turn.start`       | `agent`, `msg`                                |
-| `TurnEnd`        | `stardust.turn.end`         | `agent`, `msg`, `duration_us`                 |
-| `Send`           | `stardust.send`             | `from`, `to`, `msg`                           |
-| `Ask`            | `stardust.ask`              | `from`, `to`, `msg`, `deadline_ms` (optional) |
-| `Reply`          | `stardust.reply`            | `from`, `msg`, `ok`                           |
-| `Spawn`          | `stardust.spawn`            | `name`, `agent_id`                            |
-| `Restart`        | `stardust.restart`          | `supervisor`, `child`, `attempt`              |
-| `BudgetBreach`   | `stardust.budget_breach`    | `agent`, `kind` (SD5xxx)                      |
-| `Shutdown`       | `stardust.shutdown`         | (none)                                        |
+| `TurnStart`      | `mighty.turn.start`       | `agent`, `msg`                                |
+| `TurnEnd`        | `mighty.turn.end`         | `agent`, `msg`, `duration_us`                 |
+| `Send`           | `mighty.send`             | `from`, `to`, `msg`                           |
+| `Ask`            | `mighty.ask`              | `from`, `to`, `msg`, `deadline_ms` (optional) |
+| `Reply`          | `mighty.reply`            | `from`, `msg`, `ok`                           |
+| `Spawn`          | `mighty.spawn`            | `name`, `agent_id`                            |
+| `Restart`        | `mighty.restart`          | `supervisor`, `child`, `attempt`              |
+| `BudgetBreach`   | `mighty.budget_breach`    | `agent`, `kind` (SD5xxx)                      |
+| `Shutdown`       | `mighty.shutdown`         | (none)                                        |
 
 Every span carries the standard OTel resource attributes:
 
-- `service.name = "stardust-runtime"`
+- `service.name = "mighty-runtime"`
 - `service.version = <CARGO_PKG_VERSION>`
 
 Spans are emitted with `SpanKind::Internal` and zero duration
@@ -72,7 +72,7 @@ to use `.with_http()` instead of `.with_tonic()` for HTTP transport.
 ## Resource attribute customization
 
 Today the resource attribute set is hardcoded to
-`service.name = "stardust-runtime"` plus the crate version.
+`service.name = "mighty-runtime"` plus the crate version.
 Per-application overrides (e.g. `service.namespace`,
 `deployment.environment`) will land via the env vars
 `OTEL_RESOURCE_ATTRIBUTES` and `OTEL_SERVICE_NAME` in v0.4.
@@ -104,19 +104,19 @@ service:
 Run with `otelcol --config=config.yaml`, then:
 
 ```bash
-STARDUST_OTLP_ENDPOINT=http://localhost:4317 sdust run examples/07_agent_echo.sd
+STARDUST_OTLP_ENDPOINT=http://localhost:4317 mty run examples/07_agent_echo.sd
 ```
 
 Each `?Ping` ask should show up as four spans:
-`stardust.ask`, `stardust.turn.start`, `stardust.turn.end`,
-`stardust.reply`.
+`mighty.ask`, `mighty.turn.start`, `mighty.turn.end`,
+`mighty.reply`.
 
 ## Troubleshooting
 
 - **No spans arrive at the collector**: confirm `STARDUST_OTLP_ENDPOINT`
   is exported (env, not just the shell), and that the runtime didn't
   fall through to the JSON fallback (stderr prints
-  `stardust: OTLP exporter init failed: ...` when init fails).
+  `mighty: OTLP exporter init failed: ...` when init fails).
 - **Spans arrive but with empty attributes**: the resource attribute
   set is exposed only on the resource, not on each span — the
   collector's logging exporter at `loglevel: debug` displays both.

@@ -1,4 +1,4 @@
-// Debug-print macro (v0.5 sdust-macros).
+// Debug-print macro (v0.5 mty-macros).
 //
 // `debug!(expr)` evaluates `expr` and prints both the expression's
 // source text and its computed value. The expression text is captured

@@ -161,7 +161,7 @@ pub enum BuiltinId {
     /// call's receiver has type `Cap { family: Dom, .. }`. The string
     /// is the bare SIR method name (`set_text`, `get_text`, `on_click`,
     /// `query`, …). The wasm32-web backend routes these through
-    /// `emit_dom_call` to the `stardust:web/dom` import set; the SIR
+    /// `emit_dom_call` to the `mty:web/dom` import set; the SIR
     /// interpreter routes them through the host's extern table as
     /// `dom.<name>` so non-wasm test runs still execute.
     DomOp(String),

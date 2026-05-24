@@ -7,9 +7,9 @@
 //
 // v0.4 caveats (see ../README.md for the full set):
 //   * `std.http.serve` is exposed as a real hyper-backed Rust API by
-//     `sdust-stdlib::http::serve`, but the v0.3 generic-call dispatcher
-//     in `sdust-stdlib::host::dispatch` only routes `get` and `post`
-//     today. Running this file under `sdust run` therefore drives the
+//     `mty-stdlib::http::serve`, but the v0.3 generic-call dispatcher
+//     in `mty-stdlib::host::dispatch` only routes `get` and `post`
+//     today. Running this file under `mty run` therefore drives the
 //     handler logic deterministically (no actual port bind) — the
 //     `smoke.sh` / `smoke.ps1` scripts exercise the same handler bodies
 //     via the runtime API.

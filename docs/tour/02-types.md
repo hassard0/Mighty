@@ -1,6 +1,6 @@
 # 02 — Types
 
-Stardust has structs, enums, and type aliases. Enums are sum types with
+Mighty has structs, enums, and type aliases. Enums are sum types with
 optional payloads, and they are exhaustively matched with `match`.
 
 ## The program
@@ -43,7 +43,7 @@ fn area(s: Shape) -> F64 {
 ## Run it
 
 ```bash
-sdust check examples/02_struct_enum.sd
+mty check examples/02_struct_enum.sd
 ```
 
 ## Type errors you might see

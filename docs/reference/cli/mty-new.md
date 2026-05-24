@@ -1,11 +1,11 @@
-# sdust new
+# mty new
 
-Scaffold a new Stardust package.
+Scaffold a new Mighty package.
 
 ## Synopsis
 
 ```
-sdust new <NAME>
+mty new <NAME>
 ```
 
 ## Arguments
@@ -18,12 +18,12 @@ sdust new <NAME>
 
 ```
 <NAME>/
-├── star.toml
+├── mighty.toml
 └── src/
     └── main.sd
 ```
 
-`star.toml`:
+`mighty.toml`:
 
 ```toml
 [package]
@@ -39,7 +39,7 @@ profile = "host"
 
 ```sd
 fn main() {
-  log("hello, Stardust")
+  log("hello, Mighty")
 }
 ```
 
@@ -59,7 +59,7 @@ fn main() {
 ## Examples
 
 ```bash
-sdust new hello
+mty new hello
 cd hello
-sdust check src/main.sd
+mty check src/main.sd
 ```

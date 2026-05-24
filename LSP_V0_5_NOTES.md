@@ -42,7 +42,7 @@ all PascalCase IDENTs as "type", LSP distinguishes
 ## 4. Code actions: code-string matching
 
 We match LSP-side diagnostics by their `code: NumberOrString::String`
-field. The Stardust compiler renders `SDxxxx` strings via
+field. The Mighty compiler renders `SDxxxx` strings via
 `DiagCode::as_str()`. If we ever migrate to numeric LSP codes,
 `code_actions.rs` needs updating.
 
@@ -85,13 +85,13 @@ We advertise `workspaceFolders.supported = true` and handle
 `workspace/didChangeWorkspaceFolders` + `workspace/didChangeWatchedFiles`
 notifications (just logging). The underlying analysis is still
 per-file — building a workspace-wide resolve map is a larger refactor
-that crosses into `sdust-driver`. Out of scope for v0.5; tracked.
+that crosses into `mty-driver`. Out of scope for v0.5; tracked.
 
 ## 8. MT6001 / `unknown_macro`
 
 The task brief lists MT6001 unknown_macro as a code-action target.
 That diagnostic code isn't yet allocated in
-`sdust-diagnostics::codes` (codes stop at MT8010 in the codegen
+`mty-diagnostics::codes` (codes stop at MT8010 in the codegen
 range; no macro-specific code exists yet — the macros crate raises
 MT1001 / MT2007-style codes today). When the macros work lands its
 own code we'll wire the corresponding quick-fix.

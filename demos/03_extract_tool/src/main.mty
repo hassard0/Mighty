@@ -12,13 +12,13 @@
 //   * The slice-7 / v0.3 runtime enforces caps for *capability-marked*
 //     calls (net.* / fs.* with a `Cap` handle). The default
 //     `std.fs.read` host bridge uses an unrestricted cap (see
-//     `crates/sdust-stdlib/src/host.rs::fs_read`), so the path allow-
+//     `crates/mty-stdlib/src/host.rs::fs_read`), so the path allow-
 //     list is *recorded* but not yet checked against this bridge.
 //   * The slice-6 interpreter's `eval_method` table binds `len`,
 //     `to_str`, `is_empty` and a handful of Result helpers; string
 //     pattern methods (`contains`, `find`, `char_at`, `slice`) are
 //     permissive stubs in v0.4 (see
-//     `crates/sdust-sir/src/interp/run.rs`). The extractor therefore
+//     `crates/mty-sir/src/interp/run.rs`). The extractor therefore
 //     drives off **string equality**: the caller hands the agent each
 //     candidate token; the agent checks it against an in-process
 //     entity vocabulary using `==`. The shape — sandbox + protocol +
@@ -72,7 +72,7 @@ fn is_known_entity(t: Str) -> Bool {
     || t == "Paris"
     || t == "Tokyo"
     || t == "Tuesday"
-    || t == "Stardust"
+    || t == "Mighty"
 }
 
 // ---------------------------------------------------------------------
@@ -133,7 +133,7 @@ fn main_body() {
   log("== sample-3 ==")
   classify_and_log(e, "Built")
   classify_and_log(e, "with")
-  classify_and_log(e, "Stardust")
+  classify_and_log(e, "Mighty")
 
   log("== snapshot ==")
   log(e?Snapshot())

@@ -1,10 +1,10 @@
 # Declarative + procedural macros (v0.5)
 
-This document describes the *implementation* of Stardust's macro system
+This document describes the *implementation* of Mighty's macro system
 as it ships in v0.5. The user-facing spec lives in
 [`docs/spec/macros-v0.5.md`](../spec/macros-v0.5.md); this page is for
-contributors hacking on `sdust-macros` or the HIR-lowering integration
-in `sdust-hir`.
+contributors hacking on `mty-macros` or the HIR-lowering integration
+in `mty-hir`.
 
 ## Pipeline
 
@@ -16,7 +16,7 @@ in `sdust-hir`.
       │
       ▼
    ┌─────────────────────────────────────────┐
-   │  sdust-hir::lower::macros::preprocess   │ ◀── sdust-macros
+   │  mty-hir::lower::macros::preprocess   │ ◀── mty-macros
    │   – collect MacroRegistry from File     │
    │   – check_proc_macros (MT6005)          │
    │   – find every MACRO_CALL OR known      │
@@ -33,14 +33,14 @@ in `sdust-hir`.
    parse  ──▶ CST  (with macro calls inlined)
       │
       ▼
-   sdust-hir::lower::LoweringCtx::lower_file
+   mty-hir::lower::LoweringCtx::lower_file
       │
       ▼
    HIR Package
 ```
 
 The macro layer is still a pure source-to-source pre-pass. Downstream
-stages (name resolution, type check, borrow check, SIR, codegen)
+stages (name resolution, type check, borrow check, MtyIR, codegen)
 never see a macro call: they see the expansion as if it had been
 written by hand. Procedural-macro call sites *parse* in v0.5 but emit
 MT6006 because the sandboxed interpreter that will run them is a v0.6
@@ -48,11 +48,11 @@ deliverable.
 
 ## Crates
 
-* **`sdust-macros`** — registry + expander, diagnostic-code constants,
+* **`mty-macros`** — registry + expander, diagnostic-code constants,
   procedural-macro skeleton, bundled standard macros.
-* **`sdust-syntax`** — parses the new `MACRO_CALL` / `TOKEN_TREE` /
+* **`mty-syntax`** — parses the new `MACRO_CALL` / `TOKEN_TREE` /
   `PROC_MACRO_DECL` node kinds.
-* **`sdust-hir`** — owns `lower/macros.rs`, which calls
+* **`mty-hir`** — owns `lower/macros.rs`, which calls
   `sdust_macros::preprocess` from `LoweringCtx::lower_file`.
 
 ## Data model
@@ -193,7 +193,7 @@ maps `(exporter_name, bound_as)` so `use otherpkg.foo as bar` works.
 
 v0.5 wires the end-to-end flow through a two-file in-memory fixture
 test (`cross_file_macro.rs`). Real package-aware resolution — pulling
-the exporter's `PackageMacros` from sdust-pkg's symbol table — is a
+the exporter's `PackageMacros` from mty-pkg's symbol table — is a
 follow-on slice owned by another agent. The v0.5 surface area is
 ready to receive it.
 
@@ -230,7 +230,7 @@ ships actual execution.
 
 ### Planned v0.6 sandbox
 
-`crates/sdust-macros/src/proc.rs` exposes the future constants:
+`crates/mty-macros/src/proc.rs` exposes the future constants:
 
 ```rust
 pub const PROC_MACRO_WALL_MS:  u64   = 100;
@@ -242,7 +242,7 @@ These are the limits the v0.6 sub-interpreter will enforce.
 
 ## Standard macro library
 
-Bundled with `sdust-macros` under `lib/`:
+Bundled with `mty-macros` under `lib/`:
 
 | File              | Macros                                  |
 |-------------------|------------------------------------------|
@@ -253,14 +253,14 @@ Bundled with `sdust-macros` under `lib/`:
 All five ship as `pub macro`. Projects load them into their
 `PackageMacros` via `sdust_macros::stdlib::load_into(&mut pm)`.
 
-Auto-import via `use sdust_macros.assert` lights up once sdust-pkg
+Auto-import via `use sdust_macros.assert` lights up once mty-pkg
 pipes its package symbol table into HIR lowering; v0.5 exposes the
 sources so projects can opt-in immediately.
 
 ## Recursion
 
 The expander itself is non-recursive. The *preprocessing loop* in
-`sdust-hir` iterates: each pass expands one wave of macro calls; the
+`mty-hir` iterates: each pass expands one wave of macro calls; the
 result is re-parsed and the loop runs again until no macro calls
 remain or `MAX_EXPANSION_DEPTH = 32` is reached. Hitting the cap
 yields MT6004 for every remaining call site.
@@ -279,21 +279,21 @@ This caps both direct (`macro r(x) => { r(x) + 1 }`) and transitive
 | MT6005 | `proc_macro_impure` — proc body references an effect.    |
 | MT6006 | `proc_macro_unsupported_v0_5` — exec deferred to v0.6.   |
 
-Codes live in `sdust-macros::diag` as bare `u16` constants; the HIR
+Codes live in `mty-macros::diag` as bare `u16` constants; the HIR
 integration wraps them in `DiagCode::new(N)` so we don't have to
-modify `sdust-diagnostics` for each macro feature. A future cleanup
+modify `mty-diagnostics` for each macro feature. A future cleanup
 slice may merge them into the central catalog.
 
 ## v0.6 follow-on
 
-* **Procedural-macro execution** — sandboxed SIR sub-interpreter with
-  100 ms wall, 16 MB memory, 100 k step caps. Owner: sdust-sir +
-  sdust-runtime.
+* **Procedural-macro execution** — sandboxed MtyIR sub-interpreter with
+  100 ms wall, 16 MB memory, 100 k step caps. Owner: mty-sir +
+  mty-runtime.
 * **Set-of-scopes hygiene** (Racket-style) replacing the lexical
   mangler. Lets macros introduce nested `fn` items, reference
   caller-scope identifiers explicitly, and disambiguate across deeply
   nested expansions without naming collisions.
-* **Real package-aware macro import** — sdust-pkg pipes its exported
+* **Real package-aware macro import** — mty-pkg pipes its exported
   symbol table into HIR lowering's `PackageMacros::register_use`.
 * **Variadic macros** — `format!("{} {}", a, b)`. Token-tree grammar
   needs a `$(...)*` repetition syntax similar to Rust macro_rules.

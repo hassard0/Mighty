@@ -1,8 +1,8 @@
-# `sdust run`
+# `mty run`
 
-Compile a Stardust source file and execute it.
+Compile a Mighty source file and execute it.
 
-**Slice 7 (`v0.7.0-runtime`):** `sdust run` now defaults to the
+**Slice 7 (`v0.7.0-runtime`):** `mty run` now defaults to the
 slice-7 runtime — a tokio-backed concurrent executor with mailboxes,
 supervisors, deadline timers, and budget/sandbox enforcement. Pass
 `--legacy-interp` to fall back to the slice-6 synchronous interpreter
@@ -11,7 +11,7 @@ for diagnostic comparison.
 ## Usage
 
 ```
-sdust run [--legacy-interp] <file>
+mty run [--legacy-interp] <file>
 ```
 
 `<file>` is a single `.sd` source file. Slice 7 does not yet support
@@ -19,21 +19,21 @@ package-aware execution; only the items in the named file are visible.
 
 ## Process model
 
-`sdust run` performs the full slice-1-through-slice-5 pipeline before
+`mty run` performs the full slice-1-through-slice-5 pipeline before
 executing:
 
 1. Parse + lower to HIR
 2. Type check
 3. Effect inference + capability subsumption
 4. Borrow check
-5. SIR lowering
+5. MtyIR lowering
 6. **Runtime execution** (slice 7): build a `Runtime`, run `main` on
    the slice-6 evaluator inside `tokio::block_on`; any agents spawned
    during `main` use the runtime's per-agent task loops. Long-running
    services that want explicit shutdown control should instead embed
    via the programmatic `sdust_runtime::Runtime` API.
 
-If any earlier stage reports an *error*, `sdust run` prints the
+If any earlier stage reports an *error*, `mty run` prints the
 diagnostics (Ariadne-style with source spans) and exits **1**.
 
 Otherwise the interpreter starts at the fn named `main`. Slice 6/7's
@@ -47,7 +47,7 @@ Otherwise the interpreter starts at the fn named `main`. Slice 6/7's
 A runtime trap (`panic(msg)`, divide-by-zero, missing handler, …)
 prints `trap SD5xxx: message` to stderr and exits **1**.
 
-If the program has no `fn main`, `sdust run` returns the runtime to
+If the program has no `fn main`, `mty run` returns the runtime to
 shut down all agents and exits **0** (this matches example 07/08/10
 which lack a `main` in their canonical form).
 
@@ -75,11 +75,11 @@ which lack a `main` in their canonical form).
 ```sh
 $ cat hello.sd
 fn main() {
-  log("hello, Stardust")
+  log("hello, Mighty")
 }
 
-$ sdust run hello.sd
-hello, Stardust
+$ mty run hello.sd
+hello, Mighty
 $ echo $?
 0
 ```
@@ -97,7 +97,7 @@ fn main() {
   log(r)
 }
 
-$ sdust run echoer.sd
+$ mty run echoer.sd
 hi
 ```
 
@@ -112,11 +112,11 @@ the codegen.
 
 ## Related commands
 
-- `sdust check <file>` — parse + lower + type-check without executing
-- `sdust dump --sir <file>` — print the SIR program
-- `sdust dump --hir <file>` — print the lowered HIR
-- `sdust dump --ast <file>` — print the AST item summary
-- `sdust explain SD5xxx` — explain a runtime diagnostic
+- `mty check <file>` — parse + lower + type-check without executing
+- `mty dump --sir <file>` — print the MtyIR program
+- `mty dump --hir <file>` — print the lowered HIR
+- `mty dump --ast <file>` — print the AST item summary
+- `mty explain SD5xxx` — explain a runtime diagnostic
 
 ## Future work (slice 8+)
 

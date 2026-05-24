@@ -10,7 +10,7 @@ request, small body ("ok").
 
 | Impl | Median | p95 | p99 | Notes |
 |---|---|---|---|---|
-| Stardust v0.6 std.http (in-process) | 0.24 ms | 0.32 ms | 0.43 ms | bare TCP read/write loop |
+| Mighty v0.6 std.http (in-process) | 0.24 ms | 0.32 ms | 0.43 ms | bare TCP read/write loop |
 | Rust + Hyper (in-process) | (pending — Reference env) | | | hyper 1.x service_fn |
 | Go stdlib net/http (httptest) | (pending — Reference env) | | | net/http handler |
 | C++ POSIX sockets (in-process) | (pending — Reference env) | | | bare socket loop |
@@ -26,7 +26,7 @@ HTML report.
 
 ## Interpretation
 
-Stardust's `std.http` is a slice-7 MVP: a `tokio::TcpListener` per
+Mighty's `std.http` is a slice-7 MVP: a `tokio::TcpListener` per
 serve_in_memory, accept loop spawns one task per connection, reads
 up to 4 KB into a stack buffer, parses the request line, writes a
 fixed status+body. It's intentionally tiny — there's no router, no
@@ -48,7 +48,7 @@ loopback TCP, which is the dominant cost at this granularity.
 
 - **Keep-alive support** so the comparison covers the request-rate,
   not connection-setup-rate (today loopback TCP setup dominates).
-- **Header parsing on the SIR side** rather than a hardcoded request
+- **Header parsing on the MtyIR side** rather than a hardcoded request
   line — moves us closer to a "real" HTTP impl.
 - **`hyper` backend as an opt-in alternative** for users who want
   HTTP/2.

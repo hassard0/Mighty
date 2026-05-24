@@ -1,4 +1,4 @@
-// Standard assertion macros (v0.5 sdust-macros).
+// Standard assertion macros (v0.5 mty-macros).
 //
 // These macros are pure declarative templates. They expand inline at
 // the call site; MT6002 fires if the arity is wrong, and MT6003 fires

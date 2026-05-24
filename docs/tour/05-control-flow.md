@@ -1,6 +1,6 @@
 # 05 — Control flow
 
-Stardust has `if`, `match`, `for`, `while`, and `loop`. All but `loop` are
+Mighty has `if`, `match`, `for`, `while`, and `loop`. All but `loop` are
 also expressions; they may produce values.
 
 ## Match — from chapter 02
@@ -24,7 +24,7 @@ fn classify(n: I32) -> Str {
 Run it:
 
 ```bash
-sdust check examples/05_match_expr.sd
+mty check examples/05_match_expr.sd
 ```
 
 ## Loops
@@ -94,7 +94,7 @@ ownership and destructors. See [spec §11.4](../spec/v0.1.md).
 Run it:
 
 ```bash
-sdust check examples/06_for_while_loop.sd
+mty check examples/06_for_while_loop.sd
 ```
 
 ## Next

@@ -35,7 +35,7 @@ fn driver(logger: Logger, fetcher: Fetcher, url: Url) -> Page!FetchErr {
 ## Run it
 
 ```bash
-sdust check examples/09_send_ask_deadline.sd
+mty check examples/09_send_ask_deadline.sd
 ```
 
 ## Next

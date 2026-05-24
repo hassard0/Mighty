@@ -1,4 +1,4 @@
-# Stardust v0.3 — Complete
+# Mighty v0.3 — Complete
 
 **Tag:** `v0.3.0`
 **Date:** 2026-05-25
@@ -14,7 +14,7 @@ actually guarantees.
 
 ## What landed
 
-### Borrow hardening — `sdust-borrow` (commits `d888ef2`, `8b98669`)
+### Borrow hardening — `mty-borrow` (commits `d888ef2`, `8b98669`)
 
 - **A54 — Place algebra (field-level borrows).** A `Place` is a rooted
   projection path (`root: String, projs: Vec<Proj>` with `Proj` =
@@ -40,7 +40,7 @@ Soundness gaps documented (and deferred to v0.4) in
 (`s.a.b` truncates to `s.a`), index-aware disjointness, loop
 back-edge borrows, conditional-branch joins.
 
-### Effect / cap hardening — `sdust-types` (commit `e239b30`)
+### Effect / cap hardening — `mty-types` (commit `e239b30`)
 
 Closes three slice-3/4/5 loose ends:
 
@@ -71,13 +71,13 @@ See `EFFECTS_V0_3_NOTES.md` for the six interpretation calls
 (IC1..IC6) — most notably the supervisor/cap-narrow strict-but-open
 posture and the generic-vars-permissive Sendable rule.
 
-### Runtime polish — `sdust-runtime` (commit `6600f4c`)
+### Runtime polish — `mty-runtime` (commit `6600f4c`)
 
 - **A70 — Cooperative mid-turn cancellation** (closes A41). The
   per-turn deadline now races the synchronous `run_handler_isolated`
   call (wrapped in `spawn_blocking`) against a `CancellationToken`.
   On cancel the blocking thread detaches; its wall time is bounded
-  by the SIR step budget (1M). `ask` callers see exactly-once notify
+  by the MtyIR step budget (1M). `ask` callers see exactly-once notify
   via a shared reply slot (`Arc<Mutex<Option<oneshot::Sender>>>`).
 - **A71 — OTLP wire-format telemetry** (closes A38). New `OtlpHandle`
   feature-gated behind `otlp` (default on). `STARDUST_OTLP_ENDPOINT`
@@ -93,17 +93,17 @@ posture and the generic-vars-permissive Sendable rule.
   supervisors run >10 children.
 
 See `RUNTIME_V0_3_NOTES.md` for the eight interpretation calls (no
-sdust-sir edits, reply via shared slot, slab-per-mailbox, etc.) and
+mty-sir edits, reply via shared slot, slab-per-mailbox, etc.) and
 the seven open follow-on items.
 
 ### v0.2 cleanup (commit `955291d`)
 
-- **Stdlib host install.** `sdust-cli::main` installs
+- **Stdlib host install.** `mty-cli::main` installs
   `sdust_runtime::host_std::install_dispatcher(cli_std_dispatch)`
   before clap parses. Dispatcher wraps `sdust_stdlib::host::dispatch`
-  with a `std.`-prefix retry so SIR-lowered paths like `["json"]`
+  with a `std.`-prefix retry so MtyIR-lowered paths like `["json"]`
   route correctly. `pipeline::run_file` swapped from inert `RealHost`
-  to `StdHost`. Outcome: `sdust run` invocations of `std.json.parse`
+  to `StdHost`. Outcome: `mty run` invocations of `std.json.parse`
   now return real `serde_json` data, not `Value::Unit`.
 - **6 example mains + private-helper convention.** Examples
   05/06/11/14/15/17 gained `fn main() { log("...") }`. Non-main
@@ -116,9 +116,9 @@ the seven open follow-on items.
   `budget_violation/02_step_budget_exceeded` was rewritten from the
   broken `loop {}` shape to recursion + per-case `step_budget.txt`
   knob; now traps cleanly with MT5009. Remaining 2:
-  `capability_checking/03_narrow_to_ro` (needs sdust-types
+  `capability_checking/03_narrow_to_ro` (needs mty-types
   cap-narrowing) and `supervisor_restart/02_escalate` (needs
-  sdust-syntax grammar expansion).
+  mty-syntax grammar expansion).
 - **LLVM backend install docs beefed up** (install itself out of
   scope without a Linux/LLVM-17 host).
 
@@ -132,7 +132,7 @@ See `V0_2_CLEANUP_NOTES.md` for full Option-A-vs-B rationale.
 | v0.2.0 | 550 | +174 |
 | v0.3.0 | **623** | **+73** |
 
-0 failures, 1 ignored (network-bound git-fetch test in `sdust-pkg`).
+0 failures, 1 ignored (network-bound git-fetch test in `mty-pkg`).
 `cargo clippy --workspace --all-targets -- -D warnings` clean.
 `cargo fmt --all -- --check` clean.
 
@@ -154,7 +154,7 @@ See `V0_2_CLEANUP_NOTES.md` for full Option-A-vs-B rationale.
 
 The v0.2 SLICE_V0_2 doc proposed drafts A54..A60 covering 7 v0.2
 interpretation calls (Manifest.deps, Wasm CM canonical imports,
-DWARF v4, stdlib dispatcher, SIR `run_subfn`, Component default).
+DWARF v4, stdlib dispatcher, MtyIR `run_subfn`, Component default).
 Those drafts were never written to the spec. v0.3 reused the
 A54..A56 number range for the borrow checker work; the v0.2
 interpretation calls remain documented in the v0.2 slice docs but
@@ -217,7 +217,7 @@ No new SD codes were minted; existing codes were re-aimed:
 ## Cross-cut fixes applied during integration
 
 1. **LSP integration test `diagnostics_type_error_produces_at_least_one`**
-   (`crates/sdust-lsp/tests/integration.rs`) — the test relied on
+   (`crates/mty-lsp/tests/integration.rs`) — the test relied on
    `definitely_not_a_real_fn(...)` in `fn main()` producing MT2021,
    which A65 reclassifies as a permissive TopLevelFn scope (silent
    fresh-var fallback). Rewrote the test to invoke the unresolved
@@ -226,7 +226,7 @@ No new SD codes were minted; existing codes were re-aimed:
    under future tolerance-policy changes.
 2. **20/20 wasm-Component example sweep gate** added as new test
    `all_examples_compile_wasm_component` in
-   `crates/sdust-driver/tests/conformance_codegen.rs`. The two
+   `crates/mty-driver/tests/conformance_codegen.rs`. The two
    prior sweeps (`all_examples_compile_native`,
    `all_examples_compile_wasm`) verified only the bare-core wasm
    path; the new test exercises the full
@@ -261,7 +261,7 @@ Consolidated from `BORROW_V0_3_NOTES.md`, `EFFECTS_V0_3_NOTES.md`,
 8. Slice-7 supervisor/cap-narrow name binding — flip
    `tolerance_open=false` when real cap-name resolution lands;
    MT2021 activates automatically.
-9. Per-case `star.toml` in conformance harness (for direct MT4002
+9. Per-case `mighty.toml` in conformance harness (for direct MT4002
    conformance).
 10. Function-signature cap-narrowing (propagate `CapConstraint::And`
     into fn signatures).
@@ -272,7 +272,7 @@ Consolidated from `BORROW_V0_3_NOTES.md`, `EFFECTS_V0_3_NOTES.md`,
 
 ### Runtime
 
-13. SIR-side cancellation polling (interrupt mid-turn truly, not
+13. MtyIR-side cancellation polling (interrupt mid-turn truly, not
     via detach).
 14. CpuBudget reason wiring (variant exists, no firing path).
 15. HTTP/protobuf OTLP transport selector (gRPC hardcoded today).
@@ -285,9 +285,9 @@ Consolidated from `BORROW_V0_3_NOTES.md`, `EFFECTS_V0_3_NOTES.md`,
 
 ### Conformance
 
-20. `capability_checking/03_narrow_to_ro` — needs sdust-types
+20. `capability_checking/03_narrow_to_ro` — needs mty-types
     `Fs.ro` cap narrowing.
-21. `supervisor_restart/02_escalate` — needs sdust-syntax `escalate`
+21. `supervisor_restart/02_escalate` — needs mty-syntax `escalate`
     grammar.
 
 ### Carried over from v0.2 (still open)
@@ -329,7 +329,7 @@ will likely be:
 - Polonius-style borrow checker + conditional-branch join refinement
 - Real cap-name resolution wiring (slice-7 plumbing → flips
   supervisor / cap-narrow to strict MT2021)
-- SIR-side cancellation polling (true mid-turn interrupt)
+- MtyIR-side cancellation polling (true mid-turn interrupt)
 - WASI Preview 2 + user-authored WIT in the Component pipeline
 - LLVM backend smoke on a Linux host with LLVM 17
 - Backtracking package resolver + tar/flate2 + real registry

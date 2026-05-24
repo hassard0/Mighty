@@ -2,4 +2,4 @@
 
 `budget { cpu / wall / mem / mb } run { ... }` block returning a
 constant. Locks in the budget grammar across the parser → HIR →
-SIR. Spec §16.2.
+MtyIR. Spec §16.2.

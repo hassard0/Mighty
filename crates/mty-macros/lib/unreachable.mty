@@ -1,4 +1,4 @@
-// Unreachable-arm macro (v0.5 sdust-macros).
+// Unreachable-arm macro (v0.5 mty-macros).
 //
 // `unreachable!()` aborts with a clear message. Use it in match arms
 // that the type system can't prove are dead but you know logically

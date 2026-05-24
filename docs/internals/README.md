@@ -1,6 +1,6 @@
 # Compiler internals
 
-The Stardust compiler is a Rust workspace of seven crates. This section
+The Mighty compiler is a Rust workspace of seven crates. This section
 describes the pipeline and the responsibilities of each crate.
 
 If you are looking to use the compiler, see the
@@ -21,17 +21,17 @@ language, see the [tour](../tour/README.md).
 
 | Concern | Crate | Entry point |
 |---|---|---|
-| Token kinds, lexer regex | `sdust-syntax` | `src/syntax_kind.rs`, `src/lexer.rs` |
-| Parser productions | `sdust-syntax` | `src/parser/` |
-| AST accessors | `sdust-ast` | `src/generated.rs` |
-| Diagnostic types | `sdust-diagnostics` | `src/diagnostic.rs`, `src/codes.rs` |
-| HIR nodes and ids | `sdust-hir` | `src/nodes.rs`, `src/ids.rs` |
-| HIR lowering | `sdust-hir` | `src/lower/` |
-| Formatter combinators | `sdust-fmt` | `src/doc.rs`, `src/printer.rs` |
-| Per-node format rules | `sdust-fmt` | `src/fmt/` |
-| Compilation pipeline | `sdust-driver` | `src/pipeline.rs` |
-| Manifest loader | `sdust-driver` | `src/manifest.rs` |
-| CLI dispatch | `sdust-cli` | `src/main.rs`, `src/cmd/` |
+| Token kinds, lexer regex | `mty-syntax` | `src/syntax_kind.rs`, `src/lexer.rs` |
+| Parser productions | `mty-syntax` | `src/parser/` |
+| AST accessors | `mty-ast` | `src/generated.rs` |
+| Diagnostic types | `mty-diagnostics` | `src/diagnostic.rs`, `src/codes.rs` |
+| HIR nodes and ids | `mty-hir` | `src/nodes.rs`, `src/ids.rs` |
+| HIR lowering | `mty-hir` | `src/lower/` |
+| Formatter combinators | `mty-fmt` | `src/doc.rs`, `src/printer.rs` |
+| Per-node format rules | `mty-fmt` | `src/fmt/` |
+| Compilation pipeline | `mty-driver` | `src/pipeline.rs` |
+| Manifest loader | `mty-driver` | `src/manifest.rs` |
+| CLI dispatch | `mty-cli` | `src/main.rs`, `src/cmd/` |
 
 ## Slice 1 stats
 

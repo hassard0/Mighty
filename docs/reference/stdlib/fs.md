@@ -30,7 +30,7 @@ Every op takes an `FsCap` carrying an optional prefix-allowlist:
   of the listed roots are allowed; anything else fails with
   `IoErr::Denied(path)`.
 
-The Stardust runtime synthesizes an `FsCap` per agent based on the
+The Mighty runtime synthesizes an `FsCap` per agent based on the
 agent's manifest `fs.read_paths` / `fs.write_paths` grants. Code that
 calls `std.fs` outside an agent context (e.g. `main`) gets an
 unrestricted cap.
@@ -65,5 +65,5 @@ pub enum IoErr {
 ```
 
 `Denied` is surfaced as a trap (SD55xx range) when called from
-Stardust source; the runtime's effect-call sink translates the Rust
-error into the matching Stardust `IoErr` variant.
+Mighty source; the runtime's effect-call sink translates the Rust
+error into the matching Mighty `IoErr` variant.

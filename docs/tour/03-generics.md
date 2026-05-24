@@ -18,7 +18,7 @@ fn first[T](xs: &[T]) -> Option[&T] {
 
 - `fn first[T](...)` declares a single generic type parameter `T`. No
   constraints — `T` may be any type that fits the body.
-- `&[T]` is an immutable borrow of a slice of `T`. Stardust borrows look
+- `&[T]` is an immutable borrow of a slice of `T`. Mighty borrows look
   like Rust borrows but are written with square brackets for the slice
   shape.
 - `Option[&T]` is the built-in optional type from `std.option`. The
@@ -30,7 +30,7 @@ fn first[T](xs: &[T]) -> Option[&T] {
 ## Run it
 
 ```bash
-sdust check examples/03_generic_fn.sd
+mty check examples/03_generic_fn.sd
 ```
 
 ## Turbofish — expression-position generics

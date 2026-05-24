@@ -46,7 +46,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           set -euo pipefail
-          for f in examples/*.sd; do
-            cargo run -q -p sdust-cli -- check "$f"
-            cargo run -q -p sdust-cli -- fmt --check "$f"
+          for f in examples/*.mty; do
+            cargo run -q -p mty-cli -- check "$f"
+            cargo run -q -p mty-cli -- fmt --check "$f"
           done

@@ -5,7 +5,7 @@ precedence. It builds a [rowan](https://docs.rs/rowan) `GreenNode`
 incrementally and produces a `ParseResult` containing the tree and any
 errors.
 
-It lives in [`crates/sdust-syntax/src/parser/`](../../crates/sdust-syntax/src/parser/).
+It lives in [`crates/mty-syntax/src/parser/`](../../crates/mty-syntax/src/parser/).
 
 ## Module layout
 

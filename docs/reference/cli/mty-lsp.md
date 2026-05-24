@@ -1,6 +1,6 @@
-# sdust lsp
+# mty lsp
 
-Run the Stardust Language Server over stdio. Used by editor plugins
+Run the Mighty Language Server over stdio. Used by editor plugins
 (VS Code, Neovim, Helix, Emacs, etc.) to provide live diagnostics,
 hover, go-to-definition, formatting, completion, semantic tokens,
 rename, inlay hints, code actions, and signature help for `.sd` files.
@@ -8,7 +8,7 @@ rename, inlay hints, code actions, and signature help for `.sd` files.
 ## Synopsis
 
 ```
-sdust lsp
+mty lsp
 ```
 
 No flags; no arguments. The process reads JSON-RPC framed messages from
@@ -27,7 +27,7 @@ The server reports the following capabilities in its
 | `hoverProvider` | `true` | Markdown body. |
 | `definitionProvider` | `true` | Top-level item names only (deferred). |
 | `completionProvider` | `{ triggerCharacters: [".", ":"] }` | Keywords + def names + locals + receiver-aware methods + built-in methods. |
-| `documentFormattingProvider` | `true` | Whole-document via `sdust fmt`. |
+| `documentFormattingProvider` | `true` | Whole-document via `mty fmt`. |
 | `semanticTokensProvider` | full + range, legend below | v0.5: 14 types × 3 modifiers. |
 | `renameProvider` | `{ prepareProvider: true }` | Single-file scope (v0.5). |
 | `codeActionProvider` | `{ codeActionKinds: ["quickfix"] }` | MT2021 / MT2002 / MT3001 / MT4001 fixes. |
@@ -72,7 +72,7 @@ Modifier bits: `0 = declaration`, `1 = readonly`, `2 = defaultLibrary`.
 
 - Cross-file rename / cross-file go-to-def (workspace folders are
   observed but each file is still analyzed independently).
-- Borrow-check diagnostics in the editor — `sdust check` from the CLI
+- Borrow-check diagnostics in the editor — `mty check` from the CLI
   still runs the full borrow checker.
 - Call hierarchy / type hierarchy.
 - Signature-help overload disambiguation by receiver type (we list
@@ -84,19 +84,19 @@ Modifier bits: `0 = declaration`, `1 = readonly`, `2 = defaultLibrary`.
 
 ### VS Code
 
-Install the `editor/vscode` extension from the Stardust repo:
+Install the `editor/vscode` extension from the Mighty repo:
 
 ```bash
 cd editor/vscode
 npm install
 npm run compile
 npx vsce package
-code --install-extension stardust-0.5.0.vsix
+code --install-extension mighty-0.5.0.vsix
 ```
 
-By default the extension launches whatever `sdust` is on `PATH`.
-Override via the `stardust.server.path` setting. Inlay hints are off
-by default (`stardust.inlayHints.enable = false`); enable them in your
+By default the extension launches whatever `mty` is on `PATH`.
+Override via the `mighty.server.path` setting. Inlay hints are off
+by default (`mighty.inlayHints.enable = false`); enable them in your
 settings if you want them.
 
 ### Neovim (nvim-lspconfig)
@@ -105,24 +105,24 @@ settings if you want them.
 local lspconfig = require('lspconfig')
 local configs = require('lspconfig.configs')
 
-if not configs.stardust then
-  configs.stardust = {
+if not configs.mighty then
+  configs.mighty = {
     default_config = {
-      cmd = { "sdust", "lsp" },
-      filetypes = { "stardust" },
-      root_dir = lspconfig.util.root_pattern("star.toml", ".git"),
+      cmd = { "mty", "lsp" },
+      filetypes = { "mighty" },
+      root_dir = lspconfig.util.root_pattern("mighty.toml", ".git"),
       settings = {},
     },
   }
 end
 
-lspconfig.stardust.setup({})
+lspconfig.mighty.setup({})
 ```
 
 Plus a filetype mapping:
 
 ```vim
-autocmd BufNewFile,BufRead *.sd set filetype=stardust
+autocmd BufNewFile,BufRead *.sd set filetype=mighty
 ```
 
 ### Helix
@@ -130,15 +130,15 @@ autocmd BufNewFile,BufRead *.sd set filetype=stardust
 ```toml
 # ~/.config/helix/languages.toml
 [[language]]
-name = "stardust"
-scope = "source.stardust"
+name = "mighty"
+scope = "source.mighty"
 file-types = ["sd"]
 comment-token = "//"
-language-servers = ["sdust"]
+language-servers = ["mty"]
 indent = { tab-width = 4, unit = "    " }
 
-[language-server.sdust]
-command = "sdust"
+[language-server.mty]
+command = "mty"
 args = ["lsp"]
 ```
 
@@ -156,14 +156,14 @@ Run the server directly (for transport debugging) and feed it a hand-rolled
 
 ```bash
 echo 'Content-Length: 99\r\n\r\n{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}' \
-  | sdust lsp
+  | mty lsp
 ```
 
 You should see `initialize` reply with the capability set above.
 
 ## Implementation notes
 
-The server lives in `crates/sdust-lsp` and is built on
+The server lives in `crates/mty-lsp` and is built on
 [`tower-lsp`](https://crates.io/crates/tower-lsp) 0.20. Per-document
 state (source text, line index, parsed CST, lowered HIR, type-check
 side tables) is cached in a `DashMap<Url, Arc<DocAnalysis>>` and

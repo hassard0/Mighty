@@ -1,11 +1,11 @@
-# sdust doc
+# mty doc
 
 Render package documentation extracted from `///` doc comments.
 
 ## Synopsis
 
 ```
-sdust doc PATH [ITEM] [OPTIONS]
+mty doc PATH [ITEM] [OPTIONS]
 ```
 
 ## Arguments
@@ -22,7 +22,7 @@ sdust doc PATH [ITEM] [OPTIONS]
 | `--html`            | Render an HTML site (per-item pages, embedded stylesheet, search index).           |
 | `--markdown`        | Render a markdown tree (one file per item, plus `index.md`).                       |
 | `--out DIR`         | Output directory for `--html` / `--markdown`. Defaults to `target/doc/<package>` (HTML) or `target/doc-md/<package>` (markdown). |
-| `--check-examples`  | Type-check extracted ` ```sd ` and ` ```stardust ` code blocks. (No-op in v0.2 — see `DOC_V0_2_NOTES.md`.) |
+| `--check-examples`  | Type-check extracted ` ```sd ` and ` ```mighty ` code blocks. (No-op in v0.2 — see `DOC_V0_2_NOTES.md`.) |
 | `-h`, `--help`      | Print help.                                                                        |
 
 ## Default behaviour (stdout summary)
@@ -34,7 +34,7 @@ items in the package to stdout. Example:
 package mathx
 
     Math helpers — addition, subtraction, and rich documentation
-    samples for `sdust doc`.
+    samples for `mty doc`.
 
 FUNCTIONS
 
@@ -50,7 +50,7 @@ pub struct Pair {
         Pair holds two unsigned ints.
 ```
 
-## Single item (`sdust doc PATH ITEM`)
+## Single item (`mty doc PATH ITEM`)
 
 Prints the full doc body of one named item, including examples,
 since-version, and back-links:
@@ -80,7 +80,7 @@ non-zero) if no public or private item with that name exists.
 ## HTML output (`--html`)
 
 ```bash
-sdust doc --html examples/19_backend_service.sd --out target/doc/search_api
+mty doc --html examples/19_backend_service.sd --out target/doc/search_api
 ```
 
 Produces:
@@ -104,7 +104,7 @@ examples, and a "Used by" section.
 ## Markdown output (`--markdown`)
 
 ```bash
-sdust doc --markdown crates/foo/src/lib.sd --out docs/api
+mty doc --markdown crates/foo/src/lib.sd --out docs/api
 ```
 
 Produces a `BTreeMap`-ordered tree of `index.md` plus `<anchor>.md` per
@@ -118,7 +118,7 @@ item, suitable for hosting directly on GitHub or Hugo.
 - `//!` at the top of the file becomes the package-level doc.
 - Markdown is parsed via `pulldown-cmark` (CommonMark + tables +
   strikethrough + tasklists).
-- ` ```sd ` and ` ```stardust ` fenced code blocks are harvested as
+- ` ```sd ` and ` ```mighty ` fenced code blocks are harvested as
   examples.
 - A `# Since` heading marks a version. Both `# Since 0.2.0` and a
   next-line `# Since\n0.2.0` are accepted.

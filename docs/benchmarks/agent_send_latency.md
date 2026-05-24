@@ -11,8 +11,8 @@ the whole runtime is built on.
 
 | Impl | Median | p95 | p99 | Notes |
 |---|---|---|---|---|
-| Stardust v0.6 mailbox (Block policy) | 0.4 µs | 0.6 µs | 12.9 µs | tokio mpsc + slab admission |
-| Stardust v0.6 mailbox (Fail policy, try_send) | (criterion bench) | | | bypasses await on send |
+| Mighty v0.6 mailbox (Block policy) | 0.4 µs | 0.6 µs | 12.9 µs | tokio mpsc + slab admission |
+| Mighty v0.6 mailbox (Fail policy, try_send) | (criterion bench) | | | bypasses await on send |
 | Rust tokio mpsc | (pending — Reference env) | | | bare mpsc, no slab |
 | Go unbuffered chan | (pending — Reference env) | | | `ch := make(chan int, 8)` |
 | C++ asio coroutine channel | (pending — Reference env) | | | `experimental::channel` |
@@ -41,7 +41,7 @@ point. The P99 tail of ~12 µs is dominated by **tokio scheduler
 jitter** — when the runtime decides to poll the receiver, not the
 mailbox's overhead.
 
-Stardust's mailbox adds a `slab_pool::admit()` step over a bare
+Mighty's mailbox adds a `slab_pool::admit()` step over a bare
 tokio mpsc (records a metadata blob in the slab so we can back-pressure
 on bytes, not just count). Expected overhead vs bare mpsc: a few hundred
 nanoseconds. Once we run the Rust comparator we'll quantify the

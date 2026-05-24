@@ -1,4 +1,4 @@
-# Stardust v0.5 — Complete
+# Mighty v0.5 — Complete
 
 **Tag:** `v0.5.0`
 **Date:** 2026-05-24
@@ -16,15 +16,15 @@ v0.5 was built by a four-agent autonomous swarm (loop CF +
 iterator protocol / dogfood completion / macros completion /
 LSP advanced) over a single session, then integrated through this
 slice document. Two integration-time fixes were applied: a clippy
-nit in `crates/sdust-sir/tests/budget_charges.rs` and a WIT/core
-import signature alignment in `crates/sdust-codegen-wasm/{wit,
+nit in `crates/mty-sir/tests/budget_charges.rs` and a WIT/core
+import signature alignment in `crates/mty-codegen-wasm/{wit,
 tests/dom_imports}.rs`.
 
 ## What landed
 
 ### Loop control flow + iterator protocol — loop CF agent (commits `1446804`, `47cac2f`, `d6e65de`, `d5f5ecf`)
 
-The v0.4 SIR loop terminator fix made loops iterate, but `break`
+The v0.4 MtyIR loop terminator fix made loops iterate, but `break`
 and `continue` were still bare identifiers and `for x in arr`
 ran until the step budget. v0.5 closes the gap.
 
@@ -32,7 +32,7 @@ ran until the step budget. v0.5 closes the gap.
   `break <value>?` and `continue` as `BREAK_EXPR` / `CONTINUE_EXPR`.
 - `HirExpr::Break(Option<ExprId>)` + `HirExpr::Continue` HIR nodes.
 - Type checker synthesises both as `never` (matches `Return`).
-- SIR lowering: body terminator routes header → body → continue_tgt
+- MtyIR lowering: body terminator routes header → body → continue_tgt
   → header; `break` sets the loop's `result_local` and gotos exit.
 - `__sdust_iter_next` wire protocol for `for x in iterable` with
   range + array built-ins; ranges now carry an inclusivity bit
@@ -55,17 +55,17 @@ Every v0.4 demo stopgap (per `DEMOS_V0_4_NOTES.md`) is replaced
 with the real implementation.
 
 - **Gap 1 — `std.http.serve` binds a real socket.** New
-  `sdust-stdlib::http_server` module owns a process-wide tokio
+  `mty-stdlib::http_server` module owns a process-wide tokio
   runtime + handle registry; `start_blocking(addr)` binds a TCP
   socket, returns `(handle_id, bound_addr)`, spawns a hyper accept
   loop running the currently installed `AgentDispatch` closure.
   Default closure is a deterministic 200 OK echo so the
   bound-socket smoke test roundtrips cleanly.
-- **Gap 2 — `stardust:web/dom` Wasm imports.** Web target's WIT
+- **Gap 2 — `mighty:web/dom` Wasm imports.** Web target's WIT
   carries the four-method DOM interface (set-text, get-text,
   on-click, query) plus the legacy v0.4 handle ops; core module
   declares four matching `(ptr, len)`-shaped imports; `emit_dom_call`
-  is wired and reserved (`#[allow(dead_code)]`) until the SIR adds
+  is wired and reserved (`#[allow(dead_code)]`) until the MtyIR adds
   a `BuiltinId::Dom(...)` variant in v0.6.
 - **Gap 3 — Full `Str` method table.** `eval_method` now binds
   real impls for `contains`, `starts_with`, `ends_with`, `find`,
@@ -89,7 +89,7 @@ with the real implementation.
 
 See `DOGFOOD_V0_5_NOTES.md` for the per-gap decision log and v0.6
 follow-ups (runtime-side agent dispatch wiring for HTTP,
-SIR-side `BuiltinId::Dom`, per-call cap materialisation from
+MtyIR-side `BuiltinId::Dom`, per-call cap materialisation from
 sandbox manifest).
 
 ### Macros completion — macros agent (commits `64cfcc6`, `63d0321`, `fd54f80`)
@@ -121,7 +121,7 @@ hygiene + lights up cross-file + ships the standard library.
   `effect.*` pattern.
 - **Standard macro library.** `assert!`, `assert_eq!`, `assert_ne!`,
   `debug!`, `unreachable!` ship as source fixtures under
-  `crates/sdust-macros/lib/`.
+  `crates/mty-macros/lib/`.
 
 See `MACROS_V0_5_NOTES.md` for the seven interpretation calls
 (opaque token-tree args, MT6005-at-decl vs MT6006-at-call, lexical
@@ -139,7 +139,7 @@ completion). v0.5 closes the documented gaps with seven more.
   params, strings, numbers, comments, operators, namespaces,
   enum members, type params, macros, properties); delta-encoded.
 - **`textDocument/rename` + `prepareRename`** — single-file scope;
-  validates new name is a legal Stardust IDENT and not a reserved
+  validates new name is a legal Mighty IDENT and not a reserved
   keyword; classifies top-level vs local and restricts the walk
   to the smallest enclosing block for locals.
 - **`textDocument/inlayHint`** — inferred-type hints for `let`
@@ -200,9 +200,9 @@ following:
 - **Proc macros — parse-and-store skeleton** (A94)
 - **Stdlib macros shipped** (A95)
 - **`std.http.serve` real binding** (A96)
-- **`stardust:web/dom` Wasm imports** (A97)
+- **`mighty:web/dom` Wasm imports** (A97)
 - **Real `Str` method intrinsics** (A98)
-- **SIR-side auto-charging for cpu/mem caps** (A99)
+- **MtyIR-side auto-charging for cpu/mem caps** (A99)
 - **`FsCap` allowlist enforcement** (A100)
 - **LSP advanced features** (A74: semantic tokens, rename, inlay
   hints, code actions, signature help, workspace folders,
@@ -227,9 +227,9 @@ A91 — MT6001 unknown_macro activated (v0.5)
 A92 — Extended hygiene mangling (v0.5)
 A93 — Cross-file `pub macro` (v0.5)
 A94 — Procedural macros (parse-and-store) + MT6005/MT6006 (v0.5)
-A95 — Standard macro library shipped with sdust-macros (v0.5)
+A95 — Standard macro library shipped with mty-macros (v0.5)
 A96 — `std.http.serve` binds a real socket (v0.5 dogfood)
-A97 — `stardust:web/dom` interface added to the `wasm32-web` world (v0.5 dogfood)
+A97 — `mighty:web/dom` interface added to the `wasm32-web` world (v0.5 dogfood)
 A98 — Str method table real impls (v0.5 dogfood)
 A99 — `RunResult::MemBudgetExceeded` + Memory auto-charging (v0.5 dogfood)
 A100 — FsCap allowlist enforcement via process-wide default cap (v0.5 dogfood)
@@ -242,18 +242,18 @@ draft A96 to deconflict with the dogfood A96.
 
 | Property | v0.4 | v0.5 |
 |---|---|---|
-| `break <value>` exits a `loop` and yields a value | parses as bare IDENT, no effect | **real HIR node + SIR lowering** (A80) |
+| `break <value>` exits a `loop` and yields a value | parses as bare IDENT, no effect | **real HIR node + MtyIR lowering** (A80) |
 | `continue` skips to loop header | parses as bare IDENT, no effect | **real HIR node + continue_tgt block** (A80) |
 | `for x in arr` terminates when arr is exhausted | spins until step budget | **iterator protocol with exhaustion probe** (A81) |
 | Borrow check at loop back-edges | one-pass walk | **bounded fixed-point (16-iter cap, conservative joins)** (A82) |
 | `name!(args)` parses as a macro call | requires the macro to be registered + plain `foo(args)` | **explicit syntactic marker; MT6001 on unknown** (A90/A91) |
 | Macro hygiene covers tuple / struct / ref patterns | `let IDENT` only | **whole pattern subtree mangled** (A92) |
 | `use otherpkg.foo` imports a macro | n/a | **cross-file via `pub macro` + per-pkg registry split** (A93) |
-| Stardust source lexer round-trips against Rust lexer | first token only (full diff `#[ignore]`d) | **full byte-for-byte diff passes** (loop CF + iterator protocol unblocked) |
+| Mighty source lexer round-trips against Rust lexer | first token only (full diff `#[ignore]`d) | **full byte-for-byte diff passes** (loop CF + iterator protocol unblocked) |
 | `std.http.serve(addr)` binds a real socket | dispatcher routed to no-op | **real `tokio` + `hyper` listener, default echo dispatcher** (A96) |
-| Wasm Component imports `stardust:web/dom` | n/a | **4-method interface + 4 core imports** (A97) |
+| Wasm Component imports `mighty:web/dom` | n/a | **4-method interface + 4 core imports** (A97) |
 | `"hello".contains("ll")` | returns `false` (stub) | **real substring match** (A98) |
-| SIR interp traps on runaway allocation | step budget only | **MemBudgetExceeded with bytes/limit** (A99) |
+| MtyIR interp traps on runaway allocation | step budget only | **MemBudgetExceeded with bytes/limit** (A99) |
 | `std.fs.read` rejects paths outside allowlist | always succeeded | **`Result::Err(forbidden:<path>)`** (A100) |
 | LSP `rename` / `inlayHint` / `semanticTokens` / `codeAction` / `signatureHelp` | absent | **shipped (single-file scope for rename)** (A74) |
 
@@ -275,8 +275,8 @@ The v0.4 MT6001..MT6004 codes also stay live; MT6001
 ## Cross-cut fixes applied during integration
 
 1. **WIT/core-import signature alignment**
-   (`crates/sdust-codegen-wasm/src/wit.rs`,
-   `crates/sdust-codegen-wasm/tests/dom_imports.rs`) —
+   (`crates/mty-codegen-wasm/src/wit.rs`,
+   `crates/mty-codegen-wasm/tests/dom_imports.rs`) —
    `get-text` was emitted as `func(id: string) -> string` in
    the WIT but the core module imported it as `(i32,i32) -> i32`.
    The canonical-ABI lift for `-> string` expects
@@ -287,7 +287,7 @@ The v0.4 MT6001..MT6004 codes also stay live; MT6001
    once the return-area bridge is wired in `emit.rs`. Without
    this fix, every wasm32-web example failed
    `component encode: failed to resolve import`.
-2. **Clippy nit** (`crates/sdust-sir/tests/budget_charges.rs`) —
+2. **Clippy nit** (`crates/mty-sir/tests/budget_charges.rs`) —
    `assert!(matches!(res, Ok(_)))` flagged as
    `redundant_pattern_matching`; rewrote as
    `assert!(res.is_ok())`.
@@ -307,7 +307,7 @@ alignment cross-cut.
    ships unlabelled only. The HIR shape (Option<value> vs tuple
    of label+value) is the choke.
 2. **Break-value unification with loop-result type** — v0.5 takes
-   the simpler path of "loop result is whatever the SIR lowering
+   the simpler path of "loop result is whatever the MtyIR lowering
    emits". v0.6 will land proper unification.
 3. **`Iter[T]` trait surface** — the wire protocol via
    `__sdust_iter_next` is stable; trait-based user iterables wait
@@ -318,13 +318,13 @@ alignment cross-cut.
 ### Macros
 
 5. **Proc-macro execution** — currently MT6006-gated. Needs a
-   sandboxed SIR sub-context.
+   sandboxed MtyIR sub-context.
 6. **Set-of-scopes hygiene** — replaces v0.5's mangling pass.
 7. **`format!`-style variadic macro arguments** — needs an
    expression-shape arg grammar.
-8. **`sdust-macros::diag` SD6xxx codes** still live in
+8. **`mty-macros::diag` SD6xxx codes** still live in
    `sdust_macros::diag` as bare `u16`, not in
-   `sdust-diagnostics::codes`. v0.6 cleanup folds them into the
+   `mty-diagnostics::codes`. v0.6 cleanup folds them into the
    central catalog.
 
 ### Dogfood / runtime
@@ -333,12 +333,12 @@ alignment cross-cut.
    `http_server` infra is in place; the v0.6 closure body needs
    to look up agents by handle id from the request path and post
    `?Request(req)` through the standard agent mailbox.
-10. **SIR-side `BuiltinId::Dom { op: DomOp }` lowering** —
-    unblocks Stardust source calling `dom.set_text(...)` directly
+10. **MtyIR-side `BuiltinId::Dom { op: DomOp }` lowering** —
+    unblocks Mighty source calling `dom.set_text(...)` directly
     instead of routing through hand-written core-module shims.
 11. **Per-call FsCap materialisation from sandbox manifest** —
     v0.5 ships the process-wide default cap; v0.6 lifts the
-    per-call cap into the SIR lower so each `std.fs.read(...)`
+    per-call cap into the MtyIR lower so each `std.fs.read(...)`
     site gets the manifest's narrowed scope.
 12. **Canonical-ABI return-area bridge** so `get-text` /
     `query` can return real `string` / `option<string>` in WIT
@@ -347,14 +347,14 @@ alignment cross-cut.
 ### LSP
 
 13. **Multi-file / workspace-wide rename + go-to-def** — requires
-    a workspace-wide resolve map plumbed through `sdust-driver`.
+    a workspace-wide resolve map plumbed through `mty-driver`.
 14. **Receiver-chain completion** (`a.b.c.|`) — only the
     immediate binding is resolved today.
 15. **Method-call receiver typing** (`a.foo().|`) — MethodCall
     expressions aren't hooked through to their result types in
     the LSP layer.
 16. **Borrow check in the LSP pipeline** — still skipped for
-    latency reasons; `sdust check` remains the authoritative
+    latency reasons; `mty check` remains the authoritative
     oracle.
 
 ### Self-hosting
@@ -372,11 +372,11 @@ alignment cross-cut.
 
 21. Create `hassard0/stardust-pkg-registry` and seed it with the
     stdlib.
-22. Move `Manifest` into `sdust-pkg` (eliminate the duplicate
-    parse-of-`star.toml` workaround).
+22. Move `Manifest` into `mty-pkg` (eliminate the duplicate
+    parse-of-`mighty.toml` workaround).
 23. `[package].include` / `.exclude` globs.
 24. Yanked-version support.
-25. `sdust pkg audit`.
+25. `mty pkg audit`.
 26. Signed releases via sigstore/cosign.
 27. Pluggable secret store.
 28. Interactive `pkg login`.
@@ -392,7 +392,7 @@ alignment cross-cut.
 34. Function-signature cap-narrowing.
 35. Cross-package Sendable propagation.
 36. Sendable lambda capture analysis.
-37. SIR-side cancellation polling (true mid-turn interrupt).
+37. MtyIR-side cancellation polling (true mid-turn interrupt).
 38. CpuBudget reason wiring.
 39. HTTP/protobuf OTLP transport selector.
 40. OTel resource-attribute env-vars
@@ -435,7 +435,7 @@ alignment cross-cut.
    restores the real return types once the canonical-ABI
    return-area bridge is wired in `emit.rs`.
 3. **Proc macros are gated behind MT6006.** v0.5 ships
-   parse-and-store only; execution waits on the sandboxed SIR
+   parse-and-store only; execution waits on the sandboxed MtyIR
    sub-context (v0.6).
 4. **LSP rename is single-file.** Cross-file rename needs a
    workspace-wide resolve map; v0.5 ships the protocol surface
@@ -444,14 +444,14 @@ alignment cross-cut.
 5. **HTTP serve default is an echo dispatcher.** Real per-agent
    routing waits on `install_agent_dispatch` wiring at runtime
    startup (v0.6).
-6. **DOM SIR lowering is reserved** (`emit_dom_call` is
-   `#[allow(dead_code)]`). Stardust source calling
+6. **DOM MtyIR lowering is reserved** (`emit_dom_call` is
+   `#[allow(dead_code)]`). Mighty source calling
    `dom.set_text(...)` directly waits on `BuiltinId::Dom`
    (v0.6).
 7. **FsCap is process-wide**, not per-call. v0.6 lifts the
-   per-call cap from the sandbox manifest into the SIR lower so
+   per-call cap from the sandbox manifest into the MtyIR lower so
    each `std.fs.read(...)` site carries its narrowed scope.
-8. **`sdust-macros` SD6xxx codes** still live in
+8. **`mty-macros` SD6xxx codes** still live in
    `sdust_macros::diag` as bare `u16` — central catalog merge is
    v0.6 cleanup.
 9. **Carried from v0.3/v0.4**: 2 conformance cases still ignored,

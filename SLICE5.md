@@ -1,4 +1,4 @@
-# Stardust Slice 5 — Complete
+# Mighty Slice 5 — Complete
 
 **Tag:** `v0.5.0-effects`
 **Date:** 2026-05-24
@@ -7,13 +7,13 @@
 
 ### Effects (spec §9)
 
-- New module `sdust-types::effects` runs after type-checking and infers
+- New module `mty-types::effects` runs after type-checking and infers
   per-fn effect sets bottom-up.
 - Fixpoint over the call graph (bounded at 32 iterations) propagates
   callee effects.
 - Public-fn `effect ...` clauses are validated as supersets of the
   inferred set. Missing effects → `MT4001 effect_undeclared`.
-- Strict profile (`profile = "core"` in `star.toml`) bans heap
+- Strict profile (`profile = "core"` in `mighty.toml`) bans heap
   allocation: `MT4002 alloc_in_core`.
 - Inferred effect names exposed today: `alloc`, `net`, `fs`, `time`,
   `dom`, `model`, `spawn`, `unsafe`.
@@ -88,7 +88,7 @@
 ## All 20 examples still type-check + borrow-check clean
 
 ```
-sdust check examples/01_hello.sd            → ok
+mty check examples/01_hello.sd            → ok
 ... (all 20)
 ```
 
@@ -128,35 +128,35 @@ unknown protocols (`Fetch`, `http.Handler`). Pre-existing; no change.
 - Per-receiver typed cap dispatch (effects via dispatch rather than
   receiver-path heuristic) — post-v0.1
 - Tighter MT3002 vs MT3008 spans — slice 7
-- SIR / interpreter — **delivered slice 6** (`v0.6.0-sir`)
+- MtyIR / interpreter — **delivered slice 6** (`v0.6.0-sir`)
 - Runtime — slice 7
 - Codegen — slice 8
 
 ## Files of note
 
-- `crates/sdust-types/src/effects.rs` — new module
-- `crates/sdust-types/src/ty.rs` — `TyData::Cap` + `TyData::Dyn` +
+- `crates/mty-types/src/effects.rs` — new module
+- `crates/mty-types/src/ty.rs` — `TyData::Cap` + `TyData::Dyn` +
   constraint algebra
-- `crates/sdust-types/src/defs.rs` — `TraitTable`, `user_copy`,
+- `crates/mty-types/src/defs.rs` — `TraitTable`, `user_copy`,
   `protocol_msg_names`
-- `crates/sdust-types/src/items.rs` — `infer_and_validate`,
+- `crates/mty-types/src/items.rs` — `infer_and_validate`,
   `check_protocols_strict`, profile load
-- `crates/sdust-types/src/resolve.rs` — derive apply, trait registration,
+- `crates/mty-types/src/resolve.rs` — derive apply, trait registration,
   trait coherence, cap-family resolution
-- `crates/sdust-types/src/check.rs` — cap narrowing methods, cap
+- `crates/mty-types/src/check.rs` — cap narrowing methods, cap
   subsumption, trait-aware method dispatch
-- `crates/sdust-hir/src/nodes.rs` — `HirItem::Sandbox`, `HirType::Dyn`,
+- `crates/mty-hir/src/nodes.rs` — `HirItem::Sandbox`, `HirType::Dyn`,
   `derives: Vec<String>` on Struct/Enum
-- `crates/sdust-hir/src/lower/items.rs` — `lower_impl_block`,
+- `crates/mty-hir/src/lower/items.rs` — `lower_impl_block`,
   `lower_trait_decl`, `collect_derives`
-- `crates/sdust-hir/src/lower/types.rs` — TYPE_DYN lowering
-- `crates/sdust-hir/src/lower/exprs.rs` — `lower_top_sandbox`
-- `crates/sdust-syntax/src/syntax_kind.rs` — `DYN_KW`, `DERIVE_KW`
-- `crates/sdust-syntax/src/parser/types.rs` — `dyn_type`
-- `crates/sdust-syntax/src/parser/items.rs` — attribute + sandbox_decl
-- `crates/sdust-diagnostics/src/codes.rs` — MT4001..MT4041 + explain
+- `crates/mty-hir/src/lower/types.rs` — TYPE_DYN lowering
+- `crates/mty-hir/src/lower/exprs.rs` — `lower_top_sandbox`
+- `crates/mty-syntax/src/syntax_kind.rs` — `DYN_KW`, `DERIVE_KW`
+- `crates/mty-syntax/src/parser/types.rs` — `dyn_type`
+- `crates/mty-syntax/src/parser/items.rs` — attribute + sandbox_decl
+- `crates/mty-diagnostics/src/codes.rs` — MT4001..MT4041 + explain
 - `tests/slice5_neg/*.sd` — 8 negative fixtures
-- `crates/sdust-driver/tests/slice5_negatives.rs` — slice-5 driver tests
+- `crates/mty-driver/tests/slice5_negatives.rs` — slice-5 driver tests
 - `docs/internals/effects.md`, `capabilities.md`, `traits.md` — new
 - `docs/tour/15-traits.md` — new chapter
 - `docs/spec/v0.1-amendments.md` — A22..A30

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a real concurrent runtime for Stardust agents on top of the slice-6 SIR interpreter — tokio executor, mailbox slabs, supervisor restart, deadline timers, budget/sandbox enforcement, deterministic replay, and a minimal `std.http` server — so `sdust run` actually runs the agent examples and example 19 serves real HTTP.
+**Goal:** Build a real concurrent runtime for Mighty agents on top of the slice-6 MtyIR interpreter — tokio executor, mailbox slabs, supervisor restart, deadline timers, budget/sandbox enforcement, deterministic replay, and a minimal `std.http` server — so `mty run` actually runs the agent examples and example 19 serves real HTTP.
 
-**Architecture:** New `sdust-runtime` crate hosts a tokio-backed executor, per-agent mailboxes (bounded MPSC), supervisor tasks, deadline timers, budget tracker, and telemetry emitter. The slice-6 interpreter becomes the per-turn evaluator: each agent turn calls `interp::run_fn_by_name(prog, handler, args, host)` inside a tokio task. `sdust-driver` builds a `Runtime` from a lowered `Program` and `sdust-cli run` invokes it. Deterministic mode swaps the executor for tokio's current-thread runtime with a seeded clock + FIFO mailbox ordering.
+**Architecture:** New `mty-runtime` crate hosts a tokio-backed executor, per-agent mailboxes (bounded MPSC), supervisor tasks, deadline timers, budget tracker, and telemetry emitter. The slice-6 interpreter becomes the per-turn evaluator: each agent turn calls `interp::run_fn_by_name(prog, handler, args, host)` inside a tokio task. `mty-driver` builds a `Runtime` from a lowered `Program` and `mty-cli run` invokes it. Deterministic mode swaps the executor for tokio's current-thread runtime with a seeded clock + FIFO mailbox ordering.
 
 **Tech Stack:** Rust 1.82+, tokio 1.x (rt-multi-thread, time, net, sync), parking_lot, dashmap, in-tree HTTP/1.1 parser (no extra deps).
 
@@ -15,7 +15,7 @@
 ## File Structure (locked in here)
 
 ```
-crates/sdust-runtime/                         # NEW crate
+crates/mty-runtime/                         # NEW crate
   Cargo.toml
   src/
     lib.rs                                    # public re-exports
@@ -42,13 +42,13 @@ crates/sdust-runtime/                         # NEW crate
     sandbox_enforcement.rs
     end_to_end_examples.rs
 
-crates/sdust-driver/src/pipeline.rs           # MODIFY: add run_file_runtime entry
-crates/sdust-cli/src/cmd/run.rs               # MODIFY: --legacy-interp flag, default to runtime
-crates/sdust-diagnostics/src/codes.rs         # MODIFY: MT5011..MT5015 added
+crates/mty-driver/src/pipeline.rs           # MODIFY: add run_file_runtime entry
+crates/mty-cli/src/cmd/run.rs               # MODIFY: --legacy-interp flag, default to runtime
+crates/mty-diagnostics/src/codes.rs         # MODIFY: MT5011..MT5015 added
 
-crates/sdust-sir/src/sir.rs                   # (read-only in this slice)
-crates/sdust-sir/src/interp/run.rs            # MINOR: expose evaluator hooks
-crates/sdust-sir/src/interp/host.rs           # MODIFY: add rng/timer hooks for runtime
+crates/mty-sir/src/sir.rs                   # (read-only in this slice)
+crates/mty-sir/src/interp/run.rs            # MINOR: expose evaluator hooks
+crates/mty-sir/src/interp/host.rs           # MODIFY: add rng/timer hooks for runtime
 
 docs/internals/runtime.md                     # NEW
 docs/internals/scheduler.md                   # NEW
@@ -56,7 +56,7 @@ docs/internals/mailboxes.md                   # NEW
 docs/internals/supervisors.md                 # NEW
 docs/internals/budgets.md                     # NEW
 docs/internals/telemetry.md                   # NEW
-docs/reference/cli/sdust-run.md               # MODIFY: runtime flags
+docs/reference/cli/mty-run.md               # MODIFY: runtime flags
 docs/spec/v0.1-amendments.md                  # MODIFY: A36..A43
 docs/tour/agents.md                           # MODIFY: "now actually runs" note
 docs/tour/supervisors.md                      # MODIFY
@@ -70,11 +70,11 @@ tests/conformance/runtime-7/                  # NEW: 8 conformance cases
 
 ---
 
-## Task 1: Scaffold sdust-runtime crate
+## Task 1: Scaffold mty-runtime crate
 
 **Files:**
-- Create: `crates/sdust-runtime/Cargo.toml`
-- Create: `crates/sdust-runtime/src/lib.rs`
+- Create: `crates/mty-runtime/Cargo.toml`
+- Create: `crates/mty-runtime/src/lib.rs`
 - Modify: `Cargo.toml` (workspace root) — add member + tokio/parking_lot/dashmap workspace deps
 
 - [ ] **Step 1: Add workspace dependencies and member**
@@ -87,15 +87,15 @@ parking_lot = "0.12"
 dashmap = "5"
 ```
 
-Add `"crates/sdust-runtime"` to the `members` list (after `sdust-sir` to preserve ordering).
+Add `"crates/mty-runtime"` to the `members` list (after `mty-sir` to preserve ordering).
 
 - [ ] **Step 2: Create the crate manifest**
 
-Create `crates/sdust-runtime/Cargo.toml`:
+Create `crates/mty-runtime/Cargo.toml`:
 
 ```toml
 [package]
-name = "sdust-runtime"
+name = "mty-runtime"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -103,10 +103,10 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
-sdust-sir = { path = "../sdust-sir" }
-sdust-types = { path = "../sdust-types" }
-sdust-hir = { path = "../sdust-hir" }
-sdust-diagnostics = { path = "../sdust-diagnostics" }
+mty-sir = { path = "../mty-sir" }
+mty-types = { path = "../mty-types" }
+mty-hir = { path = "../mty-hir" }
+mty-diagnostics = { path = "../mty-diagnostics" }
 tokio.workspace = true
 parking_lot.workspace = true
 dashmap.workspace = true
@@ -118,12 +118,12 @@ tokio = { workspace = true, features = ["test-util"] }
 
 - [ ] **Step 3: Create lib.rs skeleton**
 
-Create `crates/sdust-runtime/src/lib.rs`:
+Create `crates/mty-runtime/src/lib.rs`:
 
 ```rust
-//! Stardust runtime MVP (spec §25 + §31.5).
+//! Mighty runtime MVP (spec §25 + §31.5).
 //!
-//! Tokio-backed concurrent executor for agents lowered to SIR.
+//! Tokio-backed concurrent executor for agents lowered to MtyIR.
 //! Provides scheduling, mailboxes, supervisors, deadline timers,
 //! budget enforcement, deterministic replay, and a minimal `std.http`
 //! server surface.
@@ -154,7 +154,7 @@ pub use telemetry::{TelemetryEvent, TelemetrySink};
 
 Create each module file with a `// placeholder` so the crate compiles. Each subsequent task fills its module in.
 
-For each module file create the file with only a doc comment and the public types referenced by `lib.rs`. Example `crates/sdust-runtime/src/agent.rs`:
+For each module file create the file with only a doc comment and the public types referenced by `lib.rs`. Example `crates/mty-runtime/src/agent.rs`:
 
 ```rust
 //! Agent descriptor + registry. Filled in by Task 5.
@@ -219,14 +219,14 @@ pub enum TelemetrySink { #[default] Discard, Stderr, File(std::path::PathBuf) }
 
 - [ ] **Step 5: Build to confirm the crate compiles**
 
-Run: `cargo build -p sdust-runtime`
+Run: `cargo build -p mty-runtime`
 Expected: success, zero warnings.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add Cargo.toml crates/sdust-runtime
-git commit -m "Slice 7: scaffold sdust-runtime crate skeleton
+git add Cargo.toml crates/mty-runtime
+git commit -m "Slice 7: scaffold mty-runtime crate skeleton
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
@@ -236,16 +236,16 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 2: Add MT5011..MT5015 diagnostic codes
 
 **Files:**
-- Modify: `crates/sdust-diagnostics/src/codes.rs`
-- Test: `crates/sdust-diagnostics/src/codes.rs` (existing test pattern at bottom of file)
+- Modify: `crates/mty-diagnostics/src/codes.rs`
+- Test: `crates/mty-diagnostics/src/codes.rs` (existing test pattern at bottom of file)
 
 - [ ] **Step 1: Read existing diagnostic codes file**
 
-Run: `Read crates/sdust-diagnostics/src/codes.rs` to confirm the structure. Find the SD5xxx section (after MT5010).
+Run: `Read crates/mty-diagnostics/src/codes.rs` to confirm the structure. Find the SD5xxx section (after MT5010).
 
 - [ ] **Step 2: Add the new codes**
 
-In `crates/sdust-diagnostics/src/codes.rs`, find the existing SD5xxx entries (search for `MT5010`). After the MT5010 entry add:
+In `crates/mty-diagnostics/src/codes.rs`, find the existing SD5xxx entries (search for `MT5010`). After the MT5010 entry add:
 
 ```rust
     Code {
@@ -289,12 +289,12 @@ the caller observes `Result::Err(SandboxDenied)`.",
 
 - [ ] **Step 3: Run diagnostic tests**
 
-Run: `cargo test -p sdust-diagnostics`
+Run: `cargo test -p mty-diagnostics`
 Expected: all existing tests pass, no regressions.
 
 - [ ] **Step 4: Add a test asserting the new codes are explained**
 
-In the existing test module at the bottom of `crates/sdust-diagnostics/src/codes.rs`, add:
+In the existing test module at the bottom of `crates/mty-diagnostics/src/codes.rs`, add:
 
 ```rust
     #[test]
@@ -306,15 +306,15 @@ In the existing test module at the bottom of `crates/sdust-diagnostics/src/codes
     }
 ```
 
-If the existing API uses a different lookup function name, search `crates/sdust-diagnostics/src` for the equivalent and use it (the file already has a `lookup` or similar; mirror the existing test pattern).
+If the existing API uses a different lookup function name, search `crates/mty-diagnostics/src` for the equivalent and use it (the file already has a `lookup` or similar; mirror the existing test pattern).
 
 - [ ] **Step 5: Run + commit**
 
-Run: `cargo test -p sdust-diagnostics`
+Run: `cargo test -p mty-diagnostics`
 Expected: PASS including the new test.
 
 ```bash
-git add crates/sdust-diagnostics/src/codes.rs
+git add crates/mty-diagnostics/src/codes.rs
 git commit -m "Slice 7: add MT5011..MT5015 runtime diagnostics
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -325,12 +325,12 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 3: RuntimeError + error-mapping module
 
 **Files:**
-- Modify: `crates/sdust-runtime/src/error.rs`
-- Test: `crates/sdust-runtime/src/error.rs` (inline tests)
+- Modify: `crates/mty-runtime/src/error.rs`
+- Test: `crates/mty-runtime/src/error.rs` (inline tests)
 
 - [ ] **Step 1: Write failing tests**
 
-Replace `crates/sdust-runtime/src/error.rs` placeholder with:
+Replace `crates/mty-runtime/src/error.rs` placeholder with:
 
 ```rust
 //! Runtime error taxonomy. Maps to SD5xxx diagnostics.
@@ -423,13 +423,13 @@ mod tests {
 
 - [ ] **Step 2: Run + verify**
 
-Run: `cargo test -p sdust-runtime error`
+Run: `cargo test -p mty-runtime error`
 Expected: 1 test passes.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add crates/sdust-runtime/src/error.rs
+git add crates/mty-runtime/src/error.rs
 git commit -m "Slice 7: RuntimeError taxonomy + SD5xxx mapping
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -440,12 +440,12 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 4: Mailbox slabs (MessageFrame + bounded MPSC)
 
 **Files:**
-- Modify: `crates/sdust-runtime/src/mailbox.rs`
-- Create: `crates/sdust-runtime/tests/mailbox_basic.rs`
+- Modify: `crates/mty-runtime/src/mailbox.rs`
+- Create: `crates/mty-runtime/tests/mailbox_basic.rs`
 
 - [ ] **Step 1: Write failing test**
 
-Create `crates/sdust-runtime/tests/mailbox_basic.rs`:
+Create `crates/mty-runtime/tests/mailbox_basic.rs`:
 
 ```rust
 use sdust_runtime::mailbox::{Mailbox, MessageFrame, SendPolicy, SmallPayload};
@@ -481,12 +481,12 @@ async fn ask_reply() {
 
 - [ ] **Step 2: Run to confirm failure**
 
-Run: `cargo test -p sdust-runtime --test mailbox_basic`
+Run: `cargo test -p mty-runtime --test mailbox_basic`
 Expected: FAIL (types missing).
 
 - [ ] **Step 3: Implement Mailbox + MessageFrame**
 
-Replace `crates/sdust-runtime/src/mailbox.rs` with:
+Replace `crates/mty-runtime/src/mailbox.rs` with:
 
 ```rust
 //! Per-agent mailbox slabs. Bounded MPSC carrying MessageFrames.
@@ -641,13 +641,13 @@ impl Mailbox {
 
 - [ ] **Step 4: Run tests**
 
-Run: `cargo test -p sdust-runtime --test mailbox_basic`
+Run: `cargo test -p mty-runtime --test mailbox_basic`
 Expected: 2 tests pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-runtime/src/mailbox.rs crates/sdust-runtime/tests/mailbox_basic.rs
+git add crates/mty-runtime/src/mailbox.rs crates/mty-runtime/tests/mailbox_basic.rs
 git commit -m "Slice 7: mailbox slabs (bounded MPSC + MessageFrame + ask/reply)
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -658,12 +658,12 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 5: BudgetTracker (atomic counters + breach detection)
 
 **Files:**
-- Modify: `crates/sdust-runtime/src/budget.rs`
-- Create: `crates/sdust-runtime/tests/budget_enforcement.rs`
+- Modify: `crates/mty-runtime/src/budget.rs`
+- Create: `crates/mty-runtime/tests/budget_enforcement.rs`
 
 - [ ] **Step 1: Write failing tests**
 
-Create `crates/sdust-runtime/tests/budget_enforcement.rs`:
+Create `crates/mty-runtime/tests/budget_enforcement.rs`:
 
 ```rust
 use sdust_runtime::budget::{Budget, BudgetBreach, BudgetTracker};
@@ -729,12 +729,12 @@ fn path_allowlist_prefix_matches() {
 
 - [ ] **Step 2: Run to confirm failure**
 
-Run: `cargo test -p sdust-runtime --test budget_enforcement`
+Run: `cargo test -p mty-runtime --test budget_enforcement`
 Expected: FAIL (types missing).
 
 - [ ] **Step 3: Implement Budget + BudgetTracker**
 
-Replace `crates/sdust-runtime/src/budget.rs` with:
+Replace `crates/mty-runtime/src/budget.rs` with:
 
 ```rust
 //! Budget + sandbox enforcement (spec §16.2).
@@ -892,13 +892,13 @@ pub fn convert_breach(b: BudgetBreach) -> RuntimeResult<()> {
 
 - [ ] **Step 4: Run tests**
 
-Run: `cargo test -p sdust-runtime --test budget_enforcement`
+Run: `cargo test -p mty-runtime --test budget_enforcement`
 Expected: 5 tests pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-runtime/src/budget.rs crates/sdust-runtime/tests/budget_enforcement.rs
+git add crates/mty-runtime/src/budget.rs crates/mty-runtime/tests/budget_enforcement.rs
 git commit -m "Slice 7: BudgetTracker — CPU/wall/mem/mailbox/spawn + sandbox allowlists
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -909,12 +909,12 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 6: TelemetrySink (stderr + file + discard)
 
 **Files:**
-- Modify: `crates/sdust-runtime/src/telemetry.rs`
+- Modify: `crates/mty-runtime/src/telemetry.rs`
 - Test: inline tests in `telemetry.rs`
 
 - [ ] **Step 1: Replace telemetry.rs with full impl + inline tests**
 
-Replace `crates/sdust-runtime/src/telemetry.rs` with:
+Replace `crates/mty-runtime/src/telemetry.rs` with:
 
 ```rust
 //! Telemetry JSON line emitter (OTLP-flavoured, see A38).
@@ -1100,11 +1100,11 @@ mod tests {
 
 - [ ] **Step 2: Run + commit**
 
-Run: `cargo test -p sdust-runtime telemetry`
+Run: `cargo test -p mty-runtime telemetry`
 Expected: 3 tests pass.
 
 ```bash
-git add crates/sdust-runtime/src/telemetry.rs
+git add crates/mty-runtime/src/telemetry.rs
 git commit -m "Slice 7: telemetry JSON line emitter (stderr/file/buffer/discard)
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -1115,11 +1115,11 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 7: AgentDescriptor + AgentRegistry
 
 **Files:**
-- Modify: `crates/sdust-runtime/src/agent.rs`
+- Modify: `crates/mty-runtime/src/agent.rs`
 
 - [ ] **Step 1: Replace agent.rs**
 
-Replace `crates/sdust-runtime/src/agent.rs` with:
+Replace `crates/mty-runtime/src/agent.rs` with:
 
 ```rust
 //! Agent descriptor + registry (spec §25.2).
@@ -1217,11 +1217,11 @@ mod tests {
 
 - [ ] **Step 2: Run + commit**
 
-Run: `cargo test -p sdust-runtime agent`
+Run: `cargo test -p mty-runtime agent`
 Expected: 1 test passes.
 
 ```bash
-git add crates/sdust-runtime/src/agent.rs
+git add crates/mty-runtime/src/agent.rs
 git commit -m "Slice 7: AgentDescriptor + AgentRegistry (concurrent)
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -1232,12 +1232,12 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 8: Timer helpers (deadline + sleep)
 
 **Files:**
-- Modify: `crates/sdust-runtime/src/timer.rs`
-- Create: `crates/sdust-runtime/tests/timer_deadline.rs`
+- Modify: `crates/mty-runtime/src/timer.rs`
+- Create: `crates/mty-runtime/tests/timer_deadline.rs`
 
 - [ ] **Step 1: Write failing test**
 
-Create `crates/sdust-runtime/tests/timer_deadline.rs`:
+Create `crates/mty-runtime/tests/timer_deadline.rs`:
 
 ```rust
 use sdust_runtime::timer::with_deadline;
@@ -1270,7 +1270,7 @@ async fn deadline_returns_value_when_fast() {
 
 - [ ] **Step 2: Implement timer.rs**
 
-Replace `crates/sdust-runtime/src/timer.rs` with:
+Replace `crates/mty-runtime/src/timer.rs` with:
 
 ```rust
 //! Deadline helpers around tokio::time.
@@ -1294,11 +1294,11 @@ where
 
 - [ ] **Step 3: Run + commit**
 
-Run: `cargo test -p sdust-runtime --test timer_deadline`
+Run: `cargo test -p mty-runtime --test timer_deadline`
 Expected: 3 tests pass.
 
 ```bash
-git add crates/sdust-runtime/src/timer.rs crates/sdust-runtime/tests/timer_deadline.rs
+git add crates/mty-runtime/src/timer.rs crates/mty-runtime/tests/timer_deadline.rs
 git commit -m "Slice 7: deadline timer helper (tokio::time::timeout wrapper)
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -1306,11 +1306,11 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Task 9: Per-turn evaluator helper in sdust-sir
+## Task 9: Per-turn evaluator helper in mty-sir
 
 **Files:**
-- Modify: `crates/sdust-sir/src/interp/run.rs`
-- Modify: `crates/sdust-sir/src/interp/mod.rs`
+- Modify: `crates/mty-sir/src/interp/run.rs`
+- Modify: `crates/mty-sir/src/interp/mod.rs`
 
 The runtime needs to invoke a single function on a borrowed `Program`
 with a fresh frame stack and return the trap or value. Slice 6 already
@@ -1319,7 +1319,7 @@ caller-owned step budget so per-turn budgets translate to step counts.
 
 - [ ] **Step 1: Add a step-budget-aware variant**
 
-Open `crates/sdust-sir/src/interp/run.rs`. Find `run_fn_by_name` and
+Open `crates/mty-sir/src/interp/run.rs`. Find `run_fn_by_name` and
 add immediately after it:
 
 ```rust
@@ -1352,15 +1352,15 @@ pub fn run_fn_with_budget(
 
 - [ ] **Step 2: Re-export through mod.rs**
 
-Open `crates/sdust-sir/src/interp/mod.rs`. Confirm `pub use run::{run, run_fn_by_name, ...}` exists; add `run_fn_with_budget` to the list.
+Open `crates/mty-sir/src/interp/mod.rs`. Confirm `pub use run::{run, run_fn_by_name, ...}` exists; add `run_fn_with_budget` to the list.
 
 - [ ] **Step 3: Run + commit**
 
-Run: `cargo build -p sdust-sir`
+Run: `cargo build -p mty-sir`
 Expected: success, no warnings.
 
 ```bash
-git add crates/sdust-sir/src/interp/run.rs crates/sdust-sir/src/interp/mod.rs
+git add crates/mty-sir/src/interp/run.rs crates/mty-sir/src/interp/mod.rs
 git commit -m "Slice 7: expose run_fn_with_budget for runtime per-turn evaluator
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -1371,12 +1371,12 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 10: AgentTask — the per-agent run loop
 
 **Files:**
-- Modify: `crates/sdust-runtime/src/agent.rs` — add `agent_task_loop` helper
-- Create: `crates/sdust-runtime/tests/agent_lifecycle.rs`
+- Modify: `crates/mty-runtime/src/agent.rs` — add `agent_task_loop` helper
+- Create: `crates/mty-runtime/tests/agent_lifecycle.rs`
 
 - [ ] **Step 1: Write failing test**
 
-Create `crates/sdust-runtime/tests/agent_lifecycle.rs`:
+Create `crates/mty-runtime/tests/agent_lifecycle.rs`:
 
 ```rust
 use sdust_runtime::runtime::{Runtime, RuntimeBuilder};
@@ -1417,7 +1417,7 @@ This test will need Runtime/RuntimeBuilder fleshed out — those land in Task 11
 
 - [ ] **Step 2: Add agent_task_loop helper (no test runs yet)**
 
-Append to `crates/sdust-runtime/src/agent.rs`:
+Append to `crates/mty-runtime/src/agent.rs`:
 
 ```rust
 use crate::error::{RuntimeError, RuntimeResult};
@@ -1493,8 +1493,8 @@ pub async fn run_one_turn(
     Ok(())
 }
 
-/// Format `Agent::msg` as the SIR-compiler-generated handler fn name.
-/// (See `crates/sdust-sir/src/lower/items.rs` — handlers are emitted
+/// Format `Agent::msg` as the MtyIR-compiler-generated handler fn name.
+/// (See `crates/mty-sir/src/lower/items.rs` — handlers are emitted
 /// as `<AgentName>__<MsgName>` in slice 6.)
 pub fn handler_fn_name(agent: &str, msg: &str) -> String {
     format!("{agent}__{msg}")
@@ -1507,19 +1507,19 @@ fn _ensure_arc_program(_p: Arc<Program>) {}
 
 Search the lowerer to confirm handler naming convention:
 
-Run: `Grep -n "__" crates/sdust-sir/src/lower/items.rs` (use the Grep tool).
+Run: `Grep -n "__" crates/mty-sir/src/lower/items.rs` (use the Grep tool).
 
 If the lowerer uses a different separator (e.g. `.` or `_on_`), update `handler_fn_name` accordingly. Update this task in-place with the actual format before moving on.
 
 - [ ] **Step 4: Build only (lifecycle test runs in Task 11)**
 
-Run: `cargo build -p sdust-runtime`
+Run: `cargo build -p mty-runtime`
 Expected: success.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-runtime/src/agent.rs crates/sdust-runtime/tests/agent_lifecycle.rs
+git add crates/mty-runtime/src/agent.rs crates/mty-runtime/tests/agent_lifecycle.rs
 git commit -m "Slice 7: per-agent turn loop (run_one_turn + handler_fn_name)
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -1530,14 +1530,14 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 11: Runtime + RuntimeBuilder + spawn_agent + ask + shutdown
 
 **Files:**
-- Modify: `crates/sdust-runtime/src/runtime.rs`
-- Modify: `crates/sdust-runtime/src/scheduler.rs`
-- Modify: `crates/sdust-driver/src/pipeline.rs` (expose `lower_to_sir` as `pub fn`)
-- Add: `crates/sdust-runtime/Cargo.toml` — add dev-dep `sdust-driver`
+- Modify: `crates/mty-runtime/src/runtime.rs`
+- Modify: `crates/mty-runtime/src/scheduler.rs`
+- Modify: `crates/mty-driver/src/pipeline.rs` (expose `lower_to_sir` as `pub fn`)
+- Add: `crates/mty-runtime/Cargo.toml` — add dev-dep `mty-driver`
 
 - [ ] **Step 1: Expose driver pipeline entry for tests**
 
-Open `crates/sdust-driver/src/pipeline.rs`. Confirm there is a function that runs parse→typeck→borrow→lower-to-SIR and returns a `Program`. Search for `lower_to_sir`. If named differently, alias as needed; otherwise create:
+Open `crates/mty-driver/src/pipeline.rs`. Confirm there is a function that runs parse→typeck→borrow→lower-to-MtyIR and returns a `Program`. Search for `lower_to_sir`. If named differently, alias as needed; otherwise create:
 
 ```rust
 pub fn lower_source_to_sir(src: &str, path: &str) -> Result<sdust_sir::sir::Program, Vec<sdust_diagnostics::Diagnostic>> {
@@ -1549,15 +1549,15 @@ If a function with this exact contract already exists, skip this step.
 
 - [ ] **Step 2: Add driver as dev-dep**
 
-In `crates/sdust-runtime/Cargo.toml`, under `[dev-dependencies]`:
+In `crates/mty-runtime/Cargo.toml`, under `[dev-dependencies]`:
 
 ```toml
-sdust-driver = { path = "../sdust-driver" }
+mty-driver = { path = "../mty-driver" }
 ```
 
 - [ ] **Step 3: Implement scheduler.rs**
 
-Replace `crates/sdust-runtime/src/scheduler.rs` with:
+Replace `crates/mty-runtime/src/scheduler.rs` with:
 
 ```rust
 //! Tokio executor wrapper. Multi-thread by default; single-thread
@@ -1594,7 +1594,7 @@ impl Scheduler {
 
 - [ ] **Step 4: Implement runtime.rs**
 
-Replace `crates/sdust-runtime/src/runtime.rs` with:
+Replace `crates/mty-runtime/src/runtime.rs` with:
 
 ```rust
 //! Runtime + RuntimeBuilder.
@@ -1860,7 +1860,7 @@ fn spawn_agent_loop(rt: &Runtime, desc: Arc<AgentDescriptor>) -> JoinHandle<()> 
 
 - [ ] **Step 5: Stub out SupervisorRegistry and StdHost so it compiles**
 
-Append minimal stubs to `crates/sdust-runtime/src/supervisor.rs`:
+Append minimal stubs to `crates/mty-runtime/src/supervisor.rs`:
 
 ```rust
 use crate::error::RuntimeError;
@@ -1900,10 +1900,10 @@ impl From<RuntimeError> for ChildFailure {
 }
 ```
 
-Replace `crates/sdust-runtime/src/host_std.rs` with:
+Replace `crates/mty-runtime/src/host_std.rs` with:
 
 ```rust
-//! Real-OS host: routes Stardust effect calls to net/fs/time/rand.
+//! Real-OS host: routes Mighty effect calls to net/fs/time/rand.
 
 use crate::budget::BudgetTracker;
 use sdust_sir::interp::host::Host;
@@ -1944,10 +1944,10 @@ pub mod host_std_dispatch {
 
 Wait — let's simplify. Drop the inner module and inline:
 
-Replace `crates/sdust-runtime/src/host_std.rs` with:
+Replace `crates/mty-runtime/src/host_std.rs` with:
 
 ```rust
-//! Real-OS host: routes Stardust effect calls to net/fs/time/rand.
+//! Real-OS host: routes Mighty effect calls to net/fs/time/rand.
 
 use crate::budget::BudgetTracker;
 use sdust_sir::interp::host::Host;
@@ -1995,7 +1995,7 @@ impl Host for StdHost {
 
 - [ ] **Step 6: Run lifecycle test**
 
-Run: `cargo test -p sdust-runtime --test agent_lifecycle`
+Run: `cargo test -p mty-runtime --test agent_lifecycle`
 Expected: 1 test passes.
 
 If the test fails because the handler name format differs from `handler_fn_name`, inspect the lowerer's `lower/items.rs` and fix `handler_fn_name` to match the actual emitted name.
@@ -2003,7 +2003,7 @@ If the test fails because the handler name format differs from `handler_fn_name`
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/sdust-runtime crates/sdust-driver
+git add crates/mty-runtime crates/mty-driver
 git commit -m "Slice 7: Runtime + spawn_agent + send/ask + per-agent task loop
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -2014,12 +2014,12 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 12: Supervisor strategies (one_for_one + restart limits + backoff)
 
 **Files:**
-- Modify: `crates/sdust-runtime/src/supervisor.rs`
-- Create: `crates/sdust-runtime/tests/supervisor_strategies.rs`
+- Modify: `crates/mty-runtime/src/supervisor.rs`
+- Create: `crates/mty-runtime/tests/supervisor_strategies.rs`
 
 - [ ] **Step 1: Write failing tests**
 
-Create `crates/sdust-runtime/tests/supervisor_strategies.rs`:
+Create `crates/mty-runtime/tests/supervisor_strategies.rs`:
 
 ```rust
 use sdust_runtime::supervisor::{RestartPolicy, RestartTracker, Strategy};
@@ -2061,7 +2061,7 @@ fn backoff_within_range() {
 
 - [ ] **Step 2: Implement supervisor.rs**
 
-Replace `crates/sdust-runtime/src/supervisor.rs` with:
+Replace `crates/mty-runtime/src/supervisor.rs` with:
 
 ```rust
 //! Supervisor engine (spec §15).
@@ -2173,13 +2173,13 @@ impl SupervisorRegistry {
 
 - [ ] **Step 3: Run tests**
 
-Run: `cargo test -p sdust-runtime --test supervisor_strategies`
+Run: `cargo test -p mty-runtime --test supervisor_strategies`
 Expected: 3 tests pass.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/sdust-runtime/src/supervisor.rs crates/sdust-runtime/tests/supervisor_strategies.rs
+git add crates/mty-runtime/src/supervisor.rs crates/mty-runtime/tests/supervisor_strategies.rs
 git commit -m "Slice 7: supervisor strategies + restart rate limit + backoff jitter
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -2190,12 +2190,12 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 13: Deterministic mode (seeded RNG + logical clock)
 
 **Files:**
-- Modify: `crates/sdust-runtime/src/deterministic.rs`
-- Create: `crates/sdust-runtime/tests/deterministic_replay.rs`
+- Modify: `crates/mty-runtime/src/deterministic.rs`
+- Create: `crates/mty-runtime/tests/deterministic_replay.rs`
 
 - [ ] **Step 1: Write failing tests**
 
-Create `crates/sdust-runtime/tests/deterministic_replay.rs`:
+Create `crates/mty-runtime/tests/deterministic_replay.rs`:
 
 ```rust
 use sdust_runtime::deterministic::SeededRng;
@@ -2219,7 +2219,7 @@ fn different_seeds_diverge() {
 
 - [ ] **Step 2: Implement deterministic.rs**
 
-Replace `crates/sdust-runtime/src/deterministic.rs` with:
+Replace `crates/mty-runtime/src/deterministic.rs` with:
 
 ```rust
 //! Deterministic-mode helpers (spec §25.5).
@@ -2260,11 +2260,11 @@ impl LogicalClock {
 
 - [ ] **Step 3: Run + commit**
 
-Run: `cargo test -p sdust-runtime --test deterministic_replay`
+Run: `cargo test -p mty-runtime --test deterministic_replay`
 Expected: 2 tests pass.
 
 ```bash
-git add crates/sdust-runtime/src/deterministic.rs crates/sdust-runtime/tests/deterministic_replay.rs
+git add crates/mty-runtime/src/deterministic.rs crates/mty-runtime/tests/deterministic_replay.rs
 git commit -m "Slice 7: deterministic mode primitives (seeded RNG + logical clock)
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -2275,12 +2275,12 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 14: Minimal std.http server (HTTP/1.1 GET, in-tree parser)
 
 **Files:**
-- Modify: `crates/sdust-runtime/src/http.rs`
-- Create: `crates/sdust-runtime/tests/http_serve.rs`
+- Modify: `crates/mty-runtime/src/http.rs`
+- Create: `crates/mty-runtime/tests/http_serve.rs`
 
 - [ ] **Step 1: Write failing test**
 
-Create `crates/sdust-runtime/tests/http_serve.rs`:
+Create `crates/mty-runtime/tests/http_serve.rs`:
 
 ```rust
 use sdust_runtime::http::{parse_request_line, Request};
@@ -2327,7 +2327,7 @@ async fn reqwest_like_get(port: u16) -> String {
 
 - [ ] **Step 2: Implement http.rs**
 
-Replace `crates/sdust-runtime/src/http.rs` with:
+Replace `crates/mty-runtime/src/http.rs` with:
 
 ```rust
 //! Minimal std.http server (HTTP/1.1 GET only, slice-7 MVP).
@@ -2400,11 +2400,11 @@ where
 
 - [ ] **Step 3: Run + commit**
 
-Run: `cargo test -p sdust-runtime --test http_serve`
+Run: `cargo test -p mty-runtime --test http_serve`
 Expected: 4 tests pass.
 
 ```bash
-git add crates/sdust-runtime/src/http.rs crates/sdust-runtime/tests/http_serve.rs
+git add crates/mty-runtime/src/http.rs crates/mty-runtime/tests/http_serve.rs
 git commit -m "Slice 7: minimal std.http server (HTTP/1.1 GET + serve_in_memory)
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -2412,15 +2412,15 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Task 15: Wire `sdust run` to the runtime
+## Task 15: Wire `mty run` to the runtime
 
 **Files:**
-- Modify: `crates/sdust-cli/src/cmd/run.rs`
-- Modify: `crates/sdust-driver/src/pipeline.rs` — add `run_with_runtime`
+- Modify: `crates/mty-cli/src/cmd/run.rs`
+- Modify: `crates/mty-driver/src/pipeline.rs` — add `run_with_runtime`
 
 - [ ] **Step 1: Add runtime run helper in driver**
 
-Open `crates/sdust-driver/src/pipeline.rs`. Add a new function that takes a source file path, lowers it to SIR, builds a Runtime, spawns `main` (or all agents if no `main`), and returns a `RunOutcome`. Existing slice-6 `run_file` stays in place.
+Open `crates/mty-driver/src/pipeline.rs`. Add a new function that takes a source file path, lowers it to MtyIR, builds a Runtime, spawns `main` (or all agents if no `main`), and returns a `RunOutcome`. Existing slice-6 `run_file` stays in place.
 
 Add this function (adjust to the existing signature style in pipeline.rs):
 
@@ -2470,11 +2470,11 @@ pub fn run_file_with_runtime(path: &std::path::Path) -> i32 {
 }
 ```
 
-Add `sdust-runtime = { path = "../sdust-runtime" }` to `crates/sdust-driver/Cargo.toml` `[dependencies]`.
+Add `mty-runtime = { path = "../mty-runtime" }` to `crates/mty-driver/Cargo.toml` `[dependencies]`.
 
-- [ ] **Step 2: Switch `sdust run` to use runtime by default**
+- [ ] **Step 2: Switch `mty run` to use runtime by default**
 
-Open `crates/sdust-cli/src/cmd/run.rs`. Find the existing `run` subcommand body. Wrap it so it accepts a `--legacy-interp` flag:
+Open `crates/mty-cli/src/cmd/run.rs`. Find the existing `run` subcommand body. Wrap it so it accepts a `--legacy-interp` flag:
 
 ```rust
 #[derive(clap::Args, Debug)]
@@ -2497,21 +2497,21 @@ pub fn execute(args: RunArgs) -> i32 {
 
 If the existing `run` subcommand uses a different return shape, mirror it.
 
-- [ ] **Step 3: Smoke-test `sdust run examples/01_hello.sd` still works**
+- [ ] **Step 3: Smoke-test `mty run examples/01_hello.sd` still works**
 
-Run: `cargo run -p sdust-cli -- run examples/01_hello.sd`
-Expected: prints `hello, Stardust` and exits 0.
+Run: `cargo run -p mty-cli -- run examples/01_hello.sd`
+Expected: prints `hello, Mighty` and exits 0.
 
-- [ ] **Step 4: Smoke-test `sdust run --legacy-interp examples/01_hello.sd` still works**
+- [ ] **Step 4: Smoke-test `mty run --legacy-interp examples/01_hello.sd` still works**
 
-Run: `cargo run -p sdust-cli -- run --legacy-interp examples/01_hello.sd`
-Expected: prints `hello, Stardust` and exits 0.
+Run: `cargo run -p mty-cli -- run --legacy-interp examples/01_hello.sd`
+Expected: prints `hello, Mighty` and exits 0.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/sdust-cli/src/cmd/run.rs crates/sdust-driver
-git commit -m "Slice 7: sdust run defaults to runtime; --legacy-interp keeps slice-6 path
+git add crates/mty-cli/src/cmd/run.rs crates/mty-driver
+git commit -m "Slice 7: mty run defaults to runtime; --legacy-interp keeps slice-6 path
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
@@ -2521,11 +2521,11 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 16: End-to-end test — example 07 (Echoer) on runtime
 
 **Files:**
-- Create: `crates/sdust-runtime/tests/end_to_end_examples.rs`
+- Create: `crates/mty-runtime/tests/end_to_end_examples.rs`
 
 - [ ] **Step 1: Add example-driven integration test**
 
-Create `crates/sdust-runtime/tests/end_to_end_examples.rs`:
+Create `crates/mty-runtime/tests/end_to_end_examples.rs`:
 
 ```rust
 use sdust_runtime::RuntimeBuilder;
@@ -2572,10 +2572,10 @@ async fn example_08_counter() {
 
 - [ ] **Step 2: Run**
 
-Run: `cargo test -p sdust-runtime --test end_to_end_examples`
+Run: `cargo test -p mty-runtime --test end_to_end_examples`
 Expected: 2 tests pass.
 
-If they fail with "handler not found", inspect the lowerer's handler naming convention (search `crates/sdust-sir/src/lower/items.rs` for the agent ctor + handler emission) and fix `handler_fn_name` to match. The test author should print the program's fn names on failure to diagnose:
+If they fail with "handler not found", inspect the lowerer's handler naming convention (search `crates/mty-sir/src/lower/items.rs` for the agent ctor + handler emission) and fix `handler_fn_name` to match. The test author should print the program's fn names on failure to diagnose:
 
 ```rust
 for f in &prog.fns { eprintln!("fn: {}", f.name); }
@@ -2584,7 +2584,7 @@ for f in &prog.fns { eprintln!("fn: {}", f.name); }
 - [ ] **Step 3: Commit**
 
 ```bash
-git add crates/sdust-runtime/tests/end_to_end_examples.rs
+git add crates/mty-runtime/tests/end_to_end_examples.rs
 git commit -m "Slice 7: end-to-end runtime tests for examples 07 (echo) + 08 (counter)
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -2595,7 +2595,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 17: End-to-end test — example 09 (send/ask deadline)
 
 **Files:**
-- Modify: `crates/sdust-runtime/tests/end_to_end_examples.rs`
+- Modify: `crates/mty-runtime/tests/end_to_end_examples.rs`
 
 - [ ] **Step 1: Add deadline test**
 
@@ -2653,11 +2653,11 @@ fn main() { () }
 
 - [ ] **Step 2: Run + commit**
 
-Run: `cargo test -p sdust-runtime --test end_to_end_examples`
+Run: `cargo test -p mty-runtime --test end_to_end_examples`
 Expected: 4 tests pass total (2 from Task 16 + 2 new).
 
 ```bash
-git add crates/sdust-runtime/tests/end_to_end_examples.rs
+git add crates/mty-runtime/tests/end_to_end_examples.rs
 git commit -m "Slice 7: deadline-aware ask test (timeout + handler-not-found path)
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -2668,11 +2668,11 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 18: Sandbox enforcement test (host allowlist via budget)
 
 **Files:**
-- Create: `crates/sdust-runtime/tests/sandbox_enforcement.rs`
+- Create: `crates/mty-runtime/tests/sandbox_enforcement.rs`
 
 - [ ] **Step 1: Write test**
 
-Create `crates/sdust-runtime/tests/sandbox_enforcement.rs`:
+Create `crates/mty-runtime/tests/sandbox_enforcement.rs`:
 
 ```rust
 use sdust_runtime::budget::{Budget, BudgetTracker};
@@ -2700,11 +2700,11 @@ fn read_path_allowlist_admits_prefix_dirs() {
 
 - [ ] **Step 2: Run + commit**
 
-Run: `cargo test -p sdust-runtime --test sandbox_enforcement`
+Run: `cargo test -p mty-runtime --test sandbox_enforcement`
 Expected: 2 tests pass.
 
 ```bash
-git add crates/sdust-runtime/tests/sandbox_enforcement.rs
+git add crates/mty-runtime/tests/sandbox_enforcement.rs
 git commit -m "Slice 7: sandbox enforcement tests (host + path allowlists)
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -2723,7 +2723,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 - Create: `tests/conformance/runtime-7/06_sandbox_block.json`
 - Create: `tests/conformance/runtime-7/07_deterministic_replay.json`
 - Create: `tests/conformance/runtime-7/08_http_inmem.json`
-- Create: `crates/sdust-driver/tests/conformance_runtime_7.rs`
+- Create: `crates/mty-driver/tests/conformance_runtime_7.rs`
 
 - [ ] **Step 1: Inspect existing conformance corpus shape**
 
@@ -2733,7 +2733,7 @@ Note: if the corpus uses `.sd` source + expected output text instead of `.json`,
 
 - [ ] **Step 2: Add 8 cases mirroring the existing shape**
 
-For each case, write a Stardust source and the expected outcome (stdout, exit code, trap code). Use the same shape as the slice-6 corpus.
+For each case, write a Mighty source and the expected outcome (stdout, exit code, trap code). Use the same shape as the slice-6 corpus.
 
 Examples below assume the corpus stores `.sd` + `.expected.txt` pairs. Create:
 
@@ -2757,17 +2757,17 @@ Repeat for 02..08 mirroring the existing-corpus convention. For cases that rely 
 
 - [ ] **Step 3: Add the driver test**
 
-Create `crates/sdust-driver/tests/conformance_runtime_7.rs` mirroring the slice-6 conformance harness (`crates/sdust-driver/tests/conformance_runtime.rs`). It walks `tests/conformance/runtime-7/`, runs each `.sd` file through the runtime, compares stdout/exit-code against the `.expected.txt`.
+Create `crates/mty-driver/tests/conformance_runtime_7.rs` mirroring the slice-6 conformance harness (`crates/mty-driver/tests/conformance_runtime.rs`). It walks `tests/conformance/runtime-7/`, runs each `.sd` file through the runtime, compares stdout/exit-code against the `.expected.txt`.
 
 If the slice-6 harness is a single function (`fn run_case(path)`), copy + adapt it. Use `sdust_driver::pipeline::run_file_with_runtime` (Task 15).
 
 - [ ] **Step 4: Run + commit**
 
-Run: `cargo test -p sdust-driver --test conformance_runtime_7`
+Run: `cargo test -p mty-driver --test conformance_runtime_7`
 Expected: 8 cases pass (skip + mark `todo` any case the runtime cannot honour yet — explicit comment in the JSON / .sd file).
 
 ```bash
-git add tests/conformance/runtime-7 crates/sdust-driver/tests/conformance_runtime_7.rs
+git add tests/conformance/runtime-7 crates/mty-driver/tests/conformance_runtime_7.rs
 git commit -m "Slice 7: runtime-7 conformance corpus (8 cases)
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -2818,7 +2818,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>" || echo "n
 - Create: `docs/internals/supervisors.md`
 - Create: `docs/internals/budgets.md`
 - Create: `docs/internals/telemetry.md`
-- Modify: `docs/reference/cli/sdust-run.md`
+- Modify: `docs/reference/cli/mty-run.md`
 - Modify: `docs/tour/agents.md`
 - Modify: `docs/tour/supervisors.md`
 - Modify: `docs/tour/budgets.md`
@@ -2847,7 +2847,7 @@ Cover: Budget shape, BudgetTracker counters, sandbox allowlists, A37 note on mem
 
 Cover: TelemetryEvent variants, JSON schema, sinks (Discard/Stderr/File/Buffer), `STARDUST_TRACE` env var. Include three example JSON lines. 80-150 lines.
 
-- [ ] **Step 7: Update `docs/reference/cli/sdust-run.md`**
+- [ ] **Step 7: Update `docs/reference/cli/mty-run.md`**
 
 Add `--legacy-interp` flag, runtime env vars table.
 
@@ -2864,7 +2864,7 @@ For `docs/tour/agents.md`, `docs/tour/supervisors.md`, `docs/tour/budgets.md`: a
 - [ ] **Step 9: Commit**
 
 ```bash
-git add docs/internals docs/reference/cli/sdust-run.md docs/tour
+git add docs/internals docs/reference/cli/mty-run.md docs/tour
 git commit -m "Slice 7: internals docs + tour callouts for runtime MVP
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -2926,7 +2926,7 @@ the current-thread runtime and seeds an `XorShift*` RNG. Mailbox
 draining is FIFO within an agent; cross-agent fairness is determined
 by tokio's current-thread scheduler. Time advances by an injected
 `LogicalClock`; system-clock reads inside the runtime use the same
-clock when deterministic mode is active. Replaying a recorded SIR
+clock when deterministic mode is active. Replaying a recorded MtyIR
 program with the same seed produces byte-identical telemetry.
 
 ## A40 — Mailbox defaults (slice 7)
@@ -3003,7 +3003,7 @@ effect-row polymorphism, full Drop impl execution stay deferred.)
 Create `SLICE7.md` mirroring the SLICE6.md voice:
 
 ```markdown
-# Stardust Slice 7 — Complete
+# Mighty Slice 7 — Complete
 
 **Tag:** `v0.7.0-runtime`
 **Date:** 2026-05-24
@@ -3012,7 +3012,7 @@ Create `SLICE7.md` mirroring the SLICE6.md voice:
 
 ### Runtime crate (spec §25 + §31.5)
 
-- New crate `sdust-runtime` (~3 000 lines).
+- New crate `mty-runtime` (~3 000 lines).
 - Tokio-backed executor (multi-thread by default, current-thread
   for deterministic mode).
 - Per-agent `AgentDescriptor` with mailbox, budget tracker,
@@ -3037,7 +3037,7 @@ Create `SLICE7.md` mirroring the SLICE6.md voice:
 - MT5014 restart_limit_exceeded
 - MT5015 capability_outside_sandbox
 
-### `sdust run` upgrade
+### `mty run` upgrade
 
 - Default path now runs through the runtime.
 - `--legacy-interp` flag opts back into the slice-6 synchronous
@@ -3066,8 +3066,8 @@ A43 — top-level `sandbox` executes as a child runtime
 - **<COUNT> tests pass** (slice 6: 290 → slice 7: +<DELTA>)
 - 5 new SD5xxx diagnostic codes
 - 8 runtime-7 conformance cases
-- New crate `sdust-runtime`
-- `sdust-driver` + `sdust-cli` rewired so `sdust run` uses the runtime
+- New crate `mty-runtime`
+- `mty-driver` + `mty-cli` rewired so `mty run` uses the runtime
 
 ## Still deferred (slice 8 unless noted)
 
@@ -3085,16 +3085,16 @@ A43 — top-level `sandbox` executes as a child runtime
 
 ## Files of note
 
-- `crates/sdust-runtime/src/runtime.rs` — Runtime + RuntimeBuilder
-- `crates/sdust-runtime/src/agent.rs` — AgentDescriptor, run_one_turn
-- `crates/sdust-runtime/src/mailbox.rs` — bounded MPSC + MessageFrame
-- `crates/sdust-runtime/src/supervisor.rs` — RestartTracker, strategies
-- `crates/sdust-runtime/src/budget.rs` — BudgetTracker, allowlists
-- `crates/sdust-runtime/src/timer.rs` — deadline helper
-- `crates/sdust-runtime/src/telemetry.rs` — JSON emitter
-- `crates/sdust-runtime/src/deterministic.rs` — SeededRng, LogicalClock
-- `crates/sdust-runtime/src/http.rs` — minimal HTTP/1.1 server
-- `crates/sdust-runtime/src/host_std.rs` — real OS host
+- `crates/mty-runtime/src/runtime.rs` — Runtime + RuntimeBuilder
+- `crates/mty-runtime/src/agent.rs` — AgentDescriptor, run_one_turn
+- `crates/mty-runtime/src/mailbox.rs` — bounded MPSC + MessageFrame
+- `crates/mty-runtime/src/supervisor.rs` — RestartTracker, strategies
+- `crates/mty-runtime/src/budget.rs` — BudgetTracker, allowlists
+- `crates/mty-runtime/src/timer.rs` — deadline helper
+- `crates/mty-runtime/src/telemetry.rs` — JSON emitter
+- `crates/mty-runtime/src/deterministic.rs` — SeededRng, LogicalClock
+- `crates/mty-runtime/src/http.rs` — minimal HTTP/1.1 server
+- `crates/mty-runtime/src/host_std.rs` — real OS host
 - `docs/internals/runtime.md`, `scheduler.md`, `mailboxes.md`,
   `supervisors.md`, `budgets.md`, `telemetry.md` — new
 - `docs/spec/v0.1-amendments.md` — A36..A43

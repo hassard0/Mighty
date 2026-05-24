@@ -1,16 +1,16 @@
 // selfhost/parser/parser.sd
 //
-// Self-hosted Stardust parser (v0.6) — STATIC SOURCE FORM.
+// Self-hosted Mighty parser (v0.6) — STATIC SOURCE FORM.
 //
-// Mirrors the behavior of crates/sdust-syntax/src/parser/* as a
-// hand-written recursive-descent parser in Stardust source. `sdust check`s
+// Mirrors the behavior of crates/mty-syntax/src/parser/* as a
+// hand-written recursive-descent parser in Mighty source. `mty check`s
 // clean and produces a CST tree shaped identically to the Rust parser for
 // the v0.6 supported subset.
 //
 // ## v0.6 status: SHIPPED-SUBSET
 //
 // The Rust parser is ~2600 LOC split across 13 files. Porting all of it
-// to Stardust would be ~5-7 KLOC and would exceed the v0.6 time budget.
+// to Mighty would be ~5-7 KLOC and would exceed the v0.6 time budget.
 // We ship the productions exercised by examples 01-05 plus a handful of
 // closely-related ones:
 //
@@ -58,9 +58,9 @@
 //
 // ## Why one file in v0.6
 //
-// Same reason as v0.4 lexer: the v0.6 `sdust check` driver compiles one
+// Same reason as v0.4 lexer: the v0.6 `mty check` driver compiles one
 // `.sd` file at a time. `lib.sd` / `parser.sd` / `items.sd` etc. document
-// the intended decomposition for v0.7 when `sdust-pkg` lands cross-file
+// the intended decomposition for v0.7 when `mty-pkg` lands cross-file
 // resolution.
 //
 // See SELFHOST_PARSER_V0_6_NOTES.md for the language-gap catalog this
@@ -72,7 +72,7 @@ package selfhost_parser
 // Host bridge
 // =====================================================================
 //
-// All parser state lives in the host. The Stardust source is the pure
+// All parser state lives in the host. The Mighty source is the pure
 // algorithm; the host is the mutable cursor + event sink.
 //
 // Cursor methods (read-only):
@@ -112,7 +112,7 @@ package selfhost_parser
 //
 // We pass kinds as strings to dodge the v0.6 cross-file module problem.
 // The bootstrap test maps these strings back to the Rust `SyntaxKind`
-// enum. Names are kept identical to crates/sdust-syntax/src/syntax_kind.rs
+// enum. Names are kept identical to crates/mty-syntax/src/syntax_kind.rs
 // debug output so the diff is straight string equality.
 
 // =====================================================================
@@ -1916,7 +1916,7 @@ fn token_tree() -> Unit {
 // Demo main
 // =====================================================================
 //
-// `sdust run selfhost/parser/parser.sd` will type/borrow check the source.
+// `mty run selfhost/parser/parser.sd` will type/borrow check the source.
 // With the default (no installed host) the bridge calls return Unit/0 so
 // `tok_count()` is 0 and the parser exits immediately after emitting an
 // empty FILE node. That's the v0.6 acceptance shape.

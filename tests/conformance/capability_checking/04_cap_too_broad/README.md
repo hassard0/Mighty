@@ -8,4 +8,4 @@ function-signature-level cap narrowing, this case becomes a positive
 MT4010 fire — update `expected_diagnostics.txt` then.
 
 The MT4010 implementation itself is exercised by unit-test
-`cap_subsumption_path_too_broad` in sdust-types.
+`cap_subsumption_path_too_broad` in mty-types.

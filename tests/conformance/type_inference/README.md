@@ -5,7 +5,7 @@ inference engine: local `let` inference, generic function inference,
 struct/variant inference, and the `T!E` (Result) sugar.
 
 Each sub-case is `command.txt = check` and expects exit code 0 (no
-errors). A successful `sdust check` proves the inference machinery
+errors). A successful `mty check` proves the inference machinery
 resolved every binding to a concrete type without manual annotation.
 
 ## Cases

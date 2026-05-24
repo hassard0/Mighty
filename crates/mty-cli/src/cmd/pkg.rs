@@ -58,7 +58,7 @@ pub enum PkgCmd {
     /// Store a GitHub token for a registry.
     ///
     /// Pass the token via env-var `SDUST_PKG_LOGIN_TOKEN`. The token
-    /// is persisted to `~/.config/sdust/auth.toml` (`0600` on Unix).
+    /// is persisted to `~/.config/mighty/auth.toml` (`0600` on Unix).
     Login {
         /// Registry slug `<owner>/<repo>`; defaults to the configured
         /// `[registry].default` (or the official Mighty registry).

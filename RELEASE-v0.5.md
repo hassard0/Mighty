@@ -1,4 +1,4 @@
-# Stardust v0.5 — Release Notes
+# Mighty v0.5 — Release Notes
 
 **Tag:** `v0.5.0`
 **Date:** 2026-05-24
@@ -11,13 +11,13 @@ seven advanced features (semantic tokens, rename, inlay hints,
 code actions, signature help, workspace folders, semantic
 completion).
 
-Stardust v0.1 walked the spec §31 ladder end-to-end. v0.2 lit up
+Mighty v0.1 walked the spec §31 ladder end-to-end. v0.2 lit up
 every surface the v0.1 deferral list named. v0.3 hardened
 soundness. v0.4 was dogfood + ecosystem (3 demos, real registry,
-declarative macros, self-host lexer subset, SIR loop terminator
+declarative macros, self-host lexer subset, MtyIR loop terminator
 fix). v0.5 is the **self-hosting + dogfood-completion** milestone:
 loops actually terminate via `break` / `continue` / iterator
-exhaustion, the Stardust lexer is now a working bootstrap, every
+exhaustion, the Mighty lexer is now a working bootstrap, every
 v0.4 demo's stopgap has its real implementation, and the LSP
 grows the advanced features editors expect.
 
@@ -25,20 +25,20 @@ grows the advanced features editors expect.
 
 ```bash
 # break / continue work
-sdust run examples/06_for_while_loop.sd          # for loops terminate naturally
+mty run examples/06_for_while_loop.sd          # for loops terminate naturally
 
-# The Stardust lexer round-trips byte-for-byte against the Rust lexer
-cargo test -p sdust-driver --test selfhost_lexer
+# The Mighty lexer round-trips byte-for-byte against the Rust lexer
+cargo test -p mty-driver --test selfhost_lexer
 # → 4 passed (selfhost_lexer_full_diff_against_rust now passes)
 
 # `std.http.serve` actually binds a TCP socket
-cargo test -p sdust-stdlib --test http_serve_real
+cargo test -p mty-stdlib --test http_serve_real
 
 # Real Str methods
-echo 'fn main() { println("hello".contains("ll"))  /* prints true */ }' | sdust run -
+echo 'fn main() { println("hello".contains("ll"))  /* prints true */ }' | mty run -
 
 # Hygienic macros via the explicit `!` marker
-sdust check examples/16_macro.sd                  # `mac!(args)` parses; MT6001 on unknown
+mty check examples/16_macro.sd                  # `mac!(args)` parses; MT6001 on unknown
 
 # Mem-budget violations trap deterministically
 # (run_fn_with_resource_budget exposes the cap to embedders)
@@ -61,15 +61,15 @@ crate boundaries, then integrated through this release:
 
 | Agent | Crates / files | Commits |
 |---|---|---|
-| loop CF + iterator protocol | `sdust-syntax`, `sdust-hir`, `sdust-types`, `sdust-borrow`, `sdust-sir`, conformance, selfhost test | `1446804`, `47cac2f`, `d6e65de`, `d5f5ecf` |
-| dogfood completion (5 gaps) | `sdust-stdlib` (http_server, fs), `sdust-codegen-wasm` (wit + emit), `sdust-sir` (mem budget + str methods) | `1bbe12e`, `396bb46` |
-| macros completion | `sdust-syntax`, `sdust-macros`, `sdust-hir`, `crates/sdust-macros/lib/*.sd` | `64cfcc6`, `63d0321`, `fd54f80` |
-| LSP advanced | `sdust-lsp` (semantic_tokens, rename, inlay_hints, code_actions, signature_help, workspace_folders, completion_semantic) | `f42fa17` |
+| loop CF + iterator protocol | `mty-syntax`, `mty-hir`, `mty-types`, `mty-borrow`, `mty-sir`, conformance, selfhost test | `1446804`, `47cac2f`, `d6e65de`, `d5f5ecf` |
+| dogfood completion (5 gaps) | `mty-stdlib` (http_server, fs), `mty-codegen-wasm` (wit + emit), `mty-sir` (mem budget + str methods) | `1bbe12e`, `396bb46` |
+| macros completion | `mty-syntax`, `mty-macros`, `mty-hir`, `crates/mty-macros/lib/*.sd` | `64cfcc6`, `63d0321`, `fd54f80` |
+| LSP advanced | `mty-lsp` (semantic_tokens, rename, inlay_hints, code_actions, signature_help, workspace_folders, completion_semantic) | `f42fa17` |
 
 Plus two integration-time changes: the WIT / core-import
-signature alignment in `crates/sdust-codegen-wasm/{wit,
+signature alignment in `crates/mty-codegen-wasm/{wit,
 tests/dom_imports}.rs` and a clippy nit in
-`crates/sdust-sir/tests/budget_charges.rs`.
+`crates/mty-sir/tests/budget_charges.rs`.
 
 ## Headline numbers
 
@@ -101,18 +101,18 @@ tests/dom_imports}.rs` and a clippy nit in
 
 | Property | v0.4 | v0.5 |
 |---|---|---|
-| `break <value>` exits a `loop` + yields a value | parses as bare IDENT, no effect | real HIR node + SIR lowering (A80) |
+| `break <value>` exits a `loop` + yields a value | parses as bare IDENT, no effect | real HIR node + MtyIR lowering (A80) |
 | `continue` skips to loop header | parses as bare IDENT, no effect | real HIR node + continue_tgt block (A80) |
 | `for x in arr` terminates on exhaustion | spins until step budget | iterator protocol via `__sdust_iter_next` (A81) |
 | Borrow check at loop back-edges | one-pass walk | bounded fixed-point (16-iter cap) (A82) |
 | `name!(args)` parses as a macro call | required registration + plain `foo(args)` | explicit `!` marker; MT6001 on unknown (A90/A91) |
 | Macro hygiene covers tuple / struct / ref patterns | `let IDENT` only | whole pattern subtree mangled (A92) |
 | `use otherpkg.foo` imports a macro | n/a | cross-file via `pub macro` + per-pkg registry split (A93) |
-| Stardust lexer source round-trips against Rust lexer | first token only (full diff `#[ignore]`d) | byte-for-byte (loop CF + iterators unblocked) |
+| Mighty lexer source round-trips against Rust lexer | first token only (full diff `#[ignore]`d) | byte-for-byte (loop CF + iterators unblocked) |
 | `std.http.serve(addr)` binds a real socket | dispatcher routed to no-op | real `tokio` + `hyper` listener (A96) |
-| Wasm Component imports `stardust:web/dom` | n/a | 4-method interface + 4 core imports (A97) |
+| Wasm Component imports `mighty:web/dom` | n/a | 4-method interface + 4 core imports (A97) |
 | `"hello".contains("ll")` | returned `false` (stub) | real substring match (A98) |
-| SIR interp traps on runaway allocation | step budget only | MemBudgetExceeded with bytes / limit (A99) |
+| MtyIR interp traps on runaway allocation | step budget only | MemBudgetExceeded with bytes / limit (A99) |
 | `std.fs.read` rejects paths outside allowlist | always succeeded | `Result::Err(forbidden:<path>)` (A100) |
 | LSP `rename` / `inlayHint` / `semanticTokens` / `codeAction` / `signatureHelp` | absent | shipped (rename = single-file) (A74) |
 
@@ -135,10 +135,10 @@ The v0.4 deferral list named 43 carry-over items. v0.5 closes:
   shipped
 - **Stdlib macros** — shipped (`assert!`, `assert_eq!`,
   `assert_ne!`, `debug!`, `unreachable!`)
-- **`std.http.serve` host bridge** — shipped (`sdust-stdlib::http_server`)
-- **`stardust:web/dom` import lowering** (Wasm side) — shipped
-  (WIT + core imports; SIR-side `BuiltinId::Dom` is v0.6)
-- **Auto-charging in the SIR interpreter** — shipped
+- **`std.http.serve` host bridge** — shipped (`mty-stdlib::http_server`)
+- **`mighty:web/dom` import lowering** (Wasm side) — shipped
+  (WIT + core imports; MtyIR-side `BuiltinId::Dom` is v0.6)
+- **Auto-charging in the MtyIR interpreter** — shipped
   (`MemBudgetExceeded`)
 - **Real `Str` method intrinsics** — shipped (full table)
 - **LSP rename / inlay hints / semantic tokens / code actions /
@@ -163,9 +163,9 @@ A91 — MT6001 unknown_macro activated
 A92 — Extended hygiene mangling
 A93 — Cross-file `pub macro`
 A94 — Procedural macros (parse-and-store) + MT6005/MT6006
-A95 — Standard macro library shipped with sdust-macros
+A95 — Standard macro library shipped with mty-macros
 A96 — `std.http.serve` binds a real socket (dogfood)
-A97 — `stardust:web/dom` interface added to wasm32-web (dogfood)
+A97 — `mighty:web/dom` interface added to wasm32-web (dogfood)
 A98 — Str method table real impls (dogfood)
 A99 — `RunResult::MemBudgetExceeded` + memory auto-charging (dogfood)
 A100 — FsCap allowlist enforcement via process-wide default cap (dogfood)
@@ -185,8 +185,8 @@ as bare `u16` and wrapped at emission:
 - **MT6006** — `proc_macro_unsupported_v0_5` (fires at *call*
   sites for parsed-but-unexecutable proc macros)
 
-`sdust explain SD6xxx` is not yet wired (v0.6 cleanup folds the
-SD6xxx codes into `sdust-diagnostics::codes`).
+`mty explain SD6xxx` is not yet wired (v0.6 cleanup folds the
+SD6xxx codes into `mty-diagnostics::codes`).
 
 The v0.4 MT6001..MT6004 codes also stay live; MT6001
 `unknown_macro` is now reachable from the new
@@ -196,7 +196,7 @@ The v0.4 MT6001..MT6004 codes also stay live; MT6001
 
 - **MSRV: Rust 1.85** (unchanged from v0.2)
 - No new workspace crates (v0.5 work landed in existing crates)
-- `sdust-stdlib` gains an `http_server` module backed by `tokio`
+- `mty-stdlib` gains an `http_server` module backed by `tokio`
   + `hyper`
 - All-platform: Windows, macOS, Linux
 - Cargo workspace; no `build.rs` magic
@@ -253,19 +253,19 @@ are otherwise unchanged. CLI shape is unchanged.
    `option<string>`** — integration-time fix to line up with the
    core import signature. v0.6 restores real string returns.
 3. **Proc macros are gated behind MT6006** — parse-and-store
-   only; execution waits on a sandboxed SIR sub-context.
+   only; execution waits on a sandboxed MtyIR sub-context.
 4. **LSP rename is single-file** — protocol surface shipped with
    a documented restriction; multi-file waits on a workspace-
    wide resolve map.
 5. **HTTP serve default is an echo dispatcher** — real per-agent
    routing waits on `install_agent_dispatch` wiring at runtime
    startup.
-6. **DOM SIR lowering is reserved** — `emit_dom_call` is
-   `#[allow(dead_code)]`; Stardust source calling
+6. **DOM MtyIR lowering is reserved** — `emit_dom_call` is
+   `#[allow(dead_code)]`; Mighty source calling
    `dom.set_text(...)` directly waits on `BuiltinId::Dom`.
 7. **FsCap is process-wide, not per-call** — v0.6 lifts the
    per-call cap from the sandbox manifest.
-8. **`sdust-macros` SD6xxx codes** still live in
+8. **`mty-macros` SD6xxx codes** still live in
    `sdust_macros::diag` as bare `u16`; central catalog merge is
    v0.6 cleanup.
 9. **Carried from v0.3/v0.4**: 2 conformance cases still ignored,
@@ -274,17 +274,17 @@ are otherwise unchanged. CLI shape is unchanged.
 
 ## Acknowledgments
 
-v0.5 is the fourth Stardust release built by autonomous parallel
+v0.5 is the fourth Mighty release built by autonomous parallel
 agents. The four swarm agents shipped tightly because each touched
-disjoint crates — loop CF in the parser/HIR/SIR/borrow stack vs
-dogfood in stdlib + codegen-wasm + SIR runtime vs macros in
-syntax/macros/HIR vs LSP in `sdust-lsp` — and the integrator only
+disjoint crates — loop CF in the parser/HIR/MtyIR/borrow stack vs
+dogfood in stdlib + codegen-wasm + MtyIR runtime vs macros in
+syntax/macros/HIR vs LSP in `mty-lsp` — and the integrator only
 needed two cross-cut edits (clippy nit + WIT/core import
 alignment). The agents stood on the slice-1..8 + v0.2 + v0.3 +
-v0.4 foundations: the declarative parser, the typed HIR / SIR /
+v0.4 foundations: the declarative parser, the typed HIR / MtyIR /
 interpreter, the Cranelift / wasm / Component pipelines, the v0.3
 host bridge through `sdust_runtime::host_std::install_dispatcher`,
-the v0.4 sdust-macros expansion + sdust-pkg registry transport,
+the v0.4 mty-macros expansion + mty-pkg registry transport,
 and the conformance harness all carried forward without rewrites.
 
 Big thanks to the `tokio`, `hyper`, `wit-component`, `wasmparser`,

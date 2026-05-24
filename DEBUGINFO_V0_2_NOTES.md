@@ -8,7 +8,7 @@ during v0.3 follow-up work.
 
 Three deliverables landed:
 
-1. New crate `sdust-debuginfo` with `DwarfBuilder` (wraps `gimli::write`
+1. New crate `mty-debuginfo` with `DwarfBuilder` (wraps `gimli::write`
    for DWARF v4) and `SourceMap` + `NameSection` (wasm source-map v3 +
    wasm `name` custom section).
 2. Cranelift backend: `compile_object_with_debug` attaches a DWARF
@@ -60,7 +60,7 @@ maintaining a per-fn type cache and matches what rustc + clang produce.
 ### Line program: one row per fn-entry (v0.2)
 
 Per-instruction source mapping requires plumbing cranelift's
-`MachSrcLoc` events back to the SIR span source. SIR statements don't
+`MachSrcLoc` events back to the MtyIR span source. MtyIR statements don't
 yet carry `SourceSpan` (only `Function::span` does). v0.3 will add
 per-stmt spans and regenerate per-instr line rows.
 
@@ -71,7 +71,7 @@ round-trip).
 
 ### `DW_LANG_Rust` for `DW_AT_language`
 
-DWARF doesn't have a Stardust constant. `Rust` is the closest match
+DWARF doesn't have a Mighty constant. `Rust` is the closest match
 semantically (ownership-aware, monomorphized, mid-IR-similar to MIR);
 rust-lang/rust assigns the value `0x001c` for it.
 
@@ -101,16 +101,16 @@ this address is in."
 
 ## Acceptance
 
-- `cargo test -p sdust-debuginfo` — 13 unit tests + 2 round-trip tests
-- `cargo test -p sdust-codegen-cranelift` — 24 lib tests + 2 debug
+- `cargo test -p mty-debuginfo` — 13 unit tests + 2 round-trip tests
+- `cargo test -p mty-codegen-cranelift` — 24 lib tests + 2 debug
   integration tests (one verifies `DW_TAG_subprogram` for `main`
   appears in the linked-object DWARF, one verifies plain
   `compile_object` emits no `.debug_*` sections)
-- `cargo test -p sdust-codegen-wasm --test sourcemap` — 3 tests
+- `cargo test -p mty-codegen-wasm --test sourcemap` — 3 tests
   (`name` custom section present, sidecar is valid source-map v3 JSON
   with `sourcesContent`, `sourceMappingURL` references sidecar
   filename)
-- `cargo build -p sdust-cli` — clean
+- `cargo build -p mty-cli` — clean
 - `--debug` (default) now actually emits debug info; `--release`
   strips it
 
@@ -119,10 +119,10 @@ this address is in."
 | Item | Effort | Notes |
 |------|--------|-------|
 | `Address::Symbol` for low_pc/high_pc | medium | requires plumbing ObjectProduct.functions[] into DwarfBuilder + adding relocations |
-| Per-instr line program | medium | needs SIR-statement SourceSpan + cranelift MachSrcLoc plumbing |
+| Per-instr line program | medium | needs MtyIR-statement SourceSpan + cranelift MachSrcLoc plumbing |
 | `.debug_loc` per-local location lists | medium | needs cranelift slot-offset extraction |
 | `name` subsection id 2 (locals) | small | trivial once we want it |
-| Per-stmt wasm source-map mappings | small | gated on SIR-statement spans + wasm-encoder byte offsets |
+| Per-stmt wasm source-map mappings | small | gated on MtyIR-statement spans + wasm-encoder byte offsets |
 | DWARF for the LLVM backend | large | build host lacks LLVM; not a v0.2 target |
 | Inlining info (`DW_TAG_inlined_subroutine`) | large | needs inliner first |
 | Generics info | medium | needs typed monomorphization metadata |

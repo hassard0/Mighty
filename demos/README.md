@@ -1,8 +1,8 @@
-# Stardust v0.4 dogfood demos
+# Mighty v0.4 dogfood demos
 
 Three end-to-end demos that exercise the v0.4 compiler + runtime
 surface as an external user would. Each demo lives in its own
-directory with a `star.toml`, source, a smoke script (bash +
+directory with a `mighty.toml`, source, a smoke script (bash +
 PowerShell), and a step-by-step `README.md`.
 
 Per spec §31.8 the alpha exit criterion is:
@@ -14,14 +14,14 @@ These demos cover the first two points.
 
 | # | Demo | Surface exercised | How it runs |
 |---|------|-------------------|-------------|
-| 01 | [`01_search_api`](01_search_api/) | HTTP service shape: protocol + agent + per-handler state | `sdust run` drives every endpoint; `smoke.sh` golden-checks the stdout |
-| 02 | [`02_counter_web`](02_counter_web/) | Wasm Component Model output; browser host parses the imported `log` calls | `sdust build --target wasm32-web` → component validated by `smoke.sh`; `web/serve.sh` serves the HTML loader |
-| 03 | [`03_extract_tool`](03_extract_tool/) | Top-level `sandbox` with cpu/wall/mem/mailbox + cap allow-lists; agent-driven token classifier | `sdust run` exercises the extractor; `smoke.sh` diffs against `expected_output.txt` |
+| 01 | [`01_search_api`](01_search_api/) | HTTP service shape: protocol + agent + per-handler state | `mty run` drives every endpoint; `smoke.sh` golden-checks the stdout |
+| 02 | [`02_counter_web`](02_counter_web/) | Wasm Component Model output; browser host parses the imported `log` calls | `mty build --target wasm32-web` → component validated by `smoke.sh`; `web/serve.sh` serves the HTML loader |
+| 03 | [`03_extract_tool`](03_extract_tool/) | Top-level `sandbox` with cpu/wall/mem/mailbox + cap allow-lists; agent-driven token classifier | `mty run` exercises the extractor; `smoke.sh` diffs against `expected_output.txt` |
 
 ## Run all smoke scripts
 
 ```bash
-cargo build -p sdust-cli
+cargo build -p mty-cli
 for d in demos/0*/; do
   bash "$d/smoke.sh" || { echo "$d FAILED"; exit 1; }
 done
@@ -30,7 +30,7 @@ done
 PowerShell:
 
 ```powershell
-cargo build -p sdust-cli
+cargo build -p mty-cli
 Get-ChildItem demos\0*\ -Directory | ForEach-Object {
     pwsh (Join-Path $_ "smoke.ps1")
     if ($LASTEXITCODE -ne 0) { throw "$($_.Name) FAILED" }

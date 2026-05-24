@@ -9,8 +9,8 @@ or 10 000 (criterion) `MessageFrame`s through a bounded mailbox.
 
 | Impl | Median | p95 | p99 | Msgs/sec (median) | Notes |
 |---|---|---|---|---|---|
-| Stardust v0.6 mailbox (1k msgs) | 0.23 ms | 0.44 ms | 0.48 ms | ~4.4M/sec | tokio mpsc + slab |
-| Stardust v0.6 mailbox (10k msgs, criterion) | (criterion bench) | | | | |
+| Mighty v0.6 mailbox (1k msgs) | 0.23 ms | 0.44 ms | 0.48 ms | ~4.4M/sec | tokio mpsc + slab |
+| Mighty v0.6 mailbox (10k msgs, criterion) | (criterion bench) | | | | |
 | Rust tokio mpsc (10k msgs) | (pending — Reference env) | | | | |
 | Go buffered chan (10k msgs) | (pending — Reference env) | | | | |
 | C++ SPSC lock-free ring (10k msgs) | (pending — Reference env) | | | | will be the fastest by a wide margin |
@@ -25,7 +25,7 @@ With 1 000 msgs/iter: **median = 4.4M msgs/sec single-threaded**.
 
 ## Interpretation
 
-The Stardust mailbox is **tokio mpsc + a 64-byte slab admission
+The Mighty mailbox is **tokio mpsc + a 64-byte slab admission
 step**. We expect:
 
 - Within 2x of bare tokio mpsc.

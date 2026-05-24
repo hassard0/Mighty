@@ -1,22 +1,22 @@
-# Stardust Phase 1 Design — Lexer, Parser, Formatter, HIR
+# Mighty Phase 1 Design — Lexer, Parser, Formatter, HIR
 
 **Date:** 2026-05-23
-**Status:** Approved (slice 1 of the Stardust v0.1 build)
-**Source spec:** `C:\Users\ihass\Downloads\stardust_language_spec_v0_1.md` (Stardust Language Specification v0.1)
+**Status:** Approved (slice 1 of the Mighty v0.1 build)
+**Source spec:** `C:\Users\ihass\Downloads\stardust_language_spec_v0_1.md` (Mighty Language Specification v0.1)
 **Slice maps to:** Spec §31.2 Phase 1, plus the Phase 0 (§31.1) exit criterion of producing 20 canonical examples.
 **Implementation language:** Rust (per spec §31.2 recommendation).
-**Repo:** `C:\Users\ihass\stardust` (planned remote: `hassard0/stardust`, private until public alpha).
+**Repo:** `C:\Users\ihass\mighty` (planned remote: `hassard0/stardust`, private until public alpha).
 
 ---
 
 ## 1. Goal
 
-Build the front-end of the Stardust compiler: source text → tokens → lossless CST → typed AST → name-resolved, desugared HIR. Ship `sdust fmt` and `sdust check` as user-facing commands. Establish the conformance corpus (20 canonical `.sd` programs) and the test infrastructure every later slice will sit on top of.
+Build the front-end of the Mighty compiler: source text → tokens → lossless CST → typed AST → name-resolved, desugared HIR. Ship `mty fmt` and `mty check` as user-facing commands. Establish the conformance corpus (20 canonical `.sd` programs) and the test infrastructure every later slice will sit on top of.
 
 End state for slice 1 matches spec §31.2 exit criteria:
 
-- `sdust fmt` stable and idempotent on every example.
-- AST and HIR dumps available (`sdust dump --ast|--cst|--hir`).
+- `mty fmt` stable and idempotent on every example.
+- AST and HIR dumps available (`mty dump --ast|--cst|--hir`).
 - Syntax error recovery with ariadne-rendered diagnostics.
 - Examples parse and format idempotently in a sweep test.
 
@@ -27,7 +27,7 @@ These belong to later slices. We parse the syntax for them and represent them in
 - Type checking, inference beyond local lexical scope. (Slice 2.)
 - Borrow/ownership/affine checking. (Slice 2.)
 - Effect and capability checking. (Slice 2.)
-- SIR lowering. (Slice 3.)
+- MtyIR lowering. (Slice 3.)
 - Runtime: scheduler, agent registry, mailbox, supervisor engine. (Slice 4.)
 - Native and Wasm codegen. (Slices 5–6.)
 - LSP, package manager, publishing. (Slice 7.)
@@ -38,9 +38,9 @@ We also do **not** parse anything outside the spec surface. If the spec doesn't 
 ## 3. Workspace layout
 
 ```
-stardust/
+mighty/
 ├── Cargo.toml                      # workspace root
-├── star.toml                       # placeholder Stardust manifest (dogfood; unused in slice 1)
+├── mighty.toml                       # placeholder Mighty manifest (dogfood; unused in slice 1)
 ├── rust-toolchain.toml             # pins MSRV
 ├── .gitignore
 ├── README.md
@@ -48,13 +48,13 @@ stardust/
 │   ├── superpowers/specs/2026-05-23-phase1-parser-fmt-hir-design.md  # this file
 │   └── grammar.md                  # informal grammar reference, kept in sync with parser
 ├── crates/
-│   ├── sdust-syntax/               # lexer (logos), CST (rowan), parser, SyntaxKind enum
-│   ├── sdust-ast/                  # typed accessor layer over rowan SyntaxNode (the AST view)
-│   ├── sdust-hir/                  # HIR types, lowering, name resolution, desugaring
-│   ├── sdust-diagnostics/          # span-tracked diagnostics + ariadne render
-│   ├── sdust-fmt/                  # pretty-printer (Wadler combinators) over CST
-│   ├── sdust-driver/               # orchestration: source → CST → AST → HIR; loads star.toml
-│   └── sdust-cli/                  # the `sdust` binary
+│   ├── mty-syntax/               # lexer (logos), CST (rowan), parser, SyntaxKind enum
+│   ├── mty-ast/                  # typed accessor layer over rowan SyntaxNode (the AST view)
+│   ├── mty-hir/                  # HIR types, lowering, name resolution, desugaring
+│   ├── mty-diagnostics/          # span-tracked diagnostics + ariadne render
+│   ├── mty-fmt/                  # pretty-printer (Wadler combinators) over CST
+│   ├── mty-driver/               # orchestration: source → CST → AST → HIR; loads mighty.toml
+│   └── mty-cli/                  # the `mty` binary
 ├── examples/                       # 20 canonical .sd programs (the conformance corpus)
 └── tests/
     ├── parser/                     # insta snapshots of CST + recovery diagnostics
@@ -63,19 +63,19 @@ stardust/
     └── conformance/                # scaffold per spec §37, slice-1 categories only
 ```
 
-Reasoning for splitting `sdust-syntax` from `sdust-ast`: rowan's typed-accessor layer is bulky and rarely changes; consumers of the AST shouldn't need to pull lexer/parser deps. The split also lets us regenerate the AST view from a grammar file without touching the parser crate.
+Reasoning for splitting `mty-syntax` from `mty-ast`: rowan's typed-accessor layer is bulky and rarely changes; consumers of the AST shouldn't need to pull lexer/parser deps. The split also lets us regenerate the AST view from a grammar file without touching the parser crate.
 
 ## 4. Pipeline
 
 ```
 source string
-   ↓ logos lexer (sdust-syntax::lexer)
+   ↓ logos lexer (mty-syntax::lexer)
 SyntaxKind tokens (with span + trivia)
-   ↓ recursive-descent parser (sdust-syntax::parser)
+   ↓ recursive-descent parser (mty-syntax::parser)
 rowan green tree (lossless CST)
-   ↓ typed AST accessors (sdust-ast)
+   ↓ typed AST accessors (mty-ast)
 typed AST view
-   ↓ HIR lowering (sdust-hir::lower)
+   ↓ HIR lowering (mty-hir::lower)
 name-resolved, desugared HIR (arena-allocated)
 ```
 
@@ -113,7 +113,7 @@ Two trees: green (immutable, structural sharing) and red (cheap pointer wrapper 
 
 **Strategy:** Hand-rolled recursive descent. Expression parsing uses Pratt (precedence climbing). This matches `rustc`, `swiftc`, and `clang` because real languages need imperative control over error recovery, lookahead, and disambiguation.
 
-**Why not combinators:** `chumsky`/`nom`/`lalrpop` make error recovery harder, not easier, on a language with `agent`/`protocol`/`on` blocks that can nest within `impl`/`mod`/expression positions. Combinators are great for grammars that fit on one page; Stardust does not.
+**Why not combinators:** `chumsky`/`nom`/`lalrpop` make error recovery harder, not easier, on a language with `agent`/`protocol`/`on` blocks that can nest within `impl`/`mod`/expression positions. Combinators are great for grammars that fit on one page; Mighty does not.
 
 **Error recovery:** synchronization tokens are the block delimiters and item-start keywords. On parse error inside an item, skip to the next `fn`, `agent`, `protocol`, `struct`, `enum`, `impl`, `trait`, `supervisor`, `use`, `mod`, `pub`, or matching `}`. Always emit a partial CST node containing an `ERROR` token so IDE consumers can render half-typed code.
 
@@ -135,7 +135,7 @@ Two trees: green (immutable, structural sharing) and red (cheap pointer wrapper 
 14. `=`, `+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=` (right-associative)
 15. `return`, `break`, `continue`, `yield` (statement-level)
 
-The spec doesn't list precedence explicitly. We adopt Rust's precedence table for the operators Rust shares; for Stardust-unique syntax (`!Msg`, `?Msg`, `@duration`), we treat them as postfix at precedence 1.
+The spec doesn't list precedence explicitly. We adopt Rust's precedence table for the operators Rust shares; for Mighty-unique syntax (`!Msg`, `?Msg`, `@duration`), we treat them as postfix at precedence 1.
 
 **Grammar coverage in slice 1:** the full surface of spec §3–§22, plus §26.1 extern blocks. Parse but do not semantically enforce:
 
@@ -168,7 +168,7 @@ The spec doesn't list precedence explicitly. We adopt Rust's precedence table fo
 - `dyn Trait` for trait objects beyond bare syntax.
 - Refinement types and dependent types (spec §30.2 deferred).
 
-## 8. AST view (`sdust-ast`)
+## 8. AST view (`mty-ast`)
 
 Typed accessor structs wrap rowan `SyntaxNode` for each node kind. Pattern:
 
@@ -183,9 +183,9 @@ impl FnDecl {
 }
 ```
 
-Generated semi-manually from a grammar file (`crates/sdust-syntax/src/grammar.ungram`, ungrammar format). A small build script (or one-shot tool) regenerates the accessors; slice 1 may commit the generated file by hand to avoid build-script complexity until the grammar stabilizes.
+Generated semi-manually from a grammar file (`crates/mty-syntax/src/grammar.ungram`, ungrammar format). A small build script (or one-shot tool) regenerates the accessors; slice 1 may commit the generated file by hand to avoid build-script complexity until the grammar stabilizes.
 
-## 9. HIR (`sdust-hir`)
+## 9. HIR (`mty-hir`)
 
 **Allocation:** `la-arena` with indexed handles (`FnId`, `AgentId`, `ProtocolId`, `ExprId`, `PatId`, `TypeId`). Stable IDs across the lowering of one package; mapping back to CST spans via a side table.
 
@@ -213,10 +213,10 @@ Generated semi-manually from a grammar file (`crates/sdust-syntax/src/grammar.un
   (use std.io)
   (fn main ()
     (block
-      (call log "hello, Stardust"))))
+      (call log "hello, Mighty"))))
 ```
 
-## 10. Diagnostics (`sdust-diagnostics`)
+## 10. Diagnostics (`mty-diagnostics`)
 
 **Internal model:**
 
@@ -251,7 +251,7 @@ pub struct Diagnostic {
 - `MT1001` unresolved name
 - `MT1002` use path resolves to nothing
 
-## 11. Formatter (`sdust-fmt`)
+## 11. Formatter (`mty-fmt`)
 
 **Algorithm:** Wadler/Lindig pretty-printer combinators. Doc grammar:
 
@@ -274,7 +274,7 @@ Doc ::= Nil
 - One trailing newline at EOF, exactly.
 - Empty lines: at most one blank line between items; zero blank lines at start/end of block.
 - Comma trailing: yes for multi-line lists, no for single-line.
-- Long lines: 100 columns default, configurable later via `star.toml`.
+- Long lines: 100 columns default, configurable later via `mighty.toml`.
 - Agent compact form preferred:
   ```sd
   agent Counter: Count {
@@ -289,30 +289,30 @@ Doc ::= Nil
 
 **Round-trip requirement:** `parse(fmt(src))` produces a CST whose AST shape matches `parse(src)`'s AST shape. Comment positions need not be byte-identical but must attach to the same logical node.
 
-## 12. CLI (`sdust-cli`, the `sdust` binary)
+## 12. CLI (`mty-cli`, the `mty` binary)
 
 Slice 1 commands:
 
 ```
-sdust new <name>      # scaffold star.toml + src/main.sd
-sdust fmt [paths...]  # format files in place (or stdin)
-sdust check [path]    # parse + HIR-lower; emit diagnostics; exit nonzero on error
-sdust dump --ast      # AST dump to stdout
-sdust dump --cst      # CST debug dump (rowan format)
-sdust dump --hir      # HIR S-expression dump
+mty new <name>      # scaffold mighty.toml + src/main.sd
+mty fmt [paths...]  # format files in place (or stdin)
+mty check [path]    # parse + HIR-lower; emit diagnostics; exit nonzero on error
+mty dump --ast      # AST dump to stdout
+mty dump --cst      # CST debug dump (rowan format)
+mty dump --hir      # HIR S-expression dump
 ```
 
 Commands explicitly **not** in slice 1: `build`, `run`, `test` (we use `cargo test` for our own tests), `lint`, `doc`, `bench`, `pkg publish`, `lsp`. These come with their respective downstream slices.
 
-`sdust new <name>` scaffolds:
+`mty new <name>` scaffolds:
 
 ```
 <name>/
-├── star.toml          # name, version=0.1.0, edition=2026, profile=host
-└── src/main.sd        # fn main() { log("hello, Stardust") }
+├── mighty.toml          # name, version=0.1.0, edition=2026, profile=host
+└── src/main.sd        # fn main() { log("hello, Mighty") }
 ```
 
-`star.toml` parsing is minimal: name, version, edition, profile, [deps] block. No `[build]` resolution yet (no targets to build for).
+`mighty.toml` parsing is minimal: name, version, edition, profile, [deps] block. No `[build]` resolution yet (no targets to build for).
 
 ## 13. 20 canonical examples
 
@@ -346,7 +346,7 @@ Each example must:
 - Parse to a complete CST (no `ERROR` tokens).
 - Format idempotently.
 - Lower to HIR without errors.
-- Round-trip through `sdust fmt` byte-identically after the first format pass.
+- Round-trip through `mty fmt` byte-identically after the first format pass.
 
 ## 14. Conformance suite scaffold
 
@@ -391,7 +391,7 @@ Placeholder directories contain a `README.md` describing what they will test and
 | `la-arena` | HIR arena | 0.3 |
 | `ariadne` | diagnostic render | 0.4 |
 | `clap` | CLI parsing | 4 |
-| `serde`, `toml` | star.toml parsing | latest |
+| `serde`, `toml` | mighty.toml parsing | latest |
 | `insta` | snapshot tests | dev-dep only |
 | `proptest` | fmt idempotence sweep (optional, slice 1 stretch) | dev-dep only |
 
@@ -423,8 +423,8 @@ All of the following hold:
 3. `cargo clippy --workspace -- -D warnings` succeeds.
 4. `cargo fmt --check` succeeds.
 5. All 20 examples parse, fmt idempotently, and lower to HIR with no diagnostics.
-6. `sdust fmt examples/` is a no-op on a freshly formatted tree.
-7. `sdust check examples/19_backend_service.sd` and `examples/20_frontend_component.sd` parse and lower cleanly (the heaviest examples).
+6. `mty fmt examples/` is a no-op on a freshly formatted tree.
+7. `mty check examples/19_backend_service.sd` and `examples/20_frontend_component.sd` parse and lower cleanly (the heaviest examples).
 8. Snapshot suite is committed and reviewed.
 9. Slice-1 review pass (per autonomous build mandate's review gate) green.
 
@@ -438,4 +438,4 @@ These do not block slice 1 because they are downstream consumers of HIR, not pro
 
 ---
 
-**Ready for the implementation plan.** Slice 1 = lex+parse+fmt+HIR+diagnostics+CLI+20 examples+test scaffold, in Rust, under `C:\Users\ihass\stardust`, autonomous build with slice-boundary review gate.
+**Ready for the implementation plan.** Slice 1 = lex+parse+fmt+HIR+diagnostics+CLI+20 examples+test scaffold, in Rust, under `C:\Users\ihass\mighty`, autonomous build with slice-boundary review gate.

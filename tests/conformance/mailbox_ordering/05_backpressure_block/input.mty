@@ -5,7 +5,7 @@
 // In the SIR-interp-driven harness the sends are synchronous so no
 // real backpressure is observable; the case shape is preserved so
 // the spec-to-test mapping is explicit and the runtime-level
-// invariant is in `crates/sdust-runtime/tests/mailbox_slab_pool.rs
+// invariant is in `crates/mty-runtime/tests/mailbox_slab_pool.rs
 // ::block_policy_backpressures_until_drained`.
 
 protocol P {

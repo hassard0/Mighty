@@ -25,7 +25,7 @@ thiserror.workspace = true
 
 [features]
 # `runner` pulls the full driver/diagnostics stack so `std.test`
-# can lower + run Stardust source files. Default-on; downstream
+# can lower + run Mighty source files. Default-on; downstream
 # crates that only need json/tls/http/fs/time can disable it via
 # `default-features = false` to keep their build small.
 default = ["runner"]

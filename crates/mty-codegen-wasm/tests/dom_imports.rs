@@ -1,5 +1,5 @@
 //! v0.5 dogfood Gap-2 — verify the Web target's WIT contains the
-//! expanded `stardust:web/dom` interface (set-text / get-text /
+//! expanded `mty:web/dom` interface (set-text / get-text /
 //! on-click / query) and that the world imports it. Also verify the
 //! WIT parses cleanly via wit_parser.
 //!
@@ -43,7 +43,7 @@ fn empty_main() -> Program {
 fn web_target_imports_stardust_web_dom() {
     let doc = emit_wit(&empty_main(), "demo", WasmTarget::Web).expect("emit");
     assert!(
-        doc.text.contains("import stardust:web/dom"),
+        doc.text.contains("import mty:web/dom"),
         "world should import dom; text:\n{}",
         doc.text
     );
@@ -92,8 +92,8 @@ fn web_dom_legacy_handle_methods_still_present() {
 fn wasi_target_does_not_import_dom() {
     let doc = emit_wit(&empty_main(), "demo", WasmTarget::Wasi).expect("emit");
     assert!(
-        !doc.text.contains("import stardust:web/dom"),
-        "wasi target must not pull in stardust:web/dom; text:\n{}",
+        !doc.text.contains("import mty:web/dom"),
+        "wasi target must not pull in mty:web/dom; text:\n{}",
         doc.text
     );
 }
@@ -105,7 +105,7 @@ fn web_wit_round_trips_via_wit_parser() {
 }
 
 /// v0.6 easy-win 1 — verify a `BuiltinId::DomOp` call in the SIR
-/// reaches a real `Call <stardust:web/dom>:<op>` instruction in the
+/// reaches a real `Call <mty:web/dom>:<op>` instruction in the
 /// emitted core module. Builds a tiny program by hand (no Mighty
 /// source needed) that holds a Dom-cap local and calls `set_text`
 /// through it.
@@ -147,7 +147,7 @@ fn web_target_emits_dom_set_text_call_for_builtin_dom_op() {
     });
     let bytes = compile_program_to_bytes(&p, WasmTarget::Web).expect("compile");
     // The .wasm must validate end-to-end. The dom_imports gate above
-    // already proves the four `stardust:web/dom` imports are present;
+    // already proves the four `mty:web/dom` imports are present;
     // here we just confirm a SIR with a DomOp call still produces
     // valid wasm (i.e. emit_call's DomOp arm doesn't break encoding).
     wasmparser::Validator::new()
@@ -172,13 +172,13 @@ fn web_target_core_module_has_four_dom_imports() {
             for group in reader {
                 match group.expect("import group") {
                     Imports::Single(_, imp) => {
-                        if imp.module == "stardust:web/dom" {
+                        if imp.module == "mty:web/dom" {
                             dom_count += 1;
                             dom_names.push(imp.name.to_string());
                         }
                     }
                     Imports::Compact1 { module, items } => {
-                        if module == "stardust:web/dom" {
+                        if module == "mty:web/dom" {
                             for it in items {
                                 let it = it.expect("item");
                                 dom_count += 1;
@@ -187,7 +187,7 @@ fn web_target_core_module_has_four_dom_imports() {
                         }
                     }
                     Imports::Compact2 { module, names, .. } => {
-                        if module == "stardust:web/dom" {
+                        if module == "mty:web/dom" {
                             for n in names {
                                 let n = n.expect("name");
                                 dom_count += 1;
@@ -201,7 +201,7 @@ fn web_target_core_module_has_four_dom_imports() {
     }
     assert_eq!(
         dom_count, 4,
-        "expected 4 stardust:web/dom imports, got {dom_count}: {dom_names:?}"
+        "expected 4 mty:web/dom imports, got {dom_count}: {dom_names:?}"
     );
     for want in ["set-text", "get-text", "on-click", "query"] {
         assert!(

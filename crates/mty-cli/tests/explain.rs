@@ -1,10 +1,10 @@
 use std::process::Command;
 
-fn sdust(args: &[&str]) -> (i32, String, String) {
+fn mty(args: &[&str]) -> (i32, String, String) {
     let out = Command::new(env!("CARGO_BIN_EXE_mty"))
         .args(args)
         .output()
-        .expect("run sdust");
+        .expect("run mty");
     (
         out.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -14,14 +14,14 @@ fn sdust(args: &[&str]) -> (i32, String, String) {
 
 #[test]
 fn explain_known_code_succeeds() {
-    let (code, stdout, _stderr) = sdust(&["explain", "MT0001"]);
+    let (code, stdout, _stderr) = mty(&["explain", "MT0001"]);
     assert_eq!(code, 0);
     assert!(stdout.contains("Unexpected token"), "stdout: {}", stdout);
 }
 
 #[test]
 fn explain_lowercase_prefix_works() {
-    let (code, stdout, _) = sdust(&["explain", "sd0010"]);
+    let (code, stdout, _) = mty(&["explain", "sd0010"]);
     assert_eq!(code, 0);
     assert!(
         stdout.to_lowercase().contains("expected an item"),
@@ -32,14 +32,14 @@ fn explain_lowercase_prefix_works() {
 
 #[test]
 fn explain_bare_number_works() {
-    let (code, stdout, _) = sdust(&["explain", "1001"]);
+    let (code, stdout, _) = mty(&["explain", "1001"]);
     assert_eq!(code, 0);
     assert!(stdout.contains("Unresolved name"), "stdout: {}", stdout);
 }
 
 #[test]
 fn explain_unknown_code_fails() {
-    let (code, _stdout, stderr) = sdust(&["explain", "MT9999"]);
+    let (code, _stdout, stderr) = mty(&["explain", "MT9999"]);
     assert_eq!(code, 1);
     assert!(
         stderr.to_lowercase().contains("unknown"),
@@ -50,7 +50,7 @@ fn explain_unknown_code_fails() {
 
 #[test]
 fn explain_bad_format_fails() {
-    let (code, _stdout, stderr) = sdust(&["explain", "wat"]);
+    let (code, _stdout, stderr) = mty(&["explain", "wat"]);
     assert_eq!(code, 2);
     assert!(
         stderr.to_lowercase().contains("expected"),

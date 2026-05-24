@@ -2,21 +2,21 @@
 
 Tracking doc for the v0.2 wave-2 work that closes amendment **A47**:
 "full Component Model output is no longer deferred." This file logs the
-interpretation calls we made while shipping `sdust-codegen-wasm` v0.2 so
+interpretation calls we made while shipping `mty-codegen-wasm` v0.2 so
 later slices can revisit them without spelunking through commits.
 
 ## What shipped
 
-- `crates/sdust-codegen-wasm/src/wit.rs` — emits a textual `.wit`
-  document for every Stardust package being compiled to wasm.
-- `crates/sdust-codegen-wasm/src/component.rs` — wraps the existing
+- `crates/mty-codegen-wasm/src/wit.rs` — emits a textual `.wit`
+  document for every Mighty package being compiled to wasm.
+- `crates/mty-codegen-wasm/src/component.rs` — wraps the existing
   slice-8 core module + the new WIT contract into a Component Model
   component via `wit_component::ComponentEncoder`.
 - `compile_program_to_file_with_options` — new top-level entry point
   that emits a component by default, or a bare core module when
   `BuildOptions::core_only` is set.
 - CLI flag `--no-component` (default = component output) — plumbed
-  through `sdust-driver::build_wasm` so existing `sdust build --target
+  through `mty-driver::build_wasm` so existing `mty build --target
   wasm32-*` invocations now produce Component Model output.
 
 ## Interpretation calls
@@ -24,15 +24,15 @@ later slices can revisit them without spelunking through commits.
 ### 1. WIT is generated, not authored
 
 We do **not** consume a user-supplied `.wit` file in v0.2. Instead, every
-build derives a WIT document from the SIR program:
+build derives a WIT document from the MtyIR program:
 
-| SIR shape | WIT shape |
+| MtyIR shape | WIT shape |
 |-----------|-----------|
 | Top-level `fn foo(...) -> T` (non-`_` prefixed) | inline `export foo: func(...) -> T;` inside the world |
 | `struct Point { x, y }` | `record point { x: ..., y: ... }` |
 | `enum Color { Red, Green, Blue }` (no payloads) | `enum color { red, green, blue }` |
 | `enum Shape { Circle(f64), Square(f64) }` | `variant shape { circle(f64), square(f64) }` |
-| Capability-typed param (`Fs`, `Net`, …) | `import stardust:caps/<family>;` |
+| Capability-typed param (`Fs`, `Net`, …) | `import mighty:caps/<family>;` |
 | `effects` annotation | informational `// effects: Net, Time` comment in the world |
 
 User-supplied WIT is a v0.3 task. The hooks are there
@@ -61,8 +61,8 @@ world hello-world {
 
 Both are legal but the inline form keeps the core-wasm export name
 simple — `main` instead of the canonical-mangled
-`stardust:hello/lib#main`. The slice-8 lowerer emits exports with
-their bare SIR fn-name, so the inline form is a one-for-one match
+`mighty:hello/lib#main`. The slice-8 lowerer emits exports with
+their bare MtyIR fn-name, so the inline form is a one-for-one match
 without us having to teach the lowerer the component-model name
 mangling. This is a v0.2 simplicity call; later slices can switch
 to the interface-export form if we ever need multiple per-package
@@ -72,16 +72,16 @@ interfaces.
 
 `wit_parser::Resolve` rejects packages whose imports point at
 unknown packages, but we don't want to require every build to have
-the upstream WASI / stardust:web WIT on disk. So
+the upstream WASI / mighty:web WIT on disk. So
 `append_host_stubs` appends nested-package declarations for
-`wasi:cli`, `stardust:web`, and `stardust:caps` to the same string
+`wasi:cli`, `mighty:web`, and `mighty:caps` to the same string
 the `Resolve` parses. The stubs ship the minimum surface the v0.2
 backend actually imports:
 
 - `wasi:cli/log` — `log: func(msg: string)`
-- `stardust:web/log` — same shape, browser-side
-- `stardust:web/dom` — `get-element-by-id`, `set-text` (placeholders)
-- `stardust:caps/{fs,net,clock,dom,model}` — minimal method surface
+- `mighty:web/log` — same shape, browser-side
+- `mighty:web/dom` — `get-element-by-id`, `set-text` (placeholders)
+- `mighty:caps/{fs,net,clock,dom,model}` — minimal method surface
 
 When the real upstream packages drift, we'll need to bump these
 stubs. They're not validated against any external schema.
@@ -89,9 +89,9 @@ stubs. They're not validated against any external schema.
 ### 4. Capability *family*, not capability *instance*
 
 WIT can express "an interface" but not "a narrowed capability". A
-Stardust `Fs<Path("/data")>` and a bare `Fs` both turn into the
-same `import stardust:caps/fs;`. Constraint narrowing stays a
-runtime concern (the runtime's cap broker honors the SIR
+Mighty `Fs<Path("/data")>` and a bare `Fs` both turn into the
+same `import mighty:caps/fs;`. Constraint narrowing stays a
+runtime concern (the runtime's cap broker honors the MtyIR
 `CapConstraint`). Documented as a deliberate omission.
 
 ### 5. Effects live in a comment
@@ -107,12 +107,12 @@ world hello-world {
 }
 ```
 
-Downstream tooling (e.g. a future `sdust pkg verify`) can lex this
+Downstream tooling (e.g. a future `mty pkg verify`) can lex this
 out without breaking other WIT consumers.
 
 ### 6. The slice-8 core lowerer's `unreachable` fallback is preserved
 
-Whenever the lowerer can't translate a SIR shape, it emits a
+Whenever the lowerer can't translate a MtyIR shape, it emits a
 single `unreachable` for that fn body so the module still
 validates. The component wrapper inherits this — meaning an
 emitted component can validate at link time but trap at runtime
@@ -140,46 +140,46 @@ of a direct API, swap `component::wrap_as_component` accordingly.
 
 ### 8. Canonical core-wasm import names
 
-The slice-8 lowerer originally emitted `(import "stardust" "log"
+The slice-8 lowerer originally emitted `(import "mighty" "log"
 ...)`. To let `ComponentEncoder` match those to the WIT world's
 imports, we changed the emitter to use the canonical
 component-model name pair:
 
 - `wasm32-wasi` target: `(import "wasi:cli/log" "log" ...)`
-- `wasm32-web` target: `(import "stardust:web/log" "log" ...)`
+- `wasm32-web` target: `(import "mighty:web/log" "log" ...)`
 
 This is a behavior change for callers that pre-existed the
 component wrapper. The legacy `compile_program_to_file` entry
 point still emits a bare core module (no component) but it now
 imports under the new names. If a downstream runtime hardcoded
-`(import "stardust" "log" ...)` it'll need to switch to the new
+`(import "mighty" "log" ...)` it'll need to switch to the new
 shape.
 
 ## Tests
 
-`crates/sdust-codegen-wasm/tests/`:
+`crates/mty-codegen-wasm/tests/`:
 
 - `wit_generation.rs` (8 tests) — empty + ADT + fn roundtrip
 - `component_validate.rs` (3 tests) — emit → wasmparser-validate
 - `roundtrip_core_module.rs` (3 tests) — `--no-component` path
-- `target_imports.rs` (3 tests) — wasi:* vs stardust:web:*
+- `target_imports.rs` (3 tests) — wasi:* vs mighty:web:*
 - `common.rs` — fixture helpers
-- `sourcemap.rs` — added by the parallel sdust-debuginfo agent
+- `sourcemap.rs` — added by the parallel mty-debuginfo agent
 
 ## Post-v0.2 backlog
 
 - **Full WASI Preview 2** — we stub `wasi:cli/log` only. Real builds
   on Preview 2 need `wasi:io/streams`, `wasi:filesystem/types`, etc.
   Wire `wasi-cli`/`wasi-io`/`wasi-filesystem` proper packages once the
-  Stardust stdlib needs them.
+  Mighty stdlib needs them.
 - **User-authored WIT** — accept an `--wit <file>` flag or a
   `wit/` directory in the package and *merge* the user's exports
   with our generated ones (or override entirely).
-- **Resource types** — Stardust agents map cleanly to component
+- **Resource types** — Mighty agents map cleanly to component
   resources. v0.2 lowers agents to opaque `i32` handles; v0.3 should
   emit `resource agent { ... }` and the borrow/own discipline.
 - **Component linking** — `wit_component::Linker` could let us
-  produce single-file fat components from a Stardust package with
+  produce single-file fat components from a Mighty package with
   pkg dependencies. v0.2 emits one component per source file.
 - **`cabi_realloc` / shadow stack** — emitted by the lowerer? Right
   now we don't, and the canonical ABI can't lower returning-strings

@@ -1,7 +1,7 @@
 # Self-hosting v0.6 — parser phase notes
 
 This file is the running log of v0.5+ language gaps discovered while
-porting the parser to Stardust source. Every entry has:
+porting the parser to Mighty source. Every entry has:
 
 - a minimal reproducer
 - the v0.6 behavior
@@ -15,14 +15,14 @@ test.
 
 ## Status: SHIPPED-SUBSET
 
-The Stardust source in `selfhost/parser/parser.sd` (~1930 LOC):
+The Mighty source in `selfhost/parser/parser.sd` (~1930 LOC):
 
-- `sdust check`s clean (no errors, no warnings beyond what other crates
+- `mty check`s clean (no errors, no warnings beyond what other crates
   emit globally)
 - type-checks and borrow-checks clean
-- **runs end-to-end through the SIR interpreter** via the
+- **runs end-to-end through the MtyIR interpreter** via the
   `SelfhostParserHost` bootstrap bridge (see
-  `crates/sdust-driver/tests/selfhost_parser.rs`)
+  `crates/mty-driver/tests/selfhost_parser.rs`)
 - produces a CST tree whose BFS-kind shape matches the trusted Rust
   parser's output for the entire subset described in
   "Production matrix" below
@@ -72,7 +72,7 @@ The Stardust source in `selfhost/parser/parser.sd` (~1930 LOC):
 | `run <expr>`            | not shipped | deferred to v0.7 |
 | Macro / proc macro decls | not shipped | deferred to v0.7 |
 | Error recovery (sync_to)| not shipped | the v0.6 parser bails on unknown tokens with a single error event |
-| String concatenation in error messages | shipped via `+` | not previously exercised by any Stardust source — see Gap 4 below |
+| String concatenation in error messages | shipped via `+` | not previously exercised by any Mighty source — see Gap 4 below |
 
 ## Bootstrap technique
 
@@ -192,16 +192,16 @@ lands.
 ### Gap 5. No first-class enums for the parser's `SyntaxKind`
 
 The parser passes node kinds as `Str` (`"FN_DECL"`, `"L_PAREN"`, etc.)
-because v0.6's `sdust check` driver compiles one file at a time —
+because v0.6's `mty check` driver compiles one file at a time —
 there's no way to `import selfhost_lexer.SyntaxKind` and then write
 `SyntaxKind.FN_DECL` in the parser source. Same gap the v0.5 lexer
 hit (#4 in `SELFHOST_V0_4_NOTES.md`).
 
 **Workaround:** match on string literals, which is verbose but
-unambiguous. Both the Rust host and the Stardust parser agree on the
+unambiguous. Both the Rust host and the Mighty parser agree on the
 debug-format spelling (`format!("{:?}", kind)`).
 
-**v0.7+ fix:** `sdust-pkg` cross-file module resolution. Then
+**v0.7+ fix:** `mty-pkg` cross-file module resolution. Then
 `syntax_kind.sd` can hold the enum, both lexer and parser can `use
 selfhost.SyntaxKind`, and the bootstrap test can compare enum values
 directly without going through strings.
@@ -209,10 +209,10 @@ directly without going through strings.
 ### Gap 6. No `Option[T]` in the parser's idiom
 
 The Rust parser uses `Option<u8>` for "is this an infix operator?
-what's its binding power?". The Stardust source uses sentinel 0
+what's its binding power?". The Mighty source uses sentinel 0
 because `Option` chained with `match` would require generic enums
 with `match Some(x) => ...` semantics that v0.6 supports but the
-Stardust-side host bridge doesn't yet expose. Acceptable for v0.6;
+Mighty-side host bridge doesn't yet expose. Acceptable for v0.6;
 v0.7 should switch to `Option[U32]` once the bridge can ferry
 generics across.
 
@@ -235,10 +235,10 @@ expression in the arm body.
 
 For v0.6 the wider goal is the **two-phase pipeline demonstration**:
 
-1. The Stardust source is a faithful description of the parser
+1. The Mighty source is a faithful description of the parser
    algorithm. Re-reading it as a v0.7+ implementation guide is the
    reference shape.
-2. The host bridge proves that the v0.5 SIR interpreter can drive a
+2. The host bridge proves that the v0.5 MtyIR interpreter can drive a
    real recursive-descent loop end-to-end. The 13 passing bootstrap
    tests are direct evidence that:
    - the v0.5 loop fix actually works under heavy use (the parser's
@@ -249,7 +249,7 @@ For v0.6 the wider goal is the **two-phase pipeline demonstration**:
 
 The five productions deferred to v0.7 (agents, supervisors, etc.)
 have substantially more complex grammars (~700 LOC of additional Rust
-in `agents.rs` + `concurrency.rs`). Their absence from the Stardust
+in `agents.rs` + `concurrency.rs`). Their absence from the Mighty
 source doesn't block any of the v0.6 examples 01-05 from parsing
 identically to the Rust impl.
 
@@ -258,17 +258,17 @@ identically to the Rust impl.
 The handoff is mechanical:
 
 1. Pick a deferred group from the table above (e.g. `agent_decl` from
-   `crates/sdust-syntax/src/parser/agents.rs`).
-2. Translate the Rust function into Stardust source using the same
+   `crates/mty-syntax/src/parser/agents.rs`).
+2. Translate the Rust function into Mighty source using the same
    patterns as the rest of `selfhost/parser/parser.sd` — checkpoints,
    `start_node` / `finish_node`, the cursor primitives.
 3. Add a string-literal arm in `item()` for the new top-level keyword
    (e.g. `"AGENT_KW" => { agent_decl(cp); true }`).
-4. Add a new test in `crates/sdust-driver/tests/selfhost_parser.rs`
+4. Add a new test in `crates/mty-driver/tests/selfhost_parser.rs`
    targeting that production (e.g. parsing
    `examples/07_agent_echo.sd`) and assert the BFS-kind shape matches
    the Rust parser.
 
-Total v0.7 budget estimate: ~2-3 KLOC of Stardust source for the
+Total v0.7 budget estimate: ~2-3 KLOC of Mighty source for the
 remaining productions, all using patterns the v0.6 file already
 demonstrates.

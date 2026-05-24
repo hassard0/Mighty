@@ -1,5 +1,5 @@
 // Demonstrates `use std.json` parses, type-checks, and runs through
-// the `sdust run` pipeline. The `json.parse` call routes through the
+// the `mty run` pipeline. The `json.parse` call routes through the
 // runtime's effect-call sink; with the v0.3 driver wiring it will hit
 // the real parser, but in v0.2 it returns Unit (no trap).
 

@@ -1,24 +1,24 @@
-# Stardust Slice 6 — Complete
+# Mighty Slice 6 — Complete
 
 **Tag:** `v0.6.0-sir`
 **Date:** 2026-05-24
 
 ## What landed
 
-### Stardust mid-level IR (spec §24.4)
+### Mighty mid-level IR (spec §24.4)
 
-- New crate `sdust-sir` with `Program`, `Function`, `Block`, `Stmt`,
+- New crate `mty-sir` with `Program`, `Function`, `Block`, `Stmt`,
   `Rvalue`, `Term`, `Place`, `Projection`, `Const`, `FnRef`, `BuiltinId`,
   `EffectOp`, `SirTy`.
 - Basic-block form (no SSA / phi). Locals are MIR-style with `_0` as
   the return slot and `_1..=N` as parameters. `LocalDecl` carries
   `name`, `ty`, `mutable`, `source: LocalSource`.
-- Capability values carry `(family, constraint)` from `sdust-types`.
+- Capability values carry `(family, constraint)` from `mty-types`.
 - Arena push/pop sentinels, effect-invoke statements, agent
   spawn/send/ask rvalues, `?` propagation via `TryReturnErr`, async
   suspension reserved by `Term::Suspend`.
 
-### HIR → SIR lowering (`crates/sdust-sir/src/lower/`)
+### HIR → MtyIR lowering (`crates/mty-sir/src/lower/`)
 
 - Total + best-effort: never panics, even on partially-type-checked
   input.
@@ -34,7 +34,7 @@
 - Method-call disambiguation: `local.method(args)` (which the parser
   emits as `Call{Path([local,method])}`) is re-routed to `MethodCall`.
 
-### Slice-6 interpreter (`crates/sdust-sir/src/interp/`)
+### Slice-6 interpreter (`crates/mty-sir/src/interp/`)
 
 - Tree-walking, single-threaded, deterministic.
 - `Value` enum covers primitives + tuples + arrays + structs + enums +
@@ -48,12 +48,12 @@
   `is_empty`, `unwrap`/`unwrap_or`, `ok`/`ok_or`, `ro`/`rw`/`path`/
   `host`, `get`/`query`, `contains`/`starts_with`/`ends_with`, etc.
 
-### `sdust run <file>`
+### `mty run <file>`
 
-- New CLI subcommand wiring parse → typeck → borrowck → SIR-lower → interp.
+- New CLI subcommand wiring parse → typeck → borrowck → MtyIR-lower → interp.
 - Exit codes: `0` success, `1` compile error / trap / `Err`, `2` no
   `main`, `3` budget exceeded.
-- `sdust dump --sir <file>` joins the existing `--ast --cst --hir`
+- `mty dump --sir <file>` joins the existing `--ast --cst --hir`
   flags; emits a MIR-style text rendering.
 
 ### Diagnostics MT5001..MT5050 (slice 6 runtime)
@@ -72,24 +72,24 @@
 - MT5021 send_to_dead_agent
 - MT5050 extern_fn_unimpl
 
-All have `sdust explain SD5xxx` entries.
+All have `mty explain SD5xxx` entries.
 
 ## All 20 examples lower cleanly
 
 ```
-sdust dump --sir examples/01_hello.sd  → ok
+mty dump --sir examples/01_hello.sd  → ok
 ... (all 20)
 ```
 
-`sdust run examples/01_hello.sd` prints `hello, Stardust` and exits 0.
+`mty run examples/01_hello.sd` prints `hello, Mighty` and exits 0.
 Examples with a runnable `main()` execute end-to-end; the rest succeed
-at SIR-lowering. The synchronous-agent path (A32) handles 07/08
+at MtyIR-lowering. The synchronous-agent path (A32) handles 07/08
 shallowly; full agent execution arrives in slice 7.
 
 ## Conformance corpus
 
 `tests/conformance/runtime/` ships **6** initial cases driven by
-`crates/sdust-driver/tests/conformance_runtime.rs`:
+`crates/mty-driver/tests/conformance_runtime.rs`:
 
 1. `hello` — `log("hello")`
 2. `arithmetic` — `(1 + 2 * 3).to_str()` → 7
@@ -111,8 +111,8 @@ shallowly; full agent execution arrives in slice 7.
 - **290 tests pass** (slice 5: 274 → slice 6: +16)
 - 13 new SD5xxx diagnostic codes
 - 6 runtime conformance cases
-- New crate `sdust-sir` (~2 400 lines of Rust)
-- `sdust-driver` + `sdust-cli` extended with SIR-lower / run / dump-sir
+- New crate `mty-sir` (~2 400 lines of Rust)
+- `mty-driver` + `mty-cli` extended with MtyIR-lower / run / dump-sir
   surfaces
 
 ## Still deferred (slice 7 unless noted)
@@ -136,28 +136,28 @@ shallowly; full agent execution arrives in slice 7.
 
 ## Files of note
 
-- `crates/sdust-sir/src/sir.rs` — SIR data types
-- `crates/sdust-sir/src/dump.rs` — text rendering
-- `crates/sdust-sir/src/lower/mod.rs` — lowering entry
-- `crates/sdust-sir/src/lower/items.rs` — fn/struct/enum/agent
-- `crates/sdust-sir/src/lower/exprs.rs` — expression lowering
-- `crates/sdust-sir/src/lower/pats.rs` — pattern matching
-- `crates/sdust-sir/src/lower/ty.rs` — type translation
-- `crates/sdust-sir/src/lower/ctx.rs` — `LowerCtx`, `FnBuilder`
-- `crates/sdust-sir/src/interp/value.rs` — `Value`, `Frame`,
+- `crates/mty-sir/src/sir.rs` — MtyIR data types
+- `crates/mty-sir/src/dump.rs` — text rendering
+- `crates/mty-sir/src/lower/mod.rs` — lowering entry
+- `crates/mty-sir/src/lower/items.rs` — fn/struct/enum/agent
+- `crates/mty-sir/src/lower/exprs.rs` — expression lowering
+- `crates/mty-sir/src/lower/pats.rs` — pattern matching
+- `crates/mty-sir/src/lower/ty.rs` — type translation
+- `crates/mty-sir/src/lower/ctx.rs` — `LowerCtx`, `FnBuilder`
+- `crates/mty-sir/src/interp/value.rs` — `Value`, `Frame`,
   `Reference`, `AgentHandle`
-- `crates/sdust-sir/src/interp/host.rs` — `Host`, `RealHost`,
+- `crates/mty-sir/src/interp/host.rs` — `Host`, `RealHost`,
   `BufferHost`
-- `crates/sdust-sir/src/interp/run.rs` — step loop + eval + builtins
-- `crates/sdust-cli/src/cmd/run.rs` — `sdust run` subcommand
-- `crates/sdust-cli/src/cmd/dump.rs` — `--sir` flag wiring
-- `crates/sdust-driver/src/pipeline.rs` — `lower_to_sir`, `run_file`
-- `crates/sdust-driver/tests/sir_lower_examples.rs` — 20-example smoke
-- `crates/sdust-driver/tests/interp_runnable.rs` — interp acceptance
-- `crates/sdust-driver/tests/conformance_runtime.rs` — corpus driver
+- `crates/mty-sir/src/interp/run.rs` — step loop + eval + builtins
+- `crates/mty-cli/src/cmd/run.rs` — `mty run` subcommand
+- `crates/mty-cli/src/cmd/dump.rs` — `--sir` flag wiring
+- `crates/mty-driver/src/pipeline.rs` — `lower_to_sir`, `run_file`
+- `crates/mty-driver/tests/sir_lower_examples.rs` — 20-example smoke
+- `crates/mty-driver/tests/interp_runnable.rs` — interp acceptance
+- `crates/mty-driver/tests/conformance_runtime.rs` — corpus driver
 - `tests/conformance/runtime/*` — 6 runtime cases
-- `crates/sdust-diagnostics/src/codes.rs` — MT5001..MT5050 + explain
+- `crates/mty-diagnostics/src/codes.rs` — MT5001..MT5050 + explain
 - `docs/internals/sir.md`, `docs/internals/interpreter.md` — new
-- `docs/reference/cli/sdust-run.md` — new
-- `docs/getting-started.md` — extended with `sdust run`
+- `docs/reference/cli/mty-run.md` — new
+- `docs/getting-started.md` — extended with `mty run`
 - `docs/spec/v0.1-amendments.md` — A31..A35

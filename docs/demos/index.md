@@ -8,13 +8,13 @@ PowerShell) and a step-by-step README in its own directory.
 | Demo | Source | Smoke | What it shows |
 |------|--------|-------|---------------|
 | `01_search_api` | [`demos/01_search_api/`](../../demos/01_search_api/) | `bash demos/01_search_api/smoke.sh` | Protocol-shaped HTTP service: agent + per-handler state + JSON-shaped responses |
-| `02_counter_web` | [`demos/02_counter_web/`](../../demos/02_counter_web/) | `bash demos/02_counter_web/smoke.sh` | Wasm Component Model output via `sdust build --target wasm32-web`, browser-side host that consumes the `log` import |
+| `02_counter_web` | [`demos/02_counter_web/`](../../demos/02_counter_web/) | `bash demos/02_counter_web/smoke.sh` | Wasm Component Model output via `mty build --target wasm32-web`, browser-side host that consumes the `log` import |
 | `03_extract_tool` | [`demos/03_extract_tool/`](../../demos/03_extract_tool/) | `bash demos/03_extract_tool/smoke.sh` | Top-level `sandbox` with budget + cap allow-lists, agent-driven token classifier |
 
 ## Running all three
 
 ```bash
-cargo build -p sdust-cli
+cargo build -p mty-cli
 for d in demos/0*/; do bash "$d/smoke.sh"; done
 ```
 

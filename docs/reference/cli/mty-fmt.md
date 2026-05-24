@@ -1,11 +1,11 @@
-# sdust fmt
+# mty fmt
 
 Format `.sd` files in place, or format from standard input.
 
 ## Synopsis
 
 ```
-sdust fmt [OPTIONS] [PATHS]...
+mty fmt [OPTIONS] [PATHS]...
 ```
 
 ## Arguments
@@ -45,23 +45,23 @@ sdust fmt [OPTIONS] [PATHS]...
 Format a single file in place:
 
 ```bash
-sdust fmt src/main.sd
+mty fmt src/main.sd
 ```
 
 Format every `.sd` file under `src/`:
 
 ```bash
-sdust fmt src/
+mty fmt src/
 ```
 
 Use as a pre-commit gate:
 
 ```bash
-sdust fmt --check src/
+mty fmt --check src/
 ```
 
 Pipe through stdin:
 
 ```bash
-cat src/main.sd | sdust fmt --stdin
+cat src/main.sd | mty fmt --stdin
 ```

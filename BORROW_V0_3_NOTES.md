@@ -1,7 +1,7 @@
 # Borrow checker v0.3 — interpretation notes
 
 This file captures the design choices made while hardening
-`sdust-borrow` from the slice-4 lexical/whole-local checker to v0.3's
+`mty-borrow` from the slice-4 lexical/whole-local checker to v0.3's
 NLL-lite + field-level + precise-MT3009 implementation. New amendments:
 **A54 (field places), A55 (NLL last-use), A56 (MT3009 precise)**.
 
@@ -105,7 +105,7 @@ than silently accepted:
   in iteration N+1 isn't modelled; the conservative scope-end decay
   catches obvious leaks but not the subtle ones.
 - **Cross-fn region inference**: there are no explicit lifetime
-  parameters in Stardust yet; fn signatures with two `&T` params that
+  parameters in Mighty yet; fn signatures with two `&T` params that
   must outlive each other can't be expressed. Likely punted to v0.5+.
 - **Move-out-of-deref-of-deref**: `move **ref_ref` — the deeper deref
   case is detected as deref-of-something-typed-`&&T`, and v0.3's
@@ -130,9 +130,9 @@ afterwards. v0.4 ticket.
 
 | Concern               | File                                       |
 |-----------------------|--------------------------------------------|
-| Place algebra         | `crates/sdust-borrow/src/place.rs`         |
-| Last-use pre-pass     | `crates/sdust-borrow/src/nll.rs`           |
-| Borrow ledger         | `crates/sdust-borrow/src/state.rs` (`BorrowLedger`) |
+| Place algebra         | `crates/mty-borrow/src/place.rs`         |
+| Last-use pre-pass     | `crates/mty-borrow/src/nll.rs`           |
+| Borrow ledger         | `crates/mty-borrow/src/state.rs` (`BorrowLedger`) |
 | Place-aware borrow check | `flow.rs::try_place_borrow`             |
 | MT3009 detector       | `flow.rs::check_deref_move`                |
 | NLL decay hook        | `flow.rs::maybe_decay_after_use`           |
@@ -140,10 +140,10 @@ afterwards. v0.4 ticket.
 
 ## Tests added
 
-- `crates/sdust-borrow/tests/nll_last_use.rs` (3 cases)
-- `crates/sdust-borrow/tests/field_disjoint.rs` (2 cases)
-- `crates/sdust-borrow/tests/field_overlap.rs` (2 cases)
-- `crates/sdust-borrow/tests/sd3009_move_via_ref.rs` (3 cases)
+- `crates/mty-borrow/tests/nll_last_use.rs` (3 cases)
+- `crates/mty-borrow/tests/field_disjoint.rs` (2 cases)
+- `crates/mty-borrow/tests/field_overlap.rs` (2 cases)
+- `crates/mty-borrow/tests/sd3009_move_via_ref.rs` (3 cases)
 - `tests/conformance/borrow_checking/05_nll_last_use/`
 - `tests/conformance/borrow_checking/06_field_disjoint/`
 - `tests/conformance/borrow_checking/07_field_overlap/`
@@ -163,7 +163,7 @@ in `docs/spec/borrow-model-v0.3.md`.
 This change set was authored by the borrow-checker swarm agent. It
 touches ONLY:
 
-- `crates/sdust-borrow/**`
+- `crates/mty-borrow/**`
 - `docs/internals/borrowck.md`
 - `docs/tour/14-ownership.md`
 - `docs/spec/borrow-model-v0.3.md` (new)

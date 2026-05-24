@@ -78,4 +78,4 @@ pattern. The MT4010 capability_too_broad check itself is unchanged
 in v0.3; case-shape coverage lives in
 `tests/conformance/capability_checking/04_cap_too_broad/` with the
 positive-fire path exercised by the
-`cap_subsumption_path_too_broad` unit test in sdust-types.
+`cap_subsumption_path_too_broad` unit test in mty-types.

@@ -25,7 +25,7 @@ mid-iteration. Implementations can be either:
 
 ### Range (`lo..hi`, `lo..=hi`)
 
-`crates/sdust-sir/src/lower/exprs.rs::lower_binop` lowers `Range` /
+`crates/mty-sir/src/lower/exprs.rs::lower_binop` lowers `Range` /
 `RangeEq` to `TupleInit(lo, hi, inclusive_marker)`. The marker is a
 `Bool` literal embedded so the iterator can pick the right termination
 predicate at runtime:
@@ -56,7 +56,7 @@ trait Iter[T] {
 }
 ```
 
-…and have the SIR for-lowering call `iter.next()` instead of the
+…and have the MtyIR for-lowering call `iter.next()` instead of the
 permissive `__sdust_iter_next` synthetic. The wire-level tuple shape
 above is an intentional intermediate so user iterables can be added
 without touching the lowerer, just by registering a method on the

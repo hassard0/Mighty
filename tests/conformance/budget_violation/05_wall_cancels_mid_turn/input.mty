@@ -1,9 +1,9 @@
 // v0.3 (A41 closure): wall budget cancels mid-turn.
 //
 // Driven through the SIR interp this looks just like 03_wall_timeout
-// — the deadline-fire path requires the runtime crate (sdust-runtime)
+// — the deadline-fire path requires the runtime crate (mty-runtime)
 // because the SIR interp has no concept of wall-clock cancellation.
-// The harness is sdust-driver based and consequently this case is
+// The harness is mty-driver based and consequently this case is
 // `#[ignore]`-tagged; a real runtime-driven harness lands in v0.3
 // follow-on work. The shape is preserved here so the spec → test
 // mapping stays explicit.

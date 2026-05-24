@@ -1,4 +1,4 @@
-//! Rust + Tokio comparator. Same shape as the Stardust mailbox:
+//! Rust + Tokio comparator. Same shape as the Mighty mailbox:
 //! one-shot `send` on a bounded mpsc, drain on the same task.
 //!
 //! Usage: `cargo run --release -- 1000` (iterations).

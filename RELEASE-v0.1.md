@@ -1,46 +1,46 @@
-# Stardust v0.1 — Release Notes
+# Mighty v0.1 — Release Notes
 
 **Tag:** `v0.1.0`
 **Date:** 2026-05-24
 **Status:** SHIPPED — first feature-complete release
 
-Stardust is an agent-first systems programming language. v0.1 is the
+Mighty is an agent-first systems programming language. v0.1 is the
 first release that walks the full spec §31 roadmap: parser through
-borrow-check through SIR through runtime through native + Wasm
-codegen. You can write, type-check, run, and compile real Stardust
+borrow-check through MtyIR through runtime through native + Wasm
+codegen. You can write, type-check, run, and compile real Mighty
 programs end-to-end.
 
 ## What you can do
 
 ```bash
 # Compile the toolchain
-cargo install --path crates/sdust-cli
+cargo install --path crates/mty-cli
 
 # Scaffold a new package
-sdust new hello && cd hello
+mty new hello && cd hello
 
 # Type-check
-sdust check src/main.sd
+mty check src/main.sd
 
 # Run via JIT (Cranelift), falls back to interpreter on shapes the
 # slice-8 backend doesn't yet cover
-sdust run src/main.sd
+mty run src/main.sd
 
 # Build a native object (linker-permitting, a real executable)
-sdust build src/main.sd
+mty build src/main.sd
 
 # Build a WebAssembly module
-sdust build --target wasm32-wasi src/main.sd
+mty build --target wasm32-wasi src/main.sd
 wasmtime target/main.wasm
 
 # Format
-sdust fmt src/
+mty fmt src/
 
 # Inspect IR
-sdust dump --sir src/main.sd
+mty dump --sir src/main.sd
 
 # Explain any diagnostic code
-sdust explain MT8005
+mty explain MT8005
 ```
 
 ## The eight slices
@@ -52,7 +52,7 @@ sdust explain MT8005
 | 3 | type checker, generics MVP, `?` propagation | `v0.3.0-typeck` | +30 |
 | 4 | ownership / borrow / affine / arena | `v0.4.0-borrowck` | +25 |
 | 5 | effects, capabilities, traits, `dyn`, derives | `v0.5.0-effects` | +20 |
-| 6 | SIR and interpreter | `v0.6.0-sir` | +17 |
+| 6 | MtyIR and interpreter | `v0.6.0-sir` | +17 |
 | 7 | runtime MVP (scheduler, mailboxes, supervisors) | `v0.7.0-runtime` | +37 |
 | 8 | native (Cranelift) and Wasm backends | `v0.8.0-codegen` | +49 |
 | **Total** | | **`v0.1.0`** | **376 passing** |
@@ -74,7 +74,7 @@ All v0.1 surfaces are shipped:
 
 - Logos lexer, rowan CST, Pratt-style expression parser, error recovery
 - HIR with name resolution and arena storage
-- Wadler/Lindig pretty-printer (`sdust fmt`)
+- Wadler/Lindig pretty-printer (`mty fmt`)
 - Bidirectional type checker with Hindley-Milner inference
 - Generics with MVP monomorphization
 - `?`-propagation for `Result` types
@@ -82,13 +82,13 @@ All v0.1 surfaces are shipped:
 - Effect system + capabilities (`fs`, `net`, `time`, `rand`, `model`)
 - Trait dispatch + `dyn Trait` fat pointers + derives
 - Strict protocol enforcement for agent message handling
-- Mid-level IR (SIR) with basic-block form
-- Tree-walking interpreter (`sdust run --legacy-interp`)
+- Mid-level IR (MtyIR) with basic-block form
+- Tree-walking interpreter (`mty run --legacy-interp`)
 - Tokio-backed concurrent runtime with mailboxes, supervisors, deadline
   timers, deterministic mode, telemetry, mini HTTP server
-- Cranelift JIT for `sdust run` (default)
+- Cranelift JIT for `mty run` (default)
 - Cranelift AOT object emission + platform linker for
-  `sdust build --target native`
+  `mty build --target native`
 - Wasm core-module emission for `wasm32-wasi` and `wasm32-web`
 - Real `bumpalo`-backed arena allocator
 - `libloading`-backed `extern { fn ... }` resolution
@@ -112,7 +112,7 @@ implementation. The most consequential:
 - **A39** — Deterministic mode = current-thread + seeded RNG + logical clock
 - **A46** — Cranelift-only native backend (LLVM scaffold-only in v0.1)
 - **A47** — Wasm Component Model deferred to v0.2
-- **A48** — `sdust run` defaults to JIT
+- **A48** — `mty run` defaults to JIT
 - **A52** — Native linker discovery order
 
 See `docs/spec/v0.1-amendments.md` for the full list.
@@ -125,7 +125,7 @@ What's NOT in v0.1, intentionally:
 - Package manager + registry
 - LLVM backend code generation (scaffold ships in slice 8)
 - Full Wasm Component Model + `wit-component` integration
-- Full SIR coverage in native codegen (ADT construct/destructure,
+- Full MtyIR coverage in native codegen (ADT construct/destructure,
   `?` propagation, agent dispatch via compiled handlers)
 - Per-(fn, type-args) shared-generic monomorphization
 - PGO / ThinLTO
@@ -148,9 +148,9 @@ Future v0.1.x patch releases will not break any of:
 
 - Source-code syntax (slice 1-5 surface)
 - Diagnostic codes
-- `sdust check` / `sdust run` / `sdust build` / `sdust fmt` / `sdust dump` /
-  `sdust explain` / `sdust new`
-- Public Rust API of `sdust-driver`
+- `mty check` / `mty run` / `mty build` / `mty fmt` / `mty dump` /
+  `mty explain` / `mty new`
+- Public Rust API of `mty-driver`
 
 v0.2 may evolve these.
 
@@ -164,10 +164,10 @@ and tagged. Slice-leaders carried context across pre-emptions; the
 test count is the truest measure of "did it land?".
 
 Big thanks to the Cranelift, bumpalo, libloading, wasm-encoder, and
-rowan teams — Stardust v0.1 stands on those shoulders.
+rowan teams — Mighty v0.1 stands on those shoulders.
 
 ## What's next
 
-v0.2 picks up the LLVM backend, completes SIR coverage in codegen,
+v0.2 picks up the LLVM backend, completes MtyIR coverage in codegen,
 and ships the Wasm Component Model wrapper. The aspirational v0.2
 tagline: *"every example compiles to a real binary"*.

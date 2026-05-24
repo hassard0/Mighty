@@ -1,6 +1,6 @@
 # 10 — Capabilities
 
-A capability is a value that grants authority. Code in Stardust cannot
+A capability is a value that grants authority. Code in Mighty cannot
 do I/O unless it holds a capability that confers it. Capabilities are
 ordinary values, plumbed through function and constructor parameters.
 
@@ -35,7 +35,7 @@ agent Fetcher(net, clock): Fetch {
 ## Run it
 
 ```bash
-sdust check examples/13_capabilities.sd
+mty check examples/13_capabilities.sd
 ```
 
 ## Next

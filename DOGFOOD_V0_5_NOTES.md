@@ -9,21 +9,21 @@ the work that was scope-cut to v0.6.
 
 ### Decision: process-wide registry + default echo dispatcher
 
-**Why.** The SIR interpreter's dispatcher signature is
+**Why.** The MtyIR interpreter's dispatcher signature is
 `(path, method, args) -> Value`. It has no `&mut Interp` and no
 back-channel to the owning agent. A direct
 `serve(addr, agent_handle)` call therefore can't immediately do
 `agent_handle?Request(req)` because there's nothing in the dispatch
 shape that knows how to post into an agent mailbox.
 
-**Stopgap.** A new `sdust-stdlib::http_server` module owns a
+**Stopgap.** A new `mty-stdlib::http_server` module owns a
 process-wide tokio runtime + a handle registry. `start_blocking(addr)`
 binds a TCP socket, returns `(handle_id, bound_addr)`, and spawns a
 hyper accept loop that runs the *currently installed* `AgentDispatch`
 closure on every request. The default dispatcher returns
 `200 OK { "method": "GET", "path": "/health", "status": "ok" }` so
 the bound-socket smoke test in
-`crates/sdust-stdlib/tests/http_serve_real.rs` roundtrips cleanly
+`crates/mty-stdlib/tests/http_serve_real.rs` roundtrips cleanly
 even without a runtime-side agent integration.
 
 **v0.6 follow-up.** Runtime calls `install_agent_dispatch(closure)`
@@ -36,24 +36,24 @@ the runtime knows how to look up agents by handle id.
 
 ## Gap 2 — Wasm DOM lowering
 
-### Decision: ship the imports + WIT; defer SIR-side lowering
+### Decision: ship the imports + WIT; defer MtyIR-side lowering
 
-**Why.** The full chain SIR `MethodCall("dom.set_text", ...)` → Wasm
-`Call(idx)` requires a new SIR builtin/effect surface that other
+**Why.** The full chain MtyIR `MethodCall("dom.set_text", ...)` → Wasm
+`Call(idx)` requires a new MtyIR builtin/effect surface that other
 swarm agents own (and that the loop-agent + macros-agent are
 actively reshaping). Trying to inject a `BuiltinId::Dom(...)`
-variant into `sdust-sir::sir::BuiltinId` would race them.
+variant into `mty-sir::sir::BuiltinId` would race them.
 
-**Stopgap.** `crates/sdust-codegen-wasm/src/wit.rs` now imports
-`stardust:web/dom` and expands the interface to (set-text, get-text,
+**Stopgap.** `crates/mty-codegen-wasm/src/wit.rs` now imports
+`mighty:web/dom` and expands the interface to (set-text, get-text,
 on-click, query) plus the legacy v0.4 handle-based ops; `emit.rs`
-declares 4 core-wasm imports under `stardust:web/dom` with the
+declares 4 core-wasm imports under `mighty:web/dom` with the
 matching `(ptr, len)` signatures. `emit_dom_call(op, &mut wfn)`
 is wired and reserved (`#[allow(dead_code)]`) for the future
 lowering pass. The companion JS shim
 [`demos/02_counter_web/web/dom-shim.js`](demos/02_counter_web/web/dom-shim.js)
 implements every DOM op against `document.*` so a hand-written
-core-module test (or a future Stardust-side `dom.set_text` call)
+core-module test (or a future Mighty-side `dom.set_text` call)
 runs end-to-end.
 
 **v0.6 follow-up.** Add a `BuiltinId::Dom { op: DomOp }` (or route
@@ -64,7 +64,7 @@ through `EffectOp::GenericCall` with `path = ["dom"]`); update
 
 ### Decision: ship complete real impls in `eval_method`
 
-`sdust-sir::interp::run::eval_method` now binds real
+`mty-sir::interp::run::eval_method` now binds real
 `contains`, `starts_with`, `ends_with`, `find` (Option[USize]),
 `char_at` (Option[Char]), `slice(start, end)` (Option[Str]),
 `to_lower` / `to_upper`, `trim` / `trim_start` / `trim_end`,
@@ -74,12 +74,12 @@ and Vec helpers `get` / `first` / `last` / `iter`.
 
 Each method routes through a small helper closure (`arg_str`,
 `arg_usize`, `some`, `none`) for argument coercion + Option
-construction. Test coverage in `crates/sdust-sir/tests/string_methods.rs`.
+construction. Test coverage in `crates/mty-sir/tests/string_methods.rs`.
 
 ### Interpretation call: receiver-type-agnostic `contains`
 
 `contains` works on both `Str` (substring search) and `Array` (linear
-scan for equality). Stardust source `arr.contains(x)` now matches
+scan for equality). Mighty source `arr.contains(x)` now matches
 the Rust shape, which lets future agent code drop the per-element
 `==` workaround that v0.4 Demo 03 used.
 
@@ -101,10 +101,10 @@ unchanged (it implicitly passes `mem_budget = 0` ≡ "no cap").
 
 Downstream `match RunResult` arms updated in:
 
-- `sdust-runtime::agent` (per-turn outcome → RuntimeError)
-- `sdust-driver::pipeline::run_file_with_runtime` (CLI exit code)
-- `sdust-stdlib::test` (Stardust test runner)
-- `sdust-driver/tests/conformance_full.rs` (conformance harness)
+- `mty-runtime::agent` (per-turn outcome → RuntimeError)
+- `mty-driver::pipeline::run_file_with_runtime` (CLI exit code)
+- `mty-stdlib::test` (Mighty test runner)
+- `mty-driver/tests/conformance_full.rs` (conformance harness)
 
 ### Interpretation call: charge AdtInit / Tuple / Array, not every step
 
@@ -119,12 +119,12 @@ is heap-equivalent).
 
 ### Decision: process-wide default cap installed by the driver
 
-**Why.** The SIR lowerer doesn't yet materialise per-call caps from
+**Why.** The MtyIR lowerer doesn't yet materialise per-call caps from
 the sandbox manifest into the call shape; the `std.fs.read(path)`
-call SIR sees has no `Cap` arg today. Reworking the lowerer would
+call MtyIR sees has no `Cap` arg today. Reworking the lowerer would
 require touching files the loop agent owns.
 
-**Stopgap.** `sdust-stdlib::fs` gains a process-wide
+**Stopgap.** `mty-stdlib::fs` gains a process-wide
 `DEFAULT_READ_CAP` / `DEFAULT_WRITE_CAP` slot with
 `install_default_read_cap(cap) -> previous_cap` /
 `install_default_write_cap(cap)` setters and
@@ -151,8 +151,8 @@ global slot becomes the fallback path for un-sandboxed runs.
   exercises every handler; the bound-socket path is verified by
   the dedicated integration test.
 - **Demo 02 rewrite to use real DOM bindings**: the WIT + core
-  imports + JS shim ship in v0.5, but the SIR → Wasm lowering of
-  `dom.set_text(...)` to `Call(dom_set_text_idx)` requires a SIR
+  imports + JS shim ship in v0.5, but the MtyIR → Wasm lowering of
+  `dom.set_text(...)` to `Call(dom_set_text_idx)` requires a MtyIR
   builtin/effect surface I don't own.
 - **Demo 03 `breach.sd` actually trapping**: the budget machinery
   is wired; the demo's smoke script just needs an update to assert
@@ -160,18 +160,18 @@ global slot becomes the fallback path for un-sandboxed runs.
 
 ## Files modified (this slice)
 
-- `crates/sdust-stdlib/src/{fs,host,lib,test}.rs`
-- `crates/sdust-stdlib/src/http_server.rs` (new)
-- `crates/sdust-stdlib/tests/{fs_capability_allowlist,http_serve_real}.rs` (new)
-- `crates/sdust-codegen-wasm/src/{wit,emit}.rs`
-- `crates/sdust-codegen-wasm/tests/dom_imports.rs` (new)
-- `crates/sdust-sir/src/interp/run.rs` (eval_method + budget; loop
+- `crates/mty-stdlib/src/{fs,host,lib,test}.rs`
+- `crates/mty-stdlib/src/http_server.rs` (new)
+- `crates/mty-stdlib/tests/{fs_capability_allowlist,http_serve_real}.rs` (new)
+- `crates/mty-codegen-wasm/src/{wit,emit}.rs`
+- `crates/mty-codegen-wasm/tests/dom_imports.rs` (new)
+- `crates/mty-sir/src/interp/run.rs` (eval_method + budget; loop
   agent owns the loop terminator sections)
-- `crates/sdust-sir/tests/{string_methods,budget_charges}.rs` (new)
-- `crates/sdust-runtime/src/agent.rs` (RunResult arm)
-- `crates/sdust-runtime/tests/http_serve_real.rs` (new)
-- `crates/sdust-driver/src/pipeline.rs` (RunResult arm)
-- `crates/sdust-driver/tests/conformance_full.rs` (RunResult arm)
+- `crates/mty-sir/tests/{string_methods,budget_charges}.rs` (new)
+- `crates/mty-runtime/src/agent.rs` (RunResult arm)
+- `crates/mty-runtime/tests/http_serve_real.rs` (new)
+- `crates/mty-driver/src/pipeline.rs` (RunResult arm)
+- `crates/mty-driver/tests/conformance_full.rs` (RunResult arm)
 - `demos/01_search_api/README.md` (v0.5 update note)
 - `demos/02_counter_web/README.md` (v0.5 update note)
 - `demos/02_counter_web/web/dom-shim.js` (new)

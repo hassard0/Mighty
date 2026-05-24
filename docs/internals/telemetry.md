@@ -68,7 +68,7 @@ objects, no Unicode escapes beyond what `serde_json` would do (slice
 
 ## Tests
 
-`crates/sdust-runtime/src/telemetry.rs` (inline `#[cfg(test)] mod tests`):
+`crates/mty-runtime/src/telemetry.rs` (inline `#[cfg(test)] mod tests`):
 
 1. JSON shapes for representative events.
 2. `BufferSink` captures emitted lines in order.

@@ -94,7 +94,7 @@ slot.
 | Cooperative cancellation     | `tokio::select!` over a per-turn `CancellationToken` |
 | Deadline-aware polling       | `with_deadline(d, fut)` wraps reply oneshots |
 | Backpressure on mailboxes    | bounded MPSC + `SendPolicy::Block` (default) |
-| Task-local arenas            | per-turn arena push/pop in SIR interp |
+| Task-local arenas            | per-turn arena push/pop in MtyIR interp |
 | Agent turn fairness          | each agent is one tokio task; yields between turns |
 | Multi-core throughput        | **N worker threads, default `available_parallelism()`** |
 

@@ -18,22 +18,22 @@ agent while closing the four known v0.2 loose ends listed in
 ### Approach
 
 Picked Option B from the slice brief (process-wide dependency
-injection from `sdust-cli::main`) over Option A (split runner into
+injection from `mty-cli::main`) over Option A (split runner into
 a fresh shim crate). Rationale:
 
 - One-line edit per Cargo.toml; no new crates.
-- The dep-cycle problem (`sdust-stdlib --features runner` →
-  `sdust-driver` → workspace) is sidestepped by depending on
-  `sdust-stdlib` with `default-features = false` in `sdust-cli`.
+- The dep-cycle problem (`mty-stdlib --features runner` →
+  `mty-driver` → workspace) is sidestepped by depending on
+  `mty-stdlib` with `default-features = false` in `mty-cli`.
 - The existing `sdust_runtime::host_std::install_dispatcher` slot
   is already designed for this (A58); we just feed it.
 
 ### Implementation
 
-`crates/sdust-cli/src/main.rs` defines `cli_std_dispatch` and calls
+`crates/mty-cli/src/main.rs` defines `cli_std_dispatch` and calls
 `sdust_runtime::host_std::install_dispatcher(cli_std_dispatch)` before
 clap parses any args. The dispatcher wraps `sdust_stdlib::host::dispatch`
-with one extra try: paths that lose the `std.` prefix during SIR
+with one extra try: paths that lose the `std.` prefix during MtyIR
 lowering (e.g. `use std.json; json.parse(...)` lowers to a
 `["json"]` path, not `["std", "json"]`) are retried with `std.`
 re-prepended. Without the wrapper, only fully-qualified call sites
@@ -42,15 +42,15 @@ re-prepended. Without the wrapper, only fully-qualified call sites
 ### Driver-side fix
 
 `run_file` and `run_file_with_runtime` in
-`crates/sdust-driver/src/pipeline.rs` used `sdust_sir::interp::RealHost`,
+`crates/mty-driver/src/pipeline.rs` used `sdust_sir::interp::RealHost`,
 which doesn't override `effect_call` (returns `Value::Unit`). Swapped
 both to `sdust_runtime::host_std::StdHost::new(...)` so the dispatcher
 actually fires. The new `StdHost` carries an inert `Budget::default()`
-tracker — sandbox enforcement is no stricter than before for `sdust run`.
+tracker — sandbox enforcement is no stricter than before for `mty run`.
 
 ### Verification
 
-`sdust run` of a fixture calling `std.json.parse("{\"hello\":42}")`
+`mty run` of a fixture calling `std.json.parse("{\"hello\":42}")`
 now prints `{"hello":42.0}` (real serde_json round-trip), not `()`.
 Confirmed for both `use std.json; json.parse(...)` and the
 fully-qualified `std.json.parse(...)` shapes.
@@ -62,7 +62,7 @@ fully-qualified `std.json.parse(...)` shapes.
 The v0.2 hypothesis was "Component Model rejects examples without
 `fn main()`". That's only half the story: the Component encoder in
 fact rejects any WIT-declared world export that lacks a matching
-core-wasm export, and `sdust-codegen-wasm::wit::is_exportable_fn`
+core-wasm export, and `mty-codegen-wasm::wit::is_exportable_fn`
 considers every top-level fn (including `extern` declarations) a
 candidate. Adding a `main` alone wasn't enough — the helpers / externs
 needed to become private too, since the slice-8 core-wasm emitter
@@ -74,9 +74,9 @@ exports only `main`.
   examples.
 - Prefixed every non-`main` top-level identifier in those examples
   with `_` so `is_exportable_fn` filters them out. This includes
-  `extern` decls and `export c fn` exports — Stardust's "private"
+  `extern` decls and `export c fn` exports — Mighty's "private"
   convention (leading underscore) is the only knob available without
-  modifying codegen-wasm or sdust-sir.
+  modifying codegen-wasm or mty-sir.
 - For examples 05 and 17, the helper return value isn't logged
   directly: Cranelift native codegen (used by the workspace's
   `all_examples_compile_native` test) only accepts string-*literal*
@@ -106,9 +106,9 @@ See `CONFORMANCE_V0_3_NOTES.md` for per-case details. Summary:
 
 - **2 still ignored** (blocked on changes in other agents' crates):
   - `capability_checking/03_narrow_to_ro` — needs `Fs.ro` cap
-    narrowing in `sdust-types`.
+    narrowing in `mty-types`.
   - `supervisor_restart/02_escalate` — needs `escalate` action in
-    the `sdust-syntax` parser.
+    the `mty-syntax` parser.
 
 Floor in `conformance_full.rs` lifted back to `>= 25` (was loosened
 to `>= 25` for v0.2; cleanup keeps the same floor since the new
@@ -147,10 +147,10 @@ scope); the docs are for future swarm runs that have access to one.
 
 | Path | Reason |
 |---|---|
-| `crates/sdust-cli/Cargo.toml` | + `sdust-stdlib` (no-default), `sdust-runtime` |
-| `crates/sdust-cli/src/main.rs` | install dispatcher at startup |
-| `crates/sdust-driver/src/pipeline.rs` | swap `RealHost` → `StdHost` |
-| `crates/sdust-driver/tests/conformance_full.rs` | trim IGNORED list, add per-case `step_budget.txt` knob |
+| `crates/mty-cli/Cargo.toml` | + `mty-stdlib` (no-default), `mty-runtime` |
+| `crates/mty-cli/src/main.rs` | install dispatcher at startup |
+| `crates/mty-driver/src/pipeline.rs` | swap `RealHost` → `StdHost` |
+| `crates/mty-driver/tests/conformance_full.rs` | trim IGNORED list, add per-case `step_budget.txt` knob |
 | `examples/05_match_expr.sd` | add `fn main`, prefix helper |
 | `examples/06_for_while_loop.sd` | add `fn main`, prefix helpers + externs |
 | `examples/11_budget_block.sd` | add `fn main`, prefix helpers + externs |

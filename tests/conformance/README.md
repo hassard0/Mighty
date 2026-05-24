@@ -1,6 +1,6 @@
-# Stardust Conformance Suite
+# Mighty Conformance Suite
 
-Per Stardust v0.1 spec §37. Each subdirectory holds tests for one category.
+Per Mighty v0.1 spec §37. Each subdirectory holds tests for one category.
 
 Slice-1 categories (populated): `lexical/`, `parser/`, `formatter_idempotence/`.
 v0.5 additions: `control_flow/` (break, continue, iterator protocol — see
@@ -10,9 +10,9 @@ slices fill them.
 ## Running
 
 ```
-cargo test -p sdust-syntax --test parse_recovery
-cargo test -p sdust-fmt --test idempotence
-cargo test -p sdust-fmt --test round_trip
+cargo test -p mty-syntax --test parse_recovery
+cargo test -p mty-fmt --test idempotence
+cargo test -p mty-fmt --test round_trip
 ```
 
 ## Adding a test

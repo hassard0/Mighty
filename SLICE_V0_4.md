@@ -1,4 +1,4 @@
-# Stardust v0.4 — Complete
+# Mighty v0.4 — Complete
 
 **Tag:** `v0.4.0`
 **Date:** 2026-05-24
@@ -7,13 +7,13 @@
 compiler/runtime end-to-end, the package manager grows a real
 GitHub-Releases-backed registry transport, declarative macros
 expand for the first time with hygiene, the lexer is rewritten in
-Stardust source (subset bootstrap), and the long-standing
-single-iteration SIR loop bug is fixed.
+Mighty source (subset bootstrap), and the long-standing
+single-iteration MtyIR loop bug is fixed.
 
 v0.4 was built by a four-agent autonomous swarm (demos / registry /
 proc-macros / self-host lexer) over a single session, then
 integrated through this slice document. A single substantive
-integration-time fix — the SIR loop terminator — was applied to
+integration-time fix — the MtyIR loop terminator — was applied to
 unblock real iterative loops in the interpreter.
 
 ## What landed
@@ -32,12 +32,12 @@ real user would, with smoke scripts (`.sh` + `.ps1`) gating each.
   `count++` strings; a hand-rolled JS loader walks the component
   bytes, extracts the embedded core module, and renders the
   counter in the browser. Stopgap: JS parses log lines (the
-  `stardust:web/dom` import lowering isn't wired in
-  `sdust-codegen-wasm/src/emit.rs`).
+  `mighty:web/dom` import lowering isn't wired in
+  `mty-codegen-wasm/src/emit.rs`).
 - **`demos/03_extract_tool`** — a CLI that streams pre-tokenised
   inputs into a `Classify(token)` agent and prints a snapshot.
   Companion `breach.sd` shows the sandbox/budget shape; v0.4
-  accepts it completing (auto-charging in the SIR interpreter is
+  accepts it completing (auto-charging in the MtyIR interpreter is
   v0.5). Stopgap: `String::contains` returns `false`, so the
   extractor uses `==` against an inlined vocabulary.
 
@@ -52,18 +52,18 @@ Each demo's `smoke.sh` passes:
 See `DEMOS_V0_4_NOTES.md` for the full decision log and v0.5
 follow-ups per demo.
 
-### Real package registry transport — `sdust-pkg` (commits `fb91aea`, `058b027`)
+### Real package registry transport — `mty-pkg` (commits `fb91aea`, `058b027`)
 
 The v0.2 resolver shipped with a stubbed registry. v0.4 makes it
 real:
 
-- New `crates/sdust-pkg/src/registry.rs` — `[registry]` config,
+- New `crates/mty-pkg/src/registry.rs` — `[registry]` config,
   `RegistryIndex`, `AuthStore`, slug + tag parsing.
-- Rewrite of `crates/sdust-pkg/src/fetch/registry.rs` — GitHub
+- Rewrite of `crates/mty-pkg/src/fetch/registry.rs` — GitHub
   Releases REST client, on-disk index cache with 1-hour TTL +
   `If-Modified-Since`, sha256 sidecar verification, gzipped tar
   extraction with path-traversal guard.
-- Rewrite of `crates/sdust-pkg/src/publish.rs` — deterministic
+- Rewrite of `crates/mty-pkg/src/publish.rs` — deterministic
   `tar.gz` + sidecar bundles plus optional GitHub Releases upload.
 - Resolver wired to the cached index; falls back to the v0.2
   requirement-floor synthesis when no index is available.
@@ -71,9 +71,9 @@ real:
   `add` / `remove` / `update` / `fetch` / `list` / `publish` work
   unchanged from the user's POV.
 - URL scheme: `registry+gh://<owner>/<repo>` (legacy
-  `registry+https://...` rejected with a "re-run `sdust pkg update`"
+  `registry+https://...` rejected with a "re-run `mty pkg update`"
   hint).
-- Token storage at `~/.config/sdust/auth.toml` (mode 0600 on Unix,
+- Token storage at `~/.config/mty/auth.toml` (mode 0600 on Unix,
   user-profile ACLs on Windows); `SDUST_PKG_LOGIN_TOKEN` consumed
   by `pkg login`.
 - Offline-first: `add` / `update` never hit the network without
@@ -85,13 +85,13 @@ network test #[ignore]d, `publish_bundle`, `multi_registry_resolve`,
 interpretation calls (default slug, gz determinism, exit code on
 no-token, …).
 
-### Hygienic declarative macros — `sdust-macros` (commit `c636dbc`)
+### Hygienic declarative macros — `mty-macros` (commit `c636dbc`)
 
 The v0.4 macro slice ships expansion + hygiene + HIR integration.
 
-- New `crates/sdust-macros/` — registry + expander + diag-code
+- New `crates/mty-macros/` — registry + expander + diag-code
   constants (pure library, no I/O).
-- `crates/sdust-hir/src/lower/macros.rs` — preprocessor: walks the
+- `crates/mty-hir/src/lower/macros.rs` — preprocessor: walks the
   source, calls `sdust_macros::preprocess`, plugs the rewritten
   source back into the parser before the normal lowering walk.
 - **Hygiene via mangling** — `let IDENT` bindings inside an
@@ -100,7 +100,7 @@ The v0.4 macro slice ships expansion + hygiene + HIR integration.
   `tmp`. (Set-of-scopes is documented as the v0.5 upgrade path.)
 - **MT6001..MT6004** — bare `u16` codes living in
   `sdust_macros::diag` (the slice scope precluded modifying
-  `sdust-diagnostics`). The HIR integration wraps them in
+  `mty-diagnostics`). The HIR integration wraps them in
   `DiagCode::new(N)` at emission.
 - **Substituted arguments paren-wrapped** to preserve operator
   precedence (the HIR is identical post-parse).
@@ -115,7 +115,7 @@ calls.
 
 ### Self-host lexer (subset) — `selfhost/` (commits `913d15c`, `86e3d67`, `53b4673`)
 
-The Stardust lexer is rewritten in Stardust source as the v0.4
+The Mighty lexer is rewritten in Mighty source as the v0.4
 self-hosting beachhead. **Subset** = compiles + type/borrow-checks
 cleanly, scans the first token through the host bridge; the full
 diff vs the Rust lexer is gated on v0.5 work (`break`/`continue`
@@ -123,16 +123,16 @@ HIR nodes + iterator protocol).
 
 - `selfhost/lexer/lexer.sd` — full state machine (every keyword,
   every punctuation token, every literal kind, comments,
-  identifiers). Hand-written, mirrors `crates/sdust-syntax/src/lexer.rs`.
+  identifiers). Hand-written, mirrors `crates/mty-syntax/src/lexer.rs`.
 - `selfhost/lexer/lib.sd` + `syntax_kind.sd` — decomposed shape
   for documentation; v0.4 uses a consolidated `lexer.sd` because
   cross-file `use` is post-v0.5.
-- Host bridge through the `std.io` effect (the SIR lowerer
+- Host bridge through the `std.io` effect (the MtyIR lowerer
   recognises module-typed receivers and rewrites `std.io.lex_init
   (src)` into `Stmt::EffectInvoke { effect: io, op: GenericCall { …
   } }`). Five extern points: `lex_init`, `lex_len`,
   `lex_byte_at`, `lex_slice`, `lex_emit`.
-- New test `crates/sdust-driver/tests/selfhost_lexer.rs` — three
+- New test `crates/mty-driver/tests/selfhost_lexer.rs` — three
   active tests + one `#[ignore]` for the full v0.5 diff.
 
 Seven catalogued v0.3 language gaps documented in
@@ -140,9 +140,9 @@ Seven catalogued v0.3 language gaps documented in
 — now fixed in v0.4 — and the missing `break`/`continue` HIR
 nodes).
 
-### SIR loop terminator fix — integration-time substantive change
+### MtyIR loop terminator fix — integration-time substantive change
 
-`crates/sdust-sir/src/lower/exprs.rs` previously set the body
+`crates/mty-sir/src/lower/exprs.rs` previously set the body
 terminator of `lower_while` / `lower_loop` / `lower_for` to
 `Term::Goto(exit)`, collapsing every loop into a single iteration.
 The v0.4 self-host agent surfaced this as the dominant blocker.
@@ -175,9 +175,9 @@ land in v0.5).
 | v0.3.0 | 623 | +73 |
 | v0.4.0 | **692** | **+69** |
 
-0 failures, 3 ignored (1 network-bound git-fetch in `sdust-pkg`,
-1 network-bound registry-fetch in `sdust-pkg`, 1 v0.5-gated
-full-lexer-diff in `sdust-driver/tests/selfhost_lexer.rs`).
+0 failures, 3 ignored (1 network-bound git-fetch in `mty-pkg`,
+1 network-bound registry-fetch in `mty-pkg`, 1 v0.5-gated
+full-lexer-diff in `mty-driver/tests/selfhost_lexer.rs`).
 `cargo clippy --workspace --all-targets -- -D warnings` clean.
 `cargo fmt --all -- --check` clean.
 
@@ -189,8 +189,8 @@ Consolidated from the v0.3 `*_NOTES.md` set and `SLICE_V0_3.md`'s
 | Item | Status in v0.4 |
 |---|---|
 | Backtracking package resolver + tar/flate2 + real registry | **shipped** (registry agent: GH Releases transport, gz tar bundles, on-disk index cache, three new CLI commands) |
-| Procedural / declarative macros | **shipped — declarative** (sdust-macros: expansion + hygiene + MT6001..MT6004; proc macros remain v0.5+) |
-| Real `loop { break }` lowering (single-iteration loops in SIR) | **partially shipped** — SIR loops now iterate properly; `break`/`continue` HIR nodes remain v0.5 |
+| Procedural / declarative macros | **shipped — declarative** (mty-macros: expansion + hygiene + MT6001..MT6004; proc macros remain v0.5+) |
+| Real `loop { break }` lowering (single-iteration loops in MtyIR) | **partially shipped** — MtyIR loops now iterate properly; `break`/`continue` HIR nodes remain v0.5 |
 | 20/20 wasm-Component example sweep (v0.3 regression gate) | **held** (20/20 still passing) |
 | LSP integration test contract under A65 strict scopes | **held** (no regression) |
 | Two-phase borrows / deeper field paths (`s.a.b`) / index-aware disjointness | held — borrow checker untouched in v0.4 |
@@ -198,7 +198,7 @@ Consolidated from the v0.3 `*_NOTES.md` set and `SLICE_V0_3.md`'s
 | Slice-7 supervisor/cap-narrow strict cap-name resolution | held |
 | Function-signature cap-narrowing | held |
 | Cross-package Sendable propagation | held |
-| SIR-side cancellation polling (true mid-turn interrupt) | held |
+| MtyIR-side cancellation polling (true mid-turn interrupt) | held |
 | CpuBudget reason wiring | held |
 | HTTP/protobuf OTLP transport selector | held |
 | OTel resource-attribute env-vars | held |
@@ -219,7 +219,7 @@ A58 — MT6001..MT6004 macro diagnostic codes (v0.4)
 A59 — GitHub Releases registry transport + `registry+gh://<owner>/<repo>` URL scheme (v0.4)
 A60 — Offline-first resolver: `add` / `update` use cache; `--refresh` for network (v0.4)
 A61 — Deterministic `.tar.gz` bundles for `pkg publish` (v0.4)
-A62 — SIR loop terminator routes to header (loops iterate; `break` still v0.5) (v0.4)
+A62 — MtyIR loop terminator routes to header (loops iterate; `break` still v0.5) (v0.4)
 A63 — Self-host bootstrap via `std.io` effect bridge (v0.4)
 ```
 
@@ -236,7 +236,7 @@ A63 — Self-host bootstrap via `std.io` effect bridge (v0.4)
 | Macro arity / recursion-depth violations | n/a | **MT6001..MT6004 with span** (A58) |
 | Package fetch from registry | stubbed | **real GH Releases + sha256 + offline cache** (A59/A60) |
 | `pkg publish` bundle determinism | n/a | **byte-identical across runs** (A61) |
-| Lexer source bootstrap | external Rust only | **Stardust subset compiles + first-token round-trips via host bridge** (A63) |
+| Lexer source bootstrap | external Rust only | **Mighty subset compiles + first-token round-trips via host bridge** (A63) |
 
 ## New diagnostic codes
 
@@ -250,17 +250,17 @@ Four codes minted by the macros agent (bare `u16` in
   (`MAX_EXPANSION_DEPTH = 32`)
 - **MT6004** — macro_bad_argument_tokens
 
-These do not yet appear in `sdust-diagnostics::codes`; the cleanup
+These do not yet appear in `mty-diagnostics::codes`; the cleanup
 folds them into the central catalog in v0.5.
 
 ## Cross-cut fixes applied during integration
 
-1. **SIR loop terminator** (`crates/sdust-sir/src/lower/exprs.rs`)
+1. **MtyIR loop terminator** (`crates/mty-sir/src/lower/exprs.rs`)
    — `lower_while` / `lower_loop` / `lower_for` body terminator
    changed from `Goto(exit)` to `Goto(header)`. Documented inline
    with the v0.4 stopgap context (no `break` HIR yet, no iterator
    protocol yet — runaway loops bounded by step budget).
-2. **Selfhost lexer test update** (`crates/sdust-driver/tests/selfhost_lexer.rs`)
+2. **Selfhost lexer test update** (`crates/mty-driver/tests/selfhost_lexer.rs`)
    — `selfhost_lexer_first_token_matches` was written against the
    old single-iteration behaviour (expected exactly two emits:
    first token + trailing EOF after the one-shot loop). Post-fix,
@@ -299,7 +299,7 @@ v0.4 loop fix's residue.
 5. **`extern { fn ... }` real dispatch.** Bodyless extern fns
    currently lower to `return Unit`; route through
    `BuiltinId::Extern(name)` instead so `Host::extern_call` fires.
-6. **Cross-file module resolution.** Wire `sdust-pkg`'s module
+6. **Cross-file module resolution.** Wire `mty-pkg`'s module
    table into the resolver so `use selfhost_lexer.SyntaxKind`
    resolves transparently.
 7. **Real `Str` method intrinsics.** `String::contains` /
@@ -321,17 +321,17 @@ v0.4 loop fix's residue.
 
 14. **Create `hassard0/stardust-pkg-registry`** (or similar slug)
     and seed it with the stdlib.
-15. **Move `Manifest` into `sdust-pkg`**, leave a re-export in
-    `sdust-driver` (eliminates the duplicate-parse-of-`star.toml`
+15. **Move `Manifest` into `mty-pkg`**, leave a re-export in
+    `mty-driver` (eliminates the duplicate-parse-of-`mighty.toml`
     workaround).
 16. **`[package].include` / `.exclude` globs** for bundle
     contents.
 17. **Yanked-version support** (release-body marker + consumer
     warning).
-18. **`sdust pkg audit`** — security advisory cross-referencing.
+18. **`mty pkg audit`** — security advisory cross-referencing.
 19. **Signed releases** via sigstore/cosign.
 20. **Pluggable secret store** (Keychain / Credential Manager /
-    libsecret) replacing plaintext `~/.config/sdust/auth.toml`.
+    libsecret) replacing plaintext `~/.config/mty/auth.toml`.
 21. **Interactive `pkg login`** (post-TUI).
 22. **Real HTTP/registry-mirror backend** (`registry+https://`).
 
@@ -339,10 +339,10 @@ v0.4 loop fix's residue.
 
 23. **`std.http.serve` through `host::dispatch`** + an agent-side
     `Handler` adapter (unblocks `01_search_api`'s server form).
-24. **`stardust:web/dom` import lowering** in
-    `sdust-codegen-wasm/src/emit.rs` (unblocks `02_counter_web`'s
+24. **`mighty:web/dom` import lowering** in
+    `mty-codegen-wasm/src/emit.rs` (unblocks `02_counter_web`'s
     real DOM mutation).
-25. **Auto-charging in the SIR interpreter** so cpu/mem caps trip
+25. **Auto-charging in the MtyIR interpreter** so cpu/mem caps trip
     on pure-compute loops (unblocks `03_extract_tool`'s `breach.sd`).
 
 ### Carried from v0.3 (still open)
@@ -356,7 +356,7 @@ v0.4 loop fix's residue.
     `CapConstraint::And` into fn signatures).
 31. Cross-package Sendable propagation.
 32. Sendable lambda capture analysis.
-33. SIR-side cancellation polling (true mid-turn interrupt).
+33. MtyIR-side cancellation polling (true mid-turn interrupt).
 34. CpuBudget reason wiring.
 35. HTTP/protobuf OTLP transport selector.
 36. OTel resource-attribute env-vars
@@ -374,7 +374,7 @@ v0.4 loop fix's residue.
 - **8 commits since v0.2.0** — wait, since v0.3.0: one prep
   (`69de965`) + four swarm + 3 self-host-agent intra-swarm commits.
 - **8,322 insertions / 217 deletions** across 70 files.
-- **1 new crate** (`sdust-macros`) — workspace grows to **20**.
+- **1 new crate** (`mty-macros`) — workspace grows to **20**.
 - **+69 new tests** (623 → 692).
 - **0 clippy warnings** with `-D warnings`.
 - **20/20 examples build to native objects** (unchanged from v0.3).
@@ -404,11 +404,11 @@ v0.4 loop fix's residue.
    - `01_search_api` drives via `ask` rather than
      `std.http.serve` (dispatcher route missing).
    - `02_counter_web` uses JS to parse log lines because
-     `stardust:web/dom` import lowering isn't wired in
-     `sdust-codegen-wasm`.
+     `mighty:web/dom` import lowering isn't wired in
+     `mty-codegen-wasm`.
    - `03_extract_tool` uses string equality rather than
      `String::contains` (interpreter stub returns false); the
-     breach test runs to completion because the SIR interpreter
+     breach test runs to completion because the MtyIR interpreter
      has no auto-charging on pure-compute loops.
 4. **Macro hygiene is mangling-based, not set-of-scopes** — only
    `let IDENT` is mangled; pattern bindings (`let (a, b) = …`)
@@ -416,13 +416,13 @@ v0.4 loop fix's residue.
 5. **`mac!name(...)` syntactic marker not yet parsed** — MT6001
    stays reserved. Macros are detected via `CALL_EXPR` whose
    callee path matches a registered macro name.
-6. **`sdust-macros` SD6xxx codes** live in `sdust_macros::diag` as
-   bare `u16`, not in `sdust-diagnostics::codes` (slice scope).
+6. **`mty-macros` SD6xxx codes** live in `sdust_macros::diag` as
+   bare `u16`, not in `mty-diagnostics::codes` (slice scope).
 7. **No default registry** — the default slug
-   `stardust-pkg/registry` is reserved but not created. Network
+   `mighty-pkg/registry` is reserved but not created. Network
    fetches against it surface a clean 404. v0.5 creates the repo
    and seeds the stdlib.
-8. **Plaintext auth token** at `~/.config/sdust/auth.toml` (mode
+8. **Plaintext auth token** at `~/.config/mty/auth.toml` (mode
    0600 Unix; ACLs Windows). Pluggable secret store is post-v0.5.
 9. **Carried from v0.3**: 2 conformance cases still ignored, OTLP
    transport gRPC-only, LLVM backend untested on this build host,
@@ -441,7 +441,7 @@ v0.5 picks up the 43-item deferral list above. Likely themes:
   lexer.
 - **Real `String::contains` etc.** — interpreter intrinsics
   matching the Rust impls.
-- **Cross-file module resolution** — wire `sdust-pkg`'s module
+- **Cross-file module resolution** — wire `mty-pkg`'s module
   table into the resolver.
 - **Polonius-style borrow checker** — conditional-branch join
   refinement + two-phase borrows.
@@ -449,7 +449,7 @@ v0.5 picks up the 43-item deferral list above. Likely themes:
   pipeline.
 - **`std.http.serve` host bridge + agent Handler adapter**
   — unblocks `01_search_api`'s real server form.
-- **`stardust:web/dom` import lowering** — unblocks
+- **`mighty:web/dom` import lowering** — unblocks
   `02_counter_web`'s real DOM path.
 
 The aspirational v0.5 tagline: *"the compiler runs its own lexer

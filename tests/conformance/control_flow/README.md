@@ -3,7 +3,7 @@
 v0.5 conformance cases for the loop semantics added in slice A80 / A81.
 
 Each subdirectory holds one `input.sd` plus an `expected.txt`. The harness
-runs the input through the SIR interpreter and compares the program's exit
+runs the input through the MtyIR interpreter and compares the program's exit
 code (or the host's collected stdout where the case marks `mode: stdout`).
 
 | Case                 | Asserts                                                          |
@@ -15,7 +15,7 @@ code (or the host's collected stdout where the case marks `mode: stdout`).
 | `05_iter_range`      | `for i in 1..5` iterates exactly 4 times                         |
 
 The cases are intentionally tiny — they are mirrored by unit tests in
-`crates/sdust-sir/tests/loop_break.rs` / `loop_continue.rs` /
+`crates/mty-sir/tests/loop_break.rs` / `loop_continue.rs` /
 `for_range.rs`. The conformance suite here is the cross-crate witness:
 if either the parser or the interpreter regresses, both the unit test
 AND the conformance case fail. Two independent paths is the v0.1

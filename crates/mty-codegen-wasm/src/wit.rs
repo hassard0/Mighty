@@ -9,9 +9,9 @@
 //! - `enum` ADTs become `variant` types (or plain `enum` when none
 //!   of the variants carry payloads),
 //! - capability families (Fs, Net, …) referenced anywhere in the
-//!   program become component imports under `stardust:caps/<family>`,
+//!   program become component imports under `mty:caps/<family>`,
 //! - the host-provided `log` builtin is wired to `wasi:cli/print`
-//!   for `wasm32-wasi` and to `stardust:web/log` for `wasm32-web`.
+//!   for `wasm32-wasi` and to `mty:web/log` for `wasm32-web`.
 //!
 //! After we construct the textual WIT we feed it through
 //! `wit_parser::Resolve::push_str` for round-trip validation; any
@@ -107,7 +107,7 @@ pub fn emit_wit(prog: &Program, pkg_name: &str, target: WasmTarget) -> CompileRe
     writeln!(user_body, "world {} {{", world_name).unwrap();
     let log_iface = match target {
         WasmTarget::Wasi => "wasi:cli/log",
-        WasmTarget::Web => "stardust:web/log",
+        WasmTarget::Web => "mty:web/log",
     };
     writeln!(user_body, "  import {};", log_iface).unwrap();
     // v0.5 dogfood Gap-2 — web target also imports the real DOM
@@ -116,10 +116,10 @@ pub fn emit_wit(prog: &Program, pkg_name: &str, target: WasmTarget) -> CompileRe
     // (`demos/02_counter_web/web/dom-shim.js`) implements the imports
     // against `document.*`.
     if matches!(target, WasmTarget::Web) {
-        writeln!(user_body, "  import stardust:web/dom;").unwrap();
+        writeln!(user_body, "  import mty:web/dom;").unwrap();
     }
     for cap in &caps {
-        writeln!(user_body, "  import stardust:caps/{};", cap).unwrap();
+        writeln!(user_body, "  import mty:caps/{};", cap).unwrap();
     }
     for adt in &exported_adts {
         emit_adt(&mut user_body, adt)?;
@@ -157,11 +157,11 @@ pub fn emit_wit(prog: &Program, pkg_name: &str, target: WasmTarget) -> CompileRe
 
 /// Append host-package stubs (in nested-package syntax) so
 /// `wit_parser::Resolve` is satisfied without needing the actual
-/// `wasi:cli` / `stardust:web` packages on disk.
+/// `wasi:cli` / `mty:web` packages on disk.
 fn append_host_stubs(out: &mut String, target: WasmTarget) {
-    // stardust:caps stub — covers every capability family the
+    // mty:caps stub — covers every capability family the
     // backend currently knows about.
-    out.push_str("package stardust:caps {\n");
+    out.push_str("package mty:caps {\n");
     out.push_str("  interface fs {\n");
     out.push_str("    read: func(path: string) -> result<list<u8>, string>;\n");
     out.push_str("    write: func(path: string, data: list<u8>) -> result<_, string>;\n");
@@ -189,7 +189,7 @@ fn append_host_stubs(out: &mut String, target: WasmTarget) {
             out.push_str("}\n");
         }
         WasmTarget::Web => {
-            out.push_str("package stardust:web {\n");
+            out.push_str("package mty:web {\n");
             out.push_str("  interface log {\n");
             out.push_str("    log: func(msg: string);\n");
             out.push_str("  }\n");
@@ -578,7 +578,7 @@ mod tests {
     fn web_target_uses_stardust_web_log() {
         let doc = emit_wit(&empty_main(), "hello", WasmTarget::Web).expect("emit");
         assert!(
-            doc.text.contains("import stardust:web/log"),
+            doc.text.contains("import mty:web/log"),
             "wit was: {}",
             doc.text
         );

@@ -1,8 +1,8 @@
-# Stardust Interpreter — slice 6
+# Mighty Interpreter — slice 6
 
 The slice-6 interpreter (`sdust_sir::interp`) is a **tree-walking,
-single-threaded, deterministic** executor for SIR. It exists so that
-Stardust programs run end-to-end while the native and Wasm backends are
+single-threaded, deterministic** executor for MtyIR. It exists so that
+Mighty programs run end-to-end while the native and Wasm backends are
 under construction.
 
 ## Entry points
@@ -35,7 +35,7 @@ pub trait Host {
 
 Two implementations ship in-box:
 
-- `RealHost` writes to actual stdout/stderr (used by `sdust run`).
+- `RealHost` writes to actual stdout/stderr (used by `mty run`).
 - `BufferHost` captures stdout + an `effect_log` + `extern_log` in
   memory (used by all interpreter tests).
 
@@ -148,8 +148,8 @@ custom budget to detect infinite loops. Exceeding the budget returns
 
 ## File index
 
-- `crates/sdust-sir/src/interp/value.rs` — `Value`, `Frame`,
+- `crates/mty-sir/src/interp/value.rs` — `Value`, `Frame`,
   `Reference`, `AgentHandle`
-- `crates/sdust-sir/src/interp/host.rs` — `Host`, `RealHost`,
+- `crates/mty-sir/src/interp/host.rs` — `Host`, `RealHost`,
   `BufferHost`
-- `crates/sdust-sir/src/interp/run.rs` — step loop, eval, builtins
+- `crates/mty-sir/src/interp/run.rs` — step loop, eval, builtins
