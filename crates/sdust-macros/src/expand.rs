@@ -311,19 +311,27 @@ fn harvest_pattern_idents(
                     struct_pending_field = Some(i);
                 } else {
                     // Tuple-pattern paren OR top level (`let x = ...`): bind it.
-                    // Skip leading Path segments — when we see `Path :: Variant(...)`,
-                    // we don't want to bind `Path`. Check the next non-trivia token:
-                    // if it's `COLON_COLON` or `DOT` we're in a path, not a binding.
+                    // Skip:
+                    //   * Path segments: `Path :: Variant(...)` or `Path.Variant(...)`
+                    //   * Struct-pattern type names: `User { ... }` — the IDENT is
+                    //     the type, not a binding (the bindings are inside the
+                    //     braces and get handled when we enter Struct mode).
+                    //   * Enum-pattern type names: `Some(x)` — IDENT followed by
+                    //     `(` is the variant constructor, not a binding. The
+                    //     bindings are inside the parens.
                     let mut k = i + 1;
                     while k < end && body[k].is_trivia() {
                         k += 1;
                     }
                     let next_kind = body.get(k).map(|t| t.kind).unwrap_or(SyntaxKind::EOF);
-                    let is_path_segment = matches!(
+                    let is_constructor_or_path = matches!(
                         next_kind,
-                        SyntaxKind::COLON_COLON | SyntaxKind::DOT
+                        SyntaxKind::COLON_COLON
+                            | SyntaxKind::DOT
+                            | SyntaxKind::L_BRACE
+                            | SyntaxKind::L_PAREN
                     );
-                    if !is_path_segment {
+                    if !is_constructor_or_path {
                         add_binding(&tok.text, params, bound);
                     }
                 }
