@@ -44,7 +44,21 @@ pub fn if_expr(p: &mut Parser) -> bool {
     p.start_node(IF_EXPR);
     p.bump(IF_KW);
     p.skip_trivia();
-    exprs::expr(p);
+    // `if let Pattern = scrutinee { ... }` — optional leading let-binding.
+    // The CST shape is the same IF_EXPR; HIR lowering branches on whether
+    // a LET_KW token is present.
+    if p.at(LET_KW) {
+        p.bump(LET_KW);
+        p.skip_trivia();
+        patterns::pattern(p);
+        p.expect(EQ);
+        p.skip_trivia();
+    }
+    // Disable struct-literal parsing for the condition so `if x { ... }`
+    // parses as condition + body, not as `x { ... }` struct expr.
+    p.with_no_struct_literal(|p| {
+        exprs::expr(p);
+    });
     block(p);
     if p.eat(ELSE_KW) {
         if p.at(IF_KW) {
@@ -61,7 +75,11 @@ pub fn match_expr(p: &mut Parser) -> bool {
     p.start_node(MATCH_EXPR);
     p.bump(MATCH_KW);
     p.skip_trivia();
-    exprs::expr(p);
+    // Scrutinee uses the no-struct-literal context for the same reason as
+    // if/while/for: `match x { ... }` shouldn't parse as `x { ... }`.
+    p.with_no_struct_literal(|p| {
+        exprs::expr(p);
+    });
     p.expect(L_BRACE);
     p.skip_trivia();
     while !p.at(R_BRACE) && !p.at(EOF) {
@@ -100,7 +118,9 @@ pub fn for_expr(p: &mut Parser) -> bool {
     patterns::pattern(p);
     p.expect(IN_KW);
     p.skip_trivia();
-    exprs::expr(p);
+    p.with_no_struct_literal(|p| {
+        exprs::expr(p);
+    });
     block(p);
     p.finish_node();
     true
@@ -110,7 +130,9 @@ pub fn while_expr(p: &mut Parser) -> bool {
     p.start_node(WHILE_EXPR);
     p.bump(WHILE_KW);
     p.skip_trivia();
-    exprs::expr(p);
+    p.with_no_struct_literal(|p| {
+        exprs::expr(p);
+    });
     block(p);
     p.finish_node();
     true

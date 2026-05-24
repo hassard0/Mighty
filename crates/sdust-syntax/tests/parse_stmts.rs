@@ -57,3 +57,47 @@ fn s_loop() {
 fn s_nested_block() {
     assert_snapshot!(dump_expr("{ { let x = 1 } { let y = 2 } }"));
 }
+
+// ---- slice-2: if let ----
+
+#[test]
+fn parse_if_let_some() {
+    use sdust_syntax::{parse, SyntaxKind, SyntaxNode};
+    let src = "fn f() { if let Some(x) = opt { x } else { 0 } }";
+    let r = parse(src);
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    let if_node = root
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::IF_EXPR)
+        .expect("IF_EXPR");
+    let has_let = if_node
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .any(|t| t.kind() == SyntaxKind::LET_KW);
+    assert!(has_let, "if let should carry LET_KW token");
+}
+
+#[test]
+fn parse_if_let_ok_no_else() {
+    use sdust_syntax::parse;
+    let src = "fn f() { if let Ok(n) = parse_int(s) { use_n(n) } }";
+    let r = parse(src);
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+}
+
+#[test]
+fn parse_if_let_in_agent_handler() {
+    use sdust_syntax::parse;
+    // From example 19: handler body uses if-let on a cache lookup.
+    let src = "
+agent A {
+  on M(q) {
+    if let Some(hit) = cache.get(q) {
+      return Ok(hit)
+    }
+  }
+}";
+    let r = parse(src);
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+}

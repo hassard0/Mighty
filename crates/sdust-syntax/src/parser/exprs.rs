@@ -228,25 +228,28 @@ fn paren_or_tuple(p: &mut Parser) -> bool {
         p.finish_node();
         return true;
     }
-    expr(p);
-    p.skip_trivia();
-    if p.at(COMMA) {
-        p.start_node_at(cp, TUPLE_EXPR);
-        p.bump(COMMA);
+    // Inside parentheses, struct literals are unambiguous again.
+    p.with_struct_literal(|p| {
+        expr(p);
         p.skip_trivia();
-        while !p.at(R_PAREN) && !p.at(EOF) {
-            expr(p);
+        if p.at(COMMA) {
+            p.start_node_at(cp, TUPLE_EXPR);
+            p.bump(COMMA);
             p.skip_trivia();
-            if !p.eat(COMMA) {
-                break;
+            while !p.at(R_PAREN) && !p.at(EOF) {
+                expr(p);
+                p.skip_trivia();
+                if !p.eat(COMMA) {
+                    break;
+                }
             }
+            p.expect(R_PAREN);
+            p.finish_node();
+        } else {
+            p.expect(R_PAREN);
+            // bare parenthesized expr — leave as the inner expr (no wrapper).
         }
-        p.expect(R_PAREN);
-        p.finish_node();
-    } else {
-        p.expect(R_PAREN);
-        // bare parenthesized expr — leave as the inner expr (no wrapper).
-    }
+    });
     true
 }
 
@@ -314,7 +317,9 @@ fn path_expr_or_call(p: &mut Parser) -> bool {
     p.finish_node();
     p.skip_trivia();
     // struct literal: Path { field: expr, ... }
-    if p.at(L_BRACE) && lookahead_is_struct_literal(p) {
+    // Suppress when parsing control-flow conditions (`if`/`while`/`for`) so
+    // `if x { ... }` parses as condition + body, not as a struct literal.
+    if !p.no_struct_literal && p.at(L_BRACE) && lookahead_is_struct_literal(p) {
         p.start_node_at(cp, STRUCT_EXPR);
         p.bump(L_BRACE);
         p.skip_trivia();

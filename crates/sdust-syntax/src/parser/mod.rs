@@ -31,6 +31,11 @@ pub struct Parser<'src> {
     pub(crate) pos: usize,
     pub(crate) builder: GreenNodeBuilder<'static>,
     pub(crate) errors: Vec<ParseError>,
+    /// When true, a `{` immediately following a primary expression is **not**
+    /// treated as the start of a struct literal. Used when parsing control-flow
+    /// conditions (`if`, `while`, `for`) so `if x { ... }` parses as
+    /// "condition `x`, body `{ ... }`" rather than "struct literal `x { ... }`".
+    pub(crate) no_struct_literal: bool,
 }
 
 impl<'src> Parser<'src> {
@@ -40,6 +45,7 @@ impl<'src> Parser<'src> {
             pos: 0,
             builder: GreenNodeBuilder::new(),
             errors: Vec::new(),
+            no_struct_literal: false,
         }
     }
 
@@ -140,6 +146,27 @@ impl<'src> Parser<'src> {
             start,
             end,
         });
+    }
+
+    /// Temporarily disable struct-literal parsing while `f` runs, then
+    /// restore the previous state. Used for control-flow conditions.
+    pub(crate) fn with_no_struct_literal<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        let prev = self.no_struct_literal;
+        self.no_struct_literal = true;
+        let r = f(self);
+        self.no_struct_literal = prev;
+        r
+    }
+
+    /// Re-enable struct literals inside `f` (used when entering a
+    /// delimited subexpression like `(...)` or `[...]` where the
+    /// outer no-struct-literal context shouldn't apply).
+    pub(crate) fn with_struct_literal<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        let prev = self.no_struct_literal;
+        self.no_struct_literal = false;
+        let r = f(self);
+        self.no_struct_literal = prev;
+        r
     }
 
     pub(crate) fn error(&mut self, message: impl Into<String>) {
