@@ -1,0 +1,39 @@
+---
+source: crates/sdust-syntax/tests/parse_exprs.rs
+expression: "dump(\"a == b && c != d\")"
+---
+FILE@0..16
+  BINARY_EXPR@0..16
+    BINARY_EXPR@0..7
+      PATH_EXPR@0..2
+        PATH@0..2
+          PATH_SEGMENT@0..1
+            NAME_REF@0..1
+              IDENT@0..1 "a"
+          WHITESPACE@1..2 " "
+      EQ_EQ@2..4 "=="
+      WHITESPACE@4..5 " "
+      PATH_EXPR@5..7
+        PATH@5..7
+          PATH_SEGMENT@5..6
+            NAME_REF@5..6
+              IDENT@5..6 "b"
+          WHITESPACE@6..7 " "
+    AMP_AMP@7..9 "&&"
+    WHITESPACE@9..10 " "
+    BINARY_EXPR@10..16
+      PATH_EXPR@10..12
+        PATH@10..12
+          PATH_SEGMENT@10..11
+            NAME_REF@10..11
+              IDENT@10..11 "c"
+          WHITESPACE@11..12 " "
+      BANG_EQ@12..14 "!="
+      WHITESPACE@14..15 " "
+      PATH_EXPR@15..16
+        PATH@15..16
+          PATH_SEGMENT@15..16
+            NAME_REF@15..16
+              IDENT@15..16 "d"
+
+errors: []

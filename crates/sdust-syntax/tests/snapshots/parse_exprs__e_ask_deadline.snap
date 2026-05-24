@@ -1,0 +1,30 @@
+---
+source: crates/sdust-syntax/tests/parse_exprs.rs
+expression: "dump(\"obj?Msg(x) @2s\")"
+---
+FILE@0..14
+  DEADLINE_EXPR@0..14
+    ASK_EXPR@0..11
+      PATH_EXPR@0..3
+        PATH@0..3
+          PATH_SEGMENT@0..3
+            NAME_REF@0..3
+              IDENT@0..3 "obj"
+      QUESTION@3..4 "?"
+      NAME@4..7
+        IDENT@4..7 "Msg"
+      ARG_LIST@7..11
+        L_PAREN@7..8 "("
+        ARG@8..9
+          PATH_EXPR@8..9
+            PATH@8..9
+              PATH_SEGMENT@8..9
+                NAME_REF@8..9
+                  IDENT@8..9 "x"
+        R_PAREN@9..10 ")"
+        WHITESPACE@10..11 " "
+    AT@11..12 "@"
+    LITERAL_EXPR@12..14
+      DURATION_LITERAL@12..14 "2s"
+
+errors: []

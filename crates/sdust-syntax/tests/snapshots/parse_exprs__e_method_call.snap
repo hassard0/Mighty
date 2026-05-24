@@ -1,0 +1,26 @@
+---
+source: crates/sdust-syntax/tests/parse_exprs.rs
+expression: "dump(\"xs.map(square)\")"
+---
+FILE@0..14
+  CALL_EXPR@0..14
+    PATH_EXPR@0..6
+      PATH@0..6
+        PATH_SEGMENT@0..2
+          NAME_REF@0..2
+            IDENT@0..2 "xs"
+        DOT@2..3 "."
+        PATH_SEGMENT@3..6
+          NAME_REF@3..6
+            IDENT@3..6 "map"
+    ARG_LIST@6..14
+      L_PAREN@6..7 "("
+      ARG@7..13
+        PATH_EXPR@7..13
+          PATH@7..13
+            PATH_SEGMENT@7..13
+              NAME_REF@7..13
+                IDENT@7..13 "square"
+      R_PAREN@13..14 ")"
+
+errors: []

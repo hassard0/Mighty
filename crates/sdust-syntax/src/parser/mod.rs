@@ -139,3 +139,12 @@ pub fn parse_pattern(src: &str) -> ParseResult {
     p.builder.finish_node();
     ParseResult { green: p.builder.finish(), errors: p.errors }
 }
+
+pub fn parse_expr(src: &str) -> ParseResult {
+    let mut p = Parser::new(src);
+    p.builder.start_node(SyntaxKind::FILE.into());
+    p.skip_trivia();
+    exprs::expr(&mut p);
+    p.builder.finish_node();
+    ParseResult { green: p.builder.finish(), errors: p.errors }
+}

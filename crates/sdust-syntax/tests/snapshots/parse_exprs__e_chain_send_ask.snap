@@ -1,0 +1,22 @@
+---
+source: crates/sdust-syntax/tests/parse_exprs.rs
+expression: "dump(\"logger!Info(\\\"x\\\"); fetcher?Page(url) @2s?\")"
+---
+FILE@0..16
+  SEND_EXPR@0..16
+    PATH_EXPR@0..6
+      PATH@0..6
+        PATH_SEGMENT@0..6
+          NAME_REF@0..6
+            IDENT@0..6 "logger"
+    BANG@6..7 "!"
+    NAME@7..11
+      IDENT@7..11 "Info"
+    ARG_LIST@11..16
+      L_PAREN@11..12 "("
+      ARG@12..15
+        LITERAL_EXPR@12..15
+          STRING_LITERAL@12..15 "\"x\""
+      R_PAREN@15..16 ")"
+
+errors: []

@@ -1,0 +1,26 @@
+---
+source: crates/sdust-syntax/tests/parse_exprs.rs
+expression: "dump(\"User { id, name }\")"
+---
+FILE@0..17
+  STRUCT_EXPR@0..17
+    PATH_EXPR@0..5
+      PATH@0..5
+        PATH_SEGMENT@0..4
+          NAME_REF@0..4
+            IDENT@0..4 "User"
+        WHITESPACE@4..5 " "
+    L_BRACE@5..6 "{"
+    WHITESPACE@6..7 " "
+    STRUCT_FIELD_EXPR@7..9
+      NAME@7..9
+        IDENT@7..9 "id"
+    COMMA@9..10 ","
+    WHITESPACE@10..11 " "
+    STRUCT_FIELD_EXPR@11..16
+      NAME@11..15
+        IDENT@11..15 "name"
+      WHITESPACE@15..16 " "
+    R_BRACE@16..17 "}"
+
+errors: []

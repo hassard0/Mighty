@@ -1,27 +1,530 @@
-use super::Parser;
+use super::{paths, Parser};
 use crate::SyntaxKind::{self, *};
 
+/// Look at the kind of the next non-trivia token starting at `from`.
+fn next_nontrivia_kind(p: &Parser, from: usize) -> SyntaxKind {
+    let mut i = from;
+    while i < p.tokens.len() {
+        let k = p.tokens[i].kind;
+        if !k.is_trivia() {
+            return k;
+        }
+        i += 1;
+    }
+    SyntaxKind::EOF
+}
+
+/// Index of the next non-trivia token starting at `from`.
+fn next_nontrivia_index(p: &Parser, from: usize) -> usize {
+    let mut i = from;
+    while i < p.tokens.len() && p.tokens[i].kind.is_trivia() {
+        i += 1;
+    }
+    i
+}
+
 pub fn expr(p: &mut Parser) -> bool {
+    expr_bp(p, 0)
+}
+
+fn expr_bp(p: &mut Parser, min_bp: u8) -> bool {
     p.skip_trivia();
-    // Minimal placeholder: consume a single literal as a LITERAL_EXPR so that
-    // constructs like `[U8; 16]` (array type length) parse cleanly before
-    // the full Pratt expression parser lands in a later task.
+    let cp = p.checkpoint();
+    if !unary_or_primary(p) {
+        return false;
+    }
+
+    loop {
+        p.skip_trivia();
+        // postfix first (highest precedence)
+        if try_postfix(p, cp) {
+            continue;
+        }
+
+        // binary
+        let op_bp = match infix_bp(p) {
+            Some(t) => t,
+            None => break,
+        };
+        if op_bp < min_bp {
+            break;
+        }
+        let right_bp = if infix_right_assoc(p.peek()) {
+            op_bp // right-assoc: same level for RHS
+        } else {
+            op_bp + 1 // left-assoc
+        };
+        p.start_node_at(cp, BINARY_EXPR);
+        p.bump_any();
+        p.skip_trivia();
+        expr_bp(p, right_bp);
+        p.finish_node();
+    }
+    true
+}
+
+fn infix_right_assoc(k: SyntaxKind) -> bool {
+    matches!(
+        k,
+        EQ | PLUS_EQ
+            | MINUS_EQ
+            | STAR_EQ
+            | SLASH_EQ
+            | PERCENT_EQ
+            | AMP_EQ
+            | PIPE_EQ
+            | CARET_EQ
+            | SHL_EQ
+            | SHR_EQ
+    )
+}
+
+fn infix_bp(p: &Parser) -> Option<u8> {
+    let bp = match p.peek() {
+        DOT_DOT | DOT_DOT_EQ => 1,
+        EQ | PLUS_EQ | MINUS_EQ | STAR_EQ | SLASH_EQ | PERCENT_EQ | AMP_EQ | PIPE_EQ | CARET_EQ
+        | SHL_EQ | SHR_EQ => 2,
+        PIPE_PIPE => 3,
+        AMP_AMP => 4,
+        EQ_EQ | BANG_EQ | LT | LT_EQ | GT | GT_EQ => 5,
+        PIPE => 6,
+        CARET => 7,
+        AMP => 8,
+        SHL | SHR => 9,
+        PLUS | MINUS => 10,
+        STAR | SLASH | PERCENT => 11,
+        AS_KW => 12,
+        _ => return None,
+    };
+    Some(bp)
+}
+
+fn unary_or_primary(p: &mut Parser) -> bool {
+    p.skip_trivia();
     match p.peek() {
-        INT_LITERAL | FLOAT_LITERAL | STRING_LITERAL | CHAR_LITERAL
-        | TRUE_KW | FALSE_KW | DURATION_LITERAL | SIZE_LITERAL => {
+        MINUS | BANG | STAR => {
+            p.start_node(UNARY_EXPR);
+            p.bump_any();
+            p.skip_trivia();
+            unary_or_primary(p);
+            p.finish_node();
+            true
+        }
+        AMP => {
+            p.start_node(BORROW_EXPR);
+            p.bump(AMP);
+            p.skip_trivia();
+            p.eat(MUT_KW);
+            unary_or_primary(p);
+            p.finish_node();
+            true
+        }
+        MOVE_KW => {
+            p.start_node(MOVE_EXPR);
+            p.bump(MOVE_KW);
+            p.skip_trivia();
+            unary_or_primary(p);
+            p.finish_node();
+            true
+        }
+        SPAWN_KW => {
+            p.start_node(SPAWN_EXPR);
+            p.bump(SPAWN_KW);
+            p.skip_trivia();
+            // spawn task <expr> | spawn <Path>(args)
+            p.eat(TASK_KW);
+            expr(p);
+            p.finish_node();
+            true
+        }
+        _ => primary(p),
+    }
+}
+
+fn primary(p: &mut Parser) -> bool {
+    p.skip_trivia();
+    match p.peek() {
+        INT_LITERAL | FLOAT_LITERAL | STRING_LITERAL | CHAR_LITERAL | TRUE_KW | FALSE_KW
+        | DURATION_LITERAL | SIZE_LITERAL => {
             p.start_node(LITERAL_EXPR);
             p.bump_any();
             p.finish_node();
+            true
+        }
+        HTML_LITERAL => {
+            p.start_node(HTML_EXPR);
+            p.bump(HTML_LITERAL);
+            p.finish_node();
+            true
+        }
+        L_PAREN => paren_or_tuple(p),
+        L_BRACK => array_lit(p),
+        L_BRACE => block_or_map_or_struct(p),
+        IF_KW => super::stmts::if_expr(p),
+        MATCH_KW => super::stmts::match_expr(p),
+        FOR_KW => super::stmts::for_expr(p),
+        WHILE_KW => super::stmts::while_expr(p),
+        LOOP_KW => super::stmts::loop_expr(p),
+        RETURN_KW => {
+            p.start_node(RETURN_EXPR);
+            p.bump(RETURN_KW);
             p.skip_trivia();
+            if can_start_expr(p.peek()) {
+                expr(p);
+            }
+            p.finish_node();
+            true
+        }
+        UNSAFE_KW => super::unsafe_::unsafe_block(p),
+        ARENA_KW => super::concurrency::arena_block(p),
+        TASK_KW => super::concurrency::task_scope_or_call(p),
+        BUDGET_KW => super::concurrency::budget_block(p),
+        SANDBOX_KW => super::concurrency::sandbox_block(p),
+        DETACH_KW => {
+            p.start_node(DETACH_EXPR);
+            p.bump(DETACH_KW);
+            p.skip_trivia();
+            expr(p);
+            p.finish_node();
+            true
+        }
+        JOIN_KW => {
+            p.start_node(JOIN_EXPR);
+            p.bump(JOIN_KW);
+            p.skip_trivia();
+            expr(p);
+            p.finish_node();
+            true
+        }
+        IDENT => path_expr_or_call(p),
+        _ => false,
+    }
+}
+
+fn paren_or_tuple(p: &mut Parser) -> bool {
+    let cp = p.checkpoint();
+    p.bump(L_PAREN);
+    p.skip_trivia();
+    if p.at(R_PAREN) {
+        p.start_node_at(cp, TUPLE_EXPR);
+        p.bump(R_PAREN);
+        p.finish_node();
+        return true;
+    }
+    expr(p);
+    p.skip_trivia();
+    if p.at(COMMA) {
+        p.start_node_at(cp, TUPLE_EXPR);
+        p.bump(COMMA);
+        p.skip_trivia();
+        while !p.at(R_PAREN) && !p.at(EOF) {
+            expr(p);
+            p.skip_trivia();
+            if !p.eat(COMMA) {
+                break;
+            }
+        }
+        p.expect(R_PAREN);
+        p.finish_node();
+    } else {
+        p.expect(R_PAREN);
+        // bare parenthesized expr — leave as the inner expr (no wrapper).
+    }
+    true
+}
+
+fn array_lit(p: &mut Parser) -> bool {
+    p.start_node(ARRAY_EXPR);
+    p.bump(L_BRACK);
+    p.skip_trivia();
+    if !p.at(R_BRACK) {
+        expr(p);
+        p.skip_trivia();
+        while p.eat(COMMA) {
+            if p.at(R_BRACK) {
+                break;
+            }
+            expr(p);
+            p.skip_trivia();
+        }
+    }
+    p.expect(R_BRACK);
+    p.finish_node();
+    true
+}
+
+fn block_or_map_or_struct(p: &mut Parser) -> bool {
+    // Disambiguate by peeking past `{` and the first non-trivia token.
+    // Map literal: { IDENT : ... } or { } we treat as block.
+    // Otherwise: plain block (for now an inline brace-balanced consumer; TODO(task-11): replace with stmts::block).
+    let cp = p.checkpoint();
+    let after_brace = next_nontrivia_index(p, p.pos + 1);
+    let first_kind = next_nontrivia_kind(p, p.pos + 1);
+    let second_kind = if first_kind == EOF {
+        EOF
+    } else {
+        next_nontrivia_kind(p, after_brace + 1)
+    };
+    let looks_like_map = first_kind == IDENT && second_kind == COLON;
+
+    if looks_like_map {
+        p.start_node_at(cp, MAP_EXPR);
+        p.bump(L_BRACE);
+        p.skip_trivia();
+        while !p.at(R_BRACE) && !p.at(EOF) {
+            p.start_node(MAP_ENTRY);
+            paths::name(p);
+            p.expect(COLON);
+            expr(p);
+            p.skip_trivia();
+            p.finish_node();
+            if !p.eat(COMMA) {
+                break;
+            }
+        }
+        p.expect(R_BRACE);
+        p.finish_node();
+    } else {
+        // TODO(task-11): replace with stmts::block
+        // minimal inline block: consume up to matching R_BRACE
+        p.start_node(BLOCK);
+        p.bump(L_BRACE);
+        let mut depth = 1;
+        while !p.at(EOF) && depth > 0 {
+            match p.peek() {
+                L_BRACE => {
+                    depth += 1;
+                    p.bump_any();
+                }
+                R_BRACE => {
+                    depth -= 1;
+                    if depth == 0 {
+                        p.bump(R_BRACE);
+                        break;
+                    } else {
+                        p.bump_any();
+                    }
+                }
+                _ => p.bump_any(),
+            }
+        }
+        p.finish_node();
+    }
+    true
+}
+
+fn path_expr_or_call(p: &mut Parser) -> bool {
+    let cp = p.checkpoint();
+    p.start_node(PATH_EXPR);
+    paths::path(p);
+    p.finish_node();
+    p.skip_trivia();
+    // struct literal: Path { field: expr, ... }
+    if p.at(L_BRACE) && lookahead_is_struct_literal(p) {
+        p.start_node_at(cp, STRUCT_EXPR);
+        p.bump(L_BRACE);
+        p.skip_trivia();
+        while !p.at(R_BRACE) && !p.at(EOF) {
+            p.start_node(STRUCT_FIELD_EXPR);
+            paths::name(p);
+            if p.eat(COLON) {
+                expr(p);
+                p.skip_trivia();
+            }
+            p.finish_node();
+            if !p.eat(COMMA) {
+                break;
+            }
+        }
+        p.expect(R_BRACE);
+        p.finish_node();
+    }
+    true
+}
+
+fn lookahead_is_struct_literal(p: &Parser) -> bool {
+    // Inside `Path { ... }`, treat as struct literal only if the immediate body looks like
+    // fields (IDENT followed by COLON/COMMA/R_BRACE) or empty. Trivia-aware.
+    let after_brace = next_nontrivia_index(p, p.pos + 1);
+    let first = next_nontrivia_kind(p, p.pos + 1);
+    if first == R_BRACE {
+        return true;
+    }
+    if first == IDENT {
+        let second = next_nontrivia_kind(p, after_brace + 1);
+        return matches!(second, COLON | COMMA | R_BRACE);
+    }
+    false
+}
+
+fn try_postfix(p: &mut Parser, cp: rowan::Checkpoint) -> bool {
+    p.skip_trivia();
+    match p.peek() {
+        DOT => {
+            // method call vs field access: if followed by IDENT then L_PAREN, it's a method call
+            let after_dot = next_nontrivia_index(p, p.pos + 1);
+            let name_kind = next_nontrivia_kind(p, p.pos + 1);
+            let is_method_call = name_kind == IDENT
+                && next_nontrivia_kind(p, after_dot + 1) == L_PAREN;
+            if is_method_call {
+                p.start_node_at(cp, METHOD_CALL_EXPR);
+                p.bump(DOT);
+                p.skip_trivia();
+                paths::name(p);
+                args(p);
+                p.finish_node();
+            } else {
+                p.start_node_at(cp, FIELD_EXPR);
+                p.bump(DOT);
+                p.skip_trivia();
+                paths::name(p);
+                p.finish_node();
+            }
+            true
+        }
+        L_PAREN => {
+            p.start_node_at(cp, CALL_EXPR);
+            args(p);
+            p.finish_node();
+            true
+        }
+        L_BRACK => {
+            p.start_node_at(cp, INDEX_EXPR);
+            p.bump(L_BRACK);
+            p.skip_trivia();
+            expr(p);
+            p.skip_trivia();
+            p.expect(R_BRACK);
+            p.finish_node();
+            true
+        }
+        QUESTION => {
+            // Disambiguate: `?Msg(args)` is ask; bare `?` is propagate.
+            // Trivia-aware lookahead for the next token after `?`.
+            let next = next_nontrivia_kind(p, p.pos + 1);
+            if next == IDENT {
+                p.start_node_at(cp, ASK_EXPR);
+                p.bump(QUESTION);
+                p.skip_trivia();
+                paths::name(p);
+                if p.at(L_PAREN) {
+                    args(p);
+                }
+                p.finish_node();
+            } else {
+                p.start_node_at(cp, QUESTION_EXPR);
+                p.bump(QUESTION);
+                p.finish_node();
+            }
+            true
+        }
+        BANG => {
+            // `!Msg(args)` is send; `!expr` is boolean-not (handled in unary, not postfix).
+            // Trivia-aware lookahead for the next token after `!`.
+            let next = next_nontrivia_kind(p, p.pos + 1);
+            if next == IDENT {
+                p.start_node_at(cp, SEND_EXPR);
+                p.bump(BANG);
+                p.skip_trivia();
+                paths::name(p);
+                if p.at(L_PAREN) {
+                    args(p);
+                }
+                p.finish_node();
+                true
+            } else {
+                false
+            }
+        }
+        AT => {
+            // @duration deadline applies to the preceding expression.
+            p.start_node_at(cp, DEADLINE_EXPR);
+            p.bump(AT);
+            p.skip_trivia();
+            // Accept DURATION_LITERAL primarily; allow any expr (compile-time const).
+            if p.at(DURATION_LITERAL) {
+                p.start_node(LITERAL_EXPR);
+                p.bump(DURATION_LITERAL);
+                p.finish_node();
+            } else {
+                expr(p);
+            }
+            p.finish_node();
             true
         }
         _ => false,
     }
 }
 
+fn args(p: &mut Parser) {
+    p.start_node(ARG_LIST);
+    p.bump(L_PAREN);
+    p.skip_trivia();
+    if !p.at(R_PAREN) {
+        arg(p);
+        p.skip_trivia();
+        while p.eat(COMMA) {
+            if p.at(R_PAREN) {
+                break;
+            }
+            arg(p);
+            p.skip_trivia();
+        }
+    }
+    p.expect(R_PAREN);
+    p.finish_node();
+}
+
+fn arg(p: &mut Parser) {
+    // Named argument: IDENT COLON expr (trivia-aware).
+    if p.at(IDENT) && next_nontrivia_kind(p, p.pos + 1) == COLON {
+        p.start_node(NAMED_ARG);
+        paths::name(p);
+        p.bump(COLON);
+        p.skip_trivia();
+        expr(p);
+        p.finish_node();
+    } else {
+        p.start_node(ARG);
+        expr(p);
+        p.finish_node();
+    }
+}
+
 pub fn can_start_expr(k: SyntaxKind) -> bool {
-    matches!(k,
-        INT_LITERAL | FLOAT_LITERAL | STRING_LITERAL | CHAR_LITERAL
-        | TRUE_KW | FALSE_KW | DURATION_LITERAL | SIZE_LITERAL
+    matches!(
+        k,
+        INT_LITERAL
+            | FLOAT_LITERAL
+            | STRING_LITERAL
+            | CHAR_LITERAL
+            | TRUE_KW
+            | FALSE_KW
+            | DURATION_LITERAL
+            | SIZE_LITERAL
+            | HTML_LITERAL
+            | IDENT
+            | L_PAREN
+            | L_BRACK
+            | L_BRACE
+            | MINUS
+            | BANG
+            | STAR
+            | AMP
+            | MOVE_KW
+            | SPAWN_KW
+            | IF_KW
+            | MATCH_KW
+            | FOR_KW
+            | WHILE_KW
+            | LOOP_KW
+            | RETURN_KW
+            | UNSAFE_KW
+            | ARENA_KW
+            | TASK_KW
+            | BUDGET_KW
+            | SANDBOX_KW
+            | DETACH_KW
+            | JOIN_KW
     )
 }

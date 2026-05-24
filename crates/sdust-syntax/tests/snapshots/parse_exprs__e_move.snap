@@ -1,0 +1,15 @@
+---
+source: crates/sdust-syntax/tests/parse_exprs.rs
+expression: "dump(\"move x\")"
+---
+FILE@0..6
+  MOVE_EXPR@0..6
+    MOVE_KW@0..4 "move"
+    WHITESPACE@4..5 " "
+    PATH_EXPR@5..6
+      PATH@5..6
+        PATH_SEGMENT@5..6
+          NAME_REF@5..6
+            IDENT@5..6 "x"
+
+errors: []

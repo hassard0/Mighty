@@ -1,0 +1,28 @@
+---
+source: crates/sdust-syntax/tests/parse_exprs.rs
+expression: "dump(\"{ a: 1, b: 2 }\")"
+---
+FILE@0..14
+  MAP_EXPR@0..14
+    L_BRACE@0..1 "{"
+    WHITESPACE@1..2 " "
+    MAP_ENTRY@2..6
+      NAME@2..3
+        IDENT@2..3 "a"
+      COLON@3..4 ":"
+      WHITESPACE@4..5 " "
+      LITERAL_EXPR@5..6
+        INT_LITERAL@5..6 "1"
+    COMMA@6..7 ","
+    WHITESPACE@7..8 " "
+    MAP_ENTRY@8..13
+      NAME@8..9
+        IDENT@8..9 "b"
+      COLON@9..10 ":"
+      WHITESPACE@10..11 " "
+      LITERAL_EXPR@11..12
+        INT_LITERAL@11..12 "2"
+      WHITESPACE@12..13 " "
+    R_BRACE@13..14 "}"
+
+errors: []

@@ -1,0 +1,7 @@
+---
+source: crates/sdust-syntax/tests/parse_exprs.rs
+expression: "dump(\"arena turn: lower(parse(tokenize(input))?)\")"
+---
+FILE@0..0
+
+errors: []

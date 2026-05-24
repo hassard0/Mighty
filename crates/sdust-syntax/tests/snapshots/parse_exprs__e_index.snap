@@ -1,0 +1,26 @@
+---
+source: crates/sdust-syntax/tests/parse_exprs.rs
+expression: "dump(\"arr[i + 1]\")"
+---
+FILE@0..10
+  INDEX_EXPR@0..10
+    PATH_EXPR@0..3
+      PATH@0..3
+        PATH_SEGMENT@0..3
+          NAME_REF@0..3
+            IDENT@0..3 "arr"
+    L_BRACK@3..4 "["
+    BINARY_EXPR@4..9
+      PATH_EXPR@4..6
+        PATH@4..6
+          PATH_SEGMENT@4..5
+            NAME_REF@4..5
+              IDENT@4..5 "i"
+          WHITESPACE@5..6 " "
+      PLUS@6..7 "+"
+      WHITESPACE@7..8 " "
+      LITERAL_EXPR@8..9
+        INT_LITERAL@8..9 "1"
+    R_BRACK@9..10 "]"
+
+errors: []

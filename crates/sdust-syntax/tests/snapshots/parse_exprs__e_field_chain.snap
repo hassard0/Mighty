@@ -1,0 +1,31 @@
+---
+source: crates/sdust-syntax/tests/parse_exprs.rs
+expression: "dump(\"f(x).y[0]\")"
+---
+FILE@0..9
+  INDEX_EXPR@0..9
+    FIELD_EXPR@0..6
+      CALL_EXPR@0..4
+        PATH_EXPR@0..1
+          PATH@0..1
+            PATH_SEGMENT@0..1
+              NAME_REF@0..1
+                IDENT@0..1 "f"
+        ARG_LIST@1..4
+          L_PAREN@1..2 "("
+          ARG@2..3
+            PATH_EXPR@2..3
+              PATH@2..3
+                PATH_SEGMENT@2..3
+                  NAME_REF@2..3
+                    IDENT@2..3 "x"
+          R_PAREN@3..4 ")"
+      DOT@4..5 "."
+      NAME@5..6
+        IDENT@5..6 "y"
+    L_BRACK@6..7 "["
+    LITERAL_EXPR@7..8
+      INT_LITERAL@7..8 "0"
+    R_BRACK@8..9 "]"
+
+errors: []
