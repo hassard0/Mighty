@@ -25,8 +25,10 @@ If you have not installed the compiler yet, see
 13. [Unsafe](13-unsafe.md) — raw memory, contracts, audit metadata.
 14. [Ownership](14-ownership.md) — moves, borrows, drop, arena escape,
     cross-agent Sendable.
+15. [Traits](15-traits.md) — declaration, impls, dispatch, `dyn Trait`,
+    derive(Copy/Hash/Eq).
 
-After chapter 14, examples 16–20 show macros, sandboxes, and complete
+After chapter 15, examples 16–20 show macros, sandboxes, and complete
 backend and frontend programs. Those are not yet split into individual
 tour chapters; read them directly under
 [`examples/`](../../examples/).
