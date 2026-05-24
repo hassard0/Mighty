@@ -75,19 +75,14 @@ use tokio::sync::Notify;
 /// Per-agent affinity hint. v0.6 parses the syntax in the front-end
 /// (best-effort) but only the two coarse modes below influence
 /// migration today.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Affinity {
     /// Pin to first worker, never migrate. For IO-bound agents that
     /// own host resources (sockets, files) that don't move cheaply.
     Sticky,
     /// Default. May be migrated by the load monitor.
+    #[default]
     Elastic,
-}
-
-impl Default for Affinity {
-    fn default() -> Self {
-        Affinity::Elastic
-    }
 }
 
 /// A unit of work that needs to run on some worker. The closure is
@@ -145,6 +140,12 @@ pub struct WorkerStatsSnapshot {
 struct WorkerHandle {
     #[allow(dead_code)]
     id: usize,
+    /// Cloned out of the worker's `Deque` at construction. Held by the
+    /// scheduler so future expansion (e.g. injecting work directly into
+    /// a worker's queue from the monitor) doesn't need to plumb a new
+    /// channel. Currently unread on the hot path because `submit_to`
+    /// routes through the global injector.
+    #[allow(dead_code)]
     stealer: Stealer<SpawnTask>,
     /// Async notifier used to wake the worker's `Notify::notified()`
     /// await from any thread. Replaces the older OS-thread `Unparker`
@@ -154,9 +155,15 @@ struct WorkerHandle {
     /// shutdown signalling; we never park on this in the hot path.
     unparker: Unparker,
     stats: Arc<WorkerStats>,
+    /// `TokioHandle` is `Clone + Send`, so we can hand it out from
+    /// any thread without holding an `Arc<Runtime>` here. The actual
+    /// `Runtime` is owned by the worker thread itself (moved into the
+    /// thread closure) — when that thread exits, the runtime drops on
+    /// the worker thread, not on the embedder's async stack. This
+    /// sidesteps tokio's "Cannot drop a runtime in a context where
+    /// blocking is not allowed" panic when the embedder drops the
+    /// `Runtime` from inside its own `block_on`.
     tokio: TokioHandle,
-    #[allow(dead_code)]
-    rt: Arc<TokioRt>,
     shutdown: Arc<AtomicBool>,
     /// `None` after the worker thread has been joined.
     thread: Mutex<Option<ThreadJoin<()>>>,
@@ -218,7 +225,8 @@ impl Scheduler {
             notify: Arc<Notify>,
             stats: Arc<WorkerStats>,
             shutdown: Arc<AtomicBool>,
-            rt: Arc<TokioRt>,
+            rt: TokioRt,
+            tokio_handle: TokioHandle,
         }
         let mut decks: Vec<InitSlot> = (0..n)
             .map(|i| {
@@ -229,13 +237,12 @@ impl Scheduler {
                 let notify = Arc::new(Notify::new());
                 let stats = Arc::new(WorkerStats::default());
                 let shutdown = Arc::new(AtomicBool::new(false));
-                let rt = Arc::new(
-                    Builder::new_current_thread()
-                        .enable_all()
-                        .thread_name(format!("sdust-worker-{}", i))
-                        .build()
-                        .expect("tokio current_thread runtime (worker)"),
-                );
+                let rt = Builder::new_current_thread()
+                    .enable_all()
+                    .thread_name(format!("sdust-worker-{}", i))
+                    .build()
+                    .expect("tokio current_thread runtime (worker)");
+                let tokio_handle = rt.handle().clone();
                 InitSlot {
                     deque: d,
                     stealer: s,
@@ -245,11 +252,11 @@ impl Scheduler {
                     stats,
                     shutdown,
                     rt,
+                    tokio_handle,
                 }
             })
             .collect();
-        let stealers: Vec<Stealer<SpawnTask>> =
-            decks.iter().map(|s| s.stealer.clone()).collect();
+        let stealers: Vec<Stealer<SpawnTask>> = decks.iter().map(|s| s.stealer.clone()).collect();
         let notifies: Vec<Arc<Notify>> = decks.iter().map(|s| s.notify.clone()).collect();
 
         let mut workers: Vec<Arc<WorkerHandle>> = Vec::with_capacity(n);
@@ -263,25 +270,25 @@ impl Scheduler {
                 stats,
                 shutdown,
                 rt,
+                tokio_handle,
             } = decks.remove(0);
             let injector_w = injector.clone();
             let stealers_w = stealers.clone();
             let stats_w = stats.clone();
             let shutdown_w = shutdown.clone();
             let notify_w = notify.clone();
-            let rt_for_thread = rt.clone();
-            let tokio_handle = rt.handle().clone();
 
             let thread_id = id;
             let join = thread::Builder::new()
                 .name(format!("sdust-worker-{}", id))
                 .spawn(move || {
-                    // Each worker drives its own current-thread tokio
-                    // runtime by entering block_on with the async work-
-                    // stealing loop as the root future. Tasks the
-                    // worker spawns via `tokio_handle.spawn(...)` are
-                    // polled by this same `block_on`.
-                    rt_for_thread.block_on(worker_loop_async(WorkerCtx {
+                    // Move the runtime *into* the worker thread so its
+                    // Drop happens on this thread when the loop exits
+                    // — not on the embedder's async stack. The
+                    // closure-owned `rt` is the only handle to the
+                    // runtime; everyone else uses the cloned
+                    // `TokioHandle`.
+                    rt.block_on(worker_loop_async(WorkerCtx {
                         id: thread_id,
                         deque,
                         notify: notify_w,
@@ -294,6 +301,9 @@ impl Scheduler {
                     // of the worker thread (its Unparker is held by the
                     // scheduler for shutdown wakes).
                     drop(parker);
+                    // `rt` drops here, on the worker thread, *after*
+                    // the runtime has finished its block_on — safe.
+                    drop(rt);
                 })
                 .expect("spawn worker thread");
 
@@ -304,7 +314,6 @@ impl Scheduler {
                 unparker,
                 stats,
                 tokio: tokio_handle,
-                rt,
                 shutdown,
                 thread: Mutex::new(Some(join)),
             }));

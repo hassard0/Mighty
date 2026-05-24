@@ -37,12 +37,16 @@ fn main() { () }
         let mut last = 0i128;
         for i in 1..=100u8 {
             let v = rt
-                .ask(&h, "Add", vec![Value::Int(1, sdust_types::IntKind::I64)], None)
+                .ask(
+                    &h,
+                    "Add",
+                    vec![Value::Int(1, sdust_types::IntKind::I64)],
+                    None,
+                )
                 .await
                 .unwrap();
             match v {
                 Value::Int(n, _) => {
-                    let n = n as i128;
                     assert_eq!(
                         n,
                         last + 1,

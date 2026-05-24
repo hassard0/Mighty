@@ -59,10 +59,10 @@ fn main() { () }
         // threshold and verify monitor.sample_once() yields None
         // because the only agent there is sticky.
         sched.worker_stats(0); // touch
-        // crank depth manually via internal API: we can't write to
-        // private stats directly, so instead we register a fake elastic
-        // agent and verify monitor *does* migrate that one, leaving
-        // sticky alone.
+                               // crank depth manually via internal API: we can't write to
+                               // private stats directly, so instead we register a fake elastic
+                               // agent and verify monitor *does* migrate that one, leaving
+                               // sticky alone.
         sched.register_route(999, 0, Affinity::Sticky);
         let m = LoadMonitor::new(sched.clone());
         // With current_queue_depth = 0 on both workers, sample_once

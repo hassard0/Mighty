@@ -209,7 +209,8 @@ impl Runtime {
     }
 
     pub async fn spawn_agent(&self, name: &str, args: Vec<Value>) -> RuntimeResult<AgentHandle> {
-        self.spawn_agent_with_affinity(name, args, Affinity::Elastic).await
+        self.spawn_agent_with_affinity(name, args, Affinity::Elastic)
+            .await
     }
 
     /// v0.6: spawn with an explicit affinity hint.
@@ -330,11 +331,7 @@ fn build_initial_state(prog: &Program, agent: &SirAgent) -> Value {
     }
 }
 
-fn spawn_agent_loop(
-    rt: &Runtime,
-    desc: Arc<AgentDescriptor>,
-    worker: usize,
-) -> JoinHandle<()> {
+fn spawn_agent_loop(rt: &Runtime, desc: Arc<AgentDescriptor>, worker: usize) -> JoinHandle<()> {
     let prog = rt.prog.clone();
     let telemetry = rt.telemetry.clone();
     let registry = rt.registry.clone();
