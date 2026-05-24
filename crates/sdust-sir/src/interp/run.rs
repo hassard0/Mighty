@@ -71,6 +71,124 @@ pub fn run_fn_by_name(
     }
 }
 
+/// Slice-7 helper: like [`run_fn_by_name`] but with caller-provided
+/// step budget (used by the runtime to translate per-turn CPU budgets
+/// into bounded interpreter step counts).
+pub fn run_fn_with_budget(
+    prog: &Program,
+    name: &str,
+    args: Vec<Value>,
+    host: &mut dyn Host,
+    step_budget: u64,
+) -> Result<Value, RunResult> {
+    let f = match prog.fn_by_name(name) {
+        Some(f) => f,
+        None => return Err(RunResult::NoMain),
+    };
+    let mut interp = Interp::new(prog, step_budget);
+    let initial_locals = initial_locals_for(f, &args);
+    let scope = interp.fresh_scope();
+    let frame = Frame::new(f.id, initial_locals, scope, f.entry);
+    interp.stack.push(frame);
+    match interp.run(host) {
+        RunResult::Ok { .. } => Ok(interp.last_return),
+        r => Err(r),
+    }
+}
+
+/// Slice-7 entry point: invoke a single agent handler with a known
+/// state value, get back the final state + reply.
+///
+/// The slice-6 [`run_fn_by_name`] is awkward for agent handlers because
+/// agent state lives in `agent_states[idx]` and the handler's first
+/// param is a `&mut state`. This helper sets up a frame where:
+///
+/// - Local 1 (the `&mut self` param) is a `Value::Ref` whose owner is
+///   a synthetic state-holder local that we append at the end of the
+///   handler's locals vector.
+/// - The state-holder local actually stores the state struct value.
+/// - `assign_place` recognises a leading `Projection::Deref` on a
+///   `Value::Ref` owner and writes into the referenced local (this
+///   path is enabled by a slice-7 patch to [`Interp::assign_place`]).
+/// - After the handler returns, we read the state-holder local back as
+///   the new state.
+///
+/// Returns `(RunResult, new_state, return_value)`.
+pub fn run_handler_isolated(
+    prog: &Program,
+    handler: SirFnId,
+    state_in: Value,
+    msg_args: Vec<Value>,
+    host: &mut dyn Host,
+) -> (RunResult, Value, Value) {
+    let f = prog.fn_by_id(handler);
+    // Allocate locals: handler's declared locals + 1 synthetic
+    // state-holder. The state-holder lives at the FIRST free index
+    // (one past handler.locals.len()).
+    let n_handler_locals = f.locals.len();
+    let state_holder = Local(n_handler_locals as u32);
+    let mut locals = vec![Value::Void; n_handler_locals + 1];
+
+    // local 0: return slot.
+    locals[0] = Value::Void;
+    // Local 1: self ref pointing at the state-holder local.
+    if n_handler_locals >= 2 {
+        locals[1] = Value::Ref(super::value::Reference {
+            scope: ScopeId(0),
+            owner: state_holder,
+            proj: vec![],
+            mutable: true,
+        });
+    }
+    // State-holder local: the actual state value.
+    locals[n_handler_locals] = state_in;
+
+    // The lowerer (see crates/sdust-sir/src/lower/items.rs) emits, at
+    // handler entry, a sequence of `Stmt::Assign(named_local,
+    // Rvalue::FieldRead { receiver: (*self), field: i })` statements
+    // that pre-load state fields into named locals. With deref-of-ref
+    // properly resolved by `read_place`, these pre-loads already work.
+    // At handler exit the lowerer emits `Stmt::Assign((*self).fN,
+    // named_local)` writebacks — those need a working deref-then-field
+    // write path in `assign_place`, which slice-7 supplies.
+
+    // Position msg args at the handler's declared parameter slots
+    // (params[1..] — params[0] is the self-ref we already placed).
+    for (i, p) in f.params.iter().enumerate().skip(1) {
+        let pos = p.0 as usize;
+        if pos < locals.len() {
+            if let Some(v) = msg_args.get(i - 1).cloned() {
+                locals[pos] = v;
+            }
+        }
+    }
+
+    let mut interp = Interp::new(prog, DEFAULT_STEP_BUDGET);
+    let scope = interp.fresh_scope();
+    let frame = Frame::new(handler, locals, scope, f.entry);
+    interp.stack.push(frame);
+
+    let run_result = interp.run(host);
+    let reply = interp.last_return.clone();
+
+    // The frame has been popped; recover the state-holder value from
+    // the interpreter's last-frame snapshot. We saved it before run by
+    // peeking at interp.stack — but `run()` consumes the stack to
+    // completion. Instead, we use a side channel: every handler returns
+    // via `Term::Return` which captures the return value, but the
+    // state-holder local was mutated through the deref-of-ref path in
+    // assign_place. Slice 7 exposes the state-holder by intercepting
+    // the frame's pop in `Interp::run`: when the OUTER frame returns,
+    // the interp remembers its final locals into `last_frame_locals`.
+    let state_out = interp
+        .last_frame_locals
+        .as_ref()
+        .and_then(|ls| ls.get(state_holder.0 as usize).cloned())
+        .unwrap_or(Value::Unit);
+
+    (run_result, state_out, reply)
+}
+
 fn initial_locals_for(f: &Function, args: &[Value]) -> Vec<Value> {
     let mut locals = vec![Value::Void; f.locals.len()];
     // local 0 is the return slot.
@@ -95,6 +213,11 @@ struct Interp<'a> {
     last_return: Value,
     /// Step budget remaining.
     budget: u64,
+    /// Slice-7 hook: snapshot of the outermost frame's locals at the
+    /// moment it returns. Used by [`run_handler_isolated`] to recover
+    /// the post-handler state value out of the synthesized state-holder
+    /// local without disturbing the slice-6 single-frame contract.
+    last_frame_locals: Option<Vec<Value>>,
 }
 
 impl<'a> Interp<'a> {
@@ -107,6 +230,7 @@ impl<'a> Interp<'a> {
             next_agent: 0,
             last_return: Value::Unit,
             budget,
+            last_frame_locals: None,
         }
     }
 
@@ -126,6 +250,15 @@ impl<'a> Interp<'a> {
                 StepOutcome::Continue => {}
                 StepOutcome::FrameReturned(value) => {
                     self.last_return = value.clone();
+                    // Slice-7 hook: snapshot the outermost frame's
+                    // locals before pop, so callers (e.g.
+                    // `run_handler_isolated`) can read a synthesized
+                    // state-holder local out.
+                    if self.stack.len() == 1 {
+                        if let Some(top) = self.stack.last() {
+                            self.last_frame_locals = Some(top.locals.clone());
+                        }
+                    }
                     self.stack.pop();
                     if let Some(parent) = self.stack.last_mut() {
                         // Caller's "pending Rvalue::Call" already stored
@@ -720,9 +853,34 @@ impl<'a> Interp<'a> {
             f.locals[idx] = v;
             return;
         }
+        // Slice-7 deref-write: if the projection starts with Deref and
+        // the local at `idx` is a Value::Ref, resolve the ref to the
+        // owner local in the same frame and continue writing into THAT
+        // local (chasing any in-ref projection prefix first). This is
+        // what makes `(*self).fN = v` work for agent handler state
+        // writebacks.
+        if let Some((Projection::Deref, rest)) = p.proj.split_first() {
+            if let Value::Ref(r) = f.locals[idx].clone() {
+                let owner_idx = r.owner.0 as usize;
+                if owner_idx >= f.locals.len() {
+                    return;
+                }
+                // Combine ref's own projections with the remaining ones.
+                let mut combined: Vec<Projection> = r.proj.clone();
+                combined.extend(rest.iter().cloned());
+                let target = &mut f.locals[owner_idx];
+                if combined.is_empty() {
+                    *target = v;
+                } else {
+                    write_proj(target, &combined, v);
+                }
+                return;
+            }
+        }
         // Slice 6 supports field-write into Struct via Field projection
-        // (used by agent state writebacks). Deref-then-field is a no-op
-        // because our fake ref model doesn't truly alias.
+        // (used by agent state writebacks). Other compound projections
+        // (Field, TupleIndex, VariantField) continue through the
+        // existing structural-write path.
         let target = &mut f.locals[idx];
         write_proj(target, &p.proj, v);
     }

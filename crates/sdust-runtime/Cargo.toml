@@ -1,0 +1,21 @@
+[package]
+name = "sdust-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+sdust-sir = { path = "../sdust-sir" }
+sdust-types = { path = "../sdust-types" }
+sdust-hir = { path = "../sdust-hir" }
+sdust-diagnostics = { path = "../sdust-diagnostics" }
+tokio.workspace = true
+parking_lot.workspace = true
+dashmap.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+sdust-driver = { path = "../sdust-driver" }
+tokio = { workspace = true, features = ["test-util"] }

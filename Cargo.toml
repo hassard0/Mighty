@@ -8,6 +8,7 @@ members = [
     "crates/sdust-types",
     "crates/sdust-borrow",
     "crates/sdust-sir",
+    "crates/sdust-runtime",
     "crates/sdust-fmt",
     "crates/sdust-driver",
     "crates/sdust-cli",
@@ -31,6 +32,9 @@ serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 thiserror = "1"
 insta = { version = "1", features = ["yaml"] }
+tokio = { version = "1", features = ["rt-multi-thread", "rt", "macros", "time", "net", "io-util", "sync", "fs"] }
+parking_lot = "0.12"
+dashmap = "5"
 
 [profile.dev]
 opt-level = 0
