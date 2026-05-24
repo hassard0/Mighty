@@ -423,12 +423,14 @@ dependencies = [
 name = "sdust-driver"
 version = "0.1.0"
 dependencies = [
+ "rowan",
  "sdust-ast",
  "sdust-diagnostics",
  "sdust-fmt",
  "sdust-hir",
  "sdust-syntax",
  "serde",
+ "tempfile",
  "thiserror",
  "toml",
 ]
