@@ -1,5 +1,5 @@
 [package]
-name = "sdust-hir"
+name = "sdust-macros"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,11 +8,8 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-la-arena.workspace = true
 sdust-syntax = { path = "../sdust-syntax" }
 sdust-ast = { path = "../sdust-ast" }
-sdust-diagnostics = { path = "../sdust-diagnostics" }
-sdust-macros = { path = "../sdust-macros" }
 
 [dev-dependencies]
-insta.workspace = true
+sdust-syntax = { path = "../sdust-syntax" }

@@ -7,6 +7,7 @@ use sdust_diagnostics::Diagnostic;
 pub mod agents;
 pub mod exprs;
 pub mod items;
+pub mod macros;
 pub mod patterns;
 pub mod types;
 
@@ -30,6 +31,20 @@ impl LoweringCtx {
     }
 
     pub fn lower_file(mut self, file: sdust_ast::File) -> (Package, Vec<Diagnostic>) {
+        // v0.4: pre-expand declarative macros (see sdust_macros). If the
+        // file has macro decls AND call sites, we rewrite the source,
+        // re-parse, and proceed with the expanded CST. The original
+        // diagnostics from the expander are surfaced through `self`.
+        let original_src = file.0.text().to_string();
+        let pp = macros::preprocess(&original_src);
+        self.diagnostics.extend(pp.diagnostics);
+        let file = if pp.source == original_src {
+            file
+        } else {
+            let parsed = sdust_syntax::parse(&pp.source);
+            let root = sdust_syntax::SyntaxNode::new_root(parsed.green);
+            <sdust_ast::File as sdust_ast::AstNode>::cast(root).unwrap_or(file)
+        };
         for node in file.0.children() {
             if let Some(item_id) = items::lower_item(&mut self, node) {
                 self.package.top_level.push(item_id);
