@@ -63,6 +63,32 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
         );
     }
 
+    // Slice 5: register trait method signatures EARLY (before fn-sig
+    // resolution) so `dyn Trait` resolution inside fn signatures sees
+    // the trait_methods table.
+    for item_id in &pkg.top_level {
+        let item = &pkg.items[*item_id];
+        if let HirItem::Trait(t) = item {
+            let mut sigs: Vec<TraitMethodSig> = vec![];
+            for mfid in &t.methods {
+                let hf = &pkg.fns[*mfid];
+                let has_self_ty = hf.params.iter().any(|p| match p.ty {
+                    Some(t) => is_self_type(&pkg.types[t]),
+                    None => false,
+                }) || hf
+                    .ret
+                    .map(|t| is_self_type(&pkg.types[t]))
+                    .unwrap_or(false);
+                sigs.push(TraitMethodSig {
+                    name: hf.name.clone(),
+                    has_self_ty,
+                    has_generics: !hf.generics.is_empty(),
+                });
+            }
+            defs.traits.trait_methods.insert(t.name.clone(), sigs);
+        }
+    }
+
     // Pass 2: fill in fields, variants, fn signatures.
     for (sid, aid) in struct_ids.iter().copied() {
         let hs = &pkg.structs[sid];
@@ -271,6 +297,16 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
         }
     }
 
+    // Slice 5: process #[derive(...)] on structs / enums.
+    apply_derives(
+        &struct_ids,
+        &enum_ids,
+        pkg,
+        &mut defs,
+        arena,
+        &mut diagnostics,
+    );
+
     // Impl-block method indexing (slice 4, Task 11). For each `impl T { fn m() ... }`
     // (and `impl Trait for T { fn m() ... }`), register each method's FnDef so
     // method dispatch on user `Adt(T, _)` receivers can find it.
@@ -287,6 +323,31 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
                 }
                 _ => None,
             };
+            // Slice 5: resolve trait_for to a trait name (single ident).
+            let trait_name: Option<String> =
+                impl_block.trait_for.and_then(|tid| match &pkg.types[tid] {
+                    sdust_hir::HirType::Path { segments, .. } if segments.len() == 1 => {
+                        Some(segments[0].clone())
+                    }
+                    _ => None,
+                });
+            // Coherence: emit SD4022 if the (trait, self_adt) pair already
+            // exists. Slice 5 detection is name-only.
+            if let (Some(t), Some(sa)) = (trait_name.as_ref(), self_adt) {
+                if defs.traits.impl_keys.contains(&(t.clone(), sa)) {
+                    let sname = defs
+                        .adt(sa)
+                        .map(|a| a.name.clone())
+                        .unwrap_or_else(|| format!("Adt{}", sa.0));
+                    diagnostics.push(crate::diag::trait_coherence_violation(
+                        t,
+                        &sname,
+                        &impl_block.span,
+                    ));
+                }
+            }
+            let mut method_fns: std::collections::HashMap<String, FnDefId> =
+                std::collections::HashMap::new();
             for mfid in &impl_block.methods {
                 let hf = &pkg.fns[*mfid];
                 // Build a FnDef with the resolved signature.
@@ -342,7 +403,29 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
                 });
                 defs.hir_fn_to_def.insert(*mfid, fdef_id);
                 if let Some(aid) = self_adt {
-                    defs.impl_methods.insert((aid, hf.name.clone()), fdef_id);
+                    // Trait impls go into the trait dispatch table; only
+                    // inherent impls win the impl_methods slot.
+                    if trait_name.is_none() {
+                        defs.impl_methods.insert((aid, hf.name.clone()), fdef_id);
+                    }
+                }
+                method_fns.insert(hf.name.clone(), fdef_id);
+            }
+            // Register trait impl in the coherence/dispatch table.
+            if let (Some(t), Some(sa)) = (trait_name, self_adt) {
+                defs.traits.impl_keys.insert((t.clone(), sa));
+                defs.traits.impls.push(TraitImpl {
+                    trait_name: t.clone(),
+                    self_adt: sa,
+                    method_fns: method_fns.clone(),
+                    span: impl_block.span.clone(),
+                });
+                for (mname, fid) in &method_fns {
+                    defs.traits
+                        .by_method
+                        .entry((sa, mname.clone()))
+                        .or_default()
+                        .push((t.clone(), *fid));
                 }
             }
         }
@@ -374,6 +457,9 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
                 defs.protocol_msgs
                     .insert((proto.name.clone(), msg.name.clone()), ptys);
             }
+            // Slice 5: also save the message-name list per protocol.
+            let names: Vec<String> = proto.messages.iter().map(|m| m.name.clone()).collect();
+            defs.protocol_msg_names.insert(proto.name.clone(), names);
         }
     }
     let _ = agent_method_ids;
@@ -533,7 +619,8 @@ fn declare_item(
         | HirItem::Macro(_)
         | HirItem::Impl(_)
         | HirItem::Trait(_)
-        | HirItem::Const(_) => {
+        | HirItem::Const(_)
+        | HirItem::Sandbox(_) => {
             // Handled separately or unsupported in slice 4.
         }
     }
@@ -636,9 +723,41 @@ pub fn resolve_hir_type(
             // unification with any concrete error type is permissive.
             arena.error
         }
+        HirType::Dyn { trait_name } => {
+            // Slice-5 conservative object-safety: a `dyn T` is acceptable
+            // only when T is a known trait whose methods have no `Self`
+            // mention and no method-level generics. If T isn't declared
+            // (slice-5 trait_methods table empty), we still produce the
+            // dyn type — the coercion-site check later catches the
+            // "no impl" condition.
+            if let Some(sigs) = defs.traits.trait_methods.get(trait_name) {
+                let unsafe_obj = sigs.iter().any(|s| s.has_self_ty || s.has_generics);
+                if unsafe_obj {
+                    diag_out.push(crate::diag::dyn_requires_object_safe(
+                        trait_name,
+                        &SourceSpan { start: 0, end: 0 },
+                    ));
+                }
+            }
+            arena.dyn_trait(trait_name)
+        }
         HirType::Unit => arena.unit,
         HirType::Unknown => arena.error,
     }
+}
+
+/// Slice-5: map a top-level identifier to a `Cap` family if it is one of
+/// the core capability names (`Net`, `Fs`, `Clock`, `Dom`, `Model`).
+pub(crate) fn cap_family_for_name(name: &str) -> Option<crate::ty::CapFamily> {
+    use crate::ty::CapFamily;
+    Some(match name {
+        "Net" => CapFamily::Net,
+        "Fs" => CapFamily::Fs,
+        "Clock" => CapFamily::Clock,
+        "Dom" => CapFamily::Dom,
+        "Model" => CapFamily::Model,
+        _ => return None,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -652,6 +771,12 @@ fn resolve_def_to_ty(
     diag_out: &mut Vec<Diagnostic>,
     name: &str,
 ) -> TyId {
+    // Slice 5: core capability names resolve to TyData::Cap, not Adt.
+    if let Some(fam) = cap_family_for_name(name) {
+        if generics.is_empty() {
+            return arena.cap(fam, crate::ty::CapConstraint::Any);
+        }
+    }
     match d {
         DefRef::Adt(aid) => {
             let expected = defs.adt(aid).map(|a| a.generics.len()).unwrap_or(0);
@@ -708,6 +833,126 @@ fn resolve_def_to_ty(
             arena.error
         }
     }
+}
+
+/// Slice 5: walk derives on each struct/enum, validate them, and
+/// register the resulting Copy-set / synthetic trait impls.
+fn apply_derives(
+    struct_ids: &[(StructId, AdtId)],
+    enum_ids: &[(EnumId, AdtId)],
+    pkg: &Package,
+    defs: &mut DefMap,
+    arena: &mut TyArena,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let _ = arena;
+    // Helper closures.
+    fn validate_copy_struct(
+        aid: AdtId,
+        name: &str,
+        defs: &DefMap,
+        arena: &TyArena,
+        out_diags: &mut Vec<Diagnostic>,
+        span: &sdust_hir::SourceSpan,
+    ) -> bool {
+        let adt = match defs.adt(aid) {
+            Some(a) => a,
+            None => return false,
+        };
+        for v in &adt.variants {
+            for f in &v.fields {
+                if !crate::is_field_copy(f.ty, arena, defs) {
+                    let fname = f.name.clone().unwrap_or_else(|| "<unnamed>".into());
+                    out_diags.push(crate::diag::derive_copy_field_not_copy(name, &fname, span));
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    for (sid, aid) in struct_ids {
+        let hs = &pkg.structs[*sid];
+        for d in &hs.derives {
+            match d.as_str() {
+                "Copy" => {
+                    if validate_copy_struct(*aid, &hs.name, defs, arena, diagnostics, &hs.span) {
+                        defs.user_copy.insert(*aid);
+                    }
+                }
+                "Hash" | "Eq" => {
+                    register_synthetic_trait_impl(defs, d, *aid, &hs.span);
+                }
+                other => {
+                    diagnostics.push(crate::diag::derive_unknown(other, &hs.span));
+                }
+            }
+        }
+    }
+    for (eid, aid) in enum_ids {
+        let he = &pkg.enums[*eid];
+        for d in &he.derives {
+            match d.as_str() {
+                "Copy" => {
+                    if validate_copy_struct(*aid, &he.name, defs, arena, diagnostics, &he.span) {
+                        defs.user_copy.insert(*aid);
+                    }
+                }
+                "Hash" | "Eq" => {
+                    register_synthetic_trait_impl(defs, d, *aid, &he.span);
+                }
+                other => {
+                    diagnostics.push(crate::diag::derive_unknown(other, &he.span));
+                }
+            }
+        }
+    }
+}
+
+fn register_synthetic_trait_impl(
+    defs: &mut DefMap,
+    trait_name: &str,
+    self_adt: AdtId,
+    span: &sdust_hir::SourceSpan,
+) {
+    if defs
+        .traits
+        .impl_keys
+        .contains(&(trait_name.to_string(), self_adt))
+    {
+        return;
+    }
+    defs.traits
+        .impl_keys
+        .insert((trait_name.to_string(), self_adt));
+    defs.traits.impls.push(crate::TraitImpl {
+        trait_name: trait_name.to_string(),
+        self_adt,
+        method_fns: Default::default(),
+        span: span.clone(),
+    });
+    // Ensure trait_methods has an entry (so dyn resolution accepts it).
+    defs.traits
+        .trait_methods
+        .entry(trait_name.to_string())
+        .or_insert_with(|| match trait_name {
+            "Hash" => vec![crate::TraitMethodSig {
+                name: "hash".into(),
+                has_self_ty: false,
+                has_generics: false,
+            }],
+            "Eq" => vec![crate::TraitMethodSig {
+                name: "eq".into(),
+                has_self_ty: true,
+                has_generics: false,
+            }],
+            _ => vec![],
+        });
+}
+
+/// Slice 5: detect whether a HirType is the literal `Self` identifier.
+pub(crate) fn is_self_type(ty: &HirType) -> bool {
+    matches!(ty, HirType::Path { segments, .. } if segments.len() == 1 && segments[0] == "Self")
 }
 
 /// Const-eval an array-length expression. Only integer literals supported.

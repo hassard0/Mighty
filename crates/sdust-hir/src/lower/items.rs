@@ -27,7 +27,10 @@ pub fn lower_item(ctx: &mut LoweringCtx, node: SyntaxNode) -> Option<ItemId> {
         SyntaxKind::USE_DECL => Item::Use(lower_use(UseDecl::cast(node)?)),
         SyntaxKind::MOD_DECL => Item::Mod(lower_mod(ModDecl::cast(node)?)),
         SyntaxKind::EXTERN_BLOCK => Item::ExternBlock(lower_extern_block(ctx, node)),
-        // EXPORT_DECL, MACRO_DECL, IMPL_BLOCK, TRAIT_DECL, CONST_DECL — Task 22+
+        SyntaxKind::IMPL_BLOCK => Item::Impl(lower_impl_block(ctx, node)),
+        SyntaxKind::TRAIT_DECL => Item::Trait(lower_trait_decl(ctx, node)),
+        SyntaxKind::SANDBOX_BLOCK => Item::Sandbox(super::exprs::lower_top_sandbox(ctx, node)),
+        // EXPORT_DECL, MACRO_DECL, CONST_DECL — later slices.
         _ => return None,
     };
     Some(ctx.package.items.alloc(item))
@@ -124,11 +127,13 @@ fn lower_struct(ctx: &mut LoweringCtx, s: StructDecl) -> StructId {
             })
             .collect();
     let generics = lower_generics(&s.0);
+    let derives = collect_derives(&s.0);
     let hs = HirStruct {
         name,
         is_pub: has_visibility(&s.0),
         generics,
         fields,
+        derives,
         span: span_of(&s.0),
     };
     ctx.package.structs.alloc(hs)
@@ -162,14 +167,39 @@ fn lower_enum(ctx: &mut LoweringCtx, e: EnumDecl) -> EnumId {
             })
             .collect();
     let generics = lower_generics(&e.0);
+    let derives = collect_derives(&e.0);
     let he = HirEnum {
         name,
         is_pub: has_visibility(&e.0),
         generics,
         variants,
+        derives,
         span: span_of(&e.0),
     };
     ctx.package.enums.alloc(he)
+}
+
+/// Slice 5: extract derive names from `ATTR` children of an item. The
+/// parser wraps `#[derive(...)]` inside the item's checkpoint, so ATTR
+/// nodes are immediate children of STRUCT_DECL / ENUM_DECL.
+pub fn collect_derives(item: &SyntaxNode) -> Vec<String> {
+    use sdust_syntax::SyntaxKind as SK;
+    let mut out: Vec<String> = vec![];
+    for attr in item.children().filter(|c| c.kind() == SK::ATTR) {
+        let names: Vec<String> = attr
+            .children()
+            .filter_map(sdust_ast::Name::cast)
+            .map(|n| n.text())
+            .collect();
+        // Drop the leading "derive" sentinel when present.
+        let derived = if names.first().map(|s| s.as_str()) == Some("derive") {
+            names[1..].to_vec()
+        } else {
+            names
+        };
+        out.extend(derived);
+    }
+    out
 }
 
 fn lower_type_alias(ctx: &mut LoweringCtx, t: TypeAlias) -> TypeAliasId {
@@ -310,6 +340,73 @@ pub fn is_type_node(k: SyntaxKind) -> bool {
 
 pub fn has_visibility(n: &SyntaxNode) -> bool {
     n.children().any(|c| c.kind() == SyntaxKind::VISIBILITY)
+}
+
+/// Lower an `impl [Trait for] T { ... }` block.
+pub fn lower_impl_block(ctx: &mut LoweringCtx, node: SyntaxNode) -> HirImpl {
+    let span = span_of(&node);
+    // The first type child is either the trait (if `for` follows) or
+    // the self type. Detect `for` by token presence in children_with_tokens.
+    let type_children: Vec<SyntaxNode> =
+        node.children().filter(|c| is_type_node(c.kind())).collect();
+    let has_for = node
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .any(|t| t.kind() == SyntaxKind::FOR_KW);
+    let (trait_for, self_ty) = if has_for && type_children.len() >= 2 {
+        let trait_ty = super::types::lower_type(ctx, type_children[0].clone());
+        let self_t = super::types::lower_type(ctx, type_children[1].clone());
+        (Some(trait_ty), self_t)
+    } else if !type_children.is_empty() {
+        let self_t = super::types::lower_type(ctx, type_children[0].clone());
+        (None, self_t)
+    } else {
+        (None, ctx.alloc_type(HirType::Unknown))
+    };
+    // Methods: each FN_DECL child becomes a HirFn.
+    let mut methods: Vec<FnId> = vec![];
+    for fn_node in node.children().filter(|c| c.kind() == SyntaxKind::FN_DECL) {
+        if let Some(fd) = sdust_ast::FnDecl::cast(fn_node) {
+            let fid = lower_fn_public(ctx, fd);
+            methods.push(fid);
+        }
+    }
+    HirImpl {
+        trait_for,
+        self_ty,
+        methods,
+        span,
+    }
+}
+
+/// Lower a `trait Name { fn m(...); ... }` block.
+pub fn lower_trait_decl(ctx: &mut LoweringCtx, node: SyntaxNode) -> HirTrait {
+    let span = span_of(&node);
+    let name = node
+        .children()
+        .find_map(sdust_ast::Name::cast)
+        .map(|n| n.text())
+        .unwrap_or_default();
+    let is_pub = has_visibility(&node);
+    let generics = lower_generics(&node);
+    // Each TRAIT_METHOD child contains a single FN_DECL.
+    let mut methods: Vec<FnId> = vec![];
+    for tm in node
+        .children()
+        .filter(|c| c.kind() == SyntaxKind::TRAIT_METHOD)
+    {
+        if let Some(fd) = tm.children().find_map(sdust_ast::FnDecl::cast) {
+            let fid = lower_fn_public(ctx, fd);
+            methods.push(fid);
+        }
+    }
+    HirTrait {
+        name,
+        is_pub,
+        generics,
+        methods,
+        span,
+    }
 }
 
 /// Collect generic parameter names from a `GENERIC_PARAM_LIST` child of `n`.

@@ -158,6 +158,10 @@ pub enum SyntaxKind {
     JOIN_KW,
     #[token("scope")]
     SCOPE_KW,
+    #[token("dyn")]
+    DYN_KW,
+    #[token("derive")]
+    DERIVE_KW,
 
     // ---- Identifiers ----
     #[regex(r"[A-Za-z_][A-Za-z0-9_]*", priority = 2)]
@@ -395,7 +399,7 @@ impl SyntaxKind {
         )
     }
     pub fn is_keyword(self) -> bool {
-        (SyntaxKind::AGENT_KW as u16..=SyntaxKind::SCOPE_KW as u16).contains(&(self as u16))
+        (SyntaxKind::AGENT_KW as u16..=SyntaxKind::DERIVE_KW as u16).contains(&(self as u16))
     }
 }
 

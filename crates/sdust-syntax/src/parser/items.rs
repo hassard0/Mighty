@@ -3,8 +3,13 @@ use crate::SyntaxKind::{self, *};
 
 pub fn item(p: &mut Parser) -> bool {
     p.skip_trivia();
-    // Optional visibility prefix wraps the item that follows.
+    // Slice 5: optional attributes/derive prefixes.
     let cp = p.checkpoint();
+    // `#[derive(...)]` attributes or `derive Copy` keyword shorthand.
+    while p.at(HASH) || p.at(DERIVE_KW) {
+        attribute(p);
+        p.skip_trivia();
+    }
     if p.at(PUB_KW) {
         p.start_node(VISIBILITY);
         p.bump(PUB_KW);
@@ -84,8 +89,82 @@ pub fn item(p: &mut Parser) -> bool {
             super::macros::macro_decl(p, cp);
             true
         }
+        SANDBOX_KW => {
+            sandbox_decl(p, cp);
+            true
+        }
         _ => false,
     }
+}
+
+/// Parse `#[derive(Copy, Hash)]` or `derive Copy` shorthand.
+fn attribute(p: &mut Parser) {
+    p.start_node(ATTR);
+    if p.eat(HASH) {
+        p.expect(L_BRACK);
+        // `derive(Foo, Bar)` form is the only attribute slice 5 understands.
+        // Note: `derive` is a keyword so we use `name_or_keyword`.
+        paths::name_or_keyword(p);
+        if p.eat(L_PAREN) {
+            while !p.at(R_PAREN) && !p.at(EOF) {
+                paths::name_or_keyword(p);
+                if !p.eat(COMMA) {
+                    break;
+                }
+            }
+            p.expect(R_PAREN);
+        }
+        p.expect(R_BRACK);
+    } else if p.at(DERIVE_KW) {
+        // `derive Copy` (and possibly `derive Copy, Hash`).
+        // Emit the `derive` keyword as a NAME so the lowerer can find it.
+        p.start_node(NAME);
+        p.bump_any();
+        p.finish_node();
+        p.skip_trivia();
+        paths::name_or_keyword(p);
+        while p.eat(COMMA) {
+            paths::name_or_keyword(p);
+        }
+    }
+    p.finish_node();
+    p.skip_trivia();
+}
+
+/// Parse a top-level sandbox item (spec §16.1). Same body shape as the
+/// expression form.
+fn sandbox_decl(p: &mut Parser, cp: rowan::Checkpoint) {
+    p.start_node_at(cp, SANDBOX_BLOCK);
+    p.bump(SANDBOX_KW);
+    p.skip_trivia();
+    // Name is optional but spec writes it; accept either.
+    if p.at(IDENT) {
+        paths::name(p);
+    }
+    if p.at(WITH_KW) {
+        p.bump(WITH_KW);
+        p.skip_trivia();
+    }
+    p.expect(L_BRACE);
+    p.skip_trivia();
+    while !p.at(R_BRACE) && !p.at(EOF) {
+        p.start_node(SANDBOX_ENTRY);
+        // entry: PATH = EXPR
+        paths::path(p);
+        if p.eat(EQ) {
+            super::exprs::expr(p);
+        }
+        p.finish_node();
+        p.eat(COMMA);
+        p.skip_trivia();
+    }
+    p.expect(R_BRACE);
+    p.skip_trivia();
+    if p.at(L_BRACE) {
+        super::stmts::block(p);
+    }
+    p.finish_node();
+    p.skip_trivia();
 }
 
 /// Kind of the next non-trivia token at index `from` (inclusive).

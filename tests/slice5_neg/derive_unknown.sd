@@ -1,0 +1,4 @@
+#[derive(Foo)]
+struct A {
+  x: I32
+}

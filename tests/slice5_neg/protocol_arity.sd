@@ -1,0 +1,7 @@
+protocol Greet {
+  Hello(name: Str, age: I32) -> Str
+}
+
+agent Greeter: Greet {
+  on Hello(name) -> name
+}

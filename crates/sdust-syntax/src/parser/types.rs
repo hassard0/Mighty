@@ -9,10 +9,26 @@ pub fn type_expr(p: &mut Parser) -> bool {
         L_PAREN => tuple(p),
         L_BRACK => array(p),
         FN_KW => fn_type(p),
+        DYN_KW => dyn_type(p),
         IDENT => path_type(p),
         _ => return false,
     }
     true
+}
+
+fn dyn_type(p: &mut Parser) {
+    // `dyn Trait` — slice-5. We accept `dyn IDENT` only (no generic args
+    // on the trait — slice-5 doesn't model that).
+    p.start_node(TYPE_DYN);
+    p.bump(DYN_KW);
+    p.skip_trivia();
+    if p.at(IDENT) {
+        paths::path(p);
+    } else {
+        p.error("expected trait name after `dyn`");
+    }
+    p.finish_node();
+    p.skip_trivia();
 }
 
 fn ptr(p: &mut Parser) {

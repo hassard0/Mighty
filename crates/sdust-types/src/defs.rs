@@ -2,7 +2,8 @@
 //! central name-resolution table the inference engine consults.
 
 use crate::ty::{AdtId, EffectId, FnDefId, ParamId, TyId};
-use std::collections::HashMap;
+use sdust_hir::SourceSpan;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AdtKind {
@@ -120,6 +121,46 @@ pub struct DefMap {
     /// parameter types (parallel to the message's declared params). Used
     /// to type agent handler params by looking up the implemented protocol.
     pub protocol_msgs: HashMap<(String, String), Vec<TyId>>,
+    /// Slice-5 protocol message names per protocol (declaration order),
+    /// used for arity / missing-handler / extra-handler checks.
+    pub protocol_msg_names: HashMap<String, Vec<String>>,
+    /// Slice-5 set of user ADTs marked Copy via `#[derive(Copy)]`.
+    pub user_copy: HashSet<AdtId>,
+    /// Slice-5 trait coherence + dispatch table.
+    pub traits: TraitTable,
+}
+
+/// Trait coherence + dispatch table (slice 5).
+#[derive(Default, Debug)]
+pub struct TraitTable {
+    /// Per-trait declared method signatures (object-safety check, dyn dispatch).
+    pub trait_methods: HashMap<String, Vec<TraitMethodSig>>,
+    /// All `impl Trait for T` registrations.
+    pub impls: Vec<TraitImpl>,
+    /// `(receiver_adt, method_name) -> Vec<(trait_name, fn_def_id)>`.
+    /// Used at method-call sites to find trait-provided methods.
+    pub by_method: HashMap<(AdtId, String), Vec<(String, FnDefId)>>,
+    /// Set of `(trait_name, self_adt_id)` pairs for coherence (overlap)
+    /// detection.
+    pub impl_keys: HashSet<(String, AdtId)>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TraitImpl {
+    pub trait_name: String,
+    pub self_adt: AdtId,
+    pub method_fns: HashMap<String, FnDefId>,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone)]
+pub struct TraitMethodSig {
+    pub name: String,
+    /// Slice-5 object-safety conservative flag: true iff the method's
+    /// signature mentions `Self` (in return or parameter type).
+    pub has_self_ty: bool,
+    /// Slice-5 object-safety: true iff the method has its own generics.
+    pub has_generics: bool,
 }
 
 impl DefMap {

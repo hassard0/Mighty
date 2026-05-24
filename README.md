@@ -8,15 +8,18 @@ typed, ownership-based, and treats agents, protocols, capabilities, effects,
 arenas, and budgets as first-class concepts. The toolchain targets both
 native code (via LLVM) and the WebAssembly Component Model.
 
-The language is at the **pre-alpha** stage. Slice 4 — ownership and
-borrow checker — is tagged
-[`v0.4.0-borrowck`](https://github.com/hassard0/stardust/releases/tag/v0.4.0-borrowck).
-Slice 4 adds move/borrow/affine/arena/Sendable analysis on top of slice
-3's HM type checker, plus the slice-3 hardening (scope-aware unresolved-
-value tolerance, real impl-method dispatch on user ADTs, protocol-aware
-agent handler params, match exhaustiveness as error, int/float
-defaulting). Effect and capability enforcement is the next slice
-(slice 5). Codegen and runtime are not yet implemented.
+The language is at the **pre-alpha** stage. Slice 5 — effects,
+capabilities, traits, `dyn`, derives, top-level sandboxes, and strict
+protocol checks — is tagged
+[`v0.5.0-effects`](https://github.com/hassard0/stardust/releases/tag/v0.5.0-effects).
+Slice 5 adds bottom-up effect inference with public-fn discipline,
+narrowable capability typing (Net/Fs/Clock/Dom/Model), real trait
+coherence + dispatch with `SD4020 method_ambiguous` /
+`SD4021 method_not_found` / `SD4022 trait_coherence_violation`,
+conservative `dyn Trait` object safety (`SD4023`), `#[derive(Copy,
+Hash, Eq)]`, top-level `sandbox` items, and strict protocol-handler
+arity / coverage checks (SD4030/32/33). Codegen and runtime are not
+yet implemented.
 
 ## Install
 
@@ -88,8 +91,8 @@ implemented or planned:
 | 2 | per-node formatter, lambdas, if-let, turbofish, polish | shipped (`v0.2.0-phase1-polish`) |
 | 3 | type checker, generics MVP, `?` propagation | shipped (`v0.3.0-typeck`) |
 | 4 | ownership / borrow / affine / arena + slice-3 hardening | shipped (`v0.4.0-borrowck`) |
-| 5 | effects and capabilities | next |
-| 6 | SIR and interpreter | planned |
+| 5 | effects, capabilities, traits, `dyn`, derives, strict protocols | shipped (`v0.5.0-effects`) |
+| 6 | SIR and interpreter | next |
 | 7 | runtime MVP (scheduler, mailboxes, supervisors) | planned |
 | 8 | native (LLVM) and Wasm backends | planned |
 

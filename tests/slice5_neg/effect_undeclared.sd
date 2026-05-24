@@ -1,0 +1,4 @@
+pub fn ping(net: Net, url: Url) -> Page!FetchErr {
+  net.get(url)?
+  Ok(Page {})
+}

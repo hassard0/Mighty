@@ -51,6 +51,63 @@ pub enum FloatKind {
     FloatInfer,
 }
 
+/// Capability family (spec §8). Each family has its own narrowing
+/// constructors and built-in method surface.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CapFamily {
+    Net,
+    Fs,
+    Clock,
+    Dom,
+    Model,
+    /// User-declared `cap Foo` family. The string is the declared name.
+    Custom(String),
+}
+
+/// Capability constraint — narrowed authority. Slice 5 only models the
+/// subset needed for spec §8.1 examples: top, read-only, path-prefix
+/// glob, host allowlist, and conjunction.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CapConstraint {
+    /// Top — no restriction.
+    Any,
+    /// Read-only narrowing (applies to Fs only in slice 5).
+    ReadOnly,
+    /// Path-prefix narrowing — `Path("/data")` accepts only paths under
+    /// `/data`.
+    Path(String),
+    /// Network host:port allowlist (accepts only the listed entries).
+    Host(Vec<String>),
+    /// All-of conjunction — every sub-constraint holds.
+    And(Vec<CapConstraint>),
+}
+
+impl CapConstraint {
+    /// Returns true iff `self` is at least as narrow as `other` (so an
+    /// arg with constraint `self` can satisfy a parameter with
+    /// constraint `other`).
+    pub fn is_narrower_or_eq(&self, other: &CapConstraint) -> bool {
+        // Top accepts everything; narrower-than-top is trivially true.
+        if matches!(other, CapConstraint::Any) {
+            return true;
+        }
+        if self == other {
+            return true;
+        }
+        // `And(xs)` narrower than `c` iff any element of xs is narrower
+        // than `c` (set of constraints; each adds restriction).
+        if let CapConstraint::And(xs) = self {
+            return xs.iter().any(|x| x.is_narrower_or_eq(other));
+        }
+        match (self, other) {
+            (CapConstraint::Path(a), CapConstraint::Path(b)) => a.starts_with(b.as_str()),
+            (CapConstraint::Host(a), CapConstraint::Host(b)) => a.iter().all(|h| b.contains(h)),
+            (CapConstraint::ReadOnly, CapConstraint::ReadOnly) => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TyData {
     Bool,
@@ -92,6 +149,18 @@ pub enum TyData {
     RawPtr(TyId),
     /// Opaque module like `std.http`. Field access returns Var.
     Module(String),
+    /// Capability value (spec §8). Carries family + narrowing
+    /// constraint; subsumption is checked at call sites (SD4010).
+    Cap {
+        family: CapFamily,
+        constraint: CapConstraint,
+    },
+    /// `dyn Trait` — dynamically-dispatched value of a trait object.
+    /// Slice 5 keeps the type opaque to the back-end and only validates
+    /// object-safety + coercion sites.
+    Dyn {
+        trait_name: String,
+    },
     /// Poisoned type. Suppresses cascading diagnostics.
     Error,
 }
@@ -288,6 +357,16 @@ impl TyArena {
     pub fn module(&mut self, name: impl Into<String>) -> TyId {
         self.intern(TyData::Module(name.into()))
     }
+
+    pub fn cap(&mut self, family: CapFamily, constraint: CapConstraint) -> TyId {
+        self.intern(TyData::Cap { family, constraint })
+    }
+
+    pub fn dyn_trait(&mut self, trait_name: impl Into<String>) -> TyId {
+        self.intern(TyData::Dyn {
+            trait_name: trait_name.into(),
+        })
+    }
 }
 
 /// Render a type for diagnostics. Walks the substitution to dereference
@@ -387,6 +466,34 @@ pub fn pretty_ty(
         }
         TyData::RawPtr(inner) => format!("*{}", pretty_ty(*inner, arena, subst, defs)),
         TyData::Module(name) => format!("module {}", name),
+        TyData::Cap { family, constraint } => {
+            let fname = match family {
+                CapFamily::Net => "Net".to_string(),
+                CapFamily::Fs => "Fs".to_string(),
+                CapFamily::Clock => "Clock".to_string(),
+                CapFamily::Dom => "Dom".to_string(),
+                CapFamily::Model => "Model".to_string(),
+                CapFamily::Custom(s) => s.clone(),
+            };
+            match constraint {
+                CapConstraint::Any => fname,
+                _ => format!("{}[{}]", fname, pretty_constraint(constraint)),
+            }
+        }
+        TyData::Dyn { trait_name } => format!("dyn {}", trait_name),
+    }
+}
+
+fn pretty_constraint(c: &CapConstraint) -> String {
+    match c {
+        CapConstraint::Any => "Any".into(),
+        CapConstraint::ReadOnly => "ReadOnly".into(),
+        CapConstraint::Path(p) => format!("Path({:?})", p),
+        CapConstraint::Host(hs) => format!("Host({:?})", hs),
+        CapConstraint::And(xs) => {
+            let parts: Vec<String> = xs.iter().map(pretty_constraint).collect();
+            format!("And({})", parts.join(", "))
+        }
     }
 }
 

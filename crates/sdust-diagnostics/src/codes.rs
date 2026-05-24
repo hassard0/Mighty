@@ -56,6 +56,21 @@ pub const LAMBDA_ARITY_MISMATCH: DiagCode = DiagCode::new(2024);
 pub const CANNOT_TAKE_REF: DiagCode = DiagCode::new(2025);
 pub const PROTOCOL_MSG_UNKNOWN: DiagCode = DiagCode::new(2026);
 
+// Effects + capabilities + traits + protocol strict: SD4001..SD4099
+pub const EFFECT_UNDECLARED: DiagCode = DiagCode::new(4001);
+pub const ALLOC_IN_CORE: DiagCode = DiagCode::new(4002);
+pub const CAPABILITY_TOO_BROAD: DiagCode = DiagCode::new(4010);
+pub const METHOD_AMBIGUOUS: DiagCode = DiagCode::new(4020);
+pub const METHOD_NOT_FOUND: DiagCode = DiagCode::new(4021);
+pub const TRAIT_COHERENCE_VIOLATION: DiagCode = DiagCode::new(4022);
+pub const DYN_REQUIRES_OBJECT_SAFE: DiagCode = DiagCode::new(4023);
+pub const PROTOCOL_ARITY_MISMATCH: DiagCode = DiagCode::new(4030);
+pub const PROTOCOL_PARAM_TYPE_MISMATCH: DiagCode = DiagCode::new(4031);
+pub const PROTOCOL_MISSING_HANDLER: DiagCode = DiagCode::new(4032);
+pub const PROTOCOL_EXTRA_HANDLER: DiagCode = DiagCode::new(4033);
+pub const DERIVE_COPY_FIELD_NOT_COPY: DiagCode = DiagCode::new(4040);
+pub const DERIVE_UNKNOWN: DiagCode = DiagCode::new(4041);
+
 // Borrow checker: SD3001..SD3099
 pub const USE_AFTER_MOVE: DiagCode = DiagCode::new(3001);
 pub const MOVE_OUT_OF_BORROW: DiagCode = DiagCode::new(3002);
@@ -338,6 +353,80 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
         3015 => {
             "SD3015: Use of uninitialised binding. The binding was \
                  declared but never assigned before its first read."
+        }
+        4001 => {
+            "SD4001: Public function effect set is incomplete. The body \
+                 calls (transitively) something that produces effects not \
+                 listed in the function's `effect ...` clause. Either add \
+                 the missing effects or restructure to avoid them."
+        }
+        4002 => {
+            "SD4002: Heap allocation in `core` profile. The strict `core` \
+                 profile bans the `alloc` effect; the body uses an \
+                 allocator (arena, growable container, html template, \
+                 etc.). Switch to a stack-only design or change the \
+                 profile."
+        }
+        4010 => {
+            "SD4010: Capability too broad. The argument's capability \
+                 constraint is wider than the parameter declares. \
+                 Narrow at the call site (e.g. `fs.ro(\"/data\")`) \
+                 before passing."
+        }
+        4020 => {
+            "SD4020: Ambiguous method call. Two or more traits in scope \
+                 each provide a method of this name on the receiver type. \
+                 Disambiguate by importing fewer traits or by an explicit \
+                 trait-qualified call."
+        }
+        4021 => {
+            "SD4021: Method not found. No inherent `impl` and no trait \
+                 impl in scope provides this method for the receiver \
+                 type. Add an `impl T { fn m(...) }` or import the \
+                 trait."
+        }
+        4022 => {
+            "SD4022: Trait coherence violation. The same trait is \
+                 implemented twice for the same self type. Remove one \
+                 of the conflicting `impl Trait for T` blocks."
+        }
+        4023 => {
+            "SD4023: `dyn Trait` requires an object-safe trait and an \
+                 implementing concrete type. Slice 5 bans `Self` in \
+                 method signatures and bans generic methods inside \
+                 traits used through `dyn`."
+        }
+        4030 => {
+            "SD4030: Protocol handler arity mismatch. The `on Msg(...)` \
+                 handler declares a different number of parameters than \
+                 the protocol's message signature."
+        }
+        4031 => {
+            "SD4031: Protocol handler parameter type mismatch. The handler \
+                 uses a parameter at a type incompatible with the \
+                 protocol's declared parameter type."
+        }
+        4032 => {
+            "SD4032: Protocol handler missing. The agent implements a \
+                 protocol that declares this message, but no `on Msg(...)` \
+                 handler is provided. Either implement the handler or \
+                 remove the protocol from the agent's declaration."
+        }
+        4033 => {
+            "SD4033: Protocol handler unknown. The `on Msg(...)` handler \
+                 refers to a message that no implemented protocol declares. \
+                 Either declare the message in a protocol or remove the \
+                 handler."
+        }
+        4040 => {
+            "SD4040: `derive(Copy)` requires every field to be Copy. \
+                 At least one field's type is not Copy (e.g. `String`, \
+                 `Bytes`, or another user ADT that is not itself Copy)."
+        }
+        4041 => {
+            "SD4041: Unknown derive. Slice 5 supports `Copy`, `Hash`, \
+                 and `Eq`. Other derive names are reserved for later \
+                 slices."
         }
         _ => return None,
     })

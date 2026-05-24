@@ -591,6 +591,7 @@ fn synth_call(cx: &mut Cx, callee: ExprId, args: &[HirArg], expr_id: ExprId) -> 
             for (i, arg) in args.iter().enumerate() {
                 let expected = params.get(i).copied().unwrap_or_else(|| cx.fresh());
                 check_expr(cx, arg.value, expected);
+                check_cap_subsumption(cx, arg.value, expected, expr_id);
             }
             ret
         }
@@ -636,17 +637,66 @@ fn synth_method_call(
     let resolved = cx.subst.resolve(recv_ty, cx.arena);
     let data = cx.arena.get(resolved).clone();
 
+    // 0. Capability narrowing methods (slice 5).
+    if let TyData::Cap { family, constraint } = &data {
+        if let Some(ret) = synth_cap_method(cx, family.clone(), constraint.clone(), method, args) {
+            return ret;
+        }
+        // Other methods on caps fall through to opaque-permissive (e.g.
+        // `fs.read(path)` returns Bytes-of-something — slice 5 keeps the
+        // permissive fallback rather than inventing a return type).
+        for arg in args {
+            let _ = synth_expr(cx, arg.value);
+        }
+        return cx.fresh();
+    }
+
     // 1. User-declared (struct/enum/agent) ADT receivers go through the
-    //    impl-method index first. If the method exists, use its
-    //    declared signature; else fall through to (a) built-in table
-    //    (b) opaque permissive (c) SD2007.
+    //    impl-method index first. Slice 5: also consider trait impls
+    //    in scope (SD4020 ambiguous / SD4021 not found).
+    if let TyData::Adt(aid, _) = data {
+        // Check trait dispatch: collect all candidate impls.
+        let trait_candidates: Vec<(String, FnDefId)> = cx
+            .defs
+            .traits
+            .by_method
+            .get(&(aid, method.to_string()))
+            .cloned()
+            .unwrap_or_default();
+        let inherent = cx
+            .defs
+            .impl_methods
+            .get(&(aid, method.to_string()))
+            .copied();
+        // If inherent is present, it wins; trait candidates ignored.
+        // If no inherent and trait_candidates.len() > 1: SD4020.
+        if inherent.is_none() && trait_candidates.len() > 1 {
+            let names: Vec<String> = trait_candidates.iter().map(|(t, _)| t.clone()).collect();
+            cx.diag.push(diag::method_ambiguous(
+                method,
+                &names,
+                &cx.span_of_expr(expr_id),
+            ));
+            // Continue with first candidate to avoid cascade.
+        }
+    }
+
     if let TyData::Adt(aid, ref adt_args) = data {
-        if let Some(fdef_id) = cx
+        // Slice-5: try inherent first, then fall back to single trait
+        // candidate. (Ambiguity already reported above.)
+        let trait_first = cx
+            .defs
+            .traits
+            .by_method
+            .get(&(aid, method.to_string()))
+            .and_then(|v| v.first().map(|(_, fid)| *fid));
+        let resolved_fdef = cx
             .defs
             .impl_methods
             .get(&(aid, method.to_string()))
             .copied()
-        {
+            .or(trait_first);
+        if let Some(fdef_id) = resolved_fdef {
             let fdef = match cx.defs.fn_def(fdef_id) {
                 Some(f) => f.clone(),
                 None => return cx.arena.error,
@@ -752,6 +802,95 @@ fn synth_method_call(
         let _ = synth_expr(cx, arg.value);
     }
     cx.arena.error
+}
+
+/// Slice-5: capability narrowing methods. Returns Some(result_ty) if the
+/// method is a recognized narrower; None otherwise (caller falls through
+/// to permissive dispatch).
+/// Slice-5: check that the argument's capability constraint is at least
+/// as narrow as the parameter's. If not, emit SD4010 capability_too_broad.
+fn check_cap_subsumption(cx: &mut Cx, arg_expr: ExprId, param_ty: TyId, expr_id: ExprId) {
+    let arg_ty = match cx.expr_ty.get(&arg_expr).copied() {
+        Some(t) => t,
+        None => return,
+    };
+    let arg_resolved = cx.subst.resolve(arg_ty, cx.arena);
+    let param_resolved = cx.subst.resolve(param_ty, cx.arena);
+    let (af, ac) = match cx.arena.get(arg_resolved).clone() {
+        TyData::Cap { family, constraint } => (family, constraint),
+        _ => return,
+    };
+    let (pf, pc) = match cx.arena.get(param_resolved).clone() {
+        TyData::Cap { family, constraint } => (family, constraint),
+        _ => return,
+    };
+    if af != pf {
+        // Cross-family mismatch already caught by normal unification.
+        return;
+    }
+    if !ac.is_narrower_or_eq(&pc) {
+        cx.diag.push(diag::capability_too_broad(
+            arg_resolved,
+            param_resolved,
+            &cx.span_of_expr(expr_id),
+            cx.arena,
+            cx.subst,
+            cx.defs,
+        ));
+    }
+}
+
+fn synth_cap_method(
+    cx: &mut Cx,
+    family: crate::ty::CapFamily,
+    constraint: crate::ty::CapConstraint,
+    method: &str,
+    args: &[HirArg],
+) -> Option<TyId> {
+    use crate::ty::CapConstraint as C;
+    // Eval any args so side effects + nested types are still typed.
+    for arg in args {
+        let _ = synth_expr(cx, arg.value);
+    }
+    let new_constraint = match (method, args.len()) {
+        ("ro", 1) => {
+            // fs.ro(path) — narrow to ReadOnly + extract path literal if available.
+            let path_str = first_str_arg(cx, args);
+            match path_str {
+                Some(p) => C::And(vec![C::ReadOnly, C::Path(p)]),
+                None => C::ReadOnly,
+            }
+        }
+        ("path", 1) => {
+            let path_str = first_str_arg(cx, args);
+            match path_str {
+                Some(p) => C::Path(p),
+                None => return None,
+            }
+        }
+        ("host", 1) => {
+            let host = first_str_arg(cx, args);
+            match host {
+                Some(h) => C::Host(vec![h]),
+                None => return None,
+            }
+        }
+        _ => return None,
+    };
+    // Compose with existing constraint: result is And(existing, new) (set-union of restrictions).
+    let composed = match constraint {
+        C::Any => new_constraint,
+        c => C::And(vec![c, new_constraint]),
+    };
+    Some(cx.arena.cap(family, composed))
+}
+
+fn first_str_arg(cx: &Cx, args: &[HirArg]) -> Option<String> {
+    let a = args.first()?;
+    match &cx.pkg.exprs[a.value] {
+        HirExpr::Literal(HirLiteral::Str(s)) => Some(s.clone()),
+        _ => None,
+    }
 }
 
 fn synth_field(cx: &mut Cx, receiver: ExprId, name: &str) -> TyId {

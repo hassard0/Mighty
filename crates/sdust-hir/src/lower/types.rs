@@ -101,6 +101,16 @@ pub fn lower_type(ctx: &mut LoweringCtx, n: SyntaxNode) -> TypeId {
                 .collect();
             HirType::Union(elems)
         }
+        SyntaxKind::TYPE_DYN => {
+            // Single trait identifier; pick the first PATH descendant.
+            let name = n
+                .descendants()
+                .find(|c| c.kind() == SyntaxKind::PATH)
+                .and_then(|p| p.descendants().find_map(sdust_ast::NameRef::cast))
+                .and_then(|nr| nr.0.first_token().map(|t| t.text().to_string()))
+                .unwrap_or_default();
+            HirType::Dyn { trait_name: name }
+        }
         _ => HirType::Unknown,
     };
     ctx.alloc_type(t)

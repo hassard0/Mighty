@@ -155,7 +155,8 @@ fn dump_item(out: &mut String, pkg: &Package, item: &Item, depth: usize) {
         | Item::Macro(_)
         | Item::Impl(_)
         | Item::Trait(_)
-        | Item::Const(_) => {
+        | Item::Const(_)
+        | Item::Sandbox(_) => {
             ind(out, depth);
             writeln!(out, "(item ...)").unwrap();
         }

@@ -171,6 +171,12 @@ pub fn unify(
         }
         (TyData::RawPtr(i1), TyData::RawPtr(i2)) => unify(i1, i2, subst, arena),
         (TyData::Param(p1), TyData::Param(p2)) if p1 == p2 => Ok(()),
+        // Capability unification: family must match. Constraint mismatch
+        // is permitted here (narrower-vs-broader is enforced separately
+        // by SD4010 at call sites — unification stays loose so dispatch
+        // can still proceed).
+        (TyData::Cap { family: f1, .. }, TyData::Cap { family: f2, .. }) if f1 == f2 => Ok(()),
+        (TyData::Dyn { trait_name: a }, TyData::Dyn { trait_name: b }) if a == b => Ok(()),
         // Module-vs-module: equal-or-error.
         (TyData::Module(a), TyData::Module(b)) if a == b => Ok(()),
         // Primitive identity (already covered by `a == b` at the top in

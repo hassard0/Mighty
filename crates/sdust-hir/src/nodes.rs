@@ -24,6 +24,18 @@ pub enum Item {
     Impl(HirImpl),
     Trait(HirTrait),
     Const(HirConst),
+    /// Slice 5: top-level `sandbox Name with { entries } { body }`.
+    Sandbox(HirTopSandbox),
+}
+
+/// Top-level sandbox declaration (spec §16.1). Same fields as the
+/// expression-position sandbox in `HirExpr::Sandbox`, plus a name.
+#[derive(Debug, Clone)]
+pub struct HirTopSandbox {
+    pub name: String,
+    pub entries: Vec<(Vec<String>, ExprId)>,
+    pub body: BlockId,
+    pub span: SourceSpan,
 }
 
 #[derive(Debug, Clone)]
@@ -52,6 +64,8 @@ pub struct HirStruct {
     pub is_pub: bool,
     pub generics: Vec<String>,
     pub fields: Vec<HirStructField>,
+    /// Slice 5: derived trait names (`Copy`, `Hash`, `Eq`).
+    pub derives: Vec<String>,
     pub span: SourceSpan,
 }
 #[derive(Debug, Clone)]
@@ -67,6 +81,8 @@ pub struct HirEnum {
     pub is_pub: bool,
     pub generics: Vec<String>,
     pub variants: Vec<HirEnumVariant>,
+    /// Slice 5: derived trait names (`Copy`, `Hash`, `Eq`).
+    pub derives: Vec<String>,
     pub span: SourceSpan,
 }
 #[derive(Debug, Clone)]
@@ -228,6 +244,11 @@ pub enum HirType {
     },
     /// T!{A,B} desugared to Result[T, A|B]
     Union(Vec<TypeId>),
+    /// `dyn Trait` — dynamic dispatch type. Slice 5 keeps the trait
+    /// name as a single identifier (no generic args on the trait).
+    Dyn {
+        trait_name: String,
+    },
     Unit,
     Unknown,
 }

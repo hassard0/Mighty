@@ -1022,3 +1022,46 @@ fn decode_str_escapes(s: &str) -> String {
     }
     out
 }
+
+/// Slice 5: lower a top-level SANDBOX_BLOCK into HirTopSandbox.
+pub fn lower_top_sandbox(ctx: &mut LoweringCtx, n: SyntaxNode) -> HirTopSandbox {
+    let span = super::span_of(&n);
+    let name = n
+        .children()
+        .find_map(sdust_ast::Name::cast)
+        .map(|x| x.text())
+        .unwrap_or_default();
+    let entries: Vec<(Vec<String>, ExprId)> = n
+        .children()
+        .filter(|c| c.kind() == SyntaxKind::SANDBOX_ENTRY)
+        .map(|entry| {
+            let path: Vec<String> = entry
+                .children()
+                .find(|c| c.kind() == SyntaxKind::PATH)
+                .map(|p| path_text_segments(&p))
+                .unwrap_or_default();
+            let value = entry
+                .children()
+                .find(|c| is_expr_node(c.kind()))
+                .map(|e| lower_expr(ctx, e))
+                .unwrap_or_else(|| ctx.alloc_expr(HirExpr::Error));
+            (path, value)
+        })
+        .collect();
+    let body = n
+        .children()
+        .find(|c| c.kind() == SyntaxKind::BLOCK)
+        .map(|b| lower_block_node(ctx, b))
+        .unwrap_or_else(|| {
+            ctx.alloc_block(HirBlock {
+                stmts: vec![],
+                tail: None,
+            })
+        });
+    HirTopSandbox {
+        name,
+        entries,
+        body,
+        span,
+    }
+}

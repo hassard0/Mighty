@@ -13,6 +13,7 @@
 pub mod check;
 pub mod defs;
 pub mod diag;
+pub mod effects;
 pub mod infer;
 pub mod items;
 pub mod prelude;
@@ -21,6 +22,43 @@ pub mod ty;
 
 pub use defs::*;
 pub use ty::*;
+
+/// Slice 5: a small Copy-predicate mirroring `sdust-borrow::copy::is_copy`
+/// for use inside the type-checker (the borrow crate depends on us, so we
+/// can't depend on it). Kept in sync via a comment-reference. The two
+/// implementations agree on the slice-5 ruleset.
+pub fn is_field_copy(ty: TyId, arena: &TyArena, defs: &DefMap) -> bool {
+    match arena.get(ty) {
+        TyData::Bool
+        | TyData::Char
+        | TyData::Str
+        | TyData::Unit
+        | TyData::Never
+        | TyData::Duration
+        | TyData::Size
+        | TyData::Error
+        | TyData::Module(_) => true,
+        TyData::Int(_) | TyData::Float(_) => true,
+        TyData::String | TyData::Bytes => false,
+        TyData::RawPtr(_) => true,
+        TyData::Ref { mutable, .. } => !*mutable,
+        TyData::Fn { .. } => true,
+        TyData::Tuple(xs) => xs.iter().all(|t| is_field_copy(*t, arena, defs)),
+        TyData::Array { elem, .. } => is_field_copy(*elem, arena, defs),
+        TyData::Adt(id, _) => {
+            if defs.user_copy.contains(id) {
+                return true;
+            }
+            match defs.adt(*id).map(|a| a.kind) {
+                Some(AdtKind::Opaque) => true,
+                Some(AdtKind::Struct) | Some(AdtKind::Enum) => false,
+                None => true,
+            }
+        }
+        TyData::Var(_) | TyData::Param(_) => false,
+        TyData::Cap { .. } | TyData::Dyn { .. } => false,
+    }
+}
 
 use sdust_diagnostics::Diagnostic;
 use sdust_hir::{ExprId, FnId, Package};
@@ -43,6 +81,8 @@ pub struct TypedPackage {
     pub fn_params: HashMap<FnId, Vec<(String, TyId)>>,
     /// Per-fn declared return type.
     pub fn_ret: HashMap<FnId, TyId>,
+    /// Slice 5: per-fn inferred effect set (deterministic order).
+    pub fn_effects: HashMap<FnId, Vec<EffectId>>,
     pub diagnostics: Vec<Diagnostic>,
 }
 

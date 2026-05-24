@@ -39,12 +39,24 @@ pub fn is_copy(ty: TyId, arena: &TyArena, defs: &DefMap) -> bool {
         TyData::Fn { .. } => true,
         TyData::Tuple(xs) => xs.iter().all(|t| is_copy(*t, arena, defs)),
         TyData::Array { elem, .. } => is_copy(*elem, arena, defs),
-        TyData::Adt(id, _) => match defs.adt(*id).map(|a| a.kind) {
-            Some(AdtKind::Opaque) => true,
-            Some(AdtKind::Struct) | Some(AdtKind::Enum) => false,
-            None => true,
-        },
+        TyData::Adt(id, _) => {
+            // Slice 5: `#[derive(Copy)]` user types opt in via
+            // `defs.user_copy`. Opaque ADTs stay Copy (loose
+            // slice-4 decision; tightened later).
+            if defs.user_copy.contains(id) {
+                return true;
+            }
+            match defs.adt(*id).map(|a| a.kind) {
+                Some(AdtKind::Opaque) => true,
+                Some(AdtKind::Struct) | Some(AdtKind::Enum) => false,
+                None => true,
+            }
+        }
         TyData::Var(_) | TyData::Param(_) => false,
+        // Capabilities are affine — they carry authority.
+        TyData::Cap { .. } => false,
+        // `dyn Trait` values carry a runtime witness; affine.
+        TyData::Dyn { .. } => false,
     }
 }
 

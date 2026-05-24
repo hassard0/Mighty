@@ -1,0 +1,4 @@
+#[derive(Copy)]
+struct Holds {
+  s: String
+}

@@ -275,13 +275,138 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
         }
     }
 
+    // Slice 5: effect inference + validation (after typecheck).
+    let profile = load_profile_from_star_toml();
+    let fn_effects =
+        crate::effects::infer_and_validate(pkg, &mut defs, &arena, profile, &mut diagnostics);
+
+    // Slice 5: strict protocol coverage / extra-handler checks.
+    check_protocols_strict(pkg, &defs, &mut diagnostics);
+
     TypedPackage {
         def_map: defs,
         ty_arena: arena,
         expr_ty,
         fn_params,
         fn_ret,
+        fn_effects,
         diagnostics,
+    }
+}
+
+/// Slice 5: look for `profile = "core"` in `./star.toml`. Best-effort —
+/// any I/O failure resolves to `Host`.
+fn load_profile_from_star_toml() -> crate::effects::Profile {
+    use std::fs;
+    let Ok(s) = fs::read_to_string("star.toml") else {
+        return crate::effects::Profile::Host;
+    };
+    for line in s.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("profile") {
+            let rest = rest.trim_start_matches(|c: char| c == '=' || c.is_whitespace());
+            let rest = rest.trim_matches('"');
+            return crate::effects::Profile::parse_profile(rest);
+        }
+    }
+    crate::effects::Profile::Host
+}
+
+/// Slice 5: protocol-strict checks. For each agent:
+/// - SD4032 protocol_missing_handler: implemented protocol declares a
+///   message that has no `on Msg(...)` handler.
+/// - SD4033 protocol_extra_handler: handler refers to a message that
+///   no implemented protocol declares.
+/// - SD4030 protocol_arity_mismatch: handler's param count differs from
+///   the protocol-declared signature.
+fn check_protocols_strict(
+    pkg: &Package,
+    defs: &crate::defs::DefMap,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for item_id in &pkg.top_level {
+        let item = &pkg.items[*item_id];
+        let agent = match item {
+            Item::Agent(aid) => &pkg.agents[*aid],
+            _ => continue,
+        };
+        // Collect protocol names from the agent's declared protocols.
+        let proto_names: Vec<String> = agent
+            .protocols
+            .iter()
+            .flat_map(|ptid| {
+                let ty = &pkg.types[*ptid];
+                collect_protocol_names(ty)
+            })
+            .collect();
+        if proto_names.is_empty() {
+            continue;
+        }
+        // Slice-5 conservative behavior: skip strict checks when ANY
+        // declared protocol is unknown to us (e.g. external protocol
+        // declared in another module). This keeps slice-3/4 examples
+        // green while still enforcing strictness on locally-declared
+        // protocols.
+        let any_unknown = proto_names
+            .iter()
+            .any(|pn| !defs.protocol_msg_names.contains_key(pn));
+        if any_unknown {
+            continue;
+        }
+        // Compose declared messages.
+        let declared_msgs: HashMap<String, Vec<TyId>> = proto_names
+            .iter()
+            .flat_map(|pn| {
+                let names = defs.protocol_msg_names.get(pn).cloned().unwrap_or_default();
+                names.into_iter().filter_map(move |mname| {
+                    defs.protocol_msgs
+                        .get(&(pn.clone(), mname.clone()))
+                        .cloned()
+                        .map(|p| (mname, p))
+                })
+            })
+            .collect();
+        // SD4032: missing handlers.
+        let provided: std::collections::HashSet<String> =
+            agent.handlers.iter().map(|h| h.message.clone()).collect();
+        for mname in declared_msgs.keys() {
+            if !provided.contains(mname) {
+                // Choose the first protocol that declares the message.
+                let proto = proto_names
+                    .iter()
+                    .find(|pn| {
+                        defs.protocol_msg_names
+                            .get(*pn)
+                            .map(|v| v.contains(mname))
+                            .unwrap_or(false)
+                    })
+                    .cloned()
+                    .unwrap_or_else(|| proto_names[0].clone());
+                diagnostics.push(crate::diag::protocol_missing_handler(
+                    mname,
+                    &proto,
+                    &agent.span,
+                ));
+            }
+        }
+        // SD4030 + SD4033 per handler.
+        for h in &agent.handlers {
+            match declared_msgs.get(&h.message) {
+                Some(decl_params) => {
+                    if decl_params.len() != h.params.len() {
+                        diagnostics.push(crate::diag::protocol_arity_mismatch(
+                            &h.message,
+                            decl_params.len(),
+                            h.params.len(),
+                            &h.span,
+                        ));
+                    }
+                }
+                None => {
+                    diagnostics.push(crate::diag::protocol_extra_handler(&h.message, &h.span));
+                }
+            }
+        }
     }
 }
 
