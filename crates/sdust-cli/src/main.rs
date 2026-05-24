@@ -66,6 +66,40 @@ enum Cmd {
         /// e.g. SD0001, sd0001, 0001, 1
         code: String,
     },
+    /// Run the Stardust Language Server (LSP 3.17) over stdio.
+    Lsp,
+    /// Package manager: add / remove / update / fetch / list / publish.
+    Pkg {
+        #[command(subcommand)]
+        cmd: cmd::pkg::PkgCmd,
+        /// Override the package root (default: current directory).
+        #[arg(long, global = true)]
+        manifest_dir: Option<std::path::PathBuf>,
+    },
+    /// Render package documentation extracted from `///` doc comments.
+    ///
+    /// With no flags, prints a Go-style summary of the package's public
+    /// items to stdout. With `ITEM`, prints the full doc body of one
+    /// item. With `--html` or `--markdown`, renders a navigable site
+    /// to `target/doc/<package>` (override with `--out`).
+    Doc {
+        path: std::path::PathBuf,
+        /// Print one item's full doc instead of the package summary.
+        item: Option<String>,
+        /// Render an HTML site (per-module pages + search index).
+        #[arg(long)]
+        html: bool,
+        /// Render a markdown tree (one file per item, plus an index).
+        #[arg(long)]
+        markdown: bool,
+        /// Output directory for --html / --markdown.
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+        /// Type-check extracted `sd` / `stardust` code blocks.
+        /// (No-op in v0.2; see DOC_V0_2_NOTES.md.)
+        #[arg(long)]
+        check_examples: bool,
+    },
 }
 
 fn main() {
@@ -97,6 +131,19 @@ fn main() {
             out_dir,
         } => cmd::build::run(&path, debug, release, target, out_dir),
         Cmd::Explain { code } => cmd::explain::run(&code),
+        Cmd::Lsp => cmd::lsp::run(),
+        Cmd::Pkg {
+            cmd: pkg_cmd,
+            manifest_dir,
+        } => cmd::pkg::run(pkg_cmd, manifest_dir),
+        Cmd::Doc {
+            path,
+            item,
+            html,
+            markdown,
+            out,
+            check_examples,
+        } => cmd::doc::run(&path, item, html, markdown, out, check_examples),
     };
     std::process::exit(code);
 }

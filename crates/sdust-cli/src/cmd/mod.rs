@@ -1,7 +1,10 @@
 pub mod build;
 pub mod check;
+pub mod doc;
 pub mod dump;
 pub mod explain;
 pub mod fmt;
+pub mod lsp;
 pub mod new;
+pub mod pkg;
 pub mod run;
