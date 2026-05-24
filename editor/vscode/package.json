@@ -1,0 +1,80 @@
+{
+  "name": "stardust",
+  "displayName": "Stardust",
+  "description": "Stardust language support (syntax + LSP) for VS Code.",
+  "version": "0.2.0",
+  "publisher": "stardust-lang",
+  "license": "Apache-2.0 OR MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hassard0/stardust.git",
+    "directory": "editor/vscode"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:stardust"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "stardust",
+        "aliases": [
+          "Stardust",
+          "sdust"
+        ],
+        "extensions": [
+          ".sd"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "stardust",
+        "scopeName": "source.stardust",
+        "path": "./syntaxes/stardust.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Stardust",
+      "properties": {
+        "stardust.server.path": {
+          "type": "string",
+          "default": "sdust",
+          "description": "Path to the `sdust` binary. The extension launches `<path> lsp` over stdio."
+        },
+        "stardust.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Trace the communication between VS Code and the Stardust LSP."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^2.21.0"
+  }
+}

@@ -17,6 +17,7 @@ sdust <COMMAND>
 | [`check`](sdust-check.md) | Parse + HIR-lower; emit diagnostics |
 | [`dump`](sdust-dump.md) | Dump intermediate representations |
 | [`explain`](sdust-explain.md) | Print a human-readable explanation of a diagnostic code |
+| [`lsp`](sdust-lsp.md) | Run the Stardust Language Server (LSP 3.17) over stdio |
 | `help` | Print help for `sdust` or a subcommand |
 
 ## Global options
@@ -36,9 +37,10 @@ sdust <COMMAND>
 
 Individual subcommands document any additional codes.
 
-## Scope through slice 2
+## Scope through v0.2
 
-Slice 1 shipped `new`, `fmt`, `check`, and `dump`. Slice 2 adds
-`explain`. The longer toolchain in [spec §29](../../spec/v0.1.md) —
-`build`, `run`, `test`, `lint`, `doc`, `bench`, `pkg`, `lsp` — lands
-in later slices.
+Slice 1 shipped `new`, `fmt`, `check`, and `dump`. Slice 2 added
+`explain`. Slices 6-8 added `run` and `build`. v0.2 brings `lsp`
+(Language Server), `pkg` (package manager), and `doc` (documentation
+generator). Still pending from [spec §29](../../spec/v0.1.md):
+`test`, `lint`, `bench`.

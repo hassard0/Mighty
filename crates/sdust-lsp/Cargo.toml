@@ -1,0 +1,33 @@
+[package]
+name = "sdust-lsp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Language Server Protocol implementation for Stardust (.sd)."
+
+[dependencies]
+tower-lsp.workspace = true
+# NOTE: `tower-lsp 0.20` is pinned to `lsp-types 0.94` internally and
+# re-exports it as `tower_lsp::lsp_types`. We use the re-export so the
+# types we hand to the server match the trait bounds tower-lsp expects.
+# (The workspace's `lsp-types = "0.97"` slot is reserved for whatever
+# next-version LSP work upgrades to once tower-lsp catches up.)
+tokio = { workspace = true, features = ["rt-multi-thread", "rt", "macros", "time", "net", "io-util", "io-std", "sync", "fs"] }
+dashmap.workspace = true
+serde.workspace = true
+serde_json = "1"
+rowan.workspace = true
+sdust-driver = { path = "../sdust-driver" }
+sdust-diagnostics = { path = "../sdust-diagnostics" }
+sdust-syntax = { path = "../sdust-syntax" }
+sdust-ast = { path = "../sdust-ast" }
+sdust-hir = { path = "../sdust-hir" }
+sdust-types = { path = "../sdust-types" }
+sdust-fmt = { path = "../sdust-fmt" }
+
+[dev-dependencies]
+serde_json = "1"
+tower = "0.4"

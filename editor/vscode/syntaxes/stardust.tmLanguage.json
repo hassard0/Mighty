@@ -1,0 +1,171 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Stardust",
+  "scopeName": "source.stardust",
+  "fileTypes": ["sd"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#functions" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.documentation.stardust",
+          "match": "///.*$"
+        },
+        {
+          "name": "comment.line.double-slash.stardust",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.stardust",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.html.stardust",
+          "begin": "html\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.stardust",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.stardust",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.stardust",
+              "match": "\\\\(x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]+\\}|[nrt0\\\\\"'])"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.stardust",
+          "match": "'([^'\\\\]|\\\\.)'"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.duration.stardust",
+          "match": "\\b[0-9_]+(ns|us|ms|s|m|h)\\b"
+        },
+        {
+          "name": "constant.numeric.size.stardust",
+          "match": "\\b[0-9_]+(KiB|MiB|GiB|B|k|M)\\b"
+        },
+        {
+          "name": "constant.numeric.float.stardust",
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*(f32|f64)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.stardust",
+          "match": "\\b[0-9][0-9_]*([iuf](8|16|32|64|128))?\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.stardust",
+          "match": "\\b(if|else|match|for|while|loop|return|in|yield|await|break|continue)\\b"
+        },
+        {
+          "name": "keyword.declaration.stardust",
+          "match": "\\b(fn|struct|enum|type|trait|impl|agent|protocol|supervisor|sup|macro|const|mod|use|import|package|extern|export|sandbox|state|on|child|on_fail|restart|backoff|up_to)\\b"
+        },
+        {
+          "name": "keyword.modifier.stardust",
+          "match": "\\b(pub|mut|ref|move|unsafe|async|spawn|task|detach|join|scope|run|arena|budget|with|where|requires|derive|dyn|self|cap|effect|as)\\b"
+        },
+        {
+          "name": "storage.type.stardust",
+          "match": "\\b(let)\\b"
+        },
+        {
+          "name": "constant.language.bool.stardust",
+          "match": "\\b(true|false)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.primitive.stardust",
+          "match": "\\b(Bool|Char|Str|String|Bytes|Unit|Never|Duration|Size|I8|I16|I32|I64|I128|U8|U16|U32|U64|U128|ISize|USize|F32|F64|Result|Option)\\b"
+        },
+        {
+          "name": "entity.name.type.stardust",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.stardust",
+          "match": "\\b(fn)\\s+([a-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.stardust" },
+            "2": { "name": "entity.name.function.stardust" }
+          }
+        },
+        {
+          "name": "meta.function-call.stardust",
+          "match": "\\b([a-z_][A-Za-z0-9_]*)\\s*\\(",
+          "captures": {
+            "1": { "name": "entity.name.function.stardust" }
+          }
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.stardust",
+          "match": "(=|\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>=)"
+        },
+        {
+          "name": "keyword.operator.comparison.stardust",
+          "match": "(==|!=|<=|>=|<|>)"
+        },
+        {
+          "name": "keyword.operator.logical.stardust",
+          "match": "(&&|\\|\\||!)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.stardust",
+          "match": "(\\+|-|\\*|/|%)"
+        },
+        {
+          "name": "keyword.operator.range.stardust",
+          "match": "(\\.\\.=|\\.\\.)"
+        },
+        {
+          "name": "keyword.operator.message.stardust",
+          "match": "(!|\\?)"
+        },
+        {
+          "name": "keyword.operator.borrow.stardust",
+          "match": "(&mut|&)"
+        }
+      ]
+    }
+  }
+}
