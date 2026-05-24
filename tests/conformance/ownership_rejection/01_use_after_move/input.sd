@@ -1,0 +1,9 @@
+fn f() {
+  let a = String("x")
+  let b = move a
+  log_str(a)
+}
+
+extern {
+  fn log_str(s: String)
+}

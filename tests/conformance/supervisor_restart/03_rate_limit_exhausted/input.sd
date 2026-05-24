@@ -1,0 +1,9 @@
+supervisor Limited(strategy: one_for_one) {
+  child flaky = spawn Flaky()
+
+  on_fail(flaky) { restart up_to 3 in 30s }
+}
+
+fn main() {
+  log("rate_limit declared")
+}

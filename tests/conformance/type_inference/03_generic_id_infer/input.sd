@@ -1,0 +1,8 @@
+fn id<T>(x: T) -> T { x }
+
+fn main() {
+  let a = id(7)
+  let b = id("hi")
+  log(a.to_str())
+  log(b)
+}

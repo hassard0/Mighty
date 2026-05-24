@@ -1,0 +1,17 @@
+// Mailbox-cap declaration `mb 1k` is parsed inside a budget block.
+// SD5012 mailbox_full firing requires the tokio runtime; the smoke
+// case just locks in the grammar.
+fn run_job() -> I64 {
+  budget {
+    cpu 10ms
+    wall 100ms
+    mem 4MiB
+    mb 1k
+  } run {
+    7
+  }
+}
+
+fn main() {
+  log(run_job().to_str())
+}

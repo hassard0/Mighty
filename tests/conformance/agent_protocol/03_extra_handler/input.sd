@@ -1,0 +1,8 @@
+protocol Beep {
+  Ping() -> Unit
+}
+
+agent Beeper: Beep {
+  on Ping() {}
+  on Bonk() {}
+}

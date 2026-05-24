@@ -1,0 +1,15 @@
+fn worker() -> I64 {
+  budget {
+    cpu 150ms
+    wall 2s
+    mem 128MiB
+    mb 1k
+  } run {
+    42
+  }
+}
+
+fn main() {
+  let n = worker()
+  log(n.to_str())
+}

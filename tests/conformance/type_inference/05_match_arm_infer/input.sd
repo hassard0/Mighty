@@ -1,0 +1,11 @@
+fn pick(b: Bool) -> I64 {
+  match b {
+    true -> 1,
+    false -> 2,
+  }
+}
+
+fn main() {
+  let n = pick(true)
+  log(n.to_str())
+}

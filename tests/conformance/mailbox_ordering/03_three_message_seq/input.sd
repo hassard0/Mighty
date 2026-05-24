@@ -1,0 +1,17 @@
+protocol Echo {
+  Say(s: Str) -> Str
+}
+
+agent Echoer: Echo {
+  on Say(s) -> s
+}
+
+fn main() {
+  let h = spawn Echoer()
+  let a = h?Say("a")
+  let b = h?Say("b")
+  let c = h?Say("c")
+  log(a)
+  log(b)
+  log(c)
+}

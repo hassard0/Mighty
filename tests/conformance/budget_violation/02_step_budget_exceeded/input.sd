@@ -1,0 +1,9 @@
+extern {
+  fn tick() -> Unit
+}
+
+fn main() {
+  loop {
+    tick()
+  }
+}

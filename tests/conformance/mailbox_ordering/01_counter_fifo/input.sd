@@ -1,0 +1,18 @@
+protocol Count {
+  Inc() -> I64
+}
+
+agent Counter: Count {
+  n = 0
+  on Inc() -> { n += 1; n }
+}
+
+fn main() {
+  let h = spawn Counter()
+  let a = h?Inc()
+  let b = h?Inc()
+  let c = h?Inc()
+  log(a.to_str())
+  log(b.to_str())
+  log(c.to_str())
+}

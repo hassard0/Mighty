@@ -1,0 +1,4 @@
+fn driver(fs: Fs) -> Bytes!IoErr {
+  let ro = fs.ro("/data")
+  ro.read("/data/x")?
+}

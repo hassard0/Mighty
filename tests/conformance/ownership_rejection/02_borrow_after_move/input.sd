@@ -1,0 +1,10 @@
+fn f() {
+  let a = String("x")
+  let b = move a
+  let r = &a
+  use_ref(r)
+}
+
+extern {
+  fn use_ref(r: &String)
+}

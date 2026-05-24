@@ -1,0 +1,11 @@
+fn f() {
+  let mut a = String("x")
+  let m1 = &mut a
+  let m2 = &mut a
+  use_mut(m1)
+  use_mut(m2)
+}
+
+extern {
+  fn use_mut(m: &mut String)
+}

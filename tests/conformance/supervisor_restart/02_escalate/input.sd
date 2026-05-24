@@ -1,0 +1,9 @@
+supervisor Critical(strategy: one_for_one) {
+  child worker = spawn Worker()
+
+  on_fail(worker) { escalate }
+}
+
+fn main() {
+  log("escalate declared")
+}

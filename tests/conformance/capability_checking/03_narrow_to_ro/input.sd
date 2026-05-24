@@ -1,0 +1,8 @@
+fn read_only_user(fs: Fs, p: Path) -> Bytes!IoErr {
+  fs.read(p)?
+}
+
+fn driver(fs: Fs) -> Bytes!IoErr {
+  let ro = fs.ro("/data")
+  read_only_user(ro, "/data/x")?
+}

@@ -348,18 +348,14 @@ impl<'a> Emitter<'a> {
                     }
                     Term::Goto(next) => {
                         if next.0 as usize != i + 1 {
-                            return Err(WasmError::Unsupported(
-                                "non-chain goto in wasm".into(),
-                            ));
+                            return Err(WasmError::Unsupported("non-chain goto in wasm".into()));
                         }
                     }
                     Term::Unreachable => {
                         wfn.instruction(&I::Unreachable);
                     }
                     other => {
-                        return Err(WasmError::Unsupported(format!(
-                            "wasm terminator {other:?}"
-                        )))
+                        return Err(WasmError::Unsupported(format!("wasm terminator {other:?}")))
                     }
                 }
             }
@@ -373,11 +369,7 @@ impl<'a> Emitter<'a> {
                 Term::Unreachable => {
                     wfn.instruction(&I::Unreachable);
                 }
-                other => {
-                    return Err(WasmError::Unsupported(format!(
-                        "wasm terminator {other:?}"
-                    )))
-                }
+                other => return Err(WasmError::Unsupported(format!("wasm terminator {other:?}"))),
             }
         }
         Ok(())

@@ -1,0 +1,9 @@
+supervisor SearchFlow(strategy: one_for_one) {
+  child planner = spawn Planner()
+
+  on_fail(planner) { restart up_to 3 in 30s }
+}
+
+fn main() {
+  log("one_for_one declared")
+}

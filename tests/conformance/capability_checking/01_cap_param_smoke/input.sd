@@ -1,0 +1,3 @@
+fn load(fs: Fs, path: Path) -> Bytes!IoErr {
+  fs.read(path)?
+}

@@ -1,0 +1,18 @@
+protocol Acc {
+  Add(n: I64) -> I64
+}
+
+agent Accumulator: Acc {
+  total = 0
+  on Add(n) -> { total += n; total }
+}
+
+fn main() {
+  let h = spawn Accumulator()
+  let a = h?Add(10)
+  let b = h?Add(20)
+  let c = h?Add(30)
+  log(a.to_str())
+  log(b.to_str())
+  log(c.to_str())
+}

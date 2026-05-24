@@ -1,0 +1,13 @@
+enum FooErr { Bad }
+
+fn parse(s: Str) -> I64!FooErr {
+  Ok(42)
+}
+
+fn main() {
+  let r = parse("x")
+  match r {
+    Ok(n) -> log(n.to_str()),
+    Err(_) -> log("err"),
+  }
+}
