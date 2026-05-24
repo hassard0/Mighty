@@ -1,0 +1,3 @@
+fn f(x: Option[I32, Str]) -> Unit {
+  ()
+}

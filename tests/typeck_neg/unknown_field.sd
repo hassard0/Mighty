@@ -1,0 +1,8 @@
+struct User {
+  id: U64
+  name: String
+}
+
+fn main() {
+  let u = User { id: 1, name: "x", missing: 2 }
+}

@@ -441,17 +441,38 @@ fn synth_variant_constructor(cx: &mut Cx, aid: AdtId, idx: usize) -> TyId {
     }
 }
 
-fn synth_binary(cx: &mut Cx, op: BinOp, lhs: ExprId, rhs: ExprId, _expr_id: ExprId) -> TyId {
+fn synth_binary(cx: &mut Cx, op: BinOp, lhs: ExprId, rhs: ExprId, expr_id: ExprId) -> TyId {
     let l = synth_expr(cx, lhs);
     let r = synth_expr(cx, rhs);
     use BinOp::*;
+    let op_str = format!("{:?}", op);
     match op {
         Add | Sub | Mul | Div | Rem | BitAnd | BitOr | BitXor | Shl | Shr => {
-            let _ = unify(l, r, cx.subst, cx.arena);
+            if unify(l, r, cx.subst, cx.arena).is_err() {
+                cx.diag.push(diag::binop_type_mismatch(
+                    &op_str,
+                    l,
+                    r,
+                    &cx.span_of_expr(expr_id),
+                    cx.arena,
+                    cx.subst,
+                    cx.defs,
+                ));
+            }
             l
         }
         Eq | Ne | Lt | Le | Gt | Ge => {
-            let _ = unify(l, r, cx.subst, cx.arena);
+            if unify(l, r, cx.subst, cx.arena).is_err() {
+                cx.diag.push(diag::binop_type_mismatch(
+                    &op_str,
+                    l,
+                    r,
+                    &cx.span_of_expr(expr_id),
+                    cx.arena,
+                    cx.subst,
+                    cx.defs,
+                ));
+            }
             cx.arena.bool_
         }
         And | Or => cx.arena.bool_,

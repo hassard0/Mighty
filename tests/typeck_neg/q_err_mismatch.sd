@@ -1,0 +1,5 @@
+fn first() -> Result[I32, IoErr] { Ok(1) }
+fn outer() -> Result[I32, NetErr] {
+  first()?
+  Ok(2)
+}

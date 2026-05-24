@@ -7,8 +7,14 @@ use sdust_syntax::{SyntaxKind, SyntaxNode};
 pub fn lower_type(ctx: &mut LoweringCtx, n: SyntaxNode) -> TypeId {
     let t = match n.kind() {
         SyntaxKind::TYPE_PATH => {
+            // Collect segments only from the immediate PATH child (not
+            // through descendants — that would pick up names inside
+            // GENERIC_ARG_LIST too, e.g. `Option[I32, Str]` would yield
+            // segments=["Option","I32","Str"]).
             let segs: Vec<String> = n
-                .descendants()
+                .children()
+                .filter(|c| c.kind() == SyntaxKind::PATH)
+                .flat_map(|p| p.descendants())
                 .filter_map(sdust_ast::NameRef::cast)
                 .map(|nr| {
                     nr.0.first_token()

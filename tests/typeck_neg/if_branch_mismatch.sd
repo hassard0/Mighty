@@ -1,0 +1,7 @@
+fn pick(b: Bool) -> I32 {
+  if b {
+    1
+  } else {
+    "two"
+  }
+}

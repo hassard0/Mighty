@@ -388,6 +388,7 @@ fn declare_item(
 
 /// Resolve an `HirType` to a `TyId`. Unknown identifiers emit `SD2002` and
 /// return `Ty::Error`.
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_hir_type(
     ty_id: TypeId,
     pkg: &Package,

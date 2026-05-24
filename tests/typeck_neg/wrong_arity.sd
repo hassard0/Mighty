@@ -1,0 +1,3 @@
+fn main() {
+  let s = Some(1, 2)
+}

@@ -1,0 +1,5 @@
+fn ok() -> Result[I32, String] { Ok(1) }
+
+fn main() -> Unit {
+  ok()?
+}
