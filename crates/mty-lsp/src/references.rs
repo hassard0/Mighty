@@ -12,8 +12,8 @@
 //! for the same name (caller pre-filters; see `find_local_refs`).
 
 use crate::docs::DocAnalysis;
-use rowan::{TextRange, TextSize};
 use mty_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
+use rowan::{TextRange, TextSize};
 
 /// One identifier-occurrence range in source bytes.
 #[derive(Debug, Clone, Copy)]

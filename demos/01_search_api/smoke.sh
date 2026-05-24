@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# demos/01_search_api/smoke.sh — drive `sdust run` on the demo and check
+# demos/01_search_api/smoke.sh — drive `mty run` on the demo and check
 # that every endpoint produces the expected response line.
 #
 # Exit code 0 = pass, non-zero = fail.
@@ -7,17 +7,17 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SDUST="${SDUST:-$ROOT/target/debug/sdust}"
-if [[ ! -x "$SDUST" && ! -x "$SDUST.exe" ]]; then
-  echo "smoke: sdust binary not found at $SDUST" >&2
-  echo "        build it with: cargo build -p sdust-cli" >&2
+MTY="${MTY:-$ROOT/target/debug/mty}"
+if [[ ! -x "$MTY" && ! -x "$MTY.exe" ]]; then
+  echo "smoke: mty binary not found at $MTY" >&2
+  echo "        build it with: cargo build -p mty-cli" >&2
   exit 2
 fi
-if [[ -x "$SDUST.exe" ]]; then SDUST="$SDUST.exe"; fi
+if [[ -x "$MTY.exe" ]]; then MTY="$MTY.exe"; fi
 
-DEMO="$ROOT/demos/01_search_api/src/main.sd"
+DEMO="$ROOT/demos/01_search_api/src/main.mty"
 
-out="$("$SDUST" run "$DEMO" 2>&1)"
+out="$("$MTY" run "$DEMO" 2>&1)"
 fail=0
 check() {
   local label="$1"; shift

@@ -46,10 +46,7 @@ fn types_path_simple() {
 #[test]
 fn types_path_generic() {
     let t = type_node("Map[Str, I32]");
-    assert_eq!(
-        render(mty_fmt::fmt::types::type_expr(&t)),
-        "Map[Str, I32]"
-    );
+    assert_eq!(render(mty_fmt::fmt::types::type_expr(&t)), "Map[Str, I32]");
 }
 
 #[test]

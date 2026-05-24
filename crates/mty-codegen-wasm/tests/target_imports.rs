@@ -39,7 +39,7 @@ fn web_target_imports_use_stardust_web_namespace() {
 fn caps_imports_emitted_for_cap_typed_locals() {
     use mty_hir::SourceSpan;
     use mty_ir::ir::{
-        Block, BlockId, Const, Function, LocalDecl, LocalSource, Operand, IrFnId, IrTy, Term,
+        Block, BlockId, Const, Function, IrFnId, IrTy, LocalDecl, LocalSource, Operand, Term,
     };
     use mty_types::{CapConstraint, CapFamily};
     let mut prog = common::empty_main();

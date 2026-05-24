@@ -137,9 +137,7 @@ mod tests {
         assert_eq!(primitive_layout(&IrTy::Bool).unwrap().size, 1);
         assert_eq!(primitive_layout(&IrTy::Int(IntKind::I64)).unwrap().size, 8);
         assert_eq!(
-            primitive_layout(&IrTy::Float(FloatKind::F32))
-                .unwrap()
-                .size,
+            primitive_layout(&IrTy::Float(FloatKind::F32)).unwrap().size,
             4
         );
         assert_eq!(primitive_layout(&IrTy::Str).unwrap().size, PTR_BYTES * 2);

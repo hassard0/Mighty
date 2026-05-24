@@ -281,7 +281,9 @@ fn discover_cases(root: &Path) -> Vec<(String, PathBuf)> {
         let mut cases: Vec<PathBuf> = sub
             .flatten()
             .map(|e| e.path())
-            .filter(|p| p.is_dir() && p.join("input.mty").exists() && p.join("command.txt").exists())
+            .filter(|p| {
+                p.is_dir() && p.join("input.mty").exists() && p.join("command.txt").exists()
+            })
             .collect();
         cases.sort();
         for c in cases {

@@ -132,7 +132,7 @@ mod tests {
     use super::*;
     use mty_hir::SourceSpan;
     use mty_ir::ir::{
-        Block, BlockId, Const, Function, LocalDecl, LocalSource, Operand, IrFnId, IrTy, Term,
+        Block, BlockId, Const, Function, IrFnId, IrTy, LocalDecl, LocalSource, Operand, Term,
     };
 
     fn empty_main() -> Program {

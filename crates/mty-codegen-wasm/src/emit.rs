@@ -14,8 +14,8 @@ use crate::error::{CompileResult, WasmError};
 use crate::target::WasmTarget;
 use crate::wit::emit_wit;
 use mty_ir::ir::{
-    BinOp, BlockId, BuiltinId, Const, FnRef, Function, Operand, Place, Program, Rvalue, IrFnId,
-    IrTy, Stmt, Term, UnOp,
+    BinOp, BlockId, BuiltinId, Const, FnRef, Function, IrFnId, IrTy, Operand, Place, Program,
+    Rvalue, Stmt, Term, UnOp,
 };
 use mty_types::IntKind;
 use std::collections::HashMap;
@@ -854,7 +854,7 @@ mod tests {
     use super::*;
     use mty_hir::SourceSpan;
     use mty_ir::ir::{
-        Block, BlockId, Const, Function, LocalDecl, LocalSource, Operand, Program, IrFnId, IrTy,
+        Block, BlockId, Const, Function, IrFnId, IrTy, LocalDecl, LocalSource, Operand, Program,
         Term,
     };
 

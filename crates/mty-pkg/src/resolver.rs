@@ -195,12 +195,11 @@ impl Resolver {
                 }
                 let star = abs.join(crate::MANIFEST_NAME);
                 let version = if star.exists() {
-                    let sub = mty_driver::manifest::load(&star).map_err(|e| {
-                        ResolveError::Manifest {
+                    let sub =
+                        mty_driver::manifest::load(&star).map_err(|e| ResolveError::Manifest {
                             pkg: name.into(),
                             source: e,
-                        }
-                    })?;
+                        })?;
                     Version::parse(&sub.package.version).map_err(|e| ResolveError::Semver {
                         dep: name.into(),
                         source: e,

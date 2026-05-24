@@ -2,8 +2,8 @@
 
 use mty_hir::SourceSpan;
 use mty_ir::ir::{
-    AdtRef, AdtRefKind, Block, BlockId, Const, FieldRef, Function, LocalDecl, LocalSource, Operand,
-    Program, IrFnId, IrTy, Term, VariantRef,
+    AdtRef, AdtRefKind, Block, BlockId, Const, FieldRef, Function, IrFnId, IrTy, LocalDecl,
+    LocalSource, Operand, Program, Term, VariantRef,
 };
 use mty_types::IntKind;
 

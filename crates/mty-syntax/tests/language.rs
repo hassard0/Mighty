@@ -1,5 +1,5 @@
-use rowan::GreenNodeBuilder;
 use mty_syntax::{SyntaxKind, SyntaxNode};
+use rowan::GreenNodeBuilder;
 
 #[test]
 fn build_minimal_tree() {

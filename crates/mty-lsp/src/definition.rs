@@ -10,9 +10,9 @@
 //! follow-up amendment will wire those up.
 
 use crate::docs::DocAnalysis;
-use rowan::TextSize;
 use mty_hir::{Item, SourceSpan};
 use mty_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
+use rowan::TextSize;
 use tower_lsp::lsp_types::{GotoDefinitionResponse, Location, Position, Url};
 
 pub fn definition(

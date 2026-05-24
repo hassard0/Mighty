@@ -18,11 +18,11 @@
 //!    documented item.
 
 use crate::ir::*;
-use rowan::NodeOrToken;
 use mty_ast::{AstNode, File};
 use mty_diagnostics::{codes::UNEXPECTED_TOKEN, Diagnostic, Label};
 use mty_hir::*;
 use mty_syntax::{parse, SyntaxKind, SyntaxNode, SyntaxToken};
+use rowan::NodeOrToken;
 
 /// Build a [`DocPackage`] from a single source file.
 ///

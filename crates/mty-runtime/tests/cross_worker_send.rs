@@ -1,8 +1,8 @@
 //! v0.6 cross-worker send: an agent pinned to worker A receives a
 //! message sent from a context running on worker B.
 
-use mty_runtime::RuntimeBuilder;
 use mty_ir::interp::value::Value;
+use mty_runtime::RuntimeBuilder;
 use std::sync::Arc;
 
 fn compile(src: &str) -> Arc<mty_ir::ir::Program> {

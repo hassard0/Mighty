@@ -18,7 +18,7 @@
 //! `CODEGEN_V0_2_NOTES.md`. The current strategy keeps generic call
 //! sites *callable* (no orphans) without requiring that propagation.
 
-use mty_ir::ir::{Function, Program, IrTy};
+use mty_ir::ir::{Function, IrTy, Program};
 use mty_types::IntKind;
 
 /// Returns true if `f` is generic (any param type or return uses
@@ -124,9 +124,7 @@ impl<'a> Monomorphizer<'a> {
 mod tests {
     use super::*;
     use mty_hir::SourceSpan;
-    use mty_ir::ir::{
-        Block, BlockId, Function, LocalDecl, LocalSource, Operand, IrFnId, Term,
-    };
+    use mty_ir::ir::{Block, BlockId, Function, IrFnId, LocalDecl, LocalSource, Operand, Term};
 
     fn make_fn(name: &str, ret: IrTy) -> Function {
         Function {

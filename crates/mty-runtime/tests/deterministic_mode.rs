@@ -1,8 +1,8 @@
 //! v0.6: `workers(1) + deterministic(seed)` must reproduce v0.5
 //! single-thread behavior byte-for-byte.
 
-use mty_runtime::RuntimeBuilder;
 use mty_ir::interp::value::Value;
+use mty_runtime::RuntimeBuilder;
 use std::sync::Arc;
 
 fn compile(src: &str) -> Arc<mty_ir::ir::Program> {

@@ -20,9 +20,9 @@
 //! `impl Foo` providing the same `bar()` — we list all candidates).
 
 use crate::docs::DocAnalysis;
-use rowan::TextSize;
 use mty_syntax::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 use mty_types::{pretty_ty, DefRef, FnDef};
+use rowan::TextSize;
 use tower_lsp::lsp_types::{
     ParameterInformation, ParameterLabel, Position, SignatureHelp, SignatureInformation,
 };

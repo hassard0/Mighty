@@ -73,7 +73,7 @@ mod tests {
     use crate::wit::emit_wit;
     use mty_hir::SourceSpan;
     use mty_ir::ir::{
-        Block, BlockId, Const, Function, LocalDecl, LocalSource, Operand, Program, IrFnId, IrTy,
+        Block, BlockId, Const, Function, IrFnId, IrTy, LocalDecl, LocalSource, Operand, Program,
         Term,
     };
 

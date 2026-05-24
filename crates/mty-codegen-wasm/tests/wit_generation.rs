@@ -82,7 +82,7 @@ fn package_id_is_kebab_normalized() {
 fn private_underscore_fns_are_not_exported() {
     use mty_hir::SourceSpan;
     use mty_ir::ir::{
-        Block, BlockId, Const, Function, LocalDecl, LocalSource, Operand, IrFnId, IrTy, Term,
+        Block, BlockId, Const, Function, IrFnId, IrTy, LocalDecl, LocalSource, Operand, Term,
     };
     let mut prog = common::empty_main();
     prog.fns.push(Function {

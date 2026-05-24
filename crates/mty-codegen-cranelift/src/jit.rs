@@ -96,12 +96,7 @@ pub fn build_jit(prog: &Program, symbols: &[(String, *const u8)]) -> CompileResu
     // shape to use.
     let main_returns_int = prog
         .fn_by_name("main")
-        .map(|f| {
-            !matches!(
-                f.ret_ty,
-                mty_ir::ir::IrTy::Unit | mty_ir::ir::IrTy::Never
-            )
-        })
+        .map(|f| !matches!(f.ret_ty, mty_ir::ir::IrTy::Unit | mty_ir::ir::IrTy::Never))
         .unwrap_or(false);
     Ok(JitCompiled {
         module,
@@ -158,7 +153,7 @@ mod tests {
     use super::*;
     use mty_hir::SourceSpan;
     use mty_ir::ir::{
-        Block, BlockId, Const, Function, LocalDecl, LocalSource, Operand, Program, IrFnId, IrTy,
+        Block, BlockId, Const, Function, IrFnId, IrTy, LocalDecl, LocalSource, Operand, Program,
         Term,
     };
 

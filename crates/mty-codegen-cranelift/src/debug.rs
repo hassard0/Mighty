@@ -29,7 +29,7 @@
 use mty_debuginfo::{
     line_col_for, DebugInfoError, DwarfBuilder, FunctionDebugInfo, SourcePos, VarDebugInfo,
 };
-use mty_ir::ir::{Function, LocalSource, Program, IrTy};
+use mty_ir::ir::{Function, IrTy, LocalSource, Program};
 
 /// Per-build inputs used to assemble DWARF.
 pub struct DwarfInputs<'a> {
@@ -162,7 +162,7 @@ pub fn display_ty(t: &IrTy) -> String {
 mod tests {
     use super::*;
     use mty_hir::SourceSpan;
-    use mty_ir::ir::{Block, BlockId, Const, Function, LocalDecl, Operand, IrFnId, Term};
+    use mty_ir::ir::{Block, BlockId, Const, Function, IrFnId, LocalDecl, Operand, Term};
     use mty_types::IntKind;
 
     fn dummy_main() -> Function {

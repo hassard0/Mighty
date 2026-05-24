@@ -10,7 +10,7 @@ use mty_codegen_wasm::target::WasmTarget;
 use mty_codegen_wasm::wit::emit_wit;
 use mty_hir::SourceSpan;
 use mty_ir::ir::{
-    Block, BlockId, Const, Function, LocalDecl, LocalSource, Operand, Program, IrFnId, IrTy, Term,
+    Block, BlockId, Const, Function, IrFnId, IrTy, LocalDecl, LocalSource, Operand, Program, Term,
 };
 
 fn empty_main() -> Program {

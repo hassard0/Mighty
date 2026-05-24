@@ -41,8 +41,8 @@ use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use mty_ir::ir::{
-    BinOp, BlockId, BuiltinId, Const, FnRef, Function, Local, Operand, Place, Program, Projection,
-    Rvalue, IrFnId, IrTy, Stmt, Term, UnOp,
+    BinOp, BlockId, BuiltinId, Const, FnRef, Function, IrFnId, IrTy, Local, Operand, Place,
+    Program, Projection, Rvalue, Stmt, Term, UnOp,
 };
 #[allow(unused_imports)]
 use mty_types::IntKind;
@@ -307,10 +307,7 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
 
     /// Materialise the address of a *place* (local + projections).
     /// Returns (base_addr, terminal_type).
-    fn place_addr(
-        &mut self,
-        place: &Place,
-    ) -> CompileResult<(cranelift_codegen::ir::Value, IrTy)> {
+    fn place_addr(&mut self, place: &Place) -> CompileResult<(cranelift_codegen::ir::Value, IrTy)> {
         let local_ty = self.f.locals[place.local.0 as usize].ty.clone();
         let mut cur_addr = if is_aggregate(&local_ty) {
             self.agg_addr(place.local)?

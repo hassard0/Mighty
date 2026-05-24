@@ -6,10 +6,10 @@
 //! - Send under Fail policy returns MT5012 when pool + channel full.
 //! - Block policy backpressures until handler drains.
 
+use mty_ir::interp::value::Value;
 use mty_runtime::mailbox::{Mailbox, MessageFrame, SendPolicy, SmallPayload};
 use mty_runtime::slab_pool::{SlabPool, DEFAULT_INLINE_BYTES};
 use mty_runtime::RuntimeError;
-use mty_ir::interp::value::Value;
 use std::sync::Arc;
 use std::time::Duration;
 

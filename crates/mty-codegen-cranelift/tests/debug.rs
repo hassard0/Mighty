@@ -2,13 +2,13 @@
 //! re-read with `object::read` + `gimli`, exposes a `DW_TAG_subprogram`
 //! for the user's `main` fn plus the compile-unit's producer string.
 
-use object::read::{Object as _, ObjectSection as _};
 use mty_codegen_cranelift::{compile_object_with_debug, Monomorphizer};
 use mty_hir::SourceSpan;
 use mty_ir::ir::{
-    Block, BlockId, Const, Function, LocalDecl, LocalSource, Operand, Program, IrFnId, IrTy, Term,
+    Block, BlockId, Const, Function, IrFnId, IrTy, LocalDecl, LocalSource, Operand, Program, Term,
 };
 use mty_types::IntKind;
+use object::read::{Object as _, ObjectSection as _};
 use std::io::Read;
 
 fn empty_main_prog() -> Program {

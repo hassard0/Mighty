@@ -97,7 +97,10 @@ fn neg_wrong_generic_arity() {
 
 #[test]
 fn neg_return_mismatch() {
-    assert_emits("return_mismatch.mty", &[RETURN_TYPE_MISMATCH, TYPE_MISMATCH]);
+    assert_emits(
+        "return_mismatch.mty",
+        &[RETURN_TYPE_MISMATCH, TYPE_MISMATCH],
+    );
 }
 
 #[test]

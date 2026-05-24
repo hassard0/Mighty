@@ -6,19 +6,19 @@
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SDUST="${SDUST:-$ROOT/target/debug/sdust}"
-if [[ -x "$SDUST.exe" ]]; then SDUST="$SDUST.exe"; fi
-if [[ ! -x "$SDUST" ]]; then
-  echo "smoke: sdust not built. Run: cargo build -p sdust-cli" >&2
+MTY="${MTY:-$ROOT/target/debug/mty}"
+if [[ -x "$MTY.exe" ]]; then MTY="$MTY.exe"; fi
+if [[ ! -x "$MTY" ]]; then
+  echo "smoke: mty not built. Run: cargo build -p mty-cli" >&2
   exit 2
 fi
 
-DEMO="$ROOT/demos/03_extract_tool/src/main.sd"
+DEMO="$ROOT/demos/03_extract_tool/src/main.mty"
 EXPECTED="$ROOT/demos/03_extract_tool/expected_output.txt"
 
 # 1) check + run + diff
-"$SDUST" check "$DEMO" >/dev/null
-ACTUAL="$("$SDUST" run "$DEMO" 2>&1)"
+"$MTY" check "$DEMO" >/dev/null
+ACTUAL="$("$MTY" run "$DEMO" 2>&1)"
 
 # Normalise trailing newline + line endings for the diff.
 EXPECTED_NORM="$(tr -d '\r' <"$EXPECTED")"
@@ -40,8 +40,8 @@ fi
 # accepts this completing or trapping; we just demand it doesn't
 # corrupt the runtime (exit 0).
 BREACH="$ROOT/demos/03_extract_tool/src/breach.sd"
-if "$SDUST" check "$BREACH" >/dev/null 2>&1; then
-  if ! "$SDUST" run "$BREACH" >/dev/null 2>&1; then
+if "$MTY" check "$BREACH" >/dev/null 2>&1; then
+  if ! "$MTY" run "$BREACH" >/dev/null 2>&1; then
     echo "smoke note: breach.sd trapped (expected once enforcement lands)"
   fi
 fi

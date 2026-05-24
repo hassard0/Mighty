@@ -19,8 +19,8 @@ use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum};
 use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, IntPredicate, OptimizationLevel};
 use mty_ir::ir::{
-    BinOp, BlockId, BuiltinId, Const, FnRef, Function, Local, Operand, Place, Program, Projection,
-    Rvalue, IrFnId, IrTy, Stmt, Term, UnOp,
+    BinOp, BlockId, BuiltinId, Const, FnRef, Function, IrFnId, IrTy, Local, Operand, Place,
+    Program, Projection, Rvalue, Stmt, Term, UnOp,
 };
 use mty_types::{FloatKind, IntKind};
 use std::collections::HashMap;

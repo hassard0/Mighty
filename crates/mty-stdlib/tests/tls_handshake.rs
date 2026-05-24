@@ -2,10 +2,8 @@
 //! completes a handshake. Self-signed cert is generated per-test via
 //! `rcgen` and trusted explicitly by the client.
 
+use mty_stdlib::tls::{accept, acceptor_from_pem, client_config_with_root, ensure_crypto_provider};
 use rustls::pki_types::CertificateDer;
-use mty_stdlib::tls::{
-    accept, acceptor_from_pem, client_config_with_root, ensure_crypto_provider,
-};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};

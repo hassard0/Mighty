@@ -2,8 +2,8 @@
 //! the multi-worker scheduler. Companion to
 //! `tests/conformance/mailbox_ordering/06_multicore_fifo/`.
 
-use mty_runtime::RuntimeBuilder;
 use mty_ir::interp::value::Value;
+use mty_runtime::RuntimeBuilder;
 use std::sync::Arc;
 
 fn compile(src: &str) -> Arc<mty_ir::ir::Program> {

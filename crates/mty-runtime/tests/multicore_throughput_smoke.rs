@@ -7,8 +7,8 @@
 //! the test passes on slow CI runners. Perf gating belongs in the
 //! mty-bench criterion crate.
 
-use mty_runtime::RuntimeBuilder;
 use mty_ir::interp::value::Value;
+use mty_runtime::RuntimeBuilder;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

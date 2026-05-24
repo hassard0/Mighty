@@ -54,7 +54,9 @@ fn bundle_writes_tar_gz_and_sidecar_with_matching_sha256() {
         .map(|e| e.path().unwrap().to_string_lossy().into_owned())
         .collect();
     paths.sort();
-    assert!(paths.iter().any(|p| p.ends_with("fixture-0.4.0/mighty.toml")));
+    assert!(paths
+        .iter()
+        .any(|p| p.ends_with("fixture-0.4.0/mighty.toml")));
     assert!(paths.iter().any(|p| p.ends_with("fixture-0.4.0/main.mty")));
     assert!(paths
         .iter()

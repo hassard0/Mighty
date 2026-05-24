@@ -28,7 +28,7 @@
 
 use crate::error::{CompileResult, WasmError};
 use crate::target::WasmTarget;
-use mty_ir::ir::{AdtRef, AdtRefKind, FieldRef, Function, Program, IrTy, VariantRef};
+use mty_ir::ir::{AdtRef, AdtRefKind, FieldRef, Function, IrTy, Program, VariantRef};
 use mty_types::{FloatKind, IntKind};
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -515,7 +515,7 @@ mod tests {
     use super::*;
     use mty_hir::SourceSpan;
     use mty_ir::ir::{
-        Block, BlockId, Const, Function, LocalDecl, LocalSource, Operand, Program, IrFnId, Term,
+        Block, BlockId, Const, Function, IrFnId, LocalDecl, LocalSource, Operand, Program, Term,
     };
 
     fn empty_main() -> Program {

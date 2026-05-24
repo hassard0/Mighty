@@ -29,9 +29,7 @@ pub fn lower_ty(ty: TyId, arena: &TyArena) -> IrTy {
             params: params.iter().map(|p| lower_ty(*p, arena)).collect(),
             ret: Box::new(lower_ty(*ret, arena)),
         },
-        TyData::Adt(id, args) => {
-            IrTy::Adt(*id, args.iter().map(|a| lower_ty(*a, arena)).collect())
-        }
+        TyData::Adt(id, args) => IrTy::Adt(*id, args.iter().map(|a| lower_ty(*a, arena)).collect()),
         TyData::Var(_) => IrTy::Error,
         TyData::Param(p) => IrTy::Param(format!("T{}", p.0)),
         TyData::RawPtr(inner) => IrTy::RawPtr(Box::new(lower_ty(*inner, arena))),

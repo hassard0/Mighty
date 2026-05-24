@@ -7,9 +7,9 @@
 
 use crate::docs::DocAnalysis;
 use crate::line_index::LineIndex;
-use rowan::TextSize;
 use mty_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 use mty_types::{pretty_ty, DefRef};
+use rowan::TextSize;
 use tower_lsp::lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position, Range};
 
 /// Top-level hover entry.

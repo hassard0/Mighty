@@ -22,9 +22,9 @@
 //! HIR lowering may have failed.
 
 use crate::docs::DocAnalysis;
-use rowan::TextSize;
 use mty_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 use mty_types::DefRef;
+use rowan::TextSize;
 use std::collections::HashSet;
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionItemKind, CompletionResponse, InsertTextFormat, Position,

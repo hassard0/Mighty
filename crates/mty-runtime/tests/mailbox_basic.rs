@@ -1,5 +1,5 @@
-use mty_runtime::mailbox::{Mailbox, MessageFrame, SendPolicy, SmallPayload};
 use mty_ir::interp::value::Value;
+use mty_runtime::mailbox::{Mailbox, MessageFrame, SendPolicy, SmallPayload};
 use std::time::Duration;
 
 #[tokio::test]

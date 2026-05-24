@@ -18,6 +18,6 @@ miss: fox
 == sample-3 ==
 miss: Built
 miss: with
-hit: Stardust
+hit: Mighty
 == snapshot ==
 {"hits":7}

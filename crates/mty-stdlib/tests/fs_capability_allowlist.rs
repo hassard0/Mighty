@@ -35,8 +35,8 @@ fn fs_cap_denies_path_outside_allowlist() {
 #[test]
 fn read_outside_allowlist_returns_forbidden_io_err() {
     let cap = FsCap::rooted(["/only/here"]);
-    let err = mty_stdlib::fs::read(&cap, std::path::Path::new("/elsewhere/x"))
-        .expect_err("must reject");
+    let err =
+        mty_stdlib::fs::read(&cap, std::path::Path::new("/elsewhere/x")).expect_err("must reject");
     match err {
         IoErr::Forbidden(p) | IoErr::Denied(p) => assert!(p.contains("elsewhere"), "p={p}"),
         other => panic!("unexpected err shape: {other:?}"),
