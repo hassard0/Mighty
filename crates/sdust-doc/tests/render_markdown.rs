@@ -32,12 +32,18 @@ fn markdown_index_contains_sections_and_anchors() {
     let (doc, _) = build_doc_package(SAMPLE, "calc.sd", "calc");
     let files = render::markdown(&doc);
     let idx = files.get("index.md").expect("index.md");
-    assert!(idx.contains("# Package `calc`"), "missing pkg header: {idx}");
+    assert!(
+        idx.contains("# Package `calc`"),
+        "missing pkg header: {idx}"
+    );
     assert!(idx.contains("Calculator package."), "missing pkg synopsis");
     assert!(idx.contains("## FUNCTIONS"), "missing functions section");
     assert!(idx.contains("## TYPES"), "missing types section");
     assert!(idx.contains("[`add`](fn.add.md)"), "missing add link");
-    assert!(idx.contains("[`Pair`](struct.Pair.md)"), "missing pair link");
+    assert!(
+        idx.contains("[`Pair`](struct.Pair.md)"),
+        "missing pair link"
+    );
 }
 
 #[test]

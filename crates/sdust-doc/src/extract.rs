@@ -2,8 +2,9 @@
 //!
 //! Pipeline:
 //!
-//! 1. Run [`sdust_driver::parse_source`] + [`sdust_driver::lower`] on
-//!    the input source.
+//! 1. Run [`sdust_syntax::parse`] + [`sdust_hir::lower`] on the input
+//!    source. (We deliberately avoid `sdust-driver` to keep this crate
+//!    independent of the codegen chain.)
 //! 2. Walk the CST top-level. For each item-bearing child, harvest
 //!    immediately-preceding `///` doc-comment trivia tokens.
 //! 3. The CST's first top-level child can also be preceded by `//!`
@@ -48,8 +49,7 @@ pub fn build_doc_package(
             )
         })
         .collect();
-    let file = File::cast(SyntaxNode::new_root(r.green.clone()))
-        .expect("FILE root after parse");
+    let file = File::cast(SyntaxNode::new_root(r.green.clone())).expect("FILE root after parse");
     let (pkg, lower_diags) = sdust_hir::lower::LoweringCtx::new().lower_file(file.clone());
     diags.extend(lower_diags);
 
@@ -609,7 +609,11 @@ fn doc_from_mod(node: &SyntaxNode, raw: &str) -> Option<DocModule> {
         .map(|p| {
             p.0.children()
                 .filter_map(sdust_ast::PathSegment::cast)
-                .map(|s| s.0.first_token().map(|t| t.text().to_string()).unwrap_or_default())
+                .map(|s| {
+                    s.0.first_token()
+                        .map(|t| t.text().to_string())
+                        .unwrap_or_default()
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -694,10 +698,9 @@ fn render_fn_signature(pkg: &Package, f: &HirFn) -> String {
         .params
         .iter()
         .map(|p| {
-            let ty = p
-                .ty
-                .map(|t| render_type(pkg, t))
-                .unwrap_or_else(|| "_".to_string());
+            let ty =
+                p.ty.map(|t| render_type(pkg, t))
+                    .unwrap_or_else(|| "_".to_string());
             format!("{}: {}", p.name, ty)
         })
         .collect();
@@ -900,7 +903,7 @@ fn linkify_signature(sig: &str, pkg: &Package) -> String {
         names.push((ta.name.clone(), format!("type.{}", ta.name)));
     }
     // Longest first so substring conflicts don't reorder.
-    names.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+    names.sort_by_key(|n| std::cmp::Reverse(n.0.len()));
 
     let mut html = html_escape(sig);
     for (name, anchor) in &names {

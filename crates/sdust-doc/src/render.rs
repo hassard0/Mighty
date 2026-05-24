@@ -140,7 +140,7 @@ fn markdown_item(doc: &DocPackage, item: &DocItem) -> String {
         }
         s.push('\n');
     }
-    s.push_str(&format!("[Back to index](index.md)\n"));
+    s.push_str("[Back to index](index.md)\n");
     s
 }
 
@@ -170,7 +170,10 @@ fn html_index(doc: &DocPackage) -> String {
     body.push_str("<div class=\"search\"><input id=\"q\" type=\"search\" placeholder=\"Search items…\" autofocus /><ul id=\"results\"></ul></div>");
     let groups = group_by_section(&doc.items);
     for (header, items) in groups {
-        body.push_str(&format!("<h2>{}</h2><ul class=\"item-list\">", esc(&header)));
+        body.push_str(&format!(
+            "<h2>{}</h2><ul class=\"item-list\">",
+            esc(&header)
+        ));
         for it in items {
             body.push_str(&format!(
                 "<li><a href=\"{}.html\"><code>{}</code></a> <span class=\"syn\">— {}</span></li>",
