@@ -1,5 +1,6 @@
 ---
 source: crates/sdust-syntax/tests/parse_concurrency.rs
+assertion_line: 35
 expression: "dump_expr(\"budget { cpu 150ms wall 2s mem 128MiB mb 1k } run job(input)?\")"
 ---
 FILE@0..61
@@ -29,15 +30,12 @@ FILE@0..61
       LITERAL_EXPR@31..37
         SIZE_LITERAL@31..37 "128MiB"
       WHITESPACE@37..38 " "
-    BUDGET_ENTRY@38..42
+    BUDGET_ENTRY@38..44
       NAME@38..40
         IDENT@38..40 "mb"
       WHITESPACE@40..41 " "
-      LITERAL_EXPR@41..42
-        INT_LITERAL@41..42 "1"
-    BUDGET_ENTRY@42..44
-      NAME@42..43
-        IDENT@42..43 "k"
+      LITERAL_EXPR@41..43
+        SIZE_LITERAL@41..43 "1k"
       WHITESPACE@43..44 " "
     R_BRACE@44..45 "}"
     WHITESPACE@45..46 " "

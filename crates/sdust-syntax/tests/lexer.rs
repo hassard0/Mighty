@@ -83,6 +83,30 @@ fn html_literal() {
 }
 
 #[test]
+fn lex_decimal_size_suffix_k() {
+    // `1k` = 1000 (decimal). Distinct from `1KiB` (1024).
+    let toks = lex("1k");
+    assert_eq!(toks[0].kind, SIZE_LITERAL);
+    assert_eq!(toks[0].text, "1k");
+}
+
+#[test]
+fn lex_decimal_size_suffix_uppercase_m() {
+    // Uppercase `M` is chosen for million to avoid collision with the
+    // `m` (=minutes) DURATION_LITERAL suffix. See amendments A1.
+    let toks = lex("4096M");
+    assert_eq!(toks[0].kind, SIZE_LITERAL);
+    assert_eq!(toks[0].text, "4096M");
+}
+
+#[test]
+fn lex_binary_size_suffix_still_works() {
+    let toks = lex("128MiB");
+    assert_eq!(toks[0].kind, SIZE_LITERAL);
+    assert_eq!(toks[0].text, "128MiB");
+}
+
+#[test]
 fn line_comment_is_trivia() {
     let toks = lex("// hello\nfn");
     assert_eq!(toks[0].kind, LINE_COMMENT);

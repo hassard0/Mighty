@@ -24,7 +24,13 @@ pub enum SyntaxKind {
     FLOAT_LITERAL,
     #[regex(r"[0-9]+(?:ns|us|ms|s|m|h)")]
     DURATION_LITERAL,
-    #[regex(r"[0-9]+(?:B|KiB|MiB|GiB)")]
+    // Order matters: longer multi-char suffixes (KiB/MiB/GiB) must precede
+    // single-char suffixes (B/k/M) so logos picks the longest match.
+    // Decimal suffixes `k` (=1000) and `M` (=1_000_000) are deliberately
+    // distinct from binary KiB/MiB/GiB. The uppercase `M` (rather than `m`)
+    // avoids collision with DURATION_LITERAL's `m` (=minutes). See
+    // docs/spec/v0.1-amendments.md A1.
+    #[regex(r"[0-9]+(?:KiB|MiB|GiB|B|k|M)")]
     SIZE_LITERAL,
     #[regex(r#""([^"\\]|\\.)*""#)]
     STRING_LITERAL,
