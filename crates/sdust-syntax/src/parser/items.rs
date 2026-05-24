@@ -72,6 +72,18 @@ pub fn item(p: &mut Parser) -> bool {
             super::agents::supervisor_decl(p, cp);
             true
         }
+        EXTERN_KW => {
+            super::extern_::extern_block(p, cp);
+            true
+        }
+        EXPORT_KW => {
+            super::extern_::export_decl(p, cp);
+            true
+        }
+        MACRO_KW => {
+            super::macros::macro_decl(p, cp);
+            true
+        }
         _ => false,
     }
 }

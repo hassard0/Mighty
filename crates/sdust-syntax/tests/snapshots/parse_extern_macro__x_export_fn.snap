@@ -1,0 +1,61 @@
+---
+source: crates/sdust-syntax/tests/parse_extern_macro.rs
+expression: "dump(\"export fn mount(dom: Dom) { let c = spawn Counter(dom) }\")"
+---
+FILE@0..56
+  EXPORT_DECL@0..56
+    EXPORT_KW@0..6 "export"
+    WHITESPACE@6..7 " "
+    FN_DECL@7..56
+      FN_KW@7..9 "fn"
+      WHITESPACE@9..10 " "
+      NAME@10..15
+        IDENT@10..15 "mount"
+      FN_PARAM_LIST@15..26
+        L_PAREN@15..16 "("
+        FN_PARAM@16..24
+          NAME@16..19
+            IDENT@16..19 "dom"
+          COLON@19..20 ":"
+          WHITESPACE@20..21 " "
+          TYPE_PATH@21..24
+            PATH@21..24
+              PATH_SEGMENT@21..24
+                NAME_REF@21..24
+                  IDENT@21..24 "Dom"
+        R_PAREN@24..25 ")"
+        WHITESPACE@25..26 " "
+      BLOCK@26..56
+        L_BRACE@26..27 "{"
+        WHITESPACE@27..28 " "
+        LET_STMT@28..55
+          LET_KW@28..31 "let"
+          WHITESPACE@31..32 " "
+          BINDING_PAT@32..34
+            NAME@32..33
+              IDENT@32..33 "c"
+            WHITESPACE@33..34 " "
+          EQ@34..35 "="
+          WHITESPACE@35..36 " "
+          SPAWN_EXPR@36..55
+            SPAWN_KW@36..41 "spawn"
+            WHITESPACE@41..42 " "
+            CALL_EXPR@42..55
+              PATH_EXPR@42..49
+                PATH@42..49
+                  PATH_SEGMENT@42..49
+                    NAME_REF@42..49
+                      IDENT@42..49 "Counter"
+              ARG_LIST@49..55
+                L_PAREN@49..50 "("
+                ARG@50..53
+                  PATH_EXPR@50..53
+                    PATH@50..53
+                      PATH_SEGMENT@50..53
+                        NAME_REF@50..53
+                          IDENT@50..53 "dom"
+                R_PAREN@53..54 ")"
+                WHITESPACE@54..55 " "
+        R_BRACE@55..56 "}"
+
+errors: []

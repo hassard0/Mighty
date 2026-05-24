@@ -5,6 +5,7 @@ pub fn type_expr(p: &mut Parser) -> bool {
     p.skip_trivia();
     match p.peek() {
         AMP => borrow(p),
+        STAR => ptr(p),
         L_PAREN => tuple(p),
         L_BRACK => array(p),
         FN_KW => fn_type(p),
@@ -12,6 +13,17 @@ pub fn type_expr(p: &mut Parser) -> bool {
         _ => return false,
     }
     true
+}
+
+fn ptr(p: &mut Parser) {
+    // Raw-pointer-style type `*T`. Slice-1 doesn't enforce pointer vs borrow
+    // semantics, so reuse TYPE_BORROW as the CST shape.
+    p.start_node(TYPE_BORROW);
+    p.bump(STAR);
+    p.skip_trivia();
+    type_expr(p);
+    p.finish_node();
+    p.skip_trivia();
 }
 
 fn borrow(p: &mut Parser) {
