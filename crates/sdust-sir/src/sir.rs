@@ -157,6 +157,14 @@ pub enum BuiltinId {
     /// Externally-declared fn from an `extern { ... }` block. The
     /// interpreter looks up the name in the host's extern table.
     Extern(String),
+    /// v0.6 — first-class DOM capability op. Emitted when a method
+    /// call's receiver has type `Cap { family: Dom, .. }`. The string
+    /// is the bare SIR method name (`set_text`, `get_text`, `on_click`,
+    /// `query`, …). The wasm32-web backend routes these through
+    /// `emit_dom_call` to the `stardust:web/dom` import set; the SIR
+    /// interpreter routes them through the host's extern table as
+    /// `dom.<name>` so non-wasm test runs still execute.
+    DomOp(String),
 }
 
 // ----- Operands + places ---------------------------------------------------

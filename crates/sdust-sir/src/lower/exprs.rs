@@ -8,7 +8,7 @@ use crate::sir::*;
 use sdust_hir::{
     BinOp as HirBinOp, ExprId, HirArg, HirBlock, HirExpr, HirLiteral, HirStmt, UnOp as HirUnOp,
 };
-use sdust_types::{AdtId, DefRef, IntKind};
+use sdust_types::{AdtId, CapFamily, DefRef, IntKind, TyData};
 
 /// Lower a block expression. Returns the operand carrying the block's
 /// tail value (or `Const::Unit` if no tail).
@@ -121,6 +121,25 @@ pub fn lower_expr(ctx: &mut LowerCtx, fb: &mut FnBuilder, eid: ExprId) -> Operan
         } => {
             let recv = lower_expr(ctx, fb, receiver);
             let arg_ops: Vec<Operand> = args.iter().map(|a| lower_expr(ctx, fb, a.value)).collect();
+            // v0.6: DOM cap receiver -> first-class `BuiltinId::DomOp`.
+            // The wasm32-web backend routes this through `emit_dom_call`
+            // to the `stardust:web/dom` import set; the SIR interpreter
+            // routes it through `host.extern_call("dom.<op>", args)` so
+            // headless tests don't crash. Receiver is implicit (the JS
+            // shim is the only DOM there is), so we pass only the
+            // user-supplied args.
+            if is_dom_cap_receiver(ctx, receiver) {
+                let temp = fb.fresh_temp(SirTy::Error);
+                fb.push_stmt(Stmt::Assign(
+                    Place::local(temp),
+                    Rvalue::Call {
+                        func: FnRef::Builtin(BuiltinId::DomOp(method.clone())),
+                        args: arg_ops,
+                    },
+                ));
+                let _ = recv; // receiver value is dropped — DOM is host-side
+                return Operand::Move(Place::local(temp));
+            }
             // Module receiver -> effect call (heuristic: receiver is a
             // path that resolves to a module).
             if let Some(path) = receiver_module_path(ctx, receiver) {
@@ -637,6 +656,30 @@ fn lower_call(ctx: &mut LowerCtx, fb: &mut FnBuilder, callee: ExprId, args: &[Hi
                 }
                 let arg_ops: Vec<Operand> =
                     args.iter().map(|a| lower_expr(ctx, fb, a.value)).collect();
+                // v0.6: Dom-cap receiver -> first-class DomOp builtin
+                // call (parallel branch to the MethodCall arm in
+                // `lower_expr::HirExpr::MethodCall`). The receiver
+                // value is dropped because DOM dispatch goes through
+                // the wasm32-web JS shim, not through the SIR value.
+                if segments.len() == 2
+                    && matches!(
+                        &fb.locals[recv_local.0 as usize].ty,
+                        SirTy::Cap {
+                            family: CapFamily::Dom,
+                            ..
+                        }
+                    )
+                {
+                    let temp = fb.fresh_temp(SirTy::Error);
+                    fb.push_stmt(Stmt::Assign(
+                        Place::local(temp),
+                        Rvalue::Call {
+                            func: FnRef::Builtin(BuiltinId::DomOp(method)),
+                            args: arg_ops,
+                        },
+                    ));
+                    return Operand::Move(Place::local(temp));
+                }
                 let temp = fb.fresh_temp(SirTy::Error);
                 fb.push_stmt(Stmt::Assign(
                     Place::local(temp),
@@ -1232,6 +1275,18 @@ fn receiver_module_path(ctx: &LowerCtx, receiver: ExprId) -> Option<Vec<String>>
         }
     }
     None
+}
+
+/// v0.6: return `true` if `receiver` resolves to a `Cap { family: Dom }`
+/// type. Drives the DOM-method routing in `lower_expr` MethodCall.
+fn is_dom_cap_receiver(ctx: &LowerCtx, receiver: ExprId) -> bool {
+    matches!(
+        ctx.expr_tydata(receiver),
+        TyData::Cap {
+            family: CapFamily::Dom,
+            ..
+        }
+    )
 }
 
 fn infer_effect(path: &[String]) -> String {

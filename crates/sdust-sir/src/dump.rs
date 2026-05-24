@@ -337,6 +337,7 @@ fn dump_builtin(b: &BuiltinId) -> String {
         BuiltinId::Valid => "valid".into(),
         BuiltinId::Null => "null".into(),
         BuiltinId::Extern(n) => format!("extern:{}", n),
+        BuiltinId::DomOp(op) => format!("dom.{}", op),
     }
 }
 

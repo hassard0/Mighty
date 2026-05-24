@@ -305,11 +305,11 @@ impl<'a> Emitter<'a> {
     /// if the op is a known DOM op (caller stops looking for other
     /// builtins), `Ok(false)` if it doesn't match.
     ///
-    /// Currently called by `emit_call` only when the SIR uses a
-    /// future `BuiltinId::Dom(...)` variant; the v0.5 dogfood ships
-    /// the import + WIT contract so the JS shim can satisfy them,
-    /// with full SIR-side lowering scheduled for v0.6.
-    #[allow(dead_code)]
+    /// v0.6: dispatched by `emit_call` whenever the SIR carries a
+    /// `BuiltinId::DomOp(name)` Call. The name flows in unprefixed
+    /// from the lowerer; this helper accepts both the bare SIR form
+    /// (`set_text`) and the qualified forms historic codepaths used
+    /// (`dom.set_text`, `set-text`).
     fn emit_dom_call(&mut self, op: &str, wfn: &mut WFunction) -> CompileResult<bool> {
         let idx = match op {
             "dom.set_text" | "set_text" | "set-text" => self.dom_set_text_idx,
@@ -802,6 +802,35 @@ impl<'a> Emitter<'a> {
                     WasmError::Invalid(format!("call to undeclared fn {callee:?}"))
                 })?;
                 wfn.instruction(&I::Call(*idx));
+                Ok(())
+            }
+            FnRef::Builtin(BuiltinId::DomOp(op)) => {
+                // v0.6 — first-class DOM call. Push (ptr,len) for each
+                // string-shaped arg (same convention as `log`), then
+                // dispatch via `emit_dom_call`. The Web target installs
+                // the four `stardust:web/dom` imports lazily; if the
+                // builder is targeting wasi we fall through and return
+                // a typed error.
+                for a in args {
+                    if let Operand::Const(Const::Str(s)) = a {
+                        let (ptr, len) = self.intern_string(s);
+                        wfn.instruction(&I::I32Const(ptr as i32));
+                        wfn.instruction(&I::I32Const(len as i32));
+                    } else {
+                        // Best-effort: emit the operand as-is. Non-Str
+                        // args land on the stack as i32 / i64 per the
+                        // value's lowered type.
+                        self.emit_operand(f, m, a, wfn)?;
+                    }
+                }
+                let dispatched = self.emit_dom_call(op, wfn)?;
+                if !dispatched {
+                    return Err(WasmError::Unsupported(format!(
+                        "wasm dom op {op:?} (target lacks stardust:web/dom imports)"
+                    )));
+                }
+                // emit_dom_call pushes a placeholder for void-returning
+                // ops; nothing more to do.
                 Ok(())
             }
             FnRef::Builtin(other) => Err(WasmError::Unsupported(format!("wasm builtin {other:?}"))),

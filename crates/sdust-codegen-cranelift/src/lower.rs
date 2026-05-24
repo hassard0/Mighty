@@ -1603,6 +1603,14 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 // still works.
                 Ok(self.b.ins().iconst(ct::I64, 0))
             }
+            FnRef::Builtin(BuiltinId::DomOp(_)) => {
+                // v0.6 — `dom.*` ops have no native target. The DOM
+                // capability is wasm32-web only (the imports point at
+                // a JS shim). Returning a zero placeholder keeps the
+                // SIR shape valid for cross-target programs that
+                // never reach a DOM call at runtime on native.
+                Ok(self.b.ins().iconst(ct::I64, 0))
+            }
         }
     }
 

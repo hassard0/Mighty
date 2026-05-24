@@ -1037,6 +1037,16 @@ impl<'a> Interp<'a> {
             BuiltinId::Valid => Ok(Value::Bool(true)),
             BuiltinId::Null => Ok(Value::Int(0, IntKind::USize)),
             BuiltinId::Extern(name) => Ok(host.extern_call(name, &args)),
+            BuiltinId::DomOp(op) => {
+                // v0.6 — Dom builtin calls go through the host's extern
+                // table as `dom.<op>` so headless test runs (without a
+                // wasm32-web JS host) get a deterministic default
+                // (typically `Value::Unit`). Real DOM dispatch is the
+                // wasm32-web backend's job — see
+                // `emit_call` → `emit_dom_call` in sdust-codegen-wasm.
+                let qualified = format!("dom.{op}");
+                Ok(host.extern_call(&qualified, &args))
+            }
         }
     }
 }
