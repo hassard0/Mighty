@@ -87,6 +87,28 @@ fn two_consecutive_mut_after_last_use() {
 }
 
 #[test]
+fn nll_chain_through_three_borrows() {
+    // r1 ends; r2 starts; r2 ends; m starts. All disjoint in last-use.
+    let src = "
+        fn f() {
+          let mut a = String(\"x\")
+          let r1 = &a
+          use_ref(r1)
+          let r2 = &a
+          use_ref(r2)
+          let m = &mut a
+          use_mut(m)
+        }
+        extern {
+          fn use_ref(r: &String)
+          fn use_mut(m: &mut String)
+        }
+    ";
+    let d = check(src);
+    assert_no_errors(&d, "NLL chain of three borrows");
+}
+
+#[test]
 fn lexical_still_rejects_overlap() {
     // Under NLL, `r` is used at `use_ref(r)` which is AFTER `let m = &mut a`.
     // So the shared borrow is still live → SD3004 still fires.

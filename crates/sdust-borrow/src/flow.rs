@@ -890,7 +890,10 @@ impl<'a> BorrowCx<'a> {
                 // snapshot-and-restore so captured outer locals aren't
                 // permanently moved here — closures in Stardust are
                 // affine wrt their captures but slice 4 doesn't enforce).
+                // v0.3: snapshot the ledger too so borrows taken
+                // inside the lambda body don't leak out.
                 let snapshot = self.locals.clone();
+                let ledger_snap = self.ledger.clone();
                 self.push_frame(None);
                 for p in &params {
                     let ty = self.typed.ty_arena.unit;
@@ -899,6 +902,7 @@ impl<'a> BorrowCx<'a> {
                 self.walk_block(body);
                 self.pop_frame();
                 self.locals = snapshot;
+                self.ledger = ledger_snap;
                 None
             }
             HirExpr::Run(inner) => self.walk_expr(inner, pos),
