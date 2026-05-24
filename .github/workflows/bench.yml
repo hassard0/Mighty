@@ -1,0 +1,70 @@
+name: bench
+
+# Runs the lightweight criterion suite on every push to main and on
+# manual dispatch. Cross-language comparators are *not* run here — the
+# default GitHub runner usually lacks Go/C++ toolchains, and our
+# acceptance numbers in docs/benchmarks/*.md are recorded on a
+# reference host. This workflow exists to catch perf regressions in
+# the Stardust impl itself.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    # PR runs are diagnostic-only; we don't (yet) post comments.
+  workflow_dispatch:
+    inputs:
+      iters:
+        description: "Iterations per category"
+        default: "30"
+        required: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  bench:
+    name: sdust-bench (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: bench-${{ matrix.os }}
+
+      - name: cargo test (smoke + fixture tests)
+        run: cargo test -p sdust-bench
+
+      - name: build release runner
+        run: cargo build --release -p sdust-bench --bin sdust-bench-runner
+
+      - name: run CLI bench
+        run: |
+          mkdir -p target/bench-results
+          ./target/release/sdust-bench-runner \
+              --all \
+              --iters ${{ github.event.inputs.iters || '20' }} \
+              --out target/bench-results/ci-${{ github.run_id }}.json
+
+      - name: upload bench results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ github.run_id }}
+          path: target/bench-results/
+          retention-days: 30
+
+      # TODO(v0.7): post PR comment with diff vs main baseline.
+      # TODO(v0.7): push historical JSON to gh-pages for trend tracking.
+      # Both deferred — requires PAT setup + a comment-bot identity.
