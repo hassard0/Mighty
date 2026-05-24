@@ -1077,12 +1077,8 @@ fn estimate_value_bytes(v: &Value) -> u64 {
         Value::Tuple(xs) | Value::Array(xs) => {
             24 + xs.iter().map(estimate_value_bytes).sum::<u64>()
         }
-        Value::Struct { fields, .. } => {
-            24 + fields.iter().map(estimate_value_bytes).sum::<u64>()
-        }
-        Value::Enum { payload, .. } => {
-            24 + payload.iter().map(estimate_value_bytes).sum::<u64>()
-        }
+        Value::Struct { fields, .. } => 24 + fields.iter().map(estimate_value_bytes).sum::<u64>(),
+        Value::Enum { payload, .. } => 24 + payload.iter().map(estimate_value_bytes).sum::<u64>(),
         Value::Ref(_) | Value::Fn(_) | Value::Agent(_) | Value::Cap { .. } => 16,
     }
 }
@@ -1351,7 +1347,7 @@ fn eval_method(receiver: &Value, name: &str, args: &[Value]) -> Value {
         // immediately rather than spinning forever.
         "__sdust_iter_next" => {
             let idx = args.first().and_then(|v| v.as_int()).unwrap_or(0);
-            return match receiver {
+            match receiver {
                 Tuple(parts) if parts.len() == 3 => {
                     let lo = parts[0].as_int().unwrap_or(0);
                     let hi = parts[1].as_int().unwrap_or(0);
@@ -1376,7 +1372,7 @@ fn eval_method(receiver: &Value, name: &str, args: &[Value]) -> Value {
                     }
                 }
                 _ => Tuple(vec![Bool(true), Unit]),
-            };
+            }
         }
 
         // ---------------- length / emptiness ----------------

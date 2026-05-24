@@ -50,7 +50,7 @@ fn break_with_value_carries_inner_expr() {
         .exprs
         .values()
         .find_map(|e| match e {
-            HirExpr::Break(inner) => Some(inner.clone()),
+            HirExpr::Break(inner) => Some(*inner),
             _ => None,
         })
         .expect("Break present");
@@ -67,7 +67,7 @@ fn bare_break_has_no_value() {
         .exprs
         .values()
         .find_map(|e| match e {
-            HirExpr::Break(inner) => Some(inner.clone()),
+            HirExpr::Break(inner) => Some(*inner),
             _ => None,
         })
         .expect("Break present");
