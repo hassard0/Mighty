@@ -366,15 +366,15 @@ fn phase1_conformance_full() {
         eprintln!("  {}: {}", k, v);
     }
 
-    // We populate 9 new categories with 3-5 cases each → ≥26 cases
-    // after v0.2's INTENTIONALLY_IGNORED entries.
-    // (Slice-1 lexical/parser/formatter_idempotence are exercised by
-    // sibling tests, not by this harness.) Skip the floor check when
-    // bisecting via STARDUST_CONF_ONLY.
+    // v0.10 conformance audit expanded the corpus: ≥70 cases across
+    // 15 categories (was 25 / 9 at v0.2; +50 at v0.10). See
+    // CONFORMANCE_V0_10_NOTES.md + docs/spec/conformance-coverage.md
+    // for the per-FROZEN-code coverage table. Skip the floor check
+    // when bisecting via STARDUST_CONF_ONLY.
     if only.is_none() && only_case.is_none() {
         assert!(
-            ran >= 25,
-            "expected ≥25 conformance_full cases, ran {} (have you regressed the corpus?)",
+            ran >= 70,
+            "expected ≥70 conformance_full cases, ran {} (have you regressed the corpus?)",
             ran
         );
     }
