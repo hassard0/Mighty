@@ -1,0 +1,15 @@
+// §6 type system canonical example: struct + enum + generic.
+struct Pair[K, V] { key: K, value: V }
+
+enum Either[A, B] {
+  Left(A)
+  Right(B)
+}
+
+fn pick(b: Bool) -> Either[I64, Str] {
+  if b {
+    Left(42)
+  } else {
+    Right("nope")
+  }
+}

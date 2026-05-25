@@ -1,0 +1,11 @@
+// §17 error handling canonical: Result+? propagation.
+enum ParseErr { Bad }
+
+fn parse_int(s: Str) -> I64!ParseErr {
+  Ok(42)
+}
+
+fn double(s: Str) -> I64!ParseErr {
+  let n = parse_int(s)?
+  Ok(n + n)
+}

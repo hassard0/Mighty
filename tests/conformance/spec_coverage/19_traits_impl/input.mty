@@ -1,0 +1,14 @@
+// §19 traits canonical: declare + impl + call via trait method.
+trait Show {
+  fn show(self) -> Str
+}
+
+struct Tag { name: Str }
+
+impl Show for Tag {
+  fn show(self) -> Str { self.name }
+}
+
+fn describe(t: Tag) -> Str {
+  t.show()
+}

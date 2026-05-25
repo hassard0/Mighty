@@ -1,0 +1,15 @@
+// §27 stdlib v1.0 surface: Option + Some / None.
+fn find(b: Bool) -> Option[I64] {
+  if b {
+    Some(7)
+  } else {
+    None
+  }
+}
+
+fn main() {
+  match find(true) {
+    Some(n) => log(n.to_str())
+    None    => log("nothing")
+  }
+}

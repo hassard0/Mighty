@@ -1,0 +1,7 @@
+// §20 metaprogramming canonical: declarative macro expansion.
+macro inc(x) => { x + 1 }
+
+fn main() {
+  let y = inc(41)
+  log(y.to_str())
+}

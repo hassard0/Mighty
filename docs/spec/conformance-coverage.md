@@ -114,7 +114,7 @@ Status legend:
 | MT6002 | MACRO_ARITY_MISMATCH           | covered    | macros/02_arity_mismatch |
 | MT6003 | MACRO_BODY_PARSE_FAILED        | auxiliary  | mty-hir/src/lower/macros.rs::tests |
 | MT6004 | RECURSIVE_MACRO_TOO_DEEP       | covered    | macros/03_recursive_too_deep |
-| MT6005 | PROC_MACRO_IMPURE              | auxiliary  | mty-hir unit tests |
+| MT6005 | PROC_MACRO_IMPURE              | covered    | macros/04_proc_macro_impure |
 | MT6006 | PROC_MACRO_UNSUPPORTED_V0_5    | auxiliary  | mty-hir unit tests |
 | MT6007 | PROC_MACRO_IMPURE_AT_RUNTIME   | auxiliary  | mty-hir unit tests |
 | MT6008 | PROC_MACRO_RESOURCE_EXCEEDED   | auxiliary  | mty-hir unit tests |
@@ -132,9 +132,9 @@ Status legend:
 ### Summary (FROZEN codes)
 
 - Total FROZEN codes enumerated: **66**.
-- conformance_full positively-fires: **40** (61%).
-- conformance_full + auxiliary harnesses positively-fires: **57** (86%).
-- Documented gaps (no emitter wired): **9** (14% — Gaps A/B/C/D/E
+- conformance_full positively-fires: **41** (62%).
+- conformance_full + auxiliary harnesses positively-fires: **58** (88%).
+- Documented gaps (no emitter wired): **8** (12% — Gaps A/B/C/D/E
   enumerated in `CONFORMANCE_V0_10_NOTES.md`).
 
 ## Spec-section coverage table
@@ -195,10 +195,12 @@ Status legend:
 ## Acceptance verdict
 
 - `cargo test --test conformance_full -p mty-driver` — **passes** with
-  **75 cases** across **15 categories** at the v0.10 audit completion
-  point (was 48 cases / 11 categories at v0.9.0 HEAD: +27 cases / +4
-  categories).
-- Coverage rate: **40/66 FROZEN codes (61%)** via conformance_full
-  alone, **57/66 (86%)** counting all sibling harnesses.
+  **81 cases** across **16 categories** at the v0.10 audit completion
+  point (was 48 cases / 11 categories at v0.9.0 HEAD: +33 cases / +5
+  categories — new categories: type_checking, traits_derive,
+  runtime_traps, macros, lexical, parser, spec_coverage).
+- Coverage rate: **41/66 FROZEN codes (62%)** via conformance_full
+  alone, **58/66 (88%)** counting all sibling harnesses (counting
+  MT6005 added in v0.10).
 - All documented gaps have an explicit follow-up note in
   `CONFORMANCE_V0_10_NOTES.md` with a v1.0-RC2 recommendation.

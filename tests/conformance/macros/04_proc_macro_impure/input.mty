@@ -1,0 +1,6 @@
+// MT6005 positive-fire: proc-macro body contains an effect.io call,
+// violating purity.
+proc macro leak(input: TokenStream) -> TokenStream {
+  effect.io("oops")
+  input
+}
