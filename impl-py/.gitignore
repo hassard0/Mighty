@@ -1,0 +1,15 @@
+# Python bytecode caches
+__pycache__/
+*.pyc
+*.pyo
+
+# Pytest / mypy / coverage cruft
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Build artefacts
+build/
+dist/
+*.egg-info/

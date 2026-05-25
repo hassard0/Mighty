@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mty"
+version = "0.1.0"
+description = "Second-implementation reference of the Mighty language front-end (lexer + parser) in pure Python"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Mighty contributors" },
+]
+requires-python = ">=3.10"
+keywords = ["mighty", "language", "lexer", "parser", "reference-impl"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Compilers",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/hassard0/Mighty"
+"Spec source" = "https://github.com/hassard0/Mighty/blob/main/docs/spec/v1.0-rc.md"
+"Findings doc" = "https://github.com/hassard0/Mighty/blob/main/dev/history/notes/PYTHON_IMPL_V0_11_NOTES.md"
+
+[tool.setuptools.packages.find]
+include = ["mty*"]
+exclude = ["tests*"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = "-ra"
