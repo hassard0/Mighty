@@ -1,6 +1,6 @@
 # Mighty
 
-[![Status](https://img.shields.io/badge/status-v0.6-green)](https://github.com/hassard0/stardust/releases/tag/v0.6.0)
+[![Status](https://img.shields.io/badge/status-v0.8-green)](https://github.com/hassard0/stardust/releases/tag/v0.8.0)
 [![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)](#license)
 
 Mighty is an agent-first systems programming language. It is statically
@@ -10,25 +10,33 @@ native code (Cranelift JIT + AOT; LLVM behind `--features llvm`) and
 WebAssembly (Component Model by default; bare core modules via
 `--no-component`).
 
-**v0.6 is shipped.** The v0.6 milestone tag
-[`v0.6.0`](https://github.com/hassard0/stardust/releases/tag/v0.6.0)
-is the multi-core + benchmarks + self-host-parser release: the
-runtime defaults to one worker per available core with per-worker
-tokio runtimes + crossbeam-deque work-stealing (A101..A106), the
-first honest cross-language benchmarks ship as a new `mty-bench`
-crate spanning six categories (parse / agent send / mailbox / HTTP /
-native compile / wasm size), the Mighty source parser is itself
-ported to Mighty at ~1930 LOC and bootstraps examples 01-05
-clean through a host bridge, and three v0.5 loose ends land inline:
-`BuiltinId::DomOp` + DOM MtyIR lowering closes the v0.5
-`emit_dom_call` `#[allow(dead_code)]` (A108), the MT6001-MT6006
-macro codes merge into the central `sdust_diagnostics::codes`
-catalog (A107), and per-call `FsCap` isolation gains a contract
-test (A109). See [`RELEASE-v0.6.md`](RELEASE-v0.6.md) for the
-headline numbers and [`SLICE_V0_6.md`](SLICE_V0_6.md) for the
-shipped/deferred detail.
+**v0.8 is shipped.** The v0.8 milestone tag
+[`v0.8.0`](https://github.com/hassard0/stardust/releases/tag/v0.8.0)
+closes 4 of 5 remaining v0.5 loose ends (proc-macro sandboxed
+execution + MT6007/MT6008, real per-agent HTTP routing, LSP
+cross-file workspace resolve, WIT canonical-ABI return-area for DOM
+string returns), self-hosts the HIR lowering + minimal typeck phases
+in Mighty (joining the v0.5 lexer and v0.6 parser; **27 self-host
+tests passing**), lands 3 of 4 perf-optimisation targets (parse
+throughput +27% to 108 MiB/s, mailbox +7% via the slab fast path,
+agent send ~800 ns for empty payloads — parallel-mono honest-
+reverted), consolidates 88 spec amendments into the normative
+**v1.0 release-candidate spec** at `docs/spec/v1.0-rc.md` (63
+FROZEN / 15 SUPERSEDED / 10 OPEN / 0 REVERTED), and closes the
+**rebrand residuals** the v0.7 agent missed (`stardust_runtime_*`
+ABI symbols + DWARF producer + `mty-bench` fixture + `mty-doc`
+templates + `mty-hir` insta headers + back-compat for legacy
+`sd`/`stardust` code-block tags).
+
+927 tests passing (was 885 at v0.7.0-rebrand). See
+[`RELEASE-v0.8.md`](RELEASE-v0.8.md) for the headline numbers and
+[`SLICE_V0_8.md`](SLICE_V0_8.md) for the shipped/deferred detail.
 
 Prior milestones remain tagged:
+[`v0.7.0-rebrand`](https://github.com/hassard0/stardust/releases/tag/v0.7.0-rebrand)
+(Stardust → Mighty naming-only release, 0 behavioural deltas),
+[`v0.6.0`](https://github.com/hassard0/stardust/releases/tag/v0.6.0)
+(multi-core + benchmarks + self-host parser),
 [`v0.5.0`](https://github.com/hassard0/stardust/releases/tag/v0.5.0)
 (self-hosting + dogfood-completion),
 [`v0.4.0`](https://github.com/hassard0/stardust/releases/tag/v0.4.0)
@@ -39,6 +47,38 @@ Prior milestones remain tagged:
 (LSP + pkg + doc + stdlib + DWARF + Wasm CM), and
 [`v0.1.0`](https://github.com/hassard0/stardust/releases/tag/v0.1.0)
 (initial slice 1-8 ladder).
+
+### v0.8 highlights
+
+- **Loose-end closure (4/5)** — proc-macro sandboxed execution
+  (100 ms wall + 100k steps + 16 MB cap; MT6007 runtime-impure /
+  MT6008 resource-exceeded), real per-agent HTTP routing keyed by
+  `(method, path, agent)`, LSP cross-file workspace resolve over
+  the `mighty.toml` package tree, canonical-ABI return-area for DOM
+  string returns from wasm-component bindings.
+- **Self-host HIR + minimal typeck** — `selfhost/hir/lower.mty`
+  (~960 LOC, round-trips byte-for-byte vs Rust for examples 01-03)
+  and `selfhost/typeck/infer.mty` (~153 LOC, minimal HM for the
+  same subset). Total self-host tests: 4 lexer + 13 parser + 5 HIR
+  + 5 typeck = 27.
+- **Performance optimisations (3/4 landed)** — 64-byte token cache
+  with ±1-token widen for incremental re-lex (+27% parse on the 10
+  KLOC fixture), `SlabPool::acquire_empty()` fast path that
+  bypasses the per-slot lock for `SmallPayload::Empty` (+7% mailbox),
+  `Mailbox::try_recv_many()` free function on the raw receiver
+  (~800 ns agent send latency). Parallel mono was honest-reverted
+  after measurement.
+- **v1.0-RC spec published** at `docs/spec/v1.0-rc.md` — single
+  normative document folding 88 amendments through v0.1 → v0.7, with
+  12 cross-amendment contradictions reconciled. `scripts/classify_amendments.py`
+  is the reproducible status-line injector.
+- **Rebrand residuals closed** — runtime ABI symbols
+  (`stardust_runtime_*` → `mty_runtime_*` across LLVM + Cranelift
+  codegen + the matching `pub extern "C" fn` definitions), DWARF
+  producer (`"stardust-0.2"` → `"mighty-0.8"`), `mty-bench` fixture
+  (`stardust_10kloc()` → `mty_10kloc()`), template comment headers,
+  insta snapshot source headers, and back-compat fallbacks for
+  legacy `sd`/`stardust` code-block tags in `mty-doc`.
 
 ### v0.6 highlights
 
@@ -302,15 +342,18 @@ implemented or planned:
 | **v0.4** | Dogfood demos (3), real GH-Releases registry transport, hygienic declarative macros (MT6001..MT6004), self-host lexer (subset bootstrap via `std.io`), MtyIR loop terminator fix | **shipped (`v0.4.0`)** |
 | **v0.5** | `break` / `continue` HIR + iterator protocol + bounded-fixed-point loop borrows, self-host lexer full diff, dogfood completion (5 gaps: real http.serve, Wasm DOM imports, full Str methods, mem-budget auto-charge, FsCap allowlist), macros completion (`name!(args)`, extended hygiene, cross-file `pub macro`, proc-macro skeleton, stdlib macros), LSP advanced (semantic tokens, rename, inlay hints, code actions, signature help, workspace folders, semantic completion) | **shipped (`v0.5.0`)** |
 | **v0.6** | Multi-core scheduler (per-worker tokio runtimes + crossbeam-deque work-stealing + affinity hints + lightweight migration + per-worker stats), first honest benchmarks (mty-bench crate + 6 categories with Rust/Go/C++ comparators), self-host parser subset (~1930 LOC, 13/13 bootstrap tests, examples 01-05 covered), DOM MtyIR lowering (`BuiltinId::DomOp` end-to-end), central MT6001-MT6006 catalog merge, per-call FsCap isolation contract | **shipped (`v0.6.0`)** |
+| **v0.7** | Stardust → Mighty rebrand: 20 `sdust-*` crates renamed to `mty-*`, `.sd` → `.mty` source-file extension, `star.toml`/`star.lock` → `mighty.toml`/`mighty.lock`, `SD####` → `MT####` diagnostic codes (with `SD` alias preserved for `mty explain`), WIT `stardust:*` → `mty:*`, VS Code extension repackaged. 0 behavioural deltas — 885 tests still pass byte-for-byte. | **shipped (`v0.7.0-rebrand`)** |
+| **v0.8** | Loose-end closure (proc-macro sandboxed execution + MT6007/MT6008, real per-agent HTTP routing, LSP cross-file workspace resolve, WIT canonical-ABI return-area for DOM strings), self-host HIR + minimal typeck (~1.1 KLOC of Mighty self-host code; 5+5 new tests on examples 01-03), perf wins (parse +27%, mailbox +7%, agent send ~800 ns), spec consolidation **v1.0-RC** at `docs/spec/v1.0-rc.md` (88 amendments classified, 12 contradictions reconciled), rebrand residuals closed (`stardust_runtime_*` ABI + DWARF + `mty-bench` fixture + `mty-doc` templates + `mty-hir` insta headers). 927 tests passing. | **shipped (`v0.8.0`)** |
 
-### Post-v0.6 roadmap
+### Post-v0.8 roadmap
+
+The v1.0 release candidate is one slice away. Targeting **v0.9**:
 
 | Slice | Scope | Status |
 |---|---|---|
-| v0.7 | Self-host HIR + typeck + borrow checker (next ladder rung after the v0.6 parser), self-host parser productions deferred from v0.6 (send sugar, deadlines, HTML literals, agent/protocol/supervisor, arena/task/budget/sandbox, unsafe, detach/join, run, macro decls), error-recovery in self-host parser | planned |
+| v0.9 | Self-host HIR + typeck for examples 04 + 05 (Result-sugar return + `?` + struct-literal expressions, range patterns + private-fn name mangling), full `TokenStream` marshalling for proc-macros, `mty-pkg` cross-file resolution (`use selfhost_hir.HirFn`), parametric newtypes (`type FnId = USize newtype`) for self-host arena ids, WASM size optimisation (Target 5), HTTP server throughput optimisation (Target 6), `demos/02_counter_web` wasm-component `cabi_realloc` fix, set-of-scopes hygiene cleanup in LSP completion (A111) | planned |
+| v1.0-RC → v1.0 GA | Spec freeze at v1.0-final, deprecation removal sweep (`SD####` aliases, `--legacy-interp`, legacy `sd`/`stardust` code-block tags per A45), stability commitment, package-registry domain swap (`pkg.stardust.dev` → final), release-candidate cycle | planned |
 | - | Lossless live migration, per-message work-stealing, OTLP exporter wiring for `Scheduler::stats()` gauges, `agent X with affinity = sticky` front-end syntax | planned |
-| - | Proc-macro sandboxed execution, set-of-scopes hygiene, `format!`-style variadic macros, canonical-ABI return-area bridge for `get-text` / `query`, `install_agent_dispatch` runtime wiring, per-call FsCap materialisation from sandbox manifest | planned (finishes the v0.5/v0.6 dogfood end-to-end) |
-| - | LSP workspace resolve map (cross-file rename / go-to-def), receiver-chain + method-call-receiver completion, borrow check in the LSP pipeline | planned |
 | - | Polonius-style borrows, real cap-name resolution wiring, MtyIR-side cancellation polling, WASI Preview 2 + user WIT, DWARF v5 + per-instr line program | planned |
 | - | `dyn` dispatch + closure capture in compiled code, `escalate` supervisor action | planned |
 | - | PGO/ThinLTO, distributed agents, effect-row polymorphism | future |
