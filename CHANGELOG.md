@@ -9,11 +9,47 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- v1.0-RC2 work: second-implementation effort (RFC-007), MT0001 funnel
-  split (MT0002/MT0003/MT0010/MT0011/MT0012/MT0020/MT0021/MT0030),
-  `mty-pkg` cross-file resolution, parametric newtypes for self-host
-  arena ids, set-of-scopes hygiene in LSP completion (A111), normative
-  conformance suite kit publication, full `TokenStream` marshalling.
+- v1.0-RC2 work: extend Python 2nd-impl through HIR + sketch typeck
+  (~5.5 KLOC, ~8 days); wire 6 remaining Gap-B typeck call-sites
+  (MT2003/MT2009/MT2022/MT2023/MT2024/MT2025); promote operator
+  precedence + missing keywords (`package`, `export`, `requires`)
+  to the normative spec; MT0001 funnel split
+  (MT0002/MT0003/MT0010/MT0011/MT0012/MT0020/MT0021/MT0030);
+  `mty-pkg` cross-file resolution; parametric newtypes for self-host
+  arena ids; set-of-scopes hygiene in LSP completion (A111);
+  normative conformance suite kit publication; full `TokenStream`
+  marshalling.
+
+## [0.11.0] - 2026-05-25
+
+**Quality tier — strict-clippy gate green + Python 2nd-impl partial
++ conformance gap closure + UX polish.** The `clippy (strict)` CI
+job is now **required** (no more `continue-on-error: true`) and
+clean across the whole 20-crate workspace: 2341 pedantic warnings
+on baseline → 0 via a workspace-level `[lints.clippy]` allowlist
+plus ~30 real fixes. **All six CI jobs now run as required gates.**
+An independent Python implementation of the Mighty front-end lands
+at [`impl-py/`](impl-py/): pure-Python lexer + parser (~2.5 KLOC)
+built from the v1.0-RC2 spec prose alone (no peeking at
+`crates/mty-syntax`, `crates/mty-ast`, or `selfhost/`); **135 tests
+passing, 20/20 examples lex+parse**. **Real partial credit on v1.0
+freeze blocker #1** (two independent implementations). The slice
+also surfaced 16 spec findings — biggest: operator precedence is
+not in the normative §11 (deferred to `docs/internals/parser.md`)
+and needs to be promoted before v1.0 freeze. Normative conformance
+corpus grows **88% → 91% FROZEN coverage** (62% → 70% direct), 4 of
+8 documented gaps closed with two harness extensions
+(warning-severity assertions; per-case `mighty.toml` via `CwdGuard`)
+plus 3 new positive-fire cases (MT2012, MT6003, MT6008); the 4
+deferred gaps each have a precise crate-source-edit reason recorded.
+UX polish: 15 high-traffic MTxxxx codes rewritten to a consistent
+Cause/Example/Fix/Spec format, all 16 tour chapters refreshed
+(`.sd` → `.mty`, spec links bumped to `v1.0-rc.md`), FAQ extended
+12 → 26 entries, getting-started rewritten 187 → 290 lines.
+Inherited from post-v0.10.0 `main`: three macOS codegen fixes
+(`LC_BUILD_VERSION` on Mach-O objects + cosmetic + CI tolerance for
+missing `cc`). **977 Rust tests + 135 Python tests = 1112 total.**
+[Release notes](dev/history/releases/RELEASE-v0.11.md).
 
 ## [0.10.0] - 2026-05-25
 
@@ -152,7 +188,8 @@ new` / `check` / `fmt` / `dump` / `run` / `build` / `explain`. 65+
 diagnostic codes across MT0xxx..MT8xxx. MSRV Rust 1.85. **376 tests
 passing.** [Release notes](dev/history/releases/RELEASE-v0.1.md).
 
-[Unreleased]: https://github.com/hassard0/Mighty/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/hassard0/Mighty/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/hassard0/Mighty/releases/tag/v0.11.0
 [0.10.0]: https://github.com/hassard0/Mighty/releases/tag/v0.10.0
 [0.9.0]: https://github.com/hassard0/Mighty/releases/tag/v0.9.0
 [0.8.0]: https://github.com/hassard0/Mighty/releases/tag/v0.8.0

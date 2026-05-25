@@ -17,10 +17,13 @@ The compiler, runtime, formatter, package manager, doc generator, LSP
 server, and stdlib are all in one Rust workspace and one `mty` binary.
 
 > **Status:** pre-alpha. The v1.0 language spec is feature-complete at
-> v1.0-RC2 and the toolchain is exercised by 975+ tests across 20 crates,
-> but a `1.0` GA tag awaits a second independent implementation, six RFC
-> comment-window closures, and the normative conformance suite. See
-> [Status](#status) below.
+> v1.0-RC2 and the toolchain is exercised by 977 Rust tests across 20
+> crates plus a second independent Python front-end at
+> [`impl-py/`](impl-py/) (135 tests). All six CI jobs are now required
+> gates (strict clippy `continue-on-error` cleared in v0.11). A `1.0`
+> GA tag still awaits the completion of the 2nd-impl through type-check,
+> six RFC comment-window closures, and the normative conformance suite
+> (currently 91% FROZEN-code coverage). See [Status](#status) below.
 
 ## Install
 
@@ -103,6 +106,11 @@ Then:
 - Lexer (full), parser (~1.9 KLOC subset), HIR lowering, minimal typeck, and MtyIR lowering are all written in Mighty itself and exercised against examples 01-05.
 - 40 self-host tests passing.
 
+**Independent implementations**
+
+- Rust reference compiler (this repo, `crates/mty-*`).
+- Python 2nd-impl front-end at [`impl-py/`](impl-py/) — pure-Python lexer + parser built from the v1.0-RC2 spec prose alone. 135 tests, 20/20 examples lex+parse.
+
 ## Documentation
 
 Live docs site: **<https://hassard0.github.io/Mighty/>**
@@ -174,12 +182,14 @@ see [`CHANGELOG.md`](CHANGELOG.md).
 ## Status
 
 Mighty is **pre-alpha**. Internal milestones have been tagged through
-v0.10. The v1.0 language spec is frozen at v1.0-RC2 — see
-`docs/spec/v1.0-rc.md`. There are 975+ tests across the workspace,
-0 clippy warnings, and 3/3 demos pass `smoke.sh`. The cargo-fuzz
-harness covers four targets (parser / typeck / fmt / codegen), and
-the normative conformance corpus stands at 81 cases (88% FROZEN
-diagnostic-code coverage).
+v0.11. The v1.0 language spec is frozen at v1.0-RC2 — see
+`docs/spec/v1.0-rc.md`. There are 977 Rust tests across the workspace
+(plus 135 Python tests in the [`impl-py/`](impl-py/) 2nd-impl =
+**1112 total**), 0 clippy warnings *under the strict `pedantic` gate*
+(now a required CI job, not advisory), and 3/3 demos pass `smoke.sh`.
+The cargo-fuzz harness covers four targets (parser / typeck / fmt /
+codegen), and the normative conformance corpus stands at 84 cases
+(**91% FROZEN diagnostic-code coverage**, up from 88% in v0.10).
 
 **There is no released binary yet.** Build from source, treat the
 language as unstable, and please file issues for everything that
