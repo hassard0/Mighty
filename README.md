@@ -17,7 +17,7 @@ The compiler, runtime, formatter, package manager, doc generator, LSP
 server, and stdlib are all in one Rust workspace and one `mty` binary.
 
 > **Status:** pre-alpha. The v1.0 language spec is feature-complete at
-> v1.0-RC2 and the toolchain is exercised by 950+ tests across 20 crates,
+> v1.0-RC2 and the toolchain is exercised by 975+ tests across 20 crates,
 > but a `1.0` GA tag awaits a second independent implementation, six RFC
 > comment-window closures, and the normative conformance suite. See
 > [Status](#status) below.
@@ -100,8 +100,8 @@ Then:
 
 **Self-hosting (in progress)**
 
-- Lexer (full), parser (~1.9 KLOC subset), HIR lowering, minimal typeck, and MtyIR lowering are all written in Mighty itself and exercised against examples 01-03.
-- 34 self-host tests passing.
+- Lexer (full), parser (~1.9 KLOC subset), HIR lowering, minimal typeck, and MtyIR lowering are all written in Mighty itself and exercised against examples 01-05.
+- 40 self-host tests passing.
 
 ## Documentation
 
@@ -175,9 +175,11 @@ see [`CHANGELOG.md`](CHANGELOG.md).
 
 Mighty is **pre-alpha**. Internal milestones have been tagged through
 v0.10. The v1.0 language spec is frozen at v1.0-RC2 — see
-`docs/spec/v1.0-rc.md`. There are 950+ tests across the workspace,
+`docs/spec/v1.0-rc.md`. There are 975+ tests across the workspace,
 0 clippy warnings, and 3/3 demos pass `smoke.sh`. The cargo-fuzz
-harness covers four targets (parser / typeck / fmt / codegen).
+harness covers four targets (parser / typeck / fmt / codegen), and
+the normative conformance corpus stands at 81 cases (88% FROZEN
+diagnostic-code coverage).
 
 **There is no released binary yet.** Build from source, treat the
 language as unstable, and please file issues for everything that

@@ -9,11 +9,34 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- v0.10 work: second-implementation effort (RFC-007), CI fuzz wiring,
-  real `cabi_realloc` free-list, self-host HIR/typeck examples 04+05,
-  full `TokenStream` marshalling for proc-macros, real sigstore
-  signing, RFC-001..006 comment-period opens, normative conformance
-  suite publication.
+- v1.0-RC2 work: second-implementation effort (RFC-007), MT0001 funnel
+  split (MT0002/MT0003/MT0010/MT0011/MT0012/MT0020/MT0021/MT0030),
+  `mty-pkg` cross-file resolution, parametric newtypes for self-host
+  arena ids, set-of-scopes hygiene in LSP completion (A111), normative
+  conformance suite kit publication, full `TokenStream` marshalling.
+
+## [0.10.0] - 2026-05-25
+
+**Production cleanup + conformance audit.** Lifts the v0.9 RC-prep
+stubs to real implementations: `cabi_realloc` becomes a segregated
+free-list allocator (8 size classes + bump tail), sigstore signing
+gets a real keyless path behind the `sigstore-real` feature (default
+keeps the v0.9 SHA-256 envelope shape), the Cranelift egraph fuzz
+bug is filed upstream as
+[wasmtime #13476](https://github.com/bytecodealliance/wasmtime/issues/13476)
+with an in-tree `MTY_CRANELIFT_NO_OPT` workaround and a new
+`MTY_DUMP_CLIF` debug knob. Conformance corpus grows 16 → 81 cases
+(88% FROZEN coverage). Self-host examples 04 + 05 deferrals closed —
+**40/40 selfhost tests now pass**. CI hardened: MSRV gate now runs
+`cargo test --no-run` + bedrock subset; `mkdocs --strict` enabled
+with all 55 stale links fixed; cargo-audit job added; parallel
+monomorphisation honestly reverted to sequential default after
+re-benching. Major repo cleanup: 62 dev artefacts archived under
+`dev/history/`, README rewritten 421 → 210 lines, root
+`CHANGELOG.md` introduced, license switched from Apache-2.0/MIT dual
+to **MIT-only**, repo URL bumped `hassard0/stardust` →
+`hassard0/Mighty`. **977 tests passing.**
+[Release notes](dev/history/releases/RELEASE-v0.10.md).
 
 ## [0.9.0] - 2026-05-24
 
@@ -129,7 +152,8 @@ new` / `check` / `fmt` / `dump` / `run` / `build` / `explain`. 65+
 diagnostic codes across MT0xxx..MT8xxx. MSRV Rust 1.85. **376 tests
 passing.** [Release notes](dev/history/releases/RELEASE-v0.1.md).
 
-[Unreleased]: https://github.com/hassard0/Mighty/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/hassard0/Mighty/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/hassard0/Mighty/releases/tag/v0.10.0
 [0.9.0]: https://github.com/hassard0/Mighty/releases/tag/v0.9.0
 [0.8.0]: https://github.com/hassard0/Mighty/releases/tag/v0.8.0
 [0.7.0-rebrand]: https://github.com/hassard0/Mighty/releases/tag/v0.7.0-rebrand
