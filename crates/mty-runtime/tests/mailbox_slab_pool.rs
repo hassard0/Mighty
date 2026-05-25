@@ -103,10 +103,16 @@ fn slab_pool_inline_bytes_default() {
 
 #[tokio::test]
 async fn mailbox_introspection_tracks_slot_usage() {
+    // v0.8 contract update (perf swarm): empty payloads take the slab
+    // fast path and do NOT consume a slot — they carry no useful
+    // metadata pressure. Non-empty payloads still admit through the
+    // slab as before. This test pins that contract: empty-then-empty
+    // leaves slab_used at 0; empty-then-nonempty leaves it at 1.
     let mb = Mailbox::new(4, SendPolicy::Block);
     let s0 = mb.introspect();
     assert_eq!(s0.slab_used, 0);
     assert_eq!(s0.slab_capacity, 4);
+    // Two empty payloads: fast path, no slots consumed.
     mb.send(MessageFrame::fire_and_forget("A", SmallPayload::Empty))
         .await
         .unwrap();
@@ -114,11 +120,33 @@ async fn mailbox_introspection_tracks_slot_usage() {
         .await
         .unwrap();
     let s1 = mb.introspect();
-    assert_eq!(s1.slab_used, 2, "two frames in-flight");
-    // Drain & verify slots return.
+    assert_eq!(
+        s1.slab_used, 0,
+        "v0.8: empty payloads must NOT consume slab slots"
+    );
+    // Two non-empty payloads: slab path, slots consumed.
+    mb.send(MessageFrame::fire_and_forget(
+        "C",
+        SmallPayload::inline(vec![Value::Unit]),
+    ))
+    .await
+    .unwrap();
+    mb.send(MessageFrame::fire_and_forget(
+        "D",
+        SmallPayload::inline(vec![Value::Unit]),
+    ))
+    .await
+    .unwrap();
+    let s_mid = mb.introspect();
+    assert_eq!(
+        s_mid.slab_used, 2,
+        "two non-empty in-flight frames consume two slots"
+    );
+    // Drain & verify slots return to the pool.
     let mut rx = mb.take_receiver().unwrap();
-    let _ = rx.recv().await.unwrap();
-    let _ = rx.recv().await.unwrap();
+    for _ in 0..4 {
+        let _ = rx.recv().await.unwrap();
+    }
     let s2 = mb.introspect();
     assert_eq!(s2.slab_used, 0, "all slots returned after drain");
 }
