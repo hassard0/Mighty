@@ -13,8 +13,8 @@ use mty_codegen_wasm::emit::{compile_program_to_bytes, DOM_RETURN_AREA};
 use mty_codegen_wasm::target::WasmTarget;
 use mty_hir::SourceSpan;
 use mty_ir::ir::{
-    Block, BlockId, BuiltinId, Const, FnRef, Function, IrFnId, IrTy, Local, LocalDecl,
-    LocalSource, Operand, Place, Program, Rvalue, Stmt, Term,
+    Block, BlockId, BuiltinId, Const, FnRef, Function, IrFnId, IrTy, Local, LocalDecl, LocalSource,
+    Operand, Place, Program, Rvalue, Stmt, Term,
 };
 
 fn empty_main() -> Program {
@@ -99,10 +99,7 @@ fn get_text_import_takes_three_i32_returns_none() {
                 match g {
                     Imports::Single(_, imp) => {
                         if imp.module == "mty:web/dom" && imp.name == "get-text" {
-                            assert!(matches!(
-                                imp.ty,
-                                wasmparser::TypeRef::Func(_)
-                            ));
+                            assert!(matches!(imp.ty, wasmparser::TypeRef::Func(_)));
                             found = true;
                         }
                     }
@@ -209,9 +206,7 @@ fn dom_get_text_lift_round_trip_via_synthetic_host() {
 
     // After main returns, the return area at DOM_RETURN_AREA holds
     // (data_ptr, data_len). Read them and confirm we got HOST_OK.
-    let mem = instance
-        .get_memory(&mut store, "memory")
-        .expect("memory");
+    let mem = instance.get_memory(&mut store, "memory").expect("memory");
     let raw = mem.data(&store);
     let ptr = u32::from_le_bytes(
         raw[DOM_RETURN_AREA as usize..DOM_RETURN_AREA as usize + 4]

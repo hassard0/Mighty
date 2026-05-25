@@ -291,14 +291,8 @@ impl LanguageServer for Backend {
         let Some(doc) = self.docs.get(&uri) else {
             return Ok(None);
         };
-        rename_mod::rename_with_workspace(
-            uri,
-            &doc,
-            pos,
-            &params.new_name,
-            Some(&self.workspaces),
-        )
-        .map(Some)
+        rename_mod::rename_with_workspace(uri, &doc, pos, &params.new_name, Some(&self.workspaces))
+            .map(Some)
     }
 
     async fn prepare_rename(

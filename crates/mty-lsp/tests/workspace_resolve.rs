@@ -41,14 +41,15 @@ fn cross_file_rename_propagates_to_all_files() {
     let a_src = std::fs::read_to_string(&a).unwrap();
     let doc = Arc::new(DocAnalysis::analyze(a_src.clone(), a_uri.to_string(), 0));
     // Position cursor on `shared` (line 0, col 7 — right after `pub fn `).
-    let pos = Position { line: 0, character: 7 };
+    let pos = Position {
+        line: 0,
+        character: 7,
+    };
 
-    let we =
-        rename_with_workspace(a_uri.clone(), &doc, pos, "renamed", Some(&registry)).expect("rename ok");
+    let we = rename_with_workspace(a_uri.clone(), &doc, pos, "renamed", Some(&registry))
+        .expect("rename ok");
     let changes = we.changes.expect("workspace changes");
-    let a_changes = changes
-        .get(&a_uri)
-        .expect("a.mty had no edits");
+    let a_changes = changes.get(&a_uri).expect("a.mty had no edits");
     assert!(!a_changes.is_empty(), "a.mty had zero edits");
 
     let b_uri = path_to_uri(&b).unwrap();
@@ -58,7 +59,7 @@ fn cross_file_rename_propagates_to_all_files() {
     // c.mty should NOT appear (no reference to `shared`).
     let c_uri = path_to_uri(&c).unwrap();
     assert!(
-        changes.get(&c_uri).is_none(),
+        !changes.contains_key(&c_uri),
         "c.mty should have no edits but got: {:?}",
         changes.get(&c_uri)
     );

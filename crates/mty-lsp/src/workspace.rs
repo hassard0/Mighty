@@ -78,10 +78,7 @@ impl WorkspaceModel {
             for entry in read.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
-                    let name = path
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("");
+                    let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
                     if matches!(name, "target" | "node_modules" | ".git" | "build") {
                         continue;
                     }
@@ -183,7 +180,9 @@ impl WorkspaceRegistry {
             if path.starts_with(kv.key()) {
                 match &best {
                     None => best = Some((kv.key().clone(), kv.value().clone())),
-                    Some((root, _)) if kv.key().components().count() > root.components().count() => {
+                    Some((root, _))
+                        if kv.key().components().count() > root.components().count() =>
+                    {
                         best = Some((kv.key().clone(), kv.value().clone()));
                     }
                     _ => {}
@@ -283,10 +282,7 @@ mod tests {
             "missing decl file: {:?}",
             hits.iter().map(|(f, _)| f.path.clone()).collect::<Vec<_>>()
         );
-        assert!(
-            hits.iter().any(|(f, _)| f.path == b),
-            "missing caller file"
-        );
+        assert!(hits.iter().any(|(f, _)| f.path == b), "missing caller file");
     }
 
     #[test]

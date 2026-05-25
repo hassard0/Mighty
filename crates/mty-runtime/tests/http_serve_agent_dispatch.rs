@@ -67,11 +67,10 @@ fn main() { () }
         // Bind the listener. `start_blocking` runs `block_on` inside
         // the stdlib's process-wide runtime; jump out of the current
         // tokio context first via `spawn_blocking`.
-        let (server_handle, bound) = tokio::task::spawn_blocking(|| {
-            start_blocking("127.0.0.1:0").expect("bind")
-        })
-        .await
-        .expect("spawn_blocking");
+        let (server_handle, bound) =
+            tokio::task::spawn_blocking(|| start_blocking("127.0.0.1:0").expect("bind"))
+                .await
+                .expect("spawn_blocking");
         let port = bound.port();
 
         // Real HTTP request.

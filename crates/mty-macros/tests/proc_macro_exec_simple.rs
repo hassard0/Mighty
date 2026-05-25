@@ -2,8 +2,8 @@
 //! sandbox's `concat(input, input)` DSL primitive.
 
 use mty_ast::{AstNode, File};
-use mty_macros::{expand_proc, MacroRegistry, ProcMacroResult};
 use mty_macros::token::{lex_fragment, tokens_to_source};
+use mty_macros::{expand_proc, MacroRegistry, ProcMacroResult};
 use mty_syntax::SyntaxNode;
 
 fn parse_file(src: &str) -> SyntaxNode {
@@ -22,7 +22,10 @@ fn identity_proc_macro_returns_input() {
     match expand_proc(def, &input) {
         ProcMacroResult::Ok(out) => {
             let s = tokens_to_source(&out);
-            assert!(s.contains("hello"), "expected identity to emit `hello`, got: {s:?}");
+            assert!(
+                s.contains("hello"),
+                "expected identity to emit `hello`, got: {s:?}"
+            );
         }
         other => panic!("expected Ok, got {other:?}"),
     }

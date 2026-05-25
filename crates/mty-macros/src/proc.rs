@@ -289,21 +289,19 @@ impl Sandbox {
             .expect("spawn proc-macro sandbox thread");
 
         let wall = Duration::from_millis(PROC_MACRO_WALL_MS);
-        let result = match rx.recv_timeout(wall) {
+        match rx.recv_timeout(wall) {
             Ok(r) => r,
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 cancelled.store(true, Ordering::Relaxed);
                 // Give the worker a tiny grace window to observe the
                 // flag and exit cleanly.
-                match rx.recv_timeout(Duration::from_millis(50)) {
-                    Ok(_) | Err(_) => ProcMacroResult::ResourceExceeded(ResourceBreach::Wall),
-                }
+                let _ = rx.recv_timeout(Duration::from_millis(50));
+                ProcMacroResult::ResourceExceeded(ResourceBreach::Wall)
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 ProcMacroResult::ResourceExceeded(ResourceBreach::Wall)
             }
-        };
-        result
+        }
     }
 }
 
@@ -339,7 +337,7 @@ fn walk_body(body: &[Tok], params: &[String], input: &[Tok], cx: &mut Cx) -> Vec
     //   { repeat(input, N) }               → N copies
     //   { repeat(input, K) } where K is huge → memory breach
     //   { while true { } input }           → infinite loop (step + wall)
-    eval_tokens(&trimmed, params, input, cx)
+    eval_tokens(trimmed, params, input, cx)
 }
 
 fn detect_runtime_impurity(body: &[Tok], _cx: &mut Cx) -> Option<ImpurityReason> {
@@ -379,7 +377,7 @@ fn eval_tokens(toks: &[Tok], params: &[String], input: &[Tok], cx: &mut Cx) -> V
 
     // `name(args)` call form.
     if let Some(call) = parse_call(no_triv) {
-        return eval_call(&call.name, &call.args, params, input, cx);
+        return eval_call(call.name, &call.args, params, input, cx);
     }
 
     // String literal: produce as-is (charge memory).
@@ -400,9 +398,8 @@ fn eval_while(toks: &[Tok], _params: &[String], _input: &[Tok], cx: &mut Cx) -> 
     while i < toks.len() && toks[i].is_trivia() {
         i += 1;
     }
-    let is_true = i < toks.len()
-        && matches!(toks[i].kind, SyntaxKind::TRUE_KW)
-            || (i < toks.len() && toks[i].kind == SyntaxKind::IDENT && toks[i].text == "true");
+    let is_true = i < toks.len() && matches!(toks[i].kind, SyntaxKind::TRUE_KW)
+        || (i < toks.len() && toks[i].kind == SyntaxKind::IDENT && toks[i].text == "true");
     let _ = is_true; // we treat any while as a spin loop for sandbox purposes
     loop {
         if !cx.tick() {
@@ -478,7 +475,13 @@ fn parse_call<'a>(toks: &'a [Tok]) -> Option<CallShape<'a>> {
     Some(CallShape { name, args })
 }
 
-fn eval_call(name: &str, args: &[&[Tok]], params: &[String], input: &[Tok], cx: &mut Cx) -> Vec<Tok> {
+fn eval_call(
+    name: &str,
+    args: &[&[Tok]],
+    params: &[String],
+    input: &[Tok],
+    cx: &mut Cx,
+) -> Vec<Tok> {
     if !cx.tick() {
         return vec![];
     }
@@ -535,7 +538,10 @@ fn eval_call(name: &str, args: &[&[Tok]], params: &[String], input: &[Tok], cx: 
         }
         _ => {
             // Unknown call: charge & pass through.
-            let bytes: u64 = args.iter().map(|a| a.iter().map(|t| t.text.len() as u64).sum::<u64>()).sum();
+            let bytes: u64 = args
+                .iter()
+                .map(|a| a.iter().map(|t| t.text.len() as u64).sum::<u64>())
+                .sum();
             if !cx.charge(bytes) {
                 return vec![];
             }

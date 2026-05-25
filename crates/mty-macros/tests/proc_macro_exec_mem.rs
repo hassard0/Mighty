@@ -2,8 +2,8 @@
 //! of output is rejected with MT6008 (Memory breach).
 
 use mty_ast::{AstNode, File};
-use mty_macros::{expand_proc, MacroRegistry, ProcMacroResult, ResourceBreach};
 use mty_macros::token::lex_fragment;
+use mty_macros::{expand_proc, MacroRegistry, ProcMacroResult, ResourceBreach};
 use mty_syntax::SyntaxNode;
 
 fn parse_file(src: &str) -> SyntaxNode {

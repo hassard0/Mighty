@@ -136,21 +136,17 @@ pub fn rename_with_workspace(
     // skip its URI to avoid duplicate edits.
     if is_top_level {
         if let Some(reg) = workspace {
-            if let Some(path) = reg
-                .folders
-                .iter()
-                .find_map(|kv| {
-                    if uri
-                        .to_file_path()
-                        .map(|p| p.starts_with(kv.key()))
-                        .unwrap_or(false)
-                    {
-                        Some(kv.value().clone())
-                    } else {
-                        None
-                    }
-                })
-            {
+            if let Some(path) = reg.folders.iter().find_map(|kv| {
+                if uri
+                    .to_file_path()
+                    .map(|p| p.starts_with(kv.key()))
+                    .unwrap_or(false)
+                {
+                    Some(kv.value().clone())
+                } else {
+                    None
+                }
+            }) {
                 for (file, occs) in path.find_refs_across_files(&name) {
                     if file.uri == uri {
                         continue;

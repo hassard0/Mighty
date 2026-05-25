@@ -32,5 +32,7 @@ fn main() {
   assert_eq(1 + 1, 2)
 
   // v0.8 proc macro — expanded at compile time by the sandbox.
-  identity!(42)
+  // The body `{ input }` echoes the call-site tokens; we bind the
+  // result to a local so the fn's tail expression stays Unit.
+  let _x = identity!(42)
 }
