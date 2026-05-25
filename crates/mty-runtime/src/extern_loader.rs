@@ -90,6 +90,11 @@ impl Default for ExternRegistry {
     }
 }
 
+// The inner `into_raw()` returns a libloading platform-specific raw
+// symbol — `*mut c_void` on Unix, a fn-pointer on Windows. A
+// transmute is the only portable way to surface it as `*const ()`;
+// clippy's `transmute_ptr_to_ptr` only fires on the Unix shape.
+#[allow(clippy::transmute_ptr_to_ptr)]
 fn sym_in(lib: &Library, name: &str) -> Option<*const ()> {
     let cstr = std::ffi::CString::new(name).ok()?;
     let sym: Result<Symbol<unsafe extern "C" fn()>, _> =
