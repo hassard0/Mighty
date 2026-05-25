@@ -50,5 +50,5 @@ fn main() {
 ## See also
 
 - [`std.test`](test.md) for deterministic JSON-snapshot testing.
-- [STDLIB_V0_2_NOTES.md](../../../STDLIB_V0_2_NOTES.md) for the v0.3
+- [STDLIB_V0_2_NOTES.md](https://github.com/hassard0/Mighty/blob/main/STDLIB_V0_2_NOTES.md) for the v0.3
   roadmap.

@@ -96,5 +96,5 @@ your Mighty source. To change it:
   `_` prefix) appear as `record` / `enum` / `variant`.
 
 User-authored WIT (overlaying or replacing the generated surface)
-is planned for v0.3; track [A47-followups](../../spec/v0.2-amendments.md)
-and `WASM_CM_V0_2_NOTES.md`.
+is planned for v0.3; track [A47-followups](../../spec/v0.1-amendments.md)
+and [`WASM_CM_V0_2_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/WASM_CM_V0_2_NOTES.md).

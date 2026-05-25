@@ -157,7 +157,7 @@ MtyIR subset. Programs the backend can't lower trigger
 back to the interpreter transparently; for `mty build` it
 surfaces as exit 2 with a `build error: ...` message.
 
-See [SLICE8.md](../../../SLICE8.md) for the per-example matrix and
+See [SLICE8.md](https://github.com/hassard0/Mighty/blob/main/SLICE8.md) for the per-example matrix and
 the v0.2 backlog.
 
 ## See also

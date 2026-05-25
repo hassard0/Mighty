@@ -141,5 +141,8 @@ nav:
     - Package Signing: internals/package-signing.md
     - Self-hosting: internals/self-hosting.md
     - Benchmarking: internals/benchmarking.md
-  - Demos: demos/README.md
-  - Superpowers: superpowers/README.md
+  - Demos: demos/index.md
+  # v0.10: `superpowers/` contains plans/ + specs/ subdirs but no
+  # top-level index.md. mkdocs auto-discovers the markdown files
+  # there; leave them off the top-level nav for now (they are
+  # working artifacts, not user-facing docs).

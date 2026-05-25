@@ -11,7 +11,7 @@ Mighty is pre-alpha. The fastest way to contribute is to:
 ## Code of Conduct
 
 This project follows the
-[Contributor Covenant 2.1](../CODE_OF_CONDUCT.md). Be respectful.
+[Contributor Covenant 2.1](https://github.com/hassard0/Mighty/blob/main/CODE_OF_CONDUCT.md). Be respectful.
 
 ## Building
 
@@ -33,7 +33,7 @@ cargo test --workspace
 ```
 
 These exactly match what CI runs (see
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml)).
+[`.github/workflows/ci.yml`](https://github.com/hassard0/Mighty/blob/main/.github/workflows/ci.yml)).
 
 ## Snapshot tests
 

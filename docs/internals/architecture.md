@@ -57,7 +57,7 @@ The full spec pipeline (spec §24.1) adds:
 ```
 
 None of these stages exist yet. They map to slices 3–8 of the
-[roadmap](../../README.md#roadmap).
+[roadmap](https://github.com/hassard0/Mighty#roadmap).
 
 ## Crate dependency graph
 
@@ -80,7 +80,7 @@ it directly or transitively.
 ## Errors
 
 Every stage produces typed errors that bubble up as
-[`Diagnostic`](../../crates/mty-diagnostics/src/diagnostic.rs) values
+[`Diagnostic`](https://github.com/hassard0/Mighty/blob/main/crates/mty-diagnostics/src/diagnostic.rs) values
 with stable [SD codes](../reference/diagnostics.md). The CLI renders
 them through ariadne; library callers can render or process them as
 they wish.

@@ -51,12 +51,13 @@ jobs:
             mkdocs-material==9.5.49 \
             pymdown-extensions==10.12
 
-      - name: mkdocs build
-        # `--strict` would fail on any broken link / missing nav
-        # entry; we leave that off for v0.9 because the docs corpus
-        # was assembled organically and includes a handful of
-        # known-stale RFC links. v0.10 will flip --strict on.
-        run: mkdocs build --site-dir site/
+      - name: mkdocs build (strict)
+        # v0.10 polish: `--strict` is now enabled. The v0.9 corpus had
+        # ~55 broken internal links (source-tree references, stale
+        # root-of-repo notes, and `.sd`/`.mty` extension mismatches);
+        # all have been migrated to GitHub blob URLs or fixed inline.
+        # Future PRs that introduce a broken link will fail this job.
+        run: mkdocs build --strict --site-dir site/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

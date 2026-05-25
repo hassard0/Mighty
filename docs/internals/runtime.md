@@ -201,7 +201,7 @@ implementation, and the test fixtures in
 
 ## v0.5 dogfood — real `std.http.serve` binding
 
-> Closes Gap 1 in [`DEMOS_V0_4_NOTES.md`](../../DEMOS_V0_4_NOTES.md).
+> Closes Gap 1 in [`DEMOS_V0_4_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/DEMOS_V0_4_NOTES.md).
 
 `mty-stdlib::http_server` ships a process-wide tokio runtime and
 a handle registry that backs the `std.http.serve` host bridge:

@@ -214,4 +214,4 @@ Pass owned data, copies, or convert to a Sendable form first.
 ## Next
 
 Slice 5 adds effect closure + capability narrowing enforcement. See the
-[README roadmap](../../README.md#roadmap).
+[README roadmap](https://github.com/hassard0/Mighty#roadmap).

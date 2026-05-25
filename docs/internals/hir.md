@@ -4,7 +4,7 @@ The HIR (high-level IR) is the first semantically-shaped view of a
 Mighty program. It is name-resolved (slice 1: per-file scope), arena-
 allocated, and indexed by stable `Idx<_>` ids.
 
-It lives in [`crates/mty-hir/`](../../crates/mty-hir/).
+It lives in [`crates/mty-hir/`](https://github.com/hassard0/Mighty/blob/main/crates/mty-hir/).
 
 ## Storage shape
 

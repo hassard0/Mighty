@@ -15,7 +15,7 @@ Status codes match the
 The consolidated normative spec is
 [`docs/spec/v1.0-rc.md`](v1.0-rc.md). Reconciliation notes for
 contradictions resolved during consolidation are at
-[`SPEC_CONSOLIDATION_V0_8_NOTES.md`](../../SPEC_CONSOLIDATION_V0_8_NOTES.md).
+[`SPEC_CONSOLIDATION_V0_8_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/SPEC_CONSOLIDATION_V0_8_NOTES.md).
 
 ---
 
@@ -153,8 +153,8 @@ No new spec amendments. Highlights:
 - Registry index protocol shaped per [§36.3](v1.0-rc.md#363-registry-protocol).
 - `mty new` package scaffolder.
 
-See [`RELEASE-v0.4.md`](../../RELEASE-v0.4.md) and
-[`REGISTRY_V0_4_NOTES.md`](../../REGISTRY_V0_4_NOTES.md).
+See [`RELEASE-v0.4.md`](https://github.com/hassard0/Mighty/blob/main/RELEASE-v0.4.md) and
+[`REGISTRY_V0_4_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/REGISTRY_V0_4_NOTES.md).
 
 ---
 
@@ -260,8 +260,8 @@ Preserved:
 - `pkg.stardust.dev` registry URL constant (until a Mighty-branded
   registry comes online)
 
-See [`REBRAND_NOTES.md`](../../REBRAND_NOTES.md) and
-[`RENAME_LOG.md`](../../RENAME_LOG.md) for the full interpretation
+See [`REBRAND_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/REBRAND_NOTES.md) and
+[`RENAME_LOG.md`](https://github.com/hassard0/Mighty/blob/main/RENAME_LOG.md) for the full interpretation
 log.
 
 Back-compat shims:
@@ -285,7 +285,7 @@ Outputs:
   amendment carries a `**Status:**` line (FROZEN / SUPERSEDED / OPEN /
   REVERTED).
 - [`docs/spec/CHANGELOG.md`](CHANGELOG.md) — this file.
-- [`SPEC_CONSOLIDATION_V0_8_NOTES.md`](../../SPEC_CONSOLIDATION_V0_8_NOTES.md) —
+- [`SPEC_CONSOLIDATION_V0_8_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/SPEC_CONSOLIDATION_V0_8_NOTES.md) —
   reconciliation notes for contradictions resolved during
   consolidation.
 

@@ -24,7 +24,7 @@ build is well under 30 seconds end-to-end.
 ## v0.4 limitations the demos document
 
 The detailed notes live in
-[`DEMOS_V0_4_NOTES.md`](../../DEMOS_V0_4_NOTES.md). At a glance:
+[`DEMOS_V0_4_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/DEMOS_V0_4_NOTES.md). At a glance:
 
 - `std.http.serve` is a real Rust API but not yet generic-call
   dispatchable from agent code — Demo 01 exercises the handler bodies

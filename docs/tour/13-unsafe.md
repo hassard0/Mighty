@@ -46,13 +46,13 @@ mty check examples/17_unsafe.sd
 You have seen every primary feature of the language. The remaining
 examples assemble these pieces into larger programs:
 
-- [`examples/16_macro.sd`](../../examples/16_macro.sd) — hygienic
+- [`examples/16_macro.mty`](https://github.com/hassard0/Mighty/blob/main/examples/16_macro.mty) — hygienic
   macros (spec §20.3).
-- [`examples/18_sandbox.sd`](../../examples/18_sandbox.sd) — the
+- [`examples/18_sandbox.mty`](https://github.com/hassard0/Mighty/blob/main/examples/18_sandbox.mty) — the
   long-form sandbox with capability lists.
-- [`examples/19_backend_service.sd`](../../examples/19_backend_service.sd)
+- [`examples/19_backend_service.mty`](https://github.com/hassard0/Mighty/blob/main/examples/19_backend_service.mty)
   — a complete backend service with agents and arenas.
-- [`examples/20_frontend_component.sd`](../../examples/20_frontend_component.sd)
+- [`examples/20_frontend_component.mty`](https://github.com/hassard0/Mighty/blob/main/examples/20_frontend_component.mty)
   — a counter component running in a browser via Wasm.
 
 For the normative description of every construct, read the

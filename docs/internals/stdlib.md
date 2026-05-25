@@ -65,7 +65,7 @@ the real parser, the driver must call `sdust_stdlib::host::install()`
 during its setup. The hook is in place; the v0.3 driver agent flips
 the switch in a one-line change (the v0.2 wave-2 work-area
 constraints kept this slice from editing the driver). See
-[STDLIB_V0_2_NOTES.md](../../STDLIB_V0_2_NOTES.md) for the open
+[STDLIB_V0_2_NOTES.md](https://github.com/hassard0/Mighty/blob/main/STDLIB_V0_2_NOTES.md) for the open
 follow-ups.
 
 ## Module surface

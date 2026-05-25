@@ -47,5 +47,5 @@ yet enforced, it is marked **(spec only)**.
 | Codegen (LLVM, Cranelift, Wasm) | not started |
 | Runtime (scheduler, mailboxes, supervisors) | not started |
 
-See [SLICE1.md](../SLICE1.md) for the exact shipping scope and
-[../README.md](../README.md) for the slice roadmap.
+See [SLICE1.md](https://github.com/hassard0/Mighty/blob/main/SLICE1.md) for the exact shipping scope and
+[the repo README](https://github.com/hassard0/Mighty#roadmap) for the slice roadmap.

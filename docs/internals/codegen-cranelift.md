@@ -148,7 +148,7 @@ caller's pointer untouched.
 
 Enum layout: `[u32 tag][padding to max-payload-align][payload bytes]`,
 matching the `layout` module's natural-alignment scheme. Struct layout:
-same minus the tag. See [`aggregate.rs`](../../crates/mty-codegen-cranelift/src/aggregate.rs).
+same minus the tag. See [`aggregate.rs`](https://github.com/hassard0/Mighty/blob/main/crates/mty-codegen-cranelift/src/aggregate.rs).
 
 ## JIT driver
 

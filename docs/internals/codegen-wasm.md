@@ -229,9 +229,151 @@ wasmtime target/01_hello.wasm
 a v0.2 task. For now the user runs the emitted module under their
 own wasmtime/wasmer/JS host.)
 
+## `cabi_realloc` allocator (v0.10)
+
+Every emitted module exports a `cabi_realloc(old, old_size, align,
+new) -> ptr` function with the canonical-ABI signature. The
+Component Model lifter calls into this function to allocate space
+for owned heap values returned by `dom.get-text`, `dom.query`, and
+any future string/list-returning import. Without the export
+`wit-component::ComponentEncoder::encode()` rejects the module.
+
+v0.9 shipped a bump-only allocator (`old_ptr` ignored, no
+deallocation). v0.10 replaces it with a **segregated free-list
+allocator** that recycles freed blocks within their size class.
+
+### Memory layout
+
+| Range | Use |
+|-------|-----|
+| `0..1024` | shadow-stack scratch (reserved; unused in v0.2 lowerer) |
+| `1024..8192` | string-literal pool (data section) |
+| `8192..8224` | legacy JS shim + canonical-ABI return area |
+| `8224..32768` | slack for data-section growth |
+| `32768..32800` | allocator state — 8 free-list heads, one i32 per size class |
+| `32800..` | heap (bump-allocated; freed blocks recycled per class) |
+
+The bump pointer itself lives in **wasm global 0** (mutable i32),
+initialised to `CABI_REALLOC_HEAP_BASE = 32800`.
+
+### Size classes
+
+Eight classes, powers of 2 from 8B to 1024B:
+
+| Class | Size (bytes) |
+|-------|--------------|
+| 0     | 8            |
+| 1     | 16           |
+| 2     | 32           |
+| 3     | 64           |
+| 4     | 128          |
+| 5     | 256          |
+| 6     | 512          |
+| 7     | 1024         |
+
+The free-list head for class `i` is at linear-memory offset
+`CABI_REALLOC_STATE_BASE + i*4`. The link in each free block is
+the first 4 bytes (next pointer; `0` ends the list). Reuse is
+LIFO — a freshly-freed block is the next one returned to the next
+allocator call of that class.
+
+### Algorithm
+
+```text
+cabi_realloc(old, old_size, align, new):
+    if new == 0:
+        if old != 0: free(old, old_size)
+        return 0
+
+    p = malloc(align, new)
+
+    if old != 0:
+        memcpy(p, old, min(old_size, new))   // byte-by-byte loop
+        free(old, old_size)
+
+    return p
+
+malloc(align, size):
+    class = size_class(size)              // -1 if size > 1024
+    if class >= 0 and align <= class_size(class):
+        head = load(STATE_BASE + class*4)
+        if head != 0:
+            store(STATE_BASE + class*4, load(head))   // pop
+            return head
+    return bump(class >= 0 ? class_size(class) : size, align)
+
+free(ptr, size):
+    class = size_class(size)
+    if class < 0: return                  // large: not freed
+    head = load(STATE_BASE + class*4)
+    store(ptr, head)                      // next-link
+    store(STATE_BASE + class*4, ptr)      // push
+
+bump(size, align):
+    mask = align - 1
+    $bump = ($bump + mask) & ~mask
+    p = $bump
+    $bump = $bump + size
+    return p
+```
+
+### Properties
+
+- **Sound for power-of-2 alignments**: free-list reuse only happens
+  when `align <= class_size`. Since size classes are powers of 2
+  ≥ 8 and the free block was originally bump-allocated at
+  class-size alignment, the recovered pointer is correctly aligned.
+- **No coalescing / no splitting**: a freed 1024B block stays a
+  1024B block. Realistic Mighty programs are dominated by short
+  strings (8–128 B) so internal fragmentation is bounded.
+- **Large path is monotonic**: requests > 1024B bypass the
+  free-list and bump only. Long-running programs that allocate a
+  steady stream of large objects will eventually exhaust linear
+  memory; the v0.11 upgrade adds either a true free-coalescing
+  large path or a host-side `memory.grow` hook.
+- **Bounded for the common case**: the
+  `stress_1000_alloc_free_cycles_bounded_growth` test in
+  `tests/cabi_realloc_real.rs` allocates+frees a 32B block 1000
+  times in a row and verifies the bump pointer never advances
+  past the first allocation. This is the canonical Component-Model
+  pattern (lift string → use → drop).
+
+### Upgrade path
+
+For v0.11+, replace the inline emission with one of:
+
+1. **`dlmalloc`-style boundary-tagged allocator** — adds inline
+   metadata to enable splitting + coalescing across classes. Bigger
+   wasm footprint (~2–3 KiB of emitted code) but eliminates the
+   large-bump cliff.
+2. **`rlsf` compiled as no-std + linked in** — a third-party Rust
+   crate (TLSF allocator) compiled to wasm and bundled as a
+   precompiled module the codegen imports. Smaller emitted code
+   (we only declare the import) but adds a build-time dep.
+3. **`cargo-component`-generated `cabi_realloc`** — let the
+   official component tooling synthesise the allocator from a
+   vendored Rust source. Most "correct" choice long-term but
+   adds a build dep on a moving target.
+
+See `CLEANUP_V0_10_NOTES.md` for the v0.10 decision matrix.
+
+### Testing
+
+`crates/mty-codegen-wasm/tests/cabi_realloc_real.rs` exercises:
+
+- fresh malloc returns aligned non-zero pointer
+- free + re-alloc same class reuses the block (LIFO order)
+- three-deep LIFO discipline within a class
+- size classes have independent free lists
+- 1000 alloc/free cycles keep memory bounded (the stress test)
+- large alloc (> 1024B) uses the bump path
+- realloc grow preserves the old bytes (memcpy correctness)
+- `realloc(p, _, _, 0)` returns 0 and pushes p onto its class's free list
+- static check that `STATE_BASE + 8*4 == HEAP_BASE`
+
 ## v0.5 dogfood — DOM lowering for `wasm32-web`
 
-> Closes Gap 2 in [`DEMOS_V0_4_NOTES.md`](../../DEMOS_V0_4_NOTES.md).
+> Closes Gap 2 in [`DEMOS_V0_4_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/DEMOS_V0_4_NOTES.md).
 
 The web target now declares four DOM imports under the canonical
 `mighty:web/dom` module name. These match the expanded WIT
@@ -247,7 +389,7 @@ section to the typed DOM surface.
 
 Each `(ptr, len)` pair points into the module's linear memory; the
 JS shim at
-[`demos/02_counter_web/web/dom-shim.js`](../../demos/02_counter_web/web/dom-shim.js)
+[`demos/02_counter_web/web/dom-shim.js`](https://github.com/hassard0/Mighty/blob/main/demos/02_counter_web/web/dom-shim.js)
 decodes them via `TextDecoder`. Return strings come back through a
 caller-allocated scratch buffer at offset 8192
 (`RETURN_BUF_OFFSET` in the shim).

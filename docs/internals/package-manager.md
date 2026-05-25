@@ -93,7 +93,7 @@ extras = ["myorg/private-mighty-pkgs"]   # additional registries
 
 This section lives **outside** the `Manifest` struct in `mty-driver`
 — `mty-pkg` re-parses `mighty.toml` independently via
-[`registry::load_registry_config`](../../crates/mty-pkg/src/registry.rs).
+[`registry::load_registry_config`](https://github.com/hassard0/Mighty/blob/main/crates/mty-pkg/src/registry.rs).
 That keeps the slice from touching the driver crate.
 
 Lookup is offline-first: resolution walks the **cached** index, never
@@ -170,7 +170,7 @@ walk(manifest, manifest_dir):
 | registry | highest version in cached index satisfying req      | none                  |
 
 v0.4 wires the registry case to the cached
-[`RegistryIndex`](../../crates/mty-pkg/src/registry.rs). For each
+[`RegistryIndex`](https://github.com/hassard0/Mighty/blob/main/crates/mty-pkg/src/registry.rs). For each
 registry slug (default first, extras after) we look up `(name, req)`
 and stop at the first match. When no cached index matches (no index
 at all, package missing), the resolver falls back to the v0.2
@@ -188,7 +188,7 @@ for a `pkg update --refresh` later.
    should re-walk to discover that git dep's transitive deps. v0.2
    intentionally skips this.
 4. Pre-release tags and build metadata are unsupported by the semver
-   matcher (see [`semver.rs`](../../crates/mty-pkg/src/semver.rs)).
+   matcher (see [`semver.rs`](https://github.com/hassard0/Mighty/blob/main/crates/mty-pkg/src/semver.rs)).
 
 ## Fetchers
 

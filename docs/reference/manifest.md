@@ -54,7 +54,7 @@ source. v0.2's registry is a stub; see
 [the CLI reference](cli/mty-pkg.md) for the caveat.
 
 The version string follows the small semver subset described in
-[`semver.rs`](../../crates/mty-pkg/src/semver.rs):
+[`semver.rs`](https://github.com/hassard0/Mighty/blob/main/crates/mty-pkg/src/semver.rs):
 
 - `"1.2.3"` — caret-equivalent (`^1.2.3`).
 - `"=1.2.3"` — exact.

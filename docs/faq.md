@@ -48,7 +48,7 @@ unambiguous and consistent with the other ecosystem identifiers
 - `mty build`, `run`, `test`, `lint`, `doc`, `bench`, `pkg`, `lsp` —
   these CLI commands are spec'd but not implemented.
 
-See the [roadmap](../README.md#roadmap) and [SLICE1.md](../SLICE1.md).
+See the [roadmap](https://github.com/hassard0/Mighty#roadmap) and [SLICE1.md](https://github.com/hassard0/Mighty/blob/main/SLICE1.md).
 
 ## Why doesn't `mty check` catch this obviously wrong program?
 

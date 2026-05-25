@@ -1,14 +1,14 @@
 # Sandbox enforcement (v0.5)
 
 > Status — implemented for v0.5 dogfood. Gaps 4 and 5 in
-> [`DEMOS_V0_4_NOTES.md`](../../DEMOS_V0_4_NOTES.md) are closed by
+> [`DEMOS_V0_4_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/DEMOS_V0_4_NOTES.md) are closed by
 > this document.
 
 Mighty ships two complementary enforcement mechanisms for the
 [`sandbox`](../spec/v0.1.md#161-sandboxes) block:
 
 1. **CPU / memory budgets** — caught inside the MtyIR interpreter as
-   typed [`RunResult`](../../crates/mty-sir/src/interp/run.rs)
+   typed [`RunResult`](https://github.com/hassard0/Mighty/blob/main/crates/mty-sir/src/interp/run.rs)
    variants.
 2. **Capability allow-lists** — enforced at the host bridge between
    the MtyIR interpreter and `mty-stdlib`, via a process-wide

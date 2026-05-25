@@ -17,7 +17,7 @@ The CST is a [rowan](https://docs.rs/rowan) green/red tree of
 - **language-agnostic** — rowan does not know what `FN_DECL` means.
 
 The Mighty-specific wiring is in
-[`crates/mty-syntax/src/language.rs`](../../crates/mty-syntax/src/language.rs):
+[`crates/mty-syntax/src/language.rs`](https://github.com/hassard0/Mighty/blob/main/crates/mty-syntax/src/language.rs):
 
 ```rust
 pub enum Mighty {}
@@ -59,7 +59,7 @@ for item in file.items() {
 ```
 
 The generated wrappers are in
-[`crates/mty-ast/src/generated.rs`](../../crates/mty-ast/src/generated.rs).
+[`crates/mty-ast/src/generated.rs`](https://github.com/hassard0/Mighty/blob/main/crates/mty-ast/src/generated.rs).
 Accessors are written by hand for now (one `impl` per wrapper). When
 the AST grows large enough to make this tedious, replace
 `generated.rs` with a real codegen step.

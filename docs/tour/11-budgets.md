@@ -37,7 +37,7 @@ fn run_job(input: Bytes) -> Result!RunErr {
   supervisor policy — the runtime decides.
 
 For the long form (`sandbox ... with { ... } { run ... }`), see
-[`examples/18_sandbox.sd`](../../examples/18_sandbox.sd) and spec §16.1.
+[`examples/18_sandbox.mty`](https://github.com/hassard0/Mighty/blob/main/examples/18_sandbox.mty) and spec §16.1.
 
 ## Run it
 

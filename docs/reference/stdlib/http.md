@@ -71,5 +71,5 @@ println!("listening on {addr}");
 ## See also
 
 - [`std.tls`](tls.md) for the TLS primitives.
-- [STDLIB_V0_2_NOTES.md](../../../STDLIB_V0_2_NOTES.md) for the
+- [STDLIB_V0_2_NOTES.md](https://github.com/hassard0/Mighty/blob/main/STDLIB_V0_2_NOTES.md) for the
   HTTPS + HTTP/2 roadmap.

@@ -35,7 +35,7 @@ language, see the [tour](../tour/README.md).
 
 ## Slice 1 stats
 
-From [SLICE1.md](../../SLICE1.md):
+From [SLICE1.md](https://github.com/hassard0/Mighty/blob/main/SLICE1.md):
 
 - 132 tests pass.
 - 32 commits, 217 files, ~7.0k lines of Rust.
