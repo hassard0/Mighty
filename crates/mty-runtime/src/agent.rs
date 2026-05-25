@@ -111,23 +111,20 @@ pub fn run_one_turn_with_shared_reply(
     telemetry: &TelemetrySink,
 ) -> RuntimeResult<()> {
     let agent = prog.agent_by_id(desc.sir_id);
-    let handler_fn_id = match agent
+    let Some(handler_fn_id) = agent
         .handlers
         .iter()
         .find(|(m, _)| m == &proto_msg)
         .map(|(_, id)| *id)
-    {
-        Some(id) => id,
-        None => {
-            let err = RuntimeError::HandlerNotFound {
-                agent: desc.name.clone(),
-                msg: proto_msg.clone(),
-            };
-            if let Some(tx) = shared_reply.lock().take() {
-                let _ = tx.send(Err(err.clone()));
-            }
-            return Err(err);
+    else {
+        let err = RuntimeError::HandlerNotFound {
+            agent: desc.name.clone(),
+            msg: proto_msg.clone(),
+        };
+        if let Some(tx) = shared_reply.lock().take() {
+            let _ = tx.send(Err(err.clone()));
         }
+        return Err(err);
     };
 
     telemetry.emit(&TelemetryEvent::TurnStart {

@@ -39,3 +39,6 @@ rcgen = { version = "0.13", default-features = false, features = ["pem", "ring"]
 name = "mty-test"
 path = "src/bin/mty-test.rs"
 required-features = ["runner"]
+
+[lints]
+workspace = true

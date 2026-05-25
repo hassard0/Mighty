@@ -63,7 +63,7 @@ impl Value {
             Value::Int(n, _) => n.to_string(),
             Value::Float(f, _) => f.to_string(),
             Value::Unit => "()".into(),
-            Value::Void => "".into(),
+            Value::Void => String::new(),
             Value::Tuple(xs) => {
                 let parts: Vec<String> = xs.iter().map(|v| v.as_str()).collect();
                 format!("({})", parts.join(", "))

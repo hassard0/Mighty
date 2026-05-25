@@ -707,9 +707,8 @@ pub fn resolve_hir_type(
         }
         HirType::Result { ok, err } => {
             // Find Result adt id from defs.
-            let result_id = match defs.lookup("Result") {
-                Some(DefRef::Adt(id)) => id,
-                _ => return arena.error,
+            let Some(DefRef::Adt(result_id)) = defs.lookup("Result") else {
+                return arena.error;
             };
             let o = resolve_hir_type(*ok, pkg, defs, arena, scope, diag_out);
             let e = resolve_hir_type(*err, pkg, defs, arena, scope, diag_out);
@@ -853,9 +852,8 @@ fn apply_derives(
         out_diags: &mut Vec<Diagnostic>,
         span: &mty_hir::SourceSpan,
     ) -> bool {
-        let adt = match defs.adt(aid) {
-            Some(a) => a,
-            None => return false,
+        let Some(adt) = defs.adt(aid) else {
+            return false;
         };
         for v in &adt.variants {
             for f in &v.fields {

@@ -261,9 +261,8 @@ fn verify(case: &CaseSpec) -> Result<(), String> {
 
 fn discover_cases(root: &Path) -> Vec<(String, PathBuf)> {
     let mut out: Vec<(String, PathBuf)> = vec![];
-    let entries = match std::fs::read_dir(root) {
-        Ok(e) => e,
-        Err(_) => return out,
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return out;
     };
     for cat in entries.flatten() {
         let cat_path = cat.path();
@@ -274,9 +273,8 @@ fn discover_cases(root: &Path) -> Vec<(String, PathBuf)> {
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let sub = match std::fs::read_dir(&cat_path) {
-            Ok(e) => e,
-            Err(_) => continue,
+        let Ok(sub) = std::fs::read_dir(&cat_path) else {
+            continue;
         };
         let mut cases: Vec<PathBuf> = sub
             .flatten()

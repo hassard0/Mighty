@@ -329,7 +329,7 @@ fn build_expr_entry(pkg: &Package, eid: mty_hir::ids::ExprId, snap: &mut HirSnap
         } => {
             out.kind = "MethodCall".into();
             out.method_recv = ensure_expr(pkg, *receiver, snap);
-            out.method_name = method.clone();
+            out.method_name.clone_from(method);
             out.method_args = args
                 .iter()
                 .map(|a| ensure_expr(pkg, a.value, snap))

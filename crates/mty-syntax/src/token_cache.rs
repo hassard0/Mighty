@@ -254,11 +254,12 @@ mod tests {
 
     #[test]
     fn incremental_reduces_relex_count() {
+        use std::fmt::Write as _;
         // Insert in the *middle* of a 10 KLOC source. The number of
         // re-lexed tokens should be O(1), not O(N).
         let mut s = String::new();
         for i in 0..1000 {
-            s.push_str(&format!("fn f{i}() -> I64 {{ 0 }}\n"));
+            let _ = writeln!(s, "fn f{i}() -> I64 {{ 0 }}");
         }
         let mut c = TokenCache::lex(&s);
         let total = c.tokens().len();

@@ -31,7 +31,7 @@ fn register_adts(ctx: &mut LowerCtx) {
                 }
             }
             Item::Enum(eid) => {
-                let _e: &HirEnum = &ctx.pkg.enums[*eid];
+                let _: &HirEnum = &ctx.pkg.enums[*eid];
                 if let Some(adt_id) = ctx.typed.def_map.hir_enum_to_adt.get(eid).copied() {
                     add_adt(ctx, adt_id, AdtRefKind::Enum);
                 }
@@ -83,9 +83,8 @@ fn add_adt(ctx: &mut LowerCtx, adt_id: AdtId, kind: AdtRefKind) {
     if ctx.prog.adts.iter().any(|a| a.adt == adt_id) {
         return;
     }
-    let def = match ctx.typed.def_map.adt(adt_id) {
-        Some(d) => d,
-        None => return,
+    let Some(def) = ctx.typed.def_map.adt(adt_id) else {
+        return;
     };
     let variants: Vec<VariantRef> = def
         .variants

@@ -159,9 +159,8 @@ pub async fn serve(
 
 async fn accept_loop(listener: TcpListener, handler: Handler) {
     loop {
-        let (stream, _peer) = match listener.accept().await {
-            Ok(x) => x,
-            Err(_) => return,
+        let Ok((stream, _peer)) = listener.accept().await else {
+            return;
         };
         let h = handler.clone();
         tokio::spawn(async move {

@@ -52,7 +52,7 @@ pub fn is_field_copy(ty: TyId, arena: &TyArena, defs: &DefMap) -> bool {
             }
             match defs.adt(*id).map(|a| a.kind) {
                 Some(AdtKind::Opaque) => true,
-                Some(AdtKind::Struct) | Some(AdtKind::Enum) => false,
+                Some(AdtKind::Struct | AdtKind::Enum) => false,
                 None => true,
             }
         }

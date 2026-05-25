@@ -77,10 +77,7 @@ pub fn infer_and_validate(
     // Build a per-fn callee list during the first walk so the fixpoint can
     // union effects from callees.
     for (fid, hir_fn) in pkg.fns.iter() {
-        let body = match hir_fn.body {
-            Some(b) => b,
-            None => continue,
-        };
+        let Some(body) = hir_fn.body else { continue };
         let mut effects = EffectSet::default();
         let mut callees: Vec<FnDefId> = vec![];
         walk_block_effects(body, pkg, defs, arena, &known, &mut effects, &mut callees);

@@ -35,3 +35,6 @@ mty-pkg = { path = "../mty-pkg" }
 # blocked v0.2 (see STDLIB_V0_2_NOTES.md).
 mty-stdlib = { path = "../mty-stdlib", default-features = false }
 mty-runtime = { path = "../mty-runtime" }
+
+[lints]
+workspace = true

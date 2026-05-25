@@ -42,7 +42,7 @@ fn assert_expands_to_negation_check() {
     let def = reg.get("assert").unwrap();
     let s = expand_to_source(def, &["x > 0"], 1).unwrap();
     assert!(s.contains("if"), "expansion missing if: {s}");
-    assert!(s.contains("!"), "expansion missing !: {s}");
+    assert!(s.contains('!'), "expansion missing !: {s}");
     assert!(s.contains("(x > 0)"), "arg not wrapped: {s}");
 }
 

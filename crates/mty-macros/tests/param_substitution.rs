@@ -49,5 +49,5 @@ fn unused_parameter_does_not_appear() {
     let def = reg.get("first").unwrap();
     let out = expand_to_source(def, &["7", "9"], 0).unwrap();
     assert!(out.contains("(7)"), "got: {out}");
-    assert!(!out.contains("9"), "unused arg leaked: {out}");
+    assert!(!out.contains('9'), "unused arg leaked: {out}");
 }

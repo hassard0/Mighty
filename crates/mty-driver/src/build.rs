@@ -75,9 +75,8 @@ pub fn build_native(src: String, source_id: String, opts: &BuildOptions) -> Buil
     // line program. The lowerer would otherwise consume `src` by move.
     let src_for_debug = src.clone();
     let source_id_for_debug = source_id.clone();
-    let prog = match lower_to_sir_strict(src, source_id) {
-        Ok(p) => p,
-        Err(()) => return BuildOutcome::FrontendError,
+    let Ok(prog) = lower_to_sir_strict(src, source_id) else {
+        return BuildOutcome::FrontendError;
     };
     let prog = Monomorphizer::new(&prog).run();
     // Ensure output directory exists.
@@ -127,9 +126,8 @@ pub fn build_wasm(
 ) -> BuildOutcome {
     let src_for_debug = src.clone();
     let source_id_for_debug = source_id.clone();
-    let prog = match lower_to_sir_strict(src, source_id) {
-        Ok(p) => p,
-        Err(()) => return BuildOutcome::FrontendError,
+    let Ok(prog) = lower_to_sir_strict(src, source_id) else {
+        return BuildOutcome::FrontendError;
     };
     if let Err(e) = std::fs::create_dir_all(&opts.out_dir) {
         return BuildOutcome::BackendError(format!("mkdir {}: {}", opts.out_dir.display(), e));
@@ -221,9 +219,8 @@ fn attach_wasm_debug_info(
 /// - `None` if codegen reported Unsupported (caller should fall back
 ///   to interpreter)
 pub fn jit_run(src: String, source_id: String) -> Result<Option<i32>, i32> {
-    let prog = match lower_to_sir_strict(src, source_id) {
-        Ok(p) => p,
-        Err(()) => return Err(1),
+    let Ok(prog) = lower_to_sir_strict(src, source_id) else {
+        return Err(1);
     };
     let prog = Monomorphizer::new(&prog).run();
     let syms = symbols_from_runtime();
@@ -277,7 +274,7 @@ mod tests {
     fn jit_run_empty_main_returns_zero() {
         let src = "fn main() {}\n".to_string();
         match jit_run(src, "test.mty".into()) {
-            Ok(Some(0)) | Ok(None) => {}
+            Ok(Some(0) | None) => {}
             other => panic!("expected Ok(Some(0)) or Ok(None), got {other:?}"),
         }
     }

@@ -595,9 +595,8 @@ fn envelope_mode(path: &Path) -> String {
     if !path.exists() {
         return "stub".into();
     }
-    let text = match std::fs::read_to_string(path) {
-        Ok(t) => t,
-        Err(_) => return "stub".into(),
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return "stub".into();
     };
     if text.contains("\"mode\": \"keyless\"") {
         "keyless".into()

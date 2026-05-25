@@ -361,8 +361,7 @@ pub fn publish(root: &Path) -> Result<String, PkgError> {
         .unwrap_or_else(|| registry::DEFAULT_REGISTRY_SLUG.into());
     let has_token = std::env::var("GITHUB_TOKEN")
         .ok()
-        .filter(|s| !s.is_empty())
-        .is_some()
+        .is_some_and(|s| !s.is_empty())
         || AuthStore::default_path()
             .and_then(|p| AuthStore::load(&p).ok())
             .map(|s| s.tokens.contains_key(&slug))

@@ -35,9 +35,8 @@ where
     let port = listener.local_addr().expect("local_addr").port();
     let handle = tokio::spawn(async move {
         loop {
-            let (mut sock, _) = match listener.accept().await {
-                Ok(x) => x,
-                Err(_) => return,
+            let Ok((mut sock, _)) = listener.accept().await else {
+                return;
             };
             let h = handler.clone();
             tokio::spawn(async move {
@@ -47,14 +46,11 @@ where
                     _ => return,
                 };
                 let first_line_end = buf[..n].iter().position(|&b| b == b'\n').unwrap_or(n);
-                let req = match parse_request_line(&buf[..=first_line_end.min(n - 1)]) {
-                    Some(r) => r,
-                    None => {
-                        let _ = sock
-                            .write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
-                            .await;
-                        return;
-                    }
+                let Some(req) = parse_request_line(&buf[..=first_line_end.min(n - 1)]) else {
+                    let _ = sock
+                        .write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
+                        .await;
+                    return;
                 };
                 let (status, body) = h(req);
                 let resp = format!(

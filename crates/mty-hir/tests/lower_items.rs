@@ -153,7 +153,7 @@ fn lowers_arena_short() {
             mty_hir::HirStmt::Expr(eid) => {
                 assert!(matches!(&p.exprs[*eid], mty_hir::HirExpr::Arena { .. }));
             }
-            _ => panic!("expected expr stmt"),
+            mty_hir::HirStmt::Let { .. } => panic!("expected expr stmt"),
         }
     } else {
         panic!("block had neither tail nor stmts");

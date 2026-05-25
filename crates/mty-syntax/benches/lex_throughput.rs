@@ -7,15 +7,18 @@
 //!   faster than the full re-lex.
 //! - `parse_throttled`   — parser with `max_diagnostics = 16` vs uncapped.
 
+use std::fmt::Write as _;
+
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use mty_syntax::{lex, parse, parse_with_opts, ParseOpts, TokenCache};
 
 fn synth(n_units: usize) -> String {
     let mut out = String::with_capacity(n_units * 80);
     for i in 0..n_units {
-        out.push_str(&format!(
-            "fn bench_f{i}(x: I64, y: I64) -> I64 {{ let z = x + y\n  z * 2 - x }}\n"
-        ));
+        let _ = writeln!(
+            out,
+            "fn bench_f{i}(x: I64, y: I64) -> I64 {{ let z = x + y\n  z * 2 - x }}"
+        );
     }
     out
 }
@@ -31,7 +34,7 @@ fn bench_lex(c: &mut Criterion) {
         b.iter(|| {
             let toks = lex(black_box(src));
             black_box(toks);
-        })
+        });
     });
 
     g.bench_with_input(
@@ -41,7 +44,7 @@ fn bench_lex(c: &mut Criterion) {
             b.iter(|| {
                 let c = TokenCache::lex(black_box(src.as_str()));
                 black_box(c);
-            })
+            });
         },
     );
 
@@ -55,15 +58,12 @@ fn bench_lex(c: &mut Criterion) {
                 |mut c| {
                     let mid = c.source().len() / 2;
                     // Snap to a newline so we don't split a multi-byte token.
-                    let mid = c.source()[mid..]
-                        .find('\n')
-                        .map(|p| mid + p + 1)
-                        .unwrap_or(mid);
+                    let mid = c.source()[mid..].find('\n').map_or(mid, |p| mid + p + 1);
                     let n = c.apply_edit(mid, mid, "// hi\n");
                     black_box(n);
                 },
                 criterion::BatchSize::SmallInput,
-            )
+            );
         },
     );
 
@@ -85,8 +85,8 @@ fn bench_diag_throttle(c: &mut Criterion) {
                 ParseOpts {
                     max_diagnostics: 16,
                 },
-            ))
-        })
+            ));
+        });
     });
     g.finish();
 }

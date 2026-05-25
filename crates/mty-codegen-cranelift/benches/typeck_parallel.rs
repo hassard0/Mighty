@@ -108,14 +108,14 @@ fn bench_mono(c: &mut Criterion) {
             b.iter(|| {
                 let m = Monomorphizer::new(&p);
                 black_box(m.run_sequential());
-            })
+            });
         });
 
         g.bench_function("parallel", |b| {
             b.iter(|| {
                 let m = Monomorphizer::new(&p);
                 black_box(m.run_parallel());
-            })
+            });
         });
 
         g.finish();

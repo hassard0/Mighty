@@ -71,9 +71,8 @@ impl WorkspaceModel {
             if count >= MAX_FILES {
                 break;
             }
-            let read = match std::fs::read_dir(&dir) {
-                Ok(r) => r,
-                Err(_) => continue,
+            let Ok(read) = std::fs::read_dir(&dir) else {
+                continue;
             };
             for entry in read.flatten() {
                 let path = entry.path();
@@ -100,9 +99,8 @@ impl WorkspaceModel {
         let Ok(text) = std::fs::read_to_string(path) else {
             return;
         };
-        let uri = match path_to_uri(path) {
-            Some(u) => u,
-            None => return,
+        let Some(uri) = path_to_uri(path) else {
+            return;
         };
         let analysis = Arc::new(DocAnalysis::analyze(text, uri.to_string(), 0));
         self.files.insert(

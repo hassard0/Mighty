@@ -178,7 +178,7 @@ impl PackageMacros {
                 .map(|(_, v)| v.clone())
                 .unwrap_or_else(|| name.clone());
             let mut clone = def.clone();
-            clone.name = bound_name.clone();
+            clone.name.clone_from(&bound_name);
             self.local.macros.insert(bound_name, clone);
         }
     }

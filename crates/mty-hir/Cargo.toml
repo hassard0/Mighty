@@ -16,3 +16,6 @@ mty-macros = { path = "../mty-macros" }
 
 [dev-dependencies]
 insta.workspace = true
+
+[lints]
+workspace = true

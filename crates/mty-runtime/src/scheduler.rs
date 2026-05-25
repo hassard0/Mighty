@@ -102,7 +102,7 @@ impl std::fmt::Debug for SpawnTask {
         f.debug_struct("SpawnTask")
             .field("id", &self.id)
             .field("affinity", &self.affinity)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -204,7 +204,7 @@ impl std::fmt::Debug for Scheduler {
         f.debug_struct("Scheduler")
             .field("workers", &self.workers.len())
             .field("deterministic", &self.deterministic)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -552,7 +552,7 @@ async fn worker_loop_async(ctx: WorkerCtx) {
                     got_work = true;
                     break;
                 }
-                Steal::Empty => continue,
+                Steal::Empty => {}
             }
         }
         steal_cursor = steal_cursor.wrapping_add(1);

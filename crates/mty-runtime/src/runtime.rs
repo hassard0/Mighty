@@ -165,7 +165,7 @@ impl std::fmt::Debug for Runtime {
         f.debug_struct("Runtime")
             .field("agents", &self.registry.len())
             .field("workers", &self.scheduler.worker_count())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

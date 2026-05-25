@@ -901,7 +901,7 @@ impl<'a> Emitter<'a> {
         wfn: &mut WFunction,
     ) -> CompileResult<()> {
         match func {
-            FnRef::Builtin(BuiltinId::Log) | FnRef::Builtin(BuiltinId::Print) => {
+            FnRef::Builtin(BuiltinId::Log | BuiltinId::Print) => {
                 if args.len() != 1 {
                     return Err(WasmError::Unsupported("log/print arity".into()));
                 }

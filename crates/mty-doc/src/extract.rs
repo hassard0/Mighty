@@ -213,7 +213,7 @@ fn extract_file_doc(file: &File) -> (String, String) {
     for el in file.0.children_with_tokens() {
         match el {
             NodeOrToken::Token(t) => match t.kind() {
-                SyntaxKind::WHITESPACE => continue,
+                SyntaxKind::WHITESPACE => {}
                 SyntaxKind::LINE_COMMENT if t.text().starts_with("//!") => {
                     bang_lines.push(strip_doc_marker(t.text(), "//!").to_string());
                 }
@@ -1134,7 +1134,7 @@ fn visit_expr(
             visit_expr(pkg, *dur, owner, names, accum);
         }
         Question(e) | Move(e) | Detach(e) | Join(e) | Run(e) => {
-            visit_expr(pkg, *e, owner, names, accum)
+            visit_expr(pkg, *e, owner, names, accum);
         }
         Borrow { inner, .. } => visit_expr(pkg, *inner, owner, names, accum),
         Spawn { inner, .. } => visit_expr(pkg, *inner, owner, names, accum),

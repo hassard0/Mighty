@@ -126,7 +126,7 @@ fn fs_read(args: &[Value]) -> Value {
     let cap = crate::fs::current_default_read_cap();
     match crate::fs::read(&cap, std::path::Path::new(&path)) {
         Ok(bytes) => Value::Str(String::from_utf8_lossy(&bytes).into_owned()),
-        Err(crate::fs::IoErr::Forbidden(_)) | Err(crate::fs::IoErr::Denied(_)) => Value::Enum {
+        Err(crate::fs::IoErr::Forbidden(_) | crate::fs::IoErr::Denied(_)) => Value::Enum {
             adt: mty_types::AdtId(0),
             variant: 1,
             payload: vec![Value::Str(format!("forbidden: {}", path))],
@@ -146,7 +146,7 @@ fn fs_write(args: &[Value]) -> Value {
     let cap = crate::fs::current_default_write_cap();
     match crate::fs::write(&cap, std::path::Path::new(&path), data.as_bytes()) {
         Ok(_) => Value::Unit,
-        Err(crate::fs::IoErr::Forbidden(_)) | Err(crate::fs::IoErr::Denied(_)) => Value::Enum {
+        Err(crate::fs::IoErr::Forbidden(_) | crate::fs::IoErr::Denied(_)) => Value::Enum {
             adt: mty_types::AdtId(0),
             variant: 1,
             payload: vec![Value::Str(format!("forbidden: {}", path))],
@@ -228,9 +228,8 @@ fn http_get(args: &[Value]) -> Value {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build();
-    let rt = match rt {
-        Ok(rt) => rt,
-        Err(_) => return Value::Unit,
+    let Ok(rt) = rt else {
+        return Value::Unit;
     };
     match rt.block_on(crate::http::get(&url)) {
         Ok(resp) => Value::Str(resp.body_str().to_string()),
@@ -250,9 +249,8 @@ fn http_post(args: &[Value]) -> Value {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build();
-    let rt = match rt {
-        Ok(rt) => rt,
-        Err(_) => return Value::Unit,
+    let Ok(rt) = rt else {
+        return Value::Unit;
     };
     match rt.block_on(crate::http::post(&url, body)) {
         Ok(resp) => Value::Str(resp.body_str().to_string()),

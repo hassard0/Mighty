@@ -125,9 +125,8 @@ fn emit_param_hints(doc: &DocAnalysis, fn_cst: &SyntaxNode, f: &HirFn, out: &mut
     else {
         return;
     };
-    let typed_params = match doc.typed.fn_params.get(&fn_id) {
-        Some(ps) => ps,
-        None => return,
+    let Some(typed_params) = doc.typed.fn_params.get(&fn_id) else {
+        return;
     };
     for (i, param_cst) in plist
         .children()

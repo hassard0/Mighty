@@ -50,9 +50,8 @@ impl RunResult {
 /// Run `prog` starting at the fn named `main`. The host receives all
 /// output. Returns a `RunResult`.
 pub fn run(prog: &Program, host: &mut dyn Host) -> RunResult {
-    let mainf = match prog.fn_by_name("main") {
-        Some(f) => f,
-        None => return RunResult::NoMain,
+    let Some(mainf) = prog.fn_by_name("main") else {
+        return RunResult::NoMain;
     };
     let mut interp = Interp::new(prog, DEFAULT_STEP_BUDGET);
     let initial_locals = initial_locals_for(mainf, &[]);
@@ -71,9 +70,8 @@ pub fn run_fn_by_name(
     args: Vec<Value>,
     host: &mut dyn Host,
 ) -> Result<Value, RunResult> {
-    let f = match prog.fn_by_name(name) {
-        Some(f) => f,
-        None => return Err(RunResult::NoMain),
+    let Some(f) = prog.fn_by_name(name) else {
+        return Err(RunResult::NoMain);
     };
     let mut interp = Interp::new(prog, DEFAULT_STEP_BUDGET);
     let initial_locals = initial_locals_for(f, &args);
@@ -96,9 +94,8 @@ pub fn run_fn_with_budget(
     host: &mut dyn Host,
     step_budget: u64,
 ) -> Result<Value, RunResult> {
-    let f = match prog.fn_by_name(name) {
-        Some(f) => f,
-        None => return Err(RunResult::NoMain),
+    let Some(f) = prog.fn_by_name(name) else {
+        return Err(RunResult::NoMain);
     };
     let mut interp = Interp::new(prog, step_budget);
     let initial_locals = initial_locals_for(f, &args);
@@ -123,9 +120,8 @@ pub fn run_fn_with_resource_budget(
     step_budget: u64,
     mem_budget: u64,
 ) -> Result<Value, RunResult> {
-    let f = match prog.fn_by_name(name) {
-        Some(f) => f,
-        None => return Err(RunResult::NoMain),
+    let Some(f) = prog.fn_by_name(name) else {
+        return Err(RunResult::NoMain);
     };
     let mut interp = Interp::new(prog, step_budget);
     interp.mem_budget = mem_budget;

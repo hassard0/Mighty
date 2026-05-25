@@ -24,3 +24,6 @@ serde_json = { workspace = true }
 [dev-dependencies]
 tempfile = "3"
 wasmtime = { version = "25", default-features = false, features = ["cranelift", "runtime"] }
+
+[lints]
+workspace = true

@@ -977,19 +977,24 @@ fn check_sendable_arg(cx: &mut Cx, arg_idx: usize, arg_ty: TyId, span_expr: Expr
 /// Slice-5: check that the argument's capability constraint is at least
 /// as narrow as the parameter's. If not, emit MT4010 capability_too_broad.
 fn check_cap_subsumption(cx: &mut Cx, arg_expr: ExprId, param_ty: TyId, expr_id: ExprId) {
-    let arg_ty = match cx.expr_ty.get(&arg_expr).copied() {
-        Some(t) => t,
-        None => return,
+    let Some(arg_ty) = cx.expr_ty.get(&arg_expr).copied() else {
+        return;
     };
     let arg_resolved = cx.subst.resolve(arg_ty, cx.arena);
     let param_resolved = cx.subst.resolve(param_ty, cx.arena);
-    let (af, ac) = match cx.arena.get(arg_resolved).clone() {
-        TyData::Cap { family, constraint } => (family, constraint),
-        _ => return,
+    let TyData::Cap {
+        family: af,
+        constraint: ac,
+    } = cx.arena.get(arg_resolved).clone()
+    else {
+        return;
     };
-    let (pf, pc) = match cx.arena.get(param_resolved).clone() {
-        TyData::Cap { family, constraint } => (family, constraint),
-        _ => return,
+    let TyData::Cap {
+        family: pf,
+        constraint: pc,
+    } = cx.arena.get(param_resolved).clone()
+    else {
+        return;
     };
     if af != pf {
         // Cross-family mismatch already caught by normal unification.
@@ -1129,9 +1134,9 @@ fn synth_field(cx: &mut Cx, receiver: ExprId, name: &str) -> TyId {
     }
 }
 
-fn synth_expr_through(_cx: &mut Cx, _recv: ExprId, _ty: TyId) -> TyId {
+fn synth_expr_through(_cx: &mut Cx, _recv: ExprId, ty: TyId) -> TyId {
     // Helper that exists for clarity in the deref path; no-op for now.
-    _ty
+    ty
 }
 
 fn synth_index(cx: &mut Cx, receiver: ExprId, idx: ExprId) -> TyId {
@@ -1174,15 +1179,12 @@ fn synth_struct(
 ) -> TyId {
     // Resolve path to an ADT (struct).
     let name = path.last().cloned().unwrap_or_default();
-    let aid = match cx.defs.lookup(&name) {
-        Some(DefRef::Adt(id)) => id,
-        _ => {
-            // Permissive: synth fields, return fresh.
-            for (_, e) in fields {
-                let _ = synth_expr(cx, *e);
-            }
-            return cx.fresh();
+    let Some(DefRef::Adt(aid)) = cx.defs.lookup(&name) else {
+        // Permissive: synth fields, return fresh.
+        for (_, e) in fields {
+            let _ = synth_expr(cx, *e);
         }
+        return cx.fresh();
     };
     let adt = match cx.defs.adt(aid) {
         Some(a) => a.clone(),

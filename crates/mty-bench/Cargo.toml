@@ -58,3 +58,6 @@ harness = false
 [[bench]]
 name = "wasm_size"
 harness = false
+
+[lints]
+workspace = true

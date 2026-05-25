@@ -242,18 +242,20 @@ fn classify_ident(token: &SyntaxToken, doc: &DocAnalysis) -> (u32, u32) {
         let is_name_node = matches!(pkind, SyntaxKind::NAME);
         let is_decl_grand = matches!(
             grand,
-            Some(SyntaxKind::FN_DECL)
-                | Some(SyntaxKind::STRUCT_DECL)
-                | Some(SyntaxKind::ENUM_DECL)
-                | Some(SyntaxKind::TYPE_ALIAS)
-                | Some(SyntaxKind::AGENT_DECL)
-                | Some(SyntaxKind::PROTOCOL_DECL)
-                | Some(SyntaxKind::SUPERVISOR_DECL)
-                | Some(SyntaxKind::TRAIT_DECL)
-                | Some(SyntaxKind::CONST_DECL)
-                | Some(SyntaxKind::MACRO_DECL)
-                | Some(SyntaxKind::ENUM_VARIANT)
-                | Some(SyntaxKind::STRUCT_FIELD)
+            Some(
+                SyntaxKind::FN_DECL
+                    | SyntaxKind::STRUCT_DECL
+                    | SyntaxKind::ENUM_DECL
+                    | SyntaxKind::TYPE_ALIAS
+                    | SyntaxKind::AGENT_DECL
+                    | SyntaxKind::PROTOCOL_DECL
+                    | SyntaxKind::SUPERVISOR_DECL
+                    | SyntaxKind::TRAIT_DECL
+                    | SyntaxKind::CONST_DECL
+                    | SyntaxKind::MACRO_DECL
+                    | SyntaxKind::ENUM_VARIANT
+                    | SyntaxKind::STRUCT_FIELD
+            )
         );
         if is_name_node && is_decl_grand {
             M_DECLARATION

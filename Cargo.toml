@@ -97,3 +97,117 @@ debug = true
 opt-level = 3
 lto = "thin"
 codegen-units = 1
+
+# ----------------------------------------------------------------
+# Workspace-wide clippy lint policy. v0.11 makes the `clippy
+# (strict)` CI job required by allow-listing the pedantic lints
+# that are style preferences (not bugs) and keeping the rest at
+# `warn` (which `-D warnings` then promotes to a hard error on CI).
+#
+# See `dev/history/notes/CLIPPY_V0_11_NOTES.md` for the per-lint
+# rationale. Tighten by removing entries here as we converge.
+# ----------------------------------------------------------------
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+
+# Style preferences we don't enforce — high-noise, low-signal.
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"         # we use thiserror; errors self-describe
+missing_panics_doc = "allow"
+similar_names = "allow"
+many_single_char_names = "allow"
+too_many_lines = "allow"
+unreadable_literal = "allow"
+single_match_else = "allow"
+if_not_else = "allow"
+doc_markdown = "allow"               # technical prose has CamelCase / paths
+match_same_arms = "allow"            # sometimes intentional for clarity
+must_use_candidate = "allow"
+return_self_not_must_use = "allow"
+needless_pass_by_value = "allow"
+uninlined_format_args = "allow"      # both forms read fine
+redundant_closure_for_method_calls = "allow"
+map_unwrap_or = "allow"
+unused_self = "allow"
+struct_field_names = "allow"
+fn_params_excessive_bools = "allow"
+
+# Numeric casts — we audit these at the use site; this is a
+# compiler with lots of legitimate `usize as u32` conversions.
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+cast_lossless = "allow"
+cast_precision_loss = "allow"
+
+# Iteration / pattern style — we keep the explicit form where it
+# matches the surrounding code's voice.
+enum_glob_use = "allow"
+wildcard_imports = "allow"
+items_after_statements = "allow"
+elidable_lifetime_names = "allow"
+explicit_iter_loop = "allow"
+ignored_unit_patterns = "allow"
+default_trait_access = "allow"
+implicit_hasher = "allow"
+ignore_without_reason = "allow"
+
+# String building — `format!(..)` + `push_str` reads more clearly
+# in HTML / template renderers than the trait-import dance for
+# `write!`. Allowed because mty-doc's renderers lean on it heavily.
+format_push_string = "allow"
+# `bool_to_int_with_if` — `if b { 1 } else { 0 }` is clearer
+# than `usize::from(b)` for some readers.
+bool_to_int_with_if = "allow"
+# `comparison_chain` — `if a < b { … } else if a > b { … }` is
+# clearer than `match a.cmp(&b)` for numeric heuristics.
+comparison_chain = "allow"
+# `unnecessary_wraps` — sometimes the caller relies on `Result`
+# being threaded through even when no error path exists yet
+# (placeholder for future error paths).
+unnecessary_wraps = "allow"
+# `match_wildcard_for_single_variants` — guards against future
+# variants but the explicit-arm form is sometimes more verbose
+# than the wildcard.
+match_wildcard_for_single_variants = "allow"
+# Single-char string `contains("!")` vs `contains('!')` — either
+# form reads fine; allow.
+single_char_pattern = "allow"
+# `needless_raw_string_hashes` — `r#"..."#` is consistent with
+# raw strings that may grow to need hashes; allow either form.
+needless_raw_string_hashes = "allow"
+# `float_cmp` — interpreter compares NaN canonically; intentional.
+float_cmp = "allow"
+# `manual_string_new` — `String::default()` is sometimes clearer
+# than `String::new()` in macro-derived code.
+manual_string_new = "allow"
+# `no_effect_underscore_binding` — bindings prefixed `_` are
+# sometimes deliberate placeholders for unused captures.
+no_effect_underscore_binding = "allow"
+# `used_underscore_binding` — same rationale as above; an `_ty`
+# parameter that ends up being returned shouldn't force a rename.
+used_underscore_binding = "allow"
+# `duration_suboptimal_units` — `Duration::from_secs(60)` is just
+# as readable as `from_mins(1)` and avoids `from_mins`'s newer
+# stabilization story.
+duration_suboptimal_units = "allow"
+# `unused_async` — runtime entry points are kept `async` for API
+# stability even when the current body is sync, because callers
+# already `.await` them and may grow new await points later.
+unused_async = "allow"
+# `missing_fields_in_debug` — sometimes the formatter intentionally
+# elides large/cyclic fields (we'd just use `.finish_non_exhaustive`
+# everywhere otherwise).
+missing_fields_in_debug = "allow"
+# `semicolon_if_nothing_returned` — both `b.iter(|| { … })` and
+# `b.iter(|| { …; })` read fine in criterion bench closures.
+semicolon_if_nothing_returned = "allow"
+# `implicit_clone` — `path.to_path_buf()` on a `PathBuf` is OK;
+# clippy's preference for `.clone()` is style only.
+implicit_clone = "allow"
+# `stable_sort_primitive` — we sometimes want stable sort for
+# determinism even on primitives.
+stable_sort_primitive = "allow"
+# `manual_assert` — `if c { panic!(...) }` reads better than
+# `assert!(!c, …)` in some places.
+manual_assert = "allow"

@@ -49,7 +49,7 @@ fn is_sendable_inner(ty: TyId, arena: &TyArena, defs: &DefMap, visiting: &mut Ve
         TyData::String | TyData::Bytes => true,
         TyData::Adt(id, _) => match defs.adt(*id).map(|a| a.kind) {
             Some(AdtKind::Opaque) | None => true,
-            Some(AdtKind::Struct) | Some(AdtKind::Enum) => {
+            Some(AdtKind::Struct | AdtKind::Enum) => {
                 visiting.push(ty);
                 let adt = defs.adt(*id).cloned();
                 let r = if let Some(adt) = adt {

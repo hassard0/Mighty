@@ -35,3 +35,6 @@ criterion.workspace = true
 [[bench]]
 name = "typeck_parallel"
 harness = false
+
+[lints]
+workspace = true

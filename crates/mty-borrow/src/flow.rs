@@ -62,15 +62,11 @@ pub fn run(typed: &TypedPackage, pkg: &Package) -> Vec<Diagnostic> {
 
     // 1) Top-level fns + agent methods (all flattened through `pkg.fns`).
     for fid_idx in 0..pkg.fns.len() {
-        let fid = match pkg.fns.iter().nth(fid_idx) {
-            Some((id, _)) => id,
-            None => continue,
+        let Some((fid, _)) = pkg.fns.iter().nth(fid_idx) else {
+            continue;
         };
         let hir_fn = &pkg.fns[fid];
-        let body = match hir_fn.body {
-            Some(b) => b,
-            None => continue,
-        };
+        let Some(body) = hir_fn.body else { continue };
         check_fn_body(
             typed,
             pkg,
@@ -325,7 +321,7 @@ impl<'a> BorrowCx<'a> {
                 let init_ty = match init {
                     Some(e) => {
                         let prev = self.pending_borrower.take();
-                        self.pending_borrower = bind_name.clone();
+                        self.pending_borrower.clone_from(&bind_name);
                         let _ = self.walk_expr(*e, Position::Use);
                         self.pending_borrower = prev;
                         self.typed
@@ -702,7 +698,7 @@ impl<'a> BorrowCx<'a> {
                 self.walk_block(then);
                 let after_then = self.locals.clone();
                 let after_then_ledger = self.ledger.clone();
-                self.locals = snapshot.clone();
+                self.locals.clone_from(&snapshot);
                 self.ledger = ledger_snap;
                 if let Some(e) = else_ {
                     let _ = self.walk_expr(e, Position::Use);
@@ -735,7 +731,7 @@ impl<'a> BorrowCx<'a> {
                 self.pop_frame();
                 let after_then = self.locals.clone();
                 let after_then_ledger = self.ledger.clone();
-                self.locals = snapshot.clone();
+                self.locals.clone_from(&snapshot);
                 self.ledger = ledger_snap;
                 if let Some(e) = else_ {
                     let _ = self.walk_expr(e, Position::Use);
@@ -757,7 +753,7 @@ impl<'a> BorrowCx<'a> {
                 let base = self.locals.clone();
                 let base_ledger = self.ledger.clone();
                 for arm in &arms {
-                    self.locals = base.clone();
+                    self.locals.clone_from(&base);
                     self.ledger = base_ledger.clone();
                     self.push_frame(None);
                     self.bind_pattern(arm.pat, scrut_ty);
@@ -1176,9 +1172,8 @@ impl<'a> BorrowCx<'a> {
     }
 
     fn do_use(&mut self, name: &str, span: &SourceSpan) {
-        let state = match self.locals.get_mut(name) {
-            Some(s) => s,
-            None => return,
+        let Some(state) = self.locals.get_mut(name) else {
+            return;
         };
         match state.state.clone() {
             Ownership::Moved { at } => {
@@ -1196,9 +1191,8 @@ impl<'a> BorrowCx<'a> {
     }
 
     fn do_move(&mut self, name: &str, span: &SourceSpan) {
-        let state = match self.locals.get_mut(name) {
-            Some(s) => s,
-            None => return,
+        let Some(state) = self.locals.get_mut(name) else {
+            return;
         };
         let was_copy = state.is_copy;
         match state.state.clone() {
@@ -1250,9 +1244,8 @@ impl<'a> BorrowCx<'a> {
     }
 
     fn do_assign(&mut self, name: &str, span: &SourceSpan) {
-        let state = match self.locals.get_mut(name) {
-            Some(s) => s,
-            None => return,
+        let Some(state) = self.locals.get_mut(name) else {
+            return;
         };
         if !state.mutable {
             self.diag.push(diag::assign_to_immut_local(name, span));

@@ -40,3 +40,6 @@ sigstore-real = ["dep:sigstore", "dep:tokio"]
 
 [dev-dependencies]
 tempfile = "3"
+
+[lints]
+workspace = true

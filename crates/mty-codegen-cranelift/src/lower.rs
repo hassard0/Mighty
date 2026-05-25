@@ -1434,7 +1434,7 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
         args: &[Operand],
     ) -> CompileResult<cranelift_codegen::ir::Value> {
         match func {
-            FnRef::Builtin(BuiltinId::Log) | FnRef::Builtin(BuiltinId::Print) => {
+            FnRef::Builtin(BuiltinId::Log | BuiltinId::Print) => {
                 // Args are (str). Slice-8 expects exactly one Operand
                 // that is either a Const::Str or a local of Str type.
                 if args.len() != 1 {
@@ -1605,7 +1605,7 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 // marshalling is a v0.2.x follow-up.
                 let _ = name;
                 // Push the name onto the stack as (ptr, len) and call.
-                let nstr = name.to_string();
+                let nstr = name.clone();
                 let id = self.mod_ctx.intern_string(&nstr)?;
                 let gv = self.mod_ctx.module.declare_data_in_func(id, self.b.func);
                 let nptr = self.b.ins().symbol_value(ct::I64, gv);
@@ -1614,12 +1614,14 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 let r = self.call_rt("mty_runtime_extern_call", &[nptr, nlen, nargs], None)?;
                 Ok(r.unwrap_or_else(|| self.b.ins().iconst(ct::I64, 0)))
             }
-            FnRef::Builtin(BuiltinId::Spawn)
-            | FnRef::Builtin(BuiltinId::Fetch)
-            | FnRef::Builtin(BuiltinId::Move)
-            | FnRef::Builtin(BuiltinId::Valid)
-            | FnRef::Builtin(BuiltinId::Null)
-            | FnRef::Builtin(BuiltinId::RawPtr) => {
+            FnRef::Builtin(
+                BuiltinId::Spawn
+                | BuiltinId::Fetch
+                | BuiltinId::Move
+                | BuiltinId::Valid
+                | BuiltinId::Null
+                | BuiltinId::RawPtr,
+            ) => {
                 // Slice-8 stubs: return a zero/null pointer. The
                 // interpreter handles the real semantics; compiled code
                 // that only depends on the stub-shape for control flow
@@ -1703,8 +1705,7 @@ pub fn default_flags(is_pic: bool) -> cranelift_codegen::settings::Flags {
     let mut b = settings::builder();
     let opt_disabled = std::env::var("MTY_CRANELIFT_NO_OPT")
         .ok()
-        .filter(|s| !s.is_empty() && s != "0")
-        .is_some();
+        .is_some_and(|s| !s.is_empty() && s != "0");
     let _ = b.set("opt_level", if opt_disabled { "none" } else { "speed" });
     let _ = b.set("is_pic", if is_pic { "true" } else { "false" });
     settings::Flags::new(b)

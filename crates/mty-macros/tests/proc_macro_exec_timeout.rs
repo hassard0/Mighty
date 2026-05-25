@@ -30,8 +30,7 @@ fn runaway_proc_macro_breaches_wall_or_steps() {
         "runaway sandbox didn't return inside 500ms: took {elapsed:?}"
     );
     match r {
-        ProcMacroResult::ResourceExceeded(ResourceBreach::Wall)
-        | ProcMacroResult::ResourceExceeded(ResourceBreach::Steps) => {}
+        ProcMacroResult::ResourceExceeded(ResourceBreach::Wall | ResourceBreach::Steps) => {}
         other => panic!("expected wall/step breach, got {other:?}"),
     }
 }

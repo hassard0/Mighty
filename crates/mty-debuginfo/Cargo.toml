@@ -17,3 +17,6 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 gimli = { workspace = true, features = ["read", "write", "std"] }
+
+[lints]
+workspace = true

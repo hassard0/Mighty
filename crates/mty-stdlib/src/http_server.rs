@@ -174,9 +174,8 @@ async fn accept_loop(
         tokio::select! {
             _ = &mut shutdown_rx => return,
             r = listener.accept() => {
-                let (stream, _peer) = match r {
-                    Ok(x) => x,
-                    Err(_) => return,
+                let Ok((stream, _peer)) = r else {
+                    return;
                 };
                 let d = dispatcher.clone();
                 tokio::spawn(async move {

@@ -63,10 +63,7 @@ fn expr_bp(p: &mut Parser, min_bp: u8) -> bool {
         }
 
         // binary
-        let op_bp = match infix_bp(p) {
-            Some(t) => t,
-            None => break,
-        };
+        let Some(op_bp) = infix_bp(p) else { break };
         if op_bp < min_bp {
             break;
         }

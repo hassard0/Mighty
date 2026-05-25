@@ -25,3 +25,6 @@ mty-hir = { path = "../mty-hir" }
 mty-diagnostics = { path = "../mty-diagnostics" }
 thiserror = { workspace = true }
 inkwell = { workspace = true, optional = true }
+
+[lints]
+workspace = true

@@ -14,3 +14,6 @@ mty-diagnostics = { path = "../mty-diagnostics" }
 
 [dev-dependencies]
 mty-syntax = { path = "../mty-syntax" }
+
+[lints]
+workspace = true

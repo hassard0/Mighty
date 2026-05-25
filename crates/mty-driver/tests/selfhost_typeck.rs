@@ -887,13 +887,11 @@ fn types_equivalent(a: &str, b: &str) -> bool {
     if a == b {
         return true;
     }
-    let (a_ok, a_err) = match split_result(a) {
-        Some(p) => p,
-        None => return false,
+    let Some((a_ok, a_err)) = split_result(a) else {
+        return false;
     };
-    let (b_ok, b_err) = match split_result(b) {
-        Some(p) => p,
-        None => return false,
+    let Some((b_ok, b_err)) = split_result(b) else {
+        return false;
     };
     if a_ok != b_ok {
         return false;

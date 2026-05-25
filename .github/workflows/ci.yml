@@ -105,14 +105,17 @@ jobs:
         run: cargo test --workspace --no-default-features
 
   # ----------------------------------------------------------------
-  # Stricter clippy pass — `pedantic` lints surfaced as warnings but
-  # not gated on yet (`-W`, not `-D`). We promote individual lints to
-  # `-D` as the codebase converges on them.
+  # Stricter clippy pass — pedantic lints are enabled at the
+  # workspace level via `[workspace.lints.clippy]` in the root
+  # `Cargo.toml`, with style-preference lints allow-listed there.
+  # Tightening the bar is a one-line edit to that table; see
+  # `dev/history/notes/CLIPPY_V0_11_NOTES.md` for the rationale.
+  #
+  # v0.11: this job is now required (no `continue-on-error`).
   # ----------------------------------------------------------------
   clippy-strict:
     name: clippy (strict)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -128,24 +131,7 @@ jobs:
           shared-key: strict
 
       - name: cargo clippy --pedantic
-        env:
-          # Override the top-level `RUSTFLAGS: -D warnings` so the
-          # pedantic surface stays advisory while we iterate.
-          RUSTFLAGS: ""
-        run: |
-          cargo clippy --workspace --all-targets -- \
-            -D warnings \
-            -W clippy::pedantic \
-            -A clippy::missing_errors_doc \
-            -A clippy::missing_panics_doc \
-            -A clippy::module_name_repetitions \
-            -A clippy::must_use_candidate \
-            -A clippy::similar_names \
-            -A clippy::too_many_lines \
-            -A clippy::cast_possible_truncation \
-            -A clippy::cast_sign_loss \
-            -A clippy::cast_lossless \
-            -A clippy::cast_precision_loss
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
   # ----------------------------------------------------------------
   # MSRV gate — the documented minimum supported Rust version is

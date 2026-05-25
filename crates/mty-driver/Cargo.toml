@@ -27,3 +27,6 @@ mty-codegen-wasm = { path = "../mty-codegen-wasm" }
 [dev-dependencies]
 tempfile = "3"
 wasmparser = { workspace = true }
+
+[lints]
+workspace = true

@@ -31,3 +31,6 @@ mty-fmt = { path = "../mty-fmt" }
 [dev-dependencies]
 serde_json = "1"
 tower = "0.4"
+
+[lints]
+workspace = true

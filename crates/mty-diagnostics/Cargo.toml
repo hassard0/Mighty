@@ -10,3 +10,6 @@ authors.workspace = true
 [dependencies]
 ariadne.workspace = true
 thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -314,9 +314,9 @@ pub fn parse_releases_page(body: &str) -> Result<Vec<RegistryRelease>, RegistryE
                     .and_then(|v| v.as_str())
                     .map(str::to_string);
                 if aname == want_tar {
-                    tarball_url = aurl.clone();
+                    tarball_url.clone_from(&aurl);
                 } else if aname == want_sha {
-                    sha256_url = aurl.clone();
+                    sha256_url.clone_from(&aurl);
                 }
             }
         }

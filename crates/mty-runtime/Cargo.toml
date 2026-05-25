@@ -41,3 +41,6 @@ harness = false
 [[bench]]
 name = "agent_send_latency"
 harness = false
+
+[lints]
+workspace = true

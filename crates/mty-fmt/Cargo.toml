@@ -13,3 +13,6 @@ mty-syntax = { path = "../mty-syntax" }
 
 [dev-dependencies]
 insta.workspace = true
+
+[lints]
+workspace = true

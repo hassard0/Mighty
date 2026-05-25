@@ -166,7 +166,7 @@ pub fn check_proc_macro_purity(body: &[Tok]) -> Option<ImpurityReason> {
                 return Some(ImpurityReason::EffectCall(eff_name));
             }
             if is_ident
-                && matches!(next, Some(SyntaxKind::L_PAREN) | Some(SyntaxKind::DOT))
+                && matches!(next, Some(SyntaxKind::L_PAREN | SyntaxKind::DOT))
                 && matches!(text, "time" | "env" | "io" | "model" | "rand")
             {
                 return Some(ImpurityReason::BareImpureCall(text.to_string()));
