@@ -151,6 +151,15 @@ jobs:
   # MSRV gate — the documented minimum supported Rust version is
   # 1.85.0 (edition 2024 / indexmap 2.14). Bumping this is a
   # breaking change and requires a release note in RELEASE-v*.md.
+  #
+  # v0.10 polish: we now also compile-check the test surface and
+  # actually run the bedrock crates' tests on MSRV. Full `cargo test
+  # --workspace` is left to the stable matrix above because (a) it
+  # exceeds the MSRV job's time budget and (b) running it here would
+  # repeat work the stable jobs already cover. The bedrock subset
+  # (syntax / types / fmt / diagnostics) catches the most common
+  # MSRV regression — a dep silently bumping its rust-version floor
+  # — without paying for the codegen / runtime crates twice.
   # ----------------------------------------------------------------
   msrv:
     name: msrv (1.85.0)
@@ -169,8 +178,30 @@ jobs:
           shared-key: msrv
 
       - name: cargo build (MSRV)
-        # Build only — running tests on MSRV can pull in newer
-        # dev-deps that bump the floor unintentionally.
+        # Build the full workspace first so a missing-feature failure
+        # surfaces with the original (non-test) symbol names.
         env:
           RUSTFLAGS: ""
         run: cargo build --workspace
+
+      - name: cargo test --no-run (MSRV, workspace)
+        # Compile-check the test surface — the dev-deps tree is a
+        # frequent source of silent MSRV bumps and only manifests
+        # when test targets are built.
+        env:
+          RUSTFLAGS: ""
+        run: cargo test --workspace --no-run
+
+      - name: cargo test (MSRV, bedrock crates)
+        # Actually execute the bedrock crates' tests on MSRV. These
+        # four crates have no GPU / network / fs dependencies, run
+        # in well under a minute, and exercise the language's most
+        # MSRV-sensitive surface (syntax / types / diagnostics).
+        env:
+          RUSTFLAGS: ""
+        run: |
+          cargo test \
+            -p mty-syntax \
+            -p mty-types \
+            -p mty-fmt \
+            -p mty-diagnostics

@@ -1,0 +1,62 @@
+name: security
+
+# v0.10 polish: dependency-vulnerability scan via `cargo audit`.
+#
+# Runs on every push to main and once a day on a cron. The cron
+# matters more than the push: a new advisory landing in the
+# RustSec database against an unchanged Cargo.lock is the typical
+# discovery path, and the push-only trigger wouldn't catch that.
+#
+# Default `cargo audit` already exits non-zero on any vulnerability.
+# We additionally deny warnings so unmaintained crates / yanked
+# versions also fail the job — those tend to be early-warning
+# signals for a downstream CVE.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # 07:00 UTC daily — pick the window after RustSec's typical
+    # advisory-publish time so we get fresh data on the morning
+    # build.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+
+      - name: Cache cargo-audit binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          # Cache keyed on the installer version we pin below; bump
+          # the suffix to force a reinstall.
+          key: ${{ runner.os }}-cargo-audit-v0.21
+
+      - name: Install cargo-audit
+        run: |
+          if ! command -v cargo-audit >/dev/null 2>&1; then
+            cargo install cargo-audit --locked --version "^0.21"
+          fi
+          cargo audit --version
+
+      - name: Run cargo audit
+        # `--deny warnings` promotes unmaintained / yanked crates to
+        # errors. If the noise is unmanageable we can drop back to a
+        # bare `cargo audit` (vulnerabilities only) and gate the
+        # rest with explicit `--deny <kind>` flags.
+        run: cargo audit --deny warnings

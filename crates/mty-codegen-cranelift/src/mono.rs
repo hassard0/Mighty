@@ -102,6 +102,40 @@ impl<'a> Monomorphizer<'a> {
     /// available for the future where per-fn typeck-per-instantiation
     /// makes the per-fn cost large enough to amortise the thread
     /// fan-out.
+    ///
+    /// **v0.10 re-bench** (Windows host, 4-worker fan-out, this
+    /// commit's hardware — see `crates/mty-codegen-cranelift/benches/
+    /// typeck_parallel.rs`):
+    ///
+    /// | fixture           | sequential | parallel | ratio |
+    /// |-------------------|-----------:|---------:|------:|
+    /// | small_4g          | 11 µs      | 12 µs    | 1.1x  |
+    /// | medium_32g        | 57 µs      | 459 µs   | 8.0x  |
+    /// | large_256g        | 377 µs     | 917 µs   | 2.4x  |
+    /// | xlarge_1024g      | 1.42 ms    | 1.98 ms  | 1.4x  |
+    /// | large_256g_fat†   | 4.00 ms    | 4.71 ms  | 1.2x  |
+    ///
+    /// † `_fat` = 64 locals per generic fn, modelling what `specialize`
+    /// will look like once typeck-per-instantiation lands. Even at
+    /// this size parallel still loses — the worker-pool spawn floor
+    /// on Windows runs ~250 µs and we cannot hide it behind 16 µs of
+    /// per-fn work even at 256 fns.
+    ///
+    /// **Verdict for v0.10**: the regression is fundamental, not a
+    /// scheduler bug — per-fn `specialize` work is bound by `Function
+    /// ::clone` + a single `concretize` walk that runs in ~1-2 µs
+    /// (or ~16 µs in the fat variant). Even with the chunked
+    /// partition (each worker batches `ceil(N/W)` fns) we cannot
+    /// recover the ~250 µs thread-spawn floor on Windows. The cost
+    /// model says parallel will start to win when *per-fn* work
+    /// exceeds roughly 1 ms — that's the regime where typeck-per-
+    /// instantiation lives (HIR walk, unification, constraint solve
+    /// per call-site tuple), but it's well above anything mono does
+    /// today. `run_parallel` therefore stays opt-in and `run()`
+    /// dispatches to `run_sequential` for *all* current program
+    /// sizes. The exposure remains documented + microbenched so a
+    /// future caller can flip the default once the per-fn cost
+    /// crosses the break-even point measured by `large_256g_fat`.
     pub fn run(&self) -> Program {
         self.run_sequential()
     }
