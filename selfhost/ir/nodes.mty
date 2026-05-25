@@ -1,0 +1,124 @@
+// selfhost/ir/nodes.mty
+//
+// v0.9 MtyIR data-type sketch (DOCUMENTATION FORM).
+//
+// The runnable lowering lives in `lower.mty` because the v0.8 driver
+// compiles one `.mty` file at a time. This file mirrors
+// `crates/mty-ir/src/ir.rs` so future work (v0.9+ cross-file modules)
+// can split the package cleanly.
+//
+// Two design departures from the Rust IR (same shape as the v0.8 HIR
+// notes):
+//
+//   1. **No la_arena / no typed arenas.** Stardust doesn't depend on
+//      la_arena, and the Mighty type system doesn't yet provide
+//      parametric newtypes. Vec<T> indexed by USize stands in; IDs are
+//      bare USize values.
+//
+//   2. **No generic enum unions.** v0.8 Mighty enums work, but they
+//      can't carry rich payloads across the bridge in a single
+//      round-trip. The bootstrap runs a "kind" string per emit and
+//      lets the Rust host reconstruct the variant.
+//
+// ## ID types (newtypes when we have them)
+//
+//   type IrFnId   = USize
+//   type LocalId  = USize
+//   type BlockId  = USize
+//   type ArenaId  = USize
+//   type AgentId  = USize
+//
+// ## IrTy kinds (mirror of mty_ir::ir::IrTy)
+//
+//   "Bool"     "Int(K)"   "Float(K)"  "Char"   "Str"    "String"
+//   "Bytes"    "Unit"     "Never"     "Duration"  "Size"
+//   "Tuple"    "Array"    "Ref"       "Fn"      "Adt"
+//   "Cap"      "Dyn"      "RawPtr"    "Module"  "Param"  "Error"
+//
+// The v0.9 self-host only emits Unit / Bool / Int / Float / Str / Tuple /
+// Ref / Adt for the lowered subset; the rest are documented for
+// post-v0.9 parity.
+//
+// ## LocalSource kinds (mirror of mty_ir::ir::LocalSource)
+//
+//   "Param" "UserLet" "Temp" "DropFlag" "Return"
+//
+// ## IrRvalue kinds (mirror of mty_ir::ir::Rvalue)
+//
+//   "Use"          — Use(Operand)
+//   "Const"        — Const(Const)
+//   "BinOp"        — BinOp(op, lhs, rhs)
+//   "UnOp"         — UnOp(op, rhs)
+//   "Ref"          — Ref { mutable, place }
+//   "Deref"        — Deref(Operand)
+//   "AdtInit"      — AdtInit { adt, variant, fields }
+//   "TupleInit"    — TupleInit(operands)
+//   "ArrayInit"    — ArrayInit(operands)
+//   "FieldRead"    — FieldRead { receiver, field_idx }
+//   "TupleRead"    — TupleRead { receiver, idx }
+//   "IndexRead"    — IndexRead { receiver, index }
+//   "Call"         — Call { func, args }
+//   "MethodCall"   — MethodCall { receiver, method, args }
+//   "AgentSpawn"   — AgentSpawn { agent, args }           [DEFERRED v0.9]
+//   "Send"         — Send { target, msg, args }           [DEFERRED v0.9]
+//   "Ask"          — Ask { target, msg, args, deadline }  [DEFERRED v0.9]
+//   "CapValue"     — CapValue { family, constraint }      [DEFERRED v0.9]
+//   "Cast"         — Cast { src, ty }
+//
+// ## IrStmt kinds (mirror of mty_ir::ir::Stmt)
+//
+//   "Assign"       — Assign(place, rvalue)
+//   "Drop"         — Drop(local)
+//   "StorageLive"  — StorageLive(local)
+//   "StorageDead"  — StorageDead(local)
+//   "ArenaPush"    — ArenaPush(arena_id)                  [DEFERRED v0.9]
+//   "ArenaPop"     — ArenaPop(arena_id)                   [DEFERRED v0.9]
+//   "EffectInvoke" — EffectInvoke { effect, op, args, out }
+//   "Nop"          — Nop
+//
+// ## IrTerm kinds (mirror of mty_ir::ir::Term)
+//
+//   "Goto"          — Goto(BlockId)
+//   "If"            — If { cond, then, else_ }
+//   "SwitchInt"     — SwitchInt { discr, arms, default }
+//   "SwitchVariant" — SwitchVariant { discr, adt, arms, default }
+//   "Return"        — Return(Operand)
+//   "Panic"         — Panic { msg }
+//   "Unreachable"   — Unreachable
+//   "TryReturnErr"  — TryReturnErr(payload)               [DEFERRED v0.9]
+//   "Suspend"       — Suspend { resume }                  [DEFERRED v0.9]
+//
+// ## BinOp / UnOp
+//
+//   BinOp: Add Sub Mul Div Rem BitAnd BitOr BitXor Shl Shr
+//          Eq Ne Lt Le Gt Ge And Or
+//   UnOp:  Neg Not
+//
+// ## IrFn fields (mirror of mty_ir::ir::Function)
+//
+//   id        : USize
+//   name      : Str
+//   params    : [LocalId]
+//   locals    : [LocalDecl]
+//   blocks    : [Block]
+//   entry     : BlockId
+//   ret_ty    : IrTy
+//   effects   : [Str]
+//
+// ## Block fields (mirror of mty_ir::ir::Block)
+//
+//   id         : BlockId
+//   stmts      : [IrStmt]
+//   terminator : IrTerm
+//
+// ## Program fields (mirror of mty_ir::ir::Program)
+//
+//   fns        : [IrFn]
+//   adts       : [AdtRef]
+//   agents     : [Agent]    [DEFERRED v0.9]
+//   errors     : [Str]
+//
+// See `lower.mty` for the implementation talking to the host bridge,
+// and `crates/mty-driver/tests/selfhost_ir.rs` for the Rust host.
+
+package selfhost_ir_nodes

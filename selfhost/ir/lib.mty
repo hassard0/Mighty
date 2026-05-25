@@ -1,0 +1,32 @@
+// selfhost/ir/lib.mty
+//
+// Self-hosted MtyIR — v0.9 SHIPPED-SUBSET.
+//
+// This is the package entry-point for the self-hosted MtyIR (mid-level
+// IR) phase of the Mighty compiler. It documents the intended module
+// layout once cross-file resolution lands; today everything is
+// consolidated into `lower.mty` because the v0.8 driver still compiles
+// one `.mty` file at a time (see SELFHOST_HIR_V0_8_NOTES.md gap #1).
+//
+// ## Intended v1.0+ layout
+//
+//   selfhost.ir
+//   ├── lib.mty       — this file: re-exports + package decl
+//   ├── nodes.mty     — IR data shape (IrFn, IrBlock, IrStmt, IrTerm,
+//   │                   IrLocal, IrRvalue, IrTy)
+//   └── lower.mty     — HIR → MtyIR lowering (runnable, v0.9 subset)
+//
+// ## Current v0.9 layout (single-file compile workaround)
+//
+// The runnable lowerer + bridge live in `lower.mty`. `nodes.mty`
+// remains the data-shape spec.
+//
+// ## Status
+//
+// - `nodes.mty` — `mty check` clean (documentation-only package decl)
+// - `lower.mty` — `mty check` clean, services the v0.9 bootstrap test
+//
+// See `crates/mty-driver/tests/selfhost_ir.rs` for the bootstrap
+// runner.
+
+package selfhost_ir
