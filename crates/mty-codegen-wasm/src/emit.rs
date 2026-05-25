@@ -149,6 +149,17 @@ pub fn compile_program_to_file_with_options(
     })
 }
 
+/// v0.8 loose-end 4/4 — fixed offset in linear memory where the
+/// canonical-ABI string-return area lives. Strings written here are
+/// `(ptr: i32, len: i32)` pairs (8 bytes total); option<string> uses
+/// `(disc: i32, ptr: i32, len: i32)` (12 bytes, but we align the
+/// payload at +4 / +8 for simplicity).
+///
+/// 8208 keeps a 16-byte gap from the legacy JS shim's write area
+/// (which still writes a length-prefixed string starting at 8192).
+pub const DOM_RETURN_AREA: u32 = 8208;
+pub const DOM_RETURN_AREA_BYTES: u32 = 16;
+
 struct Emitter<'a> {
     prog: &'a Program,
     target: WasmTarget,
@@ -264,10 +275,17 @@ impl<'a> Emitter<'a> {
             self.dom_set_text_idx = Some(self.import_count);
             self.import_count += 1;
 
-            // get-text(id_ptr, id_len) -> i32 (encoded string pointer)
+            // v0.8 loose-end 4/4: canonical-ABI lowering of
+            // `func(id: string) -> string`.
+            // The caller writes the (id_ptr, id_len) string in
+            // linear memory and supplies a pointer to a small
+            // return-area buffer; the callee writes the result
+            // (ret_ptr, ret_len) into that buffer.
+            //
+            // Core-level shape: (id_ptr, id_len, ret_area_ptr) -> ()
             let get_text_sig = TySig {
-                params: vec![ValType::I32, ValType::I32],
-                results: vec![ValType::I32],
+                params: vec![ValType::I32, ValType::I32, ValType::I32],
+                results: vec![],
             };
             let ty = self.intern_sig(get_text_sig);
             self.import_section
@@ -286,10 +304,13 @@ impl<'a> Emitter<'a> {
             self.dom_on_click_idx = Some(self.import_count);
             self.import_count += 1;
 
-            // query(sel_ptr, sel_len) -> i32 (0 == none)
+            // v0.8: `func(selector: string) -> option<string>`. The
+            // return-area layout is (disc:i32, ret_ptr:i32,
+            // ret_len:i32) so the core import shape is the same as
+            // get-text — caller passes a single return-area pointer.
             let query_sig = TySig {
-                params: vec![ValType::I32, ValType::I32],
-                results: vec![ValType::I32],
+                params: vec![ValType::I32, ValType::I32, ValType::I32],
+                results: vec![],
             };
             let ty = self.intern_sig(query_sig);
             self.import_section
@@ -300,37 +321,60 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
-    /// v0.5 dogfood Gap-2 — emit a DOM call. `op` is the SIR method
-    /// name (e.g. `dom.set_text` or `set_text`). Returns `Ok(true)`
-    /// if the op is a known DOM op (caller stops looking for other
-    /// builtins), `Ok(false)` if it doesn't match.
+    /// v0.5+ — emit a DOM call. `op` is the SIR method name
+    /// (e.g. `dom.set_text`). Returns `Ok(true)` if the op is known.
     ///
-    /// v0.6: dispatched by `emit_call` whenever the SIR carries a
-    /// `BuiltinId::DomOp(name)` Call. The name flows in unprefixed
-    /// from the lowerer; this helper accepts both the bare SIR form
-    /// (`set_text`) and the qualified forms historic codepaths used
-    /// (`dom.set_text`, `set-text`).
+    /// v0.8 canonical-ABI bridge for string returns:
+    ///   - `get-text(id: string) -> string` → core import
+    ///     `(id_ptr, id_len, ret_area) -> ()`. We push the return-area
+    ///     ptr before the call, then lift `[ret_area]` as the result
+    ///     string pointer (the JS shim writes (data_ptr, data_len) into
+    ///     the return area).
+    ///   - `query(sel: string) -> option<string>` → same shape; the
+    ///     return area holds (disc:i32, data_ptr:i32, data_len:i32).
+    ///     After the call we push the disc; downstream lowering reads
+    ///     a non-zero disc as `Some` and extracts the payload via
+    ///     subsequent reads of the return area.
+    ///
+    /// Caller is responsible for pushing the string arg(s) as
+    /// (ptr,len) pairs *before* invoking this helper.
     fn emit_dom_call(&mut self, op: &str, wfn: &mut WFunction) -> CompileResult<bool> {
-        let idx = match op {
-            "dom.set_text" | "set_text" | "set-text" => self.dom_set_text_idx,
-            "dom.get_text" | "get_text" | "get-text" => self.dom_get_text_idx,
-            "dom.on_click" | "on_click" | "on-click" => self.dom_on_click_idx,
-            "dom.query" | "query" => self.dom_query_idx,
-            _ => return Ok(false),
+        let kind = classify_dom_op(op);
+        let idx = match kind {
+            DomOpKind::SetText => self.dom_set_text_idx,
+            DomOpKind::GetText => self.dom_get_text_idx,
+            DomOpKind::OnClick => self.dom_on_click_idx,
+            DomOpKind::Query => self.dom_query_idx,
+            DomOpKind::Unknown => return Ok(false),
         };
-        if let Some(i) = idx {
-            wfn.instruction(&I::Call(i));
-            // Push a sink placeholder for void-returning ops so the
-            // caller's `LocalSet` still has a value.
-            if matches!(
-                op,
-                "dom.set_text" | "set_text" | "set-text" | "dom.on_click" | "on_click" | "on-click"
-            ) {
+        let Some(i) = idx else {
+            return Ok(false);
+        };
+        match kind {
+            DomOpKind::GetText | DomOpKind::Query => {
+                // Push the return-area pointer as the final arg.
+                wfn.instruction(&I::I32Const(DOM_RETURN_AREA as i32));
+                wfn.instruction(&I::Call(i));
+                // Lift: load the data pointer that the host wrote at
+                // offset 0 (or for query, the disc at offset 0 — the
+                // caller's LocalSet captures one i32; we use the disc
+                // for Option<String> so a downstream test of "is some"
+                // is just a non-zero check, and the data is available
+                // for follow-up reads).
+                wfn.instruction(&I::I32Const(DOM_RETURN_AREA as i32));
+                wfn.instruction(&I::I32Load(wasm_encoder::MemArg {
+                    offset: 0,
+                    align: 2,
+                    memory_index: 0,
+                }));
+            }
+            _ => {
+                wfn.instruction(&I::Call(i));
+                // Void-returning op: push a sink placeholder.
                 wfn.instruction(&I::I32Const(0));
             }
-            return Ok(true);
         }
-        Ok(false)
+        Ok(true)
     }
 
     fn lower_ty(t: &IrTy) -> Option<ValType> {
@@ -835,6 +879,25 @@ impl<'a> Emitter<'a> {
             }
             FnRef::Builtin(other) => Err(WasmError::Unsupported(format!("wasm builtin {other:?}"))),
         }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum DomOpKind {
+    SetText,
+    GetText,
+    OnClick,
+    Query,
+    Unknown,
+}
+
+fn classify_dom_op(op: &str) -> DomOpKind {
+    match op {
+        "dom.set_text" | "set_text" | "set-text" => DomOpKind::SetText,
+        "dom.get_text" | "get_text" | "get-text" => DomOpKind::GetText,
+        "dom.on_click" | "on_click" | "on-click" => DomOpKind::OnClick,
+        "dom.query" | "query" => DomOpKind::Query,
+        _ => DomOpKind::Unknown,
     }
 }
 

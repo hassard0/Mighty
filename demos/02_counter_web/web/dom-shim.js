@@ -1,11 +1,11 @@
-// v0.5 dogfood Gap-2 — JS implementation of the `mty:web/dom`
-// component interface declared in
-// `crates/sdust-codegen-wasm/src/wit.rs`.
+// v0.8 — JS implementation of the `mty:web/dom` component interface
+// declared in `crates/mty-codegen-wasm/src/wit.rs`.
 //
-// The Stardust compiler emits core-wasm imports under the canonical
-// `mty:web/dom` module with `(ptr, len)` argument pairs for each
-// string. This shim wraps a WebAssembly Instance to satisfy those
-// imports against `document.*`.
+// The Mighty compiler emits core-wasm imports under the canonical
+// `mty:web/dom` module. v0.8 wires the canonical-ABI return-area
+// for `string` and `option<string>` returns: the caller passes a
+// `ret_area_ptr` (third arg) where the host writes the result
+// (data_ptr, data_len) [+ optional disc byte for option<string>].
 //
 // Usage from the demo's index.html:
 //
@@ -14,14 +14,20 @@
 //     log: (msg) => console.log(msg),
 //   });
 //   inst.exports.bump();
-//
-// The shim copies (ptr, len) pairs out of the module's linear memory
-// using a TextDecoder, and copies return strings back in via a
-// caller-allocated bump pointer at offset 8192 (kept above the data
-// section's initial reservation).
 
+// Legacy "JS string table" pointer used by v0.5 `get-text` for back-
+// compat tooling; preserved at 8192 with a 16-byte gap before the
+// canonical-ABI return area.
 const RETURN_BUF_OFFSET = 8192;
 const RETURN_BUF_CAPACITY = 4096;
+// v0.8 canonical-ABI return area for string / option<string> returns.
+// Layout for `string`:           [data_ptr:i32 | data_len:i32]
+// Layout for `option<string>`:   [disc:i32 | data_ptr:i32 | data_len:i32]
+// `disc != 0` means `Some`; the shim writes 0 for `None`.
+const DOM_RETURN_AREA = 8208;
+// Heap pointer used by the shim to write result strings; grows by
+// length each call (cycled when it approaches the return-buf cap).
+let domHeapCursor = RETURN_BUF_OFFSET + 4;
 
 /**
  * Build the `mty:web/dom` import object. Each function reads
@@ -45,10 +51,39 @@ function makeDomImports(getMemory, onClickCallbacks) {
       throw new Error(`dom return buffer overflow: ${bytes.length}`);
     }
     const view = new DataView(mem.buffer);
-    // [len:i32 | bytes...] starting at RETURN_BUF_OFFSET
+    // [len:i32 | bytes...] starting at RETURN_BUF_OFFSET (v0.5 legacy
+    // tooling that still uses the u32-handle shape).
     view.setUint32(RETURN_BUF_OFFSET, bytes.length, true);
     new Uint8Array(mem.buffer, RETURN_BUF_OFFSET + 4, bytes.length).set(bytes);
     return RETURN_BUF_OFFSET;
+  }
+
+  // v0.8 — write `s` into a fresh slab and record (ptr, len) in the
+  // canonical-ABI return area at offset `retArea` so the calling wasm
+  // module can read the string back. Bumps `domHeapCursor` to give a
+  // distinct address each call.
+  function writeStringToReturnArea(retArea, s) {
+    const mem = getMemory();
+    const bytes = encoder.encode(s);
+    const need = bytes.length + 4; // 4-byte alignment slack
+    if (domHeapCursor + need > RETURN_BUF_OFFSET + RETURN_BUF_CAPACITY) {
+      // Wrap around (the demo only retains one return string at a
+      // time, so overwriting earlier data is safe).
+      domHeapCursor = RETURN_BUF_OFFSET + 4;
+    }
+    const dataPtr = domHeapCursor;
+    new Uint8Array(mem.buffer, dataPtr, bytes.length).set(bytes);
+    domHeapCursor += need;
+    const view = new DataView(mem.buffer);
+    view.setUint32(retArea, dataPtr, true);
+    view.setUint32(retArea + 4, bytes.length, true);
+  }
+
+  function writeNoneToReturnArea(retArea) {
+    const mem = getMemory();
+    const view = new DataView(mem.buffer);
+    view.setUint32(retArea, 0, true);
+    view.setUint32(retArea + 4, 0, true);
   }
 
   return {
@@ -58,11 +93,12 @@ function makeDomImports(getMemory, onClickCallbacks) {
       const el = document.getElementById(id);
       if (el) el.textContent = text;
     },
-    'get-text': (idPtr, idLen) => {
+    // v0.8 canonical-ABI signature: (id_ptr, id_len, ret_area) -> ()
+    'get-text': (idPtr, idLen, retArea) => {
       const id = readStr(idPtr, idLen);
       const el = document.getElementById(id);
       const s = el ? (el.textContent ?? '') : '';
-      return writeReturnStr(s);
+      writeStringToReturnArea(retArea, s);
     },
     'on-click': (idPtr, idLen, tagPtr, tagLen) => {
       const id = readStr(idPtr, idLen);
@@ -74,12 +110,19 @@ function makeDomImports(getMemory, onClickCallbacks) {
         if (typeof cb === 'function') cb();
       });
     },
-    'query': (selPtr, selLen) => {
+    // v0.8 canonical-ABI signature: (sel_ptr, sel_len, ret_area) -> ()
+    // Return-area layout: [disc:i32 | data_ptr:i32 | data_len:i32].
+    // BUT we emit the same 8-byte (ptr,len) layout as get-text and use
+    // a non-zero ptr as "Some" / zero ptr as "None" — keeps the wasm
+    // import shape uniform.
+    'query': (selPtr, selLen, retArea) => {
       const sel = readStr(selPtr, selLen);
       const el = document.querySelector(sel);
-      // Option<string>: returns 0 for none, or a pointer to len-prefixed bytes.
-      if (!el) return 0;
-      return writeReturnStr(el.id || '');
+      if (!el) {
+        writeNoneToReturnArea(retArea);
+      } else {
+        writeStringToReturnArea(retArea, el.id || '');
+      }
     },
     // v0.4 back-compat: handle-based set-text remains available.
     'get-element-by-id': (idPtr, idLen) => {

@@ -193,23 +193,16 @@ fn append_host_stubs(out: &mut String, target: WasmTarget) {
             out.push_str("  interface log {\n");
             out.push_str("    log: func(msg: string);\n");
             out.push_str("  }\n");
-            // v0.5 dogfood Gap-2: expanded DOM surface. The JS shim
-            // (`demos/02_counter_web/web/dom-shim.js`) implements each
-            // of these against `document.*` so Mighty code can drive
-            // the page directly instead of parsing log lines.
+            // v0.8 loose-end 4/4: expanded DOM surface with real
+            // `string` / `option<string>` returns. The companion JS
+            // shim (`demos/02_counter_web/web/dom-shim.js`) writes the
+            // result bytes into a caller-allocated return-area buffer
+            // matching the canonical-ABI lowering wired in `emit.rs`.
             out.push_str("  interface dom {\n");
             out.push_str("    set-text: func(id: string, text: string);\n");
-            // v0.5 NOTE: `get-text` and `query` return `u32` handles into
-            // the JS shim's string table rather than `string`. The core
-            // module imports these as `(ptr,len) -> i32`, and the WIT
-            // canonical-ABI lift for `-> string` would expect a
-            // `(ptr,len,retptr) -> ()` shape. Keeping `u32` here keeps
-            // the WIT and core import signatures aligned. v0.6 will
-            // switch back to `string` once the canonical-ABI return-area
-            // bridge is wired in `emit.rs`.
-            out.push_str("    get-text: func(id: string) -> u32;\n");
+            out.push_str("    get-text: func(id: string) -> string;\n");
             out.push_str("    on-click: func(id: string, callback-tag: string);\n");
-            out.push_str("    query: func(selector: string) -> u32;\n");
+            out.push_str("    query: func(selector: string) -> option<string>;\n");
             out.push_str("    // legacy v0.4 ops, kept for back-compat with the\n");
             out.push_str("    // existing JS host wrapper.\n");
             out.push_str("    get-element-by-id: func(id: string) -> option<u32>;\n");

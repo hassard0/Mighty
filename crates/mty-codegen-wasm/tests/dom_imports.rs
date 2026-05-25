@@ -50,18 +50,18 @@ fn web_target_imports_stardust_web_dom() {
 }
 
 #[test]
-fn web_dom_interface_has_v0_5_methods() {
+fn web_dom_interface_has_v0_8_string_returns() {
     let doc = emit_wit(&empty_main(), "demo", WasmTarget::Web).expect("emit");
-    // v0.5 integration: `get-text` / `query` return `u32` (string-table
-    // handles into the JS shim) rather than `string` / `option<string>`,
-    // so the WIT signature lines up with the core import's
-    // `(ptr,len) -> i32` shape. Canonical-ABI return-area bridging is
-    // scheduled for v0.6.
+    // v0.8: `get-text` and `query` return `string` / `option<string>`
+    // via the canonical-ABI return-area bridge wired in
+    // `emit::Emitter::emit_dom_call`. The JS shim
+    // (`demos/02_counter_web/web/dom-shim.js`) writes (ptr, len) into
+    // the return area.
     for method in [
         "set-text: func(id: string, text: string)",
-        "get-text: func(id: string) -> u32",
+        "get-text: func(id: string) -> string",
         "on-click: func(id: string, callback-tag: string)",
-        "query: func(selector: string) -> u32",
+        "query: func(selector: string) -> option<string>",
     ] {
         assert!(
             doc.text.contains(method),
