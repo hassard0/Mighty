@@ -63,7 +63,7 @@ pub struct DwarfBuilder {
     /// display type name (e.g. "i32"). These are children of the
     /// compile-unit DIE.
     base_types: HashMap<String, UnitEntryId>,
-    /// Producer string ("stardust-0.2"). Saved on the compile-unit DIE.
+    /// Producer string ("mighty-0.8"). Saved on the compile-unit DIE.
     producer: String,
     /// Source file path used for `DW_AT_name` and the line program's
     /// primary file entry.
@@ -92,7 +92,7 @@ impl DwarfBuilder {
         Self {
             dwarf,
             base_types: HashMap::new(),
-            producer: "stardust-0.2".to_string(),
+            producer: "mighty-0.8".to_string(),
             source_path: source_path.into(),
             comp_dir: comp_dir.into(),
             line_program_seeded: false,

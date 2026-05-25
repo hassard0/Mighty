@@ -155,66 +155,66 @@ impl<'ctx, 'a, 'b> ProgramLowerer<'ctx, 'a, 'b> {
         // log(ptr, len)
         let sig = void.fn_type(&[ptr.into(), i64.into()], false);
         self.runtime_fns.insert(
-            "stardust_runtime_log",
+            "mty_runtime_log",
             self.module
-                .add_function("stardust_runtime_log", sig, Some(Linkage::External)),
+                .add_function("mty_runtime_log", sig, Some(Linkage::External)),
         );
         let sig = void.fn_type(&[ptr.into(), i64.into()], false);
         self.runtime_fns.insert(
-            "stardust_runtime_print",
+            "mty_runtime_print",
             self.module
-                .add_function("stardust_runtime_print", sig, Some(Linkage::External)),
+                .add_function("mty_runtime_print", sig, Some(Linkage::External)),
         );
         let sig = void.fn_type(&[ptr.into(), i64.into()], false);
         self.runtime_fns.insert(
-            "stardust_runtime_panic",
+            "mty_runtime_panic",
             self.module
-                .add_function("stardust_runtime_panic", sig, Some(Linkage::External)),
+                .add_function("mty_runtime_panic", sig, Some(Linkage::External)),
         );
         let sig = i64.fn_type(&[], false);
         self.runtime_fns.insert(
-            "stardust_runtime_arena_push",
+            "mty_runtime_arena_push",
             self.module
-                .add_function("stardust_runtime_arena_push", sig, Some(Linkage::External)),
+                .add_function("mty_runtime_arena_push", sig, Some(Linkage::External)),
         );
         let sig = void.fn_type(&[i64.into()], false);
         self.runtime_fns.insert(
-            "stardust_runtime_arena_pop",
+            "mty_runtime_arena_pop",
             self.module
-                .add_function("stardust_runtime_arena_pop", sig, Some(Linkage::External)),
+                .add_function("mty_runtime_arena_pop", sig, Some(Linkage::External)),
         );
         let sig = i8.fn_type(&[i64.into()], false);
         self.runtime_fns.insert(
-            "stardust_runtime_budget_charge",
+            "mty_runtime_budget_charge",
             self.module.add_function(
-                "stardust_runtime_budget_charge",
+                "mty_runtime_budget_charge",
                 sig,
                 Some(Linkage::External),
             ),
         );
         let sig = void.fn_type(&[i64.into(), i64.into(), i64.into()], false);
         self.runtime_fns.insert(
-            "stardust_runtime_send",
+            "mty_runtime_send",
             self.module
-                .add_function("stardust_runtime_send", sig, Some(Linkage::External)),
+                .add_function("mty_runtime_send", sig, Some(Linkage::External)),
         );
         let sig = i64.fn_type(&[i64.into(), i64.into(), i64.into(), i64.into()], false);
         self.runtime_fns.insert(
-            "stardust_runtime_ask",
+            "mty_runtime_ask",
             self.module
-                .add_function("stardust_runtime_ask", sig, Some(Linkage::External)),
+                .add_function("mty_runtime_ask", sig, Some(Linkage::External)),
         );
         let sig = i64.fn_type(&[i64.into()], false);
         self.runtime_fns.insert(
-            "stardust_runtime_spawn",
+            "mty_runtime_spawn",
             self.module
-                .add_function("stardust_runtime_spawn", sig, Some(Linkage::External)),
+                .add_function("mty_runtime_spawn", sig, Some(Linkage::External)),
         );
         let sig = i64.fn_type(&[ptr.into(), i64.into(), i64.into()], false);
         self.runtime_fns.insert(
-            "stardust_runtime_extern_call",
+            "mty_runtime_extern_call",
             self.module
-                .add_function("stardust_runtime_extern_call", sig, Some(Linkage::External)),
+                .add_function("mty_runtime_extern_call", sig, Some(Linkage::External)),
         );
     }
 
@@ -422,12 +422,12 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
         match s {
             Stmt::Nop | Stmt::StorageLive(_) | Stmt::StorageDead(_) | Stmt::Drop(_) => Ok(()),
             Stmt::ArenaPush(_) => {
-                let f = self.pl.runtime_fns["stardust_runtime_arena_push"];
+                let f = self.pl.runtime_fns["mty_runtime_arena_push"];
                 let _ = self.pl.builder.build_call(f, &[], "arena_push");
                 Ok(())
             }
             Stmt::ArenaPop(_) => {
-                let f = self.pl.runtime_fns["stardust_runtime_arena_pop"];
+                let f = self.pl.runtime_fns["mty_runtime_arena_pop"];
                 let z = self.pl.i64_ty().const_zero();
                 let _ = self.pl.builder.build_call(f, &[z.into()], "arena_pop");
                 Ok(())
@@ -440,7 +440,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                 let nptr = self.pl.intern_string(&method);
                 let nlen = self.pl.i64_ty().const_int(method.len() as u64, false);
                 let zero = self.pl.i64_ty().const_zero();
-                let f = self.pl.runtime_fns["stardust_runtime_extern_call"];
+                let f = self.pl.runtime_fns["mty_runtime_extern_call"];
                 let call = self
                     .pl
                     .builder
@@ -497,7 +497,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                 let v = self.eval_operand(msg)?;
                 let v = self.coerce(v, self.pl.ptr_ty().into());
                 let zero = self.pl.i64_ty().const_zero();
-                let f = self.pl.runtime_fns["stardust_runtime_panic"];
+                let f = self.pl.runtime_fns["mty_runtime_panic"];
                 let _ = self
                     .pl
                     .builder
@@ -860,9 +860,9 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                 }
                 let (ptr, len) = self.string_pair(&args[0])?;
                 let sym = if matches!(func, FnRef::Builtin(BuiltinId::Log)) {
-                    "stardust_runtime_log"
+                    "mty_runtime_log"
                 } else {
-                    "stardust_runtime_print"
+                    "mty_runtime_print"
                 };
                 let f = self.pl.runtime_fns[sym];
                 let _ = self
@@ -876,7 +876,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                     return Err(LlvmError::Unsupported("panic arity".into()));
                 }
                 let (ptr, len) = self.string_pair(&args[0])?;
-                let f = self.pl.runtime_fns["stardust_runtime_panic"];
+                let f = self.pl.runtime_fns["mty_runtime_panic"];
                 let _ = self
                     .pl
                     .builder

@@ -1,5 +1,5 @@
 ---
-source: crates/sdust-hir/tests/dump_snapshots.rs
+source: crates/mty-hir/tests/dump_snapshots.rs
 expression: "dump(\"protocol Echo { Ping(msg: Str) -> Str }\\nagent Echoer: Echo { on Ping(msg) -> msg }\")"
 ---
 (package

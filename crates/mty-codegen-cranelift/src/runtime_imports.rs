@@ -14,62 +14,62 @@ use cranelift_codegen::isa::CallConv;
 /// All runtime imports the codegen knows about.
 pub const RUNTIME_IMPORTS: &[RuntimeImport] = &[
     RuntimeImport {
-        name: "stardust_runtime_log",
+        name: "mty_runtime_log",
         params: &[ct::I64, ct::I64],
         ret: None,
     },
     RuntimeImport {
-        name: "stardust_runtime_print",
+        name: "mty_runtime_print",
         params: &[ct::I64, ct::I64],
         ret: None,
     },
     RuntimeImport {
-        name: "stardust_runtime_panic",
+        name: "mty_runtime_panic",
         params: &[ct::I64, ct::I64],
         ret: None,
     },
     RuntimeImport {
-        name: "stardust_runtime_arena_push",
+        name: "mty_runtime_arena_push",
         params: &[],
         ret: Some(ct::I64),
     },
     RuntimeImport {
-        name: "stardust_runtime_arena_pop",
+        name: "mty_runtime_arena_pop",
         params: &[ct::I64],
         ret: None,
     },
     RuntimeImport {
-        name: "stardust_runtime_alloc",
+        name: "mty_runtime_alloc",
         params: &[ct::I64, ct::I64, ct::I64],
         ret: Some(ct::I64),
     },
     RuntimeImport {
-        name: "stardust_runtime_budget_charge",
+        name: "mty_runtime_budget_charge",
         params: &[ct::I64],
         ret: Some(ct::I8),
     },
     RuntimeImport {
-        name: "stardust_runtime_send",
+        name: "mty_runtime_send",
         params: &[ct::I64, ct::I64, ct::I64],
         ret: None,
     },
     RuntimeImport {
-        name: "stardust_runtime_ask",
+        name: "mty_runtime_ask",
         params: &[ct::I64, ct::I64, ct::I64, ct::I64],
         ret: Some(ct::I64),
     },
     RuntimeImport {
-        name: "stardust_runtime_spawn",
+        name: "mty_runtime_spawn",
         params: &[ct::I64],
         ret: Some(ct::I64),
     },
     RuntimeImport {
-        name: "stardust_runtime_extern_call",
+        name: "mty_runtime_extern_call",
         params: &[ct::I64, ct::I64, ct::I64],
         ret: Some(ct::I64),
     },
     RuntimeImport {
-        name: "stardust_runtime_log_i64",
+        name: "mty_runtime_log_i64",
         params: &[ct::I64],
         ret: None,
     },
@@ -108,8 +108,8 @@ mod tests {
 
     #[test]
     fn lookup_finds_known() {
-        assert!(lookup("stardust_runtime_log").is_some());
-        assert!(lookup("stardust_runtime_panic").is_some());
+        assert!(lookup("mty_runtime_log").is_some());
+        assert!(lookup("mty_runtime_panic").is_some());
     }
 
     #[test]

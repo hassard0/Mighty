@@ -11,7 +11,8 @@
 //!    bang-doc tokens that belong to the package, not the item.
 //! 4. Render a signature line per item directly from the HIR.
 //! 5. Split the doc body into synopsis (first sentence), examples
-//!    (fenced code blocks tagged `sd`/`stardust`), and a remaining
+//!    (fenced code blocks tagged `mty`/`mighty` — plus the legacy
+//!    `sd`/`stardust` spellings for back-compat), and a remaining
 //!    CommonMark body.
 //! 6. Compute simple intra-package back-links by scanning expression
 //!    bodies for [`mty_hir::HirExpr::Path`] hits that resolve to a
@@ -771,7 +772,8 @@ pub(crate) fn render_type(pkg: &Package, ty: TypeId) -> String {
 /// Split the doc body into (synopsis, body, examples, since).
 ///
 /// - Synopsis = first sentence (ends at `. ` or end of first line).
-/// - Examples = fenced code blocks tagged `sd` or `stardust`. The raw
+/// - Examples = fenced code blocks tagged `mty`, `mighty`, or the
+///   legacy `sd` / `stardust` spellings. The raw
 ///   markdown body is left untouched (the renderer can re-extract or
 ///   render in place).
 /// - Since = the text following a `# Since` heading on its own line.
@@ -847,7 +849,10 @@ fn extract_examples(body: &str) -> Vec<DocExample> {
         match ev {
             Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang))) => {
                 let lang = lang.to_string();
-                if lang == "mty" || lang == "mighty" {
+                // v0.8: recognize current spellings (`mty`, `mighty`) plus
+                // the legacy v0.2-era spellings (`sd`, `stardust`) for
+                // back-compat with already-published docs.
+                if lang == "mty" || lang == "mighty" || lang == "sd" || lang == "stardust" {
                     current = Some((lang, String::new()));
                 } else {
                     current = None;

@@ -1,5 +1,5 @@
 ---
-source: crates/sdust-hir/tests/dump_snapshots.rs
+source: crates/mty-hir/tests/dump_snapshots.rs
 expression: "dump(\"fn add(a: I32, b: I32) -> I32 = a + b\")"
 ---
 (package

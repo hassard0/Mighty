@@ -46,35 +46,35 @@ fn registry() -> &'static Mutex<ExternRegistry> {
 // ---- The actual C-ABI fns ------------------------------------------
 
 #[no_mangle]
-pub extern "C" fn stardust_runtime_log(ptr: i64, len: i64) {
+pub extern "C" fn mty_runtime_log(ptr: i64, len: i64) {
     let s = unsafe { read_str(ptr, len) };
     println!("{s}");
 }
 
 #[no_mangle]
-pub extern "C" fn stardust_runtime_print(ptr: i64, len: i64) {
+pub extern "C" fn mty_runtime_print(ptr: i64, len: i64) {
     let s = unsafe { read_str(ptr, len) };
     print!("{s}");
 }
 
 #[no_mangle]
-pub extern "C" fn stardust_runtime_panic(ptr: i64, len: i64) {
+pub extern "C" fn mty_runtime_panic(ptr: i64, len: i64) {
     let s = unsafe { read_str(ptr, len) };
     eprintln!("stardust panic: {s}");
 }
 
 #[no_mangle]
-pub extern "C" fn stardust_runtime_arena_push() -> i64 {
+pub extern "C" fn mty_runtime_arena_push() -> i64 {
     ARENA_STACK.with(|s| s.borrow_mut().push() as i64)
 }
 
 #[no_mangle]
-pub extern "C" fn stardust_runtime_arena_pop(_handle: i64) {
+pub extern "C" fn mty_runtime_arena_pop(_handle: i64) {
     ARENA_STACK.with(|s| s.borrow_mut().pop());
 }
 
 #[no_mangle]
-pub extern "C" fn stardust_runtime_alloc(size: i64, align: i64, _zero: i64) -> i64 {
+pub extern "C" fn mty_runtime_alloc(size: i64, align: i64, _zero: i64) -> i64 {
     BYTES_CHARGED.with(|b| {
         let mut m = b.borrow_mut();
         *m = m.saturating_add(size as u64);
@@ -86,7 +86,7 @@ pub extern "C" fn stardust_runtime_alloc(size: i64, align: i64, _zero: i64) -> i
 }
 
 #[no_mangle]
-pub extern "C" fn stardust_runtime_budget_charge(bytes: i64) -> i8 {
+pub extern "C" fn mty_runtime_budget_charge(bytes: i64) -> i8 {
     BYTES_CHARGED.with(|b| {
         let mut m = b.borrow_mut();
         *m = m.saturating_add(bytes as u64);
@@ -95,14 +95,14 @@ pub extern "C" fn stardust_runtime_budget_charge(bytes: i64) -> i8 {
 }
 
 #[no_mangle]
-pub extern "C" fn stardust_runtime_send(_target: i64, _msg: i64, _payload: i64) {
+pub extern "C" fn mty_runtime_send(_target: i64, _msg: i64, _payload: i64) {
     // Slice-8 stub — full implementation lives in the interp-driven
     // path; the JIT calls this for compiled-handler scenarios that
     // slice 8 doesn't fully cover.
 }
 
 #[no_mangle]
-pub extern "C" fn stardust_runtime_ask(
+pub extern "C" fn mty_runtime_ask(
     _target: i64,
     _msg: i64,
     _payload: i64,
@@ -112,19 +112,19 @@ pub extern "C" fn stardust_runtime_ask(
 }
 
 #[no_mangle]
-pub extern "C" fn stardust_runtime_spawn(_agent_id: i64) -> i64 {
+pub extern "C" fn mty_runtime_spawn(_agent_id: i64) -> i64 {
     0
 }
 
 #[no_mangle]
-pub extern "C" fn stardust_runtime_extern_call(name_ptr: i64, name_len: i64, _args: i64) -> i64 {
+pub extern "C" fn mty_runtime_extern_call(name_ptr: i64, name_len: i64, _args: i64) -> i64 {
     let name = unsafe { read_str(name_ptr, name_len).to_string() };
     let reg = registry().lock();
     reg.call_i64(&name).unwrap_or_default()
 }
 
 #[no_mangle]
-pub extern "C" fn stardust_runtime_log_i64(v: i64) {
+pub extern "C" fn mty_runtime_log_i64(v: i64) {
     println!("{v}");
 }
 
@@ -150,21 +150,21 @@ pub fn symbol_table() -> Vec<(String, *const u8)> {
         };
     }
     vec![
-        entry!("stardust_runtime_log", stardust_runtime_log),
-        entry!("stardust_runtime_print", stardust_runtime_print),
-        entry!("stardust_runtime_panic", stardust_runtime_panic),
-        entry!("stardust_runtime_arena_push", stardust_runtime_arena_push),
-        entry!("stardust_runtime_arena_pop", stardust_runtime_arena_pop),
-        entry!("stardust_runtime_alloc", stardust_runtime_alloc),
+        entry!("mty_runtime_log", mty_runtime_log),
+        entry!("mty_runtime_print", mty_runtime_print),
+        entry!("mty_runtime_panic", mty_runtime_panic),
+        entry!("mty_runtime_arena_push", mty_runtime_arena_push),
+        entry!("mty_runtime_arena_pop", mty_runtime_arena_pop),
+        entry!("mty_runtime_alloc", mty_runtime_alloc),
         entry!(
-            "stardust_runtime_budget_charge",
-            stardust_runtime_budget_charge
+            "mty_runtime_budget_charge",
+            mty_runtime_budget_charge
         ),
-        entry!("stardust_runtime_send", stardust_runtime_send),
-        entry!("stardust_runtime_ask", stardust_runtime_ask),
-        entry!("stardust_runtime_spawn", stardust_runtime_spawn),
-        entry!("stardust_runtime_extern_call", stardust_runtime_extern_call),
-        entry!("stardust_runtime_log_i64", stardust_runtime_log_i64),
+        entry!("mty_runtime_send", mty_runtime_send),
+        entry!("mty_runtime_ask", mty_runtime_ask),
+        entry!("mty_runtime_spawn", mty_runtime_spawn),
+        entry!("mty_runtime_extern_call", mty_runtime_extern_call),
+        entry!("mty_runtime_log_i64", mty_runtime_log_i64),
     ]
 }
 
@@ -174,19 +174,19 @@ mod tests {
 
     #[test]
     fn arena_push_pop_balances() {
-        let _h = stardust_runtime_arena_push();
-        stardust_runtime_arena_pop(_h);
+        let _h = mty_runtime_arena_push();
+        mty_runtime_arena_pop(_h);
         // Re-entry should still work.
-        let _h2 = stardust_runtime_arena_push();
-        stardust_runtime_arena_pop(_h2);
+        let _h2 = mty_runtime_arena_push();
+        mty_runtime_arena_pop(_h2);
     }
 
     #[test]
     fn alloc_charges_bytes() {
         BYTES_CHARGED.with(|b| *b.borrow_mut() = 0);
-        let _h = stardust_runtime_arena_push();
-        let _p = stardust_runtime_alloc(64, 8, 0);
-        stardust_runtime_arena_pop(_h);
+        let _h = mty_runtime_arena_push();
+        let _p = mty_runtime_alloc(64, 8, 0);
+        mty_runtime_arena_pop(_h);
         let charged = BYTES_CHARGED.with(|b| *b.borrow());
         assert!(charged >= 64);
     }
@@ -194,7 +194,7 @@ mod tests {
     #[test]
     fn symbol_table_has_log() {
         let st = symbol_table();
-        assert!(st.iter().any(|(n, _)| n == "stardust_runtime_log"));
+        assert!(st.iter().any(|(n, _)| n == "mty_runtime_log"));
     }
 
     #[test]

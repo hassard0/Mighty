@@ -300,7 +300,7 @@ fn aot_link_and_run_smoke() {
         };
         match link_executable(&obj, &exe_path, BuildMode::Debug) {
             Ok(_art) => {
-                // The compiled binary depends on stardust_runtime_* C
+                // The compiled binary depends on mty_runtime_* C
                 // symbols; without linking against libmty_runtime it
                 // would fail to link. We accept either Ok or Err here —
                 // the goal is to exercise the link-discovery path.

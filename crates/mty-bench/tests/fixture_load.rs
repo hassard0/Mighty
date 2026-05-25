@@ -2,12 +2,12 @@
 //! parse_throughput benchmark would measure error-recovery instead of
 //! the happy path.
 
-use mty_bench::fixtures::{echo_sir_program, stardust_10kloc};
+use mty_bench::fixtures::{echo_sir_program, mty_10kloc};
 use mty_diagnostics::Severity;
 
 #[test]
 fn ten_kloc_parses_without_errors() {
-    let src = stardust_10kloc();
+    let src = mty_10kloc();
     let parsed = mty_driver::parse_source(src, "synth.mty".into());
     let errors: Vec<_> = parsed
         .diagnostics

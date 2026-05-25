@@ -75,7 +75,7 @@ fn roundtrip_finds_subprogram_for_main() {
                     if let gimli::AttributeValue::DebugStrRef(off) = v {
                         let bytes = str_sec.get_str(off).expect("producer str");
                         let s = bytes.to_string_lossy().into_owned();
-                        assert!(s.contains("stardust"));
+                        assert!(s.contains("mighty"));
                     }
                 }
             }

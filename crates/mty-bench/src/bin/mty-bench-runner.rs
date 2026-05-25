@@ -16,7 +16,7 @@
 
 use clap::{Parser, ValueEnum};
 use mty_bench::{
-    fixtures::stardust_10kloc,
+    fixtures::mty_10kloc,
     metrics::{mean, percentiles},
 };
 use serde::Serialize;
@@ -127,7 +127,7 @@ fn finish(name: &str, samples: Vec<Duration>, extra: Option<serde_json::Value>) 
 }
 
 fn run_parse(iters: usize) -> Sample {
-    let src = stardust_10kloc();
+    let src = mty_10kloc();
     let bytes = src.len();
     let mut samples = Vec::with_capacity(iters);
     for _ in 0..iters {

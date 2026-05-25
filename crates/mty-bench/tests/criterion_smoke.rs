@@ -4,12 +4,12 @@
 //! binary so the test runs under `cargo test -p mty-bench` without
 //! a build artifact.
 
-use mty_bench::fixtures::stardust_10kloc;
+use mty_bench::fixtures::mty_10kloc;
 use std::time::Instant;
 
 #[test]
 fn parse_one_iter_runs() {
-    let src = stardust_10kloc();
+    let src = mty_10kloc();
     let t0 = Instant::now();
     let parsed = mty_driver::parse_source(src, "smoke.mty".into());
     let dur = t0.elapsed();

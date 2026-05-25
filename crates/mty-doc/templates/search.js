@@ -1,4 +1,4 @@
-// sdust-doc client-side search: fetch search-index.json, filter as user types.
+// mty-doc client-side search: fetch search-index.json, filter as user types.
 (async function () {
   const q = document.getElementById("q");
   const out = document.getElementById("results");

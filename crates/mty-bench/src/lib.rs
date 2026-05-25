@@ -3,7 +3,7 @@
 //!
 //! This crate is **publish = false** and exists solely to host:
 //!
-//! - The 10 KLOC synthetic Mighty source ([`fixtures::stardust_10kloc`])
+//! - The 10 KLOC synthetic Mighty source ([`fixtures::mty_10kloc`])
 //!   used by the parse_throughput benchmark.
 //! - Cooked SIR programs ([`fixtures::echo_sir_program`]) used by the
 //!   agent/mailbox latency + throughput benchmarks so the cost of
@@ -26,4 +26,4 @@ pub mod fixtures;
 pub mod http;
 pub mod metrics;
 
-pub use fixtures::{echo_sir_program, stardust_10kloc, ten_kloc_lines};
+pub use fixtures::{echo_sir_program, mty_10kloc, ten_kloc_lines};

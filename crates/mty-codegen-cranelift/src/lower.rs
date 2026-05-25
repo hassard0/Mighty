@@ -666,12 +666,12 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
         match stmt {
             Stmt::Nop | Stmt::StorageLive(_) | Stmt::StorageDead(_) | Stmt::Drop(_) => Ok(()),
             Stmt::ArenaPush(_) => {
-                self.call_rt_no_args("stardust_runtime_arena_push", Some(ct::I64))?;
+                self.call_rt_no_args("mty_runtime_arena_push", Some(ct::I64))?;
                 Ok(())
             }
             Stmt::ArenaPop(_) => {
                 let zero = self.b.ins().iconst(ct::I64, 0);
-                self.call_rt("stardust_runtime_arena_pop", &[zero], None)?;
+                self.call_rt("mty_runtime_arena_pop", &[zero], None)?;
                 Ok(())
             }
             Stmt::Assign(place, rv) => self.lower_assign(place, rv),
@@ -688,7 +688,7 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 let nlen = self.b.ins().iconst(ct::I64, method.len() as i64);
                 let nargs = self.b.ins().iconst(ct::I64, 0);
                 let r = self
-                    .call_rt("stardust_runtime_extern_call", &[nptr, nlen, nargs], None)?
+                    .call_rt("mty_runtime_extern_call", &[nptr, nlen, nargs], None)?
                     .unwrap_or_else(|| self.b.ins().iconst(ct::I64, 0));
                 if let Some(p) = out {
                     if !p.proj.is_empty() {
@@ -751,7 +751,7 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
             Term::Panic { msg } => {
                 let v = self.eval_operand(msg)?;
                 let zero = self.b.ins().iconst(ct::I64, 0);
-                self.call_rt("stardust_runtime_panic", &[v, zero], None)?;
+                self.call_rt("mty_runtime_panic", &[v, zero], None)?;
                 self.b
                     .ins()
                     .trap(cranelift_codegen::ir::TrapCode::user(2).unwrap());
@@ -1239,13 +1239,13 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 let nptr = self.b.ins().symbol_value(ct::I64, gv);
                 let nlen = self.b.ins().iconst(ct::I64, nstr.len() as i64);
                 let nargs = self.b.ins().iconst(ct::I64, 0);
-                let r = self.call_rt("stardust_runtime_extern_call", &[nptr, nlen, nargs], None)?;
+                let r = self.call_rt("mty_runtime_extern_call", &[nptr, nlen, nargs], None)?;
                 Ok(r.unwrap_or_else(|| self.b.ins().iconst(ct::I64, 0)))
             }
             Rvalue::AgentSpawn { agent, .. } => {
-                // Route through runtime: stardust_runtime_spawn(agent_id) -> i64
+                // Route through runtime: mty_runtime_spawn(agent_id) -> i64
                 let aid = self.b.ins().iconst(ct::I64, agent.0 as i64);
-                let r = self.call_rt("stardust_runtime_spawn", &[aid], None)?;
+                let r = self.call_rt("mty_runtime_spawn", &[aid], None)?;
                 Ok(r.unwrap_or_else(|| self.b.ins().iconst(ct::I64, 0)))
             }
             Rvalue::Send {
@@ -1253,11 +1253,11 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 msg: _,
                 args: _,
             } => {
-                // Route through runtime: stardust_runtime_send(target, msg, payload)
+                // Route through runtime: mty_runtime_send(target, msg, payload)
                 let t = self.eval_operand(target)?;
                 let m = self.b.ins().iconst(ct::I64, 0);
                 let p = self.b.ins().iconst(ct::I64, 0);
-                self.call_rt("stardust_runtime_send", &[t, m, p], None)?;
+                self.call_rt("mty_runtime_send", &[t, m, p], None)?;
                 Ok(self.b.ins().iconst(ct::I64, 0))
             }
             Rvalue::Ask {
@@ -1273,7 +1273,7 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                     .b
                     .ins()
                     .iconst(ct::I64, deadline_ms.unwrap_or(0) as i64);
-                let r = self.call_rt("stardust_runtime_ask", &[t, m, p, d], None)?;
+                let r = self.call_rt("mty_runtime_ask", &[t, m, p, d], None)?;
                 Ok(r.unwrap_or_else(|| self.b.ins().iconst(ct::I64, 0)))
             }
             Rvalue::CapValue { .. } => {
@@ -1438,9 +1438,9 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 // Get (ptr, len) pair.
                 let (ptr, len) = self.string_pair(&args[0])?;
                 let sym = if matches!(func, FnRef::Builtin(BuiltinId::Log)) {
-                    "stardust_runtime_log"
+                    "mty_runtime_log"
                 } else {
-                    "stardust_runtime_print"
+                    "mty_runtime_print"
                 };
                 self.call_rt(sym, &[ptr, len], None)?;
                 Ok(self.b.ins().iconst(ct::I64, 0))
@@ -1450,7 +1450,7 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                     return Err(CodegenError::Unsupported("panic arity".into()));
                 }
                 let (ptr, len) = self.string_pair(&args[0])?;
-                self.call_rt("stardust_runtime_panic", &[ptr, len], None)?;
+                self.call_rt("mty_runtime_panic", &[ptr, len], None)?;
                 Ok(self.b.ins().iconst(ct::I64, 0))
             }
             FnRef::User(callee_id) => {
@@ -1603,7 +1603,7 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
                 let nptr = self.b.ins().symbol_value(ct::I64, gv);
                 let nlen = self.b.ins().iconst(ct::I64, nstr.len() as i64);
                 let nargs = self.b.ins().iconst(ct::I64, 0);
-                let r = self.call_rt("stardust_runtime_extern_call", &[nptr, nlen, nargs], None)?;
+                let r = self.call_rt("mty_runtime_extern_call", &[nptr, nlen, nargs], None)?;
                 Ok(r.unwrap_or_else(|| self.b.ins().iconst(ct::I64, 0)))
             }
             FnRef::Builtin(BuiltinId::Spawn)

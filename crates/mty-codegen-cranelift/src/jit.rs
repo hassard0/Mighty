@@ -191,18 +191,18 @@ mod tests {
     fn empty_main_compiles_and_runs() {
         let p = empty_main_program();
         let syms = symbols_from(&[
-            ("stardust_runtime_log", no_op_log as *const u8),
-            ("stardust_runtime_print", no_op_print as *const u8),
-            ("stardust_runtime_panic", no_op_panic as *const u8),
-            ("stardust_runtime_arena_push", no_op_log as *const u8),
-            ("stardust_runtime_arena_pop", no_op_log as *const u8),
-            ("stardust_runtime_alloc", no_op_log as *const u8),
-            ("stardust_runtime_budget_charge", no_op_log as *const u8),
-            ("stardust_runtime_send", no_op_log as *const u8),
-            ("stardust_runtime_ask", no_op_log as *const u8),
-            ("stardust_runtime_spawn", no_op_log as *const u8),
-            ("stardust_runtime_extern_call", no_op_log as *const u8),
-            ("stardust_runtime_log_i64", no_op_log as *const u8),
+            ("mty_runtime_log", no_op_log as *const u8),
+            ("mty_runtime_print", no_op_print as *const u8),
+            ("mty_runtime_panic", no_op_panic as *const u8),
+            ("mty_runtime_arena_push", no_op_log as *const u8),
+            ("mty_runtime_arena_pop", no_op_log as *const u8),
+            ("mty_runtime_alloc", no_op_log as *const u8),
+            ("mty_runtime_budget_charge", no_op_log as *const u8),
+            ("mty_runtime_send", no_op_log as *const u8),
+            ("mty_runtime_ask", no_op_log as *const u8),
+            ("mty_runtime_spawn", no_op_log as *const u8),
+            ("mty_runtime_extern_call", no_op_log as *const u8),
+            ("mty_runtime_log_i64", no_op_log as *const u8),
         ]);
         let jc = build_jit(&p, &syms).expect("jit build");
         assert!(jc.main_ptr.is_some());

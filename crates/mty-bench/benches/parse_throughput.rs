@@ -6,10 +6,10 @@
 //! per-run heap.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use mty_bench::fixtures::stardust_10kloc;
+use mty_bench::fixtures::mty_10kloc;
 
 fn bench_parse(c: &mut Criterion) {
-    let src = stardust_10kloc();
+    let src = mty_10kloc();
     let bytes = src.len() as u64;
 
     let mut g = c.benchmark_group("parse_throughput");

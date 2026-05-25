@@ -100,7 +100,7 @@ enum Cmd {
         /// Output directory for --html / --markdown.
         #[arg(long)]
         out: Option<std::path::PathBuf>,
-        /// Type-check extracted `sd` / `stardust` code blocks.
+        /// Type-check extracted `mty` / `mighty` / `sd` / `stardust` code blocks.
         /// (No-op in v0.2; see DOC_V0_2_NOTES.md.)
         #[arg(long)]
         check_examples: bool,

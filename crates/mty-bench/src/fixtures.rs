@@ -14,11 +14,11 @@ use std::sync::Arc;
 ///
 /// Output line count for the default `units = 1000` is 10 002 lines
 /// (10 lines per unit + 2 lines of header).
-pub fn stardust_10kloc() -> String {
+pub fn mty_10kloc() -> String {
     synth_source(1000)
 }
 
-/// Approximate line count of `stardust_10kloc()`. Cheap helper for
+/// Approximate line count of `mty_10kloc()`. Cheap helper for
 /// scaling throughput numbers without re-counting.
 pub fn ten_kloc_lines() -> usize {
     10 * 1000 + 2
@@ -77,14 +77,14 @@ mod tests {
 
     #[test]
     fn synth_source_is_deterministic() {
-        let a = stardust_10kloc();
-        let b = stardust_10kloc();
+        let a = mty_10kloc();
+        let b = mty_10kloc();
         assert_eq!(a, b);
     }
 
     #[test]
     fn ten_kloc_close_to_target() {
-        let s = stardust_10kloc();
+        let s = mty_10kloc();
         let n = s.lines().count();
         // tolerate ±10 lines of header drift
         assert!((10_000..=10_050).contains(&n), "got {n} lines");
