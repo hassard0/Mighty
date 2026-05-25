@@ -20,6 +20,21 @@ Thumbs.db
 /.scratch/
 /tmp/
 
-# Stardust build output (when codegen lands)
+# Mighty build output (when codegen lands)
 *.sdprof
 *.smeta.cache
+*.mtyprof
+*.mmeta.cache
+
+# mkdocs build output
+/site/
+
+# cargo-fuzz artifacts
+/fuzz/target/
+/fuzz/corpus/
+/fuzz/artifacts/
+
+# Release tooling scratch
+/dist/
+*.tar.gz.sig
+*.tar.gz.asc
