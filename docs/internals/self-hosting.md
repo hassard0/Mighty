@@ -7,7 +7,8 @@ compilation, claims about its expressiveness rest on testimony.
 
 This page tracks the Mighty self-hosting roadmap. v0.4 shipped the
 **lexer** as Mighty source; v0.5 unblocked it end-to-end; v0.6 ships
-the **parser**. HIR lowering and codegen are queued for v0.7 / v0.8.
+the **parser**; v0.8 ships the **HIR lowering + minimal typeck**.
+SIR lowering and codegen are queued for v0.9 / post-1.0.
 
 ## Roadmap
 
@@ -15,15 +16,18 @@ the **parser**. HIR lowering and codegen are queued for v0.7 / v0.8.
 |---------|-------|--------|---------------|
 | v0.4 | Lexer | SUBSET — source compiles, runtime gated on v0.5 loop fix | `crates/mty-syntax/src/lexer.rs` |
 | v0.5 | Lexer runtime | DONE — full byte-for-byte diff against Rust lexer passes | (same) |
-| v0.6 | Parser | **SHIPPED-SUBSET — 13 bootstrap tests pass against Rust parser** | `crates/mty-syntax/src/parser/*` |
-| v0.7 | HIR lowering | future | `crates/mty-hir/src/lower/*` |
-| v0.8 | Codegen | future | `crates/mty-codegen-cranelift/*` |
+| v0.6 | Parser | SHIPPED-SUBSET — 13 bootstrap tests pass against Rust parser | `crates/mty-syntax/src/parser/*` |
+| v0.8 | HIR lowering | **SHIPPED-SUBSET — 5 bootstrap tests pass against Rust HIR pipeline (examples 01-03)** | `crates/mty-hir/src/lower/*` |
+| v0.8 | Typeck (minimal) | **SHIPPED-SUBSET — 5 bootstrap tests pass against Rust typeck (examples 01-03)** | `crates/mty-types/*` |
+| v0.9 | SIR lowering | future | `crates/mty-ir/src/lower/*` |
+| post-1.0 | Codegen | future | `crates/mty-codegen-cranelift/*` |
 
 "SUBSET" means the Mighty source `mty check`s clean and exercises
 the documented production set, but defers a handful of advanced grammars
 (agents, supervisors, sandbox blocks, etc.) to a future release. See
-`SELFHOST_PARSER_V0_6_NOTES.md` for the v0.6 production matrix +
-gap catalog and `SELFHOST_V0_4_NOTES.md` for the v0.4 lexer catalog.
+`SELFHOST_HIR_V0_8_NOTES.md` for the v0.8 production matrix +
+gap catalog, `SELFHOST_PARSER_V0_6_NOTES.md` for the v0.6 parser, and
+`SELFHOST_V0_4_NOTES.md` for the v0.4 lexer catalog.
 
 ## Where the lexer lives
 
@@ -194,12 +198,78 @@ then `QUESTION_EXPR` around the same primary), the later-added
 wrapper opens FIRST in the output stream so it ends up on the outside
 — matching rowan's `start_node_at` semantics for stacked checkpoints.
 
+## v0.8 — HIR lowering + minimal typeck
+
+The v0.8 phase ports a SUBSET of HIR lowering and bidirectional type
+inference to Mighty source. Source files:
+
+```
+selfhost/
+  hir/
+    lib.mty                    # package root (v0.9 module entry)
+    nodes.mty                  # HIR data-type mirror (documentation form)
+    lower.mty                  # the actual lowerer (CONSOLIDATED, single-file)
+  typeck/
+    lib.mty                    # package root (v0.9 module entry)
+    infer.mty                  # the actual inferer (CONSOLIDATED, single-file)
+```
+
+### Bootstrap technique (v0.8)
+
+The Mighty source talks to the trusted Rust pipeline through a host
+bridge whose shape extends the v0.5 lexer + v0.6 parser pattern:
+
+* **HIR lowering bridge** — the host owns the CST (built by
+  `mty_syntax::parse`) and exposes navigation primitives
+  (`cst_node_kind`, `cst_child_count`, `cst_child`, `cst_first_name`,
+  `cst_find_child`, etc.). The Mighty side walks the CST and emits
+  HIR-event calls (`hir_emit_item`, `hir_emit_fn_sig`,
+  `hir_emit_expr`, `hir_emit_type`, `hir_emit_pat`, ...) that the host
+  records into a `Vec<HirEvent>`.
+
+* **Typeck bridge** — the host pre-builds an HIR snapshot from the
+  trusted Rust pipeline and exposes query primitives (`hir_item_count`,
+  `hir_fn_name`, `hir_fn_param_type`, `hir_block_stmt_kind`,
+  `hir_let_init_lit_kind`, ...). The Mighty side walks the HIR and
+  emits binding-type recordings (`ty_record`) that the host stores in
+  a `BTreeMap<String, String>`.
+
+After the run, the bootstrap tests:
+
+* `crates/mty-driver/tests/selfhost_hir.rs` compares the
+  Mighty-emitted item-kind sequence + expression-kind BFS sequence
+  against the trusted Rust HIR pipeline's output for the same input.
+* `crates/mty-driver/tests/selfhost_typeck.rs` compares the
+  Mighty-emitted binding-name -> inferred-type map against the
+  trusted Rust typeck pipeline's `expr_ty` / `fn_params` / `fn_ret`
+  tables (pretty-printed via `pretty_ty` with the def-map for ADT
+  names; numeric `T<n>` suffixes are normalized away to match the
+  syntactic spelling).
+
+### v0.8 production coverage
+
+Examples 01 (`fn main`), 02 (struct + enum + match) and 03 (generic
+fn with borrow + field access) pass both bootstrap diffs. Examples 04
+(Result sugar + `?`) and 05 (range patterns) are `#[ignore]`'d with
+documented gaps. See `SELFHOST_HIR_V0_8_NOTES.md` for the per-feature
+coverage matrix and the v0.9 roadmap.
+
 ## See also
 
-* `selfhost/README.md` — top-level overview + how to run the bootstrap
-  test.
-* `SELFHOST_V0_4_NOTES.md` — full v0.4 gap catalog.
-* `crates/mty-driver/tests/selfhost_lexer.rs` — the bootstrap diff
-  test.
-* `crates/mty-syntax/src/lexer.rs` — the trusted Rust reference impl.
+* `selfhost/README.md` — top-level overview + how to run each
+  bootstrap test.
+* `SELFHOST_V0_4_NOTES.md` — full v0.4 lexer gap catalog.
+* `SELFHOST_PARSER_V0_6_NOTES.md` — v0.6 parser gap catalog.
+* `SELFHOST_HIR_V0_8_NOTES.md` — v0.8 HIR + typeck gap catalog.
+* `crates/mty-driver/tests/selfhost_lexer.rs` — v0.5 lexer
+  bootstrap.
+* `crates/mty-driver/tests/selfhost_parser.rs` — v0.6 parser
+  bootstrap.
+* `crates/mty-driver/tests/selfhost_hir.rs` — v0.8 HIR bootstrap.
+* `crates/mty-driver/tests/selfhost_typeck.rs` — v0.8 typeck
+  bootstrap.
+* `crates/mty-syntax/src/lexer.rs` — trusted Rust lexer reference impl.
+* `crates/mty-syntax/src/parser/*` — trusted Rust parser reference impl.
+* `crates/mty-hir/src/lower/*` — trusted Rust HIR lowering.
+* `crates/mty-types/*` — trusted Rust type checker.
 * `docs/internals/lexer.md` — internals doc for the Rust lexer.

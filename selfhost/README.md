@@ -10,9 +10,11 @@ for the full architectural story.
 | Phase | Location | Latest status | Bootstrap test |
 |---|---|---|---|
 | Lexer | `lexer/` | v0.5: DONE — full byte-for-byte diff against Rust lexer | `crates/mty-driver/tests/selfhost_lexer.rs` |
-| Parser | `parser/` | **v0.6: SHIPPED-SUBSET — 13 bootstrap tests pass** | `crates/mty-driver/tests/selfhost_parser.rs` |
-| HIR lowering | `hir/` | future (v0.7) | — |
-| Codegen | `codegen/` | future (v0.8) | — |
+| Parser | `parser/` | v0.6: SHIPPED-SUBSET — 13 bootstrap tests pass | `crates/mty-driver/tests/selfhost_parser.rs` |
+| HIR lowering | `hir/` | **v0.8: SHIPPED-SUBSET — 5 bootstrap tests pass (examples 01-03)** | `crates/mty-driver/tests/selfhost_hir.rs` |
+| Typeck (minimal) | `typeck/` | **v0.8: SHIPPED-SUBSET — 5 bootstrap tests pass (examples 01-03)** | `crates/mty-driver/tests/selfhost_typeck.rs` |
+| SIR lowering | `sir/` | future (v0.9) | — |
+| Codegen | `codegen/` | future (post-1.0) | — |
 
 ## What "SUBSET" means in v0.4
 
@@ -138,6 +140,55 @@ test selfhost_parser_example_05 ............ ok
 ```bash
 mty check selfhost/parser/parser.sd
 ```
+
+## v0.8 — HIR lowering + minimal typeck
+
+```bash
+mty check selfhost/hir/lower.mty
+mty check selfhost/typeck/infer.mty
+cargo test -p mty-driver --test selfhost_hir
+cargo test -p mty-driver --test selfhost_typeck
+```
+
+Five HIR tests + five typeck tests pass on examples 01-03:
+
+```
+test selfhost_hir_compiles ........... ok
+test selfhost_hir_hello_world ........ ok
+test selfhost_hir_example_01 ......... ok
+test selfhost_hir_example_02 ......... ok
+test selfhost_hir_example_03 ......... ok
+test selfhost_hir_example_04 ......... ignored (v0.9 — Result-sugar)
+test selfhost_hir_example_05 ......... ignored (v0.9 — range patterns)
+
+test selfhost_typeck_compiles ........ ok
+test selfhost_typeck_hello_world ..... ok
+test selfhost_typeck_example_01 ...... ok
+test selfhost_typeck_example_02 ...... ok
+test selfhost_typeck_example_03 ...... ok
+test selfhost_typeck_example_04 ...... ignored (v0.9)
+test selfhost_typeck_example_05 ...... ignored (v0.9)
+```
+
+The v0.8 HIR source covers the v0.5+v0.6 syntactic surface plus item
+lowering (fn / struct / enum / type-alias / use / mod / extern), full
+expression lowering (literal / path / call / method-call / field /
+index / binary / unary / paren / tuple / array / struct / block / if /
+match / for / while / loop / return / break / continue / question /
+borrow / cast), pattern lowering (literal / binding / wildcard / tuple /
+struct / enum / range / ref) and type lowering (path / borrow / tuple /
+array / fn / Result-sugar / Union / Dyn / Unit / Unknown).
+
+The v0.8 typeck source records fn parameter types from explicit
+annotations, fn return types from annotations, let-binding types from
+annotations, and let-binding types defaulted from literal init
+(Int→I32, Float→F64, Str→Str, Char→Char, Bool→Bool). Unification,
+trait dispatch, capability narrowing, and effect inference are
+deferred to v0.9.
+
+See [`../SELFHOST_HIR_V0_8_NOTES.md`](../SELFHOST_HIR_V0_8_NOTES.md)
+for the per-feature coverage matrix, the v0.8 language-gap catalog,
+and the v0.9 roadmap.
 
 ## Why ship a subset?
 

@@ -79,8 +79,8 @@ struct BlockEntry {
 struct StmtEntry {
     kind: String, // "Let" / "Expr"
     let_name: String,
-    let_hint: String,         // explicit type annotation pretty-print, or ""
-    let_init_kind: String,    // expr kind ("Literal", "Call", ...) or ""
+    let_hint: String,          // explicit type annotation pretty-print, or ""
+    let_init_kind: String,     // expr kind ("Literal", "Call", ...) or ""
     let_init_lit_kind: String, // literal sub-kind ("Int", "Float", ...) or ""
 }
 
@@ -108,10 +108,9 @@ fn build_fn_entry(pkg: &Package, fid: FnId, snap: &mut HirSnapshot) -> FnEntry {
         .params
         .iter()
         .map(|p| {
-            let ty = p
-                .ty
-                .map(|tid| pretty_hir_type(pkg, tid))
-                .unwrap_or_else(|| "Unknown".to_string());
+            let ty =
+                p.ty.map(|tid| pretty_hir_type(pkg, tid))
+                    .unwrap_or_else(|| "Unknown".to_string());
             FnParam {
                 name: p.name.clone(),
                 ty,
@@ -148,12 +147,9 @@ fn build_block_entry(pkg: &Package, bid: mty_hir::ids::BlockId) -> BlockEntry {
         .map(|s| match s {
             HirStmt::Let { pat, ty, init, .. } => {
                 let let_name = pat_binding_name(pkg, *pat);
-                let let_hint = ty
-                    .map(|tid| pretty_hir_type(pkg, tid))
-                    .unwrap_or_default();
-                let (let_init_kind, let_init_lit_kind) = init
-                    .map(|eid| init_kinds(pkg, eid))
-                    .unwrap_or_default();
+                let let_hint = ty.map(|tid| pretty_hir_type(pkg, tid)).unwrap_or_default();
+                let (let_init_kind, let_init_lit_kind) =
+                    init.map(|eid| init_kinds(pkg, eid)).unwrap_or_default();
                 StmtEntry {
                     kind: "Let".into(),
                     let_name,
@@ -395,7 +391,12 @@ impl SelfhostTypeckHost {
             }
             "hir_block_stmt_count" => {
                 let b = arg_usize(args, 0);
-                let c = self.snap.blocks.get(b).map(|bl| bl.stmts.len()).unwrap_or(0);
+                let c = self
+                    .snap
+                    .blocks
+                    .get(b)
+                    .map(|bl| bl.stmts.len())
+                    .unwrap_or(0);
                 Value::Int(c as i128, IntKind::USize)
             }
             "hir_block_stmt_kind" => {
@@ -551,13 +552,16 @@ fn rust_typeck(src: &str) -> BTreeMap<String, String> {
     // Per-fn signatures (params + return).
     for (fid, params) in &typed.fn_params {
         for (name, tid) in params {
-            map.insert(name.clone(), pretty_ty(*tid, &typed.ty_arena, None, None));
+            map.insert(
+                name.clone(),
+                pretty_ty(*tid, &typed.ty_arena, None, Some(&typed.def_map)),
+            );
         }
         let f = &pkg.fns[*fid];
         if let Some(rid) = typed.fn_ret.get(fid) {
             map.insert(
                 format!("{}:return", f.name),
-                pretty_ty(*rid, &typed.ty_arena, None, None),
+                pretty_ty(*rid, &typed.ty_arena, None, Some(&typed.def_map)),
             );
         }
     }
@@ -592,7 +596,7 @@ fn collect_let_types(
                 typed
                     .expr_ty
                     .get(eid)
-                    .map(|t| pretty_ty(*t, &typed.ty_arena, None, None))
+                    .map(|t| pretty_ty(*t, &typed.ty_arena, None, Some(&typed.def_map)))
                     .unwrap_or_else(|| "Unknown".to_string())
             } else {
                 "Unknown".to_string()
@@ -604,12 +608,16 @@ fn collect_let_types(
 
 // ---- Diff helper --------------------------------------------------------
 
+/// (matched_keys, mismatched (key, lhs, rhs), only_in_a, only_in_b)
+type DiffResult = (
+    Vec<String>,
+    Vec<(String, String, String)>,
+    Vec<String>,
+    Vec<String>,
+);
+
 /// Compare two binding maps for the subset of keys present in both.
-/// Returns (matched, mismatched, only_in_a, only_in_b).
-fn diff_bindings(
-    a: &BTreeMap<String, String>,
-    b: &BTreeMap<String, String>,
-) -> (Vec<String>, Vec<(String, String, String)>, Vec<String>, Vec<String>) {
+fn diff_bindings(a: &BTreeMap<String, String>, b: &BTreeMap<String, String>) -> DiffResult {
     let mut matched = vec![];
     let mut mismatched = vec![];
     let mut only_a = vec![];
@@ -633,13 +641,35 @@ fn diff_bindings(
     (matched, mismatched, only_a, only_b)
 }
 
-/// Normalize a HIR-syntactic type name into the canonical typeck
-/// rendering used by `pretty_ty`. v0.8 mighty side renders types
-/// syntactically (e.g. `"F64"`); the trusted typeck renders the same.
-/// Both lowercase paths like `Str` resolve identically because they're
-/// builtin prelude names.
+/// Normalize a HIR-syntactic type name into a form comparable with the
+/// canonical typeck rendering. v0.8 mighty side renders types
+/// syntactically (e.g. `"&[T]"`); the trusted typeck renders concrete
+/// `TyData::Param`s with a numeric suffix (`T0`, `T6`, ...). Strip the
+/// digit suffix on Rust-rendered params so we can compare structurally.
+/// Also strip whitespace and normalise the "fn(..) ->" syntactic form
+/// across the two renderers.
 fn normalize(ty: &str) -> String {
-    ty.trim().to_string()
+    // Strip digit suffixes after a bare T (handles `T0`, `T12`, `T6` -> `T`).
+    let bytes = ty.as_bytes();
+    let mut out = String::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+        out.push(c);
+        if c == 'T' {
+            // Look ahead and skip a digit run if present.
+            let mut j = i + 1;
+            while j < bytes.len() && bytes[j].is_ascii_digit() {
+                j += 1;
+            }
+            if j > i + 1 {
+                i = j;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out.trim().to_string()
 }
 
 fn assert_binding_subset_match(
@@ -647,10 +677,14 @@ fn assert_binding_subset_match(
     stardust: &BTreeMap<String, String>,
     rust: &BTreeMap<String, String>,
 ) {
-    let s: BTreeMap<String, String> =
-        stardust.iter().map(|(k, v)| (k.clone(), normalize(v))).collect();
-    let r: BTreeMap<String, String> =
-        rust.iter().map(|(k, v)| (k.clone(), normalize(v))).collect();
+    let s: BTreeMap<String, String> = stardust
+        .iter()
+        .map(|(k, v)| (k.clone(), normalize(v)))
+        .collect();
+    let r: BTreeMap<String, String> = rust
+        .iter()
+        .map(|(k, v)| (k.clone(), normalize(v)))
+        .collect();
     let (matched, mismatched, only_s, only_r) = diff_bindings(&s, &r);
     let common_keys: usize = matched.len() + mismatched.len();
     assert!(
