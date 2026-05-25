@@ -143,9 +143,14 @@ pub const USE_OF_UNINITIALIZED: DiagCode = DiagCode::new(3015);
 pub fn explain(code: DiagCode) -> Option<&'static str> {
     Some(match code.0 {
         1 => {
-            "MT0001: Unexpected token. The lexer or parser found a token \
-              that doesn't fit the current grammar context. Check for typos, \
-              missing punctuation, or a misplaced keyword."
+            "MT0001: Unexpected token.\n\
+             \n\
+             Cause:   The parser found a token that doesn't fit the current \
+             grammar context (typo, missing punctuation, misplaced keyword).\n\
+             Example: `fn main() { let x = ; }`   // `=` followed by `;`\n\
+             Fix:     Supply the missing expression, fix the typo, or remove \
+             the stray token.\n\
+             Spec:    \u{a7}5 (lexical grammar) of v1.0-RC2."
         }
         2 => {
             "MT0002: Unterminated string literal. A string starts with \" \
@@ -165,15 +170,26 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
               decimal)."
         }
         10 => {
-            "MT0010: Expected an item. At the top level (or inside a mod), \
-               the parser expected one of: fn, struct, enum, type, use, mod, \
-               package, agent, protocol, supervisor, extern, export, impl, \
-               trait, const, macro."
+            "MT0010: Expected an item.\n\
+             \n\
+             Cause:   At the top level (or inside a `mod`) the parser \
+             expected one of: fn, struct, enum, type, use, mod, package, \
+             agent, protocol, supervisor, extern, export, impl, trait, \
+             const, macro \u{2014} and found something else.\n\
+             Example: `mod m { let x = 1 }`        // `let` is not an item\n\
+             Fix:     Wrap the binding in a `fn`, or use `const X = 1` if \
+             you really want a module-level constant.\n\
+             Spec:    \u{a7}4.2 (items) of v1.0-RC2."
         }
         11 => {
-            "MT0011: Expected an expression. The parser reached a position \
-               where an expression must appear but found something else \
-               (such as a closing delimiter or a statement keyword)."
+            "MT0011: Expected an expression.\n\
+             \n\
+             Cause:   The parser reached a position where an expression must \
+             appear but found a closing delimiter or a statement keyword.\n\
+             Example: `let x = + 1`                // unary `+` is not valid\n\
+             Fix:     Supply the missing operand, or use a unary operator the \
+             grammar accepts (`-`, `!`, `*`, `&`).\n\
+             Spec:    \u{a7}5.4 (expressions) of v1.0-RC2."
         }
         12 => {
             "MT0012: Mismatched delimiter. An opening `(`, `[`, or `{` was \
@@ -198,9 +214,15 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                source to reduce nesting."
         }
         1001 => {
-            "MT1001: Unresolved name. The HIR lowerer could not resolve \
-                 a name reference to any binding in scope. Check the spelling \
-                 and ensure the binding's `use` or declaration is visible."
+            "MT1001: Unresolved name.\n\
+             \n\
+             Cause:   The HIR lowerer could not resolve a name reference to \
+             any binding in scope.\n\
+             Example: `fn main() { log(grting) }`  // `grting` not declared\n\
+             Fix:     Check the spelling, add a `let` binding, or bring the \
+             name into scope with `use pkg.module.name`. Most type-level \
+             unresolved names surface as MT2021 instead.\n\
+             Spec:    \u{a7}4.5 (resolution) of v1.0-RC2."
         }
         1002 => {
             "MT1002: `use` resolves to nothing. The path on the right of \
@@ -209,14 +231,27 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  separator."
         }
         2001 => {
-            "MT2001: Type mismatch. An expression's type does not match the \
-                 type required by context. The diagnostic shows the expected \
-                 type and the actual type; check the call site or annotation."
+            "MT2001: Type mismatch.\n\
+             \n\
+             Cause:   An expression's type does not match the type required \
+             by context (parameter, annotation, branch unification, or \
+             return type).\n\
+             Example: `fn f() -> I32 { \"hello\" }`  // returns Str, not I32\n\
+             Fix:     Convert the value (`.to_string()`, `.parse()`, an \
+             explicit constructor), or change the annotation. The diagnostic \
+             also prints the EXPECTED and FOUND types verbatim \u{2014} use \
+             them to locate the conversion site.\n\
+             Spec:    \u{a7}7.2 (unification) of v1.0-RC2."
         }
         2002 => {
-            "MT2002: Unresolved type. The named type does not exist in scope. \
-                 Verify the spelling, the relevant `use` declaration, and \
-                 whether the type lives inside a module path (`foo.bar.Type`)."
+            "MT2002: Unresolved type.\n\
+             \n\
+             Cause:   The named type does not exist in scope.\n\
+             Example: `fn f(x: Stng) -> Unit {}`   // typo for `Str`\n\
+             Fix:     Check the spelling, add a `use pkg.mod.Type`, or use \
+             the fully qualified path (`pkg.mod.Type`). Note paths use `.` \
+             as the module separator, not `::` or `/`.\n\
+             Spec:    \u{a7}7.3 (type resolution) of v1.0-RC2."
         }
         2003 => {
             "MT2003: Cannot infer type. The type checker could not determine \
@@ -238,9 +273,16 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  struct. Check spelling and the struct declaration."
         }
         2007 => {
-            "MT2007: Unknown method. The named method does not exist on the \
-                 receiver type. Method resolution searches `impl` blocks and \
-                 a small built-in table; nothing matched."
+            "MT2007: Unknown method.\n\
+             \n\
+             Cause:   The named method does not exist on the receiver type. \
+             Method resolution searches inherent `impl` blocks, trait \
+             `impl`s in scope, and a small built-in table; nothing matched.\n\
+             Example: `let s = \"hi\"; s.lengt()`   // typo for `.len()`\n\
+             Fix:     Check the spelling. If the method lives on a trait, \
+             import the trait with `use pkg.mod.Trait`. If ambiguous between \
+             two traits in scope you'll see MT4020 instead.\n\
+             Spec:    \u{a7}11.2 (method dispatch) of v1.0-RC2."
         }
         2008 => {
             "MT2008: Not callable. The value being applied does not have a \
@@ -305,13 +347,18 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  other modules can rely on the signature."
         }
         2021 => {
-            "MT2021: Unresolved value. The named identifier does not refer to \
-                 any value in scope. Check the spelling and visibility. \
-                 v0.3 (A65) tightens this: agent/handler/supervisor/cap-narrow \
-                 bodies are STRICT and reject unknown names that previously \
-                 fell through to fresh-var inference. Bind via state, \
-                 ctor-param, prelude, import, or move the call into a \
-                 permissive scope (top-level fn / extern / unsafe / arena)."
+            "MT2021: Unresolved value.\n\
+             \n\
+             Cause:   The named identifier does not refer to any value in \
+             scope. Since v0.3 (A65) agent / handler / supervisor / \
+             cap-narrow bodies are STRICT \u{2014} unknown names are an \
+             error here instead of falling through to fresh-var inference.\n\
+             Example: `agent A: P { on Tick() -> { counter = 1 } }`\n\
+             // `counter` not declared as agent state\n\
+             Fix:     Bind the name as agent state (`counter = 0` line), \
+             ctor-param, prelude entry, or `use`-imported value. If you want \
+             permissive inference, lift the body into a top-level `fn`.\n\
+             Spec:    \u{a7}7.3 + amendment A65 of v1.0-RC2."
         }
         2022 => {
             "MT2022: Not a struct. The value cannot be initialized with a \
@@ -338,10 +385,16 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  protocol composition to bring it in."
         }
         3001 => {
-            "MT3001: Use after move. The value was moved earlier and cannot \
-                 be used again. Add `.clone()` before the move site if you \
-                 need both, or restructure the code so each owner has a \
-                 single move."
+            "MT3001: Use after move.\n\
+             \n\
+             Cause:   The value was moved earlier (assignment, fn argument, \
+             or return) and cannot be used again.\n\
+             Example: `let s = String(\"hi\"); let t = move s; log(s.len())`\n\
+             // `s` invalid after `move s`\n\
+             Fix:     Add `.clone()` before the move if you need both copies, \
+             pass a borrow (`&s`) instead of moving, or restructure so each \
+             owner has a single move.\n\
+             Spec:    \u{a7}7.1 (ownership) of v1.0-RC2."
         }
         3002 => {
             "MT3002: Move out of borrowed value. A reference (`&` or \
@@ -354,18 +407,42 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  longer owns its storage; a borrow is not permitted."
         }
         3004 => {
-            "MT3004: Mutable borrow while shared borrows exist. Mighty \
-                 forbids creating a `&mut T` while any `&T` to the same \
-                 value is live."
+            "MT3004: Mutable borrow while shared borrows exist.\n\
+             \n\
+             Cause:   You created a `&mut T` while at least one `&T` to the \
+             same value is still live (its last-use point hasn't been \
+             reached yet).\n\
+             Example: `let r = &v; let m = &mut v; log_len(r)`\n\
+             // `r` still used after `&mut v`\n\
+             Fix:     Move the `&mut` creation after the last use of every \
+             shared borrow, or scope the shared borrow tighter. v0.3 uses \
+             NLL (last-use) regions, not lexical scope.\n\
+             Spec:    \u{a7}7.4 (borrow regions) + amendment A55 of v1.0-RC2."
         }
         3005 => {
-            "MT3005: Shared borrow while a mutable borrow exists. Mighty \
-                 forbids creating a `&T` while a `&mut T` to the same \
-                 value is live."
+            "MT3005: Shared borrow while a mutable borrow exists.\n\
+             \n\
+             Cause:   You created a `&T` while a `&mut T` to the same value \
+             is still live.\n\
+             Example: `let m = &mut v; let r = &v; push(m, x)`\n\
+             // `r` made while `m` still live\n\
+             Fix:     Drop or last-use the mutable borrow before taking the \
+             shared borrow. Mighty enforces exclusive-XOR-shared at all \
+             times.\n\
+             Spec:    \u{a7}7.4 (borrow regions) of v1.0-RC2."
         }
         3006 => {
-            "MT3006: Two mutable borrows of the same value. Only one \
-                 `&mut T` may exist at a time."
+            "MT3006: Two mutable borrows of the same value.\n\
+             \n\
+             Cause:   Only one `&mut T` may exist at a time; you tried to \
+             create a second one before the first ended.\n\
+             Example: `let m1 = &mut v; let m2 = &mut v; push(m1, x)`\n\
+             // m1 still live\n\
+             Fix:     Sequence the two mutations \u{2014} finish using `m1` \
+             before taking `m2`. If both mutations are field-disjoint, \
+             borrow `&mut v.field_a` and `&mut v.field_b` (allowed since \
+             v0.3 A54).\n\
+             Spec:    \u{a7}7.4 + amendment A54 of v1.0-RC2."
         }
         3007 => {
             "MT3007: Borrow outlives its owner. The borrowed value's \
@@ -414,10 +491,19 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  declared but never assigned before its first read."
         }
         4001 => {
-            "MT4001: Public function effect set is incomplete. The body \
-                 calls (transitively) something that produces effects not \
-                 listed in the function's `effect ...` clause. Either add \
-                 the missing effects or restructure to avoid them."
+            "MT4001: Public function effect set is incomplete.\n\
+             \n\
+             Cause:   The body calls (transitively) something that produces \
+             effects not listed in the function's `effect ...` clause. \
+             Effect closure is checked across the whole call graph reachable \
+             from the public fn.\n\
+             Example: `pub fn save(buf: Bytes) -> Unit { fs.write(\"/x\", buf) }`\n\
+             // missing `effect io`\n\
+             Fix:     Add the missing effect to the signature \
+             (`effect io`), or pass the offending capability as a parameter \
+             so the effect is local to the caller. Effects are a contract \
+             with downstream packages \u{2014} they cannot be hidden.\n\
+             Spec:    \u{a7}9 (effects) of v1.0-RC2."
         }
         4002 => {
             "MT4002: Heap allocation in `core` profile. The strict `core` \
@@ -649,11 +735,16 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  if you see this, file a bug."
         }
         6001 => {
-            "MT6001: Unknown macro. The call site `name!(...)` refers to a name \
-             that is not a registered declarative or procedural macro. Declare it \
-             with `macro Name(...) => { ... }` above the call site, or check for \
-             a typo. Cross-file macros must be `pub macro` in the exporting file \
-             and imported with `use otherpkg.name`."
+            "MT6001: Unknown macro.\n\
+             \n\
+             Cause:   The call site `name!(...)` refers to a name that is \
+             not a registered declarative or procedural macro.\n\
+             Example: `fn main() { dbg!(42) }`     // `dbg!` not declared\n\
+             Fix:     Declare it with `macro Name(...) => { ... }` above the \
+             call site, or import a cross-file macro with `use otherpkg.name` \
+             (the exporting file must say `pub macro`). Check for a typo \
+             too \u{2014} macro names are case-sensitive.\n\
+             Spec:    \u{a7}20.3 (macros) of v1.0-RC2."
         }
         6002 => {
             "MT6002: Macro arity mismatch. The macro was declared with a fixed \
@@ -668,10 +759,17 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
              a single sub-expression after substitution."
         }
         6004 => {
-            "MT6004: Recursive macro expansion exceeded the depth cap (32). The \
-             macro called itself, directly or via another macro, more times \
-             than v0.6 permits. Rewrite the macro non-recursively, or wait for \
-             a future bounded-recursion proposal."
+            "MT6004: Recursive macro expansion exceeded the depth cap (32).\n\
+             \n\
+             Cause:   The macro called itself (directly or via another macro) \
+             more times than v0.6 permits. The cap is hard-coded at 32 \
+             expansion frames per call site.\n\
+             Example: `macro Fwd(x) => { Fwd!(x) }; fn main() { Fwd!(1) }`\n\
+             Fix:     Rewrite the macro non-recursively (most patterns can be \
+             expressed as iterated substitution), or split into a base case + \
+             one recursive step so the depth bound is met. Bounded recursion \
+             with explicit fuel parameters is on the RFC backlog (RFC-005).\n\
+             Spec:    \u{a7}20.3.4 (macro recursion) of v1.0-RC2."
         }
         6005 => {
             "MT6005: Procedural macro impurity. The proc-macro body contains a \
