@@ -167,8 +167,9 @@ fixed in this prep; the rest are P1 or below.
   these example files because §3.3 does not list the words as
   keywords.
 - **Resolution (v1.0-RC3)**: §3.3 is rewritten into three subsections:
-  §3.3.1 reserved keywords (the full 59-word v1.0 list, including all
-  20 previously-missing words), §3.3.2 contextual keywords (the four
+  §3.3.1 reserved keywords (the full 63-word v1.0 list — including the
+  two boolean literals — with all previously-missing lexer keywords
+  added), §3.3.2 contextual keywords (the four
   positions where the parser upgrades an IDENT to a keyword), and
   §3.3.3 reserved for future use (`and`, `or`, `init`, `deinit`,
   `panic`, `static`, `union` — names the spec reserves but the v1.0

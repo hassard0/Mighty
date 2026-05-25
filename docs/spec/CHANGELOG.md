@@ -390,7 +390,7 @@ third or fourth front-end implementation can build to spec alone.
 |-------|------------------------------------------------|----------------|
 | #10   | Operator precedence not normative              | New §11.1.1 promotes the Pratt precedence table from `crates/mty-syntax/src/parser/exprs.rs` verbatim. `docs/internals/parser.md` now points at the spec for the authoritative table. |
 | #11   | Six FROZEN typeck codes are constructor-only   | Per-code disposition in new §33.1: all six RETAINED as "FROZEN — emit-site landing in v1.x". Each describes a real future-emit condition; code-points + explain text are stable; the Rust compiler funnels them into more general codes today. |
-| #12   | `package` / `export` / `requires` + 17 other lexer keywords missing from §3.3 | §3.3 rewritten into §3.3.1 reserved keywords (59-word v1.0 list), §3.3.2 contextual keywords (4 positions), §3.3.3 reserved for future use (7 names the spec reserves but the v1.0 lexer treats as identifiers). §4.1, §21.1, §26.2 add per-keyword syntax sections. |
+| #12   | `package` / `export` / `requires` + other lexer keywords missing from §3.3 | §3.3 rewritten into §3.3.1 reserved keywords (full 63-word v1.0 list including the booleans), §3.3.2 contextual keywords (4 positions), §3.3.3 reserved for future use (7 names the spec reserves but the v1.0 lexer treats as identifiers). §4.1, §21.1, §26.2 add per-keyword syntax sections. |
 
 ### Python-impl ambiguities resolved (originating: PYTHON_IMPL_V0_11_NOTES.md)
 
