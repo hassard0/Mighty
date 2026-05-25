@@ -1,0 +1,1101 @@
+// selfhost/hir/lower.mty
+//
+// Self-hosted Mighty HIR lowering (v0.8) — STATIC SOURCE FORM.
+//
+// Mirrors the behavior of crates/mty-hir/src/lower/* as a recursive
+// CST-walker in Mighty source. `mty check`s clean and produces an HIR
+// "event stream" shaped identically to the Rust pipeline for the v0.8
+// supported subset.
+//
+// ## v0.8 status: SHIPPED-SUBSET
+//
+// The Rust lowerer is ~3000 LOC split across 7 files. Porting all of it
+// to Mighty would be ~5-7 KLOC and exceed the v0.8 time budget. We ship
+// the productions exercised by examples 01-03 (and most of 04-05):
+//
+//   - `fn` declarations (with params + return type + body)
+//   - `struct` declarations (named fields)
+//   - `enum` declarations (tuple + unit variants)
+//   - `type` aliases
+//   - `use` / `mod` declarations
+//   - block bodies + `let` statements
+//   - literals (int, float, str, char, bool)
+//   - identifiers + path expressions
+//   - binary + unary expressions
+//   - call + method-call + field-access + index expressions
+//   - if / else / match / for / while / loop / return / break / continue
+//   - patterns (literal, binding, wildcard, enum, tuple, range)
+//   - types (path, borrow, tuple, array, fn, generic args, T!E sugar)
+//   - `extern { fn ... }` blocks
+//
+// Deferred to v0.9+ (documented in SELFHOST_HIR_V0_8_NOTES.md):
+//   agent / protocol / supervisor / sandbox / arena / task / budget /
+//   send / ask / deadline / macro / unsafe / turbofish / HTML literals.
+//
+// ## Bootstrap technique
+//
+// Same shape as the v0.5 self-host lexer and v0.6 self-host parser:
+// the lowerer talks to the host through `std.io.<method>` effect
+// calls. The bootstrap test installs a `SelfhostHirHost` that:
+//   1. seeds the CST from the trusted Rust parser
+//   2. responds to CST navigation queries
+//   3. records each `hir_emit_*` event into a Vec<HirEvent>
+//
+// After the run, the test compares the item-kind sequence + BFS
+// expression-kind sequence against the Rust HIR pipeline's output.
+
+package selfhost_hir
+
+// =====================================================================
+// Host bridge
+// =====================================================================
+//
+// CST navigation (read-only):
+//   std.io.cst_root()                       -> USize         root node id
+//   std.io.cst_node_kind(n)                 -> Str
+//   std.io.cst_child_count(n)               -> USize
+//   std.io.cst_child(n, i)                  -> USize
+//   std.io.cst_token_count(n)               -> USize
+//   std.io.cst_token_kind(n, i)             -> Str
+//   std.io.cst_token_text(n, i)             -> Str
+//   std.io.cst_text(n)                      -> Str
+//   std.io.cst_first_name(n)                -> Str
+//   std.io.cst_has_pub(n)                   -> Bool
+//   std.io.cst_has_unsafe(n)                -> Bool
+//   std.io.cst_find_child(n, kind)          -> USize          SENTINEL_NONE if missing
+//   std.io.cst_find_descendant(n, kind)     -> USize
+//
+// HIR sink (write-only):
+//   std.io.hir_emit_item(kind, name)        -> USize
+//   std.io.hir_emit_fn_sig(name, is_pub, is_unsafe, n_params, n_generics, has_ret) -> USize
+//   std.io.hir_emit_fn_param(fn_id, name)   -> Unit
+//   std.io.hir_emit_fn_generic(fn_id, name) -> Unit
+//   std.io.hir_emit_fn_body_start(fn_id)    -> Unit
+//   std.io.hir_emit_fn_body_end(fn_id)      -> Unit
+//   std.io.hir_emit_struct(name, n_fields)  -> USize
+//   std.io.hir_emit_struct_field(s_id, name) -> Unit
+//   std.io.hir_emit_enum(name, n_variants)  -> USize
+//   std.io.hir_emit_enum_variant(e_id, name, n_payload) -> Unit
+//   std.io.hir_emit_type_alias(name)        -> USize
+//   std.io.hir_emit_use(path)               -> USize
+//   std.io.hir_emit_mod(path)               -> USize
+//   std.io.hir_emit_extern_block(n_fns)     -> USize
+//   std.io.hir_emit_expr(kind)              -> USize
+//   std.io.hir_emit_stmt(kind)              -> USize
+//   std.io.hir_emit_type(kind)              -> USize
+//   std.io.hir_emit_pat(kind)               -> USize
+//   std.io.hir_emit_block_start()           -> USize
+//   std.io.hir_emit_block_end()             -> USize
+
+fn sentinel_none() -> USize { 4294967295 }
+fn is_none(id: USize) -> Bool { id == sentinel_none() }
+
+// =====================================================================
+// CST navigation primitives
+// =====================================================================
+
+fn node_kind(n: USize) -> Str { std.io.cst_node_kind(n) }
+fn child_count(n: USize) -> USize { std.io.cst_child_count(n) }
+fn nth_child(n: USize, i: USize) -> USize { std.io.cst_child(n, i) }
+fn first_name(n: USize) -> Str { std.io.cst_first_name(n) }
+fn has_pub(n: USize) -> Bool { std.io.cst_has_pub(n) }
+fn has_unsafe_kw(n: USize) -> Bool { std.io.cst_has_unsafe(n) }
+fn find_child(n: USize, kind: Str) -> USize { std.io.cst_find_child(n, kind) }
+
+fn is_type_node_kind(k: Str) -> Bool {
+  match k {
+    "TYPE_PATH" => true
+    "TYPE_BORROW" => true
+    "TYPE_TUPLE" => true
+    "TYPE_ARRAY" => true
+    "TYPE_FN" => true
+    "TYPE_RESULT_SUGAR" => true
+    "TYPE_UNION" => true
+    "TYPE_DYN" => true
+    _ => false
+  }
+}
+
+fn is_expr_node_kind(k: Str) -> Bool {
+  match k {
+    "LITERAL_EXPR" => true
+    "PATH_EXPR" => true
+    "NAME_REF" => true
+    "CALL_EXPR" => true
+    "METHOD_CALL_EXPR" => true
+    "FIELD_EXPR" => true
+    "INDEX_EXPR" => true
+    "BINARY_EXPR" => true
+    "UNARY_EXPR" => true
+    "PAREN_EXPR" => true
+    "TUPLE_EXPR" => true
+    "ARRAY_EXPR" => true
+    "STRUCT_EXPR" => true
+    "BLOCK_EXPR" => true
+    "IF_EXPR" => true
+    "MATCH_EXPR" => true
+    "FOR_EXPR" => true
+    "WHILE_EXPR" => true
+    "LOOP_EXPR" => true
+    "RETURN_EXPR" => true
+    "BREAK_EXPR" => true
+    "CONTINUE_EXPR" => true
+    "QUESTION_EXPR" => true
+    "BORROW_EXPR" => true
+    "CAST_EXPR" => true
+    _ => false
+  }
+}
+
+fn is_pat_node_kind(k: Str) -> Bool {
+  match k {
+    "LITERAL_PAT" => true
+    "BINDING_PAT" => true
+    "WILDCARD_PAT" => true
+    "TUPLE_PAT" => true
+    "STRUCT_PAT" => true
+    "ENUM_PAT" => true
+    "RANGE_PAT" => true
+    "REF_PAT" => true
+    _ => false
+  }
+}
+
+// =====================================================================
+// File-level entry
+// =====================================================================
+
+pub fn lower_file() -> Unit {
+  let root = std.io.cst_root()
+  let k = node_kind(root)
+  let is_file = k == "FILE"
+  if is_file == false {
+    return
+  }
+  let n = child_count(root)
+  let mut i: USize = 0
+  loop {
+    if i >= n { break }
+    let c = nth_child(root, i)
+    let _ = lower_item(c)
+    i = i + 1
+  }
+}
+
+// =====================================================================
+// Items
+// =====================================================================
+
+fn lower_item(n: USize) -> USize {
+  let k = node_kind(n)
+  match k {
+    "FN_DECL" => lower_fn(n)
+    "STRUCT_DECL" => lower_struct(n)
+    "ENUM_DECL" => lower_enum(n)
+    "TYPE_ALIAS" => lower_type_alias(n)
+    "USE_DECL" => lower_use(n)
+    "MOD_DECL" => lower_mod(n)
+    "EXTERN_BLOCK" => lower_extern_block(n)
+    "IMPL_BLOCK" => lower_impl_block(n)
+    "TRAIT_DECL" => lower_trait_decl(n)
+    "PACKAGE_DECL" => sentinel_none()
+    _ => sentinel_none()
+  }
+}
+
+fn lower_fn(n: USize) -> USize {
+  let name = first_name(n)
+  let is_pub = has_pub(n)
+  let is_unsafe = has_unsafe_kw(n)
+  let generics_node = find_child(n, "GENERIC_PARAM_LIST")
+  let mut n_generics: USize = 0
+  if is_none(generics_node) == false {
+    n_generics = count_kind_children(generics_node, "GENERIC_PARAM")
+  }
+  let params_node = find_child(n, "FN_PARAM_LIST")
+  let mut n_params: USize = 0
+  if is_none(params_node) == false {
+    n_params = count_kind_children(params_node, "FN_PARAM")
+  }
+  let ret_node = find_child(n, "RET_TYPE")
+  let has_ret = is_none(ret_node) == false
+  let fid = std.io.hir_emit_fn_sig(name, is_pub, is_unsafe, n_params, n_generics, has_ret)
+  if is_none(generics_node) == false {
+    emit_generic_names(fid, generics_node)
+  }
+  if is_none(params_node) == false {
+    emit_param_names_and_types(fid, params_node)
+  }
+  if has_ret == true {
+    lower_first_type_child(ret_node)
+  }
+  let body_node = find_child(n, "BLOCK_EXPR")
+  if is_none(body_node) == false {
+    std.io.hir_emit_fn_body_start(fid)
+    let _ = lower_block(body_node)
+    std.io.hir_emit_fn_body_end(fid)
+  }
+  fid
+}
+
+fn count_kind_children(parent: USize, kind: Str) -> USize {
+  let n = child_count(parent)
+  let mut i: USize = 0
+  let mut c: USize = 0
+  loop {
+    if i >= n { break }
+    let k = node_kind(nth_child(parent, i))
+    let eq = k == kind
+    if eq == true { c = c + 1 }
+    i = i + 1
+  }
+  c
+}
+
+fn emit_generic_names(fid: USize, list: USize) -> Unit {
+  let n = child_count(list)
+  let mut i: USize = 0
+  loop {
+    if i >= n { break }
+    let gp = nth_child(list, i)
+    let k = node_kind(gp)
+    let is_gp = k == "GENERIC_PARAM"
+    if is_gp == true {
+      let name = first_name(gp)
+      std.io.hir_emit_fn_generic(fid, name)
+    }
+    i = i + 1
+  }
+}
+
+fn emit_param_names_and_types(fid: USize, list: USize) -> Unit {
+  let n = child_count(list)
+  let mut i: USize = 0
+  loop {
+    if i >= n { break }
+    let p = nth_child(list, i)
+    let k = node_kind(p)
+    let is_p = k == "FN_PARAM"
+    if is_p == true {
+      let name = first_name(p)
+      std.io.hir_emit_fn_param(fid, name)
+      lower_first_type_child(p)
+    }
+    i = i + 1
+  }
+}
+
+fn lower_first_type_child(n: USize) -> Unit {
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_type_node_kind(ck) == true {
+      let _ = lower_type(c)
+      break
+    }
+    i = i + 1
+  }
+}
+
+fn lower_struct(n: USize) -> USize {
+  let name = first_name(n)
+  let fields_node = find_child(n, "STRUCT_FIELD_LIST")
+  let mut n_fields: USize = 0
+  if is_none(fields_node) == false {
+    n_fields = count_kind_children(fields_node, "STRUCT_FIELD")
+  }
+  let sid = std.io.hir_emit_struct(name, n_fields)
+  if is_none(fields_node) == false {
+    emit_struct_fields(sid, fields_node)
+  }
+  sid
+}
+
+fn emit_struct_fields(sid: USize, list: USize) -> Unit {
+  let n = child_count(list)
+  let mut i: USize = 0
+  loop {
+    if i >= n { break }
+    let f = nth_child(list, i)
+    let k = node_kind(f)
+    let is_f = k == "STRUCT_FIELD"
+    if is_f == true {
+      let name = first_name(f)
+      std.io.hir_emit_struct_field(sid, name)
+      lower_first_type_child(f)
+    }
+    i = i + 1
+  }
+}
+
+fn lower_enum(n: USize) -> USize {
+  let name = first_name(n)
+  let vlist = find_child(n, "ENUM_VARIANT_LIST")
+  let mut n_var: USize = 0
+  if is_none(vlist) == false {
+    n_var = count_kind_children(vlist, "ENUM_VARIANT")
+  }
+  let eid = std.io.hir_emit_enum(name, n_var)
+  if is_none(vlist) == false {
+    emit_enum_variants(eid, vlist)
+  }
+  eid
+}
+
+fn emit_enum_variants(eid: USize, list: USize) -> Unit {
+  let n = child_count(list)
+  let mut i: USize = 0
+  loop {
+    if i >= n { break }
+    let v = nth_child(list, i)
+    let k = node_kind(v)
+    let is_v = k == "ENUM_VARIANT"
+    if is_v == true {
+      let name = first_name(v)
+      let nc = child_count(v)
+      let mut j: USize = 0
+      let mut p_count: USize = 0
+      loop {
+        if j >= nc { break }
+        let c = nth_child(v, j)
+        let ck = node_kind(c)
+        if is_type_node_kind(ck) == true {
+          p_count = p_count + 1
+        }
+        j = j + 1
+      }
+      std.io.hir_emit_enum_variant(eid, name, p_count)
+      j = 0
+      loop {
+        if j >= nc { break }
+        let c = nth_child(v, j)
+        let ck = node_kind(c)
+        if is_type_node_kind(ck) == true {
+          let _ = lower_type(c)
+        }
+        j = j + 1
+      }
+    }
+    i = i + 1
+  }
+}
+
+fn lower_type_alias(n: USize) -> USize {
+  let name = first_name(n)
+  let id = std.io.hir_emit_type_alias(name)
+  lower_first_type_child(n)
+  id
+}
+
+fn lower_use(n: USize) -> USize {
+  let txt = std.io.cst_text(n)
+  std.io.hir_emit_use(txt)
+}
+
+fn lower_mod(n: USize) -> USize {
+  let txt = std.io.cst_text(n)
+  std.io.hir_emit_mod(txt)
+}
+
+fn lower_extern_block(n: USize) -> USize {
+  let n_fns = count_kind_children(n, "EXTERN_FN")
+  let id = std.io.hir_emit_extern_block(n_fns)
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    let is_ef = ck == "EXTERN_FN"
+    if is_ef == true {
+      let name = first_name(c)
+      let params_node = find_child(c, "FN_PARAM_LIST")
+      let mut np: USize = 0
+      if is_none(params_node) == false {
+        np = count_kind_children(params_node, "FN_PARAM")
+      }
+      let ret_node = find_child(c, "RET_TYPE")
+      let has_ret = is_none(ret_node) == false
+      let _ = std.io.hir_emit_fn_sig(name, true, false, np, 0, has_ret)
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_impl_block(n: USize) -> USize {
+  let id = std.io.hir_emit_item("Impl", "")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if ck == "FN_DECL" {
+      let _ = lower_fn(c)
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_trait_decl(n: USize) -> USize {
+  let name = first_name(n)
+  let id = std.io.hir_emit_item("Trait", name)
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if ck == "TRAIT_METHOD" {
+      let nm = child_count(c)
+      let mut j: USize = 0
+      loop {
+        if j >= nm { break }
+        let cc = nth_child(c, j)
+        let cck = node_kind(cc)
+        if cck == "FN_DECL" {
+          let _ = lower_fn(cc)
+          break
+        }
+        j = j + 1
+      }
+    }
+    i = i + 1
+  }
+  id
+}
+
+// =====================================================================
+// Types
+// =====================================================================
+
+fn lower_type(n: USize) -> USize {
+  let k = node_kind(n)
+  match k {
+    "TYPE_PATH" => lower_type_path(n)
+    "TYPE_BORROW" => lower_type_borrow(n)
+    "TYPE_TUPLE" => lower_type_tuple(n)
+    "TYPE_ARRAY" => lower_type_array(n)
+    "TYPE_FN" => lower_type_fn(n)
+    "TYPE_RESULT_SUGAR" => lower_type_result(n)
+    "TYPE_UNION" => lower_type_union(n)
+    "TYPE_DYN" => std.io.hir_emit_type("Dyn")
+    _ => std.io.hir_emit_type("Unknown")
+  }
+}
+
+fn lower_type_path(n: USize) -> USize {
+  let id = std.io.hir_emit_type("Path")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if ck == "GENERIC_ARG_LIST" {
+      let inner = child_count(c)
+      let mut j: USize = 0
+      loop {
+        if j >= inner { break }
+        let cc = nth_child(c, j)
+        let cck = node_kind(cc)
+        if is_type_node_kind(cck) == true {
+          let _ = lower_type(cc)
+        }
+        j = j + 1
+      }
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_type_borrow(n: USize) -> USize {
+  let id = std.io.hir_emit_type("Borrow")
+  lower_first_type_child(n)
+  id
+}
+
+fn lower_type_tuple(n: USize) -> USize {
+  let id = std.io.hir_emit_type("Tuple")
+  lower_all_type_children(n)
+  id
+}
+
+fn lower_type_array(n: USize) -> USize {
+  let id = std.io.hir_emit_type("Array")
+  lower_first_type_child(n)
+  id
+}
+
+fn lower_type_fn(n: USize) -> USize {
+  let id = std.io.hir_emit_type("Fn")
+  lower_all_type_children(n)
+  id
+}
+
+fn lower_type_result(n: USize) -> USize {
+  let id = std.io.hir_emit_type("Result")
+  lower_all_type_children(n)
+  id
+}
+
+fn lower_type_union(n: USize) -> USize {
+  let id = std.io.hir_emit_type("Union")
+  lower_all_type_children(n)
+  id
+}
+
+fn lower_all_type_children(n: USize) -> Unit {
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_type_node_kind(ck) == true {
+      let _ = lower_type(c)
+    }
+    i = i + 1
+  }
+}
+
+// =====================================================================
+// Blocks + statements
+// =====================================================================
+
+fn lower_block(n: USize) -> USize {
+  let bid = std.io.hir_emit_block_start()
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if ck == "LET_STMT" {
+      let _ = lower_let_stmt(c)
+    } else if ck == "EXPR_STMT" {
+      let _ = lower_expr_stmt(c)
+    } else if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+    }
+    i = i + 1
+  }
+  let _ = std.io.hir_emit_block_end()
+  bid
+}
+
+fn lower_let_stmt(n: USize) -> USize {
+  let sid = std.io.hir_emit_stmt("Let")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_pat_node_kind(ck) == true {
+      let _ = lower_pat(c)
+    } else if is_type_node_kind(ck) == true {
+      let _ = lower_type(c)
+    } else if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+    }
+    i = i + 1
+  }
+  sid
+}
+
+fn lower_expr_stmt(n: USize) -> USize {
+  let sid = std.io.hir_emit_stmt("Expr")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+      break
+    }
+    i = i + 1
+  }
+  sid
+}
+
+// =====================================================================
+// Expressions
+// =====================================================================
+
+fn lower_expr(n: USize) -> USize {
+  let k = node_kind(n)
+  match k {
+    "LITERAL_EXPR" => std.io.hir_emit_expr("Literal")
+    "PATH_EXPR" => std.io.hir_emit_expr("Path")
+    "NAME_REF" => std.io.hir_emit_expr("Path")
+    "CALL_EXPR" => lower_call_expr(n)
+    "METHOD_CALL_EXPR" => lower_method_call_expr(n)
+    "FIELD_EXPR" => lower_field_expr(n)
+    "INDEX_EXPR" => lower_index_expr(n)
+    "BINARY_EXPR" => lower_binary_expr(n)
+    "UNARY_EXPR" => lower_unary_expr(n)
+    "PAREN_EXPR" => lower_paren_expr(n)
+    "TUPLE_EXPR" => lower_tuple_expr(n)
+    "ARRAY_EXPR" => lower_array_expr(n)
+    "STRUCT_EXPR" => lower_struct_expr(n)
+    "BLOCK_EXPR" => lower_block_expr(n)
+    "IF_EXPR" => lower_if_expr(n)
+    "MATCH_EXPR" => lower_match_expr(n)
+    "FOR_EXPR" => lower_for_expr(n)
+    "WHILE_EXPR" => lower_while_expr(n)
+    "LOOP_EXPR" => lower_loop_expr(n)
+    "RETURN_EXPR" => lower_return_expr(n)
+    "BREAK_EXPR" => lower_break_expr(n)
+    "CONTINUE_EXPR" => std.io.hir_emit_expr("Continue")
+    "QUESTION_EXPR" => lower_question_expr(n)
+    "BORROW_EXPR" => lower_borrow_expr(n)
+    "CAST_EXPR" => lower_cast_expr(n)
+    _ => std.io.hir_emit_expr("Error")
+  }
+}
+
+fn lower_call_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("Call")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+    } else if ck == "ARG_LIST" {
+      lower_arg_list(c)
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_arg_list(n: USize) -> Unit {
+  let inner = child_count(n)
+  let mut j: USize = 0
+  loop {
+    if j >= inner { break }
+    let cc = nth_child(n, j)
+    let cck = node_kind(cc)
+    if is_expr_node_kind(cck) == true {
+      let _ = lower_expr(cc)
+    }
+    j = j + 1
+  }
+}
+
+fn lower_method_call_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("MethodCall")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+    } else if ck == "ARG_LIST" {
+      lower_arg_list(c)
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_field_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("Field")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+      break
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_index_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("Index")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_binary_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("Binary")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_unary_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("Unary")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+      break
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_paren_expr(n: USize) -> USize {
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_expr_node_kind(ck) == true {
+      return lower_expr(c)
+    }
+    i = i + 1
+  }
+  std.io.hir_emit_expr("Error")
+}
+
+fn lower_tuple_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("Tuple")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_array_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("Array")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_struct_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("Struct")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if ck == "STRUCT_EXPR_FIELD" {
+      let inner = child_count(c)
+      let mut j: USize = 0
+      loop {
+        if j >= inner { break }
+        let cc = nth_child(c, j)
+        let cck = node_kind(cc)
+        if is_expr_node_kind(cck) == true {
+          let _ = lower_expr(cc)
+        }
+        j = j + 1
+      }
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_block_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("Block")
+  let _ = lower_block(n)
+  id
+}
+
+fn lower_if_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("If")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+    } else if ck == "BLOCK_EXPR" {
+      let _ = lower_block_expr(c)
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_match_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("Match")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  let mut scrut_done = false
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_expr_node_kind(ck) == true {
+      if scrut_done == false {
+        let _ = lower_expr(c)
+        scrut_done = true
+      }
+    } else if ck == "MATCH_ARM" {
+      let _ = lower_match_arm(c)
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_match_arm(n: USize) -> USize {
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_pat_node_kind(ck) == true {
+      let _ = lower_pat(c)
+    } else if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+    }
+    i = i + 1
+  }
+  0
+}
+
+fn lower_for_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("For")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_pat_node_kind(ck) == true {
+      let _ = lower_pat(c)
+    } else if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+    } else if ck == "BLOCK_EXPR" {
+      let _ = lower_block_expr(c)
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_while_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("While")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+    } else if ck == "BLOCK_EXPR" {
+      let _ = lower_block_expr(c)
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_loop_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("Loop")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if ck == "BLOCK_EXPR" {
+      let _ = lower_block_expr(c)
+      break
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_return_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("Return")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+      break
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_break_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("Break")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+      break
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_question_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("Question")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+      break
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_borrow_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("Borrow")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+      break
+    }
+    i = i + 1
+  }
+  id
+}
+
+fn lower_cast_expr(n: USize) -> USize {
+  let id = std.io.hir_emit_expr("Cast")
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_expr_node_kind(ck) == true {
+      let _ = lower_expr(c)
+    } else if is_type_node_kind(ck) == true {
+      let _ = lower_type(c)
+    }
+    i = i + 1
+  }
+  id
+}
+
+// =====================================================================
+// Patterns
+// =====================================================================
+
+fn lower_pat(n: USize) -> USize {
+  let k = node_kind(n)
+  match k {
+    "LITERAL_PAT" => std.io.hir_emit_pat("Literal")
+    "BINDING_PAT" => std.io.hir_emit_pat("Binding")
+    "WILDCARD_PAT" => std.io.hir_emit_pat("Wildcard")
+    "TUPLE_PAT" => lower_compound_pat(n, "Tuple")
+    "STRUCT_PAT" => lower_compound_pat(n, "Struct")
+    "ENUM_PAT" => lower_compound_pat(n, "Enum")
+    "RANGE_PAT" => std.io.hir_emit_pat("Range")
+    "REF_PAT" => lower_compound_pat(n, "Ref")
+    _ => std.io.hir_emit_pat("Wildcard")
+  }
+}
+
+fn lower_compound_pat(n: USize, tag: Str) -> USize {
+  let id = std.io.hir_emit_pat(tag)
+  let nc = child_count(n)
+  let mut i: USize = 0
+  loop {
+    if i >= nc { break }
+    let c = nth_child(n, i)
+    let ck = node_kind(c)
+    if is_pat_node_kind(ck) == true {
+      let _ = lower_pat(c)
+    }
+    i = i + 1
+  }
+  id
+}
+
+// =====================================================================
+// Demo main
+// =====================================================================
+
+fn main() effect io {
+  lower_file()
+  log("selfhost_hir.lower_file completed")
+}

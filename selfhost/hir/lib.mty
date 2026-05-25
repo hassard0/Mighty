@@ -1,0 +1,41 @@
+// selfhost/hir/lib.mty
+//
+// v0.8 scaffolding for the self-hosted HIR + lowering package.
+//
+// The runnable HIR lives in `lower.mty` as a single consolidated module
+// — the v0.8 `mty check` driver still compiles one `.mty` file at a
+// time, same single-file constraint as the v0.4 lexer and v0.6 parser.
+// This file documents the intended v0.9+ module layout once `mty-pkg`
+// lands cross-file module resolution.
+//
+// ## v0.9+ module layout
+//
+//   selfhost/hir/
+//     lib.mty           // this file — package root + public re-exports
+//     nodes.mty         // HirFn / HirStruct / HirEnum / HirExpr / ...
+//     ids.mty           // ItemId / FnId / ExprId / ... (newtype wrappers)
+//     lower.mty         // CST -> HIR lowering driver (the runnable file)
+//     items.mty         // item-level lowering (fn / struct / enum / ...)
+//     exprs.mty         // expression-level lowering
+//     types.mty         // type expression lowering
+//     patterns.mty      // pattern lowering
+//     dump.mty          // HIR -> human-readable dump (for diagnostics)
+//
+// ## Public surface
+//
+// The exported entry point is `lower_file()`, which walks the trusted
+// Rust parser's CST through the host bridge and emits HIR "events"
+// (one per item lowered, one per expr/stmt/type allocated). The bridge
+// is conceptually the same as the v0.6 parser bridge — read access to
+// the input (CST), write access to the output (HIR sink).
+//
+// pub fn lower_file() -> Unit
+//
+// The bootstrap test in crates/mty-driver/tests/selfhost_hir.rs
+// installs a SelfhostHirHost that:
+//   1. seeds the CST from the trusted Rust parser
+//   2. responds to CST navigation queries (node_kind, child_count, ...)
+//   3. captures the HIR event stream
+//   4. compares the item-kind sequence against the Rust HIR pipeline
+
+package selfhost_hir_lib

@@ -1,0 +1,37 @@
+// selfhost/typeck/lib.mty
+//
+// v0.8 scaffolding for the self-hosted type-inference package.
+//
+// The runnable typeck lives in `infer.mty` as a single consolidated
+// module — the v0.8 `mty check` driver still compiles one `.mty` file
+// at a time, same single-file constraint as the v0.4 lexer, v0.6
+// parser, and v0.8 HIR. This file documents the intended v0.9+ module
+// layout once `mty-pkg` lands cross-file module resolution.
+//
+// ## v0.9+ module layout
+//
+//   selfhost/typeck/
+//     lib.mty           // this file — package root + public re-exports
+//     ty.mty            // resolved type representation (Ty, TyId, ...)
+//     infer.mty         // bidirectional HM-style inference driver
+//     unify.mty         // substitution + unify (post-1.0)
+//     items.mty         // item-level type collection (fn sigs first)
+//     exprs.mty         // expression-level inference
+//     prelude.mty       // built-in type bindings (I32, F64, Str, ...)
+//
+// ## Public surface
+//
+// The exported entry point is `infer_package()`, which walks the HIR
+// emitted by selfhost_hir through the host bridge and records inferred
+// types per binding.
+//
+//   pub fn infer_package() -> Unit
+//
+// The bootstrap test in crates/mty-driver/tests/selfhost_typeck.rs
+// installs a SelfhostTypeckHost that:
+//   1. seeds the HIR from the trusted Rust lowering pipeline
+//   2. responds to HIR navigation queries
+//   3. captures the per-binding inferred-type event stream
+//   4. compares the binding -> type map against the Rust typeck pipeline
+
+package selfhost_typeck_lib

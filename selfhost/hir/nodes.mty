@@ -1,0 +1,112 @@
+// selfhost/hir/nodes.mty
+//
+// v0.8 HIR data-type sketch (DOCUMENTATION FORM).
+//
+// The runnable HIR lowering lives in `lower.mty` because the v0.8 driver
+// compiles one `.mty` file at a time and the lowering needs everything in
+// one translation unit. This file documents the Mighty-side mirror of
+// crates/mty-hir/src/nodes.rs so future work (v0.9 cross-file modules)
+// can split the package cleanly.
+//
+// Two design departures from the Rust HIR:
+//
+//   1. **No la_arena.** Stardust doesn't depend on la_arena, so arenas
+//      are simple Vec<T> indexed by USize. IDs are bare USize values.
+//
+//   2. **No generic types.** v0.6 Mighty's generic-param support is
+//      limited to fn-level; struct generics + enum generics aren't yet
+//      usable across files. We therefore keep the arena unparameterised
+//      and tag values with a "kind" string field where the Rust side
+//      would use an enum.
+//
+// ## ID types (newtypes when we have them)
+//
+//   type ItemId       = USize
+//   type FnId         = USize
+//   type StructId     = USize
+//   type EnumId       = USize
+//   type TypeAliasId  = USize
+//   type ExprId       = USize
+//   type PatId        = USize
+//   type TypeId       = USize
+//   type BlockId      = USize
+//
+// ## Item kinds (mirror of mty_hir::nodes::Item)
+//
+//   "Fn"           — named function (with optional body)
+//   "Struct"       — struct decl
+//   "Enum"         — enum decl
+//   "TypeAlias"    — type alias
+//   "Use"          — `use` import
+//   "Mod"          — `mod` decl
+//   "ExternBlock"  — `extern { fn ... }`
+//   "Impl"         — `impl T { ... }` or `impl Trait for T`
+//   "Trait"        — `trait T { ... }`
+//   "Const"        — `const X: T = ...`
+//   "Agent"        — agent decl (v0.9)
+//   "Protocol"     — protocol decl (v0.9)
+//   "Supervisor"   — supervisor decl (v0.9)
+//   "Macro"        — macro decl (post-1.0)
+//   "Sandbox"      — top-level sandbox (post-1.0)
+//
+// ## HirFn fields (mirror of mty_hir::nodes::HirFn)
+//
+//   name      : Str       // identifier
+//   is_pub    : Bool
+//   is_unsafe : Bool
+//   generics  : [Str]
+//   params    : [HirParam]
+//   ret       : Option[TypeId]
+//   effects   : [Str]
+//   body      : Option[BlockId]
+//
+// ## HirExpr kinds (mirror of mty_hir::nodes::HirExpr) — v0.8 subset
+//
+//   "Literal"     — int/float/str/char/bool/duration/size
+//   "Path"        — qualified name (e.g. `std.io.println`)
+//   "Call"        — callee(args)
+//   "MethodCall"  — receiver.method(args)
+//   "Field"       — receiver.name
+//   "Index"       — receiver[idx]
+//   "Binary"      — lhs op rhs
+//   "Unary"       — op rhs
+//   "If"          — if cond { then } else { else_ }
+//   "Match"       — match scrutinee { arms }
+//   "For"         — for pat in iter { body }
+//   "While"       — while cond { body }
+//   "Loop"        — loop { body }
+//   "Return"      — return [expr]
+//   "Break"       — break [expr]
+//   "Continue"    — continue
+//   "Block"       — { stmts; tail }
+//   "Tuple"       — (a, b, c)
+//   "Array"       — [a, b, c]
+//   "Struct"      — Foo { field: value, ... }
+//   "Question"    — expr?
+//   "Borrow"      — &expr or &mut expr
+//
+// ## HirType kinds — v0.8 subset
+//
+//   "Path" "Borrow" "Tuple" "Array" "Fn" "Result" "Union" "Unit" "Unknown"
+//
+// ## HirPat kinds
+//
+//   "Wildcard" "Literal" "Binding" "Ref" "Tuple" "Struct" "Enum" "Range"
+//
+// ## HirStmt kinds
+//
+//   "Let" "Expr"
+//
+// ## Package layout (mirror of mty_hir::nodes::Package)
+//
+// In the Mighty self-host these are arenas owned by the host:
+//
+//   items[]      / fns[]    / structs[] / enums[]
+//   type_aliases[] / agents[] / protocols[] / supervisors[]
+//   exprs[]      / pats[]   / types[]   / blocks[]
+//   top_level[]  : [ItemId]
+//
+// See `lower.mty` for the implementation talking to the host bridge,
+// and `crates/mty-driver/tests/selfhost_hir.rs` for the Rust host.
+
+package selfhost_hir_nodes
