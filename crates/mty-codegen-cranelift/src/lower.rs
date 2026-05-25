@@ -1677,9 +1677,27 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
 
 /// Construct cranelift codegen flags suitable for slice-8.
 /// `is_pic` controls whether the resulting code is position-independent.
+///
+/// ### v0.10 — egraph workaround knob
+///
+/// `MTY_CRANELIFT_NO_OPT=1` in the environment forces
+/// `opt_level = "none"`, disabling the egraph optimization pass.
+/// This is the documented escape hatch for the Cranelift 0.132
+/// egraph stack-overflow on generic-over-`T` + `&[T]` + `Option<&T>`
+/// shapes — see
+/// [`docs/upstream-issues/cranelift-egraph-bug-v0_9.md`](../../docs/upstream-issues/cranelift-egraph-bug-v0_9.md)
+/// and upstream issue
+/// <https://github.com/bytecodealliance/wasmtime/issues/13476>.
+///
+/// When the upstream fix lands and we bump to a patched cranelift,
+/// remove the env-var honour + this paragraph.
 pub fn default_flags(is_pic: bool) -> cranelift_codegen::settings::Flags {
     let mut b = settings::builder();
-    let _ = b.set("opt_level", "speed");
+    let opt_disabled = std::env::var("MTY_CRANELIFT_NO_OPT")
+        .ok()
+        .filter(|s| !s.is_empty() && s != "0")
+        .is_some();
+    let _ = b.set("opt_level", if opt_disabled { "none" } else { "speed" });
     let _ = b.set("is_pic", if is_pic { "true" } else { "false" });
     settings::Flags::new(b)
 }

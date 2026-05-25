@@ -328,15 +328,33 @@ pub fn login(slug: Option<&str>, root: &Path) -> Result<String, PkgError> {
     ))
 }
 
-/// `mty pkg publish`. Produces the bundle, signs it (v0.9 RC-prep:
-/// stub sigstore-style envelope; see `crates/mty-pkg/src/signing.rs`
-/// for the v0.10 plan), then either uploads it (when a token is
-/// available for the configured default registry) or reports the
-/// local artefacts + a clear "set GITHUB_TOKEN" message.
+/// `mty pkg publish`. Produces the bundle, signs it (mode selected
+/// by `[registry.signing] mode` — see
+/// `crates/mty-pkg/src/signing.rs`), then either uploads it (when a
+/// token is available for the configured default registry) or
+/// reports the local artefacts + a clear "set GITHUB_TOKEN" message.
+///
+/// v0.10 cleanup: signing is mode-aware. The default mode is
+/// `"stub"` (deterministic SHA-256 envelope, v0.9 shape). Setting
+/// `[registry.signing] mode = "keyless"` opts into real sigstore
+/// signing when the `sigstore-real` cargo feature is compiled in;
+/// without the feature, the keyless path quietly degrades to stub
+/// (so `mty pkg publish` never aborts because the binary was built
+/// without the optional dep).
 pub fn publish(root: &Path) -> Result<String, PkgError> {
     let outcome = publish::bundle(root)?;
-    let signed = signing::sign_bundle(&outcome)?;
     let cfg = registry::load_registry_config(&root.join(crate::MANIFEST_NAME))?;
+    let mode = signing::SigningMode::parse(cfg.signing.mode.as_deref());
+    let signed = signing::sign_bundle_with_mode(&outcome, mode)?;
+    // If the user asked for keyless but we degraded to stub, surface
+    // a one-line note — useful in CI to spot a misconfigured runner.
+    let degraded_note =
+        if mode == signing::SigningMode::Keyless && signed.mode == signing::SigningMode::Stub {
+            "note: keyless signing requested but binary built without `sigstore-real` feature \
+         (or no ambient OIDC identity available); falling back to stub envelope.\n"
+        } else {
+            ""
+        };
     let slug = cfg
         .default
         .clone()
@@ -351,25 +369,28 @@ pub fn publish(root: &Path) -> Result<String, PkgError> {
             .unwrap_or(false);
     if !has_token {
         return Ok(format!(
-            "bundle ready at `{bundle}` ({hash})\n\
+            "{degraded}bundle ready at `{bundle}` ({hash})\n\
              sidecar     `{side}`\n\
-             signature   `{sig}`\n\
+             signature   `{sig}` (mode: {mode:?})\n\
              envelope    `{env}`\n\
              upload skipped: no auth token for `{slug}`.\n\
              Set GITHUB_TOKEN or run `mty pkg login {slug}` and retry.\n\
              To upload manually, drag the four files onto the release page for tag `{tag}`.\n",
+            degraded = degraded_note,
             bundle = outcome.bundle_path.display(),
             hash = outcome.hash,
             side = outcome.sha256_path.display(),
             sig = signed.sig_path.display(),
             env = signed.envelope_path.display(),
+            mode = signed.mode,
             slug = slug,
             tag = outcome.tag,
         ));
     }
     let url = publish::upload(&slug, &outcome)?;
     Ok(format!(
-        "published `{tag}` to `{slug}` — {url}\nbundle: {bundle} ({hash})\nsidecar: {side}\nsignature: {sig}\nenvelope: {env}\n",
+        "{degraded}published `{tag}` to `{slug}` — {url}\nbundle: {bundle} ({hash})\nsidecar: {side}\nsignature: {sig} (mode: {mode:?})\nenvelope: {env}\n",
+        degraded = degraded_note,
         tag = outcome.tag,
         slug = slug,
         url = url,
@@ -377,6 +398,7 @@ pub fn publish(root: &Path) -> Result<String, PkgError> {
         hash = outcome.hash,
         side = outcome.sha256_path.display(),
         sig = signed.sig_path.display(),
+        mode = signed.mode,
         env = signed.envelope_path.display(),
     ))
 }

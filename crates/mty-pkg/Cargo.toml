@@ -17,6 +17,8 @@ sha2.workspace = true
 hex.workspace = true
 reqwest = { workspace = true, optional = true }
 git2 = { workspace = true, optional = true }
+sigstore = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
 mty-driver = { path = "../mty-driver" }
 tar = "0.4"
 flate2 = "1"
@@ -25,9 +27,16 @@ dirs = "5"
 [features]
 # Default: include fetchers. Tests that hit the network mark themselves
 # `#[ignore]` so `cargo test -p mty-pkg` is hermetic.
+#
+# `sigstore-real` is **opt-in** for v0.10 — the `sigstore` crate
+# pulls in a heavy dep graph (tonic, Fulcio + Rekor OpenAPI clients,
+# native-tls / openssl-sys on some hosts). Default builds keep the
+# v0.9 deterministic stub envelope. To exercise real keyless
+# signing: `cargo build -p mty-cli --features mty-pkg/sigstore-real`.
 default = ["registry-fetch", "git-fetch"]
 registry-fetch = ["dep:reqwest"]
 git-fetch = ["dep:git2"]
+sigstore-real = ["dep:sigstore", "dep:tokio"]
 
 [dev-dependencies]
 tempfile = "3"

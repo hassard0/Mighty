@@ -35,6 +35,7 @@ fn package_in_second_registry_resolves() {
         RegistryConfig {
             default: Some("primary/idx".into()),
             extras: vec!["secondary/idx".into()],
+            ..Default::default()
         },
     );
     let mut idx_primary = RegistryIndex::new("primary/idx");
@@ -67,6 +68,7 @@ fn first_registry_wins_on_duplicate_name_version() {
         RegistryConfig {
             default: Some("primary/idx".into()),
             extras: vec!["secondary/idx".into()],
+            ..Default::default()
         },
     );
     let mut idx_primary = RegistryIndex::new("primary/idx");
@@ -95,6 +97,7 @@ fn unknown_package_falls_back_to_requirement_floor() {
         RegistryConfig {
             default: Some("primary/idx".into()),
             extras: vec![],
+            ..Default::default()
         },
     );
     let mut idx = RegistryIndex::new("primary/idx");

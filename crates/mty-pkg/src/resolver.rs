@@ -400,6 +400,7 @@ mod tests {
             RegistryConfig {
                 default: Some("foo/bar".into()),
                 extras: vec![],
+                signing: crate::registry::SigningConfig::default(),
             },
         );
         let mut idx = RegistryIndex::new("foo/bar");
@@ -427,6 +428,7 @@ mod tests {
             RegistryConfig {
                 default: Some("a/a".into()),
                 extras: vec!["b/b".into()],
+                signing: crate::registry::SigningConfig::default(),
             },
         );
         let mut idx_b = RegistryIndex::new("b/b");

@@ -83,6 +83,11 @@ tokio-util = "0.7"
 criterion = { version = "0.5", default-features = false, features = ["plotters", "cargo_bench_support"] }
 crossbeam-deque = "0.8"
 crossbeam-utils = "0.8"
+# v0.10 cleanup — real sigstore keyless signing. Opt-in via the
+# `mty-pkg/sigstore-real` cargo feature; default builds keep the
+# v0.9 stub envelope. See `docs/internals/package-signing.md` for
+# the cut-over plan + dep-graph rationale.
+sigstore = { version = "0.14", default-features = false }
 
 [profile.dev]
 opt-level = 0

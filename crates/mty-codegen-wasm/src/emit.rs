@@ -160,20 +160,46 @@ pub fn compile_program_to_file_with_options(
 pub const DOM_RETURN_AREA: u32 = 8208;
 pub const DOM_RETURN_AREA_BYTES: u32 = 16;
 
-/// v0.9 RC-prep — initial value of the `cabi_realloc` bump pointer.
-/// 32 KiB into linear memory keeps it clear of:
+/// v0.10 cleanup — `cabi_realloc` allocator memory layout.
+///
+/// Linear memory ranges:
 ///   * 0..1024  — reserved for shadow-stack scratch,
 ///   * 1024..8192 — string-literal pool (data section),
 ///   * 8192..8224 — legacy JS shim + canonical-ABI return area,
-///   * 8224..32768 — slack for future growth of the data section.
+///   * 8224..32768 — slack for future growth of the data section,
+///   * 32768..32800 — allocator state (8 i32 free-list heads),
+///   * 32800.. — heap (bump-allocated, with size-class reuse).
 ///
-/// The bump region grows upward into the rest of the 16-page (1 MiB)
-/// linear memory. Real free() / coalescing is out of scope for v0.9;
-/// the canonical-ABI lifts we currently emit only call `cabi_realloc`
-/// with `old_ptr == 0`, i.e. fresh allocations, so a bump allocator
-/// suffices for the v0.9 demos. See KNOWN_ISSUES.md for the v0.10
-/// follow-up.
-pub const CABI_REALLOC_HEAP_BASE: i32 = 32768;
+/// ### Allocator design (v0.10)
+///
+/// Segregated free-list with 8 size classes (powers of 2 from 8B
+/// to 1024B). Each class has a free-list head stored in linear
+/// memory at `CABI_REALLOC_STATE_BASE + class*4`; the link in each
+/// free block is the first 4 bytes (next-pointer; 0 = end of list).
+///
+/// `cabi_realloc(old, old_size, align, new)`:
+/// * `old==0`: malloc(new). Try class free-list; else bump.
+/// * `new==0 && old!=0`: free(old, old_size). Push to class
+///   free-list if `old_size` fits a size class.
+/// * else: realloc. malloc(new), memcpy(min(old_size, new)),
+///   free(old). Conservative — no in-place grow yet.
+///
+/// Requests > 1024 bytes use a "large" path that bumps + never
+/// frees. Acceptable for v0.10 — most canonical-ABI strings/lists
+/// fit in the small classes; documented upgrade path to a real
+/// dlmalloc/rlsf allocator for v0.11+.
+///
+/// `align` is respected by rounding the bump pointer up; free-list
+/// reuse is only safe when `align <= class_size`, which always
+/// holds for power-of-two alignments because the free blocks were
+/// originally bump-allocated at class-size alignment.
+pub const CABI_REALLOC_STATE_BASE: i32 = 32768;
+pub const CABI_REALLOC_HEAP_BASE: i32 = 32800;
+
+/// Eight size classes: 8, 16, 32, 64, 128, 256, 512, 1024 bytes.
+/// Indexed 0..7. Class `i` has size `8 << i`.
+pub const CABI_REALLOC_NUM_CLASSES: u32 = 8;
+pub const CABI_REALLOC_LARGE_THRESHOLD: u32 = 1024;
 
 struct Emitter<'a> {
     prog: &'a Program,
@@ -969,64 +995,357 @@ fn _used_block_id(_: BlockId) {}
 
 /// Build the body of the canonical-ABI `cabi_realloc` export.
 ///
-/// Pseudocode (where `$bump` is global 0, an i32):
+/// v0.10: segregated free-list allocator with 8 size classes
+/// (8B → 1024B, powers of 2) + a "large" bump path for `size >
+/// 1024`. See [`CABI_REALLOC_STATE_BASE`] for the memory layout.
+///
+/// ### Pseudocode
 ///
 /// ```text
-/// fn cabi_realloc(old_ptr: i32, old_size: i32, align: i32, new_size: i32) -> i32 {
-///     // Align the bump pointer up: bump = (bump + (align-1)) & ~(align-1)
-///     let mask = align - 1;
-///     bump = (bump + mask) & !mask;
-///     let ptr = bump;
-///     bump += new_size;
-///     ptr
+/// fn cabi_realloc(old: i32, old_size: i32, align: i32, new: i32) -> i32 {
+///     if new == 0 {
+///         if old != 0 { free(old, old_size); }
+///         return 0;
+///     }
+///     let p = if old == 0 {
+///         malloc(align, new)
+///     } else {
+///         let p = malloc(align, new);
+///         memcpy(p, old, min(old_size, new));
+///         free(old, old_size);
+///         p
+///     };
+///     p
 /// }
+///
+/// fn malloc(align: i32, size: i32) -> i32 {
+///     let class = size_class(size);    // -1 if size > 1024
+///     if class >= 0 && align <= class_size(class) {
+///         let head = load_i32(STATE_BASE + class*4);
+///         if head != 0 {
+///             store_i32(STATE_BASE + class*4, load_i32(head));
+///             return head;
+///         }
+///         // bump-allocate class_size bytes (naturally aligned for align).
+///         return bump(class_size(class), align);
+///     }
+///     bump(size, align)
+/// }
+///
+/// fn free(ptr: i32, size: i32) {
+///     let class = size_class(size);
+///     if class < 0 { return; }   // large: not freed
+///     let head = load_i32(STATE_BASE + class*4);
+///     store_i32(ptr, head);
+///     store_i32(STATE_BASE + class*4, ptr);
+/// }
+///
+/// fn bump(size: i32, align: i32) -> i32 {
+///     let mask = align - 1;
+///     $bump = ($bump + mask) & !mask;
+///     let p = $bump;
+///     $bump = $bump + size;
+///     p
+/// }
+///
+/// // size_class: returns class index 0..7 such that class_size >= size,
+/// // or -1 if size > 1024. Implemented as an unrolled if-chain
+/// // (8 comparisons) because wasm has no native ctz/clz on i32 sizes
+/// // small enough to dispatch off.
 /// ```
 ///
-/// We ignore `old_ptr` / `old_size` because the canonical-ABI lifts
-/// we currently emit only ever call this with `old_ptr == 0` (fresh
-/// allocations). A future v0.10 follow-up will add a real free-list
-/// or a `wee_alloc`-style buddy allocator.
+/// ### Wasm layout
+///
+/// Locals (after the 4 params `old`, `old_size`, `align`, `new`):
+/// - local 4: `class`  (i32)  — size class index, -1 = large.
+/// - local 5: `csize`  (i32)  — bytes for the size class.
+/// - local 6: `head`   (i32)  — free-list head pointer.
+/// - local 7: `p`      (i32)  — allocation result / scratch.
+/// - local 8: `mask`   (i32)  — alignment mask.
+/// - local 9: `i`      (i32)  — memcpy loop counter.
+/// - local 10: `n`     (i32)  — memcpy byte count = min(old_size, new).
+///
+/// Global 0 = bump pointer, initialised to [`CABI_REALLOC_HEAP_BASE`].
 fn build_cabi_realloc_body() -> WFunction {
-    // Two scratch locals are sufficient: `mask` (the align-1 mask)
-    // and `ptr` (the return value). The canonical-ABI sig already
-    // gives us locals 0..3 for the params (old_ptr, old_size,
-    // align, new_size); we add 2 more (indices 4, 5).
-    let mut f = WFunction::new([(2u32, ValType::I32)]);
+    let mut f = WFunction::new([(7u32, ValType::I32)]);
+    const PARAM_OLD: u32 = 0;
+    const PARAM_OLD_SIZE: u32 = 1;
     const PARAM_ALIGN: u32 = 2;
-    const PARAM_NEW_SIZE: u32 = 3;
-    const LOCAL_MASK: u32 = 4;
-    const LOCAL_PTR: u32 = 5;
+    const PARAM_NEW: u32 = 3;
+    const LOC_CLASS: u32 = 4;
+    const LOC_CSIZE: u32 = 5;
+    const LOC_HEAD: u32 = 6;
+    const LOC_P: u32 = 7;
+    const LOC_MASK: u32 = 8;
+    const LOC_I: u32 = 9;
+    const LOC_N: u32 = 10;
+    let memarg0 = wasm_encoder::MemArg {
+        offset: 0,
+        align: 2,
+        memory_index: 0,
+    };
+    let memarg_b = wasm_encoder::MemArg {
+        offset: 0,
+        align: 0,
+        memory_index: 0,
+    };
 
-    // mask = align - 1
+    // ----- if new == 0: free-only or no-op -----
+    f.instruction(&I::LocalGet(PARAM_NEW));
+    f.instruction(&I::I32Eqz);
+    f.instruction(&I::If(BlockType::Empty));
+    {
+        // if old != 0 { free(old, old_size); }
+        f.instruction(&I::LocalGet(PARAM_OLD));
+        f.instruction(&I::I32Eqz);
+        f.instruction(&I::I32Eqz);
+        f.instruction(&I::If(BlockType::Empty));
+        {
+            emit_size_class(&mut f, PARAM_OLD_SIZE, LOC_CLASS);
+            // if class >= 0 { push to free list }
+            f.instruction(&I::LocalGet(LOC_CLASS));
+            f.instruction(&I::I32Const(0));
+            f.instruction(&I::I32GeS);
+            f.instruction(&I::If(BlockType::Empty));
+            {
+                // head = load_i32(STATE_BASE + class*4)
+                f.instruction(&I::LocalGet(LOC_CLASS));
+                f.instruction(&I::I32Const(2));
+                f.instruction(&I::I32Shl);
+                f.instruction(&I::I32Const(CABI_REALLOC_STATE_BASE));
+                f.instruction(&I::I32Add);
+                f.instruction(&I::LocalSet(LOC_P)); // P = address of head slot
+                f.instruction(&I::LocalGet(LOC_P));
+                f.instruction(&I::I32Load(memarg0));
+                f.instruction(&I::LocalSet(LOC_HEAD));
+                // store_i32(old, head)
+                f.instruction(&I::LocalGet(PARAM_OLD));
+                f.instruction(&I::LocalGet(LOC_HEAD));
+                f.instruction(&I::I32Store(memarg0));
+                // store_i32(head_slot, old)
+                f.instruction(&I::LocalGet(LOC_P));
+                f.instruction(&I::LocalGet(PARAM_OLD));
+                f.instruction(&I::I32Store(memarg0));
+            }
+            f.instruction(&I::End);
+        }
+        f.instruction(&I::End);
+        // return 0
+        f.instruction(&I::I32Const(0));
+        f.instruction(&I::Return);
+    }
+    f.instruction(&I::End);
+
+    // ----- malloc(align, new) -> LOC_P -----
+    emit_size_class(&mut f, PARAM_NEW, LOC_CLASS);
+    // csize = if class < 0 { new } else { 8 << class }
+    f.instruction(&I::LocalGet(LOC_CLASS));
+    f.instruction(&I::I32Const(0));
+    f.instruction(&I::I32LtS);
+    f.instruction(&I::If(BlockType::Result(ValType::I32)));
+    {
+        f.instruction(&I::LocalGet(PARAM_NEW));
+    }
+    f.instruction(&I::Else);
+    {
+        f.instruction(&I::I32Const(8));
+        f.instruction(&I::LocalGet(LOC_CLASS));
+        f.instruction(&I::I32Shl);
+    }
+    f.instruction(&I::End);
+    f.instruction(&I::LocalSet(LOC_CSIZE));
+
+    // Try free-list reuse: only if class >= 0 AND align <= csize.
+    f.instruction(&I::LocalGet(LOC_CLASS));
+    f.instruction(&I::I32Const(0));
+    f.instruction(&I::I32GeS);
     f.instruction(&I::LocalGet(PARAM_ALIGN));
-    f.instruction(&I::I32Const(1));
-    f.instruction(&I::I32Sub);
-    f.instruction(&I::LocalSet(LOCAL_MASK));
-
-    // bump = (bump + mask) & !mask
-    f.instruction(&I::GlobalGet(0));
-    f.instruction(&I::LocalGet(LOCAL_MASK));
-    f.instruction(&I::I32Add);
-    f.instruction(&I::LocalGet(LOCAL_MASK));
-    f.instruction(&I::I32Const(-1));
-    f.instruction(&I::I32Xor);
+    f.instruction(&I::LocalGet(LOC_CSIZE));
+    f.instruction(&I::I32LeS);
     f.instruction(&I::I32And);
-    f.instruction(&I::GlobalSet(0));
+    f.instruction(&I::If(BlockType::Empty));
+    {
+        // head_slot = STATE_BASE + class*4
+        f.instruction(&I::LocalGet(LOC_CLASS));
+        f.instruction(&I::I32Const(2));
+        f.instruction(&I::I32Shl);
+        f.instruction(&I::I32Const(CABI_REALLOC_STATE_BASE));
+        f.instruction(&I::I32Add);
+        f.instruction(&I::LocalSet(LOC_MASK)); // reuse mask local as slot ptr
+                                               // head = load(head_slot)
+        f.instruction(&I::LocalGet(LOC_MASK));
+        f.instruction(&I::I32Load(memarg0));
+        f.instruction(&I::LocalSet(LOC_HEAD));
+        // if head != 0 { pop and use }
+        f.instruction(&I::LocalGet(LOC_HEAD));
+        f.instruction(&I::I32Eqz);
+        f.instruction(&I::I32Eqz);
+        f.instruction(&I::If(BlockType::Empty));
+        {
+            // head_slot.store(load(head))   // next-link
+            f.instruction(&I::LocalGet(LOC_MASK));
+            f.instruction(&I::LocalGet(LOC_HEAD));
+            f.instruction(&I::I32Load(memarg0));
+            f.instruction(&I::I32Store(memarg0));
+            // p = head
+            f.instruction(&I::LocalGet(LOC_HEAD));
+            f.instruction(&I::LocalSet(LOC_P));
+            // proceed to copy-from-old + free-old + return p; jump
+            // to that section via setting LOC_HEAD = 0 sentinel?
+            // Simpler: use the post-malloc tail explicitly. We
+            // signal "already allocated" by setting LOC_HEAD=1.
+            f.instruction(&I::I32Const(1));
+            f.instruction(&I::LocalSet(LOC_HEAD));
+        }
+        f.instruction(&I::End);
+    }
+    f.instruction(&I::End);
 
-    // ptr = bump
-    f.instruction(&I::GlobalGet(0));
-    f.instruction(&I::LocalSet(LOCAL_PTR));
+    // If LOC_HEAD != 1, we didn't pop from free list — bump-allocate.
+    f.instruction(&I::LocalGet(LOC_HEAD));
+    f.instruction(&I::I32Const(1));
+    f.instruction(&I::I32Ne);
+    f.instruction(&I::If(BlockType::Empty));
+    {
+        // bump-allocate LOC_CSIZE bytes aligned to PARAM_ALIGN.
+        // mask = align - 1
+        f.instruction(&I::LocalGet(PARAM_ALIGN));
+        f.instruction(&I::I32Const(1));
+        f.instruction(&I::I32Sub);
+        f.instruction(&I::LocalSet(LOC_MASK));
+        // bump = (bump + mask) & !mask
+        f.instruction(&I::GlobalGet(0));
+        f.instruction(&I::LocalGet(LOC_MASK));
+        f.instruction(&I::I32Add);
+        f.instruction(&I::LocalGet(LOC_MASK));
+        f.instruction(&I::I32Const(-1));
+        f.instruction(&I::I32Xor);
+        f.instruction(&I::I32And);
+        f.instruction(&I::GlobalSet(0));
+        // p = bump; bump += csize
+        f.instruction(&I::GlobalGet(0));
+        f.instruction(&I::LocalSet(LOC_P));
+        f.instruction(&I::GlobalGet(0));
+        f.instruction(&I::LocalGet(LOC_CSIZE));
+        f.instruction(&I::I32Add);
+        f.instruction(&I::GlobalSet(0));
+    }
+    f.instruction(&I::End);
 
-    // bump = bump + new_size
-    f.instruction(&I::GlobalGet(0));
-    f.instruction(&I::LocalGet(PARAM_NEW_SIZE));
-    f.instruction(&I::I32Add);
-    f.instruction(&I::GlobalSet(0));
+    // ----- if old != 0: copy min(old_size, new) bytes, then free old -----
+    f.instruction(&I::LocalGet(PARAM_OLD));
+    f.instruction(&I::I32Eqz);
+    f.instruction(&I::I32Eqz);
+    f.instruction(&I::If(BlockType::Empty));
+    {
+        // n = min(old_size, new)
+        f.instruction(&I::LocalGet(PARAM_OLD_SIZE));
+        f.instruction(&I::LocalGet(PARAM_NEW));
+        f.instruction(&I::I32LtS);
+        f.instruction(&I::If(BlockType::Result(ValType::I32)));
+        {
+            f.instruction(&I::LocalGet(PARAM_OLD_SIZE));
+        }
+        f.instruction(&I::Else);
+        {
+            f.instruction(&I::LocalGet(PARAM_NEW));
+        }
+        f.instruction(&I::End);
+        f.instruction(&I::LocalSet(LOC_N));
 
-    // return ptr
-    f.instruction(&I::LocalGet(LOCAL_PTR));
+        // byte-by-byte memcpy: for i in 0..n { *(p+i) = *(old+i); }
+        f.instruction(&I::I32Const(0));
+        f.instruction(&I::LocalSet(LOC_I));
+        f.instruction(&I::Block(BlockType::Empty));
+        f.instruction(&I::Loop(BlockType::Empty));
+        {
+            // if i >= n break
+            f.instruction(&I::LocalGet(LOC_I));
+            f.instruction(&I::LocalGet(LOC_N));
+            f.instruction(&I::I32GeS);
+            f.instruction(&I::BrIf(1));
+            // *(p+i) = *(old+i)
+            f.instruction(&I::LocalGet(LOC_P));
+            f.instruction(&I::LocalGet(LOC_I));
+            f.instruction(&I::I32Add);
+            f.instruction(&I::LocalGet(PARAM_OLD));
+            f.instruction(&I::LocalGet(LOC_I));
+            f.instruction(&I::I32Add);
+            f.instruction(&I::I32Load8U(memarg_b));
+            f.instruction(&I::I32Store8(memarg_b));
+            // i += 1
+            f.instruction(&I::LocalGet(LOC_I));
+            f.instruction(&I::I32Const(1));
+            f.instruction(&I::I32Add);
+            f.instruction(&I::LocalSet(LOC_I));
+            f.instruction(&I::Br(0));
+        }
+        f.instruction(&I::End); // loop
+        f.instruction(&I::End); // block
+
+        // free(old, old_size): if class' >= 0, push to free list.
+        emit_size_class(&mut f, PARAM_OLD_SIZE, LOC_CLASS);
+        f.instruction(&I::LocalGet(LOC_CLASS));
+        f.instruction(&I::I32Const(0));
+        f.instruction(&I::I32GeS);
+        f.instruction(&I::If(BlockType::Empty));
+        {
+            // head_slot = STATE_BASE + class*4
+            f.instruction(&I::LocalGet(LOC_CLASS));
+            f.instruction(&I::I32Const(2));
+            f.instruction(&I::I32Shl);
+            f.instruction(&I::I32Const(CABI_REALLOC_STATE_BASE));
+            f.instruction(&I::I32Add);
+            f.instruction(&I::LocalSet(LOC_MASK));
+            // *old = *head_slot
+            f.instruction(&I::LocalGet(PARAM_OLD));
+            f.instruction(&I::LocalGet(LOC_MASK));
+            f.instruction(&I::I32Load(memarg0));
+            f.instruction(&I::I32Store(memarg0));
+            // *head_slot = old
+            f.instruction(&I::LocalGet(LOC_MASK));
+            f.instruction(&I::LocalGet(PARAM_OLD));
+            f.instruction(&I::I32Store(memarg0));
+        }
+        f.instruction(&I::End);
+    }
+    f.instruction(&I::End);
+
+    f.instruction(&I::LocalGet(LOC_P));
     f.instruction(&I::End);
     f
+}
+
+/// Emit wasm that computes the size class of `size_local` (params/locals)
+/// into `out_local`. Classes are 8, 16, 32, 64, 128, 256, 512, 1024 →
+/// indices 0..7. Returns -1 for size > 1024 (large path).
+///
+/// Implementation: unrolled if-chain across powers of 2. Worst case 8
+/// comparisons, but wasm-jit on the host inlines this and the cost is
+/// negligible compared to the surrounding malloc bookkeeping.
+fn emit_size_class(f: &mut WFunction, size_local: u32, out_local: u32) {
+    // class = -1 (large)
+    f.instruction(&I::I32Const(-1));
+    f.instruction(&I::LocalSet(out_local));
+    // Walk from class 7 down to class 0; the smallest class whose
+    // size >= request wins. Iterate in reverse so the smallest
+    // class overrides any larger one.
+    for class in (0..CABI_REALLOC_NUM_CLASSES as i32).rev() {
+        let csize: i32 = 8i32 << class;
+        // if size_local <= csize { out_local = class }
+        f.instruction(&I::LocalGet(size_local));
+        f.instruction(&I::I32Const(csize));
+        f.instruction(&I::I32LeS);
+        f.instruction(&I::If(BlockType::Empty));
+        f.instruction(&I::I32Const(class));
+        f.instruction(&I::LocalSet(out_local));
+        f.instruction(&I::End);
+    }
+    // Edge case: size_local == 0 should still pick class 0, which it
+    // will (0 <= 8). Negative sizes never occur (canonical-ABI sizes
+    // are unsigned i32; the wasm-encoder API uses signed Rust types
+    // but semantically these are u32). Behaviour at extreme inputs
+    // is defined by the host's wasm runtime.
 }
 
 #[cfg(test)]

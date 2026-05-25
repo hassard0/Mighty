@@ -60,6 +60,38 @@ pub struct RegistryConfig {
     /// entries win on `(name, version)` collisions.
     #[serde(default)]
     pub extras: Vec<String>,
+    /// `[registry.signing]` sub-table — see
+    /// [`SigningConfig`]. v0.10: defaults to "stub" mode (the v0.9
+    /// behaviour); set `mode = "keyless"` to opt into real sigstore
+    /// signing (requires the `sigstore-real` cargo feature on
+    /// `mty-pkg`).
+    #[serde(default)]
+    pub signing: SigningConfig,
+}
+
+/// `[registry.signing]` — controls how `mty pkg publish` signs the
+/// bundle. v0.10 introduces three modes:
+///
+/// * `"stub"` *(default)* — emit the deterministic SHA-256 envelope
+///   the v0.9 RC shipped. Cross-platform, no network, no extra deps.
+/// * `"keyless"` — real sigstore keyless signing via Fulcio +
+///   Rekor. Requires the `sigstore-real` cargo feature on
+///   `mty-pkg` and a writable OIDC identity (ambient on GitHub
+///   Actions; device-flow locally). When the feature is **not**
+///   compiled in, `sign_bundle` falls back to the stub envelope and
+///   prints a one-line note explaining how to enable real signing.
+/// * `"off"` — skip signing entirely. The publish command will
+///   still bundle the tarball but won't write `.sig` / `.bundle`
+///   sidecars.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct SigningConfig {
+    #[serde(default)]
+    pub mode: Option<String>,
+    /// OIDC issuer to use for keyless signing. Defaults to the
+    /// public Sigstore deployment (`https://oauth2.sigstore.dev/auth`)
+    /// when omitted.
+    #[serde(default)]
+    pub oidc_issuer: Option<String>,
 }
 
 impl RegistryConfig {
@@ -424,6 +456,7 @@ mod tests {
         let cfg = RegistryConfig {
             default: Some("a/b".into()),
             extras: vec!["a/b".into(), "c/d".into(), "c/d".into()],
+            signing: SigningConfig::default(),
         };
         let slugs = cfg.slugs();
         assert_eq!(slugs, vec!["a/b".to_string(), "c/d".into()]);
