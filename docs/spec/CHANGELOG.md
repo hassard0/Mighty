@@ -304,15 +304,88 @@ docs-only.
 
 ---
 
+## v1.0-RC2 (v0.9 spec-freeze prep, 2026-05-24)
+
+The v0.8 consolidation classified 10 amendments as **OPEN**. v1.0-RC2
+resolves each one — three reclassified to **FREEZE-MVP** (the MVP
+behaviour is the v1.0 normative contract; v1.1+ extensions land as
+additive amendments), seven retained as **DEFER-V1.1** with explicit
+RFC tracking — and ships six first-draft RFCs covering the
+architecturally-significant v1.1+ promotion paths.
+
+No normative behaviour changed in v0.9. The diff against RC1 is
+restricted to:
+
+- Per-amendment `**Status:**` updates in `docs/spec/v0.1-amendments.md`.
+- Spec title bump (`v1.0-RC` → `v1.0-RC2`) and §A.1 / §A.2 prose
+  promotion in `docs/spec/v1.0-rc.md`.
+- New RFC directory `docs/spec/rfcs/` with six RFCs.
+- New `SPEC_FREEZE_V0_9_NOTES.md` at repo root documenting the
+  resolutions + v1.0 freeze plan + freeze blockers + post-v0.9 work.
+
+### OPEN-amendment resolutions
+
+| Amendment | RC1 status | RC2 resolution | RFC      |
+|-----------|------------|----------------|----------|
+| A11       | OPEN       | DEFER-V1.1     | RFC-001  |
+| A15       | OPEN       | FREEZE-MVP     | —        |
+| A31       | OPEN       | FREEZE-MVP     | —        |
+| A45       | OPEN       | DEFER-V1.1     | —        |
+| A47       | OPEN       | DEFER-V1.1     | RFC-002  |
+| A49       | OPEN       | FREEZE-MVP     | —        |
+| A94       | OPEN       | DEFER-V1.1     | RFC-003  |
+| A97       | OPEN       | DEFER-V1.1     | RFC-002  |
+| A102      | OPEN       | DEFER-V1.1     | RFC-005  |
+| A103      | OPEN       | DEFER-V1.1     | RFC-006  |
+
+A100 was FROZEN at RC1 (process-wide-default cap is the v1.0
+normative contract) but carried a v1.1+ residual tag for MtyIR-lower
+per-call cap threading. RC2 adds [RFC-004](v1.0-rc.md#c1-rfcs-by-amendment-rc2)
+to track that residual without reclassifying A100 itself.
+
+### RFCs drafted
+
+| RFC      | Covers                  | Target | Comment window |
+|----------|-------------------------|--------|----------------|
+| RFC-001  | A11 first-class union ADTs                  | v1.1     | 30 days |
+| RFC-002  | A47 + A97 Wasm Component Model wrapper      | v1.1     | 60 days |
+| RFC-003  | A94 sandboxed proc-macro execution          | v1.1     | 30 days |
+| RFC-004  | A100 carryover + A109 per-call FsCap        | v1.1     | 30 days |
+| RFC-005  | A102 agent affinity front-end syntax        | v1.1     | 14 days |
+| RFC-006  | A103 lossless live agent migration          | v1.1 or v1.2 | 60 days |
+
+### Classification totals at RC2
+
+| Status              | Count |
+|---------------------|-------|
+| FROZEN              | 63    |
+| FREEZE-MVP          | 3 (A15, A31, A49) |
+| SUPERSEDED          | 15    |
+| DEFER-V1.1          | 7 (A11, A45, A47, A94, A97, A102, A103) |
+| REVERTED            | 0     |
+| **Total**           | **88**|
+
+(FROZEN and FROZEN-MVP carry the same v1.x stability commitment. The
+"MVP" qualifier signals that a v1.1+ additive extension is planned;
+the MVP behaviour itself never changes.)
+
+---
+
 ## v1.0 (planned) — release stability
 
-After the v1.0-RC bake-in period, v1.0 stable ships with:
+After the v1.0-RC2 bake-in period, v1.0 stable ships with:
 
-- The FROZEN matrix locked.
-- The OPEN matrix continues to evolve in v1.x minor releases per
+- The FROZEN + FROZEN-MVP matrix locked.
+- The DEFER-V1.1 matrix continues to evolve in v1.x minor releases
+  per
   [Appendix B](v1.0-rc.md#appendix-b--backwards-compatibility-policy).
-- A v1.1 RFC process opens for any of the OPEN amendments that the
-  community wants to promote.
+- The 6 RFCs enter their public comment windows; acceptance drives
+  the v1.1 amendments.
+
+Proposed v1.0 freeze date: 2026-09-01 (earliest plausible). Triggers
+documented in `SPEC_FREEZE_V0_9_NOTES.md` (RFC comment windows
+opened, external re-implementation reconciled, conformance corpus
+completeness audited).
 
 ---
 
