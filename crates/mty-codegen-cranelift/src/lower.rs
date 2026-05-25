@@ -165,6 +165,14 @@ impl<'m, M: Module> LowerCtx<'m, M> {
 
         let mut mctx = self.module.make_context();
         let func_display = format!("{}", clf.display());
+        // Debug: dump CLIF to a directory if MTY_DUMP_CLIF=<dir> is set.
+        // Useful for producing vanilla-Cranelift reproducers of upstream
+        // egraph/codegen bugs we can't easily isolate from .mty source.
+        if let Ok(dir) = std::env::var("MTY_DUMP_CLIF") {
+            let path = std::path::PathBuf::from(&dir).join(format!("{}.clif", f.name));
+            let _ = std::fs::create_dir_all(&dir);
+            let _ = std::fs::write(&path, &func_display);
+        }
         mctx.func = clf;
         if let Err(e) = self.module.define_function(func_id, &mut mctx) {
             return Err(CodegenError::VerifierFailed {
