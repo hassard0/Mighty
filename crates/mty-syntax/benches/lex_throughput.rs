@@ -34,30 +34,38 @@ fn bench_lex(c: &mut Criterion) {
         })
     });
 
-    g.bench_with_input(BenchmarkId::new("tokencache_full", bytes), &src, |b, src| {
-        b.iter(|| {
-            let c = TokenCache::lex(black_box(src.as_str()));
-            black_box(c);
-        })
-    });
+    g.bench_with_input(
+        BenchmarkId::new("tokencache_full", bytes),
+        &src,
+        |b, src| {
+            b.iter(|| {
+                let c = TokenCache::lex(black_box(src.as_str()));
+                black_box(c);
+            })
+        },
+    );
 
     // Incremental: build once, then apply a 6-byte insert at midpoint.
-    g.bench_with_input(BenchmarkId::new("tokencache_edit", bytes), &src, |b, src| {
-        b.iter_batched(
-            || TokenCache::lex(src.as_str()),
-            |mut c| {
-                let mid = c.source().len() / 2;
-                // Snap to a newline so we don't split a multi-byte token.
-                let mid = c.source()[mid..]
-                    .find('\n')
-                    .map(|p| mid + p + 1)
-                    .unwrap_or(mid);
-                let n = c.apply_edit(mid, mid, "// hi\n");
-                black_box(n);
-            },
-            criterion::BatchSize::SmallInput,
-        )
-    });
+    g.bench_with_input(
+        BenchmarkId::new("tokencache_edit", bytes),
+        &src,
+        |b, src| {
+            b.iter_batched(
+                || TokenCache::lex(src.as_str()),
+                |mut c| {
+                    let mid = c.source().len() / 2;
+                    // Snap to a newline so we don't split a multi-byte token.
+                    let mid = c.source()[mid..]
+                        .find('\n')
+                        .map(|p| mid + p + 1)
+                        .unwrap_or(mid);
+                    let n = c.apply_edit(mid, mid, "// hi\n");
+                    black_box(n);
+                },
+                criterion::BatchSize::SmallInput,
+            )
+        },
+    );
 
     g.finish();
 }
@@ -69,9 +77,7 @@ fn bench_diag_throttle(c: &mut Criterion) {
         bad.push_str("@ ");
     }
     let mut g = c.benchmark_group("diag_throttle");
-    g.bench_function("uncapped", |b| {
-        b.iter(|| black_box(parse(black_box(&bad))))
-    });
+    g.bench_function("uncapped", |b| b.iter(|| black_box(parse(black_box(&bad)))));
     g.bench_function("capped_16", |b| {
         b.iter(|| {
             black_box(parse_with_opts(

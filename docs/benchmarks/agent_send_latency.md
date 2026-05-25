@@ -58,3 +58,21 @@ exact slab tax.
   can skip the mpsc indirection.
 
 Tracked in: `BENCHMARKS_V0_6_NOTES.md` § Agent Send Latency.
+
+## v0.8 update
+
+| Optimisation                          | Status  | Delta                                                                                  |
+|---------------------------------------|---------|----------------------------------------------------------------------------------------|
+| Skip slab admit for empty payloads    | DONE    | `Mailbox::admit` returns a tombstone `PooledFrame` for `SmallPayload::Empty` — no parking_lot lock, no Vec alloc, no slot write |
+| Stack-resident inline cache (non-empty) | DONE  | 64-byte stack buffer replaces per-call `Vec::with_capacity(inline_bytes)`              |
+| Thread-local arena (hot agents)       | DEFER   | Empty fast-path already removes the dominant cost; thread-local arena only helps multi-sender + non-empty, which the v0.6 benches don't exercise |
+| Single-sender fast path               | DEFER   | tokio mpsc with one Sender doesn't take a fair-queueing slow path; bypassing the channel is a larger refactor |
+
+Microbench: `crates/mty-runtime/benches/agent_send_latency.rs`
+(send_recv_empty / send_recv_inline_1 / try_send_empty).
+Interpretation log: `BENCHMARKS_V0_8_NOTES.md`.
+
+`try_send_empty` measured ~800 ns end-to-end on this host vs the
+v0.6 P50 of ~0.4 µs measured by the lower-overhead runner; the
+criterion bench's per-iter mailbox construct/drop adds ~400 ns,
+which is the bulk of the headline gap.

@@ -82,3 +82,16 @@ impls were chosen.
 
 Interpretation calls (why we picked each comparator, what's included
 vs excluded) are in `BENCHMARKS_V0_6_NOTES.md` at the repo root.
+
+## v0.8 update — performance backlog status
+
+| Target                  | Status      | Microbench location                                       |
+|-------------------------|-------------|-----------------------------------------------------------|
+| Parse throughput        | LANDED      | `crates/mty-syntax/benches/lex_throughput.rs`             |
+| Mailbox throughput      | LANDED      | `crates/mty-runtime/benches/mailbox_throughput.rs`        |
+| Agent send latency      | LANDED      | `crates/mty-runtime/benches/agent_send_latency.rs`        |
+| Compile to native       | PARTIAL     | `crates/mty-codegen-cranelift/benches/typeck_parallel.rs` |
+| HTTP server throughput  | OUT-OF-SCOPE | (owned by loose-ends agent v0.8 swarm)                   |
+| Wasm size               | OUT-OF-SCOPE | (no perf-swarm optimisations in v0.8)                    |
+
+v0.8 interpretation log: `BENCHMARKS_V0_8_NOTES.md`.

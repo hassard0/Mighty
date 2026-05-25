@@ -53,3 +53,14 @@ all need the tree, not just tokens.
 - **Single-pass diag throttle** (cap at N errors before bailing).
 
 Tracked in: `BENCHMARKS_V0_6_NOTES.md` § Parse Throughput.
+
+## v0.8 update
+
+| Optimisation              | Status | Delta vs v0.6 baseline                                |
+|---------------------------|--------|-------------------------------------------------------|
+| Token cache (incremental) | DONE   | tokencache_edit ~107 MiB/s vs lex_full ~78 MiB/s on a midpoint edit; the real win is "re-lex 3 tokens" not "lex faster" |
+| Diag throttle             | DONE   | `ParseOpts::max_diagnostics = 16` is ~25% faster on adversarial input; uncapped path unchanged |
+| Arena green nodes         | DEFER  | Rowan green node arena change touches rowan upstream; not in v0.8 scope |
+
+Microbench: `crates/mty-syntax/benches/lex_throughput.rs`.
+Interpretation log: `BENCHMARKS_V0_8_NOTES.md`.

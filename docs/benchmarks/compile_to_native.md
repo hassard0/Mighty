@@ -62,3 +62,22 @@ right neighborhood for "compile speed pillar" alignment.
   rebuilds the world).
 
 Tracked in: `BENCHMARKS_V0_6_NOTES.md` § Compile to Native.
+
+## v0.8 update
+
+| Optimisation                  | Status     | Delta                                                                                                                  |
+|-------------------------------|------------|------------------------------------------------------------------------------------------------------------------------|
+| Parallel monomorphisation     | REGRESSION | `run_parallel` 1.8–8x SLOWER than sequential at all tested sizes; per-fn `specialize` cost (~1-2 µs) doesn't amortise std::thread::scope spin-up. `run()` reverted to dispatch to `run_sequential`. API kept for future when per-fn typeck-per-instantiation lands. |
+| HashMap pre-sizing in lower   | DONE       | `LowerCtx::new` pre-sizes the 4 maps; `declare_fns` reuses a scratch `param_tys` Vec across fns. No microbench (the win is rehash avoidance on programs with >> 30 fns, hard to measure on the 100-fn synth fixture). |
+| Pre-built stdlib metadata     | DEFER      | Lives in mty-types (not owned by this swarm).                                                                          |
+| Incremental compilation       | DEFER      | Deep change; the v0.8 brief explicitly defers this.                                                                    |
+
+Microbench: `crates/mty-codegen-cranelift/benches/typeck_parallel.rs`
+(sequential vs parallel at small_4g / medium_32g / large_256g sizes).
+Interpretation log: `BENCHMARKS_V0_8_NOTES.md`.
+
+**Honest finding**: the v0.6 backlog's "parallelise the type-checker"
+expectation was based on rustc's deep per-fn typeck cost. Mighty's
+current mono pass is much cheaper per fn, so parallel doesn't pay
+off until per-fn cost grows. Re-benchmark when typeck propagation
+lands.
