@@ -1,6 +1,6 @@
 # Mighty
 
-[![Status](https://img.shields.io/badge/status-v0.8-green)](https://github.com/hassard0/stardust/releases/tag/v0.8.0)
+[![Status](https://img.shields.io/badge/status-v0.9-green)](https://github.com/hassard0/Mighty/releases/tag/v0.9.0)
 [![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)](#license)
 
 Mighty is an agent-first systems programming language. It is statically
@@ -10,29 +10,34 @@ native code (Cranelift JIT + AOT; LLVM behind `--features llvm`) and
 WebAssembly (Component Model by default; bare core modules via
 `--no-component`).
 
-**v0.8 is shipped.** The v0.8 milestone tag
-[`v0.8.0`](https://github.com/hassard0/stardust/releases/tag/v0.8.0)
-closes 4 of 5 remaining v0.5 loose ends (proc-macro sandboxed
-execution + MT6007/MT6008, real per-agent HTTP routing, LSP
-cross-file workspace resolve, WIT canonical-ABI return-area for DOM
-string returns), self-hosts the HIR lowering + minimal typeck phases
-in Mighty (joining the v0.5 lexer and v0.6 parser; **27 self-host
-tests passing**), lands 3 of 4 perf-optimisation targets (parse
-throughput +27% to 108 MiB/s, mailbox +7% via the slab fast path,
-agent send ~800 ns for empty payloads — parallel-mono honest-
-reverted), consolidates 88 spec amendments into the normative
-**v1.0 release-candidate spec** at `docs/spec/v1.0-rc.md` (63
-FROZEN / 15 SUPERSEDED / 10 OPEN / 0 REVERTED), and closes the
-**rebrand residuals** the v0.7 agent missed (`stardust_runtime_*`
-ABI symbols + DWARF producer + `mty-bench` fixture + `mty-doc`
-templates + `mty-hir` insta headers + back-compat for legacy
-`sd`/`stardust` code-block tags).
+**v0.9 is shipped.** The v0.9 milestone tag
+[`v0.9.0`](https://github.com/hassard0/Mighty/releases/tag/v0.9.0)
+is the **RC-prep + freeze-readiness** milestone. It promotes the
+v1.0 spec to **v1.0-RC2** with all 10 OPEN amendments resolved
+(3 FREEZE-MVP, 7 DEFER-V1.1) and 6 first-draft RFCs, brings up a
+four-target **cargo-fuzz** harness (parser / typeck / fmt /
+codegen-cranelift), fixes the **three P0 OOM parser bugs** the
+fuzzer surfaced plus an audit-sweep over every sibling loop
+(see [`PARSER_AUDIT_V0_9.md`](PARSER_AUDIT_V0_9.md)), self-hosts the
+MtyIR lowering on examples 01-03 (joining lexer + parser + HIR +
+typeck; **34 self-host tests passing**), fixes the long-standing
+demo 02 `cabi_realloc` regression (3/3 demos passing again),
+publishes the [GitHub Pages docs site](https://hassard0.github.io/Mighty/),
+hardens CI, and ships reproducible release scripts.
 
-927 tests passing (was 885 at v0.7.0-rebrand). See
-[`RELEASE-v0.8.md`](RELEASE-v0.8.md) for the headline numbers and
-[`SLICE_V0_8.md`](SLICE_V0_8.md) for the shipped/deferred detail.
+**v1.0 freeze date proposed: 2026-09-01** (~3 months from v0.9 tag).
+Blockers: second independent implementation (RFC-007, v0.10), the
+six RFC 30-day comment windows, and the normative conformance suite
+publication. See [`SLICE_V0_9.md`](SLICE_V0_9.md) for the full
+breakdown.
+
+955 tests passing (was 927 at v0.8.0). See
+[`RELEASE-v0.9.md`](RELEASE-v0.9.md) for the headline numbers and
+[`SLICE_V0_9.md`](SLICE_V0_9.md) for the shipped/deferred detail.
 
 Prior milestones remain tagged:
+[`v0.8.0`](https://github.com/hassard0/Mighty/releases/tag/v0.8.0)
+(loose-end closure + self-host HIR + perf + spec v1.0-RC),
 [`v0.7.0-rebrand`](https://github.com/hassard0/stardust/releases/tag/v0.7.0-rebrand)
 (Stardust → Mighty naming-only release, 0 behavioural deltas),
 [`v0.6.0`](https://github.com/hassard0/stardust/releases/tag/v0.6.0)
@@ -47,6 +52,43 @@ Prior milestones remain tagged:
 (LSP + pkg + doc + stdlib + DWARF + Wasm CM), and
 [`v0.1.0`](https://github.com/hassard0/stardust/releases/tag/v0.1.0)
 (initial slice 1-8 ladder).
+
+### v0.9 highlights
+
+- **v1.0 spec promoted to v1.0-RC2** at `docs/spec/v1.0-rc.md`. All
+  10 OPEN amendments resolved: 3 FREEZE-MVP (A15, A31, A49), 7
+  DEFER-V1.1 (A11, A45, A47, A94, A97, A102, A103). Six follow-up
+  RFCs ship as first-drafts under `docs/spec/rfcs/`.
+- **Cargo-fuzz harness** with 4 targets (parser_fuzz, typeck_fuzz,
+  fmt_idempotence, codegen_fuzz). 27-file seed corpus per target.
+  60-second `parser_fuzz` smoke runs cleanly post-audit (13 859
+  mutations, 0 OOM, 0 panic).
+- **3 P0 parser OOM bugs fixed + audit sweep** — the non-progress-
+  guard family (`enum_decl`, `protocol_decl/msg`, plus 7 audit-sweep
+  siblings: `struct_decl`, `trait_decl`, `impl_block`, `sandbox_decl`,
+  `attribute`, `supervisor_decl`, `match_expr`, `extern_block`).
+  16-test regression suite + saved-fuzz-artifact replay. Pre-fix
+  these took ~5 s + 12 GB before aborting; post-fix microseconds.
+- **Self-host MtyIR** — `selfhost/ir/{lib,nodes,lower}.mty` (~680
+  LOC) pass 7/9 tests on examples 01-03 (04 + 05 deferred for the
+  same reason as v0.8 HIR/typeck deferrals). **34 self-host tests
+  passing** (4 lexer + 13 parser + 5 HIR + 5 typeck + 7 MtyIR).
+- **Demo 02 `cabi_realloc` fixed** — wasm-component emitter now
+  synthesises `cabi_realloc(i32, i32, i32, i32) -> i32` as a bump
+  allocator initialised at `CABI_REALLOC_HEAP_BASE = 32 768`.
+  `bash demos/02_counter_web/smoke.sh` PASSes (component size 1523
+  bytes). **3/3 demos passing**.
+- **GitHub Pages docs site** at
+  [hassard0.github.io/Mighty](https://hassard0.github.io/Mighty/),
+  mkdocs-material, deploys on push to main.
+- **CI hardened** — matrix (stable/beta/nightly), minimal-versions,
+  strict, MSRV jobs; pinned cargo + rustup caches.
+- **Release scripts** (`scripts/release.{sh,ps1}`) — reproducible
+  tag + push + GH release + asset upload.
+- **Package-signing stub** (sigstore-style) — shape ready, real
+  Fulcio integration is post-v1.0.
+- **955 tests passing** (was 927 at v0.8.0; +28 net from parser
+  non-progress regressions + new self-host MtyIR cases).
 
 ### v0.8 highlights
 
@@ -344,15 +386,22 @@ implemented or planned:
 | **v0.6** | Multi-core scheduler (per-worker tokio runtimes + crossbeam-deque work-stealing + affinity hints + lightweight migration + per-worker stats), first honest benchmarks (mty-bench crate + 6 categories with Rust/Go/C++ comparators), self-host parser subset (~1930 LOC, 13/13 bootstrap tests, examples 01-05 covered), DOM MtyIR lowering (`BuiltinId::DomOp` end-to-end), central MT6001-MT6006 catalog merge, per-call FsCap isolation contract | **shipped (`v0.6.0`)** |
 | **v0.7** | Stardust → Mighty rebrand: 20 `sdust-*` crates renamed to `mty-*`, `.sd` → `.mty` source-file extension, `star.toml`/`star.lock` → `mighty.toml`/`mighty.lock`, `SD####` → `MT####` diagnostic codes (with `SD` alias preserved for `mty explain`), WIT `stardust:*` → `mty:*`, VS Code extension repackaged. 0 behavioural deltas — 885 tests still pass byte-for-byte. | **shipped (`v0.7.0-rebrand`)** |
 | **v0.8** | Loose-end closure (proc-macro sandboxed execution + MT6007/MT6008, real per-agent HTTP routing, LSP cross-file workspace resolve, WIT canonical-ABI return-area for DOM strings), self-host HIR + minimal typeck (~1.1 KLOC of Mighty self-host code; 5+5 new tests on examples 01-03), perf wins (parse +27%, mailbox +7%, agent send ~800 ns), spec consolidation **v1.0-RC** at `docs/spec/v1.0-rc.md` (88 amendments classified, 12 contradictions reconciled), rebrand residuals closed (`stardust_runtime_*` ABI + DWARF + `mty-bench` fixture + `mty-doc` templates + `mty-hir` insta headers). 927 tests passing. | **shipped (`v0.8.0`)** |
+| **v0.9** | RC-prep + freeze-readiness: v1.0-RC2 spec (10 OPEN amendments resolved — 3 FREEZE-MVP + 7 DEFER-V1.1 + 6 follow-up RFCs), cargo-fuzz harness (4 targets + 27-file seed corpus), **parser non-progress-guard family fix** (3 P0 OOM bugs + 7 audit-sweep extras + 16 regression tests + 60-second clean fuzz smoke), self-host MtyIR (7/9 tests on examples 01-03; **34 self-host tests total**), `demos/02_counter_web` `cabi_realloc` fix (3/3 demos passing), GitHub Pages docs site, CI hardening (matrix + minimal-versions + strict + MSRV), release scripts, package-signing stub. 955 tests passing. | **shipped (`v0.9.0`)** |
 
-### Post-v0.8 roadmap
+### Post-v0.9 roadmap
 
-The v1.0 release candidate is one slice away. Targeting **v0.9**:
+The v1.0 spec is feature-complete at v1.0-RC2. **Proposed v1.0
+freeze date: 2026-09-01** (~3 months from the v0.9 tag). Blockers:
+two independent implementations (RFC-007), 30-day RFC comment
+windows (RFC-001 through RFC-006), and a published normative
+conformance suite.
+
+Targeting **v0.10**:
 
 | Slice | Scope | Status |
 |---|---|---|
-| v0.9 | Self-host HIR + typeck for examples 04 + 05 (Result-sugar return + `?` + struct-literal expressions, range patterns + private-fn name mangling), full `TokenStream` marshalling for proc-macros, `mty-pkg` cross-file resolution (`use selfhost_hir.HirFn`), parametric newtypes (`type FnId = USize newtype`) for self-host arena ids, WASM size optimisation (Target 5), HTTP server throughput optimisation (Target 6), `demos/02_counter_web` wasm-component `cabi_realloc` fix, set-of-scopes hygiene cleanup in LSP completion (A111) | planned |
-| v1.0-RC → v1.0 GA | Spec freeze at v1.0-final, deprecation removal sweep (`SD####` aliases, `--legacy-interp`, legacy `sd`/`stardust` code-block tags per A45), stability commitment, package-registry domain swap (`pkg.stardust.dev` → final), release-candidate cycle | planned |
+| v0.10 | Second independent compiler implementation effort (RFC-007), real `cabi_realloc` allocator (free-list replaces v0.9 bump), CI fuzz wiring (nightly 5-min + release-gate 30-min sweeps), Cranelift egraph upstream report + workaround (Bug 4 in FUZZ_V0_9_NOTES.md), self-host HIR + typeck examples 04 + 05 (still open from v0.8/v0.9), full `TokenStream` marshalling for proc-macros, `mty-pkg` cross-file resolution, parametric newtypes for self-host arena ids, WASM size + HTTP server throughput optimisation targets, set-of-scopes hygiene cleanup (A111), real sigstore integration, open RFC-001..006 30-day comment periods, publish normative conformance suite, mkdocs `--strict` cleanup | planned |
+| v1.0-RC2 → v1.0 GA | Spec freeze at v1.0-final (after second-impl validation + RFC comment-period close), deprecation removal sweep (`SD####` aliases, `--legacy-interp`, legacy `sd`/`stardust` code-block tags per A45's DEFER-V1.1 resolution), stability commitment, release-candidate cycle | planned |
 | - | Lossless live migration, per-message work-stealing, OTLP exporter wiring for `Scheduler::stats()` gauges, `agent X with affinity = sticky` front-end syntax | planned |
 | - | Polonius-style borrows, real cap-name resolution wiring, MtyIR-side cancellation polling, WASI Preview 2 + user WIT, DWARF v5 + per-instr line program | planned |
 | - | `dyn` dispatch + closure capture in compiled code, `escalate` supervisor action | planned |

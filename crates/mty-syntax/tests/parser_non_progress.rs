@@ -114,6 +114,34 @@ fn enum_well_formed_still_parses() {
     assert_eq!(r.errors.len(), 0, "well-formed enum should parse cleanly");
 }
 
+// Direct replay of the saved fuzz artifacts (FUZZ_V0_9_NOTES.md). If
+// the file isn't present (cargo-package run, or someone gitignored
+// artifacts/), the test is a no-op rather than a failure.
+#[test]
+fn parser_fuzz_oom_artifacts_terminate() {
+    let artifacts_dir = std::path::Path::new("fuzz/artifacts/parser_fuzz");
+    if !artifacts_dir.exists() {
+        eprintln!("skipping: {} not present", artifacts_dir.display());
+        return;
+    }
+    let entries = std::fs::read_dir(artifacts_dir).expect("read_dir");
+    let mut count = 0;
+    for entry in entries {
+        let entry = entry.expect("entry");
+        let path = entry.path();
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        if !name.starts_with("oom-") && !name.starts_with("crash-") {
+            continue;
+        }
+        let data = std::fs::read(&path).expect("read artifact");
+        if let Ok(s) = std::str::from_utf8(&data) {
+            parse_within(s, Duration::from_secs(5));
+            count += 1;
+        }
+    }
+    eprintln!("checked {} fuzz artifacts (parser_fuzz)", count);
+}
+
 #[test]
 fn protocol_well_formed_still_parses() {
     // Protocol messages are newline-separated, not comma-separated.
