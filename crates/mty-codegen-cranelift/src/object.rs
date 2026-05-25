@@ -11,7 +11,7 @@ use crate::lower::{default_flags, LowerCtx};
 use cranelift_codegen::isa::{self};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use mty_ir::ir::Program;
-use object::write::SectionId;
+use object::write::{MachOBuildVersion, SectionId};
 use object::SectionKind;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -80,6 +80,29 @@ fn compile_object_inner(
     drop(ctx);
 
     let mut product = module.finish();
+
+    // macOS ld refuses Mach-O objects that lack LC_BUILD_VERSION
+    // ("ld: unknown platform in '...o'"). cranelift-object doesn't
+    // emit it by default; stamp a conservative macOS 11.0 / SDK 11.0
+    // build-version so `clang -o` / `ld` accepts the object on every
+    // currently-supported macOS host.
+    if matches!(
+        triple.operating_system,
+        OperatingSystem::MacOSX(_) | OperatingSystem::Darwin(_) | OperatingSystem::IOS(_)
+    ) {
+        let platform = match triple.operating_system {
+            OperatingSystem::IOS(_) => object::macho::PLATFORM_IOS,
+            _ => object::macho::PLATFORM_MACOS,
+        };
+        // Pack 11.0.0 as the conventional 32-bit X.Y.Z layout
+        // ((X << 16) | (Y << 8) | Z).
+        let v = (11_u32 << 16) | (0_u32 << 8);
+        let mut bv = MachOBuildVersion::default();
+        bv.platform = platform;
+        bv.minos = v;
+        bv.sdk = v;
+        product.object.set_macho_build_version(bv);
+    }
 
     // Attach DWARF sections if requested.
     if let Some(inputs) = dwarf_inputs {
