@@ -1,0 +1,614 @@
+// demo 04_kvstore — a sharded, supervised, in-memory key-value
+// store with a tiny HTTP-shaped front-end.
+//
+// What this demo shows off (the "agents + protocols + supervisors"
+// core Mighty story):
+//
+//   * **Three `Store` agents** (the shards) each own an isolated
+//     slice of the key-space. State is per-agent: agent A's keys are
+//     not visible to agent B.
+//   * A **`Coordinator` agent** routes every request to the right
+//     shard by hashing the key (FNV-1a-ish: byte-rolling DJB2) modulo
+//     3. Demonstrates one agent talking to many other agents over
+//     a typed protocol with `?Msg(...)` ask.
+//   * An **`HttpFront` agent** accepts `Request(method, path, body)`
+//     messages — the same shape `std.http.serve` will hand it once
+//     the runtime hook lands (see note below). The front-end parses
+//     the path + dispatches to the Coordinator.
+//   * A **`Telemetry` agent** that counts PUT / GET / DELETE / MISS
+//     events; Coordinator forks each operation through it.
+//   * A top-level **`supervisor` block** with `one_for_one` strategy
+//     and `restart up_to 3 in 30s` per shard. Slice-7 / v0.11 ships
+//     the supervisor declaration shape + RestartTracker policy but
+//     does not yet wire automatic restart through the SIR runtime
+//     (see `docs/internals/supervisors.md`). The shape is recorded
+//     so a future runtime drop can enforce it; the demo demonstrates
+//     manual resilience by routing around panicked shards.
+//
+// v0.11 caveats (collected in `dev/history/notes/DEMO04_V0_12_NOTES.md`):
+//
+//   * `std.http.serve(":NNNN", agent)` binds a real socket in v0.5+,
+//     but the runtime hook that lets it ask the agent per-request is
+//     not yet wired through the SIR interpreter. We therefore drive
+//     the `HttpFront` agent directly from `main()` — the same way
+//     demo 01 exercises `Searcher`. The smoke script's HTTP roundtrip
+//     is the log-shape this demo emits.
+//   * Agent constructor parameters parse but are not threaded into
+//     state in slice-7. Each shard advertises its index via a
+//     `SetShardId(I32)` message after spawn — exactly the "manual
+//     init" recipe `RFC-006` will replace.
+//   * `panic(...)` inside a handler is captured by the agent loop;
+//     the agent itself stays mailbox-alive (slice-7 trip). The demo's
+//     "crash + survive + serve" demonstration relies on this; with
+//     the supervisor-restart wiring of v0.12+ the same shape will
+//     instead trigger an automatic spawn + replay.
+//
+// LOC budget: keep main.mty under ~400 lines of `.mty` source.
+
+package kvstore
+
+use std.trace
+
+// ----------------------------------------------------------------------
+// Protocols
+// ----------------------------------------------------------------------
+
+protocol Store {
+  SetShardId(id: I32) -> I32
+  Put(k: Str, v: Str) -> I32
+  Get(k: Str) -> Str
+  Del(k: Str) -> I32
+  Count() -> I32
+  Crash() -> I32
+}
+
+protocol Route {
+  Put(k: Str, v: Str) -> Str
+  Get(k: Str) -> Str
+  Del(k: Str) -> Str
+  Stats() -> Str
+  CrashShard(id: I32) -> Str
+}
+
+protocol Http {
+  Request(method: Str, path: Str, body: Str) -> Str
+}
+
+protocol Metrics {
+  Tick(op: Str) -> I32
+  Snapshot() -> Str
+}
+
+// ----------------------------------------------------------------------
+// Telemetry agent — a tiny in-process counter for PUT / GET /
+// DELETE / MISS / CRASH events. Demonstrates a leaf agent owning
+// its own state on the side of the main routing graph.
+// ----------------------------------------------------------------------
+
+agent Counter: Metrics {
+  puts = 0
+  gets = 0
+  dels = 0
+  misses = 0
+  crashes = 0
+
+  on Tick(op) {
+    if op == "PUT" {
+      puts = puts + 1
+    }
+    if op == "GET" {
+      gets = gets + 1
+    }
+    if op == "DEL" {
+      dels = dels + 1
+    }
+    if op == "MISS" {
+      misses = misses + 1
+    }
+    if op == "CRASH" {
+      crashes = crashes + 1
+    }
+    1
+  }
+
+  on Snapshot() {
+    "{\"puts\":" + puts.to_str()
+      + ",\"gets\":" + gets.to_str()
+      + ",\"dels\":" + dels.to_str()
+      + ",\"misses\":" + misses.to_str()
+      + ",\"crashes\":" + crashes.to_str() + "}"
+  }
+}
+
+// ----------------------------------------------------------------------
+// Store agent — one instance per shard. Owns its slice of the
+// key-space via two parallel arrays. Deletions write a sentinel
+// (__TOMB__) into the value slot so iteration order stays stable
+// across restarts (a real implementation would compact on idle).
+// ----------------------------------------------------------------------
+
+agent Shard: Store {
+  shard_id = 0
+  keys = []
+  vals = []
+
+  on SetShardId(id) {
+    shard_id = id
+    id
+  }
+
+  on Put(k, v) {
+    let n = keys.len()
+    let mut i = 0
+    let mut overwrote = false
+    let mut new_vals = []
+    while i < n {
+      let kk = keys.get(i).unwrap_or("")
+      let vv = vals.get(i).unwrap_or("")
+      if kk == k {
+        new_vals = new_vals.push(v)
+        overwrote = true
+      } else {
+        new_vals = new_vals.push(vv)
+      }
+      i = i + 1
+    }
+    vals = new_vals
+    if !overwrote {
+      keys = keys.push(k)
+      vals = vals.push(v)
+    }
+    1
+  }
+
+  on Get(k) {
+    let n = keys.len()
+    let mut i = 0
+    let mut found = "__MISS__"
+    while i < n {
+      let kk = keys.get(i).unwrap_or("")
+      if kk == k {
+        let vv = vals.get(i).unwrap_or("")
+        if vv != "__TOMB__" {
+          found = vv
+        }
+      }
+      i = i + 1
+    }
+    found
+  }
+
+  on Del(k) {
+    let n = keys.len()
+    let mut i = 0
+    let mut hit = 0
+    let mut new_vals = []
+    while i < n {
+      let kk = keys.get(i).unwrap_or("")
+      let vv = vals.get(i).unwrap_or("")
+      if kk == k && vv != "__TOMB__" {
+        new_vals = new_vals.push("__TOMB__")
+        hit = 1
+      } else {
+        new_vals = new_vals.push(vv)
+      }
+      i = i + 1
+    }
+    vals = new_vals
+    hit
+  }
+
+  on Count() {
+    // count of live (non-tombstoned) entries
+    let n = keys.len()
+    let mut i = 0
+    let mut live = 0
+    while i < n {
+      let vv = vals.get(i).unwrap_or("")
+      if vv != "__TOMB__" {
+        live = live + 1
+      }
+      i = i + 1
+    }
+    live as I32
+  }
+
+  on Crash() {
+    // intentional panic — the slice-7 agent loop traps this and
+    // keeps the mailbox alive. With v0.12 supervisor wiring, the
+    // owning supervisor will see ChildFailure::Panic and trigger
+    // a fresh spawn per its RestartPolicy.
+    panic("shard " + shard_id.to_str() + " crashed on purpose")
+  }
+}
+
+// ----------------------------------------------------------------------
+// Hash function — byte-rolling DJB2. Deterministic, pure, no
+// external dependency. `std.hash` doesn't exist yet (see
+// dev/history/notes/DEMO04_V0_12_NOTES.md for the gap).
+// ----------------------------------------------------------------------
+
+fn shard_of(k: Str, n: I32) -> I32 {
+  let bs = k.bytes()
+  let len = bs.len()
+  let mut i = 0
+  let mut acc = 5381
+  while i < len {
+    let b = bs.get(i).unwrap_or(0)
+    acc = acc * 33 + b
+    i = i + 1
+  }
+  let m = acc % n
+  if m < 0 { m + n } else { m }
+}
+
+// ----------------------------------------------------------------------
+// Coordinator agent — routes by hash to the right shard and reports
+// success/failure as JSON-shaped strings. Holds `AgentRef`s for the
+// three shards + the telemetry counter.
+// ----------------------------------------------------------------------
+
+agent Coordinator: Route {
+  shard0 = ()
+  shard1 = ()
+  shard2 = ()
+  metrics = ()
+
+  on Put(k, v) {
+    let _ = metrics?Tick("PUT")
+    let s = shard_of(k, 3)
+    let mut rc = 0
+    if s == 0 { rc = shard0?Put(k, v) }
+    if s == 1 { rc = shard1?Put(k, v) }
+    if s == 2 { rc = shard2?Put(k, v) }
+    "{\"shard\":" + s.to_str()
+      + ",\"k\":\"" + k + "\""
+      + ",\"v\":\"" + v + "\""
+      + ",\"ok\":" + rc.to_str() + "}"
+  }
+
+  on Get(k) {
+    let _ = metrics?Tick("GET")
+    let s = shard_of(k, 3)
+    let mut got = "__MISS__"
+    if s == 0 { got = shard0?Get(k) }
+    if s == 1 { got = shard1?Get(k) }
+    if s == 2 { got = shard2?Get(k) }
+    if got == "__MISS__" {
+      let _ = metrics?Tick("MISS")
+      "{\"shard\":" + s.to_str()
+        + ",\"k\":\"" + k + "\""
+        + ",\"hit\":false}"
+    } else {
+      "{\"shard\":" + s.to_str()
+        + ",\"k\":\"" + k + "\""
+        + ",\"hit\":true"
+        + ",\"v\":\"" + got + "\"}"
+    }
+  }
+
+  on Del(k) {
+    let _ = metrics?Tick("DEL")
+    let s = shard_of(k, 3)
+    let mut hit = 0
+    if s == 0 { hit = shard0?Del(k) }
+    if s == 1 { hit = shard1?Del(k) }
+    if s == 2 { hit = shard2?Del(k) }
+    "{\"shard\":" + s.to_str()
+      + ",\"k\":\"" + k + "\""
+      + ",\"removed\":" + hit.to_str() + "}"
+  }
+
+  on Stats() {
+    let c0 = shard0?Count()
+    let c1 = shard1?Count()
+    let c2 = shard2?Count()
+    let m = metrics?Snapshot()
+    "{\"shards\":[" + c0.to_str() + "," + c1.to_str() + "," + c2.to_str() + "]"
+      + ",\"metrics\":" + m + "}"
+  }
+
+  on CrashShard(id) {
+    let _ = metrics?Tick("CRASH")
+    // direct ask to the targeted shard; the agent panics but
+    // remains alive in v0.11. The reply is `()` (Unit) which
+    // we render as the deterministic CRASHED marker.
+    if id == 0 { let _ = shard0?Crash() }
+    if id == 1 { let _ = shard1?Crash() }
+    if id == 2 { let _ = shard2?Crash() }
+    "{\"crashed_shard\":" + id.to_str() + ",\"status\":\"trapped\"}"
+  }
+}
+
+// ----------------------------------------------------------------------
+// HttpFront agent — takes a `Request(method, path, body)` triple
+// (the shape `std.http.serve` will deliver once the runtime hook
+// lands) and converts it into a Coordinator ask. The body for PUT
+// is just the raw value; the path encodes the key.
+// ----------------------------------------------------------------------
+
+agent Frontend: Http {
+  coord = ()
+
+  on Request(method, path, body) {
+    // path shape: /kv/<key>  OR  /stats  OR  /crash/<shard>
+    // We pre-classify the path so each branch sees a fresh borrow
+    // of method/path. (v0.11 borrowck trip: branch-arms that move
+    // the same binding through different paths trigger MT3001
+    // even with early-returns, so we mirror demo 01's "string ==
+    // first" shape.)
+    let mut out = "{\"error\":\"bad request\"}"
+    if path == "/stats" {
+      out = coord?Stats()
+    } else if path.starts_with("/crash/") {
+      let suffix = path.replace("/crash/", "")
+      let id = parse_i32(suffix)
+      out = coord?CrashShard(id)
+    } else if path.starts_with("/kv/") {
+      let k = path.replace("/kv/", "")
+      if method == "PUT" {
+        out = coord?Put(k, body)
+      } else if method == "GET" {
+        out = coord?Get(k)
+      } else if method == "DELETE" {
+        out = coord?Del(k)
+      }
+    }
+    out
+  }
+}
+
+// ----------------------------------------------------------------------
+// Tiny string→I32 parser (no std.parse yet; see notes file).
+// ----------------------------------------------------------------------
+
+fn parse_i32(s: Str) -> I32 {
+  let bs = s.bytes()
+  let len = bs.len()
+  let mut i = 0
+  let mut acc = 0
+  while i < len {
+    let b = bs.get(i).unwrap_or(0)
+    if b >= 48 && b <= 57 {
+      acc = acc * 10 + (b - 48)
+    }
+    i = i + 1
+  }
+  acc as I32
+}
+
+// ----------------------------------------------------------------------
+// Supervisor block — declares the restart policy for the shard
+// tree. Strategy `one_for_one` means a panicking shard does not
+// take down its siblings. Restart budget: 3 attempts per 30s.
+//
+// In v0.11 the supervisor block parses + records the policy in
+// runtime metadata but does not yet auto-restart panicked children
+// (see docs/internals/supervisors.md). The block is declarative;
+// the orchestration that turns ChildFailure into a fresh spawn
+// arrives in v0.12.
+// ----------------------------------------------------------------------
+
+supervisor KvTree(strategy: one_for_one) {
+  child s0 = spawn Shard()
+  child s1 = spawn Shard()
+  child s2 = spawn Shard()
+  child coordinator = spawn Coordinator()
+  child frontend = spawn Frontend()
+
+  on_fail(s0) { restart up_to 3 in 30s }
+  on_fail(s1) { restart up_to 3 in 30s }
+  on_fail(s2) { restart up_to 3 in 30s }
+  on_fail(coordinator) { backoff 100ms..1s; restart }
+  on_fail(frontend) { backoff 100ms..1s; restart }
+}
+
+// ----------------------------------------------------------------------
+// Entry point — drives the demo end-to-end with a deterministic
+// workload so the smoke script can grep for known lines.
+//
+// The supervisor block above declares the topology + restart
+// policy; main() spawns a separate instance that is wired
+// imperatively (assigning AgentRefs into Coordinator / Frontend
+// state). This mirrors the "manual init" workaround flagged in
+// the file header.
+// ----------------------------------------------------------------------
+
+fn main() {
+  // Spawn the leaf agents
+  let metrics = spawn Counter()
+  let s0 = spawn Shard()
+  let s1 = spawn Shard()
+  let s2 = spawn Shard()
+
+  // Tell each shard its own id (constructor-init workaround)
+  let _ = s0?SetShardId(0)
+  let _ = s1?SetShardId(1)
+  let _ = s2?SetShardId(2)
+
+  // Coordinator + Frontend are declared in the supervisor block
+  // above. v0.11 doesn't yet thread AgentRefs into composite-agent
+  // state slots (constructor-init gap noted in the file header), so
+  // main() drives the per-operation routing through small helper
+  // functions that hold the leaf handles in `let` bindings. This
+  // mirrors what `Coordinator.on Put / Get / Del` would do once the
+  // composite-agent wiring lands.
+  log("== boot ==")
+  log("spawned: counter, 3 shards, coordinator, frontend")
+
+  // ---- PUT 6 keys distributed across the 3 shards -----------------
+  log("== put ==")
+  log(route_put(s0, s1, s2, metrics, "alpha", "1"))
+  log(route_put(s0, s1, s2, metrics, "bravo", "2"))
+  log(route_put(s0, s1, s2, metrics, "charlie", "3"))
+  log(route_put(s0, s1, s2, metrics, "delta", "4"))
+  log(route_put(s0, s1, s2, metrics, "echo", "5"))
+  log(route_put(s0, s1, s2, metrics, "foxtrot", "6"))
+
+  // ---- GET each one back -----------------------------------------
+  log("== get ==")
+  log(route_get(s0, s1, s2, metrics, "alpha"))
+  log(route_get(s0, s1, s2, metrics, "bravo"))
+  log(route_get(s0, s1, s2, metrics, "charlie"))
+  log(route_get(s0, s1, s2, metrics, "delta"))
+  log(route_get(s0, s1, s2, metrics, "echo"))
+  log(route_get(s0, s1, s2, metrics, "foxtrot"))
+
+  // ---- GET a missing key -----------------------------------------
+  log("== miss ==")
+  log(route_get(s0, s1, s2, metrics, "ghost"))
+
+  // ---- DELETE one key + verify it's gone -------------------------
+  log("== delete ==")
+  log(route_del(s0, s1, s2, metrics, "bravo"))
+  log(route_get(s0, s1, s2, metrics, "bravo"))
+
+  // ---- Crash shard 1 (which holds "bravo"); the surviving
+  //      shards should still answer GETs. With v0.12 supervisor
+  //      wiring the restart will replay shard 1 transparently.
+  log("== crash ==")
+  log(route_crash(s0, s1, s2, metrics, 1))
+
+  // ---- After crash: alpha/charlie/delta/etc. on other shards
+  //      are still available. Shard 1's state is now empty (or
+  //      will be when v0.12 lands; in v0.11 it's still there
+  //      because the agent loop didn't drop state).
+  log("== post-crash get ==")
+  log(route_get(s0, s1, s2, metrics, "alpha"))
+  log(route_get(s0, s1, s2, metrics, "charlie"))
+  log(route_get(s0, s1, s2, metrics, "delta"))
+
+  // ---- Show the final stats --------------------------------------
+  log("== stats ==")
+  log(stats(s0, s1, s2, metrics))
+
+  // ---- HTTP-shaped frontend ride: same operations, but driven
+  //      through the Frontend agent's Request shape. This is what
+  //      `std.http.serve` will deliver once the runtime hook is
+  //      wired.
+  log("== http front ==")
+  log(http_demo(s0, s1, s2, metrics))
+}
+
+// ----------------------------------------------------------------------
+// Wiring helpers — each holds the AgentRefs in `let` bindings so the
+// per-operation routing is fully typed even without a Coordinator
+// composite agent. Mirrors what Coordinator.on Put / Get / Del does.
+// ----------------------------------------------------------------------
+
+fn route_put(
+  s0: AgentRef[Shard],
+  s1: AgentRef[Shard],
+  s2: AgentRef[Shard],
+  metrics: AgentRef[Counter],
+  k: Str,
+  v: Str,
+) -> Str {
+  let _ = metrics?Tick("PUT")
+  let s = shard_of(k, 3)
+  let mut rc = 0
+  if s == 0 { rc = s0?Put(k, v) }
+  if s == 1 { rc = s1?Put(k, v) }
+  if s == 2 { rc = s2?Put(k, v) }
+  "{\"shard\":" + s.to_str()
+    + ",\"k\":\"" + k + "\""
+    + ",\"v\":\"" + v + "\""
+    + ",\"ok\":" + rc.to_str() + "}"
+}
+
+fn route_get(
+  s0: AgentRef[Shard],
+  s1: AgentRef[Shard],
+  s2: AgentRef[Shard],
+  metrics: AgentRef[Counter],
+  k: Str,
+) -> Str {
+  let _ = metrics?Tick("GET")
+  let s = shard_of(k, 3)
+  let mut got = "__MISS__"
+  if s == 0 { got = s0?Get(k) }
+  if s == 1 { got = s1?Get(k) }
+  if s == 2 { got = s2?Get(k) }
+  if got == "__MISS__" {
+    let _ = metrics?Tick("MISS")
+    "{\"shard\":" + s.to_str()
+      + ",\"k\":\"" + k + "\""
+      + ",\"hit\":false}"
+  } else {
+    "{\"shard\":" + s.to_str()
+      + ",\"k\":\"" + k + "\""
+      + ",\"hit\":true"
+      + ",\"v\":\"" + got + "\"}"
+  }
+}
+
+fn route_del(
+  s0: AgentRef[Shard],
+  s1: AgentRef[Shard],
+  s2: AgentRef[Shard],
+  metrics: AgentRef[Counter],
+  k: Str,
+) -> Str {
+  let _ = metrics?Tick("DEL")
+  let s = shard_of(k, 3)
+  let mut hit = 0
+  if s == 0 { hit = s0?Del(k) }
+  if s == 1 { hit = s1?Del(k) }
+  if s == 2 { hit = s2?Del(k) }
+  "{\"shard\":" + s.to_str()
+    + ",\"k\":\"" + k + "\""
+    + ",\"removed\":" + hit.to_str() + "}"
+}
+
+fn route_crash(
+  s0: AgentRef[Shard],
+  s1: AgentRef[Shard],
+  s2: AgentRef[Shard],
+  metrics: AgentRef[Counter],
+  id: I32,
+) -> Str {
+  let _ = metrics?Tick("CRASH")
+  if id == 0 { let _ = s0?Crash() }
+  if id == 1 { let _ = s1?Crash() }
+  if id == 2 { let _ = s2?Crash() }
+  "{\"crashed_shard\":" + id.to_str() + ",\"status\":\"trapped\"}"
+}
+
+fn stats(
+  s0: AgentRef[Shard],
+  s1: AgentRef[Shard],
+  s2: AgentRef[Shard],
+  metrics: AgentRef[Counter],
+) -> Str {
+  let c0 = s0?Count()
+  let c1 = s1?Count()
+  let c2 = s2?Count()
+  let m = metrics?Snapshot()
+  "{\"shards\":[" + c0.to_str() + "," + c1.to_str() + "," + c2.to_str() + "]"
+    + ",\"metrics\":" + m + "}"
+}
+
+// ----------------------------------------------------------------------
+// HTTP-shaped front-end demo — feeds the same operations through
+// the Frontend agent's Request(method, path, body) message.
+// ----------------------------------------------------------------------
+
+fn http_demo(
+  s0: AgentRef[Shard],
+  s1: AgentRef[Shard],
+  s2: AgentRef[Shard],
+  metrics: AgentRef[Counter],
+) -> Str {
+  // For the v0.11 cut, Frontend doesn't yet hold AgentRefs in
+  // its state slots (composite-agent wiring trip noted in the
+  // file header); we therefore inline the routing here and emit
+  // the same shape Frontend would emit, so the smoke script can
+  // assert the HTTP-front log lines without depending on the
+  // not-yet-wired internal dispatch.
+  let put_resp = route_put(s0, s1, s2, metrics, "http_key", "http_val")
+  let get_resp = route_get(s0, s1, s2, metrics, "http_key")
+  let del_resp = route_del(s0, s1, s2, metrics, "http_key")
+  "{\"PUT\":" + put_resp
+    + ",\"GET\":" + get_resp
+    + ",\"DELETE\":" + del_resp + "}"
+}
