@@ -116,8 +116,14 @@ fn attribute(p: &mut Parser) {
         paths::name_or_keyword(p);
         if p.eat(L_PAREN) {
             while !p.at(R_PAREN) && !p.at(EOF) {
+                let before = p.pos;
                 paths::name_or_keyword(p);
                 if !p.eat(COMMA) {
+                    break;
+                }
+                // v0.9 non-progress guard (FUZZ_V0_9 audit): break if
+                // neither the name nor a trailing comma advanced us.
+                if p.pos == before {
                     break;
                 }
             }
@@ -157,6 +163,7 @@ fn sandbox_decl(p: &mut Parser, cp: rowan::Checkpoint) {
     p.expect(L_BRACE);
     p.skip_trivia();
     while !p.at(R_BRACE) && !p.at(EOF) {
+        let before = p.pos;
         p.start_node(SANDBOX_ENTRY);
         // entry: PATH = EXPR
         paths::path(p);
@@ -166,6 +173,12 @@ fn sandbox_decl(p: &mut Parser, cp: rowan::Checkpoint) {
         p.finish_node();
         p.eat(COMMA);
         p.skip_trivia();
+        // v0.9 non-progress guard (FUZZ_V0_9 audit): same shape as enum_decl.
+        if p.pos == before {
+            p.error("unexpected token in sandbox body");
+            p.bump_any();
+            p.skip_trivia();
+        }
     }
     p.expect(R_BRACE);
     p.skip_trivia();
@@ -321,6 +334,7 @@ fn struct_decl(p: &mut Parser, cp: rowan::Checkpoint) {
     p.skip_trivia();
     p.start_node(STRUCT_FIELD_LIST);
     while !p.at(R_BRACE) && !p.at(EOF) {
+        let before = p.pos;
         p.start_node(STRUCT_FIELD);
         paths::name(p);
         if p.eat(COLON) {
@@ -329,6 +343,13 @@ fn struct_decl(p: &mut Parser, cp: rowan::Checkpoint) {
         p.finish_node();
         p.eat(COMMA);
         p.skip_trivia();
+        // v0.9 non-progress guard (FUZZ_V0_9 audit): same anti-pattern as
+        // enum_decl. Avoid infinite STRUCT_FIELD growth on malformed input.
+        if p.pos == before {
+            p.error("unexpected token in struct body");
+            p.bump_any();
+            p.skip_trivia();
+        }
     }
     p.finish_node();
     p.expect(R_BRACE);
@@ -346,6 +367,7 @@ fn enum_decl(p: &mut Parser, cp: rowan::Checkpoint) {
     p.skip_trivia();
     p.start_node(ENUM_VARIANT_LIST);
     while !p.at(R_BRACE) && !p.at(EOF) {
+        let before = p.pos;
         p.start_node(ENUM_VARIANT);
         paths::name(p);
         if p.eat(L_PAREN) {
@@ -361,6 +383,16 @@ fn enum_decl(p: &mut Parser, cp: rowan::Checkpoint) {
         p.finish_node();
         p.eat(COMMA);
         p.skip_trivia();
+        // v0.9 non-progress guard (FUZZ_V0_9 Bug 1): on malformed input
+        // like `enum E { R(F>4)`, the loop body can fail to consume any
+        // tokens, growing ENUM_VARIANT green nodes without bound. If we
+        // didn't advance, surface an error and bump one token so the
+        // outer loop can make progress instead of OOMing.
+        if p.pos == before {
+            p.error("unexpected token in enum body");
+            p.bump_any();
+            p.skip_trivia();
+        }
     }
     p.finish_node();
     p.expect(R_BRACE);
@@ -394,6 +426,7 @@ fn impl_block(p: &mut Parser, cp: rowan::Checkpoint) {
     p.expect(L_BRACE);
     p.skip_trivia();
     while !p.at(R_BRACE) && !p.at(EOF) {
+        let before = p.pos;
         let icp = p.checkpoint();
         if p.at(PUB_KW) {
             p.start_node(VISIBILITY);
@@ -407,6 +440,14 @@ fn impl_block(p: &mut Parser, cp: rowan::Checkpoint) {
             type_alias(p, icp);
         } else {
             p.error("expected fn or type alias in impl");
+            p.bump_any();
+            p.skip_trivia();
+        }
+        // v0.9 non-progress guard (FUZZ_V0_9 audit): defensive — the else
+        // branch already bumps, but fn_decl_pub / type_alias could stall
+        // on malformed input. Force progress so we never spin.
+        if p.pos == before {
+            p.error("unexpected token in impl body");
             p.bump_any();
             p.skip_trivia();
         }
@@ -425,6 +466,7 @@ fn trait_decl(p: &mut Parser, cp: rowan::Checkpoint) {
     p.expect(L_BRACE);
     p.skip_trivia();
     while !p.at(R_BRACE) && !p.at(EOF) {
+        let before = p.pos;
         let cp2 = p.checkpoint();
         if p.at(PUB_KW) {
             p.start_node(VISIBILITY);
@@ -438,6 +480,14 @@ fn trait_decl(p: &mut Parser, cp: rowan::Checkpoint) {
             p.finish_node();
         } else {
             p.error("expected fn in trait");
+            p.bump_any();
+            p.skip_trivia();
+        }
+        // v0.9 non-progress guard (FUZZ_V0_9 audit): defensive — the else
+        // branch already bumps, but fn_decl_pub could in principle stall
+        // on malformed input. Force progress so we never spin.
+        if p.pos == before {
+            p.error("unexpected token in trait body");
             p.bump_any();
             p.skip_trivia();
         }

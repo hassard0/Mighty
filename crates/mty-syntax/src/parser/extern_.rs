@@ -14,8 +14,17 @@ pub fn extern_block(p: &mut Parser, cp: rowan::Checkpoint) {
     p.expect(L_BRACE);
     p.skip_trivia();
     while !p.at(R_BRACE) && !p.at(EOF) {
+        let before = p.pos;
         extern_fn(p);
         p.skip_trivia();
+        // v0.9 non-progress guard (FUZZ_V0_9 audit): extern_fn starts
+        // with expect(FN_KW); on a missing `fn`, none of the body's
+        // helpers advance — bump one token to keep moving.
+        if p.pos == before {
+            p.error("unexpected token in extern block");
+            p.bump_any();
+            p.skip_trivia();
+        }
     }
     p.expect(R_BRACE);
     p.finish_node();

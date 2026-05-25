@@ -142,8 +142,18 @@ pub fn protocol_decl(p: &mut Parser, cp: rowan::Checkpoint) {
         p.bump(L_BRACE);
         p.skip_trivia();
         while !p.at(R_BRACE) && !p.at(EOF) {
+            let before = p.pos;
             protocol_msg(p);
             p.skip_trivia();
+            // v0.9 non-progress guard (FUZZ_V0_9 Bug 3): protocol_msg
+            // calls paths::name + expect(L_PAREN) which neither bump on
+            // malformed input like `protocol P { Msg(F>4)`. Without this
+            // guard, PROTOCOL_MSG nodes grow without bound until OOM.
+            if p.pos == before {
+                p.error("unexpected token in protocol body");
+                p.bump_any();
+                p.skip_trivia();
+            }
         }
         p.expect(R_BRACE);
     }
@@ -211,8 +221,17 @@ pub fn supervisor_decl(p: &mut Parser, cp: rowan::Checkpoint) {
     p.expect(L_BRACE);
     p.skip_trivia();
     while !p.at(R_BRACE) && !p.at(EOF) {
+        let before = p.pos;
         sup_body(p);
         p.skip_trivia();
+        // v0.9 non-progress guard (FUZZ_V0_9 audit): sup_body's child arm
+        // can stall on malformed input (paths::name + expect(EQ) don't
+        // bump on miss). Force progress so we never spin.
+        if p.pos == before {
+            p.error("unexpected token in supervisor body");
+            p.bump_any();
+            p.skip_trivia();
+        }
     }
     p.expect(R_BRACE);
     p.finish_node();

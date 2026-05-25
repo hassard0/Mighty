@@ -86,8 +86,16 @@ pub fn match_expr(p: &mut Parser) -> bool {
     p.expect(L_BRACE);
     p.skip_trivia();
     while !p.at(R_BRACE) && !p.at(EOF) {
+        let before = p.pos;
         match_arm(p);
         p.skip_trivia();
+        // v0.9 non-progress guard (FUZZ_V0_9 audit): match_arm can stall
+        // when pattern + expect(FAT_ARROW) both no-op on malformed input.
+        if p.pos == before {
+            p.error("unexpected token in match body");
+            p.bump_any();
+            p.skip_trivia();
+        }
     }
     p.expect(R_BRACE);
     p.finish_node();
