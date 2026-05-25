@@ -11,9 +11,9 @@ for the full architectural story.
 |---|---|---|---|
 | Lexer | `lexer/` | v0.5: DONE — full byte-for-byte diff against Rust lexer | `crates/mty-driver/tests/selfhost_lexer.rs` |
 | Parser | `parser/` | v0.6: SHIPPED-SUBSET — 13 bootstrap tests pass | `crates/mty-driver/tests/selfhost_parser.rs` |
-| HIR lowering | `hir/` | **v0.8: SHIPPED-SUBSET — 5 bootstrap tests pass (examples 01-03)** | `crates/mty-driver/tests/selfhost_hir.rs` |
-| Typeck (minimal) | `typeck/` | **v0.8: SHIPPED-SUBSET — 5 bootstrap tests pass (examples 01-03)** | `crates/mty-driver/tests/selfhost_typeck.rs` |
-| SIR lowering | `sir/` | future (v0.9) | — |
+| HIR lowering | `hir/` | v0.8: SHIPPED-SUBSET — 5 bootstrap tests pass (examples 01-03) | `crates/mty-driver/tests/selfhost_hir.rs` |
+| Typeck (minimal) | `typeck/` | v0.8: SHIPPED-SUBSET — 5 bootstrap tests pass (examples 01-03) | `crates/mty-driver/tests/selfhost_typeck.rs` |
+| MtyIR lowering | `ir/` | **v0.9: SHIPPED-SUBSET — 7 bootstrap tests pass (examples 01-03)** | `crates/mty-driver/tests/selfhost_ir.rs` |
 | Codegen | `codegen/` | future (post-1.0) | — |
 
 ## What "SUBSET" means in v0.4
@@ -189,6 +189,48 @@ deferred to v0.9.
 See [`../SELFHOST_HIR_V0_8_NOTES.md`](../SELFHOST_HIR_V0_8_NOTES.md)
 for the per-feature coverage matrix, the v0.8 language-gap catalog,
 and the v0.9 roadmap.
+
+## v0.9 — MtyIR (mid-level IR) lowering
+
+```bash
+mty check selfhost/ir/lib.mty
+mty check selfhost/ir/nodes.mty
+mty check selfhost/ir/lower.mty
+cargo test -p mty-driver --test selfhost_ir
+```
+
+Seven live tests pass on examples 01-03:
+
+```
+test selfhost_ir_compiles ........... ok
+test selfhost_ir_lib_compiles ....... ok
+test selfhost_ir_nodes_compiles ..... ok
+test selfhost_ir_hello_world ........ ok
+test selfhost_ir_example_01 ......... ok
+test selfhost_ir_example_02 ......... ok
+test selfhost_ir_example_03 ......... ok
+test selfhost_ir_example_04 ......... ignored (v0.9 — ? operator + TryReturnErr)
+test selfhost_ir_example_05 ......... ignored (v0.9 — range patterns + match guards)
+```
+
+The v0.9 IR source covers fn / struct / enum item lowering, full
+v0.8 expression lowering (literal / path / call + EffectInvoke
+dispatch for log/print/panic / method-call / field / index / binary /
+unary / tuple / array / borrow / cast / if / while / loop / for /
+return / break / continue / match / block), and synthesizes BB
+transitions with `Goto` / `If` / `SwitchInt` / `Return` terminators.
+
+The bootstrap diff is **lenient at v0.9**: every Rust-IR fn is
+required to be lowered, every Mighty-lowered fn ends on a `Return`
+terminator, and the per-fn BB-count delta is bounded (≤ 20). Tighter
+diffing requires landing 8 specific gaps catalogued in
+[`../SELFHOST_IR_V0_9_NOTES.md`](../SELFHOST_IR_V0_9_NOTES.md) (the
+biggest are: rvalue-to-local linkage, match-arm pattern lowering,
+agent + send/ask + arena lowering, drop insertion).
+
+After v0.9, the only thing not self-hosted is the back-end codegen
+(Cranelift + LLVM + Wasm — 3rd-party-dep-heavy and probably
+post-1.0).
 
 ## Why ship a subset?
 
