@@ -1,0 +1,11 @@
+fn turn(input: Str) -> Lowered!ParseErr {
+  arena turn {
+    let toks = tokenize(input)
+    let ast = parse(toks)?
+    lower(ast)
+  }
+}
+
+fn turn_short(input: Str) -> Lowered!ParseErr {
+  arena turn: lower(parse(tokenize(input))?)
+}

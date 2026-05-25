@@ -1,0 +1,20 @@
+// Private helper (leading `_` keeps it out of the Wasm Component
+// world export list; the example focus is the match expression).
+fn _classify(n: I32) -> Str {
+  match n {
+    0 => "zero"
+    1..10 => "small"
+    _ => "big"
+  }
+}
+
+fn main() {
+  // Cranelift native codegen only accepts string-literal args to
+  // `log` today (CODEGEN_V0_2_NOTES "non-literal string in log/print"),
+  // so we don't pipe the `_classify` result through log here. The
+  // example's focus is the match expression above.
+  let _zero = _classify(0)
+  let _small = _classify(7)
+  let _big = _classify(42)
+  log("05_match_expr")
+}

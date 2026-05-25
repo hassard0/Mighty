@@ -1,0 +1,36 @@
+[package]
+name = "mty-codegen-cranelift-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+tempfile = "3"
+
+[dependencies.mty-codegen-cranelift]
+path = ".."
+
+[dependencies.mty-driver]
+path = "../../mty-driver"
+
+[dependencies.mty-diagnostics]
+path = "../../mty-diagnostics"
+
+[dependencies.mty-ir]
+path = "../../mty-ir"
+
+[dependencies.mty-types]
+path = "../../mty-types"
+
+[[bin]]
+name = "codegen_fuzz"
+path = "fuzz_targets/codegen_fuzz.rs"
+test = false
+doc = false
+bench = false

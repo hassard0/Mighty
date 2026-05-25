@@ -1,0 +1,26 @@
+[package]
+name = "mty-fmt-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.mty-fmt]
+path = ".."
+
+[dependencies.mty-syntax]
+path = "../../mty-syntax"
+
+[[bin]]
+name = "fmt_idempotence"
+path = "fuzz_targets/fmt_idempotence.rs"
+test = false
+doc = false
+bench = false

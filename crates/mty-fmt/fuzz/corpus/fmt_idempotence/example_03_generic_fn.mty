@@ -1,0 +1,3 @@
+fn first[T](xs: &[T]) -> Option[&T] {
+  if xs.len == 0 { None } else { Some(&xs[0]) }
+}

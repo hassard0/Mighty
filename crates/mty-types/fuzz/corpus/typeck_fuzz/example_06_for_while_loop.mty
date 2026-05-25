@@ -1,0 +1,26 @@
+// Externs are imports, but the slice-8 wasm backend lowers them as
+// declared host functions; we underscore-prefix to keep them out of
+// the Wasm Component world export list.
+extern {
+  fn _work(item: I32) -> Unit!WorkErr
+  fn _ready() -> Bool
+  fn _step() -> Unit
+  fn _tick() -> Unit
+}
+
+// Private helper (focus = for/while/loop shapes).
+fn _process(items: &[I32]) -> Unit!WorkErr {
+  for item in items {
+    _work(item)?
+  }
+  while _ready() {
+    _step()
+  }
+  loop {
+    _tick()
+  }
+}
+
+fn main() {
+  log("06_for_while_loop")
+}

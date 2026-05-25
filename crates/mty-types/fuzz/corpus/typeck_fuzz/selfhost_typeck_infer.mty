@@ -1,0 +1,165 @@
+// selfhost/typeck/infer.mty
+//
+// Self-hosted Mighty type inference (v0.8) — STATIC SOURCE FORM.
+//
+// Mirrors a SUBSET of the behavior of crates/mty-types as a bidirectional
+// inference driver written in Mighty source. `mty check`s clean and
+// produces a binding -> type map shaped identically to the Rust typeck
+// pipeline for the v0.8 supported subset.
+//
+// ## v0.8 status: SHIPPED-SUBSET
+//
+// The Rust typeck is ~5000 LOC split across 11 files. Porting all of it
+// (unification, defaulting, capability narrowing, effect inference,
+// trait dispatch, ...) would exceed the v0.8 time budget by 5-10x. We
+// ship the productions exercised by examples 01-03:
+//
+//   - fn parameter types from explicit annotations
+//   - fn return types from explicit annotations
+//   - let-binding types from explicit annotations or literal init
+//   - literal defaults: Int -> I32, Float -> F64, Str -> Str,
+//     Char -> Char, Bool -> Bool
+//
+// Deferred to v0.9+ (documented in SELFHOST_HIR_V0_8_NOTES.md):
+//   unification + substitution, generic instantiation across call sites,
+//   trait dispatch + dyn resolution, capability narrowing, effect
+//   inference + propagation, struct field-access type resolution,
+//   method-call resolution, match-arm pattern type propagation.
+//
+// ## Bootstrap technique
+//
+// Same shape as v0.5 lexer, v0.6 parser, v0.8 HIR: the typeck talks to
+// the host through `std.io.<method>` effect calls. The bootstrap test
+// installs a `SelfhostTypeckHost` that:
+//   1. seeds the HIR from the trusted Rust lowering pipeline
+//   2. responds to HIR navigation queries
+//   3. captures binding -> inferred-type events
+//
+// After the run, the test compares against the Rust typeck pipeline's
+// per-binding type map.
+
+package selfhost_typeck
+
+// =====================================================================
+// Host bridge — HIR query surface
+// =====================================================================
+//
+//   std.io.hir_item_count()                 -> USize
+//   std.io.hir_item_kind(i)                 -> Str           "Fn" / "Struct" / ...
+//   std.io.hir_item_name(i)                 -> Str
+//   std.io.hir_fn_id(item_i)                -> USize
+//   std.io.hir_fn_name(fn_id)               -> Str
+//   std.io.hir_fn_param_count(fn_id)        -> USize
+//   std.io.hir_fn_param_name(fn_id, j)      -> Str
+//   std.io.hir_fn_param_type(fn_id, j)      -> Str           "I32" / "Unknown" / ...
+//   std.io.hir_fn_ret_type(fn_id)           -> Str
+//   std.io.hir_fn_has_body(fn_id)           -> Bool
+//   std.io.hir_fn_body(fn_id)               -> USize
+//   std.io.hir_block_stmt_count(b_id)       -> USize
+//   std.io.hir_block_stmt_kind(b_id, j)     -> Str           "Let" / "Expr"
+//   std.io.hir_let_name(b_id, j)            -> Str
+//   std.io.hir_let_type_hint(b_id, j)       -> Str           "" if no annotation
+//   std.io.hir_let_init_kind(b_id, j)       -> Str           "Literal" / "Call" / ...
+//   std.io.hir_let_init_lit_kind(b_id, j)   -> Str           "Int" / "Float" / ...
+//
+//   std.io.ty_record(binding_name, ty)      -> Unit
+
+// =====================================================================
+// Built-in type defaults
+// =====================================================================
+
+fn lit_default_type(lit_kind: Str) -> Str {
+  match lit_kind {
+    "Int" => "I32"
+    "Float" => "F64"
+    "Str" => "Str"
+    "Char" => "Char"
+    "Bool" => "Bool"
+    _ => "Unknown"
+  }
+}
+
+// =====================================================================
+// File-level entry
+// =====================================================================
+
+pub fn infer_package() -> Unit {
+  let n = std.io.hir_item_count()
+  let mut i: USize = 0
+  loop {
+    if i >= n { break }
+    let k = std.io.hir_item_kind(i)
+    let is_fn = k == "Fn"
+    if is_fn == true {
+      let fn_id = std.io.hir_fn_id(i)
+      infer_fn(fn_id)
+    }
+    i = i + 1
+  }
+}
+
+// =====================================================================
+// Function-level inference
+// =====================================================================
+
+fn infer_fn(fn_id: USize) -> Unit {
+  let np = std.io.hir_fn_param_count(fn_id)
+  let mut i: USize = 0
+  loop {
+    if i >= np { break }
+    let pname = std.io.hir_fn_param_name(fn_id, i)
+    let pty = std.io.hir_fn_param_type(fn_id, i)
+    std.io.ty_record(pname, pty)
+    i = i + 1
+  }
+  let fname = std.io.hir_fn_name(fn_id)
+  let rty = std.io.hir_fn_ret_type(fn_id)
+  std.io.ty_record(fname + ":return", rty)
+  let has_body = std.io.hir_fn_has_body(fn_id)
+  if has_body == true {
+    let bid = std.io.hir_fn_body(fn_id)
+    infer_block(bid)
+  }
+}
+
+fn infer_block(bid: USize) -> Unit {
+  let n = std.io.hir_block_stmt_count(bid)
+  let mut i: USize = 0
+  loop {
+    if i >= n { break }
+    let k = std.io.hir_block_stmt_kind(bid, i)
+    let is_let = k == "Let"
+    if is_let == true {
+      infer_let(bid, i)
+    }
+    i = i + 1
+  }
+}
+
+fn infer_let(bid: USize, j: USize) -> Unit {
+  let name = std.io.hir_let_name(bid, j)
+  let hint = std.io.hir_let_type_hint(bid, j)
+  let has_hint = hint != ""
+  if has_hint == true {
+    std.io.ty_record(name, hint)
+    return
+  }
+  let init_kind = std.io.hir_let_init_kind(bid, j)
+  let is_lit = init_kind == "Literal"
+  if is_lit == true {
+    let lk = std.io.hir_let_init_lit_kind(bid, j)
+    let ty = lit_default_type(lk)
+    std.io.ty_record(name, ty)
+  } else {
+    std.io.ty_record(name, "Unknown")
+  }
+}
+
+// =====================================================================
+// Demo main
+// =====================================================================
+
+fn main() effect io {
+  infer_package()
+  log("selfhost_typeck.infer_package completed")
+}

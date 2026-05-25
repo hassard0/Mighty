@@ -1,0 +1,5 @@
+fn driver(logger: Logger, fetcher: Fetcher, url: Url) -> Page!FetchErr {
+  logger!Info("started")
+  let page = fetcher?Page(url) @2s?
+  Ok(page)
+}

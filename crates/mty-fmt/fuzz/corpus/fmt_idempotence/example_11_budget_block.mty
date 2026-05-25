@@ -1,0 +1,20 @@
+extern {
+  fn _job(input: Bytes) -> Unit!RunErr
+}
+
+// Private helper (focus = the `budget { … } run { … }` block).
+fn _run_job(input: Bytes) -> Unit!RunErr {
+  budget {
+    cpu 150ms
+    wall 2s
+    mem 128MiB
+    mb 1k
+  } run {
+    _job(input)?
+    Ok(())
+  }
+}
+
+fn main() {
+  log("11_budget_block")
+}

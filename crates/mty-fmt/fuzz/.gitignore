@@ -1,0 +1,9 @@
+target
+artifacts
+coverage
+
+corpus/*/*
+!corpus/*/empty.mty
+!corpus/*/minimal_main.mty
+!corpus/*/example_*.mty
+!corpus/*/selfhost_*.mty

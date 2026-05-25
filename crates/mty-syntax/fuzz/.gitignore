@@ -1,0 +1,10 @@
+target
+artifacts
+coverage
+
+# Keep the seed corpus tracked, ignore libFuzzer's growth.
+corpus/*/*
+!corpus/*/empty.mty
+!corpus/*/minimal_main.mty
+!corpus/*/example_*.mty
+!corpus/*/selfhost_*.mty

@@ -1,0 +1,20 @@
+// Private helper (focus = `unsafe { … }` lowering). Leading `_` keeps
+// it out of the Wasm Component world export list.
+fn _read_byte(addr: USize) -> U8 {
+  unsafe {
+    let p = raw_ptr(addr)
+    p.read()
+  }
+}
+
+pub unsafe fn _from_raw(ptr: *U8, len: USize) -> Bytes
+  requires ptr != null
+  requires valid(ptr, len)
+
+fn main() {
+  // The `unsafe { … }` lowering in `_read_byte` is the example focus.
+  // We don't bind the result: slice-8 wasm codegen mishandles the
+  // i32→i64 widening when a U8 call result is consumed, and the
+  // Cranelift backend only accepts literal `log` args.
+  log("17_unsafe")
+}

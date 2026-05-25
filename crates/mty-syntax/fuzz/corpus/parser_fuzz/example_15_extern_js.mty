@@ -1,0 +1,12 @@
+extern js {
+  fn _alert(msg: Str) effect dom
+}
+
+fn main() {
+  // The `_alert` binding above is the focus of this example. JS-side
+  // bindings only resolve under a JS host (browser / node); we leave
+  // the call out so the bare Wasm component build doesn't need a JS
+  // host to wire `_alert`. (Leading `_` keeps it out of the WIT
+  // world export list.)
+  log("15_extern_js")
+}

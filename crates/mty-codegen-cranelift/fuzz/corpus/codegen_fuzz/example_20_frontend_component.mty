@@ -1,0 +1,25 @@
+package counter_web
+
+use std.dom
+
+protocol CounterUi {
+  Click() -> Unit
+}
+
+agent Counter(dom): CounterUi {
+  n = 0
+
+  fn draw() {
+    dom.set_text("#count", n.to_str())
+  }
+
+  on Click() {
+    n += 1
+    draw()
+  }
+}
+
+export fn mount(dom: Dom) {
+  let c = spawn Counter(dom)
+  dom.on("#inc", "click", fn() { c!Click() })
+}

@@ -1,0 +1,41 @@
+package search_api
+
+use std.http
+use std.json
+use std.trace
+
+protocol Search {
+  Query(q: Str) -> Json!SearchErr
+}
+
+agent Searcher(net, model): Search {
+  cache = Map::[Str, Json]{}
+
+  on Query(q) {
+    if let Some(hit) = cache.get(q) {
+      return Ok(hit)
+    }
+
+    arena turn {
+      let emb = model.embed(q) @500ms?
+      let docs = net.post("https://idx.local/search", emb) @1s?
+      let out = json.encode(docs)?
+      cache[q] = out
+      Ok(out)
+    }
+  }
+}
+
+agent Api(searcher): http.Handler {
+  on Request(req) {
+    let q = req.query("q").ok_or(SearchErr.BadReq)?
+    let body = searcher?Query(q) @2s?
+    http.ok(body)
+  }
+}
+
+fn main(net: Net, model: Model) -> Unit!MainErr effect net, model, spawn {
+  let searcher = spawn Searcher(net, model)
+  let api = spawn Api(searcher)
+  http.serve(":8080", api)?
+}

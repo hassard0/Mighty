@@ -1,0 +1,14 @@
+extern c {
+  fn _strlen(s: *U8) -> USize
+}
+
+// The C-ABI export below is the focus of this example. We prefix with
+// `_` so it's filtered out of the Wasm Component world export list
+// (the component encoder needs every world export to have a matching
+// core wasm export, which the slice-8 emit doesn't yet do for non-main
+// fns).
+export c fn _add(a: I32, b: I32) -> I32 = a + b
+
+fn main() {
+  log("14_extern_c")
+}
