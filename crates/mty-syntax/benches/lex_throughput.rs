@@ -4,7 +4,7 @@
 //! - `lex_full_10kloc`   — baseline: full lex of the 10 KLOC synth source.
 //! - `tokencache_full`   — cold TokenCache::lex (same shape as baseline).
 //! - `tokencache_edit`   — incremental edit at midpoint; should be ~100x
-//!                         faster than the full re-lex.
+//!   faster than the full re-lex.
 //! - `parse_throttled`   — parser with `max_diagnostics = 16` vs uncapped.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};

@@ -116,9 +116,7 @@ impl TokenCache {
         // Conservatively widen left by one token to absorb adjacent
         // trivia that the fresh lex would coalesce (whitespace,
         // comments). Cheap and avoids merge-mismatch.
-        if left_idx > 0 {
-            left_idx -= 1;
-        }
+        left_idx = left_idx.saturating_sub(1);
         let lex_start = self
             .tokens
             .get(left_idx)

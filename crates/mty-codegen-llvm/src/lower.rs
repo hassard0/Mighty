@@ -186,11 +186,8 @@ impl<'ctx, 'a, 'b> ProgramLowerer<'ctx, 'a, 'b> {
         let sig = i8.fn_type(&[i64.into()], false);
         self.runtime_fns.insert(
             "mty_runtime_budget_charge",
-            self.module.add_function(
-                "mty_runtime_budget_charge",
-                sig,
-                Some(Linkage::External),
-            ),
+            self.module
+                .add_function("mty_runtime_budget_charge", sig, Some(Linkage::External)),
         );
         let sig = void.fn_type(&[i64.into(), i64.into(), i64.into()], false);
         self.runtime_fns.insert(

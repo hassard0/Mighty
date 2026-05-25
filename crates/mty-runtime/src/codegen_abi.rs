@@ -156,10 +156,7 @@ pub fn symbol_table() -> Vec<(String, *const u8)> {
         entry!("mty_runtime_arena_push", mty_runtime_arena_push),
         entry!("mty_runtime_arena_pop", mty_runtime_arena_pop),
         entry!("mty_runtime_alloc", mty_runtime_alloc),
-        entry!(
-            "mty_runtime_budget_charge",
-            mty_runtime_budget_charge
-        ),
+        entry!("mty_runtime_budget_charge", mty_runtime_budget_charge),
         entry!("mty_runtime_send", mty_runtime_send),
         entry!("mty_runtime_ask", mty_runtime_ask),
         entry!("mty_runtime_spawn", mty_runtime_spawn),

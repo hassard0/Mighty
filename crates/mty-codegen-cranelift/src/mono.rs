@@ -164,8 +164,7 @@ impl<'a> Monomorphizer<'a> {
         let n_workers = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(2)
-            .min(4)
-            .max(1);
+            .clamp(1, 4);
 
         // Partition generics into n_workers roughly-equal chunks. The
         // chunks are contiguous slices of `generics`; each worker

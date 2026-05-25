@@ -178,10 +178,7 @@ pub fn preprocess(source: &str) -> Preprocessed {
                     }
                     ProcMacroResult::ImpureAtRuntime(reason) => {
                         diags.push(diag_proc_macro_impure_runtime(
-                            c.start,
-                            c.end,
-                            &c.name,
-                            &reason,
+                            c.start, c.end, &c.name, &reason,
                         ));
                         rewrites.push(Rewrite::Replace {
                             start: c.start,
@@ -795,7 +792,10 @@ fn diag_proc_macro_resource(
             message: format!("procedural macro `{name}` exceeded the {breach} budget"),
         },
         secondary: vec![],
-        notes: vec!["sandboxed proc-macro expansion is bounded by wall-clock, step, and memory caps".to_string()],
+        notes: vec![
+            "sandboxed proc-macro expansion is bounded by wall-clock, step, and memory caps"
+                .to_string(),
+        ],
         helps: vec![],
     }
 }

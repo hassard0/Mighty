@@ -218,6 +218,42 @@ pub fn parse_with_opts(src: &str, opts: ParseOpts) -> ParseResult {
     Parser::with_opts(src, opts).parse_file()
 }
 
+pub fn parse_type(src: &str) -> ParseResult {
+    let mut p = Parser::new(src);
+    p.builder.start_node(SyntaxKind::FILE.into());
+    p.skip_trivia();
+    types::type_expr(&mut p);
+    p.builder.finish_node();
+    ParseResult {
+        green: p.builder.finish(),
+        errors: p.errors,
+    }
+}
+
+pub fn parse_pattern(src: &str) -> ParseResult {
+    let mut p = Parser::new(src);
+    p.builder.start_node(SyntaxKind::FILE.into());
+    p.skip_trivia();
+    patterns::pattern(&mut p);
+    p.builder.finish_node();
+    ParseResult {
+        green: p.builder.finish(),
+        errors: p.errors,
+    }
+}
+
+pub fn parse_expr(src: &str) -> ParseResult {
+    let mut p = Parser::new(src);
+    p.builder.start_node(SyntaxKind::FILE.into());
+    p.skip_trivia();
+    exprs::expr(&mut p);
+    p.builder.finish_node();
+    ParseResult {
+        green: p.builder.finish(),
+        errors: p.errors,
+    }
+}
+
 #[cfg(test)]
 mod opts_tests {
     use super::*;
@@ -255,41 +291,5 @@ mod opts_tests {
     fn diag_throttle_default_uncapped() {
         let opts = ParseOpts::default();
         assert_eq!(opts.max_diagnostics, usize::MAX);
-    }
-}
-
-pub fn parse_type(src: &str) -> ParseResult {
-    let mut p = Parser::new(src);
-    p.builder.start_node(SyntaxKind::FILE.into());
-    p.skip_trivia();
-    types::type_expr(&mut p);
-    p.builder.finish_node();
-    ParseResult {
-        green: p.builder.finish(),
-        errors: p.errors,
-    }
-}
-
-pub fn parse_pattern(src: &str) -> ParseResult {
-    let mut p = Parser::new(src);
-    p.builder.start_node(SyntaxKind::FILE.into());
-    p.skip_trivia();
-    patterns::pattern(&mut p);
-    p.builder.finish_node();
-    ParseResult {
-        green: p.builder.finish(),
-        errors: p.errors,
-    }
-}
-
-pub fn parse_expr(src: &str) -> ParseResult {
-    let mut p = Parser::new(src);
-    p.builder.start_node(SyntaxKind::FILE.into());
-    p.skip_trivia();
-    exprs::expr(&mut p);
-    p.builder.finish_node();
-    ParseResult {
-        green: p.builder.finish(),
-        errors: p.errors,
     }
 }
