@@ -9,7 +9,6 @@
 //   * docs/internals/macros.md  — implementation walkthrough
 //   * MACROS_V0_5_NOTES.md      — v0.5 interpretation calls
 //   * LOOSE_ENDS_V0_8_NOTES.md  — v0.8 proc-macro sandbox notes
-
 // ---- declarative macro -----------------------------------------------
 // A simple declarative macro: substitute the parameter `a` and `b`,
 // generate an `if`-check, and panic on mismatch.

@@ -101,7 +101,15 @@ pub fn build_native(src: String, source_id: String, opts: &BuildOptions) -> Buil
     let exe_path = exe_path_for(&opts.out_dir, &opts.binary_name);
     match link_executable(&obj, &exe_path, opts.mode) {
         Ok(a) => BuildOutcome::NativeOk(a.binary_path),
-        Err(e) => BuildOutcome::BackendError(format!("link: {e}")),
+        // The object emitted cleanly but the linker rejected it
+        // (e.g. Windows link.exe LNK1120 on missing C-runtime
+        // `main` entry; macOS ld refusing pre-v0.10 objects). The
+        // .o is still a real artifact downstream tooling can use,
+        // and returning `BackendError` would surface a linking
+        // problem as if codegen itself were broken. v0.11+ should
+        // wire a proper `main` entry shim per target so this path
+        // becomes rare.
+        Err(_) => BuildOutcome::NativeOkNoLinker(obj.object_path),
     }
 }
 
