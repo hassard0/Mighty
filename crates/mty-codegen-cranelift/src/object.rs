@@ -95,8 +95,8 @@ fn compile_object_inner(
             _ => object::macho::PLATFORM_MACOS,
         };
         // Pack 11.0.0 as the conventional 32-bit X.Y.Z layout
-        // ((X << 16) | (Y << 8) | Z).
-        let v = (11_u32 << 16) | (0_u32 << 8);
+        // ((X << 16) | (Y << 8) | Z). Minor + patch are 0.
+        let v: u32 = 11 << 16;
         let mut bv = MachOBuildVersion::default();
         bv.platform = platform;
         bv.minos = v;
