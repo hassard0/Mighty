@@ -14,5 +14,5 @@ CI runs the same three commands on every PR — see
 For everything else — workflow, style, design discussions — see
 [docs/contributing.md](docs/contributing.md).
 
-By contributing you agree to dual-license your contribution under
-Apache-2.0 OR MIT.
+By contributing you agree to release your contribution under the
+MIT license (see [LICENSE](LICENSE)).

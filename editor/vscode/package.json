@@ -4,10 +4,10 @@
   "description": "Mighty language support (syntax + LSP) for VS Code. v0.8 adds cross-file rename / go-to-def via the workspace resolve map.",
   "version": "0.8.0",
   "publisher": "mighty-lang",
-  "license": "Apache-2.0 OR MIT",
+  "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/hassard0/stardust.git",
+    "url": "https://github.com/hassard0/Mighty.git",
     "directory": "editor/vscode"
   },
   "engines": {

@@ -88,4 +88,4 @@ code --install-extension mighty-0.5.0.vsix
 
 ## License
 
-Apache-2.0 OR MIT.
+MIT — see [LICENSE](../../LICENSE) in the repository root.

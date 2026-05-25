@@ -81,5 +81,5 @@ the issue number.
 
 ## License
 
-By contributing, you agree to dual-license your contribution under
-Apache-2.0 OR MIT, matching the project license.
+By contributing, you agree to release your contribution under the
+MIT license, matching the project license.
