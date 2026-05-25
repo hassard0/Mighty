@@ -297,6 +297,37 @@ translation unit inside the LSP. This is enough that VS Code's
 "open folder" UX works (every `.sd` file opens individually) and the
 event surface is in place for the next slice's multi-file work.
 
+## Cross-file workspace resolve (v0.8)
+
+`workspace.rs` introduces a `WorkspaceRegistry` keyed by workspace
+folder. On `initialize` the server scans each folder for `.mty` files
+(capped at `MAX_FILES = 2048`, skipping `target/ node_modules/ .git/
+build/`), runs the per-file `DocAnalysis::analyze`, and indexes them
+by absolute path.
+
+Subsequent events keep the index in sync:
+
+  * `did_open` / `did_change` — overlay the open-buffer snapshot so
+    cross-file queries see unsaved edits.
+  * `did_change_watched_files` — re-read from disk for create/change,
+    drop for delete.
+  * `did_change_workspace_folders` — scan new folders, drop removed.
+
+The new `rename::rename_with_workspace` consults the registry when the
+rename target is a top-level public symbol. It harvests references in
+every other file in the same folder and emits a multi-file
+`WorkspaceEdit`. The single-file `rename::rename` entry point is
+preserved as a thin wrapper that passes `None` for the registry.
+
+VS Code extension capability:
+
+```jsonc
+"workspaceEdit": { "documentChanges": true },
+"workspace": { "fileOperations": { "didRename": { ... } } }
+```
+
+(The Mighty extension advertises both, plus `workspace.workspaceFolders.supported`.)
+
 ## tower-lsp version pin
 
 `tower-lsp = "0.20"` is pinned in `[workspace.dependencies]`. Internally

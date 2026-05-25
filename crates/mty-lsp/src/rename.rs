@@ -24,6 +24,7 @@ use crate::docs::DocAnalysis;
 use crate::references::{
     find_local_refs, find_top_level_refs, ident_at, is_valid_ident, Occurrence,
 };
+use crate::workspace::WorkspaceRegistry;
 use mty_syntax::{SyntaxKind, SyntaxNode};
 use mty_types::DefRef;
 use std::collections::HashMap;
@@ -53,11 +54,28 @@ pub fn prepare(doc: &DocAnalysis, pos: Position) -> Option<PrepareRenameResponse
 /// `textDocument/rename` handler body. Returns the workspace edit or an
 /// LSP-friendly error if the new name is invalid / there's nothing to
 /// rename.
+///
+/// Single-file path: the v0.5 behaviour. Use
+/// [`rename_with_workspace`] for the v0.8 cross-file variant.
 pub fn rename(
     uri: Url,
     doc: &DocAnalysis,
     pos: Position,
     new_name: &str,
+) -> Result<WorkspaceEdit, JsonRpcError> {
+    rename_with_workspace(uri, doc, pos, new_name, None)
+}
+
+/// v0.8 cross-file rename. If `workspace` is supplied AND the target
+/// symbol is top-level + public, the edit includes references from
+/// every file in the same workspace folder. Falls back to single-file
+/// behaviour otherwise.
+pub fn rename_with_workspace(
+    uri: Url,
+    doc: &DocAnalysis,
+    pos: Position,
+    new_name: &str,
+    workspace: Option<&WorkspaceRegistry>,
 ) -> Result<WorkspaceEdit, JsonRpcError> {
     if !is_valid_ident(new_name) {
         return Err(invalid_rename(format!(
@@ -110,7 +128,54 @@ pub fn rename(
         .collect();
 
     let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
-    changes.insert(uri, edits);
+    changes.insert(uri.clone(), edits);
+
+    // v0.8: if the symbol is top-level + the caller supplied a
+    // workspace registry, harvest references from every other file in
+    // the same folder. The current file is already covered above; we
+    // skip its URI to avoid duplicate edits.
+    if is_top_level {
+        if let Some(reg) = workspace {
+            if let Some(path) = reg
+                .folders
+                .iter()
+                .find_map(|kv| {
+                    if uri
+                        .to_file_path()
+                        .map(|p| p.starts_with(kv.key()))
+                        .unwrap_or(false)
+                    {
+                        Some(kv.value().clone())
+                    } else {
+                        None
+                    }
+                })
+            {
+                for (file, occs) in path.find_refs_across_files(&name) {
+                    if file.uri == uri {
+                        continue;
+                    }
+                    let other_doc = file.analysis.as_ref();
+                    let edits: Vec<TextEdit> = occs
+                        .into_iter()
+                        .map(|o| TextEdit {
+                            range: crate::conv::span_to_range(
+                                &other_doc.line_index,
+                                &other_doc.source,
+                                o.start,
+                                o.end,
+                            ),
+                            new_text: new_name.to_string(),
+                        })
+                        .collect();
+                    if !edits.is_empty() {
+                        changes.insert(file.uri.clone(), edits);
+                    }
+                }
+            }
+        }
+    }
+
     Ok(WorkspaceEdit {
         changes: Some(changes),
         document_changes: None,

@@ -50,5 +50,6 @@ pub mod rename;
 pub mod semantic_tokens;
 pub mod server;
 pub mod signature_help;
+pub mod workspace;
 
 pub use server::{run_stdio, Backend};

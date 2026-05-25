@@ -10,6 +10,7 @@ use crate::inlay_hints;
 use crate::rename as rename_mod;
 use crate::semantic_tokens;
 use crate::signature_help as sig_help;
+use crate::workspace::{uri_to_path, WorkspaceRegistry};
 use std::sync::Arc;
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::{
@@ -30,11 +31,13 @@ use tower_lsp::lsp_types::{
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-/// Public LSP backend — holds the [`DocStore`] and a handle to the
-/// client (for diagnostic notifications).
+/// Public LSP backend — holds the [`DocStore`], the workspace
+/// registry (v0.8), and a handle to the client (for diagnostic
+/// notifications).
 pub struct Backend {
     pub client: Client,
     pub docs: Arc<DocStore>,
+    pub workspaces: Arc<WorkspaceRegistry>,
 }
 
 impl Backend {
@@ -42,6 +45,7 @@ impl Backend {
         Self {
             client,
             docs: Arc::new(DocStore::new()),
+            workspaces: Arc::new(WorkspaceRegistry::new()),
         }
     }
 
@@ -54,7 +58,21 @@ impl Backend {
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-    async fn initialize(&self, _params: InitializeParams) -> LspResult<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
+        // v0.8: seed the workspace registry from the workspaceFolders
+        // the client supplied at startup so cross-file rename has an
+        // index ready before the first request.
+        if let Some(folders) = params.workspace_folders {
+            for f in folders {
+                if let Some(p) = uri_to_path(&f.uri) {
+                    self.workspaces.add_folder(p);
+                }
+            }
+        } else if let Some(uri) = params.root_uri.as_ref() {
+            if let Some(p) = uri_to_path(uri) {
+                self.workspaces.add_folder(p);
+            }
+        }
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -132,6 +150,9 @@ impl LanguageServer for Backend {
         let text = params.text_document.text;
         let version = params.text_document.version;
         let doc = self.docs.open(uri.clone(), text, version);
+        // v0.8: keep the workspace index in sync so cross-file rename
+        // sees the unsaved buffer.
+        self.workspaces.update_open(&uri, doc.clone());
         let publish = diag_module::build_publish(uri, &doc);
         self.publish(publish).await;
     }
@@ -159,6 +180,7 @@ impl LanguageServer for Backend {
             }
         }
         let doc = self.docs.update(uri.clone(), source, version);
+        self.workspaces.update_open(&uri, doc.clone());
         let publish = diag_module::build_publish(uri, &doc);
         self.publish(publish).await;
     }
@@ -269,7 +291,14 @@ impl LanguageServer for Backend {
         let Some(doc) = self.docs.get(&uri) else {
             return Ok(None);
         };
-        rename_mod::rename(uri, &doc, pos, &params.new_name).map(Some)
+        rename_mod::rename_with_workspace(
+            uri,
+            &doc,
+            pos,
+            &params.new_name,
+            Some(&self.workspaces),
+        )
+        .map(Some)
     }
 
     async fn prepare_rename(
@@ -314,26 +343,45 @@ impl LanguageServer for Backend {
         Ok(sig_help::signature_help(&doc, pos))
     }
 
-    async fn did_change_workspace_folders(&self, _params: DidChangeWorkspaceFoldersParams) {
-        // v0.5: workspace folders are observed but the LSP still
-        // analyzes each open file individually. When the user opens or
-        // closes a folder, the editor will didOpen/didClose every .mty
-        // file inside; our per-doc analysis handles each. A future
-        // amendment will build a cross-file ResolveMap.
+    async fn did_change_workspace_folders(&self, params: DidChangeWorkspaceFoldersParams) {
+        // v0.8: add scanned indexes for newly-added folders, drop
+        // indexes for removed folders.
+        for added in &params.event.added {
+            if let Some(p) = uri_to_path(&added.uri) {
+                self.workspaces.add_folder(p);
+            }
+        }
+        for removed in &params.event.removed {
+            if let Some(p) = uri_to_path(&removed.uri) {
+                self.workspaces.remove_folder(&p);
+            }
+        }
         self.client
             .log_message(
                 MessageType::INFO,
-                "workspace folders changed (per-file analysis continues)",
+                format!(
+                    "workspace folders changed (+{} / -{}); cross-file index refreshed",
+                    params.event.added.len(),
+                    params.event.removed.len()
+                ),
             )
             .await;
     }
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
-        // For each changed file we hold open, re-trigger analysis by
-        // reading the new content from disk if the file is closed; for
-        // files that are open in the editor, `didChange` already covers
-        // it. We log so the user can see the LSP saw the change.
+        // v0.8: refresh the workspace index for each changed file so
+        // cross-file rename / go-to-def stays consistent.
         for change in &params.changes {
+            match change.typ {
+                tower_lsp::lsp_types::FileChangeType::DELETED => {
+                    self.workspaces.drop_uri(&change.uri);
+                }
+                tower_lsp::lsp_types::FileChangeType::CREATED
+                | tower_lsp::lsp_types::FileChangeType::CHANGED => {
+                    self.workspaces.refresh_from_disk(&change.uri);
+                }
+                _ => {}
+            }
             self.client
                 .log_message(
                     MessageType::INFO,
