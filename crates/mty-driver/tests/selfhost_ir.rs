@@ -1505,7 +1505,6 @@ fn selfhost_ir_example_03() {
 }
 
 #[test]
-#[ignore = "v0.9 — example 04 exercises Result-sugar + ? operator + TryReturnErr; deferred (see SELFHOST_IR_V0_9_NOTES.md)"]
 fn selfhost_ir_example_04() {
     let path = workspace_root().join("examples/04_result_propagation.mty");
     let input = std::fs::read_to_string(&path).expect("read example 04");
@@ -1518,7 +1517,6 @@ fn selfhost_ir_example_04() {
 }
 
 #[test]
-#[ignore = "v0.9 — example 05 exercises range patterns + match-arm guards; deferred (see SELFHOST_IR_V0_9_NOTES.md)"]
 fn selfhost_ir_example_05() {
     let path = workspace_root().join("examples/05_match_expr.mty");
     let input = std::fs::read_to_string(&path).expect("read example 05");

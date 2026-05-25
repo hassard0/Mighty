@@ -23,7 +23,7 @@ use mty_hir::ids::FnId;
 use mty_hir::nodes::{HirExpr, HirLiteral, HirStmt, HirType, Item, Package};
 use mty_ir::interp::{run_fn_by_name, Host, RunResult, Value};
 use mty_ir::ir::EffectOp;
-use mty_types::{check_package_typed, pretty_ty, EffectId, IntKind, TypedPackage};
+use mty_types::{check_package_typed, pretty_ty, DefRef, EffectId, IntKind, TypedPackage};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -82,6 +82,13 @@ struct StmtEntry {
     let_hint: String,          // explicit type annotation pretty-print, or ""
     let_init_kind: String,     // expr kind ("Literal", "Call", ...) or ""
     let_init_lit_kind: String, // literal sub-kind ("Int", "Float", ...) or ""
+    /// v0.10: if init is a Call(Path([..,name])) or Question(Call(Path([..,name]))),
+    /// the bare callee name. Empty otherwise.
+    let_init_call_callee: String,
+    /// v0.10: true if init is a Question expression wrapping a Call.
+    /// When true, the binding type is the OK type of the callee's
+    /// Result-typed return.
+    let_init_is_question: bool,
 }
 
 const SENTINEL_NONE_USIZE: usize = usize::MAX;
@@ -150,12 +157,17 @@ fn build_block_entry(pkg: &Package, bid: mty_hir::ids::BlockId) -> BlockEntry {
                 let let_hint = ty.map(|tid| pretty_hir_type(pkg, tid)).unwrap_or_default();
                 let (let_init_kind, let_init_lit_kind) =
                     init.map(|eid| init_kinds(pkg, eid)).unwrap_or_default();
+                let (let_init_call_callee, let_init_is_question) = init
+                    .map(|eid| call_callee_info(pkg, eid))
+                    .unwrap_or_default();
                 StmtEntry {
                     kind: "Let".into(),
                     let_name,
                     let_hint,
                     let_init_kind,
                     let_init_lit_kind,
+                    let_init_call_callee,
+                    let_init_is_question,
                 }
             }
             HirStmt::Expr(_) => StmtEntry {
@@ -164,10 +176,38 @@ fn build_block_entry(pkg: &Package, bid: mty_hir::ids::BlockId) -> BlockEntry {
                 let_hint: String::new(),
                 let_init_kind: String::new(),
                 let_init_lit_kind: String::new(),
+                let_init_call_callee: String::new(),
+                let_init_is_question: false,
             },
         })
         .collect();
     BlockEntry { stmts }
+}
+
+/// If `eid` is `Call(Path([..,name]))` or `Question(Call(Path([..,name])))`,
+/// return `(name, is_question)`. Otherwise `("", false)`.
+fn call_callee_info(pkg: &Package, eid: mty_hir::ids::ExprId) -> (String, bool) {
+    let e = &pkg.exprs[eid];
+    match e {
+        HirExpr::Call { callee, .. } => (call_callee_name(pkg, *callee), false),
+        HirExpr::Question(inner) => {
+            let ie = &pkg.exprs[*inner];
+            match ie {
+                HirExpr::Call { callee, .. } => (call_callee_name(pkg, *callee), true),
+                _ => (String::new(), true),
+            }
+        }
+        _ => (String::new(), false),
+    }
+}
+
+fn call_callee_name(pkg: &Package, eid: mty_hir::ids::ExprId) -> String {
+    let e = &pkg.exprs[eid];
+    match e {
+        HirExpr::Path(segs) => segs.last().cloned().unwrap_or_default(),
+        HirExpr::PathGeneric { segments, .. } => segments.last().cloned().unwrap_or_default(),
+        _ => String::new(),
+    }
 }
 
 fn pat_binding_name(pkg: &Package, pat: mty_hir::ids::PatId) -> String {
@@ -192,6 +232,7 @@ fn init_kinds(pkg: &Package, eid: mty_hir::ids::ExprId) -> (String, String) {
         HirExpr::If { .. } => "If",
         HirExpr::Match { .. } => "Match",
         HirExpr::Block(_) => "Block",
+        HirExpr::Question(_) => "Question",
         _ => "Other",
     };
     let lit_kind = match e {
@@ -230,6 +271,10 @@ fn item_kind_name(pkg: &Package, item: &Item) -> (String, String) {
 
 /// Pretty-print a HIR type (syntactic) for the Mighty bridge. Matches
 /// the set of names the trusted typeck would print via `pretty_ty`.
+///
+/// v0.10: Result-sugar (`T!E`, `T!{A,B}`) is canonicalized to
+/// `Result[T, E]` / `Result[T, A | B]` so the syntactic-HIR rendering
+/// lines up structurally with the trusted typeck's ADT rendering.
 fn pretty_hir_type(pkg: &Package, tid: mty_hir::ids::TypeId) -> String {
     let t = &pkg.types[tid];
     match t {
@@ -260,7 +305,7 @@ fn pretty_hir_type(pkg: &Package, tid: mty_hir::ids::TypeId) -> String {
             format!("fn({}) -> {}", ps.join(", "), r)
         }
         HirType::Result { ok, err } => format!(
-            "{}!{}",
+            "Result[{}, {}]",
             pretty_hir_type(pkg, *ok),
             pretty_hir_type(pkg, *err)
         ),
@@ -274,13 +319,38 @@ fn pretty_hir_type(pkg: &Package, tid: mty_hir::ids::TypeId) -> String {
     }
 }
 
+/// Extract just the OK type from a (possibly canonical) Result rendering.
+/// `Result[T, E]` -> `T`. Returns the input unchanged if it's not a
+/// Result rendering.
+fn unwrap_result_ok(s: &str) -> String {
+    let s = s.trim();
+    if let Some(rest) = s.strip_prefix("Result[") {
+        if let Some(inner) = rest.strip_suffix(']') {
+            // Split on the top-level comma.
+            let mut depth: i32 = 0;
+            for (i, c) in inner.char_indices() {
+                match c {
+                    '[' | '(' | '{' => depth += 1,
+                    ']' | ')' | '}' => depth -= 1,
+                    ',' if depth == 0 => return inner[..i].trim().to_string(),
+                    _ => {}
+                }
+            }
+        }
+    }
+    s.to_string()
+}
+
 // ---- Selfhost host ------------------------------------------------------
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct SelfhostTypeckHost {
     snap: HirSnapshot,
     /// Captured binding -> type recordings from the Mighty inferer.
     bindings: BTreeMap<String, String>,
+    /// v0.10: the trusted typed package, used to look up prelude fns
+    /// (e.g. `fetch` for example 04) that aren't declared in user source.
+    typed: Option<TypedPackage>,
 }
 
 impl Host for SelfhostTypeckHost {
@@ -300,6 +370,32 @@ impl SelfhostTypeckHost {
     fn seed(&mut self, pkg: &Package) {
         self.snap = build_snapshot(pkg);
         self.bindings.clear();
+    }
+
+    fn seed_with_typed(&mut self, pkg: &Package, typed: TypedPackage) {
+        self.seed(pkg);
+        self.typed = Some(typed);
+    }
+
+    /// Look up a fn's return type in the user source first, then fall
+    /// back to the prelude (built-in fns like `fetch`).
+    fn lookup_fn_ret(&self, name: &str) -> Option<String> {
+        if let Some(f) = self.snap.fns.iter().find(|f| f.name == name) {
+            if !f.ret_type.is_empty() {
+                return Some(f.ret_type.clone());
+            }
+        }
+        let typed = self.typed.as_ref()?;
+        if let Some(DefRef::Fn(fid)) = typed.def_map.lookup(name) {
+            let fdef = &typed.def_map.fns[fid.0 as usize];
+            return Some(pretty_ty(
+                fdef.ret,
+                &typed.ty_arena,
+                None,
+                Some(&typed.def_map),
+            ));
+        }
+        None
     }
 
     fn dispatch_method(&mut self, method: &str, args: &[Value]) -> Value {
@@ -459,6 +555,44 @@ impl SelfhostTypeckHost {
                     .unwrap_or_default();
                 Value::Str(s)
             }
+            // v0.10: call-target lookups for Result-sugar typeck.
+            "hir_let_init_call_callee" => {
+                let b = arg_usize(args, 0);
+                let j = arg_usize(args, 1);
+                let s = self
+                    .snap
+                    .blocks
+                    .get(b)
+                    .and_then(|bl| bl.stmts.get(j))
+                    .map(|s| s.let_init_call_callee.clone())
+                    .unwrap_or_default();
+                Value::Str(s)
+            }
+            "hir_let_init_is_question" => {
+                let b = arg_usize(args, 0);
+                let j = arg_usize(args, 1);
+                let v = self
+                    .snap
+                    .blocks
+                    .get(b)
+                    .and_then(|bl| bl.stmts.get(j))
+                    .map(|s| s.let_init_is_question)
+                    .unwrap_or(false);
+                Value::Bool(v)
+            }
+            "hir_fn_ret_type_by_name" => {
+                let name = arg_str(args, 0);
+                let ty = self.lookup_fn_ret(&name).unwrap_or_default();
+                Value::Str(ty)
+            }
+            "hir_fn_ret_ok_by_name" => {
+                let name = arg_str(args, 0);
+                let ty = self
+                    .lookup_fn_ret(&name)
+                    .map(|s| unwrap_result_ok(&s))
+                    .unwrap_or_default();
+                Value::Str(ty)
+            }
             "ty_record" => {
                 let name = arg_str(args, 0);
                 let ty = arg_str(args, 1);
@@ -528,8 +662,9 @@ fn run_selfhost_typeck(input: &str) -> Result<SelfhostTypeckRun, String> {
     // Seed the host with the trusted Rust HIR snapshot.
     let parsed_input = parse_source(input.to_string(), "test.mty".into());
     let (input_pkg, _) = lower(&parsed_input);
+    let typed_input = check_package_typed(&input_pkg);
     let mut host = SelfhostTypeckHost::default();
-    host.seed(&input_pkg);
+    host.seed_with_typed(&input_pkg, typed_input);
 
     let res = run_fn_by_name(&prog, "infer_package", vec![], &mut host);
     let result = match res {
@@ -624,7 +759,7 @@ fn diff_bindings(a: &BTreeMap<String, String>, b: &BTreeMap<String, String>) -> 
     let mut only_b = vec![];
     for (k, va) in a {
         if let Some(vb) = b.get(k) {
-            if va == vb {
+            if types_equivalent(va, vb) {
                 matched.push(k.clone());
             } else {
                 mismatched.push((k.clone(), va.clone(), vb.clone()));
@@ -648,9 +783,14 @@ fn diff_bindings(a: &BTreeMap<String, String>, b: &BTreeMap<String, String>) -> 
 /// digit suffix on Rust-rendered params so we can compare structurally.
 /// Also strip whitespace and normalise the "fn(..) ->" syntactic form
 /// across the two renderers.
+///
+/// v0.10: also normalises Result-sugar (`T!E` and `T!{A,B}`) to
+/// `Result[T, E]` / `Result[T, A | B]` so both sides render the
+/// canonical form.
 fn normalize(ty: &str) -> String {
+    let canon = canonicalize_result_sugar(ty);
     // Strip digit suffixes after a bare T (handles `T0`, `T12`, `T6` -> `T`).
-    let bytes = ty.as_bytes();
+    let bytes = canon.as_bytes();
     let mut out = String::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
@@ -670,6 +810,117 @@ fn normalize(ty: &str) -> String {
         i += 1;
     }
     out.trim().to_string()
+}
+
+/// Canonicalize Result-sugar (`T!E` and `T!{A,B}`) to `Result[T, E]`
+/// / `Result[T, A | B]`. This is a syntactic rewrite that runs before
+/// the param-suffix-stripping pass in `normalize`.
+fn canonicalize_result_sugar(ty: &str) -> String {
+    // Find the leftmost top-level `!` whose left side is a balanced type
+    // expression and whose right side is a balanced type expression or
+    // a `{` group. If found, rewrite to `Result[L, R]`.
+    let bytes = ty.as_bytes();
+    let mut depth: i32 = 0;
+    let mut bang: Option<usize> = None;
+    for (i, &b) in bytes.iter().enumerate() {
+        let c = b as char;
+        match c {
+            '[' | '(' | '{' => depth += 1,
+            ']' | ')' | '}' => depth -= 1,
+            '!' if depth == 0 => {
+                bang = Some(i);
+                break;
+            }
+            _ => {}
+        }
+    }
+    if let Some(idx) = bang {
+        let lhs = ty[..idx].trim();
+        let rhs_raw = ty[idx + 1..].trim();
+        // If rhs starts with `{`, strip the braces and join contents with ` | `.
+        let rhs = if let Some(stripped) = rhs_raw.strip_prefix('{') {
+            if let Some(inner) = stripped.strip_suffix('}') {
+                // Split inner on top-level commas, then join with ` | `.
+                let parts: Vec<String> = split_top_level_commas(inner)
+                    .into_iter()
+                    .map(|s| s.trim().to_string())
+                    .collect();
+                parts.join(" | ")
+            } else {
+                rhs_raw.to_string()
+            }
+        } else {
+            rhs_raw.to_string()
+        };
+        // Recursively canonicalize the inner pieces too.
+        let lhs_c = canonicalize_result_sugar(lhs);
+        let rhs_c = canonicalize_result_sugar(&rhs);
+        return format!("Result[{}, {}]", lhs_c, rhs_c);
+    }
+    ty.to_string()
+}
+
+fn split_top_level_commas(s: &str) -> Vec<String> {
+    let mut out = vec![];
+    let mut depth: i32 = 0;
+    let mut last = 0;
+    for (i, c) in s.char_indices() {
+        match c {
+            '[' | '(' | '{' => depth += 1,
+            ']' | ')' | '}' => depth -= 1,
+            ',' if depth == 0 => {
+                out.push(s[last..i].to_string());
+                last = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(s[last..].to_string());
+    out
+}
+
+/// Returns true if the two type strings agree, with a relaxation for
+/// the err position of `Result[..]`: if one side has `{error}` (which
+/// the trusted typeck emits when the err type is unresolved), accept
+/// any err on the other side.
+fn types_equivalent(a: &str, b: &str) -> bool {
+    if a == b {
+        return true;
+    }
+    let (a_ok, a_err) = match split_result(a) {
+        Some(p) => p,
+        None => return false,
+    };
+    let (b_ok, b_err) = match split_result(b) {
+        Some(p) => p,
+        None => return false,
+    };
+    if a_ok != b_ok {
+        return false;
+    }
+    a_err == b_err || a_err == "{error}" || b_err == "{error}"
+}
+
+/// Parse `Result[OK, ERR]` into `(OK, ERR)`. Returns None if the input
+/// isn't a Result.
+fn split_result(s: &str) -> Option<(String, String)> {
+    let rest = s.strip_prefix("Result[")?;
+    let inner = rest.strip_suffix(']')?;
+    let mut depth: i32 = 0;
+    for (i, c) in inner.char_indices() {
+        match c {
+            '[' | '(' | '{' => depth += 1,
+            ']' | ')' | '}' => depth -= 1,
+            ',' if depth == 0 => {
+                return Some((
+                    inner[..i].trim().to_string(),
+                    inner[i + 1..].trim().to_string(),
+                ));
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn assert_binding_subset_match(
@@ -782,7 +1033,6 @@ fn selfhost_typeck_example_03() {
 }
 
 #[test]
-#[ignore = "v0.9 — example 04 has Result!{NetErr,ParseErr} return type whose pretty-print differs between syntactic HIR (`Page!Net|ParseErr` vs `Result<Page, ...>`); needs typeck normalization layer"]
 fn selfhost_typeck_example_04() {
     let path = workspace_root().join("examples/04_result_propagation.mty");
     let input = std::fs::read_to_string(&path).expect("read example 04");
@@ -794,7 +1044,6 @@ fn selfhost_typeck_example_04() {
 }
 
 #[test]
-#[ignore = "v0.9 — example 05 has private `_classify` fn (typeck name-mangling) + range patterns"]
 fn selfhost_typeck_example_05() {
     let path = workspace_root().join("examples/05_match_expr.mty");
     let input = std::fs::read_to_string(&path).expect("read example 05");

@@ -150,9 +150,39 @@ fn infer_let(bid: USize, j: USize) -> Unit {
     let lk = std.io.hir_let_init_lit_kind(bid, j)
     let ty = lit_default_type(lk)
     std.io.ty_record(name, ty)
-  } else {
-    std.io.ty_record(name, "Unknown")
+    return
   }
+  // v0.10: Call init - look up callee's return type and propagate it.
+  // Question-wrapped Call: ask the host for the OK type of the
+  // Result-typed return (Result-sugar string parsing is delegated to
+  // the host to avoid Mighty-side `Option[Char]` round-trips).
+  let is_call = init_kind == "Call"
+  let is_question = init_kind == "Question"
+  if is_call == true {
+    let callee = std.io.hir_let_init_call_callee(bid, j)
+    let has_callee = callee != ""
+    if has_callee == true {
+      let rty = std.io.hir_fn_ret_type_by_name(callee)
+      let has_rty = rty != ""
+      if has_rty == true {
+        std.io.ty_record(name, rty)
+        return
+      }
+    }
+  }
+  if is_question == true {
+    let callee = std.io.hir_let_init_call_callee(bid, j)
+    let has_callee = callee != ""
+    if has_callee == true {
+      let ok_ty = std.io.hir_fn_ret_ok_by_name(callee)
+      let has_ok = ok_ty != ""
+      if has_ok == true {
+        std.io.ty_record(name, ok_ty)
+        return
+      }
+    }
+  }
+  std.io.ty_record(name, "Unknown")
 }
 
 // =====================================================================

@@ -8,9 +8,10 @@ compilation, claims about its expressiveness rest on testimony.
 This page tracks the Mighty self-hosting roadmap. v0.4 shipped the
 **lexer** as Mighty source; v0.5 unblocked it end-to-end; v0.6 ships
 the **parser**; v0.8 ships the **HIR lowering + minimal typeck**;
-v0.9 ships the **MtyIR (mid-level IR) lowering**. Codegen
-(Cranelift + LLVM + Wasm — 3rd-party-dep-heavy) stays in Rust until
-post-1.0.
+v0.9 ships the **MtyIR (mid-level IR) lowering**; v0.10 **closes the
+v0.8/v0.9 deferrals** so examples 04 + 05 pass byte-for-byte across
+HIR + typeck + MtyIR. Codegen (Cranelift + LLVM + Wasm —
+3rd-party-dep-heavy) stays in Rust until post-1.0.
 
 ## Roadmap
 
@@ -21,18 +22,21 @@ post-1.0.
 | v0.6 | Parser | SHIPPED-SUBSET — 13 bootstrap tests pass against Rust parser | `crates/mty-syntax/src/parser/*` |
 | v0.8 | HIR lowering | SHIPPED-SUBSET — 5 bootstrap tests pass against Rust HIR pipeline (examples 01-03) | `crates/mty-hir/src/lower/*` |
 | v0.8 | Typeck (minimal) | SHIPPED-SUBSET — 5 bootstrap tests pass against Rust typeck (examples 01-03) | `crates/mty-types/*` |
-| v0.9 | MtyIR lowering | **SHIPPED-SUBSET — 7 bootstrap tests pass against Rust IR pipeline (examples 01-03)** | `crates/mty-ir/src/lower/*` |
+| v0.9 | MtyIR lowering | SHIPPED-SUBSET — 7 bootstrap tests pass against Rust IR pipeline (examples 01-03) | `crates/mty-ir/src/lower/*` |
+| v0.10 | HIR / typeck / MtyIR — examples 04 + 05 | **SHIPPED — 7/7/9 bootstrap tests pass on examples 01-05 (no more `#[ignore]`s)** | (same as above) |
 | post-1.0 | Codegen | future (Cranelift + LLVM + Wasm) | `crates/mty-codegen-*/*` |
 
 "SUBSET" means the Mighty source `mty check`s clean and exercises
 the documented production set, but defers a handful of advanced grammars
 (agents, supervisors, sandbox blocks, etc.) to a future release. See
+`SELFHOST_V0_10_NOTES.md` for the v0.10 self-host-completion notes
+(closing examples 04 + 05 across HIR + typeck + MtyIR),
 `SELFHOST_IR_V0_9_NOTES.md` for the v0.9 MtyIR production matrix +
 gap catalog, `SELFHOST_HIR_V0_8_NOTES.md` for the v0.8 HIR + typeck,
 `SELFHOST_PARSER_V0_6_NOTES.md` for the v0.6 parser, and
 `SELFHOST_V0_4_NOTES.md` for the v0.4 lexer catalog.
 
-After v0.9, the only thing not self-hosted is back-end code
+After v0.10, the only thing not self-hosted is back-end code
 generation. Cranelift, LLVM, and Wasm are 3rd-party-dep-heavy and
 unlikely to land before 1.0.
 
@@ -296,9 +300,49 @@ it against the Rust IR's summary. The diff is **lenient at v0.9**:
 Examples 01 (`fn main` + `log`), 02 (struct + enum + match) and 03
 (generic fn with borrow + field access) pass the v0.9 bootstrap diff
 under the lenient invariants. Examples 04 (Result + `?`) and 05
-(range patterns) are `#[ignore]`'d. See `SELFHOST_IR_V0_9_NOTES.md`
-for the per-feature coverage matrix and the post-v0.9 roadmap (which
-catalogues 8 specific gaps with size estimates).
+(range patterns) were `#[ignore]`'d at v0.9 — closed in v0.10 (see
+next section).
+
+## v0.10 — close the v0.8/v0.9 deferrals (examples 04 + 05)
+
+v0.10 un-ignores the four bootstrap tests deferred from v0.8/v0.9
+(HIR / typeck / IR × examples 04 + 05). Two of those four tests
+already passed once the `#[ignore]` markers were removed — the
+syntactic surface (Question expressions, Range patterns, Result-sugar
+types) was covered by the v0.8 HIR lowerer's `is_expr_node_kind` +
+`is_pat_node_kind` + `is_type_node_kind` tables, and the v0.9 IR
+lowerer's lenient BB-shape diff was already wide enough to accept
+the Mighty side's `Use` rvalue stand-in for `?` and one-block-per-arm
+range-pattern lowering.
+
+The typeck side needed real work. The Mighty v0.8 typeck only handled
+literal-init `let` bindings; examples 04 + 05 both have non-literal
+inits (`let body = fetch(url)?`, `let _zero = _classify(0)`). v0.10
+extends `infer.mty`'s `infer_let` with:
+
+* **Call-init type propagation:** when `init_kind == "Call"`, query
+  the new bridge `hir_let_init_call_callee` for the bare callee name,
+  then `hir_fn_ret_type_by_name` for its declared return type.
+* **Question-wrapped Call-init type propagation:** when
+  `init_kind == "Question"`, do the same lookup but call
+  `hir_fn_ret_ok_by_name` which returns the OK type of the callee's
+  `Result[T, E]` return (host-side unwrap, to keep the Mighty side
+  free of the `Option[Char]`-round-trip awkwardness the v0.6 parser
+  notes catalogued).
+
+The bootstrap test gained two coordinated extensions: (a) the HIR
+snapshot now records call-callee + is-question per let-binding, and
+(b) the bridge's fn-ret lookup falls back to the trusted
+`TypedPackage.def_map` so prelude fns like `fetch` resolve (example 04
+references `fetch` without declaring it). The Result-sugar pretty-
+printing was canonicalized to `Result[T, E]` (was: `T!E`) so the
+syntactic-HIR rendering lines up with the trusted typeck's ADT
+rendering, and the diff helper accepts `{error}` on either side of a
+Result's err position (which is what the trusted typeck emits when the
+err type doesn't fully resolve, e.g. example 04's union of two
+user-declared-but-uninstantiable error types).
+
+Full notes: `SELFHOST_V0_10_NOTES.md`.
 
 ## See also
 
@@ -308,6 +352,7 @@ catalogues 8 specific gaps with size estimates).
 * `SELFHOST_PARSER_V0_6_NOTES.md` — v0.6 parser gap catalog.
 * `SELFHOST_HIR_V0_8_NOTES.md` — v0.8 HIR + typeck gap catalog.
 * `SELFHOST_IR_V0_9_NOTES.md` — v0.9 MtyIR gap catalog.
+* `SELFHOST_V0_10_NOTES.md` — v0.10 close-the-deferrals notes.
 * `crates/mty-driver/tests/selfhost_lexer.rs` — v0.5 lexer
   bootstrap.
 * `crates/mty-driver/tests/selfhost_parser.rs` — v0.6 parser

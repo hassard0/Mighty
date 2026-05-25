@@ -11,9 +11,9 @@ for the full architectural story.
 |---|---|---|---|
 | Lexer | `lexer/` | v0.5: DONE — full byte-for-byte diff against Rust lexer | `crates/mty-driver/tests/selfhost_lexer.rs` |
 | Parser | `parser/` | v0.6: SHIPPED-SUBSET — 13 bootstrap tests pass | `crates/mty-driver/tests/selfhost_parser.rs` |
-| HIR lowering | `hir/` | v0.8: SHIPPED-SUBSET — 5 bootstrap tests pass (examples 01-03) | `crates/mty-driver/tests/selfhost_hir.rs` |
-| Typeck (minimal) | `typeck/` | v0.8: SHIPPED-SUBSET — 5 bootstrap tests pass (examples 01-03) | `crates/mty-driver/tests/selfhost_typeck.rs` |
-| MtyIR lowering | `ir/` | **v0.9: SHIPPED-SUBSET — 7 bootstrap tests pass (examples 01-03)** | `crates/mty-driver/tests/selfhost_ir.rs` |
+| HIR lowering | `hir/` | v0.10: SHIPPED-SUBSET — 7 bootstrap tests pass (examples 01-05) | `crates/mty-driver/tests/selfhost_hir.rs` |
+| Typeck (minimal) | `typeck/` | v0.10: SHIPPED-SUBSET — 7 bootstrap tests pass (examples 01-05) | `crates/mty-driver/tests/selfhost_typeck.rs` |
+| MtyIR lowering | `ir/` | v0.10: SHIPPED-SUBSET — 9 bootstrap tests pass (examples 01-05) | `crates/mty-driver/tests/selfhost_ir.rs` |
 | Codegen | `codegen/` | future (post-1.0) | — |
 
 ## What "SUBSET" means in v0.4
@@ -150,7 +150,9 @@ cargo test -p mty-driver --test selfhost_hir
 cargo test -p mty-driver --test selfhost_typeck
 ```
 
-Five HIR tests + five typeck tests pass on examples 01-03:
+Seven HIR tests + seven typeck tests pass on examples 01-05 (v0.10
+un-ignored the four deferred 04/05 cases; see
+[`../SELFHOST_V0_10_NOTES.md`](../SELFHOST_V0_10_NOTES.md)):
 
 ```
 test selfhost_hir_compiles ........... ok
@@ -158,16 +160,16 @@ test selfhost_hir_hello_world ........ ok
 test selfhost_hir_example_01 ......... ok
 test selfhost_hir_example_02 ......... ok
 test selfhost_hir_example_03 ......... ok
-test selfhost_hir_example_04 ......... ignored (v0.9 — Result-sugar)
-test selfhost_hir_example_05 ......... ignored (v0.9 — range patterns)
+test selfhost_hir_example_04 ......... ok    (v0.10 un-ignored)
+test selfhost_hir_example_05 ......... ok    (v0.10 un-ignored)
 
 test selfhost_typeck_compiles ........ ok
 test selfhost_typeck_hello_world ..... ok
 test selfhost_typeck_example_01 ...... ok
 test selfhost_typeck_example_02 ...... ok
 test selfhost_typeck_example_03 ...... ok
-test selfhost_typeck_example_04 ...... ignored (v0.9)
-test selfhost_typeck_example_05 ...... ignored (v0.9)
+test selfhost_typeck_example_04 ...... ok    (v0.10 un-ignored)
+test selfhost_typeck_example_05 ...... ok    (v0.10 un-ignored)
 ```
 
 The v0.8 HIR source covers the v0.5+v0.6 syntactic surface plus item
@@ -199,7 +201,10 @@ mty check selfhost/ir/lower.mty
 cargo test -p mty-driver --test selfhost_ir
 ```
 
-Seven live tests pass on examples 01-03:
+Nine live tests pass on examples 01-05 (v0.10 un-ignored the two
+deferred 04/05 IR cases — the lenient BB-shape diff already accepted
+the v0.9 Mighty output once the test was actually run; see
+[`../SELFHOST_V0_10_NOTES.md`](../SELFHOST_V0_10_NOTES.md)):
 
 ```
 test selfhost_ir_compiles ........... ok
@@ -209,8 +214,8 @@ test selfhost_ir_hello_world ........ ok
 test selfhost_ir_example_01 ......... ok
 test selfhost_ir_example_02 ......... ok
 test selfhost_ir_example_03 ......... ok
-test selfhost_ir_example_04 ......... ignored (v0.9 — ? operator + TryReturnErr)
-test selfhost_ir_example_05 ......... ignored (v0.9 — range patterns + match guards)
+test selfhost_ir_example_04 ......... ok    (v0.10 un-ignored)
+test selfhost_ir_example_05 ......... ok    (v0.10 un-ignored)
 ```
 
 The v0.9 IR source covers fn / struct / enum item lowering, full
