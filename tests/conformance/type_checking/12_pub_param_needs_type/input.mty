@@ -1,0 +1,3 @@
+// MT2020 positive-fire: pub fn parameter missing explicit type.
+pub fn helper(x) -> Unit {
+}

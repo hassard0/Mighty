@@ -1,0 +1,8 @@
+// MT4023: trait with `Self` in method signature can't be used through `dyn`.
+trait Clone {
+  fn clone(self) -> Self
+}
+
+fn use_clone(c: dyn Clone) -> Unit {
+  c.clone();
+}

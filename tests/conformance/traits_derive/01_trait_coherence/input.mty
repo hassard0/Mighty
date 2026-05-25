@@ -1,0 +1,17 @@
+// MT4022 positive-fire: two `impl Show for Foo` blocks declare the
+// same method.
+trait Show {
+  fn show(self) -> Str
+}
+
+struct Foo {
+  x: I32
+}
+
+impl Show for Foo {
+  fn show(self) -> Str { "a" }
+}
+
+impl Show for Foo {
+  fn show(self) -> Str { "b" }
+}

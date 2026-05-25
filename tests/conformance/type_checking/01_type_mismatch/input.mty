@@ -1,0 +1,7 @@
+// MT2001 positive-fire: integer literal where Str is expected.
+fn want_str(s: Str) -> Str { s }
+
+fn main() {
+  let x = want_str(42)
+  log(x)
+}

@@ -1,0 +1,5 @@
+// MT4041 positive-fire: `Foo` is not a known derive name.
+#[derive(Foo)]
+struct A {
+  x: I32
+}

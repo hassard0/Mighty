@@ -1,0 +1,5 @@
+// MT4040: derive(Copy) requires every field to be Copy.
+#[derive(Copy)]
+struct Holds {
+  s: String
+}

@@ -1,0 +1,5 @@
+// MT2010 positive-fire: `?` used in a fn whose return type is not Result.
+fn get(r: Result[I64, Str]) -> I64 {
+  let v = r?
+  v
+}

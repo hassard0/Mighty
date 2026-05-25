@@ -1,0 +1,2 @@
+// MT2002 positive-fire: parameter type doesn't exist.
+fn use_widget(w: Widget) -> Widget { w }

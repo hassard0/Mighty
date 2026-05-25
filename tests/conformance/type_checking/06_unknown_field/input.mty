@@ -1,0 +1,10 @@
+// MT2006 positive-fire: struct literal lists a field that the
+// declaration does not have.
+struct User {
+  id: U64,
+  name: String,
+}
+
+fn make() -> User {
+  User { id: 1, name: "x", missing: 2 }
+}

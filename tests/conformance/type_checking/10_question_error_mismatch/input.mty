@@ -1,0 +1,5 @@
+// MT2011 positive-fire: `?` error type doesn't match enclosing fn's err.
+fn outer(r: Result[I64, Str]) -> Result[I64, I32] {
+  let v = r?
+  Ok(v)
+}

@@ -1,0 +1,2 @@
+// MT2004 positive-fire: Map[K, V] is called with 1 generic argument.
+fn want_map(m: Map[Str]) -> Map[Str] { m }

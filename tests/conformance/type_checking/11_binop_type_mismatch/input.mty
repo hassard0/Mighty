@@ -1,0 +1,5 @@
+// MT2017 positive-fire: `1 + "hi"` is not a valid binary op pair.
+fn main() {
+  let x = 1 + "hi"
+  log("ok")
+}

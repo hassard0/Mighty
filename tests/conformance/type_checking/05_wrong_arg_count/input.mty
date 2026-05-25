@@ -1,0 +1,7 @@
+// MT2005 positive-fire: function takes 2 args, supplied with 1.
+fn add(a: I64, b: I64) -> I64 { a + b }
+
+fn main() {
+  let z = add(1)
+  log(z.to_str())
+}

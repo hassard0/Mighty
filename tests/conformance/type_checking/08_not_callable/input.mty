@@ -1,0 +1,6 @@
+// MT2008 positive-fire: try to call a non-function binding.
+fn main() {
+  let x: I64 = 5
+  let y = x(1, 2)
+  log(y.to_str())
+}

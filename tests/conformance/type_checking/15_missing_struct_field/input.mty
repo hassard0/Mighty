@@ -1,0 +1,6 @@
+// MT2013 positive-fire: struct literal omits required field.
+struct Point { x: I64, y: I64 }
+
+fn mk() -> Point {
+  Point { x: 1 }
+}

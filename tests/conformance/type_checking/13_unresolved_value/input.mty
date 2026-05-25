@@ -1,0 +1,11 @@
+// MT2021 positive-fire: undefined name referenced inside an agent body
+// (strict scope per A65).
+protocol Echo {
+  Ping() -> Unit
+}
+
+agent EchoAgent: Echo {
+  on Ping() -> {
+    log(undefined_name)
+  }
+}

@@ -1,0 +1,8 @@
+// MT3010 positive-fire: a non-Copy value bound inside an arena scope
+// is named as the arena's tail expression, escaping the arena.
+fn use_arena() -> String {
+  arena turn {
+    let inside = String("hi")
+    inside
+  }
+}

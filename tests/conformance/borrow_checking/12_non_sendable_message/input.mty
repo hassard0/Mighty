@@ -1,0 +1,13 @@
+// MT3011 positive-fire: cross-agent !Msg send with a non-Sendable
+// argument (an immutable reference) must be rejected.
+protocol Counter {
+  Add(n: &I32) -> I32
+}
+
+agent Adder: Counter {
+  on Add(n) -> 0
+}
+
+fn driver(a: Adder, x: I32) -> Unit {
+  a!Add(&x)
+}

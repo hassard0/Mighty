@@ -1,0 +1,6 @@
+// MT2014 positive-fire: struct literal lists `x` twice.
+struct Point { x: I64, y: I64 }
+
+fn mk() -> Point {
+  Point { x: 1, x: 2, y: 3 }
+}
