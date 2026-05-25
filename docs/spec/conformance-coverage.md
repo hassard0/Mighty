@@ -1,4 +1,4 @@
-# Mighty v1.0-RC Conformance Coverage Report (v0.10 audit)
+# Mighty v1.0-RC Conformance Coverage Report (v0.11 audit)
 
 Audit pass: enumerate every FROZEN diagnostic code in
 `crates/mty-diagnostics/src/codes.rs` and every spec section in
@@ -7,11 +7,14 @@ Audit pass: enumerate every FROZEN diagnostic code in
 
 **Harness driver:** `crates/mty-driver/tests/conformance_full.rs`. Each
 case dir contains `input.mty`, `command.txt`, optional
-`expected_diagnostics.txt`, optional `expected_exit_code.txt`, optional
-`expected_stdout.txt`, optional `step_budget.txt`, and a `README.md`.
+`expected_diagnostics.txt`, optional `expected_warnings.txt` (v0.11+),
+optional `expected_exit_code.txt`, optional `expected_stdout.txt`,
+optional `step_budget.txt`, and a `README.md`.
 
 For interpretation calls, gap rationales, and follow-up recommendations
-see `CONFORMANCE_V0_10_NOTES.md` (repo root).
+see `dev/history/notes/CONFORMANCE_V0_10_NOTES.md` (original audit)
+and `dev/history/notes/CONFORMANCE_V0_11_NOTES.md` (v0.11 fixture
++ warning-assertion follow-up).
 
 ## Diagnostic-code coverage table
 
@@ -49,7 +52,7 @@ Status legend:
 | MT2009 | UNKNOWN_VARIANT                | gap        | Gap B |
 | MT2010 | QUESTION_OUTSIDE_RESULT        | covered    | type_checking/09_question_outside_result |
 | MT2011 | QUESTION_ERROR_MISMATCH        | covered    | type_checking/10_question_error_mismatch |
-| MT2012 | WRONG_VARIANT_ARITY            | auxiliary  | `Some(1, 2)` currently fires MT2005 (fn-arity path) |
+| MT2012 | WRONG_VARIANT_ARITY            | covered    | type_checking/16_wrong_variant_arity (v0.11 — pattern path) |
 | MT2013 | MISSING_STRUCT_FIELD           | covered    | type_checking/15_missing_struct_field |
 | MT2014 | DUPLICATE_STRUCT_FIELD         | covered    | type_checking/14_duplicate_struct_field |
 | MT2015 | NON_EXHAUSTIVE_MATCH           | gap        | Gap B (constructor only) |
@@ -63,7 +66,7 @@ Status legend:
 | MT2023 | GENERIC_ARG_MISMATCH           | gap        | Gap B |
 | MT2024 | LAMBDA_ARITY_MISMATCH          | gap        | Gap B |
 | MT2025 | CANNOT_TAKE_REF                | gap        | Gap B |
-| MT2026 | PROTOCOL_MSG_UNKNOWN           | gap        | warning-severity; conformance_full filters errors only |
+| MT2026 | PROTOCOL_MSG_UNKNOWN           | covered    | agent_protocol/03_extra_handler (v0.11 — via expected_warnings.txt; warning severity) |
 | MT3001 | USE_AFTER_MOVE                 | covered    | ownership_rejection/01_use_after_move |
 | MT3002 | MOVE_OUT_OF_BORROW             | gap        | Gap C (constructor only) |
 | MT3003 | BORROW_AFTER_MOVE              | covered    | ownership_rejection/02_borrow_after_move |
@@ -112,12 +115,12 @@ Status legend:
 | MT5050 | EXTERN_FN_UNIMPL               | auxiliary  | runtime-7/extern_log |
 | MT6001 | UNKNOWN_MACRO                  | covered    | macros/01_unknown_macro |
 | MT6002 | MACRO_ARITY_MISMATCH           | covered    | macros/02_arity_mismatch |
-| MT6003 | MACRO_BODY_PARSE_FAILED        | auxiliary  | mty-hir/src/lower/macros.rs::tests |
+| MT6003 | MACRO_BODY_PARSE_FAILED        | covered    | macros/05_body_parse_failed (v0.11 — `$` has no token rule) |
 | MT6004 | RECURSIVE_MACRO_TOO_DEEP       | covered    | macros/03_recursive_too_deep |
 | MT6005 | PROC_MACRO_IMPURE              | covered    | macros/04_proc_macro_impure |
 | MT6006 | PROC_MACRO_UNSUPPORTED_V0_5    | auxiliary  | mty-hir unit tests |
 | MT6007 | PROC_MACRO_IMPURE_AT_RUNTIME   | auxiliary  | mty-hir unit tests |
-| MT6008 | PROC_MACRO_RESOURCE_EXCEEDED   | auxiliary  | mty-hir unit tests |
+| MT6008 | PROC_MACRO_RESOURCE_EXCEEDED   | covered    | macros/06_proc_macro_resource_exceeded (v0.11 — 16 MiB cap breach) |
 | MT8001 | CODEGEN_DIV_BY_ZERO            | auxiliary  | codegen (conformance_codegen) — positive paths only today |
 | MT8002 | CODEGEN_OOB_INDEX              | auxiliary  | codegen (positive paths only) |
 | MT8003 | CODEGEN_INT_OVERFLOW           | auxiliary  | codegen |
@@ -132,10 +135,27 @@ Status legend:
 ### Summary (FROZEN codes)
 
 - Total FROZEN codes enumerated: **66**.
-- conformance_full positively-fires: **41** (62%).
-- conformance_full + auxiliary harnesses positively-fires: **58** (88%).
-- Documented gaps (no emitter wired): **8** (12% — Gaps A/B/C/D/E
-  enumerated in `CONFORMANCE_V0_10_NOTES.md`).
+- conformance_full positively-fires: **45** (68%) — v0.10 was 41 (62%).
+  +4 in v0.11: MT2012 (promoted from auxiliary), MT2026 (closed via
+  warning-assertion extension), MT6003 + MT6008 (closed via new
+  proc-macro fixtures).
+- conformance_full + auxiliary harnesses positively-fires: **60** (91%) —
+  v0.10 was 58 (88%).
+- True remaining gaps (no emit-witness anywhere): **6** (9%, down from
+  8 at v0.10): MT2003, MT2009, MT2022, MT2023, MT2024, MT2025 — all
+  Gap B constructor-only typeck codes pending v1.0-RC2 emit-site
+  plumbing.
+
+Pre-v0.11 audit "gap" codes that v0.11 reclassified to
+`auxiliary` (has at least an aux-harness witness) rather than fully
+`covered` because the underlying emit-site limitation persists:
+Gap A (9 codes, lex/parse funnel — caught by message-string parser
+unit tests in mty-syntax), Gap C (4 borrow codes, caught by
+mty-borrow unit tests), Gap D (4 cap/effect codes, caught by
+mty-types unit tests), Gap E (6 runtime codes, caught by
+mty-ir/interp tests for the 4 reachable ones), Gap G (10 codegen
+codes, codegen-crate unit tests). See `CONFORMANCE_V0_11_NOTES.md`
+per-gap section for details.
 
 ## Spec-section coverage table
 
@@ -195,12 +215,13 @@ Status legend:
 ## Acceptance verdict
 
 - `cargo test --test conformance_full -p mty-driver` — **passes** with
-  **81 cases** across **16 categories** at the v0.10 audit completion
-  point (was 48 cases / 11 categories at v0.9.0 HEAD: +33 cases / +5
-  categories — new categories: type_checking, traits_derive,
-  runtime_traps, macros, lexical, parser, spec_coverage).
-- Coverage rate: **41/66 FROZEN codes (62%)** via conformance_full
-  alone, **58/66 (88%)** counting all sibling harnesses (counting
-  MT6005 added in v0.10).
+  **84 cases** across **16 categories** at the v0.11 audit completion
+  point (+3 over v0.10's 81 cases: macros/05, macros/06,
+  type_checking/16; plus one warning-assertion file on
+  agent_protocol/03).
+- Coverage rate: **45/66 FROZEN codes (68%)** via conformance_full
+  alone (v0.10: 41 / 62%), **60/66 (91%)** counting all sibling
+  harnesses (v0.10: 58 / 88%).
 - All documented gaps have an explicit follow-up note in
-  `CONFORMANCE_V0_10_NOTES.md` with a v1.0-RC2 recommendation.
+  `dev/history/notes/CONFORMANCE_V0_11_NOTES.md` (per-gap status +
+  v1.0-RC2 recommendations).

@@ -89,6 +89,12 @@ struct CaseSpec {
     command: Command,
     input_src: String,
     expected_diags: Option<Vec<String>>,
+    /// v0.11 (Gap B unlock): warning-severity codes the case asserts.
+    /// The error-only filter used by the diag check hid warning-only
+    /// codes (e.g. MT2026 protocol_msg_unknown) so they had no reachable
+    /// conformance_full fixture pre-v0.11. Optional per-case file
+    /// `expected_warnings.txt` mirrors the errors file.
+    expected_warnings: Option<Vec<String>>,
     expected_stdout: Option<String>,
     expected_exit_code: i32,
     /// Optional override for the interpreter step budget (default = 1M).
@@ -124,6 +130,14 @@ fn load_case(category: &str, dir: &Path) -> Result<CaseSpec, String> {
             .map(String::from)
             .collect::<Vec<_>>()
     });
+    // v0.11: parallel optional list of warning-severity codes.
+    let expected_warnings = read_opt(&dir.join("expected_warnings.txt")).map(|s| {
+        s.lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .map(String::from)
+            .collect::<Vec<_>>()
+    });
     let expected_stdout = read_opt(&dir.join("expected_stdout.txt"));
     let expected_exit_code = read_opt(&dir.join("expected_exit_code.txt"))
         .as_deref()
@@ -142,13 +156,14 @@ fn load_case(category: &str, dir: &Path) -> Result<CaseSpec, String> {
         command,
         input_src,
         expected_diags,
+        expected_warnings,
         expected_stdout,
         expected_exit_code,
         step_budget,
     })
 }
 
-fn check_diagnostics(case: &CaseSpec) -> Result<(i32, Vec<String>), String> {
+fn check_diagnostics(case: &CaseSpec) -> Result<(i32, Vec<String>, Vec<String>), String> {
     let parsed = parse_source(
         case.input_src.clone(),
         case.dir.join("input.mty").display().to_string(),
@@ -161,13 +176,20 @@ fn check_diagnostics(case: &CaseSpec) -> Result<(i32, Vec<String>), String> {
     let error_codes: Vec<String> = diags
         .iter()
         .filter(|d: &&Diagnostic| matches!(d.severity, Severity::Error))
+        .map(|d| d.code.as_str())
+        .collect();
+    // v0.11: also surface warning-severity codes so cases can assert
+    // them (e.g. MT2026 protocol_msg_unknown is warning-only).
+    let warning_codes: Vec<String> = diags
+        .iter()
+        .filter(|d: &&Diagnostic| matches!(d.severity, Severity::Warning))
         .map(|d| d.code.as_str())
         .collect();
     let exit = if error_codes.is_empty() { 0 } else { 1 };
-    Ok((exit, error_codes))
+    Ok((exit, error_codes, warning_codes))
 }
 
-fn run_program(case: &CaseSpec) -> Result<(i32, String, Vec<String>), String> {
+fn run_program(case: &CaseSpec) -> Result<(i32, String, Vec<String>, Vec<String>), String> {
     let parsed = parse_source(
         case.input_src.clone(),
         case.dir.join("input.mty").display().to_string(),
@@ -182,8 +204,13 @@ fn run_program(case: &CaseSpec) -> Result<(i32, String, Vec<String>), String> {
         .filter(|d: &&Diagnostic| matches!(d.severity, Severity::Error))
         .map(|d| d.code.as_str())
         .collect();
+    let warning_codes: Vec<String> = diags
+        .iter()
+        .filter(|d: &&Diagnostic| matches!(d.severity, Severity::Warning))
+        .map(|d| d.code.as_str())
+        .collect();
     if !error_codes.is_empty() {
-        return Ok((1, String::new(), error_codes));
+        return Ok((1, String::new(), error_codes, warning_codes));
     }
 
     let (prog, _) = lower_to_sir(&pkg);
@@ -211,15 +238,15 @@ fn run_program(case: &CaseSpec) -> Result<(i32, String, Vec<String>), String> {
     // Surface trap codes alongside any check-time codes for diag-assertion
     // (which is normally empty for `run` cases that succeed).
     runtime_codes.extend(error_codes);
-    Ok((exit, stdout, runtime_codes))
+    Ok((exit, stdout, runtime_codes, warning_codes))
 }
 
 fn verify(case: &CaseSpec) -> Result<(), String> {
     let prefix = format!("[{}/{}]", case.category, case.name);
-    let (exit, stdout, codes) = match case.command {
+    let (exit, stdout, codes, warning_codes) = match case.command {
         Command::Check => {
-            let (e, c) = check_diagnostics(case)?;
-            (e, String::new(), c)
+            let (e, c, w) = check_diagnostics(case)?;
+            (e, String::new(), c, w)
         }
         Command::Run => run_program(case)?,
     };
@@ -252,6 +279,19 @@ fn verify(case: &CaseSpec) -> Result<(), String> {
             return Err(format!(
                 "{} stdout mismatch:\nwant: {:?}\ngot:  {:?}",
                 prefix, want_n, got_n
+            ));
+        }
+    }
+
+    // v0.11: Warning-severity diagnostic codes (set-membership). Same
+    // contract as the errors file: extras tolerated, missing fails.
+    if let Some(want) = &case.expected_warnings {
+        let got: HashSet<&str> = warning_codes.iter().map(String::as_str).collect();
+        let missing: Vec<&String> = want.iter().filter(|c| !got.contains(c.as_str())).collect();
+        if !missing.is_empty() {
+            return Err(format!(
+                "{} missing expected warnings: {:?} (got: {:?})",
+                prefix, missing, warning_codes
             ));
         }
     }

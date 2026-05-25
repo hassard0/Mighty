@@ -1,0 +1,11 @@
+// MT6003 positive-fire: macro-call argument fails to lex (Gap F).
+// The `$` character has no token rule in the v0.11 lexer, so
+// `lex_fragment` returns None for the argument and the macro expander
+// emits `ExpandError::BadArgumentTokens { index: 0 }`. The HIR
+// macros lowerer translates that to MT6003 MACRO_BODY_PARSE_FAILED.
+//
+// Spec ref: §20 compile-time metaprogramming, MT6003 catalog entry.
+macro echo(a) => { a }
+fn main() {
+  echo!($)
+}

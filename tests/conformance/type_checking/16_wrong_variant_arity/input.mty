@@ -1,0 +1,19 @@
+// MT2012 positive-fire: enum-variant pattern binds 3 sub-patterns but
+// the variant declares 2 payload fields.
+//
+// Promotes MT2012 from auxiliary (typeck_negatives) to direct
+// conformance_full coverage. Closes part of the "expand WRONG_VARIANT_ARITY
+// coverage" follow-up in CONFORMANCE_V0_10_NOTES.md.
+//
+// Spec ref: §6 type system (enum payload arity).
+enum Pair {
+  P(I32, I32),
+  Q(I32)
+}
+
+fn use_pair(p: Pair) -> I32 {
+  match p {
+    P(a, b, c) => a + b + c,
+    Q(x) => x,
+  }
+}

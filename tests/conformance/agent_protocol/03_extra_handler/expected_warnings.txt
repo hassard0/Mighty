@@ -1,0 +1,5 @@
+# v0.11: alongside the MT4033 error, the type-checker emits an
+# MT2026 protocol_msg_unknown warning for the same handler. The
+# v0.11 conformance_full extension now surfaces warning-severity
+# codes so we can assert this — closes the MT2026 entry in Gap B.
+MT2026
