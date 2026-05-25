@@ -32,3 +32,12 @@ otlp = ["dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk"]
 mty-driver = { path = "../mty-driver" }
 mty-stdlib = { path = "../mty-stdlib", default-features = false }
 tokio = { workspace = true, features = ["test-util"] }
+criterion.workspace = true
+
+[[bench]]
+name = "mailbox_throughput"
+harness = false
+
+[[bench]]
+name = "agent_send_latency"
+harness = false

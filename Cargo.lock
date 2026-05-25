@@ -1884,6 +1884,7 @@ dependencies = [
  "cranelift-module",
  "cranelift-native",
  "cranelift-object",
+ "criterion",
  "gimli 0.31.1",
  "mty-debuginfo",
  "mty-diagnostics",
@@ -2072,6 +2073,7 @@ name = "mty-runtime"
 version = "0.1.0"
 dependencies = [
  "bumpalo",
+ "criterion",
  "crossbeam-deque",
  "crossbeam-utils",
  "dashmap",
@@ -2117,6 +2119,7 @@ dependencies = [
 name = "mty-syntax"
 version = "0.1.0"
 dependencies = [
+ "criterion",
  "insta",
  "logos",
  "rowan",

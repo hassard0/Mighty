@@ -30,3 +30,8 @@ object = { version = "0.39", default-features = false, features = ["write", "std
 [dev-dependencies]
 gimli = { workspace = true, features = ["read", "std"] }
 tempfile = "3"
+criterion.workspace = true
+
+[[bench]]
+name = "typeck_parallel"
+harness = false

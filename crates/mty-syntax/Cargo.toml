@@ -13,3 +13,8 @@ rowan.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "lex_throughput"
+harness = false

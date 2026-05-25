@@ -93,17 +93,21 @@ impl<'a> Monomorphizer<'a> {
     /// dispatch to the specialized version because the codegen lowers
     /// Param-typed locals as i64 — the same shape as the specialization).
     ///
-    /// v0.8: when there are >= 8 generic fns, dispatches to the
-    /// parallel implementation. The cutoff is conservative; small
-    /// programs use the sequential path and avoid worker-thread
-    /// spin-up. The output is byte-identical to the sequential path
-    /// (deterministic splice-by-index).
+    /// **v0.8 honest measurement**: the per-fn `specialize` call is
+    /// extremely cheap (clone + concretize walk). Benchmarks
+    /// (`typeck_parallel`) show the std::thread::scope spin-up cost
+    /// dominates up to 256 generic fns: parallel was ~8x slower at
+    /// medium-32g, ~1.8x slower at large-256g. `run()` therefore
+    /// stays on the sequential path; `run_parallel()` remains
+    /// available for the future where per-fn typeck-per-instantiation
+    /// makes the per-fn cost large enough to amortise the thread
+    /// fan-out.
     pub fn run(&self) -> Program {
-        self.run_parallel()
+        self.run_sequential()
     }
 
-    /// Sequential fallback retained for tests, profiling, and the
-    /// determinism cross-check in unit tests.
+    /// Sequential implementation. Always preferred today; see the
+    /// `run()` docstring for the parallel-vs-sequential tradeoff.
     pub fn run_sequential(&self) -> Program {
         let mut out = self.prog.clone();
         let generics: Vec<usize> = self
