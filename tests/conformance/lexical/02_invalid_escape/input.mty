@@ -1,0 +1,4 @@
+// Lexer should reject an invalid escape sequence (e.g. `\q`).
+fn main() {
+  log("bad escape: \q")
+}

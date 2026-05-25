@@ -1,0 +1,5 @@
+// MT6002 positive-fire: macro `one` declared with 1 param, called with 2.
+macro one(a) => { a + 1 }
+fn main() {
+  one(1, 2)
+}

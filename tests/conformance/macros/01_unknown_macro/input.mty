@@ -1,0 +1,4 @@
+// MT6001 positive-fire: bang-macro reference with no matching macro.
+fn main() {
+  nonexistent!(1)
+}

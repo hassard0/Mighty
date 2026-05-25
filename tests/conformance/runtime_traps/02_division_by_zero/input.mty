@@ -1,0 +1,7 @@
+// MT5003 positive-fire: integer division by zero traps at runtime.
+fn main() {
+  let a = 10
+  let b = 0
+  let c = a / b
+  log(c.to_str())
+}

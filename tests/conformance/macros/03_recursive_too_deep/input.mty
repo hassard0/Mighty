@@ -1,0 +1,5 @@
+// MT6004 positive-fire: macro recurses past the depth cap (32).
+macro r(x) => { r(x) + 1 }
+fn main() {
+  r(0)
+}

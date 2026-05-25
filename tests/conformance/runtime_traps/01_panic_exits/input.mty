@@ -1,0 +1,4 @@
+// MT5001 positive-fire: explicit panic("...") traps and exits non-zero.
+fn main() {
+  panic("boom")
+}

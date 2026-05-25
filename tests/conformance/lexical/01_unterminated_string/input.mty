@@ -1,0 +1,6 @@
+// Lexer should reject an unterminated string literal.
+// Per spec §3, MT0002 is reserved; the v0.9 pipeline reports it as
+// MT0001 from the unified parser-error path.
+fn main() {
+  log("oops)
+}

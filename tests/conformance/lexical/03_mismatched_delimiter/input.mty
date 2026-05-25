@@ -1,0 +1,5 @@
+// Parser should reject mismatched delimiters.
+fn main() {
+  let x = (1 + 2]
+  log(x.to_str())
+}
