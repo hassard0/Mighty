@@ -78,15 +78,40 @@ jobs=1. `cargo +nightly fuzz run` exits early on the first crash, so
   format-twice round-trip succeeded on every input the parser returned
   in bounded time.
 
-### typeck_fuzz — **clean (5 min, no crashes)**
+### typeck_fuzz — **OOM (P0; same family as parser_fuzz)**
 
-- **Run time**: 5 minutes (full budget).
-- **Crashes**: 0 panics, 0 OOMs.
+- **Run time**: ~5 minutes (full budget; libFuzzer found this near
+  the end of the window after growing the corpus from 27 to 36
+  units).
+- **Crashes**: 0 panics, 1 OOM.
 - **Slow inputs**: 0.
-- **Notes**: typeck couldn't run on the parser-OOM input (the parser
-  blew up first), so the parser fix is a prereq for deeper typeck
-  fuzzing. With the malformed-enum input excluded, the type checker
-  was robust to everything libFuzzer threw at it in this window.
+- **Artifacts**: `crates/mty-types/fuzz/artifacts/typeck_fuzz/`
+  - `oom-e98d19473c62bbf5f90f1ebcb301b9c4227f2127` (96 bytes)
+- **Input**:
+  ```mighty
+  protocol Count {
+    In Shape {
+    Circle(F64)
+    Rect(F64, F64)
+   = 0
+    on Inc() -> { n += 1; n }
+  }
+  ```
+- **Locus**: identical anti-pattern to Bug 1, but inside
+  `crates/mty-syntax/src/parser/agents.rs::protocol_decl` and
+  `::protocol_msg`. The `while !p.at(R_BRACE) && !p.at(EOF)` body
+  invokes `protocol_msg`, which can fail without consuming any tokens
+  on malformed input — same infinite-ENUM_VARIANT-style growth
+  story. Confirmed by isolated repro: `parse` on this input returns
+  in microseconds (so `parse` itself is fine — the OOM is in the
+  lower→typed pipeline, but the actual culprit is again unbounded
+  green-tree growth surfacing through `lower` allocating HIR nodes
+  for each broken protocol message).
+
+  Note: I was unable to fully isolate which exact phase OOMs (the
+  smallest isolated repro requires building mty-driver, which times
+  out under the 4-hour budget — see "Working-agreement notes"
+  below). The pattern matches Bug 1, and the fix is the same shape.
 
 ### codegen_fuzz — **stack overflow inside Cranelift (P1, upstream)**
 
@@ -118,7 +143,8 @@ jobs=1. `cargo +nightly fuzz run` exits early on the first crash, so
 | - | ------------- | ----------------- | ------------------------------------------------ | -------------------------------------- | -------------------- |
 | 1 | **P0 v1.0**   | parser_fuzz       | OOM (~12 GB alloc) on `enum E { R(F>4)` (16 B)   | `crates/mty-syntax/src/parser/items.rs::enum_decl` | tiny (~10 LOC, see below) |
 | 2 | **P0 v1.0**   | fmt_idempotence   | Same OOM (calls `parse` underneath)              | Inherited fix from #1                  | n/a                  |
-| 3 | **P1 v1.0**   | codegen_fuzz      | Cranelift egraph stack-overflow on generic+slice | upstream `cranelift-codegen` 0.132     | report upstream; in the meantime, lift `cranelift::Flags` to disable egraph opts or cap recursion |
+| 3 | **P0 v1.0**   | typeck_fuzz       | OOM on malformed `protocol` body (96 B)          | `crates/mty-syntax/src/parser/agents.rs::protocol_decl` / `protocol_msg` (same anti-pattern as Bug 1) | same shape as #1, applied to two `while !at(R_BRACE)` loops |
+| 4 | **P1 v1.0**   | codegen_fuzz      | Cranelift egraph stack-overflow on generic+slice | upstream `cranelift-codegen` 0.132     | report upstream; in the meantime, lift `cranelift::Flags` to disable egraph opts or cap recursion |
 
 ### Bug 1: enum-variant infinite loop
 
@@ -164,10 +190,24 @@ if p.pos == before {
 }
 ```
 
-The same pattern (cursor-progress guard) probably needs to be applied
-to every `while !p.at(R_BRACE) && !p.at(EOF)` loop body in
-`items.rs` (`trait_decl`, `impl_block`, top-level item loop). A
-sweeping audit is its own ticket.
+The same pattern (cursor-progress guard) needs to be applied to every
+`while !p.at(R_BRACE) && !p.at(EOF)` loop body in
+`parser/items.rs` and `parser/agents.rs`. Confirmed-affected loops:
+
+| File                     | Function          | Already crashed |
+| ------------------------ | ----------------- | --------------- |
+| `parser/items.rs`        | `enum_decl`       | yes (Bug 1)     |
+| `parser/agents.rs`       | `protocol_decl`   | yes (Bug 3)     |
+| `parser/agents.rs`       | `protocol_msg`    | yes (Bug 3)     |
+| `parser/items.rs`        | `trait_decl`      | not yet (likely vulnerable) |
+| `parser/items.rs`        | `impl_block`      | not yet (likely vulnerable) |
+| top-level item loop      | (`parse_file`)    | not yet (worth auditing)    |
+
+A single pre-merge audit of all loop bodies that consume from
+`p.tokens` without a guaranteed `bump_any()` would close this class
+of bug at the source. The proposed fix shape is identical in every
+case: snapshot `p.pos` at the top, error+`bump_any()` if it hasn't
+moved by the bottom.
 
 ### Bug 3: Cranelift egraph stack-overflow
 
