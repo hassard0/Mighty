@@ -251,9 +251,12 @@ sweeps:
 | Crate prefix `sdust-*`                | `mty-*`                              |
 | WIT namespaces `stardust:caps/*`, `stardust:web/*` | `mty:caps/*`, `mty:web/*` |
 
+GitHub repo URL was later renamed `hassard0/stardust` →
+`hassard0/Mighty` (the on-disk directory may still be `stardust` on
+some clones; both resolve to the same repo).
+
 Preserved:
 
-- GitHub repo URL `hassard0/stardust` (per project owner decision)
 - `edition = "2026"` (calendar year, not brand)
 - `wasi:*` WIT namespace (upstream WASI types)
 - `STARDUST_*` env var prefix (back-compat with v0.6 deployments)

@@ -86,7 +86,7 @@ constraints, but the design is targeted from day one.
 ## Where do I report bugs or request features?
 
 Open an issue on
-[github.com/hassard0/stardust](https://github.com/hassard0/stardust)
+[github.com/hassard0/Mighty](https://github.com/hassard0/Mighty)
 using one of the templates in `.github/ISSUE_TEMPLATE/`.
 
 ## How can I help?

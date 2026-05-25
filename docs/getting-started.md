@@ -9,8 +9,8 @@ There is no binary release yet. Build the compiler from source with a
 recent Rust toolchain (1.85+; slice 8 bumped MSRV).
 
 ```bash
-git clone https://github.com/hassard0/stardust
-cd mighty
+git clone https://github.com/hassard0/Mighty
+cd Mighty
 cargo install --path crates/mty-cli
 ```
 

@@ -259,5 +259,5 @@ Beyond v0.4:
   globs to refine which files get tarred.
 
 The cloud control plane will eventually create
-`hassard0/stardust-pkg-registry` (or similar) and seed it with the
-stdlib — that's tracked as v0.5 work.
+`hassard0/Mighty-pkg-registry` (or similar) and seed it with the
+stdlib.
