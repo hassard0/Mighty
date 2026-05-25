@@ -5,7 +5,7 @@ optional payloads, and they are exhaustively matched with `match`.
 
 ## The program
 
-```sd
+```mty
 struct User {
   id: UserId
   name: String
@@ -38,17 +38,17 @@ fn area(s: Shape) -> F64 {
 - `match` is an expression. The arms produce the function's return value
   directly.
 - Variants are referred to with `Type.Variant` syntax (see
-  [spec §6](../spec/v0.1.md)).
+  [spec §6](../spec/v1.0-rc.md)).
 
-## Run it
+## Try it
 
 ```bash
-mty check examples/02_struct_enum.sd
+mty check examples/02_struct_enum.mty
 ```
 
 ## Type errors you might see
 
-```sd
+```mty
 struct User { id: U64, name: String }
 
 // MT2006 unknown field
@@ -66,12 +66,15 @@ let u = User { id: "one", name: "Ada" }   // id expects U64
 
 For enums and `match`:
 
-```sd
+```mty
 enum Shape { Circle(F64), Rect(F64, F64) }
 
 // MT2012 wrong variant arity
 let s = Shape.Circle(1.0, 2.0)
 ```
+
+Run `mty explain MT2001` (or any other code) for the full
+Cause/Example/Fix/Spec block.
 
 ## Copy types
 
@@ -84,9 +87,11 @@ Slice 4 hardcodes which types implicitly copy on use rather than move:
 - Tuples and arrays of Copy elements
 - Function pointers
 
-User structs and enums are **not** Copy in v0.1. A non-Copy value moves
-on assignment / call / return; use a second copy by introducing the
-value at the source again, or by switching to `&T` borrows.
+User structs and enums are **not** Copy by default. A non-Copy value
+moves on assignment / call / return; use a second copy by introducing
+the value at the source again, by switching to `&T` borrows, or by
+opting in with `#[derive(Copy)]` (see
+[chapter 15](15-traits.md)).
 
 See [ownership](14-ownership.md) for full move and borrow rules.
 

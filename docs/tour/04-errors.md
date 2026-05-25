@@ -6,7 +6,7 @@ sugar `T!E` desugars to `Result[T, E]`.
 
 ## The program
 
-```sd
+```mty
 fn parse(s: Str) -> I32!ParseErr {
   Ok(0)
 }
@@ -31,18 +31,18 @@ fn load(url: Url) -> Page!{NetErr, ParseErr} {
 - The final `Ok(Page {})` is the success case. `Page {}` is a struct
   literal with all defaulted fields.
 
-## Run it
+## Try it
 
 ```bash
-mty check examples/04_result_propagation.sd
+mty check examples/04_result_propagation.mty
 ```
 
 ## Type errors you might see
 
-`?` is strict about the enclosing function's return type (slice-3
-amendment A7):
+`?` is strict about the enclosing function's return type (amendment
+A7):
 
-```sd
+```mty
 // MT2010 ? outside Result-returning function
 fn returns_unit() -> Unit {
   fetch(url)?    // can't propagate; fn returns Unit
@@ -58,13 +58,15 @@ fn outer() -> Result[I32, NetErr] {
 To compose a fn that doesn't have any natural Result return, use
 `Unit!ErrType`:
 
-```sd
+```mty
 fn process(items: &[I32]) -> Unit!WorkErr {
   for item in items {
     work(item)?       // legal — enclosing fn returns Result[Unit, WorkErr]
   }
 }
 ```
+
+Run `mty explain MT2010` for the full Cause/Example/Fix/Spec block.
 
 ## Next
 

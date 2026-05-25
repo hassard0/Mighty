@@ -5,7 +5,7 @@ analogous to Rust traits or interfaces.
 
 ## Declaration
 
-```sd
+```mty
 trait Hash {
   fn hash(self) -> U64
 }
@@ -16,7 +16,7 @@ signature; bodies (default methods) are reserved for a later slice.
 
 ## Implementation
 
-```sd
+```mty
 struct UserId {
   v: U64
 }
@@ -48,7 +48,7 @@ When you call `x.hash()`:
 A `dyn Trait` value erases the static type and dispatches
 dynamically:
 
-```sd
+```mty
 trait Show {
   fn show(self) -> Str
 }
@@ -71,7 +71,7 @@ have method-level generics. Violation: `MT4023 dyn_requires_object_safe`.
 The derive attribute generates conformance to a trait without writing
 the body. Slice 5 supports `Copy`, `Hash`, and `Eq`:
 
-```sd
+```mty
 #[derive(Copy)]
 struct Vec2 {
   x: F32
@@ -86,3 +86,30 @@ synthetic impls so `dyn Hash = my_t` resolves.
 A shorthand `derive Copy struct Vec2 { ... }` is also accepted.
 
 Unknown derive names raise `MT4041 derive_unknown`.
+
+## Try it
+
+There is no single `15_traits.mty` example — trait declarations and
+impls appear across most of the larger examples (`19_backend_service`,
+`20_frontend_component`). Paste any snippet from this chapter into
+`scratch.mty` and run:
+
+```bash
+mty check scratch.mty
+```
+
+The conformance corpus at
+[`tests/conformance/traits/`](https://github.com/hassard0/Mighty/tree/main/tests/conformance)
+exercises the full dispatch + coherence machinery.
+
+## End of the tour
+
+You've reached the end of the chapter-by-chapter tour. Next steps:
+
+- Read the normative spec at
+  [`docs/spec/v1.0-rc.md`](../spec/v1.0-rc.md).
+- Browse the [CLI reference](../reference/cli/mty.md).
+- Skim the [FAQ](../faq.md).
+- Open an issue on
+  [github.com/hassard0/Mighty](https://github.com/hassard0/Mighty) if
+  you find anything that surprises you.

@@ -1,9 +1,9 @@
 # A Tour of Mighty
 
 The tour walks through the twenty canonical example programs that ship
-with the compiler. Each chapter introduces one or two language features,
-shows the source, explains what is interesting about it, and tells you how
-to feed it to `mty check`.
+with the compiler. Each chapter introduces one or two language
+features, shows the source, explains what is interesting about it, and
+tells you how to feed it to `mty check`.
 
 If you have not installed the compiler yet, see
 [../getting-started.md](../getting-started.md).
@@ -29,23 +29,39 @@ If you have not installed the compiler yet, see
     derive(Copy/Hash/Eq).
 
 After chapter 15, examples 16–20 show macros, sandboxes, and complete
-backend and frontend programs. Those are not yet split into individual
+backend and frontend programs. They are not yet split into individual
 tour chapters; read them directly under
-[`examples/`](../../examples/).
+[`examples/`](https://github.com/hassard0/Mighty/tree/main/examples).
 
 ## Running every example
 
 ```bash
-for f in examples/*.sd; do mty check "$f"; done
+for f in examples/*.mty; do mty check "$f"; done
 ```
 
-Every shipped example parses, format-roundtrips, and HIR-lowers
-cleanly as of slice 2 (`v0.2.0-phase1-polish`). Slice 2 restored
-examples 19 and 20 to their spec-original syntax using lambdas,
-turbofish, and `if let`; see `docs/spec/v0.1-amendments.md`.
+On Windows PowerShell:
+
+```powershell
+Get-ChildItem examples/*.mty | ForEach-Object { mty check $_.FullName }
+```
+
+All twenty shipped examples parse, format-roundtrip, type-check,
+borrow-check, effect-check, and run cleanly as of **v0.10**. If you
+see anything other than `ok: <path>` (or the documented MT2026 warning
+on `13_capabilities.mty`), open an issue.
 
 ## Reading order
 
-Start at chapter 1 and work forward. The order is the order of the
-example files (`01_*.sd` through `13_*.sd`), and later chapters assume
-the syntax introduced earlier.
+Start at chapter 1 and work forward. The order follows the example
+files (`01_*.mty` through `20_*.mty`), and later chapters assume the
+syntax introduced earlier. Each chapter ends with a `Try it:` block
+that runs the corresponding example through `mty check` and (where it
+makes sense) `mty run`.
+
+## Spec cross-references
+
+Section numbers in this tour reference the current normative spec,
+[`docs/spec/v1.0-rc.md`](../spec/v1.0-rc.md) (v1.0-RC2). The
+historical v0.1 spec stub at
+[`docs/spec/v0.1.md`](../spec/v0.1.md) is preserved for archaeology;
+do not author against it.

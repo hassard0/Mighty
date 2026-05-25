@@ -6,15 +6,16 @@ fn / handler / lambda, and reports moves, borrows, and drops with
 matching diagnostics in the **MT3001..MT3099** range.
 
 This chapter walks the rules with worked examples. See
-[spec §7](../spec/v0.1.md) and
+[spec §7](../spec/v1.0-rc.md) and
 [`docs/internals/borrowck.md`](../internals/borrowck.md) for the full
-reference.
+reference. Run `mty explain MT3001` (etc.) for the
+Cause/Example/Fix/Spec block on any specific code.
 
 ## Ownership and `move`
 
 A non-Copy value has exactly one owner. Reassigning **moves** the value:
 
-```sd
+```mty
 let a = String("hello")
 let b = move a
 // a is now invalid; reading it errors MT3001
@@ -30,7 +31,7 @@ Primitives, shared references, raw pointers, function pointers, and
 tuples/arrays of Copy values are implicitly copyable. No `move` required;
 no MT3001 risk.
 
-```sd
+```mty
 let n: I32 = 7
 let m = n
 let p = n            // fine — I32 is Copy
@@ -41,7 +42,7 @@ let p = n            // fine — I32 is Copy
 A shared borrow lets you read the value without consuming it. Many
 shared borrows can coexist:
 
-```sd
+```mty
 let buf = String("data")
 let r1 = &buf
 let r2 = &buf
@@ -54,7 +55,7 @@ Borrows deactivate at the **last use of the borrower binding** (NLL,
 v0.3 / A55). Programs that were once rejected for lexical reasons now
 work — for example:
 
-```sd
+```mty
 let mut buf = String("data")
 let r = &buf
 log_len(r)                   // r's last use; the shared borrow ends here
@@ -71,7 +72,7 @@ last used at `log_len(r)`, so the borrow ends there.
 At most one mutable borrow may exist at a time. While it lives, no
 shared borrow may coexist:
 
-```sd
+```mty
 let mut buf = String("data")
 let m = &mut buf
 push(m, "!")
@@ -89,7 +90,7 @@ Errors you might trip:
 
 Borrows of disjoint fields of the same struct don't conflict:
 
-```sd
+```mty
 struct Pair { a: String, b: String, }
 
 let mut s = Pair { a: String("x"), b: String("y") }
@@ -110,7 +111,7 @@ projection chains at depth 1, so `&s.a.x` and `&s.a.y` still conflict
 Dereferencing a reference does NOT transfer ownership. For a non-Copy
 type, this errors with `MT3009 move_out_of_ref`:
 
-```sd
+```mty
 let s = String("x")
 let r = &s
 let x = *r                     // MT3009 — can't move out of &String
@@ -119,7 +120,7 @@ let x = *r                     // MT3009 — can't move out of &String
 For Copy types (primitives, references, function pointers), `*r` is
 just a load:
 
-```sd
+```mty
 let n: I32 = 42
 let r = &n
 let m = *r                     // OK — I32 is Copy
@@ -132,7 +133,7 @@ Fix: clone, take ownership, or work with the borrow directly.
 Non-Copy arguments are moved into the fn unless the parameter type is
 `&T` / `&mut T`:
 
-```sd
+```mty
 fn take(s: String) {}        // takes ownership
 fn read(s: &String) {}       // reads via shared borrow
 fn fill(s: &mut String) {}   // writes via mutable borrow
@@ -155,7 +156,7 @@ scope end, no leak; when you do own one, its `Drop` runs.
 Values created inside an `arena` block may not escape the arena's scope
 unless they are Copy or you explicitly `move` them out:
 
-```sd
+```mty
 fn turn(input: Str) -> Lowered!ParseErr {
   arena turn {
     let toks = tokenize(input)
@@ -167,7 +168,7 @@ fn turn(input: Str) -> Lowered!ParseErr {
 
 Trying to return an arena-local binding directly is `MT3010 arena_escape`:
 
-```sd
+```mty
 fn bad() -> String {
   arena turn {
     let x = String("hi")
@@ -186,7 +187,7 @@ Arguments to `!Msg(args)` (send) or `?Msg(args)` (ask) must be
 tuples/arrays/structs. References and raw pointers can't cross agent
 boundaries.
 
-```sd
+```mty
 fn caller(r: AgentRef[Worker], buf: &String) {
   r!Send(buf)               // MT3011 — &String is not Sendable
 }
@@ -211,7 +212,22 @@ Pass owned data, copies, or convert to a Sendable form first.
 | Assigned to non-`mut` local      | MT3014 | `let mut x = ...`                                |
 | Used un-initialized binding      | MT3015 | Initialise the binding before its first read     |
 
+## Try it
+
+There is no single `14_ownership.mty` example file — the ownership
+machinery is exercised by every program. To experiment, paste any
+snippet above into `scratch.mty` and run:
+
+```bash
+mty check scratch.mty
+```
+
+Borrow conformance is also covered by the
+[`tests/conformance/`](https://github.com/hassard0/Mighty/tree/main/tests/conformance)
+suite, which runs as part of `cargo test`.
+
 ## Next
 
-Slice 5 adds effect closure + capability narrowing enforcement. See the
-[README roadmap](https://github.com/hassard0/Mighty#roadmap).
+Continue to [15 — Traits](15-traits.md). For the full borrow-checker
+implementation notes, see
+[`docs/internals/borrowck.md`](../internals/borrowck.md).

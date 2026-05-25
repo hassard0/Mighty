@@ -1,14 +1,14 @@
 # 03 — Generics
 
-Generic parameters use square brackets, not angle brackets — this keeps
-the syntax unambiguous with comparison operators. In **type** position
-no turbofish is needed (`Result[T, E]`, `Option[T]`). In **expression**
-position a `::` disambiguator separates generic arguments from index
-access — see "Turbofish" below.
+Generic parameters use square brackets, not angle brackets — this
+keeps the syntax unambiguous with comparison operators. In **type**
+position no turbofish is needed (`Result[T, E]`, `Option[T]`). In
+**expression** position a `::` disambiguator separates generic
+arguments from index access — see "Turbofish" below.
 
 ## The program
 
-```sd
+```mty
 fn first[T](xs: &[T]) -> Option[&T] {
   if xs.len == 0 { None } else { Some(&xs[0]) }
 }
@@ -18,19 +18,19 @@ fn first[T](xs: &[T]) -> Option[&T] {
 
 - `fn first[T](...)` declares a single generic type parameter `T`. No
   constraints — `T` may be any type that fits the body.
-- `&[T]` is an immutable borrow of a slice of `T`. Mighty borrows look
-  like Rust borrows but are written with square brackets for the slice
-  shape.
+- `&[T]` is an immutable borrow of a slice of `T`. Mighty borrows
+  look like Rust borrows but are written with square brackets for the
+  slice shape.
 - `Option[&T]` is the built-in optional type from `std.option`. The
   spec defines `Option[T] = Some(T) | None`.
-- `if` is an expression. Both arms produce a value of type `Option[&T]`,
-  so the whole `if` does.
+- `if` is an expression. Both arms produce a value of type
+  `Option[&T]`, so the whole `if` does.
 - `&xs[0]` borrows the first element without copying it.
 
-## Run it
+## Try it
 
 ```bash
-mty check examples/03_generic_fn.sd
+mty check examples/03_generic_fn.mty
 ```
 
 ## Turbofish — expression-position generics
@@ -39,7 +39,7 @@ In expression position, generic arguments require a `::` separator to
 disambiguate from index expressions (where `Map[k]` already means
 "index into `Map`"):
 
-```sd
+```mty
 let m = Map::[Str, Json]{}      // struct literal with explicit types
 let s = Some::[I32](42)         // constructor call with type arg
 let v = Vec::[T].new()          // method call on a generic path
@@ -50,7 +50,7 @@ generics remain bracket-only as above.
 
 ## Type errors you might see
 
-```sd
+```mty
 // MT2004 wrong generic arity
 fn f(x: Option[I32, Str]) -> Unit {}   // Option takes 1 arg
 
