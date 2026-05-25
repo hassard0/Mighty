@@ -1,0 +1,145 @@
+site_name: Mighty
+site_url: https://hassard0.github.io/Mighty/
+site_description: Mighty — a deterministic, agent-first systems language.
+site_author: Ian Hassard
+repo_url: https://github.com/hassard0/Mighty
+repo_name: hassard0/Mighty
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+
+# v0.9 RC-prep: render the existing markdown corpus as a single
+# navigable site. The mkdocs-material theme is pure-Python (no Ruby
+# runtime needed on the CI runner) and ships with first-class search.
+# Files listed here are mirrored from the on-disk layout under docs/;
+# unlisted markdown still ships under the auto-generated nav.
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    - scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/weather-night
+        name: switch to dark mode
+    - scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/weather-sunny
+        name: switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      use_pygments: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+plugins:
+  - search
+
+# Top-level nav — keep the structure stable across versions so deep
+# links in release notes / blog posts don't rot. Sections marked
+# (auto) pick up new files automatically via mkdocs' directory walk
+# when they're not explicitly listed.
+nav:
+  - Home: README.md
+  - Getting Started: getting-started.md
+  - FAQ: faq.md
+  - Contributing: contributing.md
+  - Tour:
+    - Overview: tour/README.md
+    - 1. Hello: tour/01-hello.md
+    - 2. Types: tour/02-types.md
+    - 3. Generics: tour/03-generics.md
+    - 4. Errors: tour/04-errors.md
+    - 5. Control Flow: tour/05-control-flow.md
+    - 6. Agents: tour/06-agents.md
+    - 7. Send/Ask: tour/07-send-ask.md
+    - 8. Supervisors: tour/08-supervisors.md
+    - 9. Arenas: tour/09-arenas.md
+    - 10. Capabilities: tour/10-capabilities.md
+    - 11. Budgets: tour/11-budgets.md
+    - 12. Extern: tour/12-extern.md
+    - 13. Unsafe: tour/13-unsafe.md
+    - 14. Ownership: tour/14-ownership.md
+    - 15. Traits: tour/15-traits.md
+  - Spec:
+    - v0.1: spec/v0.1.md
+    - v0.1 Amendments: spec/v0.1-amendments.md
+    - Borrow Model v0.3: spec/borrow-model-v0.3.md
+    - Macros v0.4: spec/macros-v0.4.md
+    - Macros v0.5: spec/macros-v0.5.md
+    - v1.0-RC: spec/v1.0-rc.md
+    - Spec Changelog: spec/CHANGELOG.md
+  - Reference:
+    - Overview: reference/README.md
+    - Manifest: reference/manifest.md
+    - Registry: reference/registry.md
+    - Diagnostics: reference/diagnostics.md
+  - Internals:
+    - Overview: internals/README.md
+    - Architecture: internals/architecture.md
+    - Lexer: internals/lexer.md
+    - Parser: internals/parser.md
+    - CST and AST: internals/cst-ast.md
+    - HIR: internals/hir.md
+    - Typeck: internals/typeck.md
+    - Borrowck: internals/borrowck.md
+    - IR: internals/ir.md
+    - Codegen (Cranelift): internals/codegen-cranelift.md
+    - Codegen (LLVM): internals/codegen-llvm.md
+    - Codegen (Wasm): internals/codegen-wasm.md
+    - Debug Info: internals/debug-info.md
+    - Runtime: internals/runtime.md
+    - Scheduler: internals/scheduler.md
+    - Mailboxes: internals/mailboxes.md
+    - Supervisors: internals/supervisors.md
+    - Interpreter: internals/interpreter.md
+    - Macros: internals/macros.md
+    - Effects: internals/effects.md
+    - Capabilities: internals/capabilities.md
+    - Sandbox Enforcement: internals/sandbox-enforcement.md
+    - Loops: internals/loops.md
+    - Iterators: internals/iterators.md
+    - Multi-core: internals/multi-core.md
+    - Sendable: internals/sendable.md
+    - Traits: internals/traits.md
+    - Stdlib: internals/stdlib.md
+    - Diagnostics (Internals): internals/diagnostics.md
+    - Budgets: internals/budgets.md
+    - Telemetry: internals/telemetry.md
+    - Telemetry OTLP: internals/telemetry-otlp.md
+    - LSP: internals/lsp.md
+    - Formatter: internals/formatter.md
+    - Doc Generator: internals/doc-generator.md
+    - Package Manager: internals/package-manager.md
+    - Package Signing: internals/package-signing.md
+    - Self-hosting: internals/self-hosting.md
+    - Benchmarking: internals/benchmarking.md
+  - Demos: demos/README.md
+  - Superpowers: superpowers/README.md

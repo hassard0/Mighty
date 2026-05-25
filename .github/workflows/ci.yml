@@ -11,23 +11,38 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
+  # ----------------------------------------------------------------
+  # Default cross-platform build/test matrix. This is the main gate
+  # that blocks merges — all three OSes must be green.
+  # ----------------------------------------------------------------
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.82.0"
+          toolchain: "1.95.0"
           components: rustfmt, clippy
 
-      - name: Cargo cache
+      - name: Cargo registry cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cargo target cache
         uses: Swatinem/rust-cache@v2
 
       - name: cargo fmt --check
@@ -44,9 +59,118 @@ jobs:
 
       - name: example sweep (Linux only)
         if: matrix.os == 'ubuntu-latest'
+        shell: bash
         run: |
           set -euo pipefail
           for f in examples/*.mty; do
             cargo run -q -p mty-cli -- check "$f"
             cargo run -q -p mty-cli -- fmt --check "$f"
           done
+
+      - name: demo smoke sweep (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build -q -p mty-cli
+          for d in demos/*/; do
+            if [[ -x "$d/smoke.sh" ]]; then
+              echo "=== $d ==="
+              bash "$d/smoke.sh"
+            fi
+          done
+
+  # ----------------------------------------------------------------
+  # `--no-default-features` job catches feature-gated breakage that
+  # the default test job hides. Runs on Linux only — features are
+  # uniform across OSes.
+  # ----------------------------------------------------------------
+  test-minimal:
+    name: test (minimal features)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: minimal
+
+      - name: cargo test (no default features)
+        run: cargo test --workspace --no-default-features
+
+  # ----------------------------------------------------------------
+  # Stricter clippy pass — `pedantic` lints surfaced as warnings but
+  # not gated on yet (`-W`, not `-D`). We promote individual lints to
+  # `-D` as the codebase converges on them.
+  # ----------------------------------------------------------------
+  clippy-strict:
+    name: clippy (strict)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+          components: clippy
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: strict
+
+      - name: cargo clippy --pedantic
+        env:
+          # Override the top-level `RUSTFLAGS: -D warnings` so the
+          # pedantic surface stays advisory while we iterate.
+          RUSTFLAGS: ""
+        run: |
+          cargo clippy --workspace --all-targets -- \
+            -D warnings \
+            -W clippy::pedantic \
+            -A clippy::missing_errors_doc \
+            -A clippy::missing_panics_doc \
+            -A clippy::module_name_repetitions \
+            -A clippy::must_use_candidate \
+            -A clippy::similar_names \
+            -A clippy::too_many_lines \
+            -A clippy::cast_possible_truncation \
+            -A clippy::cast_sign_loss \
+            -A clippy::cast_lossless \
+            -A clippy::cast_precision_loss
+
+  # ----------------------------------------------------------------
+  # MSRV gate — the documented minimum supported Rust version is
+  # 1.85.0 (edition 2024 / indexmap 2.14). Bumping this is a
+  # breaking change and requires a release note in RELEASE-v*.md.
+  # ----------------------------------------------------------------
+  msrv:
+    name: msrv (1.85.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.85.0
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.85.0"
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: msrv
+
+      - name: cargo build (MSRV)
+        # Build only — running tests on MSRV can pull in newer
+        # dev-deps that bump the floor unintentionally.
+        env:
+          RUSTFLAGS: ""
+        run: cargo build --workspace

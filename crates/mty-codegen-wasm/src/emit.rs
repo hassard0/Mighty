@@ -22,8 +22,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use wasm_encoder::{
     BlockType, CodeSection, ConstExpr, DataSection, EntityType, ExportKind, ExportSection,
-    Function as WFunction, FunctionSection, ImportSection, Instruction as I, MemoryType, Module,
-    TypeSection, ValType,
+    Function as WFunction, FunctionSection, GlobalSection, GlobalType, ImportSection,
+    Instruction as I, MemoryType, Module, TypeSection, ValType,
 };
 
 /// Per-build options controlling the v0.2 Component Model wrapper.
@@ -159,6 +159,21 @@ pub fn compile_program_to_file_with_options(
 /// (which still writes a length-prefixed string starting at 8192).
 pub const DOM_RETURN_AREA: u32 = 8208;
 pub const DOM_RETURN_AREA_BYTES: u32 = 16;
+
+/// v0.9 RC-prep — initial value of the `cabi_realloc` bump pointer.
+/// 32 KiB into linear memory keeps it clear of:
+///   * 0..1024  — reserved for shadow-stack scratch,
+///   * 1024..8192 — string-literal pool (data section),
+///   * 8192..8224 — legacy JS shim + canonical-ABI return area,
+///   * 8224..32768 — slack for future growth of the data section.
+///
+/// The bump region grows upward into the rest of the 16-page (1 MiB)
+/// linear memory. Real free() / coalescing is out of scope for v0.9;
+/// the canonical-ABI lifts we currently emit only call `cabi_realloc`
+/// with `old_ptr == 0`, i.e. fresh allocations, so a bump allocator
+/// suffices for the v0.9 demos. See KNOWN_ISSUES.md for the v0.10
+/// follow-up.
+pub const CABI_REALLOC_HEAP_BASE: i32 = 32768;
 
 struct Emitter<'a> {
     prog: &'a Program,
@@ -480,6 +495,44 @@ impl<'a> Emitter<'a> {
             self.code_section.function(&body);
         }
 
+        // v0.9 RC-prep — emit `cabi_realloc` so the Component Model
+        // canonical-ABI lifter has a host-callable allocator for
+        // string / list / option<string> returns. Without this export
+        // `wit-component::ComponentEncoder` rejects the module with
+        // "module does not export a function named `cabi_realloc`"
+        // whenever the world contains an import that returns an
+        // owned, heap-allocated value (e.g. our `dom.get-text` and
+        // `dom.query`).
+        //
+        // Canonical signature:
+        //   cabi_realloc(old: i32, old_size: i32, align: i32, new: i32) -> i32
+        // Semantics: bump-allocate `new` bytes (aligned to `align`)
+        // from the linear-memory heap and return the new pointer.
+        // `old_ptr != 0` is treated as a fresh alloc (we don't yet
+        // free or copy — see KNOWN_ISSUES.md for v0.10 follow-up).
+        let realloc_ty = self.intern_sig(TySig {
+            params: vec![ValType::I32, ValType::I32, ValType::I32, ValType::I32],
+            results: vec![ValType::I32],
+        });
+        let realloc_fn_idx = self.import_count + self.function_section.len();
+        self.function_section.function(realloc_ty);
+        let realloc_body = build_cabi_realloc_body();
+        self.code_section.function(&realloc_body);
+        self.export_section
+            .export("cabi_realloc", ExportKind::Func, realloc_fn_idx);
+
+        // Mutable i32 global: bump pointer for `cabi_realloc`. Starts
+        // at `CABI_REALLOC_HEAP_BASE` and grows upward.
+        let mut globals = GlobalSection::new();
+        globals.global(
+            GlobalType {
+                val_type: ValType::I32,
+                mutable: true,
+                shared: false,
+            },
+            &ConstExpr::i32_const(CABI_REALLOC_HEAP_BASE),
+        );
+
         // Assemble module in canonical order.
         let mut m = Module::new();
         m.section(&self.type_section);
@@ -496,6 +549,8 @@ impl<'a> Emitter<'a> {
             page_size_log2: None,
         });
         m.section(&mem);
+        // Global section (must come after memory, before exports).
+        m.section(&globals);
         // Export memory so the host can poke at it.
         self.export_section.export("memory", ExportKind::Memory, 0);
         m.section(&self.export_section);
@@ -911,6 +966,68 @@ fn _bt_empty() -> BlockType {
 // Quiet a clippy lint for unused-but-public BlockId import.
 #[allow(dead_code)]
 fn _used_block_id(_: BlockId) {}
+
+/// Build the body of the canonical-ABI `cabi_realloc` export.
+///
+/// Pseudocode (where `$bump` is global 0, an i32):
+///
+/// ```text
+/// fn cabi_realloc(old_ptr: i32, old_size: i32, align: i32, new_size: i32) -> i32 {
+///     // Align the bump pointer up: bump = (bump + (align-1)) & ~(align-1)
+///     let mask = align - 1;
+///     bump = (bump + mask) & !mask;
+///     let ptr = bump;
+///     bump += new_size;
+///     ptr
+/// }
+/// ```
+///
+/// We ignore `old_ptr` / `old_size` because the canonical-ABI lifts
+/// we currently emit only ever call this with `old_ptr == 0` (fresh
+/// allocations). A future v0.10 follow-up will add a real free-list
+/// or a `wee_alloc`-style buddy allocator.
+fn build_cabi_realloc_body() -> WFunction {
+    // Two scratch locals are sufficient: `mask` (the align-1 mask)
+    // and `ptr` (the return value). The canonical-ABI sig already
+    // gives us locals 0..3 for the params (old_ptr, old_size,
+    // align, new_size); we add 2 more (indices 4, 5).
+    let mut f = WFunction::new([(2u32, ValType::I32)]);
+    const PARAM_ALIGN: u32 = 2;
+    const PARAM_NEW_SIZE: u32 = 3;
+    const LOCAL_MASK: u32 = 4;
+    const LOCAL_PTR: u32 = 5;
+
+    // mask = align - 1
+    f.instruction(&I::LocalGet(PARAM_ALIGN));
+    f.instruction(&I::I32Const(1));
+    f.instruction(&I::I32Sub);
+    f.instruction(&I::LocalSet(LOCAL_MASK));
+
+    // bump = (bump + mask) & !mask
+    f.instruction(&I::GlobalGet(0));
+    f.instruction(&I::LocalGet(LOCAL_MASK));
+    f.instruction(&I::I32Add);
+    f.instruction(&I::LocalGet(LOCAL_MASK));
+    f.instruction(&I::I32Const(-1));
+    f.instruction(&I::I32Xor);
+    f.instruction(&I::I32And);
+    f.instruction(&I::GlobalSet(0));
+
+    // ptr = bump
+    f.instruction(&I::GlobalGet(0));
+    f.instruction(&I::LocalSet(LOCAL_PTR));
+
+    // bump = bump + new_size
+    f.instruction(&I::GlobalGet(0));
+    f.instruction(&I::LocalGet(PARAM_NEW_SIZE));
+    f.instruction(&I::I32Add);
+    f.instruction(&I::GlobalSet(0));
+
+    // return ptr
+    f.instruction(&I::LocalGet(LOCAL_PTR));
+    f.instruction(&I::End);
+    f
+}
 
 #[cfg(test)]
 mod tests {

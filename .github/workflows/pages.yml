@@ -1,0 +1,76 @@
+name: Pages
+
+# v0.9 RC-prep — build + deploy the docs site to GitHub Pages on
+# every push to main. The site is published at
+# https://hassard0.github.io/Mighty/.
+#
+# The corpus is the `docs/` tree at the repo root, rendered by
+# mkdocs-material (pure-Python; no Ruby runtime needed). Site
+# configuration lives in `mkdocs.yml`.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Cancel any in-flight Pages deploy when a new commit lands — we
+# only ever want the latest main on the public site.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build (mkdocs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-mkdocs-material
+          restore-keys: ${{ runner.os }}-pip-
+
+      - name: Install mkdocs-material
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            mkdocs==1.6.1 \
+            mkdocs-material==9.5.49 \
+            pymdown-extensions==10.12
+
+      - name: mkdocs build
+        # `--strict` would fail on any broken link / missing nav
+        # entry; we leave that off for v0.9 because the docs corpus
+        # was assembled organically and includes a handful of
+        # known-stale RFC links. v0.10 will flip --strict on.
+        run: mkdocs build --site-dir site/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+
+  deploy:
+    name: deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

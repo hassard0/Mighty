@@ -9,6 +9,7 @@ use crate::lockfile::{self, Lockfile};
 use crate::publish;
 use crate::registry::{self, AuthStore, RegistryError};
 use crate::resolver::Resolver;
+use crate::signing::{self, SigningError};
 use mty_driver::manifest::{self, Dep, DetailedDep, Manifest};
 use std::path::{Path, PathBuf};
 
@@ -24,6 +25,8 @@ pub enum PkgError {
     Fetch(#[from] fetch::FetchError),
     #[error("publish error: {0}")]
     Publish(#[from] publish::PublishError),
+    #[error("signing error: {0}")]
+    Signing(#[from] SigningError),
     #[error("registry error: {0}")]
     Registry(#[from] RegistryError),
     #[error("io: {0}")]
@@ -325,11 +328,14 @@ pub fn login(slug: Option<&str>, root: &Path) -> Result<String, PkgError> {
     ))
 }
 
-/// `mty pkg publish`. Produces the bundle, then either uploads it
-/// (when a token is available for the configured default registry) or
-/// reports the local artefacts + a clear "set GITHUB_TOKEN" message.
+/// `mty pkg publish`. Produces the bundle, signs it (v0.9 RC-prep:
+/// stub sigstore-style envelope; see `crates/mty-pkg/src/signing.rs`
+/// for the v0.10 plan), then either uploads it (when a token is
+/// available for the configured default registry) or reports the
+/// local artefacts + a clear "set GITHUB_TOKEN" message.
 pub fn publish(root: &Path) -> Result<String, PkgError> {
     let outcome = publish::bundle(root)?;
+    let signed = signing::sign_bundle(&outcome)?;
     let cfg = registry::load_registry_config(&root.join(crate::MANIFEST_NAME))?;
     let slug = cfg
         .default
@@ -347,25 +353,31 @@ pub fn publish(root: &Path) -> Result<String, PkgError> {
         return Ok(format!(
             "bundle ready at `{bundle}` ({hash})\n\
              sidecar     `{side}`\n\
+             signature   `{sig}`\n\
+             envelope    `{env}`\n\
              upload skipped: no auth token for `{slug}`.\n\
              Set GITHUB_TOKEN or run `mty pkg login {slug}` and retry.\n\
-             To upload manually, drag the two files onto the release page for tag `{tag}`.\n",
+             To upload manually, drag the four files onto the release page for tag `{tag}`.\n",
             bundle = outcome.bundle_path.display(),
             hash = outcome.hash,
             side = outcome.sha256_path.display(),
+            sig = signed.sig_path.display(),
+            env = signed.envelope_path.display(),
             slug = slug,
             tag = outcome.tag,
         ));
     }
     let url = publish::upload(&slug, &outcome)?;
     Ok(format!(
-        "published `{tag}` to `{slug}` — {url}\nbundle: {bundle} ({hash})\nsidecar: {side}\n",
+        "published `{tag}` to `{slug}` — {url}\nbundle: {bundle} ({hash})\nsidecar: {side}\nsignature: {sig}\nenvelope: {env}\n",
         tag = outcome.tag,
         slug = slug,
         url = url,
         bundle = outcome.bundle_path.display(),
         hash = outcome.hash,
         side = outcome.sha256_path.display(),
+        sig = signed.sig_path.display(),
+        env = signed.envelope_path.display(),
     ))
 }
 
