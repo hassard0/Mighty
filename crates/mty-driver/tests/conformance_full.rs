@@ -163,7 +163,40 @@ fn load_case(category: &str, dir: &Path) -> Result<CaseSpec, String> {
     })
 }
 
+/// v0.11 (Gap D unlock): RAII guard that temporarily chdir's into the
+/// case's directory when it ships a `mighty.toml`. The type checker's
+/// `load_profile_from_star_toml()` reads `./mighty.toml` from cwd, so
+/// this is the only way to feed a per-case `profile = "core"` to the
+/// existing pipeline without modifying mty-types source.
+///
+/// Restores the original cwd on Drop. Single-threaded test harness so
+/// no race with other cases.
+struct CwdGuard {
+    saved: Option<PathBuf>,
+}
+
+impl CwdGuard {
+    fn maybe_chdir(case_dir: &Path) -> Self {
+        let case_toml = case_dir.join("mighty.toml");
+        if !case_toml.exists() {
+            return CwdGuard { saved: None };
+        }
+        let saved = std::env::current_dir().ok();
+        let _ = std::env::set_current_dir(case_dir);
+        CwdGuard { saved }
+    }
+}
+
+impl Drop for CwdGuard {
+    fn drop(&mut self) {
+        if let Some(p) = self.saved.take() {
+            let _ = std::env::set_current_dir(p);
+        }
+    }
+}
+
 fn check_diagnostics(case: &CaseSpec) -> Result<(i32, Vec<String>, Vec<String>), String> {
+    let _cwd = CwdGuard::maybe_chdir(&case.dir);
     let parsed = parse_source(
         case.input_src.clone(),
         case.dir.join("input.mty").display().to_string(),
@@ -190,6 +223,7 @@ fn check_diagnostics(case: &CaseSpec) -> Result<(i32, Vec<String>, Vec<String>),
 }
 
 fn run_program(case: &CaseSpec) -> Result<(i32, String, Vec<String>, Vec<String>), String> {
+    let _cwd = CwdGuard::maybe_chdir(&case.dir);
     let parsed = parse_source(
         case.input_src.clone(),
         case.dir.join("input.mty").display().to_string(),

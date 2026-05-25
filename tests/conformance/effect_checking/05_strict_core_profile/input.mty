@@ -1,12 +1,17 @@
-// v0.3 (A65): the strict `profile = "core"` rejects the `alloc` effect
-// (heap allocation forbidden on embedded targets). This case is shaped to
-// match the MT4002 diagnostic; firing it requires the harness to also
-// inject `profile = "core"` into the working dir's `star.toml`. The
-// conformance_full harness today reads the workspace's star.toml
-// (host-profile), so the diagnostic is currently produced only via the
-// dedicated mty-types unit test `core_profile_rejects_alloc`. The
-// case-shape is preserved here so that when slice-7 wires per-case
-// `star.toml` overrides we get the MT4002 emission for free.
-pub fn alloc_in_core(name: Str) -> String effect alloc {
-  name.to_string()
+// MT4002 positive-fire (Gap D — v0.10/v0.11 audit).
+//
+// The strict `profile = "core"` (set in the case's mighty.toml) bans
+// the `alloc` effect. A public fn that uses an `arena { ... }` block
+// has its inferred effect set seeded with `alloc` (per
+// mty-types/src/effects.rs::infer_and_validate). The Core-profile
+// check then emits MT4002.
+//
+// Activated in v0.11 via the new `CwdGuard` mechanism in
+// conformance_full.rs: when a case dir contains a `mighty.toml` the
+// harness temporarily chdir's into it so the type checker's
+// `load_profile_from_star_toml()` sees the override.
+//
+// Spec ref: §30 profiles, MT4002 catalog entry.
+pub fn allocates() -> Unit {
+  arena tmp { 0 }
 }

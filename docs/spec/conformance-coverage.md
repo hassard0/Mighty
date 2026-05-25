@@ -83,7 +83,7 @@ Status legend:
 | MT3014 | ASSIGN_TO_IMMUT_LOCAL          | covered    | ownership_rejection/04_assign_to_immut_local |
 | MT3015 | USE_OF_UNINITIALIZED           | gap        | Gap C (bind_local always Owned) |
 | MT4001 | EFFECT_UNDECLARED              | covered    | effect_checking/01_undeclared_net |
-| MT4002 | ALLOC_IN_CORE                  | gap        | Gap D (requires star.toml override) |
+| MT4002 | ALLOC_IN_CORE                  | covered    | effect_checking/05_strict_core_profile (v0.11 — per-case mighty.toml + CwdGuard) |
 | MT4010 | CAPABILITY_TOO_BROAD           | gap        | Gap D (signature Cap always Any) |
 | MT4020 | METHOD_AMBIGUOUS               | gap        | Gap D (no shipped duplicate-trait surface) |
 | MT4021 | METHOD_NOT_FOUND               | gap        | Gap D (subsumed by MT2007 path) |
@@ -135,10 +135,11 @@ Status legend:
 ### Summary (FROZEN codes)
 
 - Total FROZEN codes enumerated: **66**.
-- conformance_full positively-fires: **45** (68%) — v0.10 was 41 (62%).
-  +4 in v0.11: MT2012 (promoted from auxiliary), MT2026 (closed via
-  warning-assertion extension), MT6003 + MT6008 (closed via new
-  proc-macro fixtures).
+- conformance_full positively-fires: **46** (70%) — v0.10 was 41 (62%).
+  +5 in v0.11: MT2012 (promoted from auxiliary), MT2026 (closed via
+  warning-assertion extension), MT4002 (closed via CwdGuard +
+  per-case mighty.toml), MT6003 + MT6008 (closed via new proc-macro
+  fixtures).
 - conformance_full + auxiliary harnesses positively-fires: **60** (91%) —
   v0.10 was 58 (88%).
 - True remaining gaps (no emit-witness anywhere): **6** (9%, down from
@@ -190,7 +191,7 @@ per-gap section for details.
 | 27 | Standard library v1.0 surface    | (covered by per-method conformance shapes) | covered |
 | 28 | Token-efficiency rules           | (informative)                        | n/a    |
 | 29 | Toolchain, build modes, flags    | (CLI integration tests, not conformance_full) | n/a    |
-| 30 | Profiles                         | effect_checking/05_strict_core_profile (placeholder) | partial — Gap D |
+| 30 | Profiles                         | effect_checking/05_strict_core_profile (MT4002 active in v0.11) | covered |
 | 31 | Construction history             | (informative)                        | n/a    |
 | 32 | Conformance suite                | (this document)                      | n/a    |
 | 33 | Diagnostic catalog               | (this document + codes.rs)           | n/a    |
@@ -218,8 +219,10 @@ per-gap section for details.
   **84 cases** across **16 categories** at the v0.11 audit completion
   point (+3 over v0.10's 81 cases: macros/05, macros/06,
   type_checking/16; plus one warning-assertion file on
-  agent_protocol/03).
-- Coverage rate: **45/66 FROZEN codes (68%)** via conformance_full
+  agent_protocol/03; plus the upgrade-in-place of
+  effect_checking/05_strict_core_profile from placeholder to
+  positive-fire MT4002).
+- Coverage rate: **46/66 FROZEN codes (70%)** via conformance_full
   alone (v0.10: 41 / 62%), **60/66 (91%)** counting all sibling
   harnesses (v0.10: 58 / 88%).
 - All documented gaps have an explicit follow-up note in

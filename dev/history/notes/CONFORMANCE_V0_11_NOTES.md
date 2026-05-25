@@ -13,7 +13,9 @@ plumbing) but leaves room to:
 3. Re-classify several "gap" codes as **out-of-scope** for fixture-only
    work, with a precise reason and a v1.0-RC2 hand-off.
 
-## Harness extension: warning-severity assertions
+## Harness extensions
+
+### Warning-severity assertions
 
 The pre-v0.11 harness filtered diagnostics by `Severity::Error`, so any
 warning-only code was invisible. v0.11 adds:
@@ -26,6 +28,20 @@ warning-only code was invisible. v0.11 adds:
 
 Backward compatible: cases without `expected_warnings.txt` behave
 identically to v0.10.
+
+### Per-case `mighty.toml` (CwdGuard)
+
+The type checker reads its profile from `./mighty.toml` (cwd). v0.11
+adds a `CwdGuard` RAII type in the harness: when a case directory
+contains a `mighty.toml`, `check_diagnostics` / `run_program`
+temporarily chdir into the case dir for the duration of the check,
+restoring the original cwd on Drop. Safe because the conformance_full
+test is a single #[test] function so no other case runs in parallel
+under the same process.
+
+Use cases:
+- MT4002 ALLOC_IN_CORE — per-case profile override (Gap D #1).
+- Future per-case profile/toolchain-override needs.
 
 ## Per-gap status
 
@@ -91,13 +107,23 @@ synth/check paths (the audit's recommendation 2).
 
 ### Gap D — capability / effect codes
 
-**v0.11 outcome:** all 4 remain deferred.
+**v0.11 outcome:** **1 of 4 closed** (MT4002 via the new `CwdGuard`).
 
-- **MT4002 ALLOC_IN_CORE** — fires only with `profile = "core"` in
-  `./mighty.toml`. The check loads the profile from the **current
-  working directory**, so a per-case override needs either a cwd
-  switch in the harness (risky with parallel tests) or a profile-aware
-  variant of `check_package_typed`. Either is a crate-source change.
+Closed:
+- **MT4002 ALLOC_IN_CORE** — the v0.11 `CwdGuard` extension in
+  `conformance_full.rs` chdir's into the case directory when it
+  contains a `mighty.toml`. The type checker's
+  `load_profile_from_star_toml()` then reads the override and feeds
+  Core profile into effect inference. Fixture
+  `effect_checking/05_strict_core_profile` was upgraded from
+  placeholder (exit 0) to positive-fire (exit 1, asserts MT4002).
+  Source code:
+  - The case dir gains a per-case `mighty.toml` with
+    `profile = "core"`.
+  - The case `input.mty` uses a pub fn with an `arena { ... }` block
+    so the inferred effect set includes `alloc`.
+
+Still deferred:
 - **MT4010 CAPABILITY_TOO_BROAD** — function signatures today carry
   `Cap{family, Any}`. The constraint surface needs a parser extension
   (`fn read(fs: Fs.ro("/data"))`) to introduce narrower constraints.
@@ -109,7 +135,7 @@ synth/check paths (the audit's recommendation 2).
   permissive opaque fallback. Worth a v1.0-RC2 investigation.
 - **MT4021 METHOD_NOT_FOUND** — subsumed by MT2007 today.
 
-**Verdict:** **deferred to v1.0-RC2.** Same recommendation as v0.10.
+**Verdict:** **1 of 4 closed; 3 deferred.**
 
 ### Gap E — runtime interp traps
 
@@ -197,34 +223,35 @@ Both are crate-source changes outside the v0.11 slice scope.
 | A — lex/parse funnel | 9 | 0 closed (pipeline rewire needed) |
 | B — typeck no-call | 10 | 1 closed (MT2026 via warning extension) + 1 promoted (MT2012) |
 | C — borrow no-call | 4 | 0 closed (no `let x: T;` form) |
-| D — capability / effect | 4 | 0 closed (signature surface gaps + load_profile cwd) |
+| D — capability / effect | 4 | **1 closed (MT4002 via CwdGuard)** |
 | E — runtime interp | 6 | 0 closed (interp only emits 4 codes) |
 | F — proc-macro | 5 | 2 closed (MT6003, MT6008); 1 already covered (MT6005) |
 | G — codegen traps | 10 | 0 closed (different harness shape) |
-| **TOTAL** | **48** | **3 newly closed + 1 promoted** |
+| **TOTAL** | **48** | **4 newly closed + 1 promoted** |
 
-Gap F is the biggest win. Gaps A/C/D/E/G all hit the same wall:
-**fixture-only work can't add emit-sites**.
+Gaps A/C/E/G hit the same wall: **fixture-only work can't add
+emit-sites**. Gap F got the biggest count (2), Gap B + Gap D each got
+one each via harness extensions.
+
+**v0.11 closed 4 of 8 gaps fully or partially: B (1/10), D (1/4),
+F (2/5), plus the audit promotion in B (MT2012 aux→covered).**
 
 ## Coverage delta
 
 - v0.10 conformance_full direct: **41/66 = 62%**.
-- v0.11 conformance_full direct: **44/66 = 67%** (+MT2012, MT6003,
-  MT6008).
-- v0.10 conformance_full + warning extension: would have been 41/66.
-- v0.11 conformance_full + warnings: **45/66 = 68%** (+MT2026).
+- v0.11 conformance_full direct: **46/66 = 70%** (+MT2012, MT2026,
+  MT4002, MT6003, MT6008).
 - v0.10 total (with aux harnesses): **58/66 = 88%**.
-- v0.11 total (with aux harnesses): **60/66 = 91%** (+MT2026, +MT2012
-  promoted from aux to direct, +MT6003 / MT6008 newly direct — net
-  +2 codes against the "no emitter at all" set when counting
-  warning-severity).
+- v0.11 total (with aux harnesses): **60/66 = 91%** (+MT2026, +MT4002
+  newly direct from aux, +MT2012 / MT6003 / MT6008 promoted from aux
+  to direct).
 
 Counting codes that have **any** conformance harness emit-witness:
 
 | Status | v0.10 | v0.11 |
 |--------|-------|-------|
-| `covered` (direct) | 41 | 45 |
-| `auxiliary` (aux harness only) | 17 | 15 |
+| `covered` (direct) | 41 | 46 |
+| `auxiliary` (aux harness only) | 17 | 14 |
 | `gap` (no emit-witness anywhere) | 8 | 6 |
 | **Total** | **66** | **66** |
 
@@ -244,15 +271,22 @@ All Gap A/C/D/E/G codes have at least an auxiliary harness witness
 | `macros/06_proc_macro_resource_exceeded` | MT6008 | Gap F |
 | `type_checking/16_wrong_variant_arity` | MT2012 | aux→covered |
 
-Plus `agent_protocol/03_extra_handler/expected_warnings.txt` for MT2026
-(no new case; new assertion on existing case).
+Upgrades to existing cases:
+- `agent_protocol/03_extra_handler/expected_warnings.txt` for MT2026
+  (Gap B unlock).
+- `effect_checking/05_strict_core_profile` was a placeholder (exit 0);
+  v0.11 added per-case `mighty.toml` and updated assertions to fire
+  MT4002 (Gap D unlock).
 
 ## Harness extensions in v0.11
 
 - `expected_warnings.txt` file support in `conformance_full.rs`.
 - Both `check_diagnostics` and `run_program` now return warning-code
   vectors alongside error-code vectors.
-- Backward-compatible: cases without the new file behave identically.
+- `CwdGuard` RAII guard chdir's into the case directory when it has
+  a `mighty.toml`. Enables per-case profile overrides without
+  modifying mty-types source.
+- Backward-compatible: cases without the new files behave identically.
 
 ## Recommendations for v1.0-RC2
 
