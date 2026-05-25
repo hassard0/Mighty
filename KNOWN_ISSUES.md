@@ -107,6 +107,78 @@ fixed in this prep; the rest are P1 or below.
 
 ---
 
+## Spec-polish carryovers (surfaced v0.11, resolved v0.12)
+
+### 10. Operator precedence not normative (resolved v1.0-RC3)
+
+- **Where**: `docs/spec/v1.0-rc.md` §11.1 previously cross-referenced
+  `docs/internals/parser.md` for exact operator precedence.
+- **Symptom**: an independent implementer building only from the
+  normative spec (e.g. the Python 2nd impl shipped in v0.11) cannot
+  determine the precedence ladder for `&`, `|`, `^`, `<<`/`>>`, the
+  comparison family, or `&&`/`||`. Cross-impl determinism breaks.
+- **Resolution (v1.0-RC3)**: the Pratt precedence table from
+  `crates/mty-syntax/src/parser/exprs.rs::infix_bp` is promoted
+  verbatim to a new normative subsection §11.1.1. The
+  internals doc now points at the spec for the authoritative table.
+- **Status**: **resolved in v1.0-RC3** (v0.12, 2026-05-25).
+
+### 11. Six FROZEN typeck codes are constructor-only
+
+- **Where**: `crates/mty-diagnostics/src/codes.rs` defines MT2003,
+  MT2009, MT2022, MT2023, MT2024, MT2025 with full explain text;
+  `docs/spec/conformance-coverage.md` lists them as `gap` (constructor
+  only). No emit site exists in any crate.
+- **Symptom**: the spec promises diagnostics that the v1.0 compiler
+  does not produce; conformance coverage stays at 91%.
+- **RC3 disposition (v0.12)**: every code reviewed and retained as
+  "FROZEN — emit-site landing in v1.x" (the conditions are all real
+  user-facing concerns; today's compiler funnels them into more
+  general codes). The spec adds a new §33.1 documenting per-code
+  current behaviour and the v1.x emit-landing plan. Code-points and
+  explain text are stable; implementations MUST NOT recycle them.
+- **Per-code v1.x emit-landing actions**:
+
+  | Code   | Today's funnel               | v1.x action                      |
+  |--------|------------------------------|----------------------------------|
+  | MT2003 | `{integer}`/`{float}` placeholder | trait-iterator + collect chain |
+  | MT2009 | MT2007 / MT2021              | enum-aware resolver split        |
+  | MT2022 | MT2002                       | struct-init kind check           |
+  | MT2023 | not reachable                | lifetime kind landing            |
+  | MT2024 | MT2005                       | lambda-arity refinement          |
+  | MT2025 | implicit-promotion swallow   | stricter borrow pass             |
+
+  Each row closes individually when the corresponding emit site
+  lands; the parallel conformance-closure swarm agent (v0.12) may
+  close one or more in v0.12 itself.
+- **Status**: **per-code action recorded; gap remains open** until
+  every row closes.
+
+### 12. `package`, `export`, `requires` missing from §3.3 keyword set (resolved v1.0-RC3)
+
+- **Where**: `docs/spec/v1.0-rc.md` §3.3 omitted these three keywords
+  (plus 17 others actually present in
+  `crates/mty-syntax/src/syntax_kind.rs`). The example corpus uses
+  all three:
+  - `examples/19_backend_service.mty` starts with `package search_api`
+  - `examples/14_extern_c.mty` ships `export c fn _add(...)`
+  - `examples/17_unsafe.mty` ships `unsafe fn ... requires <expr>`
+- **Symptom**: a spec-only implementer (Python 2nd impl) cannot lex
+  these example files because §3.3 does not list the words as
+  keywords.
+- **Resolution (v1.0-RC3)**: §3.3 is rewritten into three subsections:
+  §3.3.1 reserved keywords (the full 59-word v1.0 list, including all
+  20 previously-missing words), §3.3.2 contextual keywords (the four
+  positions where the parser upgrades an IDENT to a keyword), and
+  §3.3.3 reserved for future use (`and`, `or`, `init`, `deinit`,
+  `panic`, `static`, `union` — names the spec reserves but the v1.0
+  lexer does NOT tokenise as keywords). §4.1 documents `package`
+  syntax; §21.1 documents `requires` clauses; §26.2 documents
+  `export <abi> fn`.
+- **Status**: **resolved in v1.0-RC3** (v0.12, 2026-05-25).
+
+---
+
 ## Reference: per-slice known-issues sections
 
 Each slice's notes file at the repo root carries its own

@@ -374,9 +374,90 @@ the MVP behaviour itself never changes.)
 
 ---
 
+## v1.0-RC3 (v0.12 spec polish, 2026-05-25)
+
+The v0.11 Python 2nd implementation surfaced three normative gaps in
+the RC2 spec and sixteen interpretation ambiguities the impl had to
+guess at. v1.0-RC3 closes all three gaps and codifies a decision for
+every ambiguity. **No normative behaviour changed in v0.12** — the
+Rust reference compiler already implements every decision here; RC3
+just promotes those implementation choices into normative prose so a
+third or fourth front-end implementation can build to spec alone.
+
+### Gaps closed (originating: KNOWN_ISSUES #10 / #11 / #12)
+
+| Issue | Topic                                          | RC3 resolution |
+|-------|------------------------------------------------|----------------|
+| #10   | Operator precedence not normative              | New §11.1.1 promotes the Pratt precedence table from `crates/mty-syntax/src/parser/exprs.rs` verbatim. `docs/internals/parser.md` now points at the spec for the authoritative table. |
+| #11   | Six FROZEN typeck codes are constructor-only   | Per-code disposition in new §33.1: all six RETAINED as "FROZEN — emit-site landing in v1.x". Each describes a real future-emit condition; code-points + explain text are stable; the Rust compiler funnels them into more general codes today. |
+| #12   | `package` / `export` / `requires` + 17 other lexer keywords missing from §3.3 | §3.3 rewritten into §3.3.1 reserved keywords (59-word v1.0 list), §3.3.2 contextual keywords (4 positions), §3.3.3 reserved for future use (7 names the spec reserves but the v1.0 lexer treats as identifiers). §4.1, §21.1, §26.2 add per-keyword syntax sections. |
+
+### Python-impl ambiguities resolved (originating: PYTHON_IMPL_V0_11_NOTES.md)
+
+All 16 findings have a normative disposition (full table in
+`SPEC_RC3_V0_12_NOTES.md`). Findings #6, #8, #9, #12, #16 are
+covered by the gap-closure work above. The remaining 11:
+
+| # | Topic                                          | RC3 spec edit |
+|---|------------------------------------------------|---------------|
+| 1 | Underscore-separator placement in INT_LITERAL   | §3.4.1 — `MT0006` for leading / trailing / consecutive underscores. |
+| 2 | `5K` lex behaviour (`K` reserved)              | §3.4.4 — unrecognised suffix letters lex as IDENT continuation; no lex-time diagnostic. |
+| 3 | HTML literal interpolation layer                | §3.4.3 + §22.2 — body lexes as single HTML_LITERAL token; interpolation split is v1.0 OPEN, candidate A110. |
+| 4 | Unterminated block-comment diagnostic           | §3.2 — `MT0004 unterminated_block_comment`. |
+| 5 | `///` vs `////`                                | §3.2 — exactly 3 slashes = doc comment; 4+ = ordinary line comment. |
+| 7 | Postfix `?Msg` same-line + trivia comments      | §3.5 / §11.1.1 footnote — newline in ANY trivia (whitespace or comments) forces bare-propagate interpretation. |
+| 10| Bare `fn ... = <expr>` body form               | §4.4 — promoted to normative shorthand. |
+| 11| Struct field separator (newline vs comma)      | §4.5 — both accepted; a single body may mix. |
+| 13| Sandbox / budget entry separator (`=` vs none) | §16.2 — both shapes accepted; `=` recommended. |
+| 14| `arena <label>: <expr>` inline form            | §10.1 — promoted to normative alternative. |
+| 15| Anonymous protocol-message decl (`Ping(...)`)  | §13.1 — bare form and `msg`-prefixed form both accepted. |
+
+### Diff summary (RC2 → RC3)
+
+- `docs/spec/v1.0-rc.md`: title bump RC2 → RC3; new §11.1.1 (operator
+  precedence table); rewritten §3.3 (keyword set, +20 keywords);
+  expanded §3.2 / §3.4 / §3.5 (lexer ambiguities closed); new §4.1
+  (`package` decl), §4.4 (`= <expr>` body form), §4.5 (field
+  separators); expanded §10.1 (arena inline form); expanded §13.1
+  (bare `msg` form); expanded §16.2 (entry-separator forms); new
+  §21.1 (`requires` clauses); new §26.2 (`export <abi> fn`); new
+  §33.1 (FROZEN typeck codes deferred emit-site).
+- `docs/spec/v0.1-amendments.md`: status-legend section cross-refs
+  RC3; candidate amendments A110 / A111 noted as deferred-to-v1.1+.
+- `docs/internals/parser.md`: precedence section now points at
+  normative §11.1.1.
+- `KNOWN_ISSUES.md`: items #10, #11, #12 added to the catalog. #10
+  and #12 marked **resolved in v1.0-RC3**; #11 carries a per-code
+  action table and remains open until each emit site lands.
+- `dev/history/notes/SPEC_RC3_V0_12_NOTES.md`: NEW — per-finding
+  disposition rationale.
+
+### Candidate amendments tracked (not yet allocated)
+
+- **A110** — HTML-literal interpolation lexing layer. Splits
+  `{name}` placeholders from the `HTML_LITERAL` blob. Target v1.1.
+- **A111** — Runtime / static enforcement of `unsafe fn` `requires`
+  clauses. Target v1.x (likely after the broader verifier work).
+
+Neither is allocated a number in `docs/spec/v0.1-amendments.md` until
+a v0.12+ slice ships the corresponding behaviour.
+
+### Classification totals at RC3 (unchanged from RC2)
+
+| Status              | Count |
+|---------------------|-------|
+| FROZEN              | 63    |
+| FREEZE-MVP          | 3 (A15, A31, A49) |
+| SUPERSEDED          | 15    |
+| DEFER-V1.1          | 7 (A11, A45, A47, A94, A97, A102, A103) |
+| REVERTED            | 0     |
+| **Total**           | **88**|
+
+---
+
 ## v1.0 (planned) — release stability
 
-After the v1.0-RC2 bake-in period, v1.0 stable ships with:
+After the v1.0-RC3 bake-in period, v1.0 stable ships with:
 
 - The FROZEN + FROZEN-MVP matrix locked.
 - The DEFER-V1.1 matrix continues to evolve in v1.x minor releases

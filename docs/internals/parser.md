@@ -45,7 +45,12 @@ All productions are written against these. Nodes are opened with
 
 ## Pratt expressions
 
-`exprs::expr` is a Pratt parser with a fixed precedence table covering:
+`exprs::expr` is a Pratt parser with a fixed precedence table.
+
+**The normative precedence table lives in
+[v1.0-rc.md §11.1.1](../spec/v1.0-rc.md#1111-operator-precedence) (as of
+v1.0-RC3).** This internals doc no longer carries the authoritative
+list; it summarises what the Rust implementation covers:
 
 - assignment and compound assignment (`=`, `+=`, ...);
 - ranges (`..`, `..=`);
@@ -56,6 +61,9 @@ All productions are written against these. Nodes are opened with
 - prefix unary (`-`, `!`, `*`, `&`, `&mut`);
 - postfix: calls, field access, indexing, `?` propagation,
   `?Msg(args)` ask, `!Msg(args)` send, `@duration`, `as` cast.
+
+The binding-power function is `exprs::infix_bp`; right-associativity
+of assignment + compound-assignment is in `exprs::infix_right_assoc`.
 
 ## Recovery
 
