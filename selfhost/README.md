@@ -14,7 +14,7 @@ for the full architectural story.
 | HIR lowering | `hir/` | v0.10: SHIPPED-SUBSET — 7 bootstrap tests pass (examples 01-05) | `crates/mty-driver/tests/selfhost_hir.rs` |
 | Typeck (minimal) | `typeck/` | v0.10: SHIPPED-SUBSET — 7 bootstrap tests pass (examples 01-05) | `crates/mty-driver/tests/selfhost_typeck.rs` |
 | MtyIR lowering | `ir/` | v0.10: SHIPPED-SUBSET — 9 bootstrap tests pass (examples 01-05) | `crates/mty-driver/tests/selfhost_ir.rs` |
-| Codegen (Wasm core) | `codegen/` | **v0.14: SHIPPED-SUBSET — 13 bootstrap tests pass; Mighty-emitted bytes validate via `wasmparser` for examples 01-03 + arith + pattern-match + string-pool fixtures** | `crates/mty-driver/tests/selfhost_codegen.rs` |
+| Codegen (Wasm core) | `codegen/` | **v0.15: SHIPPED-SUBSET — 17 bootstrap tests pass; Mighty-emitted bytes validate via `wasmparser` for examples 01-03 + arith + pattern-match + string-pool + variant-call + SwitchInt cascade + for-range fixtures** | `crates/mty-driver/tests/selfhost_codegen.rs` |
 | Codegen (Cranelift / LLVM) | — | future (post-1.0) | — |
 
 ## What "SUBSET" means in v0.4
@@ -355,3 +355,62 @@ for the per-feature coverage matrix, the v0.14 language-gap catalog,
 and the v0.15 roadmap (variant-call lowering, for-loop iter desugar,
 SwitchInt multi-arm support, real LEB128 encoder in Mighty source,
 allocator-side arena drop integration).
+
+## v0.15 — variant calls + SwitchInt cascade + for-range desugar
+
+```bash
+mty check selfhost/codegen/lib.mty
+mty check selfhost/codegen/wasm.mty
+mty check selfhost/codegen/string_pool.mty
+mty check selfhost/codegen/adt_layout.mty
+mty check selfhost/codegen/pattern.mty
+mty check selfhost/ir/lower.mty
+cargo test -p mty-driver --test selfhost_codegen
+```
+
+Seventeen live tests pass (four new fixtures since v0.14):
+
+```
+test selfhost_codegen_compiles ............................... ok
+test selfhost_codegen_lib_compiles ........................... ok
+test selfhost_codegen_string_pool_compiles ................... ok
+test selfhost_codegen_adt_layout_compiles .................... ok
+test selfhost_codegen_pattern_compiles ....................... ok
+test selfhost_codegen_hello_world ............................ ok
+test selfhost_codegen_example_01 ............................. ok
+test selfhost_codegen_example_02 ............................. ok
+test selfhost_codegen_example_03 ............................. ok
+test selfhost_codegen_example_03_option ...................... ok
+test selfhost_codegen_arith_fixture .......................... ok
+test selfhost_codegen_pattern_match_full ..................... ok
+test selfhost_codegen_string_const ........................... ok
+test selfhost_codegen_variant_call ........................... ok    (v0.15 — new)
+test selfhost_codegen_variant_call_qualified ................. ok    (v0.15 — new)
+test selfhost_codegen_switch_int_synthetic ................... ok    (v0.15 — new)
+test selfhost_codegen_for_range .............................. ok    (v0.15 — new)
+```
+
+v0.15 closes three v0.14 deferral items:
+
+- **Variant-call lowering** (Rust-side fix): `Some(42)`, `Maybe.Just(n)`,
+  `Result.Ok(v)`, and `Some::<I32>(x)` now all lower to
+  `Rvalue::AdtInit { adt, variant, fields }` directly instead of being
+  routed through the function-call codepath as `BuiltinId::Extern(name)`.
+  The fix lives in `crates/mty-ir/src/lower/exprs.rs::lower_call` via
+  a new `variant_for_call_callee` helper that mirrors the type
+  checker's path resolution (single segment short name, dotted name,
+  and `Enum.Variant` shapes).
+- **SwitchInt cascade**: `Term::SwitchInt` now emits a nested-`block`/
+  `br_if` cascade — one block per arm + outer "match_done" + dedicated
+  "default arm" block. The cascade falls through to the default block
+  on no match; each arm body branches back to match_done. v0.14
+  emitted `unreachable` for this terminator.
+- **For-range desugar** (selfhost-IR-level): `for i in 0..n` and
+  `for i in 0..=n` are now detected at the `selfhost/ir/lower.mty`
+  layer and rewritten as the equivalent counter+while loop. Non-range
+  iterators (slice, array, custom Iter) stay v0.16+.
+
+See [`../dev/history/notes/SELFHOST_V0_15_NOTES.md`](../dev/history/notes/SELFHOST_V0_15_NOTES.md)
+for the per-feature coverage matrix, the v0.15 language-gap catalog,
+and the v0.16 roadmap (MethodCall lowering for iter-protocol, agent /
+send / arena lowering, real LEB128 encoder in Mighty source).
