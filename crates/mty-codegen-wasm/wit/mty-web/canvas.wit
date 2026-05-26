@@ -1,0 +1,56 @@
+// `mty:web/canvas@0.1` — 2D drawing primitives for browser hosts.
+//
+// The browser-side host shim (see Track D's host glue) binds these
+// imports to a real `HTMLCanvasElement.getContext("2d")` surface; the
+// guest agent calls them through the `std.web.Canvas` resource (see
+// `crates/mty-stdlib/src/web/canvas.rs`).
+//
+// Coordinates are CSS pixels (i.e. the device-pixel ratio is applied
+// host-side). Colors are packed `0xRRGGBBAA` u32 — the host shim
+// converts to the corresponding "rgba(r,g,b,a)" CSS string before
+// calling into the Canvas2D context.
+//
+// The animation-frame loop is host-driven: the guest calls
+// `request-animation-frame` to register interest, and the host calls
+// back into the exported `frame(dt-ms)` callback at the next vsync.
+// This keeps the loop subject to the browser's compositor scheduling
+// (visibility, throttling) rather than burning a wasm-side `Tick`
+// timer.
+
+package mty:web@0.1;
+
+interface canvas {
+    /// Wipe the entire backing surface to fully-transparent black.
+    /// Equivalent to `ctx.clearRect(0, 0, width(), height())`.
+    clear: func();
+
+    /// Fill an axis-aligned rectangle with `color` (packed
+    /// `0xRRGGBBAA`). Width / height in CSS pixels. Negative or
+    /// out-of-bounds values are clipped host-side.
+    fill-rect: func(x: s32, y: s32, w: u32, h: u32, color: u32);
+
+    /// Stroke (1px line width) an axis-aligned rectangle with
+    /// `color`. Same coordinate conventions as `fill-rect`.
+    stroke-rect: func(x: s32, y: s32, w: u32, h: u32, color: u32);
+
+    /// Render `text` with the current font (host-default
+    /// "12px monospace") at baseline `(x, y)` in `color`.
+    fill-text: func(text: string, x: s32, y: s32, color: u32);
+
+    /// Persist a fill style on the host-side context. Subsequent
+    /// `fill-rect` / `fill-text` calls that pass `color = 0`
+    /// inherit this. Color packing matches `fill-rect`.
+    set-fill-style: func(color: u32);
+
+    /// Backing canvas width in CSS pixels.
+    width: func() -> u32;
+
+    /// Backing canvas height in CSS pixels.
+    height: func() -> u32;
+
+    /// Ask the host to schedule one animation-frame callback. The
+    /// host calls back into the exported `frame(dt-ms)` callback at
+    /// the next vsync. The guest must re-arm on every callback if it
+    /// wants a continuous loop.
+    request-animation-frame: func();
+}

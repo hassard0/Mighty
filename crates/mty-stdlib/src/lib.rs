@@ -33,3 +33,4 @@ pub mod random;
 pub mod test;
 pub mod time;
 pub mod tls;
+pub mod web;

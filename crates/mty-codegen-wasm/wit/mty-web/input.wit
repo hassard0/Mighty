@@ -1,0 +1,37 @@
+// `mty:web/input@0.1` — browser keyboard input for Mighty agents.
+//
+// The host binds these imports to `window.addEventListener('keydown',
+// ...)` / `'keyup'`. When the guest calls `subscribe-keydown` /
+// `subscribe-keyup` the host pushes events back into the exported
+// `keydown(k)` / `keyup(k)` callbacks defined in the world.
+//
+// `key` is the raw KeyboardEvent.key string ("ArrowLeft", "Escape",
+// " ", "a", …). The `std.web.Key` decoder in
+// `crates/mty-stdlib/src/web/input.rs` maps the common arrow / space
+// / single-char cases into a Mighty-friendly enum so agents don't
+// have to know about the DOM string vocabulary.
+//
+// `repeat` mirrors `KeyboardEvent.repeat` so guests can debounce
+// auto-repeated keys without timing out themselves.
+
+package mty:web@0.1;
+
+interface input {
+    /// One browser keyboard event. `key` is the raw `KeyboardEvent.key`
+    /// value; `repeat` mirrors `KeyboardEvent.repeat` for held keys.
+    record key-event {
+        key: string,
+        repeat: bool,
+    }
+
+    /// Ask the host to start delivering keydown callbacks to the
+    /// exported `keydown(k)` callback. Idempotent — repeated calls
+    /// are coalesced host-side. The guest disposes of the
+    /// subscription by leaving keydown unhandled (the host shim
+    /// keeps the listener attached for the lifetime of the
+    /// component instance).
+    subscribe-keydown: func();
+
+    /// Mirror of `subscribe-keydown` for `keyup` events.
+    subscribe-keyup: func();
+}

@@ -117,6 +117,13 @@ pub fn emit_wit(prog: &Program, pkg_name: &str, target: WasmTarget) -> CompileRe
     // against `document.*`.
     if matches!(target, WasmTarget::Web) {
         writeln!(user_body, "  import mty:web/dom;").unwrap();
+        // v0.23 Track A — canvas + input surfaces for browser-driven
+        // agents. The host shim (Track D) binds these to
+        // `HTMLCanvasElement.getContext("2d")` and the global
+        // `window` keyboard listeners. WIT shape lives in
+        // `crates/mty-codegen-wasm/wit/mty-web/{canvas,input,world}.wit`.
+        writeln!(user_body, "  import mty:web/canvas;").unwrap();
+        writeln!(user_body, "  import mty:web/input;").unwrap();
     }
     for cap in &caps {
         writeln!(user_body, "  import mty:caps/{};", cap).unwrap();
@@ -207,6 +214,28 @@ fn append_host_stubs(out: &mut String, target: WasmTarget) {
             out.push_str("    // existing JS host wrapper.\n");
             out.push_str("    get-element-by-id: func(id: string) -> option<u32>;\n");
             out.push_str("    set-text-handle: func(handle: u32, text: string);\n");
+            out.push_str("  }\n");
+            // v0.23 Track A — canvas + input interfaces. Shape pinned
+            // by the WIT files in `wit/mty-web/{canvas,input,world}.wit`
+            // and by the Mighty-side bindings in
+            // `crates/mty-stdlib/src/web/{canvas,input}.rs`.
+            out.push_str("  interface canvas {\n");
+            out.push_str("    clear: func();\n");
+            out.push_str("    fill-rect: func(x: s32, y: s32, w: u32, h: u32, color: u32);\n");
+            out.push_str("    stroke-rect: func(x: s32, y: s32, w: u32, h: u32, color: u32);\n");
+            out.push_str("    fill-text: func(text: string, x: s32, y: s32, color: u32);\n");
+            out.push_str("    set-fill-style: func(color: u32);\n");
+            out.push_str("    width: func() -> u32;\n");
+            out.push_str("    height: func() -> u32;\n");
+            out.push_str("    request-animation-frame: func();\n");
+            out.push_str("  }\n");
+            out.push_str("  interface input {\n");
+            out.push_str("    record key-event {\n");
+            out.push_str("      key: string,\n");
+            out.push_str("      repeat: bool,\n");
+            out.push_str("    }\n");
+            out.push_str("    subscribe-keydown: func();\n");
+            out.push_str("    subscribe-keyup: func();\n");
             out.push_str("  }\n");
             out.push_str("}\n");
         }
