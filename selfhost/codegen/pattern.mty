@@ -122,3 +122,79 @@ pub fn emit_branch_to_match_done(arm_idx: USize, n_arms: USize) -> Unit {
   let depth = n_arms - arm_idx - 1
   std.io.wasm_emit_br(depth)
 }
+
+// =====================================================================
+// v0.15 — SwitchInt cascade (int-discriminant match lowering)
+// =====================================================================
+//
+// `match n { 0 => ..., 1 => ..., _ => ... }` lowers to a Term::SwitchInt
+// at the MtyIR level. v0.14 emitted `unreachable` for this term — v0.15
+// emits a tag-test cascade mirroring the SwitchVariant shape, except:
+//   * The value comparison is `i32.eq` of `local.get $discr` against
+//     each arm's `i32.const $value`, NOT a load through a payload base.
+//   * The default arm is the `_` wildcard fallthrough — its target block
+//     is the last block branched to from the cascade. v0.15 represents
+//     the default as an explicit branch (not `unreachable`) when the
+//     IR provides one.
+//
+// Layout (3 explicit arms + 1 default):
+//
+//   block            ;; "match_done"
+//     block          ;; "default arm"
+//       block        ;; "arm 2"
+//         block      ;; "arm 1"
+//           block    ;; "arm 0"
+//             local.get $discr
+//             i32.const 0
+//             i32.eq
+//             br_if 0
+//             local.get $discr
+//             i32.const 1
+//             i32.eq
+//             br_if 1
+//             local.get $discr
+//             i32.const 2
+//             i32.eq
+//             br_if 2
+//             br 3        ;; -> default arm
+//           end
+//           <lower arm 0 body>
+//           br 3          ;; -> match_done
+//         end
+//         <lower arm 1 body>
+//         br 2
+//       end
+//       <lower arm 2 body>
+//       br 1
+//     end
+//     <lower default body>
+//   end
+//
+// The depth-math contract:
+//   * Inside the innermost block, `br_if k` jumps to the block that
+//     opens at depth k — which when its `end` fires lands the engine
+//     AT the start of arm k's body.
+//   * `br (n_arms)` from inside the innermost block jumps to the
+//     "default arm" block.
+//   * Arm body i branches with depth `n_arms - i` to match_done (it
+//     is itself wrapped in arms (i+1)..(n_arms - 1) closing blocks
+//     plus the default block plus match_done).
+
+/// Emit the int-discriminant test cascade. Pre-condition: caller has
+/// already opened `n_arms + 2` nested blocks (outer = match_done,
+/// then default-arm block, then per-arm blocks inside).
+pub fn emit_switchint_tag_tests(discr_local: USize, fid: USize, bid: USize) -> Unit {
+  let n_arms = std.io.ir_block_term_switchint_arm_count(fid, bid)
+  let mut a: USize = 0
+  loop {
+    if a >= n_arms { break }
+    let want = std.io.ir_block_term_switchint_arm_value(fid, bid, a)
+    std.io.wasm_emit_local_get(discr_local)
+    std.io.wasm_emit_i32_const(want)
+    std.io.wasm_emit_i32_binop("Eq")
+    std.io.wasm_emit_br_if(a)
+    a = a + 1
+  }
+  // Fall-through: branch to the default arm (depth = n_arms).
+  std.io.wasm_emit_br(n_arms)
+}

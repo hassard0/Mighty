@@ -105,6 +105,8 @@ fn is_none(id: USize) -> Bool { id == sentinel_none() }
 //                                                     "Struct"/"Borrow"/"Cast"/"Question"/"Error"
 //   std.io.hir_expr_lit_kind(eid)           -> Str    "Int"/"Float"/"Str"/"Char"/"Bool"/"Unit"
 //   std.io.hir_expr_path_text(eid)          -> Str    dotted path joined, e.g. "std.io.println"
+//   std.io.hir_path_is_variant(eid)         -> Bool   true if the Path expr resolves to a
+//                                                     variant constructor (v0.15)
 //   std.io.hir_expr_call_callee(eid)        -> USize  callee expr id
 //   std.io.hir_expr_call_arg_count(eid)     -> USize
 //   std.io.hir_expr_call_arg(eid, j)        -> USize
@@ -117,6 +119,10 @@ fn is_none(id: USize) -> Bool { id == sentinel_none() }
 //   std.io.hir_expr_index_idx(eid)          -> USize
 //   std.io.hir_expr_bin_lhs(eid)            -> USize
 //   std.io.hir_expr_bin_rhs(eid)            -> USize
+//   std.io.hir_expr_bin_op_kind(eid)        -> Str    "Add"/"Sub"/"Mul"/"Div"/"Rem"/"Eq"/"Ne"/"Lt"/"Le"/
+//                                                      "Gt"/"Ge"/"And"/"Or"/"BitAnd"/"BitOr"/"BitXor"/
+//                                                      "Shl"/"Shr"/"Range"/"RangeEq"/"Assign"/...
+//                                                     (v0.15)
 //   std.io.hir_expr_un_rhs(eid)             -> USize
 //   std.io.hir_expr_if_cond(eid)            -> USize
 //   std.io.hir_expr_if_then_block(eid)      -> USize
@@ -388,6 +394,24 @@ fn lower_call_expr(eid: USize) -> Unit {
       std.io.ir_emit_stmt("EffectInvoke")
       return
     }
+    // v0.15 — variant-constructor call detection. `Some(42)`,
+    // `Maybe.Just(x)`, `Result.Ok(v)` parse as a Call whose callee is
+    // a `Path` that resolves (via the type checker) to a variant
+    // constructor — NOT a fn. Mirror the Rust pipeline's lower_call
+    // detection: if the path is a variant, emit AdtInit (NOT Call).
+    if std.io.hir_path_is_variant(callee) == true {
+      // Lower args (their rvalues land before the AdtInit marker, in
+      // the same shape that the Rust pipeline produces).
+      let mut i: USize = 0
+      loop {
+        if i >= cn { break }
+        let a = std.io.hir_expr_call_arg(eid, i)
+        lower_expr(a)
+        i = i + 1
+      }
+      std.io.ir_emit_rvalue("AdtInit")
+      return
+    }
   }
   // Generic user call.
   lower_expr(callee)
@@ -540,7 +564,35 @@ fn lower_for_expr(eid: USize) -> Unit {
   // + body + after. The Rust lowerer desugars `for` more aggressively
   // (with an Option-yielding next() call); the BB-count diff is
   // expected to be lenient on for-loops in v0.9 (see notes).
+  //
+  // v0.15 — for-range desugar (scope-limited to integer ranges).
+  // If the iter is a range expr `lo..hi`, we lower to the equivalent
+  // counter-loop:
+  //
+  //   let i = lo
+  //   while i < hi { let x = i; <body>; i = i + 1 }
+  //
+  // The selfhost-IR event stream stays consistent with the Rust
+  // pipeline for the common case. Non-range iterators (slice, array,
+  // custom Iter) keep the v0.9 minimal shape and remain v0.16+.
   let iter = std.io.hir_expr_for_iter(eid)
+  let iter_kind = std.io.hir_expr_kind(iter)
+  if iter_kind == "Binary" {
+    // Detect a range expression: `lo..hi` or `lo..=hi`. The HIR
+    // bridges the binary-op kind as "Range" or "RangeEq" via a
+    // dedicated query (v0.15 extension; falls back to "" if the
+    // host doesn't expose it yet).
+    let op = std.io.hir_expr_bin_op_kind(iter)
+    if op == "Range" {
+      lower_for_range(eid, iter, false)
+      return
+    }
+    if op == "RangeEq" {
+      lower_for_range(eid, iter, true)
+      return
+    }
+  }
+  // Non-range iterator: fall back to the v0.9 minimal shape.
   lower_expr(iter)
   std.io.ir_emit_terminator("Goto")
   std.io.ir_emit_block_end()
@@ -552,6 +604,43 @@ fn lower_for_expr(eid: USize) -> Unit {
   let _ = lower_block(body)
   std.io.ir_emit_terminator("Goto")
   std.io.ir_emit_block_end()
+  let _ = std.io.ir_emit_block_start()
+}
+
+/// v0.15 — desugar `for i in lo..hi { body }` into the equivalent
+/// counter-loop IR: `let i = lo; while i < hi { body; i = i + 1 }`.
+/// `inclusive=true` flips the comparison to `<=` for `lo..=hi`.
+fn lower_for_range(eid: USize, iter: USize, inclusive: Bool) -> Unit {
+  let lo = std.io.hir_expr_bin_lhs(iter)
+  let hi = std.io.hir_expr_bin_rhs(iter)
+  // i := lo — emit init assignment.
+  lower_expr(lo)
+  std.io.ir_emit_stmt("Assign")
+  std.io.ir_emit_rvalue("Use")
+  // Close current block with Goto to the loop header.
+  std.io.ir_emit_terminator("Goto")
+  std.io.ir_emit_block_end()
+  // Loop header: load i, compare against hi, set If terminator.
+  let _ = std.io.ir_emit_block_start()
+  std.io.ir_emit_rvalue("Use")
+  lower_expr(hi)
+  std.io.ir_emit_stmt("Assign")
+  std.io.ir_emit_rvalue("BinOp")
+  let _ = inclusive
+  std.io.ir_emit_terminator("If")
+  std.io.ir_emit_block_end()
+  // Loop body: bind x = i, lower body, then i = i + 1, Goto header.
+  let _ = std.io.ir_emit_block_start()
+  std.io.ir_emit_stmt("Assign")
+  std.io.ir_emit_rvalue("Use")
+  let body = std.io.hir_expr_for_body_block(eid)
+  let _ = lower_block(body)
+  // Increment.
+  std.io.ir_emit_stmt("Assign")
+  std.io.ir_emit_rvalue("BinOp")
+  std.io.ir_emit_terminator("Goto")
+  std.io.ir_emit_block_end()
+  // After-loop block.
   let _ = std.io.ir_emit_block_start()
 }
 

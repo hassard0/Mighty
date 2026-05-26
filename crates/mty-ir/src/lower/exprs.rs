@@ -633,73 +633,34 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
 
 fn lower_call(ctx: &mut LowerCtx, fb: &mut FnBuilder, callee: ExprId, args: &[HirArg]) -> Operand {
     // v0.15 — variant-constructor call detection. `Some(42)`, `Ok(v)`,
-    // `Result.Err(e)`, etc. parse as a Call whose callee resolves (via
-    // the type checker's def-map) to a variant constructor — NOT a fn.
-    // Before v0.15 we routed these through the function-call codepath,
-    // which then fell back to `BuiltinId::Extern(name)` and broke the
-    // Wasm AOT pipeline. The Rust interpreter happened to tolerate it
-    // because `extern_call` was a no-op, but the self-host emitter
-    // needs the structurally correct `Rvalue::AdtInit { variant, fields }`.
+    // `Result.Err(e)`, `Maybe.Just(x)`, etc. parse as a Call whose callee
+    // resolves (via the type checker's def-map) to a variant constructor
+    // — NOT a fn. Before v0.15 we routed these through the function-call
+    // codepath, which then fell back to `BuiltinId::Extern(name)` and
+    // broke the Wasm AOT pipeline. The Rust interpreter happened to
+    // tolerate it because `extern_call` was a no-op, but the self-host
+    // emitter needs the structurally correct
+    // `Rvalue::AdtInit { variant, fields }`.
     //
-    // We detect a variant constructor via two routes:
-    //   1. single-segment `Some(x)` -> lookup(name) -> DefRef::Variant
-    //   2. multi-segment `Result.Ok(v)` -> lookup_path -> DefRef::Variant
-    if let HirExpr::Path(segments) = &ctx.pkg.exprs[callee] {
-        let variant_lookup = if segments.len() == 1 {
-            match ctx.typed.def_map.lookup(&segments[0]) {
-                Some(DefRef::Variant(adt, idx)) => Some((adt, idx)),
-                _ => None,
-            }
-        } else if let Some(DefRef::Variant(adt, idx)) =
-            ctx.typed.def_map.lookup_path(segments)
-        {
-            Some((adt, idx))
-        } else {
-            None
-        };
-        if let Some((adt, variant)) = variant_lookup {
-            let arg_ops: Vec<Operand> =
-                args.iter().map(|a| lower_expr(ctx, fb, a.value)).collect();
-            let temp = fb.fresh_temp(IrTy::Adt(adt, vec![]));
-            fb.push_stmt(Stmt::Assign(
-                Place::local(temp),
-                Rvalue::AdtInit {
-                    adt,
-                    variant,
-                    fields: arg_ops,
-                },
-            ));
-            return Operand::Move(Place::local(temp));
-        }
-    }
-    // Same detection for generic-path callees like `Some::<I32>(x)`.
-    if let HirExpr::PathGeneric { segments, .. } = &ctx.pkg.exprs[callee] {
-        let variant_lookup = if segments.len() == 1 {
-            match ctx.typed.def_map.lookup(&segments[0]) {
-                Some(DefRef::Variant(adt, idx)) => Some((adt, idx)),
-                _ => None,
-            }
-        } else if let Some(DefRef::Variant(adt, idx)) =
-            ctx.typed.def_map.lookup_path(segments)
-        {
-            Some((adt, idx))
-        } else {
-            None
-        };
-        if let Some((adt, variant)) = variant_lookup {
-            let arg_ops: Vec<Operand> =
-                args.iter().map(|a| lower_expr(ctx, fb, a.value)).collect();
-            let temp = fb.fresh_temp(IrTy::Adt(adt, vec![]));
-            fb.push_stmt(Stmt::Assign(
-                Place::local(temp),
-                Rvalue::AdtInit {
-                    adt,
-                    variant,
-                    fields: arg_ops,
-                },
-            ));
-            return Operand::Move(Place::local(temp));
-        }
+    // Detection mirrors `mty_types::check::resolve_path_expr`:
+    //   1. single-segment `Some(x)`   -> def_map.lookup(name) -> Variant
+    //   2. multi-segment dotted name  -> def_map.lookup_path -> Variant
+    //   3. `Enum.Variant(x)` pattern: first segment is an Adt; second is
+    //      the variant short name. Variants are registered by short
+    //      name only, so we look up the variant inside the Adt.
+    if let Some((adt, variant)) = variant_for_call_callee(ctx, callee) {
+        let arg_ops: Vec<Operand> =
+            args.iter().map(|a| lower_expr(ctx, fb, a.value)).collect();
+        let temp = fb.fresh_temp(IrTy::Adt(adt, vec![]));
+        fb.push_stmt(Stmt::Assign(
+            Place::local(temp),
+            Rvalue::AdtInit {
+                adt,
+                variant,
+                fields: arg_ops,
+            },
+        ));
+        return Operand::Move(Place::local(temp));
     }
     // Special case: `local.method(args)` parses as a Call whose callee
     // is `Path([local, method])`. If `local` is a binding in scope,
@@ -798,6 +759,48 @@ fn lower_call(ctx: &mut LowerCtx, fb: &mut FnBuilder, callee: ExprId, args: &[Hi
         },
     ));
     Operand::Move(Place::local(temp))
+}
+
+/// v0.15 — resolve a call's callee path to a variant constructor if
+/// it names one. Returns `(adt, variant_idx)` on hit, else `None`.
+/// Mirrors the type-checker's path-resolution logic
+/// (`mty_types::check::resolve_path_expr`) for `Some`, `Maybe.Just`,
+/// `Some::<I32>`, etc.
+fn variant_for_call_callee(ctx: &LowerCtx, callee: ExprId) -> Option<(AdtId, usize)> {
+    let segments = match &ctx.pkg.exprs[callee] {
+        HirExpr::Path(segs) => segs.clone(),
+        HirExpr::PathGeneric { segments, .. } => segments.clone(),
+        _ => return None,
+    };
+    if segments.is_empty() {
+        return None;
+    }
+    // Single-segment short name: `Some(x)`, `Just(y)`.
+    if segments.len() == 1 {
+        if let Some(DefRef::Variant(adt, idx)) = ctx.typed.def_map.lookup(&segments[0]) {
+            return Some((adt, idx));
+        }
+        return None;
+    }
+    // Multi-segment dotted name: `Result.Ok(x)` — try the joined form
+    // first (works if def_map registered the dotted variant name).
+    if let Some(DefRef::Variant(adt, idx)) = ctx.typed.def_map.lookup_path(&segments) {
+        return Some((adt, idx));
+    }
+    // `Enum.Variant(x)` shape: first segment names an Adt, last segment
+    // is the variant's short name. Variants are registered only by
+    // short name, so we look the variant up inside the Adt's def.
+    if let Some(DefRef::Adt(aid)) = ctx.typed.def_map.lookup(&segments[0]) {
+        if segments.len() == 2 {
+            let vname = &segments[1];
+            if let Some(adt) = ctx.typed.def_map.adt(aid) {
+                if let Some(idx) = adt.variants.iter().position(|v| &v.name == vname) {
+                    return Some((aid, idx));
+                }
+            }
+        }
+    }
+    None
 }
 
 fn resolve_callee(ctx: &LowerCtx, callee: ExprId) -> FnRef {

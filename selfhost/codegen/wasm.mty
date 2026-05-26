@@ -157,6 +157,13 @@ fn is_none(id: USize) -> Bool { id == sentinel_none() }
 //   std.io.ir_block_term_switch_arm_target(fid, bid, k)  -> USize
 //   std.io.ir_block_term_switch_default(fid, bid)        -> USize
 //
+// v0.15 — SwitchInt queries (int-discriminant match cascade):
+//   std.io.ir_block_term_switchint_discr_local(fid, bid) -> USize
+//   std.io.ir_block_term_switchint_arm_count(fid, bid)   -> USize
+//   std.io.ir_block_term_switchint_arm_value(fid, bid, k) -> I64
+//   std.io.ir_block_term_switchint_arm_target(fid, bid, k) -> USize
+//   std.io.ir_block_term_switchint_default(fid, bid)     -> USize
+//
 // =====================================================================
 // Host bridge — Wasm sink (write side)
 // =====================================================================
@@ -544,7 +551,7 @@ fn compile_terminator(fid: USize, bid: USize) -> Unit {
     "Return" => compile_return_term(fid, bid)
     "Panic" => std.io.wasm_emit_unreachable()
     "Unreachable" => std.io.wasm_emit_unreachable()
-    "SwitchInt" => std.io.wasm_emit_unreachable()
+    "SwitchInt" => compile_switch_int_term(fid, bid)
     "SwitchVariant" => compile_switch_variant_term(fid, bid)
     _ => std.io.wasm_emit_nop()
   }
@@ -745,6 +752,94 @@ fn compile_switch_variant_term(fid: USize, bid: USize) -> Unit {
     std.io.wasm_emit_br(depth)
     b = b + 1
   }
+
+  // Close the outer match_done block.
+  std.io.wasm_emit_end()
+}
+
+// =====================================================================
+// v0.15 — SwitchInt terminator lowering (int-discriminant cascade)
+// =====================================================================
+//
+// `match n { 0 => ..., 1 => ..., _ => ... }` lowers to a Term::SwitchInt
+// at the IR level. We emit a tag-test cascade similar to SwitchVariant
+// but the comparison is direct (`local.get $discr; i32.const $v; i32.eq`),
+// not a load through a payload base.
+//
+// Block shape (3 arms + default):
+//
+//   block            ;; "match_done"      (depth n_arms + 1)
+//     block          ;; "default arm"      (depth n_arms)
+//       block        ;; "arm 2"            (depth 2)
+//         block      ;; "arm 1"            (depth 1)
+//           block    ;; "arm 0"            (depth 0 — innermost)
+//             ... tests + br_if ...
+//             br n_arms      ;; fall to default
+//           end
+//           <arm 0 body>
+//           br n_arms        ;; -> match_done
+//         end
+//         <arm 1 body>
+//         br (n_arms - 1)
+//       end
+//       <arm 2 body>
+//       br (n_arms - 2)      ;; (= 1 when 3 arms — out to match_done past default)
+//     end
+//     <default body>
+//     ;; falls through to match_done
+//   end
+
+fn compile_switch_int_term(fid: USize, bid: USize) -> Unit {
+  let discr = std.io.ir_block_term_switchint_discr_local(fid, bid)
+  let n_arms = std.io.ir_block_term_switchint_arm_count(fid, bid)
+  let default_bb = std.io.ir_block_term_switchint_default(fid, bid)
+
+  // Open n_arms + 2 nested blocks:
+  //   * outermost = match_done (depth n_arms + 1 from cascade interior)
+  //   * 2nd outermost = default arm (depth n_arms from cascade interior)
+  //   * then n_arms per-arm blocks (depth 0 .. n_arms - 1)
+  std.io.wasm_emit_block("Empty")
+  std.io.wasm_emit_block("Empty")
+  let mut o: USize = 0
+  loop {
+    if o >= n_arms { break }
+    std.io.wasm_emit_block("Empty")
+    o = o + 1
+  }
+
+  // Cascade: emit n_arms comparisons.
+  let mut a: USize = 0
+  loop {
+    if a >= n_arms { break }
+    let want = std.io.ir_block_term_switchint_arm_value(fid, bid, a)
+    std.io.wasm_emit_local_get(discr)
+    std.io.wasm_emit_i32_const(want)
+    std.io.wasm_emit_i32_binop("Eq")
+    std.io.wasm_emit_br_if(a)
+    a = a + 1
+  }
+  // No arm matched → branch to default-arm block (depth n_arms).
+  std.io.wasm_emit_br(n_arms)
+
+  // Close innermost block + lower each arm's body + branch to
+  // match_done. After arm `b` body, depth to match_done is
+  // (n_arms - b - 1) per-arm-blocks + 1 default-arm block + 0 for
+  // match_done itself = (n_arms - b).
+  let mut b: USize = 0
+  loop {
+    if b >= n_arms { break }
+    std.io.wasm_emit_end()
+    let target_bb = std.io.ir_block_term_switchint_arm_target(fid, bid, b)
+    compile_block(fid, target_bb)
+    let depth = n_arms - b
+    std.io.wasm_emit_br(depth)
+    b = b + 1
+  }
+
+  // Close the default-arm block + lower its body (target_bb).
+  std.io.wasm_emit_end()
+  compile_block(fid, default_bb)
+  // Default falls through to match_done (no explicit br needed).
 
   // Close the outer match_done block.
   std.io.wasm_emit_end()

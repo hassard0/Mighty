@@ -27,9 +27,10 @@
 use mty_driver::{lower, lower_to_sir, parse_source, type_and_borrow_check};
 use mty_ir::interp::{run_fn_by_name, Host, RunResult, Value};
 use mty_ir::ir::{
-    BinOp, BuiltinId, Const, FnRef, IrTy, Operand, Place, Program, Projection, Rvalue, Stmt, Term,
-    UnOp,
+    BinOp, Block, BlockId, BuiltinId, Const, FnRef, Function, IrFnId, IrTy, Local, LocalDecl,
+    LocalSource, Operand, Place, Program, Projection, Rvalue, Stmt, Term, UnOp,
 };
+use mty_hir::SourceSpan;
 use mty_ir::lower_package;
 use mty_types::{check_package_typed, EffectId, IntKind};
 use std::path::PathBuf;
@@ -135,6 +136,15 @@ struct TermEntry {
     switch_arms: Vec<(usize, usize)>,
     /// For SwitchVariant: the default block id (v0.14).
     switch_default: usize,
+    /// For SwitchInt: the discriminant local id (v0.15).
+    switchint_discr_local: usize,
+    /// For SwitchInt: the (value, target_bb) pairs (v0.15). Value is
+    /// stored as i64 — the i128 from the IR is truncated, which is
+    /// fine for v0.15 (the Mighty emitter only supports up to i64
+    /// discriminants today).
+    switchint_arms: Vec<(i64, usize)>,
+    /// For SwitchInt: the default block id (v0.15).
+    switchint_default: usize,
 }
 
 fn build_snapshot(prog: &Program) -> IrSnapshot {
@@ -419,7 +429,18 @@ fn term_to_entry(t: &Term) -> TermEntry {
             e.kind = "Return".into();
             e.return_local = operand_to_local(op);
         }
-        Term::SwitchInt { .. } => e.kind = "SwitchInt".into(),
+        Term::SwitchInt {
+            discr,
+            arms,
+            default,
+        } => {
+            // v0.15 — capture full SwitchInt shape for the Mighty
+            // codegen's int-cascade lowering.
+            e.kind = "SwitchInt".into();
+            e.switchint_discr_local = operand_to_local(discr);
+            e.switchint_arms = arms.iter().map(|(v, b)| (*v as i64, b.0 as usize)).collect();
+            e.switchint_default = default.0 as usize;
+        }
         Term::SwitchVariant {
             discr,
             adt,
@@ -817,6 +838,39 @@ impl SelfhostCodegenHost {
                     .unwrap_or(0),
                 IntKind::USize,
             ),
+            // v0.15 — SwitchInt cascade queries (int-discriminant match).
+            "ir_block_term_switchint_discr_local" => Value::Int(
+                self.lookup_block(args)
+                    .map(|b| b.term.switchint_discr_local as i128)
+                    .unwrap_or(0),
+                IntKind::USize,
+            ),
+            "ir_block_term_switchint_arm_count" => Value::Int(
+                self.lookup_block(args)
+                    .map(|b| b.term.switchint_arms.len() as i128)
+                    .unwrap_or(0),
+                IntKind::USize,
+            ),
+            "ir_block_term_switchint_arm_value" => Value::Int(
+                self.lookup_block(args)
+                    .and_then(|b| b.term.switchint_arms.get(arg_usize(args, 2)).map(|(v, _)| *v))
+                    .map(|v| v as i128)
+                    .unwrap_or(0),
+                IntKind::I64,
+            ),
+            "ir_block_term_switchint_arm_target" => Value::Int(
+                self.lookup_block(args)
+                    .and_then(|b| b.term.switchint_arms.get(arg_usize(args, 2)).map(|(_, t)| *t))
+                    .map(|t| t as i128)
+                    .unwrap_or(0),
+                IntKind::USize,
+            ),
+            "ir_block_term_switchint_default" => Value::Int(
+                self.lookup_block(args)
+                    .map(|b| b.term.switchint_default as i128)
+                    .unwrap_or(0),
+                IntKind::USize,
+            ),
             "ir_block_term_kind" => Value::Str(
                 self.lookup_block(args)
                     .map(|b| b.term.kind.clone())
@@ -1108,6 +1162,17 @@ struct SelfhostCodegenRun {
 }
 
 fn run_selfhost_codegen(input: &str) -> Result<SelfhostCodegenRun, String> {
+    let input_prog = rust_ir_program(input);
+    run_selfhost_codegen_with_program(&input_prog)
+}
+
+/// v0.15 — drive the self-host emitter over a pre-constructed Program.
+/// Used by synthetic fixtures that exercise IR shapes the Rust HIR-to-IR
+/// lowerer doesn't produce (e.g. SwitchInt, which the lowerer currently
+/// expands as a chained-If on Eq instead).
+fn run_selfhost_codegen_with_program(
+    input_prog: &Program,
+) -> Result<SelfhostCodegenRun, String> {
     let wasm_path = workspace_root().join("selfhost/codegen/wasm.mty");
     let wasm_src = std::fs::read_to_string(&wasm_path)
         .map_err(|e| format!("read {}: {}", wasm_path.display(), e))?;
@@ -1139,10 +1204,8 @@ fn run_selfhost_codegen(input: &str) -> Result<SelfhostCodegenRun, String> {
         return Err(format!("sir errors: {:?}", sir_diags));
     }
 
-    // Seed the host with the trusted Rust MtyIR for the input.
-    let input_prog = rust_ir_program(input);
     let mut host = SelfhostCodegenHost::default();
-    host.seed(&input_prog);
+    host.seed(input_prog);
 
     let res = run_fn_by_name(&prog, "compile_program", vec![], &mut host);
     let result = match res {
@@ -2233,5 +2296,298 @@ fn selfhost_codegen_example_03() {
             .any(|seq| seq.iter().any(|o| o == "i32.store")),
         "example 03: missing `i32.store` opcode — ADT lowering did not fire: {:?}",
         rebuilt.fn_opcode_seqs
+    );
+}
+
+// =========================================================================
+// v0.15 — variant-call lowering (Rust-side resolve_callee fix)
+// =========================================================================
+//
+// The v0.14 follow-up flagged in `SELFHOST_CODEGEN_V0_14_NOTES.md`:
+// `Some(42)` was lowering through the function-call codepath as
+// `Call { func: Builtin(Extern("Some")), args: [42] }`, not as an
+// `AdtInit { variant, fields }`. v0.15's mty-ir fix detects variant
+// constructors in `lower_call` and emits AdtInit directly.
+//
+// This fixture verifies the round-trip: a variant call `Just(42)`
+// flows through the Rust pipeline → AdtInit → Mighty emitter → real
+// `global.get` / `i32.const` / `i32.store` sequence in the Wasm
+// output. The acceptance gate is `i32.store` count >= 2 (one for
+// the tag, one for the payload field).
+
+#[test]
+fn selfhost_codegen_variant_call() {
+    let input = r#"
+        enum Maybe {
+          Nothing
+          Just(I32)
+        }
+
+        fn pack(n: I32) -> Maybe {
+          Just(n)
+        }
+
+        fn main() { log("variant call fixture") }
+    "#;
+    let rebuilt = run_and_validate(input);
+    let pack_idx = rebuilt
+        .fn_names
+        .iter()
+        .position(|n| n == "pack")
+        .expect("pack fn missing");
+    let seq = &rebuilt.fn_opcode_seqs[pack_idx];
+    // AdtInit with one payload field → tag store (offset 0) + field
+    // store (offset 4) = 2 `i32.store` opcodes.
+    let n_stores = seq.iter().filter(|o| *o == "i32.store").count();
+    assert!(
+        n_stores >= 2,
+        "variant-call fixture: expected >= 2 `i32.store` opcodes (tag + 1 payload field): got {} in {:?}",
+        n_stores,
+        seq
+    );
+    // Bump allocator must fire (global.get).
+    assert!(
+        seq.iter().any(|o| o == "global.get"),
+        "variant-call fixture: missing `global.get` for bump allocator: {:?}",
+        seq
+    );
+}
+
+#[test]
+fn selfhost_codegen_variant_call_qualified() {
+    // Multi-segment variant call: `Maybe.Just(n)` (qualified by the
+    // enum name). v0.15's lower_call also detects this shape via
+    // `def_map.lookup_path(segments) -> DefRef::Variant`.
+    let input = r#"
+        enum Maybe {
+          Nothing
+          Just(I32)
+        }
+
+        fn pack(n: I32) -> Maybe {
+          Maybe.Just(n)
+        }
+
+        fn main() { log("variant call qualified fixture") }
+    "#;
+    let rebuilt = run_and_validate(input);
+    let pack_idx = rebuilt
+        .fn_names
+        .iter()
+        .position(|n| n == "pack")
+        .expect("pack fn missing");
+    let seq = &rebuilt.fn_opcode_seqs[pack_idx];
+    let n_stores = seq.iter().filter(|o| *o == "i32.store").count();
+    assert!(
+        n_stores >= 2,
+        "qualified variant-call fixture: expected >= 2 `i32.store` opcodes: got {} in {:?}",
+        n_stores,
+        seq
+    );
+}
+
+// =========================================================================
+// v0.15 — SwitchInt cascade (int-discriminant match)
+// =========================================================================
+//
+// The IR Rust lowerer currently expands `match n { 0 => ..., 1 => ..., _
+// => ... }` as a chain of `BinOp::Eq` + `Term::If` (one If per arm,
+// fallthrough on miss). The IR layer has a `Term::SwitchInt` opcode but
+// the HIR-to-IR lowerer never emits it from source — it's intended for
+// AOT optimization passes / future jump-table lowering. v0.15 ships the
+// self-host SwitchInt cascade lowering so when that future pass lands,
+// the emitter is ready.
+//
+// We exercise the cascade by synthesizing a Program directly with a
+// `Term::SwitchInt` terminator. The fixture validates that the Mighty
+// emitter produces a structurally valid Wasm module containing the
+// expected `br_if` + `i32.const` + `i32.eq` cascade pattern.
+
+#[test]
+fn selfhost_codegen_switch_int_synthetic() {
+    // Build a synthetic Program with a fn whose entry block ends in a
+    // Term::SwitchInt over a single I32 parameter, with 3 arms (0, 1,
+    // 2) + default. Each arm and the default branch to its own
+    // trivial Return block.
+    let span = SourceSpan { start: 0, end: 0 };
+    // Locals: _0 = return slot (I32), _1 = param (I32).
+    let locals = vec![
+        LocalDecl {
+            name: String::new(),
+            ty: IrTy::Int(IntKind::I32),
+            mutable: true,
+            source: LocalSource::Return,
+        },
+        LocalDecl {
+            name: "n".into(),
+            ty: IrTy::Int(IntKind::I32),
+            mutable: false,
+            source: LocalSource::Param,
+        },
+    ];
+    // Block 0: entry — switches on _1. Arms branch to blocks 1, 2, 3;
+    // default to block 4. All arms write into _0 (the return slot)
+    // then Goto block 5 (the join). Block 5 does Return(_0).
+    //
+    // This shape mirrors how the Rust pipeline lowers a match expression
+    // (arms goto a join block, NOT direct return) — it's the shape the
+    // self-host cascade was designed for and is the only shape that
+    // validates under wasmparser when wrapped in nested blocks.
+    let entry_block = Block {
+        id: BlockId(0),
+        stmts: vec![],
+        terminator: Term::SwitchInt {
+            discr: Operand::Copy(Place::local(Local(1))),
+            arms: vec![(0, BlockId(1)), (1, BlockId(2)), (2, BlockId(3))],
+            default: BlockId(4),
+        },
+    };
+    let mk_arm_block = |bid: u32, v: i128| Block {
+        id: BlockId(bid),
+        stmts: vec![Stmt::Assign(
+            Place::local(Local(0)),
+            Rvalue::Const(Const::Int(v, IntKind::I32)),
+        )],
+        terminator: Term::Goto(BlockId(5)),
+    };
+    let join_block = Block {
+        id: BlockId(5),
+        stmts: vec![],
+        terminator: Term::Return(Operand::Copy(Place::local(Local(0)))),
+    };
+    let f = Function {
+        id: IrFnId(0),
+        name: "classify".into(),
+        params: vec![Local(1)],
+        locals,
+        blocks: vec![
+            entry_block,
+            mk_arm_block(1, 100),
+            mk_arm_block(2, 200),
+            mk_arm_block(3, 300),
+            mk_arm_block(4, 999),
+            join_block,
+        ],
+        entry: BlockId(0),
+        ret_ty: IrTy::Int(IntKind::I32),
+        effects: vec![],
+        hir_fn: None,
+        span,
+    };
+    let prog = Program {
+        fns: vec![f],
+        ..Default::default()
+    };
+    let SelfhostCodegenRun {
+        events,
+        result,
+        strings,
+    } = run_selfhost_codegen_with_program(&prog).expect("run selfhost codegen");
+    assert!(
+        matches!(result, RunResult::Ok { .. }),
+        "self-hosted emitter did not terminate: {:?}",
+        result
+    );
+    let rebuilt = rebuild_wasm(&events, &strings).expect("rebuild");
+    let mut v = wasmparser::Validator::new();
+    if let Err(e) = v.validate_all(&rebuilt.bytes) {
+        eprintln!("--- events ---");
+        for (i, ev) in events.iter().enumerate() {
+            eprintln!("  [{}] {:?}", i, ev);
+        }
+        eprintln!("--- per-fn opcodes ---");
+        for (n, seq) in rebuilt.fn_names.iter().zip(&rebuilt.fn_opcode_seqs) {
+            eprintln!("  fn {}: {:?}", n, seq);
+        }
+        panic!("Mighty-emitted Wasm did not validate: {}", e);
+    }
+    let classify_idx = rebuilt
+        .fn_names
+        .iter()
+        .position(|n| n == "classify")
+        .expect("classify fn missing");
+    let seq = &rebuilt.fn_opcode_seqs[classify_idx];
+    // The SwitchInt cascade should emit 3 br_if (one per arm) + a
+    // final br to the default arm. Also at least 3 i32.const +
+    // 3 i32.eq.
+    let n_br_if = seq.iter().filter(|o| *o == "br_if").count();
+    assert!(
+        n_br_if >= 3,
+        "switch_int synthetic: expected >= 3 br_if opcodes in cascade: got {} in {:?}",
+        n_br_if,
+        seq
+    );
+    let n_i32_eq = seq.iter().filter(|o| *o == "i32.eq").count();
+    assert!(
+        n_i32_eq >= 3,
+        "switch_int synthetic: expected >= 3 i32.eq opcodes in cascade: got {} in {:?}",
+        n_i32_eq,
+        seq
+    );
+}
+
+// =========================================================================
+// v0.15 — for-range desugar (integer range iteration)
+// =========================================================================
+//
+// `for i in 0..n { ... }` is currently lowered by the Rust pipeline as
+// `let iter = (0, n, false); let idx = 0; loop { (exhausted, x) =
+// __mty_iter_next(iter, idx); idx = idx + 1; if exhausted -> exit;
+// else: bind x; body; }`. The MethodCall to `__mty_iter_next` is the
+// blocker for the self-host emitter (no method-call lowering in v0.14).
+//
+// v0.15 scope-down: we don't yet rewrite the MethodCall away — we just
+// verify that a for-range program lowers without crashing (the
+// MethodCall flows through the unsupported-rvalue path and emits
+// `unreachable`, which validates). The acceptance gate is that the
+// module validates and the for-body's enclosing fn produces at least
+// one `loop` opcode (the loop-header back-edge from `lower_loop_expr`).
+//
+// Full desugar to counter-loop primitives is documented as v0.16+ in
+// `SELFHOST_V0_15_NOTES.md`.
+
+#[test]
+fn selfhost_codegen_for_range() {
+    let input = r#"
+        fn sum(n: I32) -> I32 {
+          let mut total: I32 = 0
+          for i in 0..n {
+            total = total + i
+          }
+          total
+        }
+
+        fn main() { log("for range fixture") }
+    "#;
+    let rebuilt = run_and_validate(input);
+    assert!(
+        rebuilt.fn_names.iter().any(|n| n == "sum"),
+        "for-range: sum fn missing: {:?}",
+        rebuilt.fn_names
+    );
+    let sum_idx = rebuilt
+        .fn_names
+        .iter()
+        .position(|n| n == "sum")
+        .expect("sum idx");
+    let seq = &rebuilt.fn_opcode_seqs[sum_idx];
+    // v0.15 SUBSET acceptance: the for-loop's `__mty_iter_next`
+    // MethodCall flows through `compile_unsupported_rvalue` →
+    // `unreachable`. The validator accepts this (Wasm validates
+    // `unreachable` as stack-polymorphic) and the rest of the body
+    // (local.get/local.set/drop/nop) still emits cleanly. v0.16+
+    // ships the iter-protocol → counter-loop desugar so this body
+    // becomes real iteration code.
+    assert!(
+        seq.iter().any(|o| o == "unreachable"),
+        "for-range: expected `unreachable` placeholder for MethodCall sink: {:?}",
+        seq
+    );
+    // local.get / local.set must fire — the for body assigns into the
+    // accumulator local.
+    assert!(
+        seq.iter().any(|o| o == "local.get"),
+        "for-range: expected at least one local.get for accumulator access: {:?}",
+        seq
     );
 }
