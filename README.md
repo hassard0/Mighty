@@ -19,21 +19,23 @@ server, and stdlib are all in one Rust workspace and one `mty` binary.
 > **Status:** pre-alpha. The v1.0 language spec is at **v1.0-RC3**
 > (operator precedence promoted to normative §11.1.1; full
 > 63-reserved-keyword set enumerated). The toolchain is exercised by
-> 1217 Rust tests across 20 crates plus a second independent Python
-> front-end at [`impl-py/`](impl-py/) (139 tests) and a third
-> source-only Go front-end at [`impl-go/`](impl-go/) (4848 LOC,
-> cross-validation pending Go toolchain). All six CI jobs are
-> required gates. **End-to-end self-hosting** is complete for the
-> slice-1 subset (lexer → parser → HIR → typeck → MtyIR → wasm
-> codegen, all in Mighty); the codegen now lowers `Rvalue::MethodCall`
-> through a host-bridged dispatch and desugars `for x in custom_iter`
-> into the iter-protocol shape (23 live driver tests, was 17),
-> and examples 01-03 all bootstrap through the self-host chain. A
-> `1.0` GA tag still awaits the completion of the 2nd-impl through
-> type-check, the 3rd-impl cross-validation, eight RFC comment-window
-> closures (RFC-001..006 plus the v0.13 RFC-008 + RFC-009 drafts),
-> and the normative conformance suite (currently 92 cases / 16
-> categories). See [Status](#status) below.
+> 1274 Rust tests across 20 crates plus a second independent Python
+> implementation at [`impl-py/`](impl-py/) (front-end + HIR + typeck,
+> 274 tests, 23/23 examples typeck clean) and a third source-only Go
+> front-end at [`impl-go/`](impl-go/) (4848 LOC, cross-validation
+> pending Go toolchain). All six CI jobs are required gates.
+> **End-to-end self-hosting** is complete for the slice-1 subset
+> (lexer → parser → HIR → typeck → MtyIR → wasm codegen, all in
+> Mighty); the codegen lowers `Rvalue::MethodCall` through a
+> host-bridged dispatch and desugars `for x in custom_iter` into the
+> iter-protocol shape (23 live driver tests), and examples 01-03 all
+> bootstrap through the self-host chain. A `1.0` GA tag still awaits
+> the completion of 2nd-impl typeck polish (HM closure inference +
+> generics-with-constraints; the typeck baseline shipped in v0.17),
+> the 3rd-impl cross-validation, eight RFC comment-window closures
+> (RFC-001..006 plus the v0.13 RFC-008 + RFC-009 drafts), and the
+> normative conformance suite (currently 92 cases / 16 categories).
+> See [Status](#status) below.
 
 ## Install
 
@@ -106,19 +108,23 @@ Then:
 - **OpenTelemetry agent spans** — spawn / send / ask / handler /
   restart / budget-exhausted spans, plus `agent.event(name, &[(k, v)])`
   helper; lazy init from `MTY_OTLP_ENDPOINT`, cost-zero when disabled
+- **Deterministic replay** — `Recorder` + 8 typed `TraceEvent`
+  variants on a `MTYTRACE`-magic wire format v1; `mty replay
+  <trace>` CLI with `--dump-json` and `--step` modes; opt-in via
+  `MTY_REPLAY_RECORD=/path/to/trace`
 
 **Codegen**
 
 - Cranelift JIT + AOT object emission (default)
 - LLVM backend (`--features llvm`)
-- WASI Preview 2 with embedded preview1-adapter (vendored upstream
-  wasmtime v32 adapter; **default for `wasm32-wasi`** — explicit
-  `--wasi=p1` opts back to v0.13/v0.14 behaviour). Direct P2 imports
-  for `std.random.bytes` + `std.time.*` (v0.15) **and** for the full
-  `std.fs.*` (`open` / `read_file` / `write_file` / `stat` / `close`)
-  + `std.http.*` (`get` / `post` / `send` / `incoming_request_consume`)
-  surfaces (v0.16); only the `log()` shim still flows through the
-  adapter (deferred to v0.17)
+- WASI Preview 2 **default for `wasm32-wasi`** (explicit `--wasi=p1`
+  opts back to v0.13/v0.14 behaviour); the embedded preview1-adapter
+  is now **opt-in** via `Preview2Options::with_adapter(Some(...))`
+  rather than always-on. `std.fs.*` / `std.http.*` / `std.random.*`
+  / `std.time.*` / `log()` all emit direct versioned P2 imports
+  (`wasi:filesystem` / `wasi:http` / `wasi:random` / `wasi:clocks` /
+  `wasi:cli/stdout` + `wasi:io/streams`); no surface still flows
+  through the adapter on a default build
 - Wasm Component Model (`wit-component`) emission with user-supplied
   WIT via `[wit]` in `mighty.toml`
 - DWARF v4 debug info + Wasm source maps + `name` section
@@ -141,7 +147,7 @@ Then:
 **Independent implementations**
 
 - Rust reference compiler (this repo, `crates/mty-*`).
-- Python 2nd-impl front-end at [`impl-py/`](impl-py/) — pure-Python lexer + parser built from the v1.0-RC2 spec prose alone. 139 tests, 22/22 examples lex+parse.
+- Python 2nd-impl at [`impl-py/`](impl-py/) — pure-Python front-end + HIR + lowering + Hindley-Milner typeck built from the v1.0-RC3 spec prose alone. 274 tests, 23/23 examples typeck clean (lex + parse + lower + typeck).
 - Go 3rd-impl front-end at [`impl-go/`](impl-go/) — Go 1.22+ lexer + parser + CLI built from the v1.0-RC3 spec prose alone. 4848 LOC; cross-validation (`go test ./...`, example sweep) pending Go toolchain on the build host.
 
 ## Documentation
@@ -210,11 +216,13 @@ The v1.0 spec is feature-complete at v1.0-RC2 (`docs/spec/v1.0-rc.md`).
 
 ### Landed pre-v1.0 (formerly post-v1.0)
 
-- WASI Preview 2 + user-supplied WIT — v0.13 (`--wasi=p2`, `--world`, `[wit]` section). v0.14 embeds the upstream wasmtime preview1→preview2 adapter and ships direct P2 imports for `std.random` / `std.time`. v0.15 wires `P2DirectImport` into `emit.rs` dispatch and **flips the toolchain default to P2 for `wasm32-wasi`** (explicit `--wasi=p1` opts back). v0.16 takes nine more lowerings direct (full `std.fs.*` + `std.http.*`); only the `log()` shim still routes through the embedded adapter.
-- Effect-row polymorphism end-to-end — v0.13 (RFC-008, `mty-types::effects::row`). v0.14 ships 19 row-polymorphic stdlib signatures; v0.15 wires call-site dispatch (`BuiltinMethod.row_sig` + `walk_expr_effects`, MT4050 on closed-row rejection) and lands the surface syntax (`!E` / `!{a | E}` / `effect a | E`). **v0.16 wires the surface syntax through typed AST → `HirEffectRow` → `UserRowPolyIndex` typeck**, with five new diagnostic codes (MT4055–MT4059, MT4057 actively emits); user-authored row variables now typecheck and `examples/22_effect_row.mty` is live in the example sweep.
+- WASI Preview 2 + user-supplied WIT — v0.13 (`--wasi=p2`, `--world`, `[wit]` section). v0.14 embeds the upstream wasmtime preview1→preview2 adapter and ships direct P2 imports for `std.random` / `std.time`. v0.15 wires `P2DirectImport` into `emit.rs` dispatch and **flips the toolchain default to P2 for `wasm32-wasi`** (explicit `--wasi=p1` opts back). v0.16 takes nine more lowerings direct (full `std.fs.*` + `std.http.*`). **v0.17 finishes the adapter-free hot path:** `log()` / `print()` lower directly to `wasi:cli/stdout@0.2.3` + `wasi:io/streams@0.2.3`, the embedded adapter flips from always-on to opt-in (`Preview2Options::with_adapter`), and no surface still flows through the adapter on a default build.
+- Effect-row polymorphism end-to-end — v0.13 (RFC-008, `mty-types::effects::row`). v0.14 ships 19 row-polymorphic stdlib signatures; v0.15 wires call-site dispatch (`BuiltinMethod.row_sig` + `walk_expr_effects`, MT4050 on closed-row rejection) and lands the surface syntax (`!E` / `!{a | E}` / `effect a | E`). v0.16 wires the surface syntax through typed AST → `HirEffectRow` → `UserRowPolyIndex` typeck, with five new diagnostic codes (MT4055–MT4059, MT4057 actively emits). **v0.17 broadens `HirEffectRow::Open` to `Vec<HirRowVar>` (multi-row-var representation), wires the `UserRowPolyMeta` side table, and flips MT4055 / MT4056 / MT4058 to active emit** (MT4059 reserved pending the v0.18 parser ship of `!{| E1, E2}`).
 - Set-of-scopes macro hygiene — v0.13 (RFC-009); v0.14 wires HIR macro resolution to `expand_scoped_to_source`; v0.15 removes the deprecated `mty_macros::expand` / `expand_to_source` API.
-- End-to-end self-hosting through Wasm codegen — v0.13; v0.14 broadens with string pool + ADT layout + pattern lowering so example 03 passes; v0.15 adds variant-call lowering, SwitchInt cascade, and for-range desugar; **v0.16 lowers `Rvalue::MethodCall` through the host bridge and desugars `for x in custom_iter` into the iter-protocol shape (23 codegen driver tests, 0 ignored).**
-- Live agent introspection + OpenTelemetry — **v0.16.** `mty inspect` CLI + opt-in `MTY_RUNTIME_CONTROL_SOCK` runtime control socket exposing agent snapshots (mailbox depth, in-flight handler, budgets, last-N messages); OTel spans at every agent boundary plus `agent.event(name, &[(k, v)])` helper, lazy init from `MTY_OTLP_ENDPOINT` (cost-zero when disabled). Tiers 1.1–1.3 of `docs/internals/agent-features-roadmap.md`.
+- End-to-end self-hosting through Wasm codegen — v0.13; v0.14 broadens with string pool + ADT layout + pattern lowering so example 03 passes; v0.15 adds variant-call lowering, SwitchInt cascade, and for-range desugar; v0.16 lowers `Rvalue::MethodCall` through the host bridge and desugars `for x in custom_iter` into the iter-protocol shape (23 codegen driver tests, 0 ignored).
+- Live agent introspection + OpenTelemetry — v0.16. `mty inspect` CLI + opt-in `MTY_RUNTIME_CONTROL_SOCK` runtime control socket exposing agent snapshots (mailbox depth, in-flight handler, budgets, last-N messages); OTel spans at every agent boundary plus `agent.event(name, &[(k, v)])` helper, lazy init from `MTY_OTLP_ENDPOINT` (cost-zero when disabled). Tiers 1.1–1.3 of `docs/internals/agent-features-roadmap.md`.
+- Deterministic replay — **v0.17.** `mty-runtime::replay::*` recorder + 8 typed `TraceEvent` variants on a `MTYTRACE`-magic wire format v1; `mty replay <trace>` CLI with `--dump-json` + `--step` + `--json` modes; opt-in via `MTY_REPLAY_RECORD`. Tier 1.4 of the agent-features roadmap; full Runtime re-execution + hot-path wire-up tracked for v0.18.
+- Independent implementation through typeck — **v0.17.** `impl-py/` Python 2nd-impl extends from front-end-only (139 tests, parse-only) to front-end + HIR + lowering + Hindley-Milner typeck (274 tests, 23/23 examples typeck clean). Substantially closes v1.0 freeze blocker #2; HM closure inference + generics-with-constraints polish queued for v0.18.
 
 For the full per-version history of what shipped on the road to v1.0,
 see [`CHANGELOG.md`](CHANGELOG.md).
@@ -222,28 +230,28 @@ see [`CHANGELOG.md`](CHANGELOG.md).
 ## Status
 
 Mighty is **pre-alpha**. Internal milestones have been tagged through
-v0.16. The v1.0 language spec is at v1.0-RC3 — see
-`docs/spec/v1.0-rc.md`. There are 1217 Rust tests across the workspace
-(plus 139 Python tests in the [`impl-py/`](impl-py/) 2nd-impl, 92
+v0.17. The v1.0 language spec is at v1.0-RC3 — see
+`docs/spec/v1.0-rc.md`. There are 1274 Rust tests across the workspace
+(plus 274 Python tests in the [`impl-py/`](impl-py/) 2nd-impl, 92
 normative conformance cases, and 23 self-host driver codegen tests
-= **1471 combined**), 0 clippy warnings *under the strict `pedantic`
+= **1663 combined**), 0 clippy warnings *under the strict `pedantic`
 gate* (a required CI job, not advisory), and **4/4 demos** pass
 `smoke.sh`. The cargo-fuzz harness covers four targets
 (parser / typeck / fmt / codegen), and the normative conformance
 corpus stands at **92 cases across 16 categories** (2 ignored:
 long-standing `capability_checking/03_narrow_to_ro` and
-`supervisor_restart/02_escalate`). v0.16 lands **production
-observability** — `mty inspect` + opt-in runtime control socket plus
-OpenTelemetry agent spans (Tiers 1.1–1.3 of the
-[agent-features roadmap](docs/internals/agent-features-roadmap.md))
-— wires the **RFC-008 effect-row surface syntax** through typed AST
-+ HIR + typeck so user-authored row variables typecheck end-to-end
-(MT4055–MT4059), closes the WASI P2 `std.fs` + `std.http` direct
-lowering (only `log()` still adapter-routed), and lowers self-host
-`Rvalue::MethodCall` + desugars `for x in custom_iter` (23 driver
-codegen tests, was 17). The remaining agent-features tiers
-(replay / hot-reload / distributed) and the WASI P2 `log()` finish
-are tracked for v0.17.
+`supervisor_restart/02_escalate`). v0.17 finishes the
+**adapter-free WASI Preview 2 hot path** — `log()` now lowers
+directly to `wasi:cli/stdout@0.2.3` + `wasi:io/streams@0.2.3` and
+the embedded preview1-adapter flips from always-on to opt-in via
+`Preview2Options::with_adapter`. **Deterministic replay** lands
+as Tier 1.4 of the
+[agent-features roadmap](docs/internals/agent-features-roadmap.md):
+recorder + wire format v1 + step replayer + `mty replay <trace>`
+CLI (full Runtime re-execution + hot-path wire-up tracked for
+v0.18). The **Python 2nd-impl reaches typeck** with HM + `TyAny`
+absorption and clears all 23 examples (139 → 274 tests),
+substantially closing v1.0 freeze blocker #2.
 
 **Pre-built `mty` binaries** for Linux x86_64, macOS x86_64 + arm64,
 and Windows x86_64 are now produced automatically on every `v*` tag

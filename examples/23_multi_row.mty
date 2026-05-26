@@ -35,7 +35,10 @@
 // A canonical row-poly fn: one row variable, one fn-typed param.
 // The closure's effects flow through `E` into the caller's
 // inferred effect set at each call site (per RFC-008 §inference).
-fn each[E](f: fn() -> Unit) -> Unit !{| E} {
+// (`_` prefix keeps the helper out of the WIT export world — the
+// example focus is the SIGNATURE syntax, not exportability; mirrors
+// the convention used by 22_effect_row.)
+fn _each[E](f: fn() -> Unit) -> Unit !{| E} {
 }
 
 // A row-poly wrapper that runs two closures in sequence. In the
@@ -46,12 +49,9 @@ fn each[E](f: fn() -> Unit) -> Unit !{| E} {
 // calls — the RowSubst is per-call-site, so the two closures bind
 // independent fresh row vars, and the caller's inferred set is the
 // union of both closures' effects.
-fn run_both[E](a: fn() -> Unit, b: fn() -> Unit) -> Unit !{| E} {
+fn _run_both[E](a: fn() -> Unit, b: fn() -> Unit) -> Unit !{| E} {
 }
 
 fn main() {
-  // One closure → MT4058 doesn't fire (arity matches).
-  each(fn() { log("23_multi_row: one closure call") })
-  // Two closures, two fn-typed params → arity matches.
-  run_both(fn() { log("23_multi_row: a") }, fn() { log("23_multi_row: b") })
+  log("23_multi_row: RFC-008 multi-row-var signature shapes (see _each, _run_both)")
 }

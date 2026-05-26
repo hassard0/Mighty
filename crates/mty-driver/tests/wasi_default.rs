@@ -1,10 +1,13 @@
-//! WASI preview default-selection tests (v0.15 flip).
+//! WASI preview default-selection tests (v0.15 flip + v0.17 direct-log).
 //!
 //! v0.13/v0.14 defaulted `--wasi` to P1 for back-compat with the
-//! slice-8 emitter. v0.15 flips the default to P2 now that the
+//! slice-8 emitter. v0.15 flipped the default to P2 now that the
 //! codegen layer wires direct versioned imports for `std.random`
 //! and `std.time` and the vendored adapter handles the remaining
-//! surfaces (`std.fs`, `std.http`, `log()`).
+//! surfaces (`std.fs`, `std.http`, `log()`). v0.17 dropped the
+//! adapter dependency for `log()` — it now lowers directly to
+//! `wasi:cli/stdout@0.2.3` + `wasi:io/streams@0.2.3` blocking writes,
+//! and the adapter default is opt-in (`with_adapter`).
 //!
 //! These tests pin both the new default selection AND the back-compat
 //! `--wasi=p1` opt-out so a future tweak can't silently regress
@@ -42,8 +45,12 @@ fn default_wasi_preview_produces_p2_component_for_wasm() {
         wasi_preview: WasiPreview::default(),
         user_wit: None,
     };
+    // v0.17 dropped the standing `wasi:cli/log` shim, so a P2 build
+    // only emits the new direct-import surface for code that actually
+    // calls `log()`. Use a tiny log()-calling main so the assertion
+    // below has a real import to check against.
     let outcome = build_wasm(
-        "fn main() {}\n".into(),
+        "fn main() { log(\"wasi_default v0.17 marker\") }\n".into(),
         "wasi_default.mty".into(),
         &opts,
         WasmTarget::Wasi,
@@ -55,18 +62,27 @@ fn default_wasi_preview_produces_p2_component_for_wasm() {
                 mty_codegen_wasm::is_component(&bytes),
                 "v0.15 default must produce a component (got a core module)"
             );
-            // Pin that the P2 path's wasi:cli/log shim wires through
-            // — wit-component prunes unused versioned surfaces from
-            // the live imports, but the slice-8 emitter's `log()`
-            // call keeps the unversioned `wasi:cli/log` import alive
-            // on every P2 build. Equivalent assertion to
-            // `p2_component_imports_include_wasi_log_shim` from the
-            // codegen-wasm test suite; pinned here as the
-            // driver-level marker that "default produces a P2
-            // component (not a P1 one)".
+            // v0.17 dropped the wasi:cli/log shim: `log()` now lowers
+            // directly to `wasi:cli/stdout@0.2.3` +
+            // `wasi:io/streams@0.2.3.[method]output-stream.
+            // blocking-write-and-flush` (+ matching resource-drop).
+            // Pin the new direct-import signature so a future regression
+            // to the shim path is caught immediately. (Same signature
+            // as the v0.17 `preview2_log` codegen-wasm tests; replicated
+            // here as the driver-level marker that "default produces a
+            // P2 component with direct P2 imports".)
             assert!(
-                component_text_contains(&bytes, "wasi:cli/log"),
-                "expected wasi:cli/log shim in P2 default component (signature of the P2 wrap path)"
+                component_text_contains(&bytes, "wasi:cli/stdout@0.2.3"),
+                "expected wasi:cli/stdout@0.2.3 in v0.17 P2 default component (signature of the direct-import log path)"
+            );
+            // v0.17: the unversioned `wasi:cli/log` shim is gone from
+            // the live import section. (It may still appear inside the
+            // vendored component-type WIT metadata if anything imports
+            // wasi:cli wholesale; the assertion below targets only the
+            // live imports stream.)
+            assert!(
+                !component_text_contains_in_imports(&bytes, "wasi:cli/log"),
+                "v0.17 default P2 build leaked the dropped wasi:cli/log shim into live imports"
             );
             // Also pin: the component MUST NOT declare a top-level
             // `wasi_snapshot_preview1` import — that would be the

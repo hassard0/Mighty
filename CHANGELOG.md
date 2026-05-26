@@ -9,21 +9,63 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- v1.0-RC4 work: extend Python 2nd-impl through HIR + sketch typeck
-  (~5.5 KLOC, ~8 days); run `go test ./...` on the Go 3rd-impl
-  (`impl-go/`) on a Go-1.22+ host and cross-validate against Rust +
-  Python over the `examples/` sweep; MT0001 funnel split
+- v1.0-RC4 work: replay full Runtime re-execution + hot-path wire-up
+  (drive the `Replayer` from inside a live `Runtime` and assert
+  byte-identical handler outputs; emit `TraceEvent`s from the live
+  agent boundaries spawn / send / handler / restart); RFC-008
+  multi-row surface syntax parser extension (`!{| E1, E2}` shape;
+  flips MT4059 to active emit); delete the vendored preview1-adapter
+  bytes from `crates/mty-codegen-wasm/src/embedded/` once a
+  back-compat sweep confirms no downstream relies on the always-on
+  default; Python 2nd-impl typeck polish (HM closure inference,
+  generics-with-constraints, full trait dispatch; cross-validation
+  against the Rust reference); MT0001 funnel split
   (MT0002/MT0003/MT0010/MT0011/MT0012/MT0020/MT0021/MT0030);
   `mty-pkg` cross-file resolution; parametric newtypes for self-host
-  arena ids; WASI P2 `log()` finish (canonical-ABI rewrite for the
-  `wasi:logging` interface — closes the last adapter dependency);
-  self-host codegen broadening (real LEB128 in Mighty, arena drops at
-  scope exit, agent backend); Windows named-pipe introspect backend
-  for parity with the POSIX Unix-domain control socket; wasmtime
-  dev-dep bump or swap (clear the advisory ignore bundle); RFC-008
-  typeck broadening (wire MT4055 / MT4056 / MT4058 / MT4059 to active
-  emission paths beyond the v0.16 row-poly contexts); normative
-  conformance suite kit publication; full `TokenStream` marshalling.
+  arena ids; self-host codegen broadening (real LEB128 in Mighty,
+  arena drops at scope exit, agent backend); Windows named-pipe
+  introspect backend for parity with the POSIX Unix-domain control
+  socket; normative conformance suite kit publication; full
+  `TokenStream` marshalling.
+
+## [0.17.0] - 2026-05-26
+
+**WASI Preview 2 adapter goes away (`log()` direct), deterministic
+replay + recorder land, Python 2nd-impl through typeck, RFC-008
+multi-row, security bundle cleared.** v0.17 removes the last
+preview1-adapter dependency in the WASI P2 hot path: `log()` /
+`print()` now lower to a three-call canonical-ABI sequence on
+`wasi:cli/stdout@0.2.3#get-stdout` +
+`wasi:io/streams@0.2.3#[method]output-stream.blocking-write-and-flush`
++ `[resource-drop]output-stream`, and the embedded adapter flips
+from always-on to opt-in (`Preview2Options::new(_).embed_adapter ==
+None`; `.with_adapter(Some(WASI_P1_ADAPTER_COMMAND))` reattaches it
+for back-compat builds). Tier 1.4 of
+`docs/internals/agent-features-roadmap.md` lands as
+`crates/mty-runtime/src/replay/{wire, recorder, mod}` (8 typed
+`TraceEvent` variants, `MTYTRACE`-magic + serde-additive wire format
+v1, `StepHandler` trait + `CountingStepHandler`) and a `mty replay
+<trace>` CLI with `--dump-json` + `--step` + `--json` modes; the
+full Runtime re-execution and hot-path wire-up are deferred to v0.18.
+The Python 2nd-impl (`impl-py/`) reaches typeck for the first time
+via `mty/hir.py` + `mty/lower.py` + `mty/typeck.py` (Hindley-Milner
+unifier with `TyAny` absorption for shapes the v0.17 surface doesn't
+yet model); all 23 `examples/*.mty` typecheck clean and the test
+count grows **139 → 274** (+135), substantially closing v1.0
+freeze blocker #2. RFC-008's HIR widens to
+`HirEffectRow::Open(concrete, Vec<HirRowVar>)`; the
+`UserRowPolyMeta` side table feeds the call-site walker so MT4055
+(declaration ambiguity), MT4056 (concrete + row var with no fn-typed
+param), and MT4058 (call-site arity mismatch) all reach active
+emission, with MT4059 reserved for the v0.18 parser ship of
+`!{| E1, E2}`. The `wasmtime` dev-dep bumps 25 → 36, clearing 15
+RUSTSEC advisories (`audit.toml` ignore list shrinks 16 → 3); no
+production code is affected. The release workflow that first fired
+on v0.15.0 continues to ship `mty` binaries for Linux / macOS×2 /
+Windows on every `v*` tag push. The spec stays at v1.0-RC3.
+**1274 Rust + 274 Python + 92 conformance + 23 selfhost-driver =
+1663 tests passing** (+192 vs v0.16), 0 failing, 4 ignored.
+[Release notes](dev/history/releases/RELEASE-v0.17.md).
 
 ## [0.16.0] - 2026-05-26
 
