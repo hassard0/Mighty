@@ -91,7 +91,9 @@ if [[ "${MTY_WEB_SMOKE:-0}" == "1" ]]; then
       exit 1
     fi
 
-    if ! node "$SMOKE_SCRIPT" "$WEB_URL" counter-web; then
+    # counter_web renders to a DOM `#count` element (no canvas), so we
+    # opt into the headless harness's dom mode (added in v0.23 integration).
+    if ! node "$SMOKE_SCRIPT" "$WEB_URL" counter-web --mode dom; then
       echo "smoke FAIL: headless-browser smoke failed for counter-web" >&2
       exit 1
     fi

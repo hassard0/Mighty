@@ -9,24 +9,104 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- v0.23-RC1 candidates: MT3012 DROP_IN_CONST_CONTEXT closure + full
-  `CONST_DECL → HirConst` lowering + const-context flag through HIR
-  walker + borrow-check over const initialisers (closes the last
-  uncovered diagnostic code, drops uncovered 1 → 0); BOLT post-link
-  binary optimisation complementing v0.22's PGO (binary-level basic-
-  block layout, target ~5-10% additional `mty check` wall-clock
-  improvement on top of PGO); multi-socket NUMA-locality
-  benchmark (v0.22 deferred multi-socket empirical numbers because
-  the development fleet is single-socket; v0.23 pulls a 2-socket
-  box into the bench loop and validates the tier-ordering); `mty
-  conform <kit.tar.gz>` implementer-CLI shim that runs the 147 cases
-  against any compiler binary and emits a normative pass/fail
-  table; systematic v1.0-RC validation sweep that walks every
-  spec-prose claim against the now-complete Python 2nd-impl and
-  files inconsistencies in `docs/spec/CHANGELOG.md`. There is **no
-  remaining Post-v1.0 backlog** as of v0.22 — every former
-  post-v1.0 roadmap item has landed pre-v1.0; only RFC comment
-  windows stand between current main and v1.0 GA.
+- v0.24-RC1 candidates: `BuiltinId::CanvasOp(...)` lowering arm in
+  `mty-codegen-wasm/src/emit.rs` so source-level
+  `canvas.fill_rect(...)` auto-emits the WIT import (closes Track D
+  gap #1); `format!()` / string interpolation in Mighty (closes
+  Track D gap #2 — today every `format!` emits MT6001 and the agent
+  must fall back to `"score:" + str(s)` concatenation); `export fn`
+  declarations actually reach the embedded core module's export
+  table (closes Track D gap #3 — Track B confirmed the core module
+  IS embedded; today its export section is empty so the JS shim
+  drives the agent via the `log` channel rather than calling exports
+  directly); promote `mty serve --watch`'s in-browser hot-reload
+  websocket from manual-only to test-gated (Track C's
+  websocket-push slice's integration test is `#[ignore]`'d for
+  file-watcher event-timing flake); v1.0 freeze gate prep — RFC
+  monitoring + final spec polish ahead of the 2026-07-25 last-RFC-
+  window close. Plus the v0.23-cycle MT3012 / BOLT / multi-socket
+  NUMA bench / `mty conform <kit.tar.gz>` / spec validation sweep
+  items carried forward from v0.22 if they don't fit into v0.24's
+  swarm budget. There is **no remaining Post-v1.0 backlog** — only
+  RFC comment windows stand between current main and v1.0 GA.
+
+## [0.23.0] - 2026-05-26
+
+**Mighty can run a web game on localhost.** v0.23 lands the
+`mty:web/canvas@0.1` + `mty:web/input@0.1` WIT interfaces, the
+`std.web` host bindings, a `wasm32-web` regression harness that
+locks in the embedded core-module invariant, a `mty serve` dev
+server with hot-reload + a `mty new --template web-game` scaffold,
+headless-browser visual smoke for every web demo, and a 6th demo
+where the Mighty agent drives the canvas via the new WIT surface.
+The Tetris demo at the end of v0.22 was the right stress-test: it
+surfaced exactly how thin the canvas + keyboard story was. v0.23
+closes that gap end-to-end. **Track A** (canvas + keyboard WIT)
+ships `crates/mty-stdlib/src/web/{canvas,input}.rs` (~430 LOC) with
+`WIT_IMPORT_*` / `WIT_EXPORT_*` drift-guard constants + 8 codegen
+tests + 13 stdlib unit tests covering `Canvas::clear/fill_rect/
+request_animation_frame` and `Input::poll_keydown/keyup`. **Track
+B** (wasm32-web embedded core module) is a no-code-change recon
+outcome — the long-standing suspicion that wit-component shipped a
+"header-only" component was wrong; the core module IS embedded at
+byte offset 189, and a 5-test regression harness
+(`crates/mty-codegen-wasm/tests/embedded_core_module.rs`) now locks
+the invariant in via `wasmparser` walks against the 2055-byte
+framing floor. **Track C** (`mty serve` + `mty new --template
+web-game`) lands `crates/mty-cli/src/cmd/serve.rs` (+~340 LOC) with
+a hand-rolled HTTP/1.1 server + RFC 6455 hand-rolled websocket
+hot-reload over `notify` file watches, plus a template registry
+(`crates/mty-cli/src/cmd/new.rs`) with two templates (`blank` +
+`web-game`) embedded via `include_str!`; 22 tests. **Track D**
+(demo 06_canvas_game) ships a 6th demo where the Mighty agent owns
+score/level/piece/board and drives the canvas via Track A's WIT;
+JS shim down **32% (345 → 235 LOC)** vs demo 05; headless smoke
+locks in a `canvas_game.phash` golden. Three language gaps
+surfaced — `BuiltinId::CanvasOp(...)` lowering, `format!()` /
+interpolation, `export fn` reaching the core export table — and are
+**flagged for v0.24** (the canvas-game runs; not every piece of
+logic lives in Mighty source yet). **Track E** (headless-browser
+visual smoke) lands `tests/web-smoke/smoke-headless.mjs` (+~380
+LOC) — Playwright-driven, 8x8 average-hash perceptual-hash golden
+under `tests/web-smoke/golden/<name>.phash`, hamming-distance
+tolerance 12, opt-in via `MTY_WEB_SMOKE=1`, skips cleanly when
+Playwright isn't installed; manual `web-smoke.yml` workflow_dispatch
+job; wired into demos 02 + 05 + 06. **Integration fixes (this
+tag commit):** (a) `crates/mty-cli/tests/cmd_serve.rs` port flake —
+`pick_port` was nanosecond-hashed mod 10000 and collided
+deterministically under workspace-wide parallel testing; replaced
+with OS-assigned via `TcpListener::bind("127.0.0.1:0")` then
+drop-and-reuse. (b) `crates/mty-runtime/tests/telemetry.rs`
+cross-test env pollution — tests 2 + 7 (`#[tokio::test]`) set
+`MTY_OTLP_ENDPOINT` while tests 8 + 9 (plain `#[test]`) raced their
+remove; defensive `remove_var` at start of plain tests. (c)
+`crates/mty-cli/src/cmd/new.rs` path-as-package-name bug — `mty
+new --template web-game /tmp/asteroids` was substituting the full
+path into `{{NAME}}` → generated `package /tmp/asteroids` → parse
+error; new `package_name_from_path` helper sanitises basename to a
+valid identifier + 4 new tests. (d) `tests/web-smoke/
+smoke-headless.mjs` canvas-or-DOM mode — Track E's
+counter-web wiring required a `<canvas>` that the counter demo
+doesn't have; new `--mode {canvas,dom}` flag validates `#count` or
+`[data-mty-output]` for DOM-mode demos. (e) `demos/02_counter_web/
+web/serve.sh` python3 portability — Windows aliases bare `python3`
+to the MS Store launcher stub; backported the cascading `python` →
+`python3` → `py` lookup from demo 06's serve.sh. (f) `demos/
+05_notetris_web/{mighty.toml, README.md, src/, web/}` untracked-file
+recovery — the v0.22 notetris demo source had been written to disk
+but never `git add`-ed (only Track E's smoke.sh was committed);
+files were complete + consistent, pulled into the tag. **All gates
+green, Rust test count grows 1554 → 1604** (+50: +8 Track A
+codegen + +13 stdlib + +5 Track B regression harness + +22 Track C
+serve/new + +5 cross-cut integrator). Python stays at **474** (no
+impl-py changes in this slice). Conformance grows to **153 cases /
+24 categories** (+6: Track A wasm_component additions + Track B
+codegen regression cases). Self-host driver still at **23**.
+Combined: **2254** (+56 vs v0.22's 2198). **KNOWN_ISSUES P1 + P2
+lists stay empty.** v1.0 freeze gates: blockers #1 + #3 unchanged
+(CLOSED); blocker #2 (RFC comment windows) still infrastructure-
+ready, user-action pending. **Earliest v1.0.0 tag: 2026-07-26**
+(unchanged).
 
 ## [0.22.0] - 2026-05-26
 

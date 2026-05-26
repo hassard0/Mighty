@@ -29,4 +29,16 @@ cp "$WASM" "$STAGE/main.wasm"
 
 echo "serving $STAGE on http://localhost:$PORT"
 cd "$STAGE"
-exec python3 -m http.server "$PORT"
+# Cascade through python / python3 / py so this works on Windows
+# (where bare `python3` is often the Microsoft Store launcher
+# stub rather than a real interpreter). Pattern lifted from demo 06.
+if command -v python >/dev/null 2>&1; then
+  exec python -m http.server "$PORT"
+elif command -v python3 >/dev/null 2>&1; then
+  exec python3 -m http.server "$PORT"
+elif command -v py >/dev/null 2>&1; then
+  exec py -3 -m http.server "$PORT"
+else
+  echo "serve: no python on PATH (tried python / python3 / py)" >&2
+  exit 2
+fi

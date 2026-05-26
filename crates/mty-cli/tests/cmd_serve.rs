@@ -12,7 +12,7 @@
 //! See `dev/history/notes/MTY_SERVE_V0_23_NOTES.md`.
 
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -40,17 +40,20 @@ fn fresh_tmpdir(label: &str) -> std::path::PathBuf {
     d
 }
 
-/// Pick a port that's most likely free. Tests retry once on bind
-/// failure with a different number; if both fail we panic and let
-/// CI flag it.
-fn pick_port(seed: u16) -> u16 {
-    // Range avoids well-known ports and our own services (8000,
-    // 8080, 8443). 49152-65535 is the OS-reserved dynamic range.
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
-    50000 + (((nanos as u16).wrapping_add(seed)) % 10000)
+/// Pick a port that's most likely free. We bind a transient
+/// `TcpListener` on `127.0.0.1:0`, let the OS pick a free dynamic
+/// port, then drop the listener and return the port number. This
+/// is racy (another process could grab the port between drop and
+/// `mty serve --port` binding) but vastly less racy than the
+/// time-based hashing we used to do — that flaked under parallel
+/// `cargo test --workspace` runs because two seeds + a fast clock
+/// would collide deterministically. The `seed` arg is retained for
+/// API compatibility but unused.
+fn pick_port(_seed: u16) -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind 127.0.0.1:0");
+    let port = listener.local_addr().expect("local_addr").port();
+    drop(listener);
+    port
 }
 
 /// Spawn `mty serve --port <port>` against `pkg_root`. Returns the

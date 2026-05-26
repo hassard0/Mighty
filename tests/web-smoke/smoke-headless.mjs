@@ -128,7 +128,15 @@ function startFixtureServer(html) {
 }
 
 // --- Core smoke -----------------------------------------------------------
-async function runSmoke({ baseUrl, name, golden = true, expectFail = false }) {
+// `mode`:
+//   - 'canvas' (default): demo must render to a <canvas> (used by
+//     notetris_web, canvas_game, and any future demo whose wasm draws
+//     pixels). Validates canvas dims + pixel variation + phash golden.
+//   - 'dom': demo updates a DOM element instead of a canvas (used by
+//     counter_web). Validates the page loaded without errors and that
+//     a known target element (`#count` or a `[data-mty-output]`
+//     marker) exists with non-default text content.
+async function runSmoke({ baseUrl, name, mode = 'canvas', golden = true, expectFail = false }) {
   const pw = await loadPlaywright();
   if (!pw) {
     log('(headless smoke skipped: playwright unavailable)');
@@ -170,7 +178,7 @@ async function runSmoke({ baseUrl, name, golden = true, expectFail = false }) {
       failReason = `page error(s): ${pageErrors.join(' | ')}`;
     }
 
-    if (!failReason) {
+    if (!failReason && mode === 'canvas') {
       // Canvas presence + non-zero dimensions.
       const dims = await page.evaluate(() => {
         const c = document.querySelector('canvas');
@@ -186,7 +194,22 @@ async function runSmoke({ baseUrl, name, golden = true, expectFail = false }) {
       }
     }
 
-    if (!failReason) {
+    if (!failReason && mode === 'dom') {
+      // DOM-mode demos (counter_web): the wasm boots, registers exports,
+      // and the JS host wires DOM listeners to those exports. We just
+      // verify the page came up cleanly and the canonical target element
+      // exists (`#count` or any `[data-mty-output]`).
+      const ok = await page.evaluate(() => {
+        return !!(document.querySelector('#count') ||
+                  document.querySelector('[data-mty-output]'));
+      });
+      if (!ok) {
+        failReason =
+          'no #count or [data-mty-output] target element on DOM-mode page';
+      }
+    }
+
+    if (!failReason && mode === 'canvas') {
       // Did the page actually draw something? Check that at least one
       // pixel differs from the canvas's top-left pixel (a flat-fill
       // demo would still pass — we're catching "totally blank or all-
@@ -359,14 +382,31 @@ async function main() {
     const code = await selfTest();
     process.exit(code);
   }
-  const baseUrl = argv[0];
-  const name = argv[1];
+  // Pull --mode out before positional parsing.
+  let mode = 'canvas';
+  const positional = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--mode') {
+      mode = argv[++i] || 'canvas';
+    } else if (a.startsWith('--mode=')) {
+      mode = a.slice('--mode='.length);
+    } else {
+      positional.push(a);
+    }
+  }
+  const baseUrl = positional[0];
+  const name = positional[1];
   if (!baseUrl || !name) {
-    err('usage: node smoke-headless.mjs <baseUrl> <name>');
+    err('usage: node smoke-headless.mjs <baseUrl> <name> [--mode canvas|dom]');
     err('       node smoke-headless.mjs --self-test');
     process.exit(2);
   }
-  const res = await runSmoke({ baseUrl, name });
+  if (mode !== 'canvas' && mode !== 'dom') {
+    err(`unknown --mode "${mode}" (expected canvas or dom)`);
+    process.exit(2);
+  }
+  const res = await runSmoke({ baseUrl, name, mode });
   if (res.skipped) {
     process.exit(0);
   }

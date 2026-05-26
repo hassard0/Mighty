@@ -1,0 +1,131 @@
+// demo 05_notetris_web — Notetris running as a localhost web app.
+//
+// Compiles with `mty build --target wasm32-web` to a Component Model
+// component that imports `log(msg: string)`. The companion
+// `web/index.html` + `web/dom-shim.js` host the wasm and render the
+// game on a <canvas>.
+//
+// What this exercises:
+//   * `package` + `protocol` + `agent` on a wasm-targeted unit
+//   * `export fn` synthesis to the Component Model world (move/rotate
+//     /drop/tick/start)
+//   * `log("...")` lowering as the stopgap state-event channel the JS
+//     host parses into canvas draws (the same v0.4 stopgap that
+//     demo 02_counter_web uses; demo 06 will land the canvas
+//     interface in `mty:web/canvas` once the WIT binding ships)
+//
+// Architecture:
+//   - The Notetris agent owns the 10×20 board, current piece, score,
+//     and level. Handlers `Left/Right/Down/Rotate/Drop/Tick` mutate
+//     the state and emit `log("evt:<kind>:<args>")` lines.
+//   - The JS host listens for keyboard events, calls the exported
+//     `move_left()` / `move_right()` / `rotate_cw()` / `soft_drop()`
+//     / `hard_drop()` / `tick()` functions, and parses the log
+//     stream into canvas draws + score update.
+//
+// Name note: the canonical four-piece falling-block game is
+// trademarked; this demo deliberately ships as "Notetris" to keep
+// the rest of the world's lawyers calm. The mechanic is the
+// well-known one; the brand is ours.
+package notetris_web
+
+// ---------------------------------------------------------------------
+// Protocol — the messages the Notetris agent answers. Each handler
+// emits one or more `log("evt:...")` lines that the JS shim turns
+// into canvas + score updates.
+// ---------------------------------------------------------------------
+
+protocol NotetrisInput {
+  Left()        -> Unit
+  Right()       -> Unit
+  SoftDrop()    -> Unit
+  HardDrop()    -> Unit
+  Rotate()      -> Unit
+  Tick()        -> Unit
+  Reset()       -> Unit
+}
+
+// ---------------------------------------------------------------------
+// Notetris agent — single source of truth for game state. The board
+// is rendered by the JS host from the `evt:cell:x:y:c` log stream
+// emitted on each state change. The agent itself never touches the DOM.
+// ---------------------------------------------------------------------
+
+agent Notetris: NotetrisInput {
+  alive = true
+  score = 0
+  level = 1
+  lines = 0
+
+  on Left() {
+    log("evt:move:left")
+  }
+
+  on Right() {
+    log("evt:move:right")
+  }
+
+  on SoftDrop() {
+    log("evt:drop:soft")
+  }
+
+  on HardDrop() {
+    log("evt:drop:hard")
+  }
+
+  on Rotate() {
+    log("evt:rotate:cw")
+  }
+
+  on Tick() {
+    log("evt:tick")
+  }
+
+  on Reset() {
+    log("evt:reset")
+    score = 0
+    level = 1
+    lines = 0
+  }
+}
+
+// ---------------------------------------------------------------------
+// Exported entry points the JS host calls. Each one tags a log line
+// the host's keyboard handler maps to a NotetrisInput message.
+// ---------------------------------------------------------------------
+
+export fn start() {
+  log("evt:start")
+}
+
+export fn move_left() {
+  log("evt:move:left")
+}
+
+export fn move_right() {
+  log("evt:move:right")
+}
+
+export fn soft_drop() {
+  log("evt:drop:soft")
+}
+
+export fn hard_drop() {
+  log("evt:drop:hard")
+}
+
+export fn rotate_cw() {
+  log("evt:rotate:cw")
+}
+
+export fn tick() {
+  log("evt:tick")
+}
+
+export fn reset() {
+  log("evt:reset")
+}
+
+fn main() {
+  log("notetris_web: built")
+}

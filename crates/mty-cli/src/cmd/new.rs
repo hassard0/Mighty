@@ -112,6 +112,42 @@ fn substitute(content: &str, pkg_name: &str) -> String {
     content.replace("{{NAME}}", pkg_name)
 }
 
+/// Derive a valid Mighty package identifier from a user-supplied path.
+///
+/// `mty new <path>` accepts either a bare name (`asteroids`) or a
+/// directory path (`/tmp/asteroids`, `C:/Users/.../asteroids`). The
+/// `{{NAME}}` substitution must always be a valid identifier, so we
+/// take the path's last component and then sanitize it: keep ASCII
+/// alphanumerics + underscores, lowercase, replace anything else with
+/// `_`, and ensure the first character isn't a digit.
+fn package_name_from_path(raw: &str) -> String {
+    // Use the filesystem basename rather than the raw arg, so
+    // `mty new C:/tmp/foo` becomes `foo` not `C:/tmp/foo`.
+    let basename = Path::new(raw)
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| raw.to_string());
+
+    let mut s: String = basename
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if s.is_empty() {
+        s.push_str("pkg");
+    }
+    // Identifiers can't start with a digit.
+    if s.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+        s.insert(0, '_');
+    }
+    s
+}
+
 /// Scaffold a fresh package directory. `template` is the
 /// `--template <name>` argument (None ⇒ the default blank template).
 pub fn run(name: &str, template: Option<&str>) -> i32 {
@@ -144,6 +180,10 @@ pub fn run(name: &str, template: Option<&str>) -> i32 {
         return 1;
     }
 
+    // The `name` arg can be a path; derive a valid identifier for
+    // `package {{NAME}}` substitution from its basename.
+    let pkg_id = package_name_from_path(name);
+
     for f in tpl.files {
         let out: PathBuf = dir.join(f.path);
         if let Some(parent) = out.parent() {
@@ -152,14 +192,17 @@ pub fn run(name: &str, template: Option<&str>) -> i32 {
                 return 1;
             }
         }
-        let body = substitute(f.content, name);
+        let body = substitute(f.content, &pkg_id);
         if let Err(e) = fs::write(&out, body) {
             eprintln!("failed to write {}: {}", out.display(), e);
             return 1;
         }
     }
 
-    println!("created {}/ (template: {})", name, tpl.name);
+    println!(
+        "created {}/ (template: {}, package: {})",
+        name, tpl.name, pkg_id
+    );
     0
 }
 
@@ -192,5 +235,31 @@ mod tests {
     fn substitute_replaces_all_placeholders() {
         let s = substitute("name={{NAME}}; again={{NAME}}", "foo");
         assert_eq!(s, "name=foo; again=foo");
+    }
+
+    #[test]
+    fn package_name_strips_path_prefix() {
+        assert_eq!(package_name_from_path("asteroids"), "asteroids");
+        assert_eq!(package_name_from_path("/tmp/asteroids"), "asteroids");
+        assert_eq!(
+            package_name_from_path("C:/Users/x/AppData/Local/Temp/asteroids"),
+            "asteroids"
+        );
+    }
+
+    #[test]
+    fn package_name_sanitises_punctuation_and_case() {
+        assert_eq!(package_name_from_path("My-Web Game"), "my_web_game");
+        assert_eq!(package_name_from_path("foo.bar"), "foo_bar");
+    }
+
+    #[test]
+    fn package_name_prepends_underscore_for_leading_digit() {
+        assert_eq!(package_name_from_path("3d-engine"), "_3d_engine");
+    }
+
+    #[test]
+    fn package_name_falls_back_to_pkg_for_empty_input() {
+        assert_eq!(package_name_from_path(""), "pkg");
     }
 }

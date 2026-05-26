@@ -113,8 +113,20 @@ async fn init_with_sample_rate_env() {
 
 /// Test 8 — `init_from_env` is idempotent. Calling it twice in a row
 /// (with the same env state) must not panic and must not double-install.
+///
+/// Note: we defensively clear `MTY_OTLP_ENDPOINT` first. Env vars are
+/// process-wide, and tests 2/7 (which set the endpoint to spin up the
+/// batch exporter) run under `tokio::test` because the exporter needs
+/// a reactor. If we raced one of those tests after it set the env but
+/// before its end-of-test `remove_var`, this plain `#[test]` would
+/// try to spin up the OTLP exporter without a tokio runtime and panic
+/// with "there is no reactor running". Defensive removes here keep the
+/// test independent of cross-test ordering.
 #[test]
 fn init_is_idempotent() {
+    std::env::remove_var("MTY_OTLP_ENDPOINT");
+    std::env::remove_var("MTY_OTLP_PROTOCOL");
+    std::env::remove_var("MTY_OTLP_SAMPLE_RATE");
     init_telemetry_from_env();
     init_telemetry_from_env();
     init_telemetry_from_env();
@@ -122,9 +134,12 @@ fn init_is_idempotent() {
 }
 
 /// Test 9 — `shutdown_telemetry` is safe when nothing was ever
-/// initialised.
+/// initialised. Defensively clear the OTLP env vars so we don't
+/// accidentally trigger init on shutdown (same cross-test race
+/// guarded against in test 8).
 #[test]
 fn shutdown_without_init_is_safe() {
+    std::env::remove_var("MTY_OTLP_ENDPOINT");
     shutdown_telemetry();
     shutdown_telemetry();
 }

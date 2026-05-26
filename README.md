@@ -20,7 +20,7 @@ server, and stdlib are all in one Rust workspace and one `mty` binary.
 > (operator precedence promoted to normative §11.1.1; full
 > 63-reserved-keyword set enumerated; effect-row grammar admits the
 > multi-row-variable tail since v0.18). The toolchain is exercised by
-> **1554 Rust tests** across 20 crates plus a second independent
+> **1604 Rust tests** across 20 crates plus a second independent
 > Python implementation at [`impl-py/`](impl-py/) (full pipeline:
 > lex → parse → lower → typeck → borrow → wasm; **474 tests**,
 > 23/23 examples typeck clean, 21/24 emit wasm) and a third
@@ -30,11 +30,11 @@ server, and stdlib are all in one Rust workspace and one `mty` binary.
 > **v1.0 freeze blockers are down to RFC comment windows**: blocker
 > #1 (Python 2nd-impl) closed with HM closures + generic-constraints
 > + full borrow + wasm codegen pipeline; blocker #3 (normative
-> conformance suite) closed with the 147-case kit + normative
-> `docs/spec/conformance.md` (coverage now **63% direct / 99% any-
-> harness** after the v0.22 audit; only MT3012 DROP_IN_CONST_CONTEXT
-> remains uncovered, deferred to v0.23 pending HIR `CONST_DECL`
-> lowering); blocker #2 (eight RFC comment-window closures) is
+> conformance suite) closed with the **153-case kit** + normative
+> `docs/spec/conformance.md` (coverage stable at 63% direct / 99%
+> any-harness; MT3012 DROP_IN_CONST_CONTEXT remains the only
+> uncovered code, deferred pending HIR `CONST_DECL` lowering);
+> blocker #2 (eight RFC comment-window closures) is
 > infrastructure-ready (`docs/spec/rfcs/COMMENT_WINDOWS.md` tracks
 > all 8 windows) and awaits the user-side Discussion-thread
 > openings. **Every former Post-v1.0 roadmap item has now landed
@@ -44,31 +44,36 @@ server, and stdlib are all in one Rust workspace and one `mty` binary.
 
 ## Release timeline
 
-- **v0.22.0** (this release): per-message work-stealing (Tier 5) +
-  PGO/ThinLTO build profile + Python full pipeline. **All former
-  Post-v1.0 roadmap items now landed.** Crossbeam-deque per-worker
-  queues with NUMA-locality steal ordering (own NUMA → same socket
-  → anywhere) + process-wide `worker.steals_total{src,dst}` OTel
-  counter (-61% on pinned-burst workload vs v0.21); `release-pgo`
-  cargo profile + two-stage `scripts/build-pgo.{sh,ps1}` pipeline
-  driven by a new `mty-bench-pgo` runner + manual
-  `pgo-bench.yml` workflow (measurement-only; v0.23 BOLT follow-up
-  turns it into the default); Python 2nd-impl extends from typeck
-  to full lex → parse → lower → typeck → borrow → wasm pipeline
-  with 474 tests (+163) and 21/24 examples emitting wasm; coverage
-  closure activates 7 of 8 v0.21-uncovered codes (MT0004 / MT0030
-  / MT2015 / MT2016 / MT2018 / MT2019 / MT3015) — MT3012 deferred
-  to v0.23 pending HIR `CONST_DECL` lowering; MtyIR `Stmt` real
-  `SourceSpan` carrier replacing v0.21's synthetic-uniform spread
-  so `gdb step-line` is byte-accurate.
-- **v0.23-RC1** (next): MT3012 closure (full `CONST_DECL → HirConst`
-  lowering + const-context flag + borrow-check over const
-  initialisers — drops uncovered 1 → 0); BOLT post-link binary
-  optimisation complementing PGO; multi-socket NUMA-locality
-  benchmark (v0.22 deferred multi-socket numbers because the
-  development fleet is single-socket); `mty conform <kit.tar.gz>`
-  implementer-CLI shim; systematic v1.0-RC validation sweep
-  walking every spec-prose claim against the Python 2nd-impl.
+- **v0.23.0** (this release): **Mighty can run a web game on
+  localhost.** First-class browser host surface — `mty:web/canvas@0.1`
+  + `mty:web/input@0.1` Component-Model WIT pair lowered through new
+  `std.web.Canvas` + `std.web.Input` Mighty-side bindings (`crates/
+  mty-stdlib/src/web/{canvas,input}.rs`, drift-guarded by
+  `WIT_IMPORT_*` / `WIT_EXPORT_*` consts, 8 codegen tests + 13
+  stdlib unit tests). New `mty serve [--port <n>] [--watch]`
+  subcommand — hand-rolled HTTP/1.1 dev server (no `hyper`/`axum`
+  dep) with RFC 6455 hand-rolled websocket hot-reload over
+  `notify` file watches. New `mty new --template web-game <name>`
+  scaffolds the 5-file agent + canvas + dom-shim project. New
+  6th demo `06_canvas_game` where the Mighty agent drives the
+  canvas directly via the new WIT surface (JS shim **-32%** LOC vs
+  the v0.22 notetris demo). Headless-browser visual smoke at
+  `tests/web-smoke/smoke-headless.mjs` (Playwright + 8x8 average-
+  hash phash + per-demo golden lock-in, gated by `MTY_WEB_SMOKE=1`).
+  `wasm32-web` framing-floor regression harness at `crates/
+  mty-codegen-wasm/tests/embedded_core_module.rs` locks in the
+  embedded-core-module invariant (5 tests, ±32 byte tolerance for
+  wit-component drift). Conformance kit grows 147 → 153 cases.
+  Rust test count **1554 → 1604** (+50). Three v0.24 language gaps
+  documented for closure (`BuiltinId::CanvasOp(...)` lowering arm,
+  `format!()` / interpolation, `export fn` reaching the embedded
+  core module's export table).
+- **v0.24-RC1** (next): close Track D's three language gaps (canvas
+  op lowering + `format!()` interpolation + `export fn` reaching
+  the embedded core module's export table); promote `mty serve
+  --watch`'s in-browser hot-reload from manual-only to test-gated;
+  v1.0 freeze gate prep — RFC monitoring + final spec polish ahead
+  of the 2026-07-25 last-RFC-window close.
 - **v1.0.0 GA**: when all 8 RFC comment windows close.
   **Earliest: 2026-07-26** (the day after RFC-002 / RFC-006's 60-day
   windows close). The integrator collects dispositions →
@@ -94,6 +99,21 @@ cargo install --path crates/mty-cli
 ```
 
 This installs the `mty` binary. **MSRV: Rust 1.85.**
+
+Fastest on-ramp to a browser-hosted Mighty program (v0.23):
+
+```bash
+mty new --template web-game asteroids
+cd asteroids
+mty serve --port 8000   # built-in dev server + file-watcher hot-reload
+# open http://localhost:8000
+```
+
+`mty new --template web-game <name>` scaffolds a 5-file
+agent + canvas + dom-shim project ready to build under
+`--target wasm32-web`. `mty serve` hands the resulting Component +
+`web/` static assets out over HTTP/1.1 with optional `--watch`-driven
+websocket hot-reload.
 
 ## Hello, Mighty
 
@@ -296,6 +316,31 @@ Then:
   wall-clock delta to the workflow summary (v0.22 ships measurement,
   not gating; v0.23's BOLT follow-up turns it into the default
   release artifact pipeline)
+- **`std.web` (canvas + keyboard) + `mty serve` + headless visual
+  smoke (v0.23)** — first-class browser host surface for Mighty.
+  `std.web.Canvas::{clear, fill_rect, request_animation_frame}` +
+  `std.web.Input::{poll_keydown, poll_keyup}` lower to a
+  `mty:web/canvas@0.1` + `mty:web/input@0.1` Component-Model WIT
+  pair (drift-guarded by `WIT_IMPORT_*` / `WIT_EXPORT_*` consts in
+  `crates/mty-stdlib/src/web/{canvas,input}.rs`). New `mty serve
+  [--port <n>] [--watch]` subcommand: hand-rolled HTTP/1.1 dev
+  server (no `hyper`/`axum` dep) + RFC 6455 hand-rolled websocket
+  hot-reload triggered by `notify` file-watcher events under `src/`
+  + `web/`. New `mty new --template web-game <name>` scaffolds the
+  5-file agent + canvas + dom-shim project. Headless-browser visual
+  smoke at `tests/web-smoke/smoke-headless.mjs` (Playwright,
+  8x8 average-hash perceptual hash, hamming-distance budget 12,
+  per-demo `golden/<name>.phash` lock-in, manual `web-smoke.yml`
+  workflow_dispatch CI job, gated by `MTY_WEB_SMOKE=1` locally so
+  the heavy Playwright install is opt-in). A regression harness at
+  `crates/mty-codegen-wasm/tests/embedded_core_module.rs` locks in
+  the wasm32-web framing invariant (Component envelope embeds the
+  core module at byte offset 189, ±32 byte tolerance for
+  wit-component drift between releases). Three Mighty-source-side
+  language gaps documented for v0.24 closure
+  (`BuiltinId::CanvasOp(...)` lowering arm, `format!()` /
+  interpolation, `export fn` reaching the embedded core module's
+  export table).
 
 **Self-hosting (full pipeline)**
 
@@ -387,13 +432,12 @@ The v1.0 spec is feature-complete at **v1.0-RC4** (`docs/spec/v1.0-rc.md`).
    2026-06-09 (RFC-005, 14 days); latest close 2026-07-25 (RFC-002
    / RFC-006, 60 days each).
 3. ~~A published normative conformance suite.~~ **CLOSED v0.19,
-   audit updated v0.22** —
+   grown v0.20/v0.22/v0.23** —
    [`scripts/build-conformance-kit.sh`](scripts/build-conformance-kit.sh)
-   packages 147 cases / 24 categories + the normative
+   packages **153 cases** / 24 categories + the normative
    [`docs/spec/conformance.md`](docs/spec/conformance.md) into a
-   ~115 K tarball attached to every tagged release. Coverage 63%
-   direct / 99% any-harness (only MT3012 uncovered, deferred to
-   v0.23).
+   tarball attached to every tagged release. Coverage 63%
+   direct / 99% any-harness (only MT3012 uncovered).
 
 ### Post-v1.0
 
@@ -401,10 +445,13 @@ The Post-v1.0 backlog is **empty** as of v0.22 — every former
 post-v1.0 roadmap item (per-message work-stealing, PGO/ThinLTO,
 Python 2nd-impl borrow + codegen) landed pre-v1.0. Beyond v1.0,
 candidate slices are tracked in the `[Unreleased]` block of
-[`CHANGELOG.md`](CHANGELOG.md) (BOLT post-link optimisation,
-multi-socket NUMA benchmark, `mty conform` implementer-CLI shim,
-systematic v1.0-RC validation sweep, MT3012 closure pending HIR
-`CONST_DECL` lowering).
+[`CHANGELOG.md`](CHANGELOG.md) (v0.23 Track D language gaps —
+`BuiltinId::CanvasOp(...)` lowering, `format!()` / string
+interpolation, `export fn` reaching the embedded core module's
+export table; `mty serve --watch` hot-reload promoted to test-
+gated; BOLT post-link optimisation; multi-socket NUMA benchmark;
+`mty conform` implementer-CLI shim; systematic v1.0-RC validation
+sweep; MT3012 closure pending HIR `CONST_DECL` lowering).
 
 ### Landed pre-v1.0 (formerly post-v1.0)
 
@@ -433,6 +480,7 @@ systematic v1.0-RC validation sweep, MT3012 closure pending HIR
 - Python 2nd-impl full pipeline (v0.22) — extends the v0.19 typeck-only impl with NLL-flavoured borrow checker (MT3001–MT3005, +865 LOC, +28 tests) + Core 1.0 wasm codegen (+954 LOC, +37 tests) emitting i32 arithmetic, control flow, calls, locals with deduplicated type table and structural validation; 96-case full-pipeline sweep; 21/24 examples emit wasm fn bodies; Python test count 311 → 474 (+163). Completes the v1.0-RC validation question — every spec-prose claim now has a 2nd impl that round-trips through codegen.
 - Diagnostic-code coverage closure (v0.22) — activates 7 of the 8 v0.21-uncovered codes (MT0004 / MT0030 via `Parser::pre_lex_scan` + driver `DiagCode` preservation; MT2015 / MT2016 via `synth_match`; MT2018 via `synth_expr_inner` If branch; MT2019 via `items` custom function-body path; MT3015 via `mty-borrow::flow::walk_stmt` binding `let x: T;` as `Ownership::Uninit`). +7 conformance fixtures. Coverage 62 → 69 direct (56% → 63%), any-harness 93% → 99%, uncovered 8 → 1. MT3012 DROP_IN_CONST_CONTEXT explicitly deferred to v0.23 pending HIR `CONST_DECL` lowering.
 - MtyIR `Stmt` real source-span carrier (v0.22) — every MtyIR `Stmt` + `Terminator` now carries a real `SourceSpan` field (default `SourceSpan::ZERO` for back-compat with manually-constructed programs); HIR spans propagate through `lower → MtyIR → cranelift SourceLoc → DWARF v5 line row`, replacing v0.21's synthetic-uniform per-statement byte-offset spread; `gdb step-line` against v0.22 binaries walks source lines byte-accurately.
+- `std.web` (canvas + keyboard) + `mty serve` + headless visual smoke (v0.23) — first-class browser host surface for Mighty. `mty:web/canvas@0.1` + `mty:web/input@0.1` Component-Model WIT pair + `std.web.Canvas` / `std.web.Input` Mighty-side bindings drift-guarded by `WIT_IMPORT_*` / `WIT_EXPORT_*` consts; new `mty serve [--port <n>] [--watch]` subcommand (hand-rolled HTTP/1.1 + RFC 6455 hand-rolled websocket hot-reload over `notify` file watches); new `mty new --template web-game <name>` scaffold; `wasm32-web` embedded-core-module regression harness (the long-standing "header-only component" suspicion was wrong — the core module IS embedded at byte offset 189); 6th demo `06_canvas_game` (agent-driven canvas, JS shim -32% LOC vs v0.22 notetris); headless-browser visual smoke (Playwright + 8x8 phash + per-demo golden, gated by `MTY_WEB_SMOKE=1`). Three v0.24 language gaps documented: `BuiltinId::CanvasOp(...)` lowering arm in `mty-codegen-wasm/src/emit.rs`; `format!()` / interpolation; `export fn` reaching the embedded core module's export table. Conformance kit grows 147 → 153 cases.
 
 For the full per-version history of what shipped on the road to v1.0,
 see [`CHANGELOG.md`](CHANGELOG.md).
@@ -440,17 +488,18 @@ see [`CHANGELOG.md`](CHANGELOG.md).
 ## Status
 
 Mighty is **pre-alpha**. Internal milestones have been tagged through
-**v0.22**. The v1.0 language spec is at v1.0-RC4 — see
-`docs/spec/v1.0-rc.md`. There are **1554 Rust tests** across the
+**v0.23**. The v1.0 language spec is at v1.0-RC4 — see
+`docs/spec/v1.0-rc.md`. There are **1604 Rust tests** across the
 workspace (plus **474 Python tests** in the [`impl-py/`](impl-py/)
 2nd-impl now covering the full pipeline lex → parse → lower → typeck
-→ borrow → wasm, **147 normative conformance cases** at **63%
+→ borrow → wasm, **153 normative conformance cases** at **63%
 direct / 99% any-harness** coverage with only MT3012
-DROP_IN_CONST_CONTEXT remaining uncovered (deferred to v0.23
-pending HIR `CONST_DECL` lowering), and **23 self-host driver**
-codegen tests = **2198 combined**), 0 clippy warnings *under the
+DROP_IN_CONST_CONTEXT remaining uncovered (deferred pending HIR
+`CONST_DECL` lowering), and **23 self-host driver**
+codegen tests = **2254 combined**), 0 clippy warnings *under the
 strict `pedantic` gate* (a required CI job, not advisory), and
-**4/4 demos** pass `smoke.sh`. The cargo-fuzz harness covers four
+**6/6 demos** pass `smoke.sh` (including the v0.23 canvas-driven
+06_canvas_game demo). The cargo-fuzz harness covers four
 targets (parser / typeck / fmt / codegen). **All KNOWN_ISSUES P1/P2
 items are closed**; **every former Post-v1.0 roadmap item has now
 landed pre-v1.0** (per-message work-stealing, PGO/ThinLTO, Python

@@ -68,19 +68,55 @@ fn new_web_game_creates_expected_files() {
         );
     }
     // Placeholder substitution worked everywhere we expect it.
+    // Note: the user-supplied path `test-game` is sanitised into the
+    // valid Mighty identifier `test_game` before being stamped into
+    // `{{NAME}}`. This was a v0.23-integration fix: the previous code
+    // pasted the raw arg in verbatim, which broke for any path with
+    // hyphens, dots, or directory separators (e.g. `mty new /tmp/foo`
+    // would produce `package /tmp/foo` — a parse error).
     let manifest = std::fs::read_to_string(root.join("mighty.toml")).unwrap();
     assert!(
-        manifest.contains("name = \"test-game\""),
+        manifest.contains("name = \"test_game\""),
         "manifest didn't get the package name substituted: {manifest}"
     );
     let main = std::fs::read_to_string(root.join("src/main.mty")).unwrap();
     assert!(
-        main.contains("package test-game"),
-        "main.mty didn't get the package name substituted"
+        main.contains("package test_game"),
+        "main.mty didn't get the package name substituted (expected `package test_game`)"
     );
     assert!(
         !main.contains("{{NAME}}"),
         "main.mty still contains a {{{{NAME}}}} placeholder"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn new_web_game_sanitises_path_to_identifier() {
+    // Regression for v0.23 integration: scaffolding into a *path*
+    // (rather than a bare name) must use the basename, sanitised to
+    // a valid Mighty identifier, as the package name. Pre-fix the
+    // generated `src/main.mty` had `package C:/tmp/foo` which is a
+    // syntax error the moment you run `mty check`.
+    let dir = fresh_tmpdir("webgame-path");
+    let target = dir.join("asteroids-pre1");
+    let target_str = target.to_string_lossy().into_owned();
+    let (code, _stdout, stderr) = mty(
+        dir.parent().unwrap_or(&dir),
+        &["new", "--template", "web-game", &target_str],
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    let main = std::fs::read_to_string(target.join("src/main.mty")).unwrap();
+    assert!(
+        main.contains("package asteroids_pre1"),
+        "main.mty should use sanitised package name `asteroids_pre1`, got:\n{main}"
+    );
+    assert!(
+        !main.contains('/')
+            || !main
+                .lines()
+                .any(|l| l.starts_with("package ") && l.contains('/')),
+        "package declaration should not contain a path separator: {main}"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
