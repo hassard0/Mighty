@@ -463,8 +463,95 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
             BuiltinMethod {
                 arity: None,
                 ret: None,
+                row_sig: None,
             },
         );
+    }
+
+    // ---- v0.15: row-polymorphic stdlib HOF dispatch table ----
+    //
+    // Each entry binds a method name to a factory returning the
+    // matching `RowPolySig` from `effects::row::stdlib_sigs`. The
+    // call-site effect walker (`walk_expr_effects` for
+    // `HirExpr::MethodCall`) instantiates the sig, computes the
+    // closure-argument's inferred effect row, and unifies them through
+    // `row::unify_rows` — that propagates the closure's effects into
+    // the caller's set per RFC-008 §"v0.14 follow-up".
+    //
+    // Method-name keyed (not receiver+method) to match the existing
+    // `builtin_methods` shape. The actual receiver discrimination
+    // (`List.map` vs `Iterator.map` vs `Option.map`) is structurally
+    // identical for the v0.14 sigs — they all have shape
+    // `[Skip, closure-Var(0)] → Var(0)` (or the 3-param fold variant) —
+    // so a single per-method-name entry suffices for the v0.15 dispatch.
+    // Per-receiver discrimination is a v0.16 refinement (see
+    // `dev/history/notes/HOF_DISPATCH_V0_15_NOTES.md`).
+    // Local type alias so the slice's element type stays under
+    // clippy::type_complexity. Mirrors `defs::RowSigFactory`, kept local
+    // here to keep this build table self-contained (no extra cross-module
+    // re-exports needed at the call site).
+    type RowSigFactory = fn() -> crate::effects::row::RowPolySig;
+    let row_poly_methods: &[(&str, RowSigFactory)] = &[
+        // Anchor sig (v0.13): List.map / Iterator.map / Option.map / Result.map.
+        ("map", crate::effects::row::stdlib_list_map_sig),
+        // v0.14 — List.
+        (
+            "filter",
+            crate::effects::row::stdlib_sigs::stdlib_list_filter_sig,
+        ),
+        (
+            "fold",
+            crate::effects::row::stdlib_sigs::stdlib_list_fold_sig,
+        ),
+        (
+            "flat_map",
+            crate::effects::row::stdlib_sigs::stdlib_list_flat_map_sig,
+        ),
+        // v0.14 — Iterator-specific (the per-receiver collisions with
+        // List entries above are resolved by the v0.15 shape-agnostic
+        // dispatch: every `map`/`filter`/`fold`/`flat_map` reuses the
+        // shared single-row-closure shape).
+        (
+            "for_each",
+            crate::effects::row::stdlib_sigs::stdlib_iter_for_each_sig,
+        ),
+        (
+            "find",
+            crate::effects::row::stdlib_sigs::stdlib_iter_find_sig,
+        ),
+        ("any", crate::effects::row::stdlib_sigs::stdlib_iter_any_sig),
+        ("all", crate::effects::row::stdlib_sigs::stdlib_iter_all_sig),
+        (
+            "collect",
+            crate::effects::row::stdlib_sigs::stdlib_iter_collect_sig,
+        ),
+        // v0.14 — Option / Result.
+        (
+            "and_then",
+            crate::effects::row::stdlib_sigs::stdlib_option_and_then_sig,
+        ),
+        (
+            "or_else",
+            crate::effects::row::stdlib_sigs::stdlib_option_or_else_sig,
+        ),
+        (
+            "map_err",
+            crate::effects::row::stdlib_sigs::stdlib_result_map_err_sig,
+        ),
+    ];
+    for (m, factory) in row_poly_methods {
+        // Insert OR update: row-poly methods that overlap with the
+        // permissive list above get their row_sig field set (rest of
+        // the entry stays permissive).
+        let entry = defs
+            .builtin_methods
+            .entry((*m).into())
+            .or_insert_with(|| BuiltinMethod {
+                arity: None,
+                ret: None,
+                row_sig: None,
+            });
+        entry.row_sig = Some(*factory);
     }
 
     PreludeIds {

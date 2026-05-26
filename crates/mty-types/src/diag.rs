@@ -636,3 +636,48 @@ pub fn non_sendable_message_arg(
     );
     d
 }
+
+/// v0.15 — MT4050 row_subsumption_fail. Emitted by the row-poly stdlib
+/// HOF dispatcher (see `effects.rs::walk_expr_effects` →
+/// `HirExpr::MethodCall` branch) when the closure-argument's inferred
+/// effect row carries effects the caller's declared effect clause does
+/// not allow.
+///
+/// `method` is the HOF method name (`map`, `and_then`, ...). `disallowed`
+/// is the human-readable list of effects the closure produced that aren't
+/// in the caller's declared set. `span` is the call-site expression span.
+pub fn hof_closure_effects_rejected(
+    method: &str,
+    disallowed: &[String],
+    span: &SourceSpan,
+) -> Diagnostic {
+    let joined = if disallowed.is_empty() {
+        "(unspecified)".to_string()
+    } else {
+        disallowed.join(", ")
+    };
+    let mut d = Diagnostic::error(
+        ROW_SUBSUMPTION_FAIL,
+        label(
+            span,
+            format!(
+                "closure passed to `{}` introduces effects {{{}}} \
+                 that the enclosing fn's effect clause does not allow",
+                method, joined
+            ),
+        ),
+    );
+    d.notes.push(format!(
+        "add `effect {}` to the enclosing fn's signature, \
+         or replace the closure with a pure one",
+        disallowed
+            .iter()
+            .next()
+            .cloned()
+            .unwrap_or_else(|| "<effect>".into())
+    ));
+    d.notes.push(
+        "RFC-008 §\"v0.14 follow-up\" row_subsumption_fail — see `mty explain MT4050`".into(),
+    );
+    d
+}

@@ -71,6 +71,27 @@ pub const PROTOCOL_EXTRA_HANDLER: DiagCode = DiagCode::new(4033);
 pub const DERIVE_COPY_FIELD_NOT_COPY: DiagCode = DiagCode::new(4040);
 pub const DERIVE_UNKNOWN: DiagCode = DiagCode::new(4041);
 
+// v0.15 — RFC-008 row-machinery diagnostics for stdlib HOF dispatch.
+//
+// RFC-008 reserved MT4020..MT4025 in `dev/history/notes/RFC-008-…` but
+// those codes were already claimed by the v0.6 trait/method codes shown
+// above. The row-machinery codes therefore land in the unused 4050-block
+// (same `MT40xx` family / same severity tier; `mty explain` text below
+// notes the RFC reservation for searchability).
+//
+// Wire-by-design: the v0.15 dispatcher only emits MT4050 on a closed-row
+// rejection. MT4051..MT4054 are *reserved* in this file so future v0.16
+// inference work doesn't renumber them when adding more emit-sites.
+pub const ROW_SUBSUMPTION_FAIL: DiagCode = DiagCode::new(4050);
+/// MT4051: row var bound to a row containing itself (RFC-008 MT4020 slot).
+pub const ROW_OCCURS_CHECK: DiagCode = DiagCode::new(4051);
+/// MT4052: row var on a struct field (RFC-008 MT4021 slot).
+pub const ROW_VAR_IN_STRUCT: DiagCode = DiagCode::new(4052);
+/// MT4053: row var never bound by any argument (RFC-008 MT4022 slot).
+pub const ROW_VAR_UNBOUND: DiagCode = DiagCode::new(4053);
+/// MT4054: closed-row mismatch — two closed rows differ (RFC-008 MT4024 slot).
+pub const ROW_EFFECT_MISMATCH: DiagCode = DiagCode::new(4054);
+
 // Runtime / interpreter (slice 6): MT5001..MT5099
 pub const RUNTIME_PANIC: DiagCode = DiagCode::new(5001);
 pub const USE_AFTER_DROP: DiagCode = DiagCode::new(5002);
@@ -578,6 +599,44 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
             "MT4041: Unknown derive. v0.3 supports `Copy`, `Hash`, `Eq`, \
                  and `Sendable`. Other derive names are reserved for later \
                  slices."
+        }
+        4050 => {
+            "MT4050: Closure effects rejected by row constraint. The \
+                 closure passed to a row-polymorphic stdlib HOF (`map`, \
+                 `filter`, `fold`, `and_then`, ...) carries effects the \
+                 caller's declared effect clause does not allow. The \
+                 row-poly signature instantiates `Var(0)` to the \
+                 closure's row, and the caller's closed declared row \
+                 fails subsumption against it. Fix: add the missing \
+                 effect to the caller's `effect ...` clause, or use a \
+                 pure closure. (RFC-008 row_subsumption_fail.)"
+        }
+        4051 => {
+            "MT4051: Row variable occurs-check failure. A row variable \
+                 would be bound to a row that mentions itself (directly \
+                 or via the substitution chain). Reserved for the v0.16 \
+                 surface-syntax row-clause inference pass. \
+                 (RFC-008 row_occurs_check.)"
+        }
+        4052 => {
+            "MT4052: Row variable on a struct field. Row polymorphism is \
+                 a fn-signature feature; struct fields must use a closed \
+                 effect set or no effect clause at all. Reserved for \
+                 the v0.16 surface-syntax row-clause check. (RFC-008 \
+                 row_var_in_struct.)"
+        }
+        4053 => {
+            "MT4053: Unbound row variable. A row variable was declared \
+                 in a fn's effect clause but never appears in any \
+                 parameter position from which the inference could bind \
+                 it. Reserved for the v0.16 surface-syntax row-clause \
+                 check. (RFC-008 row_var_unbound.)"
+        }
+        4054 => {
+            "MT4054: Closed-row mismatch. Two closed effect rows differ \
+                 in their concrete effects (neither is a sub-row of the \
+                 other). Reserved for the v0.16 closed-row equality \
+                 paths. (RFC-008 row_effect_mismatch.)"
         }
         5001 => {
             "MT5001: Runtime panic. The program executed `panic(msg)` \

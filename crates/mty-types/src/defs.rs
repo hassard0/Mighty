@@ -82,6 +82,16 @@ pub struct ModuleId(pub u32);
 /// A built-in method dispatched from `(receiver_shape, method_name)`. The
 /// receiver shape lets us key the table without needing full trait
 /// resolution.
+///
+/// v0.15: now carries an optional `row_sig` factory for stdlib HOFs
+/// (e.g. `Iterator.map`, `Option.and_then`). When `Some`, the call-site
+/// effect walker instantiates the [`crate::effects::row::RowPolySig`] it
+/// returns, unifies the closure-argument's inferred effect row against the
+/// signature's parameter row, then propagates the resolved return row into
+/// the caller's effect set. The factory is stored as a `fn` pointer rather
+/// than an owned `RowPolySig` so this struct can stay in `defs.rs` without
+/// pulling the `effects::row` module into the dependency graph here (avoids
+/// an `effects → defs → effects` import cycle).
 #[derive(Debug, Clone)]
 pub struct BuiltinMethod {
     /// Number of arguments (excluding the receiver). For variadic methods,
@@ -89,7 +99,17 @@ pub struct BuiltinMethod {
     pub arity: Option<usize>,
     /// Return type. `None` means "fresh inference variable" (permissive).
     pub ret: Option<TyId>,
+    /// v0.15: row-polymorphic stdlib HOF signature factory. `None` for
+    /// non-HOF methods (the legacy permissive behavior). `Some` registers
+    /// the method as a row-poly stdlib HOF; the dispatcher in
+    /// `crate::effects::walk_expr_effects` consults it on each call.
+    pub row_sig: Option<RowSigFactory>,
 }
+
+/// v0.15: a factory producing a [`crate::effects::row::RowPolySig`] on
+/// demand. Stored as a `fn` pointer to avoid importing the type into
+/// `defs.rs` (cycle break — see [`BuiltinMethod::row_sig`]).
+pub type RowSigFactory = fn() -> crate::effects::row::RowPolySig;
 
 #[derive(Debug, Default)]
 pub struct DefMap {

@@ -141,6 +141,14 @@ pub fn infer_and_validate(
         }
     }
 
+    // v0.15: row-poly stdlib HOF call-site validation. Runs BEFORE the
+    // fn-level MT4001 check so authors see the more specific MT4050
+    // ("closure passed to `map` introduces effects {fs} ...") first,
+    // followed by MT4001 ("fn `f` is missing effects: fs") as the
+    // catch-all. The two are intentionally complementary — MT4050
+    // points to the exact call site, MT4001 to the fn signature.
+    validate_row_dispatch(pkg, defs, arena, &known, diagnostics);
+
     // Public-fn validation.
     for (fid, hir_fn) in pkg.fns.iter() {
         if !hir_fn.is_pub {
@@ -201,6 +209,387 @@ struct KnownEffects {
     unsafe_e: EffectId,
 }
 
+/// v0.15: post-inference pass that walks every pub fn body looking for
+/// stdlib HOF method calls whose closure arguments contribute effects
+/// the caller's declared effect clause does not allow. Emits MT4050
+/// (`row_subsumption_fail`) per RFC-008 §"v0.14 follow-up".
+///
+/// Architecturally this runs AFTER the initial inference + fixpoint:
+/// at that point `fn_effects` holds the inferred-set for every fn (so
+/// closures over local `let f = || ...` bindings can be characterized
+/// via the eventual caller's set if we ever surface that), and every
+/// pub fn's declared row is known via `hir_fn.effects`. The check is
+/// local to each call site — no fixpoint needed.
+///
+/// This pass is ADDITIVE to the existing MT4001 `effect_undeclared`
+/// check: MT4001 fires at the fn-level when the inferred set isn't a
+/// subset of the declared set; MT4050 fires at the CALL site when the
+/// specific offending effects came in via a row-poly HOF closure. The
+/// two diagnostics will often co-occur (and that's intentional — the
+/// MT4050 message points to the exact HOF call, which MT4001's fn-level
+/// message doesn't).
+fn validate_row_dispatch(
+    pkg: &Package,
+    defs: &DefMap,
+    arena: &TyArena,
+    known: &KnownEffects,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for (_fid, hir_fn) in pkg.fns.iter() {
+        if !hir_fn.is_pub {
+            continue;
+        }
+        let Some(body) = hir_fn.body else {
+            continue;
+        };
+        // Match the public-fn validator's interpretation: an absent
+        // (or empty) `effect ...` clause is a closed-empty declared
+        // row — any HOF closure with effects is a violation. This is
+        // distinct from the legacy permissive fresh-fn path; the
+        // public-fn validation point uses the same closed-empty rule.
+        let declared: HashSet<EffectId> = hir_fn
+            .effects
+            .iter()
+            .map(|n| {
+                defs.effects
+                    .get(n.as_str())
+                    .copied()
+                    .unwrap_or(EffectId(u32::MAX))
+            })
+            .collect();
+        // Empty declared row ⇒ caller declared `effect ` (no effects);
+        // any HOF closure with effects is a violation. Non-empty
+        // declared row ⇒ closures may carry effects in the declared
+        // set but not outside.
+        walk_block_for_row_violations(body, pkg, defs, arena, known, &declared, diagnostics);
+    }
+}
+
+fn walk_block_for_row_violations(
+    bid: BlockId,
+    pkg: &Package,
+    defs: &DefMap,
+    arena: &TyArena,
+    known: &KnownEffects,
+    declared: &HashSet<EffectId>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let block = &pkg.blocks[bid];
+    for stmt in &block.stmts {
+        match stmt {
+            HirStmt::Let { init: Some(e), .. } => {
+                walk_expr_for_row_violations(*e, pkg, defs, arena, known, declared, diagnostics);
+            }
+            HirStmt::Expr(e) => {
+                walk_expr_for_row_violations(*e, pkg, defs, arena, known, declared, diagnostics);
+            }
+            _ => {}
+        }
+    }
+    if let Some(t) = block.tail {
+        walk_expr_for_row_violations(t, pkg, defs, arena, known, declared, diagnostics);
+    }
+}
+
+fn walk_expr_for_row_violations(
+    eid: ExprId,
+    pkg: &Package,
+    defs: &DefMap,
+    arena: &TyArena,
+    known: &KnownEffects,
+    declared: &HashSet<EffectId>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let expr = &pkg.exprs[eid];
+    match expr {
+        HirExpr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
+            walk_expr_for_row_violations(*receiver, pkg, defs, arena, known, declared, diagnostics);
+            // Look up: is this a row-poly stdlib HOF?
+            let is_row_hof = defs
+                .builtin_methods
+                .get(method.as_str())
+                .and_then(|m| m.row_sig)
+                .is_some();
+            if is_row_hof {
+                // For each lambda arg, walk its body, collect the
+                // effects, intersect against the *complement* of
+                // `declared` — anything left is a violation.
+                for a in args {
+                    let arg_expr = &pkg.exprs[a.value];
+                    if let HirExpr::Lambda { body, .. } = arg_expr {
+                        let mut closure_effects = EffectSet::default();
+                        let mut sink: Vec<FnDefId> = vec![];
+                        walk_block_effects(
+                            *body,
+                            pkg,
+                            defs,
+                            arena,
+                            known,
+                            &mut closure_effects,
+                            &mut sink,
+                        );
+                        let disallowed: Vec<EffectId> = closure_effects
+                            .iter()
+                            .copied()
+                            .filter(|e| !declared.contains(e))
+                            .collect();
+                        if !disallowed.is_empty() {
+                            let mut names: Vec<String> = disallowed
+                                .iter()
+                                .filter_map(|e| effect_name(defs, *e))
+                                .collect();
+                            names.sort();
+                            // HIR doesn't store per-expr spans (see
+                            // `Cx::span_of_expr`); use a default span —
+                            // the diagnostic message still carries the
+                            // method name and the offending effects so
+                            // the user can pinpoint the call.
+                            diagnostics.push(crate::diag::hof_closure_effects_rejected(
+                                method.as_str(),
+                                &names,
+                                &SourceSpan { start: 0, end: 0 },
+                            ));
+                        }
+                    }
+                    // Recurse: a non-lambda arg might itself contain a
+                    // nested HOF call.
+                    walk_expr_for_row_violations(
+                        a.value,
+                        pkg,
+                        defs,
+                        arena,
+                        known,
+                        declared,
+                        diagnostics,
+                    );
+                }
+                return;
+            }
+            // Non-row-poly method: recurse into args.
+            for a in args {
+                walk_expr_for_row_violations(
+                    a.value,
+                    pkg,
+                    defs,
+                    arena,
+                    known,
+                    declared,
+                    diagnostics,
+                );
+            }
+        }
+        HirExpr::Block(b) => {
+            walk_block_for_row_violations(*b, pkg, defs, arena, known, declared, diagnostics);
+        }
+        HirExpr::Tuple(xs) | HirExpr::Array(xs) => {
+            for x in xs {
+                walk_expr_for_row_violations(*x, pkg, defs, arena, known, declared, diagnostics);
+            }
+        }
+        HirExpr::Binary { lhs, rhs, .. } => {
+            walk_expr_for_row_violations(*lhs, pkg, defs, arena, known, declared, diagnostics);
+            walk_expr_for_row_violations(*rhs, pkg, defs, arena, known, declared, diagnostics);
+        }
+        HirExpr::Unary { rhs, .. } => {
+            walk_expr_for_row_violations(*rhs, pkg, defs, arena, known, declared, diagnostics);
+        }
+        HirExpr::Borrow { inner, .. } | HirExpr::Move(inner) => {
+            walk_expr_for_row_violations(*inner, pkg, defs, arena, known, declared, diagnostics);
+        }
+        HirExpr::Call { callee, args } => {
+            walk_expr_for_row_violations(*callee, pkg, defs, arena, known, declared, diagnostics);
+            // v0.15: when the parser-folded Path callee's last segment
+            // is a row-poly stdlib HOF method (e.g. `xs.map(...)` →
+            // `Call(Path([xs, map]))`), apply the closed-row
+            // subsumption check to each lambda arg's effect set.
+            if let HirExpr::Path(segs) = &pkg.exprs[*callee] {
+                if segs.len() >= 2 {
+                    let last = segs.last().expect("len>=2");
+                    let is_row_hof = defs
+                        .builtin_methods
+                        .get(last.as_str())
+                        .and_then(|m| m.row_sig)
+                        .is_some();
+                    if is_row_hof {
+                        for a in args {
+                            let arg_expr = &pkg.exprs[a.value];
+                            if let HirExpr::Lambda { body, .. } = arg_expr {
+                                let mut closure_effects = EffectSet::default();
+                                let mut sink: Vec<FnDefId> = vec![];
+                                walk_block_effects(
+                                    *body,
+                                    pkg,
+                                    defs,
+                                    arena,
+                                    known,
+                                    &mut closure_effects,
+                                    &mut sink,
+                                );
+                                let disallowed: Vec<EffectId> = closure_effects
+                                    .iter()
+                                    .copied()
+                                    .filter(|e| !declared.contains(e))
+                                    .collect();
+                                if !disallowed.is_empty() {
+                                    let mut names: Vec<String> = disallowed
+                                        .iter()
+                                        .filter_map(|e| effect_name(defs, *e))
+                                        .collect();
+                                    names.sort();
+                                    diagnostics.push(crate::diag::hof_closure_effects_rejected(
+                                        last.as_str(),
+                                        &names,
+                                        &SourceSpan { start: 0, end: 0 },
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            for a in args {
+                walk_expr_for_row_violations(
+                    a.value,
+                    pkg,
+                    defs,
+                    arena,
+                    known,
+                    declared,
+                    diagnostics,
+                );
+            }
+        }
+        HirExpr::Field { receiver, .. } => {
+            walk_expr_for_row_violations(*receiver, pkg, defs, arena, known, declared, diagnostics);
+        }
+        HirExpr::Index { receiver, idx } => {
+            walk_expr_for_row_violations(*receiver, pkg, defs, arena, known, declared, diagnostics);
+            walk_expr_for_row_violations(*idx, pkg, defs, arena, known, declared, diagnostics);
+        }
+        HirExpr::If { cond, then, else_ } => {
+            walk_expr_for_row_violations(*cond, pkg, defs, arena, known, declared, diagnostics);
+            walk_block_for_row_violations(*then, pkg, defs, arena, known, declared, diagnostics);
+            if let Some(e) = else_ {
+                walk_expr_for_row_violations(*e, pkg, defs, arena, known, declared, diagnostics);
+            }
+        }
+        HirExpr::IfLet {
+            scrutinee,
+            then,
+            else_,
+            ..
+        } => {
+            walk_expr_for_row_violations(
+                *scrutinee,
+                pkg,
+                defs,
+                arena,
+                known,
+                declared,
+                diagnostics,
+            );
+            walk_block_for_row_violations(*then, pkg, defs, arena, known, declared, diagnostics);
+            if let Some(e) = else_ {
+                walk_expr_for_row_violations(*e, pkg, defs, arena, known, declared, diagnostics);
+            }
+        }
+        HirExpr::Match { scrutinee, arms } => {
+            walk_expr_for_row_violations(
+                *scrutinee,
+                pkg,
+                defs,
+                arena,
+                known,
+                declared,
+                diagnostics,
+            );
+            for arm in arms {
+                walk_expr_for_row_violations(
+                    arm.body,
+                    pkg,
+                    defs,
+                    arena,
+                    known,
+                    declared,
+                    diagnostics,
+                );
+                if let Some(g) = arm.guard {
+                    walk_expr_for_row_violations(g, pkg, defs, arena, known, declared, diagnostics);
+                }
+            }
+        }
+        HirExpr::For { iter, body, .. } => {
+            walk_expr_for_row_violations(*iter, pkg, defs, arena, known, declared, diagnostics);
+            walk_block_for_row_violations(*body, pkg, defs, arena, known, declared, diagnostics);
+        }
+        HirExpr::While { cond, body } => {
+            walk_expr_for_row_violations(*cond, pkg, defs, arena, known, declared, diagnostics);
+            walk_block_for_row_violations(*body, pkg, defs, arena, known, declared, diagnostics);
+        }
+        HirExpr::Loop { body } => {
+            walk_block_for_row_violations(*body, pkg, defs, arena, known, declared, diagnostics);
+        }
+        HirExpr::Return(Some(e)) | HirExpr::Break(Some(e)) => {
+            walk_expr_for_row_violations(*e, pkg, defs, arena, known, declared, diagnostics);
+        }
+        HirExpr::Struct { fields, .. } => {
+            for (_, e) in fields {
+                walk_expr_for_row_violations(*e, pkg, defs, arena, known, declared, diagnostics);
+            }
+        }
+        HirExpr::Map(entries) => {
+            for (k, v) in entries {
+                walk_expr_for_row_violations(*k, pkg, defs, arena, known, declared, diagnostics);
+                walk_expr_for_row_violations(*v, pkg, defs, arena, known, declared, diagnostics);
+            }
+        }
+        HirExpr::Send { target, args, .. } | HirExpr::Ask { target, args, .. } => {
+            walk_expr_for_row_violations(*target, pkg, defs, arena, known, declared, diagnostics);
+            for a in args {
+                walk_expr_for_row_violations(
+                    a.value,
+                    pkg,
+                    defs,
+                    arena,
+                    known,
+                    declared,
+                    diagnostics,
+                );
+            }
+        }
+        HirExpr::Deadline { inner, dur } => {
+            walk_expr_for_row_violations(*inner, pkg, defs, arena, known, declared, diagnostics);
+            walk_expr_for_row_violations(*dur, pkg, defs, arena, known, declared, diagnostics);
+        }
+        HirExpr::Question(inner)
+        | HirExpr::Spawn { inner, .. }
+        | HirExpr::Detach(inner)
+        | HirExpr::Join(inner)
+        | HirExpr::Run(inner) => {
+            walk_expr_for_row_violations(*inner, pkg, defs, arena, known, declared, diagnostics);
+        }
+        HirExpr::Unsafe(b) => {
+            walk_block_for_row_violations(*b, pkg, defs, arena, known, declared, diagnostics);
+        }
+        HirExpr::Arena { body, .. } => {
+            // `Arena.body` is an `ExprId` (not a block) per HIR shape.
+            walk_expr_for_row_violations(*body, pkg, defs, arena, known, declared, diagnostics);
+        }
+        HirExpr::Lambda { body, .. } => {
+            // A lambda OUTSIDE a HOF arg position (e.g. assigned to a
+            // local) still has its body walked — closures bound to a
+            // local are caller-effect-relevant too. But violations are
+            // checked against the OUTER fn's declared row.
+            walk_block_for_row_violations(*body, pkg, defs, arena, known, declared, diagnostics);
+        }
+        _ => {}
+    }
+}
+
 fn effect_name(defs: &DefMap, eid: EffectId) -> Option<String> {
     defs.effects
         .iter()
@@ -232,6 +621,105 @@ fn walk_block_effects(
     }
     if let Some(t) = block.tail {
         walk_expr_effects(t, pkg, defs, arena, known, out, callees);
+    }
+}
+
+/// v0.15: compute the inferred effect ROW for a HOF call's
+/// closure-argument. Returns `Some(EffectRow::Closed(...))` when the
+/// argument is a lambda (we walk the body to collect concrete effects
+/// and box them as a closed row). Returns `None` when the argument is
+/// something other than a lambda — the dispatcher then leaves the
+/// signature's parameter row template unbound (an open row).
+///
+/// The closed-row return models the v0.15 invariant: the closure's
+/// effect set is *known* at the call site (we just walked its body), so
+/// we encode it as a fully-concrete row that unifies cleanly with the
+/// signature's `Var(0)` parameter slot.
+fn compute_arg_effect_row(
+    eid: ExprId,
+    pkg: &Package,
+    defs: &DefMap,
+    arena: &TyArena,
+    known: &KnownEffects,
+) -> Option<row::EffectRow> {
+    let expr = &pkg.exprs[eid];
+    // Only meaningful for lambda arguments — other arg shapes don't
+    // carry a closure row in the v0.15 sigs.
+    let body = match expr {
+        HirExpr::Lambda { body, .. } => *body,
+        _ => return None,
+    };
+    let mut body_effects = EffectSet::default();
+    let mut sink: Vec<FnDefId> = vec![];
+    walk_block_effects(body, pkg, defs, arena, known, &mut body_effects, &mut sink);
+    let set: std::collections::BTreeSet<EffectId> = body_effects.into_iter().collect();
+    Some(row::EffectRow::Closed(set))
+}
+
+/// v0.15: the row-poly stdlib HOF dispatch logic, factored out of
+/// `walk_expr_effects::HirExpr::MethodCall` so the dotted-Path-folded
+/// `Call(Path([receiver, method]))` shape in the `Call` branch can
+/// reuse it (e.g. `xs.collect()` which the parser folds into a Path
+/// rather than a MethodCall).
+///
+/// Dispatch policy:
+/// 1. If `defs.builtin_methods[method].row_sig` is `None`, this is a
+///    no-op (the caller's existing per-arg walk has already covered
+///    the effect bookkeeping).
+/// 2. Otherwise instantiate the sig, compute each closure-arg's
+///    effect row, unify against the sig's parameter rows, resolve the
+///    return row, remap `ALLOC_PLACEHOLDER` → real alloc, and union
+///    the concrete effects into `out`.
+fn dispatch_row_poly_call(
+    method: &str,
+    args: &[HirArg],
+    pkg: &Package,
+    defs: &DefMap,
+    arena: &TyArena,
+    known: &KnownEffects,
+    out: &mut EffectSet,
+) {
+    let row_factory = defs.builtin_methods.get(method).and_then(|m| m.row_sig);
+    let Some(factory) = row_factory else {
+        return;
+    };
+    let sig = factory();
+    let mut arg_rows: Vec<Option<row::EffectRow>> = Vec::with_capacity(args.len());
+    for a in args {
+        let closure_body_effects = compute_arg_effect_row(a.value, pkg, defs, arena, known);
+        arg_rows.push(closure_body_effects);
+    }
+    let mut subst = row::RowSubst::new();
+    let (sig_params, sig_ret, _fresh) = row::instantiate_row_sig(&sig, &mut subst);
+    let sig_param_iter: Vec<&Option<row::EffectRow>> = sig_params.iter().skip(1).collect();
+    for (i, expected) in sig_param_iter.iter().enumerate() {
+        let Some(actual) = arg_rows.get(i).and_then(|r| r.as_ref()) else {
+            continue;
+        };
+        let Some(exp_row) = expected.as_ref() else {
+            continue;
+        };
+        let _ = row::unify_rows(&mut subst, exp_row, actual);
+    }
+    let resolved = subst.resolve(&sig_ret);
+    let real_alloc = known.alloc;
+    let extract = |s: &std::collections::BTreeSet<EffectId>| -> Vec<EffectId> {
+        s.iter()
+            .copied()
+            .map(|e| {
+                if e == row::stdlib_sigs::ALLOC_PLACEHOLDER {
+                    real_alloc
+                } else {
+                    e
+                }
+            })
+            .collect()
+    };
+    let concrete: Vec<EffectId> = match &resolved {
+        row::EffectRow::Closed(s) | row::EffectRow::Open(s, _) => extract(s),
+    };
+    for e in concrete {
+        out.insert(e);
     }
 }
 
@@ -295,6 +783,24 @@ fn walk_expr_effects(
                         }
                         _ => {}
                     }
+                    // v0.15: dotted Path calls that the parser folded
+                    // through `Call(Path([receiver, method]))` rather
+                    // than `MethodCall { receiver, method, args }` (e.g.
+                    // bare `xs.collect()` with no args). The row-poly
+                    // dispatch keys on method name only, so we can
+                    // honour those here too. Forwards to the same
+                    // dispatch logic used in the `MethodCall` branch.
+                    let last = segs.last().expect("len>=2");
+                    dispatch_row_poly_call(last.as_str(), args, pkg, defs, arena, known, out);
+                    // Container method heuristic for the Path-folded
+                    // shape: keep parity with the MethodCall branch's
+                    // alloc-on-`.collect`/`.push`/... rule.
+                    if matches!(
+                        last.as_str(),
+                        "push" | "pop" | "insert" | "encode" | "collect" | "to_string" | "clone"
+                    ) {
+                        out.insert(known.alloc);
+                    }
                 }
             }
         }
@@ -304,9 +810,111 @@ fn walk_expr_effects(
             args,
         } => {
             walk_expr_effects(*receiver, pkg, defs, arena, known, out, callees);
-            for a in args {
-                walk_expr_effects(a.value, pkg, defs, arena, known, out, callees);
+
+            // v0.15: row-polymorphic stdlib HOF dispatch. When `method`
+            // is registered in `defs.builtin_methods` with a `row_sig`
+            // factory, instantiate the sig, compute the
+            // closure-argument's inferred effect row (per RFC-008), unify
+            // it against the sig's parameter row, then propagate the
+            // resolved return row into the caller's effect set.
+            //
+            // For the v0.14-shape sigs (all `Var(0) → Var(0)`) the
+            // resolved return row equals the closure's row — so this
+            // is OBSERVATIONALLY equivalent to the legacy "walk the
+            // lambda body's effects into `out`" behavior. The
+            // difference is structural: the wiring now flows through
+            // the row machinery, which (a) exercises
+            // `instantiate_row_sig` + `unify_rows` end-to-end, (b)
+            // lets `Iterator.collect`'s `VarPlus(0, {alloc})` template
+            // materialize as the real `alloc` effect, and (c)
+            // unblocks future per-receiver discrimination + MT4020-25
+            // diagnostics in v0.16.
+            let row_factory = defs
+                .builtin_methods
+                .get(method.as_str())
+                .and_then(|m| m.row_sig);
+            if let Some(factory) = row_factory {
+                let sig = factory();
+                // Step 1: compute each closure-arg's effect row by
+                // walking its body in isolation (so the closure's own
+                // effects are NOT double-counted in `out`).
+                let mut arg_rows: Vec<Option<row::EffectRow>> = Vec::with_capacity(args.len());
+                for a in args {
+                    let closure_body_effects =
+                        compute_arg_effect_row(a.value, pkg, defs, arena, known);
+                    arg_rows.push(closure_body_effects);
+                }
+                // Step 2: instantiate the sig (fresh row vars per
+                // call site).
+                let mut subst = row::RowSubst::new();
+                let (sig_params, sig_ret, _fresh) = row::instantiate_row_sig(&sig, &mut subst);
+                // Step 3: align actual args to sig param slots. The
+                // sig's first param is always `Skip` (receiver) — but
+                // the receiver isn't in `args` (it's `receiver`); so
+                // sig_params[0] is the FIRST positional arg, etc.
+                // Skip the leading `Skip` slot (receiver) before
+                // aligning.
+                let sig_param_iter: Vec<&Option<row::EffectRow>> =
+                    sig_params.iter().skip(1).collect();
+                for (i, expected) in sig_param_iter.iter().enumerate() {
+                    let Some(actual) = arg_rows.get(i).and_then(|r| r.as_ref()) else {
+                        continue;
+                    };
+                    let Some(exp_row) = expected.as_ref() else {
+                        continue;
+                    };
+                    // Unify ignoring errors here — v0.15 dispatch is
+                    // permissive (MT4020-25 emit-sites land in v0.16).
+                    let _ = row::unify_rows(&mut subst, exp_row, actual);
+                }
+                // Step 4: resolve the return row and union its
+                // concrete effects into `out`. For `VarPlus`-shaped
+                // returns (`collect`), remap the alloc placeholder to
+                // the real `alloc` effect id.
+                let resolved = subst.resolve(&sig_ret);
+                let real_alloc = known.alloc;
+                let extract = |s: &std::collections::BTreeSet<EffectId>| {
+                    let mut concrete: Vec<EffectId> = s.iter().copied().collect();
+                    // Remap the synthetic ALLOC_PLACEHOLDER → real alloc.
+                    for e in concrete.iter_mut() {
+                        if *e == row::stdlib_sigs::ALLOC_PLACEHOLDER {
+                            *e = real_alloc;
+                        }
+                    }
+                    concrete
+                };
+                let concrete: Vec<EffectId> = match &resolved {
+                    row::EffectRow::Closed(s) => extract(s),
+                    row::EffectRow::Open(s, _) => extract(s),
+                };
+                for e in concrete {
+                    out.insert(e);
+                }
+                // Also walk args once for non-effect bookkeeping (the
+                // closure body's effects already flowed through the
+                // row dispatch above; but `callees` collection still
+                // needs the walk so the fixpoint sees nested fn calls
+                // inside the closure body).
+                let mut sink = EffectSet::default();
+                for a in args {
+                    walk_expr_effects(a.value, pkg, defs, arena, known, &mut sink, callees);
+                    // Even with row dispatch, take the closure-body
+                    // effects too — the v0.15 wiring is ADDITIVE so
+                    // we don't lose any prior over-approximation; the
+                    // row machinery is verified-equivalent here for
+                    // the present sig shapes.
+                    for e in &sink {
+                        out.insert(*e);
+                    }
+                    sink.clear();
+                }
+            } else {
+                // Legacy path: just walk args.
+                for a in args {
+                    walk_expr_effects(a.value, pkg, defs, arena, known, out, callees);
+                }
             }
+
             // Capability method effect heuristic: net.* / fs.* / clock.* / dom.* / model.*
             // Use the receiver's PATH name as a hint.
             if let HirExpr::Path(segs) = &pkg.exprs[*receiver] {
