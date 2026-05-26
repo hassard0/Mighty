@@ -632,6 +632,75 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
 }
 
 fn lower_call(ctx: &mut LowerCtx, fb: &mut FnBuilder, callee: ExprId, args: &[HirArg]) -> Operand {
+    // v0.15 — variant-constructor call detection. `Some(42)`, `Ok(v)`,
+    // `Result.Err(e)`, etc. parse as a Call whose callee resolves (via
+    // the type checker's def-map) to a variant constructor — NOT a fn.
+    // Before v0.15 we routed these through the function-call codepath,
+    // which then fell back to `BuiltinId::Extern(name)` and broke the
+    // Wasm AOT pipeline. The Rust interpreter happened to tolerate it
+    // because `extern_call` was a no-op, but the self-host emitter
+    // needs the structurally correct `Rvalue::AdtInit { variant, fields }`.
+    //
+    // We detect a variant constructor via two routes:
+    //   1. single-segment `Some(x)` -> lookup(name) -> DefRef::Variant
+    //   2. multi-segment `Result.Ok(v)` -> lookup_path -> DefRef::Variant
+    if let HirExpr::Path(segments) = &ctx.pkg.exprs[callee] {
+        let variant_lookup = if segments.len() == 1 {
+            match ctx.typed.def_map.lookup(&segments[0]) {
+                Some(DefRef::Variant(adt, idx)) => Some((adt, idx)),
+                _ => None,
+            }
+        } else if let Some(DefRef::Variant(adt, idx)) =
+            ctx.typed.def_map.lookup_path(segments)
+        {
+            Some((adt, idx))
+        } else {
+            None
+        };
+        if let Some((adt, variant)) = variant_lookup {
+            let arg_ops: Vec<Operand> =
+                args.iter().map(|a| lower_expr(ctx, fb, a.value)).collect();
+            let temp = fb.fresh_temp(IrTy::Adt(adt, vec![]));
+            fb.push_stmt(Stmt::Assign(
+                Place::local(temp),
+                Rvalue::AdtInit {
+                    adt,
+                    variant,
+                    fields: arg_ops,
+                },
+            ));
+            return Operand::Move(Place::local(temp));
+        }
+    }
+    // Same detection for generic-path callees like `Some::<I32>(x)`.
+    if let HirExpr::PathGeneric { segments, .. } = &ctx.pkg.exprs[callee] {
+        let variant_lookup = if segments.len() == 1 {
+            match ctx.typed.def_map.lookup(&segments[0]) {
+                Some(DefRef::Variant(adt, idx)) => Some((adt, idx)),
+                _ => None,
+            }
+        } else if let Some(DefRef::Variant(adt, idx)) =
+            ctx.typed.def_map.lookup_path(segments)
+        {
+            Some((adt, idx))
+        } else {
+            None
+        };
+        if let Some((adt, variant)) = variant_lookup {
+            let arg_ops: Vec<Operand> =
+                args.iter().map(|a| lower_expr(ctx, fb, a.value)).collect();
+            let temp = fb.fresh_temp(IrTy::Adt(adt, vec![]));
+            fb.push_stmt(Stmt::Assign(
+                Place::local(temp),
+                Rvalue::AdtInit {
+                    adt,
+                    variant,
+                    fields: arg_ops,
+                },
+            ));
+            return Operand::Move(Place::local(temp));
+        }
+    }
     // Special case: `local.method(args)` parses as a Call whose callee
     // is `Path([local, method])`. If `local` is a binding in scope,
     // re-route as a MethodCall. (The HIR lowerer only emits MethodCall

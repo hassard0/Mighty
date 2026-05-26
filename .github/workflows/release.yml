@@ -1,0 +1,140 @@
+name: Release
+
+# Build the `mty` binary for Linux, macOS, and Windows whenever a
+# `v*` tag lands on `main`, then attach the artifacts to the
+# corresponding GitHub Release.
+#
+# The release itself is created or updated by this workflow if it
+# does not yet exist. The body defaults to the tag message; a
+# follow-up commit can flesh it out with the RELEASE-v0.X.md
+# contents from `dev/history/releases/`.
+#
+# Triggering on tags-only (not branches) means routine pushes to
+# main don't trip a binary build — only an integrator-tagged
+# release does.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g. v0.15.0). Must already exist."
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: mty
+            asset: mty-x86_64-unknown-linux-gnu.tar.gz
+          - os: macos-13
+            target: x86_64-apple-darwin
+            artifact: mty
+            asset: mty-x86_64-apple-darwin.tar.gz
+          - os: macos-14
+            target: aarch64-apple-darwin
+            artifact: mty
+            asset: mty-aarch64-apple-darwin.tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: mty.exe
+            asset: mty-x86_64-pc-windows-msvc.zip
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-release-
+
+      - name: Build mty (release)
+        run: cargo build --release --bin mty -p mty-cli --target ${{ matrix.target }}
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist/mty-${{ github.ref_name }}
+          cp target/${{ matrix.target }}/release/${{ matrix.artifact }} dist/mty-${{ github.ref_name }}/
+          cp LICENSE README.md CHANGELOG.md dist/mty-${{ github.ref_name }}/
+          tar -C dist -czf ${{ matrix.asset }} mty-${{ github.ref_name }}
+          shasum -a 256 ${{ matrix.asset }} > ${{ matrix.asset }}.sha256
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $stage = "dist/mty-${{ github.ref_name }}"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.artifact }}" $stage
+          Copy-Item LICENSE,README.md,CHANGELOG.md $stage
+          Compress-Archive -Path $stage -DestinationPath "${{ matrix.asset }}"
+          $hash = (Get-FileHash -Algorithm SHA256 "${{ matrix.asset }}").Hash.ToLower()
+          "$hash  ${{ matrix.asset }}" | Out-File -Encoding ascii "${{ matrix.asset }}.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: |
+            ${{ matrix.asset }}
+            ${{ matrix.asset }}.sha256
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Flatten artifact layout
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          find dist -type f \( -name "mty-*.tar.gz" -o -name "mty-*.zip" -o -name "*.sha256" \) -exec cp {} out/ \;
+          ls -la out/
+
+      - name: Create or update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            out/mty-*.tar.gz
+            out/mty-*.zip
+            out/*.sha256
