@@ -1,16 +1,33 @@
-# 06 — Notetris (canvas-driven, v0.23)
+# 06 — Notetris (canvas-driven, v0.24 refresh)
 
-v0.23 demo: the same canonical Notetris game as demo 05, but rewired
-to target the Track A `mty:web/canvas@0.1` + `mty:web/input@0.1`
-WIT interfaces. The Mighty agent in `src/main.mty` owns the score /
-level / lines state + the input-intent stream; the shim provides the
-canvas + input WIT import surface against a real `<canvas>` and
-keyboard listeners.
+v0.24 demo: the same canonical Notetris game as demo 05, rewired to
+target the Track A `mty:web/canvas@0.1` + `mty:web/input@0.1` WIT
+interfaces and the v0.24 Track A/B language wins. The Mighty agent in
+`src/main.mty` owns the score / level / lines / `gameover` state via a
+`NotetrisInput` protocol; the shim provides the canvas + input WIT
+import surface against a real `<canvas>` and keyboard listeners.
 
-This is the v0.23 **forcing-function demo** for the new WIT
-surfaces. It proves the host-side bindings compose end-to-end and
-documents the language gaps that still keep some game logic in the
-JS shim (see "Status today vs the v0.24 lift" below).
+This is the v0.23 **forcing-function demo** for the new WIT surfaces.
+v0.23 shipped it as a hybrid (agent owned input/score, shim owned
+board/rendering) because three language gaps blocked the cleaner
+architecture. **Two of the three closed in v0.24**:
+
+| gap                                                       | closed by         |
+| --------------------------------------------------------- | ----------------- |
+| `BuiltinId::CanvasOp` + `mty:web/canvas` import emission  | Track A (aef5225) |
+| `frame` / `keydown` / `keyup` reach the core export table | Track A (aef5225) |
+| `format!()` string interpolation                          | Track B (2399391) |
+
+What still requires a v0.25 closer:
+
+| gap                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| HIR -> IR routing for `canvas.fill_rect(...)` method calls on a `std.web.Canvas`-typed receiver — the IR + emitter are ready; the HIR side isn't wired |
+| Calling a Unit-returning user fn from `keydown` / `frame` triggers a stack-balance error in the v0.24 callback prologue                                |
+| Top-level `let mut` / per-callback persistent state — agent fields exist but the exported callbacks don't dispatch into them                           |
+
+See `dev/history/notes/DEMO06_CANVAS_DIRECT_V0_24_NOTES.md` for the
+full per-attempt log.
 
 ## Run it
 
@@ -29,88 +46,70 @@ bash demos/06_canvas_game/web/serve.sh
 Open <http://localhost:8000> and play with:
 
 | key   | action                       |
-|-------|------------------------------|
+| ----- | ---------------------------- |
 | ← →   | move                         |
 | ↑     | rotate (CW)                  |
 | ↓     | soft drop                    |
 | Space | hard drop                    |
 | R     | reset (also after Game Over) |
 
-## What this demo exercises
+## What this demo exercises (v0.24)
 
 - `mty build --target wasm32-web` produces a Component Model component
   that imports `mty:web/canvas` + `mty:web/input` (Track A's WIT
   surfaces) alongside the existing `mty:web/log` + `mty:web/dom`.
 - The shim implements all four `mty:web/*` imports against real
   Canvas2D + `window.addEventListener('keydown')` listeners.
-- The Mighty agent (`src/main.mty`) owns the score / level / lines
-  counters via a `NotetrisInput` protocol, and exposes both the
-  Track A canonical `frame` / `keydown` / `keyup` export shape AND
-  the legacy v0.22 per-input exports the shim today calls.
+- The Mighty source declares `fn frame(dt: U32)` / `fn keydown(k: U32)`
+  / `fn keyup(k: U32)`; the v0.24 emitter (`is_web_callback_export` in
+  `crates/mty-codegen-wasm/src/web_lower.rs`) lifts those into the
+  embedded core module's export section so the JS host can call
+  `inst.exports.frame(dt)` straight through — no more `exp?.input_*?.()`
+  fallback chain.
+- The agent's keydown dispatcher uses `format!("evt:input:unknown:{}", k)`
+  for unrecognized keycodes — the first end-to-end use of Track B's
+  `format!()` macro in a wasm32-web build.
 
-## Status today vs the v0.24 lift
+## LOC delta vs v0.23
 
-Side-by-side with demo 05 (the v0.22-era version of the same game):
+Side-by-side with the v0.23 shape (commit `13f6d4a`):
 
-| file              | demo 05 (v0.22) | demo 06 (v0.23) | delta  |
-|-------------------|-----------------|-----------------|--------|
-| `src/main.mty`    | 131 LOC         | 195 LOC         | +64    |
-| `web/dom-shim.js` | 345 LOC         | 235 LOC         | **−110** (−32 %) |
-| `web/index.html`  | 119 LOC         | 120 LOC         | +1     |
+| file              | demo 05 (v0.22) | demo 06 (v0.23) | demo 06 (v0.24) | v0.23 -> v0.24 delta |
+| ----------------- | --------------- | --------------- | --------------- | -------------------- |
+| `src/main.mty`    | 131 LOC         | 195 LOC         | 186 LOC         | -9                   |
+| `web/dom-shim.js` | 345 LOC         | 235 LOC         | 213 LOC         | -22 (-9%)            |
+| `web/index.html`  | 119 LOC         | 120 LOC         | 120 LOC         | 0                    |
 
-The Mighty source grew because it now declares the Track A export
-shape (`frame(dt-ms)` / `keydown(k)` / `keyup(k)`) alongside the
-v0.22-compatible per-input exports — both surfaces are wired so the
-demo stays playable on today's lowerer.
+The Mighty source got slightly smaller because the v0.23 demo carried
+both the Track A canonical export shape AND a legacy v0.22 per-input
+export shape (`input_left()`, `input_right()`, …). The v0.24 source
+ships only the canonical shape — Track A's export wiring makes the
+v0.22 fallback redundant.
 
 The shim shrank because:
 
-- It no longer reinvents `log()`-line parsing into game intent —
-  the wasm exports a fixed `input_*` function per intent and the
-  shim dispatches by export name.
-- The renderer is routed through the Track A `mty:web/canvas`
-  bindings, so the `bindings` object below the `// ---- Track A WIT
-  import surface` banner *is* the WIT surface (one object literal,
-  ~20 lines). When the agent starts driving it directly, the
-  game-logic mirror block below it deletes — the shim drops to
-  ~50 lines of pure WIT glue.
+- It no longer maintains a browser-key -> intent-tag translation table.
+  The browser keycode is forwarded directly to the wasm `keydown(k)`
+  export, and the wasm uses `format!()` to emit the canonical
+  `evt:input:<kind>` line the shim's renderer parses.
+- It no longer has a defensive `exp?.input_*?.()` fallback chain — the
+  v0.24 emitter actually exports `frame` / `keydown` / `keyup`, so
+  `exp.keydown(keycode)` is a direct call.
+- It no longer wraps RAF behind a `setOnFrame()` callback indirect — the
+  RAF loop calls `exp.frame(dt)` directly and drives gravity host-side.
 
-### Language gaps (v0.24 closes these)
+What's still in the shim (~70% of the file): the board / piece /
+gravity / collision / line-clear logic. Until the HIR -> IR canvas
+routing lands in v0.25, the agent can't draw pixels directly, so the
+shim still owns the actual rendering and a parallel mirror of the
+board state derived from the agent's intent log.
 
-The brief expected the shim to drop to ~30-60 lines on v0.23. Three
-language gaps in `mty-codegen-wasm` block that today:
+### Headless smoke
 
-1. **`canvas.fill_rect(...)` doesn't lower from Mighty source.** The
-   WIT interface is declared in the world's import list, but the
-   IR-to-Wasm lowerer in `crates/mty-codegen-wasm/src/emit.rs` only
-   knows how to translate `log()` calls and `BuiltinId::DomOp`
-   builtins (the `mty:web/dom` set). The Track A `mty:web/canvas`
-   builtins haven't been added to `BuiltinId` yet.
-2. **No string interpolation / `format!()`.** Per the
-   `MT6001 unknown macro` error, dynamic-string composition isn't
-   available, so the agent can't emit per-cell
-   `evt:cell:x:y:c` lines. (The `examples/05_match_expr.mty`
-   comment notes the same constraint at the `log("...")` call site.)
-3. **`export fn` declarations don't reach the core module's export
-   table.** Only `main` and `cabi_realloc` are exported from the
-   embedded core (see `emit.rs` `// emit cabi_realloc + export
-   memory + export main`). The shim therefore calls into named
-   `input_*` exports defensively (`exp?.input_left?.()`) so the
-   round-trip is best-effort today; when the export-name wiring
-   lands the shim's `keydown(ev.key)` handler routes straight into
-   the wasm-side `keydown(k: Str)` and the v0.22-shape exports
-   become redundant.
-
-Notes on what we tried + chose: see
-`dev/history/notes/CANVAS_GAME_V0_23_NOTES.md`.
-
-## Anatomy of the v0.24 shim
-
-When the three gaps above close the shim becomes essentially the
-`makeCanvas(...)` + `makeInput(...)` + the `// ---- Boot` block
-that loads the wasm and binds the imports. Estimated final size:
-~50 LOC. The Mighty agent absorbs the game-logic mirror via
-`canvas.fill_rect(...)` calls inside its handlers.
+The v0.23 Track E phash golden (`tests/web-smoke/golden/canvas_game.phash`)
+still matches at distance 0 — the v0.24 rewrite is visually identical
+to the v0.23 shape (same canvas dimensions, same render path, same
+initial board fill).
 
 ## Why "Notetris"?
 

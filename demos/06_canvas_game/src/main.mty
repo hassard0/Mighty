@@ -1,63 +1,78 @@
 // demo 06_canvas_game — Notetris as a canvas-driven Mighty agent.
 //
-// This is the v0.23 "forcing-function" demo for the Track A
-// `mty:web/canvas@0.1` + `mty:web/input@0.1` WIT interfaces. The
-// goal is the same canonical Notetris game as demo 05, but with the
-// agent owning the canvas directly instead of the JS host running a
-// parallel mirror of the game logic.
+// v0.24 rewrite. Three v0.23 language gaps from Track D's brief
+// closed in v0.24:
+//
+//   * Track A (aef5225): the wasm32-web emitter now lowers
+//     `BuiltinId::CanvasOp(...)` to direct `mty:web/canvas@0.1`
+//     imports, and exports `frame` / `keydown` / `keyup` from the
+//     embedded core module so the JS host shim can `inst.exports
+//     .frame(dt)` without trapping.
+//   * Track B (2399391): `format!("score: {score}", ...)` is now a
+//     first-class macro on top of the prelude `fmt` interner — no
+//     more `MT6001 unknown macro` errors when the agent wants to
+//     compose a per-tick HUD line.
+//
+// What this demo exercises end-to-end at v0.24:
+//
+//   * `format!(...)` inside `fn frame / keydown / keyup` to compose
+//     the canonical intent log lines the shim parses (Track B
+//     end-to-end through the wasm32-web emitter, not just the SIR
+//     interpreter — see `tests/conformance/macros/format_basic`).
+//   * `fn frame(dt: U32)` / `fn keydown(k: U32)` / `fn keyup(k: U32)`
+//     callable by the host as real core-module exports (Track A's
+//     `is_web_callback_export` predicate); the shim's RAF loop and
+//     `window.addEventListener('keydown', ...)` route straight
+//     through `inst.exports.frame(...)` / `.keydown(...)` instead of
+//     the v0.23 best-effort `exp?.input_left?.()` fallback chain.
+//
+// What still needs a v0.25 closer (see
+// `dev/history/notes/DEMO06_CANVAS_DIRECT_V0_24_NOTES.md`):
+//
+//   * HIR -> IR routing for `canvas.fill_rect(...)` method calls.
+//     Track A added `BuiltinId::CanvasOp(...)` + the emitter, but
+//     `crates/mty-ir/src/lower/exprs.rs` doesn't recognise a
+//     `std.web.Canvas`-typed receiver and route the call into
+//     `BuiltinId::CanvasOp` the way it does for `CapFamily::Dom`.
+//     Until that lands, the embedded core module never imports any
+//     `mty:web/canvas@0.1` ops even when the source contains
+//     `canvas.fill_rect(...)`. The shim therefore still owns the
+//     board pixels, but it's now ~50 % smaller because the intent
+//     stream comes from `format!()` calls inside the exported
+//     callbacks rather than a hand-maintained JS-side translation
+//     table.
+//   * `agent`-dispatched handlers (`on Left()` etc.) compile but
+//     aren't reachable from the exported callbacks at the wasm-
+//     backend's current dead-code elimination — calling a Unit-
+//     returning user fn from `keydown` triggers a stack-balance
+//     error in the v0.24 emitter (the `frame`/`keydown`/`keyup`
+//     synthesis isn't fully prologue/epilogue-aware yet). The
+//     handler bodies below are therefore the *protocol of record*
+//     — they describe the agent's intent surface for review and
+//     for the v0.25 dispatcher to plug into, but the runtime work
+//     happens inline in the exported callbacks.
 //
 // Compiled with `mty build --target wasm32-web`. The generated WIT
 // world declares:
 //
 //   import mty:web/log;
 //   import mty:web/dom;
-//   import mty:web/canvas;     <-- Track A
-//   import mty:web/input;      <-- Track A
+//   import mty:web/canvas;     <-- Track A WIT shape ready; HIR gap
+//   import mty:web/input;      <-- Track A WIT shape ready; HIR gap
+//   export frame: func(dt-ms: u32);
+//   export keydown: func(k: u32);
+//   export keyup: func(k: u32);
 //
 // and the companion `web/dom-shim.js` implements all four import
 // surfaces against a real <canvas> + window keyboard listeners.
-//
-// Architecture (intended v0.23 shape):
-//   - Constructor: `agent Notetris(canvas: Canvas, input: Input)`
-//   - On boot subscribes to keydown via `input.subscribe-keydown()`
-//   - Holds the 10x20 board + current piece + score as agent state
-//   - On Tick: gravity + collision + lock + line clear
-//   - On keydown(k): decode `Key`, dispatch to Left/Right/Rotate/Drop
-//   - On every state change: call `canvas.fill-rect(...)` per cell
-//   - Calls `canvas.request-animation-frame()` to re-arm the loop;
-//     host calls back into exported `frame(dt_ms)`.
-//
-// Architecture (today, against the v0.23 language surface — see
-// `dev/history/notes/CANVAS_GAME_V0_23_NOTES.md`):
-//   - The Mighty source declares the agent + protocol + Track A's
-//     `frame / keydown / keyup` export shape so the demo is wired to
-//     the canonical world the WIT world contract names.
-//   - State (score / level / lines) lives in agent fields and gets
-//     mutated by the input handlers — single source of truth on
-//     the Mighty side.
-//   - Per-cell draws and dynamic event strings (`evt:cell:x:y:c`)
-//     can't be emitted yet — the lowerer doesn't support string
-//     interpolation and doesn't yet translate `canvas.fill_rect(...)`
-//     calls into `mty:web/canvas` WIT imports. Instead the agent
-//     emits *fixed* `evt:input:<kind>` tags on every input + a
-//     `evt:tick` heartbeat, and the shim's *thin* renderer parses
-//     the input intent and runs a deterministic mirror of the game
-//     state. The shim still shrinks substantially vs demo 05 (it
-//     does not parse rotation tables out of arbitrary `evt:cell:`
-//     strings — it owns a single Notetris loop and the agent's
-//     log tags are the intent record).
-//
-// When v0.24 lowers `canvas.fill_rect(...)` calls into the WIT
-// import + lands string interpolation, this file gets a ~40-line
-// rewrite that puts every draw + every state-change log inside
-// the agent — and the shim drops to a ~30-line "wire canvas2d
-// to WIT" glue file with zero game logic.
 package canvas_game
 
 // ---------------------------------------------------------------------
 // Protocol — the messages the Notetris agent answers. Each handler
-// mutates agent state and emits one `evt:input:<kind>` tag the
-// shim's renderer reads as the canonical intent.
+// emits the canonical `evt:input:<kind>` tag the shim parses. The
+// agent body is the type-checked spec of record; the wasm runtime
+// dispatches via the exported `keydown(k)` callback below (matching
+// the same intent vocabulary).
 // ---------------------------------------------------------------------
 
 protocol NotetrisInput {
@@ -71,13 +86,10 @@ protocol NotetrisInput {
 }
 
 // ---------------------------------------------------------------------
-// Notetris agent — owns the score / level / lines counters. Every
-// keydown the host dispatches lands in the matching handler below,
-// which mutates state + emits the canonical intent tag.
-//
-// (Per the language-gap note at the top of the file, the per-cell
-// board state lives in the shim today; the agent is the source of
-// truth for the score-shaped state + the input-intent stream.)
+// Notetris agent — owns the score / level / lines counters as
+// agent state. Each handler emits a canonical intent line the
+// shim's renderer reads. (See the v0.25-gap note above re: the
+// handler bodies vs the exported callbacks.)
 // ---------------------------------------------------------------------
 
 agent Notetris: NotetrisInput {
@@ -125,71 +137,50 @@ agent Notetris: NotetrisInput {
 // Track A canonical export shape — `frame(dt-ms)` is the
 // host-invoked next-vsync callback; `keydown(k)` / `keyup(k)` are
 // the host-invoked keyboard callbacks. The exported names match the
-// `mty:web/agent@0.1` world contract in
-// `crates/mty-codegen-wasm/wit/mty-web/world.wit`.
+// `is_web_callback_export` predicate in
+// `crates/mty-codegen-wasm/src/web_lower.rs`, so the v0.24 emitter
+// lifts them into the embedded core module's export table without
+// further annotation.
 //
-// Today the lowerer doesn't yet wire these export names into the
-// embedded core module's export table (only `main` + `cabi_realloc`
-// are exported). The shim listens for window keydowns directly and
-// drives the gravity loop with requestAnimationFrame. When the
-// lowerer lands the export-name wiring, the shim's keydown handler
-// becomes `wasmExports.keydown(ev.key)` and the agent's state
-// mutates inside the wasm boundary.
+// Keycode convention (browser KeyboardEvent.keyCode):
+//   37 = ArrowLeft       39 = ArrowRight     38 = ArrowUp
+//   40 = ArrowDown       32 = Space          82 = R
+//
+// We dispatch inline (no helper calls) because the v0.24 emitter's
+// callback prologue isn't yet stack-balanced for Unit-returning
+// user-fn calls — see the v0.25-gap note at the top of this file.
+// The wasm runtime gets called for every keystroke (no JS-side
+// translation table); `format!()` lets us interpolate the keycode
+// into the intent log so the shim can route a wider key vocabulary
+// without us hard-coding it Mighty-side.
 // ---------------------------------------------------------------------
 
-export fn frame(dt_ms: U32) {
-  log("evt:frame")
+fn frame(dt: U32) {
+  log(format!("evt:frame:{}", dt))
 }
 
-export fn keydown(k: Str) {
-  log("evt:keydown")
+fn keydown(k: U32) {
+  match k {
+    37 => log("evt:input:left"),
+    39 => log("evt:input:right"),
+    38 => log("evt:input:rotate"),
+    40 => log("evt:input:softdrop"),
+    32 => log("evt:input:harddrop"),
+    82 => log("evt:input:reset"),
+    _  => log(format!("evt:input:unknown:{}", k))
+  }
 }
 
-export fn keyup(k: Str) {
-  log("evt:keyup")
+fn keyup(k: U32) {
+  log(format!("evt:keyup:{}", k))
 }
 
 // ---------------------------------------------------------------------
-// Legacy v0.22-shape entry points the shim falls back to. Each one
-// emits the canonical `evt:input:<kind>` tag the shim parses; this
-// gives the demo a working round-trip on today's lowerer (where
-// `export fn keydown(k: Str)` doesn't yet appear in the core
-// module's export table) without giving up the Track A export shape
-// above for when v0.24 lands.
+// `main` is the post-instantiation entry point the host invokes once
+// to flag the wasm side as live. Per the v0.22 stdlib convention,
+// this is a `log()` line the shim sees as the "wasm is up" beacon.
 // ---------------------------------------------------------------------
-
-export fn start() {
-  log("evt:start")
-}
-
-export fn input_left() {
-  log("evt:input:left")
-}
-
-export fn input_right() {
-  log("evt:input:right")
-}
-
-export fn input_rotate() {
-  log("evt:input:rotate")
-}
-
-export fn input_softdrop() {
-  log("evt:input:softdrop")
-}
-
-export fn input_harddrop() {
-  log("evt:input:harddrop")
-}
-
-export fn input_reset() {
-  log("evt:input:reset")
-}
-
-export fn input_tick() {
-  log("evt:tick")
-}
 
 fn main() {
-  log("canvas_game: built")
+  log("canvas_game: built (v0.24 — frame/keydown/keyup exports + format!())")
 }
