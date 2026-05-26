@@ -98,6 +98,37 @@ pub enum WireFrame {
     /// Voluntary teardown. Sent before closing the TCP socket so the
     /// peer can distinguish a clean shutdown from a network blip.
     Goodbye,
+
+    /// v0.21 Tier 4.3: source node ships a paused agent's serialized
+    /// state to the target. The target decodes against
+    /// [`crate::reload::Resumable::SCHEMA_HASH`], spawns a fresh
+    /// instance, and acks via [`WireFrame::MigrateAck`].
+    ///
+    /// `agent_addr.node` is the source; `target_node` is the routing
+    /// target (where the mesh sends this frame).
+    MigrateSnapshot {
+        agent_addr: AgentAddr,
+        target_node: NodeId,
+        agent_type: String,
+        schema_hash: u64,
+        state: Vec<u8>,
+    },
+
+    /// v0.21 Tier 4.3: target acknowledges a successful restore.
+    /// `route_to` is the source node id (where the ack should go).
+    MigrateAck {
+        migrating: AgentAddr,
+        new: AgentAddr,
+        route_to: NodeId,
+    },
+
+    /// v0.21 Tier 4.3: target rejected a migration. Source rolls back.
+    MigrateError {
+        migrating: AgentAddr,
+        route_to: NodeId,
+        kind: String,
+        message: String,
+    },
 }
 
 /// Errors raised by the framed I/O layer.

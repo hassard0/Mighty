@@ -19,6 +19,9 @@ pub mod peer;
 pub mod supervisor;
 pub mod tls;
 pub mod wire;
+// v0.21 Tier 4.3 — lossless live agent migration + placement policy.
+pub mod migration;
+pub mod placement;
 
 pub use address::{current_node_id, AgentAddr, NodeId};
 pub use correlation::CorrelationTable;
@@ -35,6 +38,14 @@ pub use tls::{
 pub use wire::{
     decode_frame, encode_frame, read_frame_async, write_frame_async, WireError, WireFrame,
     MAX_FRAME_BYTES, WIRE_VERSION,
+};
+pub use migration::{
+    AgentSnapshot, MigrationError, MigrationMetrics, MigrationMetricsSnapshot,
+    MigrationOrchestrator, MigrationReport, MigrationResult, QueuedMessage, SnapshotSink,
+    SnapshotSource, MAX_MIGRATION_SNAPSHOT_BYTES,
+};
+pub use placement::{
+    LeastLoadedPolicy, PlacementContext, PlacementPolicy, StaticPolicy, StickyPolicy,
 };
 
 use std::future::Future;

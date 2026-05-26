@@ -396,7 +396,9 @@ mesh.register_supervisor(sup.clone());
 // Drain restart events:
 while let Some(ev) = sup.next_event().await {
     match ev {
-        SupervisorEvent::RestartRequested { child, siblings, reason } => {
+        // v0.21: `placement_hint` is set when a PlacementPolicy is
+        // installed; respect it to drive cross-node fail-over.
+        SupervisorEvent::RestartRequested { child, siblings, reason, placement_hint } => {
             // Caller re-spawns child + every sibling the strategy lists.
         }
         SupervisorEvent::CircuitBreakerTripped { child, attempts, window_ms } => {
@@ -445,6 +447,99 @@ The supervisor does NOT re-place children on a different node. That's
 placement-policy abstraction lands. v0.20's restart events let the
 caller decide: try the same node again when it reconnects, or pick a
 new one from operator-supplied policy.
+
+## Placement policy (v0.21 Tier 4.3)
+
+v0.21 adds a [`PlacementPolicy`] trait the supervisor consults at
+restart time. When a policy is installed via
+`ClusterSupervisor::set_placement_policy`, every `RestartRequested`
+event carries a `placement_hint: Option<NodeId>` set by the policy's
+`place()` method. The caller's restart logic uses the hint to decide
+which node to re-spawn the child on.
+
+### Bundled policies
+
+| Policy             | Behaviour                                                       |
+| ------------------ | --------------------------------------------------------------- |
+| `StickyPolicy`     | Keep on current node if reachable, else least-loaded fallback.   |
+| `LeastLoadedPolicy`| Always pick the reachable node with the smallest child count.    |
+| `StaticPolicy(n)`  | Always pick `n`. Useful for "send everything to the spare".      |
+
+Custom policies are wired via the Rust API only — the manifest's
+`[cluster.placement]` block selects one of the three bundled names:
+
+```toml
+[cluster.placement]
+policy = "sticky"            # or "least-loaded" or "static"
+default_node = "node-spare"  # required when policy = "static"
+```
+
+The supervisor also exposes `set_available_nodes(...)` so the runtime
+can keep the policy's view of the cluster in sync with the mesh's
+connection state.
+
+## Live migration (v0.21 Tier 4.3)
+
+`migrate_agent(agent, target, deadline)` ships a running agent's
+mailbox + continuation from the source node to `target`. Implementation
+in [`migration.rs`](../../crates/mty-runtime/src/cluster/migration.rs);
+RFC-006 carries the design discussion.
+
+### Sequence
+
+```
+  source                                         target
+    |                                              |
+    |  1. drain + snapshot (Resumable)             |
+    |     agent transitions to MIGRATING           |
+    |     new messages keep enqueueing             |
+    |                                              |
+    |--- WireFrame::MigrateSnapshot --------------->|
+    |                                              |
+    |                                  2. verify schema_hash
+    |                                     SnapshotSink::restore
+    |                                     assign new agent_id
+    |                                              |
+    |<-- WireFrame::MigrateAck --------------------|
+    |                                              |
+    |  3. forward queued mailbox frames            |
+    |     to new addr as plain Send frames         |
+    |  4. install routing rewrite                  |
+    |     original_addr -> new_addr                |
+    |     (subsequent sends route via mesh)        |
+```
+
+### Wire frames
+
+- `WireFrame::MigrateSnapshot { agent_addr, target_node, agent_type, schema_hash, state }`
+- `WireFrame::MigrateAck { migrating, new, route_to }`
+- `WireFrame::MigrateError { migrating, route_to, kind, message }`
+
+### Error taxonomy
+
+| Diag code | Variant                  | Trigger                                            |
+| --------- | ------------------------ | -------------------------------------------------- |
+| MT5060    | IncompatibleSchema       | target's `Resumable::SCHEMA_HASH` doesn't match    |
+| MT5071    | AgentNotFound            | source can't locate the agent locally               |
+| MT5072    | TargetUnreachable        | target node isn't a connected peer                  |
+| MT5073    | SameNode                 | target == local node                                |
+| MT5074    | Deadline                 | ack didn't arrive within `deadline_ms`              |
+| MT5075    | Rejected                 | target sent `MigrateError`                          |
+| MT5076    | SnapshotTooLarge         | state > 6 MiB                                       |
+| MT5077    | Mesh                     | mesh routing failure (peer disconnect mid-migrate)  |
+
+On any failure the source's `SnapshotSource::rollback` hook is called
+and the agent resumes processing locally — no half-migrated state.
+
+### Metrics
+
+`MigrationMetrics` exposes Prometheus-shaped counters (no per-agent
+labels):
+
+- `migrations_started` / `migrations_completed` / `migrations_failed`
+- `migrations_rolled_back`
+- `bytes_shipped_total`
+- `messages_forwarded_total`
 
 ## Operational notes
 
@@ -545,8 +640,9 @@ Self-signed certs minted per-test via `rcgen`; no on-disk fixtures.
 | --- | --- |
 | Mutual TLS (client certs) | **shipped v0.20** |
 | Cluster-aware supervisor (Tier 4.2) | **shipped v0.20** |
-| Cross-node fail-over (Tier 4.2.1) | v0.21 |
-| Per-frame ACK / retransmit | v0.21+ |
-| Lossless live migration (Tier 4.3) | v0.21+ |
-| SPIFFE / SAN-URI identity | v0.21+ (post-CN-binding) |
-| Discovery / gossip | post-v0.20 |
+| Placement-policy-driven restart hints | **shipped v0.21** |
+| Lossless live migration (Tier 4.3) | **shipped v0.21** |
+| Cluster-wide ACID transactions | v0.22+ |
+| Per-frame ACK / retransmit | v0.22+ |
+| SPIFFE / SAN-URI identity | v0.22+ (post-CN-binding) |
+| Discovery / gossip | post-v0.21 |

@@ -472,6 +472,11 @@ fn frame_target_node(frame: &WireFrame) -> Option<&NodeId> {
         // `route()`. Peers send them directly on the same socket.
         WireFrame::Reply { .. } | WireFrame::Error { .. } => None,
         WireFrame::Hello { .. } | WireFrame::Heartbeat | WireFrame::Goodbye => None,
+        // v0.21 Tier 4.3 — migration frames carry their own target
+        // node distinct from the agent address.
+        WireFrame::MigrateSnapshot { target_node, .. } => Some(target_node),
+        WireFrame::MigrateAck { route_to, .. } => Some(route_to),
+        WireFrame::MigrateError { route_to, .. } => Some(route_to),
     }
 }
 

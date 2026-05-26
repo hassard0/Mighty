@@ -74,6 +74,32 @@ pub struct ClusterManifest {
     /// PEM files at startup.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tls: Option<ClusterTlsManifest>,
+    /// v0.21 Tier 4.3: optional placement-policy block. Drives the
+    /// cluster supervisor's restart hints.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement: Option<ClusterPlacementManifest>,
+}
+
+/// `[cluster.placement]` block. Selects one of the bundled placement
+/// policies. Custom policies are wired via Rust API only.
+///
+/// ```toml
+/// [cluster.placement]
+/// policy = "sticky"           # or "least-loaded" or "static"
+/// default_node = "node-a"     # required when policy = "static"
+/// ```
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ClusterPlacementManifest {
+    /// Policy name: `"sticky"`, `"least-loaded"`, or `"static"`.
+    #[serde(default = "default_placement_policy")]
+    pub policy: String,
+    /// Required only when `policy = "static"`. Ignored otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_node: Option<String>,
+}
+
+fn default_placement_policy() -> String {
+    "sticky".into()
 }
 
 /// A single `[[cluster.peers]]` entry.

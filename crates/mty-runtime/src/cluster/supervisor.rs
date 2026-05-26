@@ -59,8 +59,10 @@
 //! ```
 
 use crate::cluster::address::{AgentAddr, NodeId};
+use crate::cluster::placement::{PlacementContext, PlacementPolicy, StickyPolicy};
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{mpsc, Mutex as AsyncMutex};
 
@@ -151,10 +153,19 @@ pub enum SupervisorEvent {
     /// Caller should re-spawn / re-connect to `child`. `siblings`
     /// lists every other child the strategy says to restart at the
     /// same time (empty for OneForOne).
+    ///
+    /// v0.21 Tier 4.3: when a [`PlacementPolicy`] is installed,
+    /// `placement_hint` carries the node the policy chose. The
+    /// caller's restart logic SHOULD honour the hint but is allowed
+    /// to override it. `None` when no policy is configured (legacy
+    /// v0.20 shape).
     RestartRequested {
         child: AgentAddr,
         siblings: Vec<AgentAddr>,
         reason: ExitReason,
+        /// v0.21 placement-policy-driven hint. `None` for legacy
+        /// supervisors without a policy.
+        placement_hint: Option<NodeId>,
     },
     /// Circuit breaker tripped — supervisor has stopped trying to
     /// restart this child. Operator action required.
@@ -208,11 +219,30 @@ pub struct ClusterSupervisor {
     event_rx: AsyncMutex<mpsc::Receiver<SupervisorEvent>>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct Inner {
     children: HashMap<AgentAddr, ChildRecord>,
     strategy: RestartStrategy,
     next_sequence: u64,
+    /// v0.21 placement: nodes the supervisor currently believes are
+    /// reachable. Empty by default — when empty, restart hints are
+    /// `None` (legacy behaviour). The runtime / mesh updates this via
+    /// [`ClusterSupervisor::set_available_nodes`].
+    available_nodes: Vec<NodeId>,
+    /// v0.21 placement policy. Optional — `None` falls back to v0.20
+    /// behaviour (no hint emitted).
+    policy: Option<Arc<dyn PlacementPolicy>>,
+}
+
+impl std::fmt::Debug for Inner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Inner")
+            .field("strategy", &self.strategy)
+            .field("child_count", &self.children.len())
+            .field("available_nodes", &self.available_nodes.len())
+            .field("policy", &self.policy.as_ref().map(|p| p.name()))
+            .finish_non_exhaustive()
+    }
 }
 
 /// Capacity of the supervisor event channel. Set to a small constant
@@ -236,6 +266,40 @@ impl ClusterSupervisor {
     /// Borrow the configured strategy.
     pub fn strategy(&self) -> RestartStrategy {
         self.inner.lock().strategy
+    }
+
+    /// v0.21: install a placement policy. Subsequent restart events
+    /// will carry a `placement_hint` set by `policy.place(...)`.
+    pub fn set_placement_policy(&self, policy: Arc<dyn PlacementPolicy>) {
+        self.inner.lock().policy = Some(policy);
+    }
+
+    /// Default-on convenience: install [`StickyPolicy`].
+    pub fn use_sticky_placement(&self) {
+        self.set_placement_policy(Arc::new(StickyPolicy));
+    }
+
+    /// v0.21: report the set of cluster nodes the supervisor should
+    /// consider reachable. Used by [`PlacementPolicy::place`] to
+    /// decide where to send a restart.
+    pub fn set_available_nodes(&self, nodes: impl IntoIterator<Item = NodeId>) {
+        self.inner.lock().available_nodes = nodes.into_iter().collect();
+    }
+
+    /// Borrow the placement policy name (for telemetry). Returns
+    /// `"none"` when no policy is configured.
+    pub fn placement_policy_name(&self) -> &'static str {
+        self.inner
+            .lock()
+            .policy
+            .as_ref()
+            .map(|p| p.name())
+            .unwrap_or("none")
+    }
+
+    /// Number of placement nodes currently considered reachable.
+    pub fn available_node_count(&self) -> usize {
+        self.inner.lock().available_nodes.len()
     }
 
     /// Insert / replace a child.
@@ -442,10 +506,41 @@ impl ClusterSupervisor {
             }
         }
 
+        // v0.21 placement: ask the policy where the restart should
+        // land. We do this after the circuit-breaker check (so a
+        // dead child doesn't emit a hint) but before pushing the
+        // event so the caller sees the hint inline.
+        let placement_hint = if let Some(policy) = inner.policy.clone() {
+            let spec = inner
+                .children
+                .get(failed)
+                .map(|r| r.spec.clone())
+                .expect("checked above");
+            let mut counts: HashMap<NodeId, usize> = HashMap::new();
+            for child in inner.children.values() {
+                // Skip dead/no-proc children when counting load.
+                if matches!(child.state, ChildState::Dead(_) | ChildState::NoProc) {
+                    continue;
+                }
+                *counts
+                    .entry(child.spec.addr.node.clone())
+                    .or_insert(0usize) += 1;
+            }
+            let ctx = PlacementContext {
+                available_nodes: inner.available_nodes.clone(),
+                current_node: Some(spec.addr.node.clone()),
+                child_count_per_node: counts,
+            };
+            Some(policy.place(&spec, &ctx))
+        } else {
+            None
+        };
+
         out.push(SupervisorEvent::RestartRequested {
             child: failed.clone(),
             siblings: wake_with,
             reason,
+            placement_hint,
         });
     }
 }

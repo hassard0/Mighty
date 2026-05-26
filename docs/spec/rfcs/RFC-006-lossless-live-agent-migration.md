@@ -1,11 +1,15 @@
 # RFC-006 — Lossless live agent migration
 
-**Status:** Draft (v0.9 spec-freeze prep).
+**Status:** **IMPLEMENTED in v0.21** (Tier 4.3, agent-features roadmap).
+See [`docs/internals/cluster.md#live-migration`](../../internals/cluster.md#live-migration)
+for the as-built architecture and `crates/mty-runtime/src/cluster/migration.rs`
+for the implementation. The wire layer ships three new variants —
+`MigrateSnapshot`, `MigrateAck`, `MigrateError` — atop the v0.18 cluster
+transport.
 **Tracks amendment:** A103 (lightweight migration shipped in v0.6;
 routing-table-only, lossless live migration deferred).
-**Target release:** v1.1 or v1.2 (whichever lands the runtime
-re-binding primitives first; see Adoption plan).
-**Owner:** *unassigned* — design owner needed before promotion.
+**Target release:** v0.21 (shipped).
+**Owner:** v0.21 Tier 4.3 implementation slice.
 
 ## Summary
 
