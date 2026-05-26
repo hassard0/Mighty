@@ -10,8 +10,11 @@ This page tracks the Mighty self-hosting roadmap. v0.4 shipped the
 the **parser**; v0.8 ships the **HIR lowering + minimal typeck**;
 v0.9 ships the **MtyIR (mid-level IR) lowering**; v0.10 **closes the
 v0.8/v0.9 deferrals** so examples 04 + 05 pass byte-for-byte across
-HIR + typeck + MtyIR. Codegen (Cranelift + LLVM + Wasm —
-3rd-party-dep-heavy) stays in Rust until post-1.0.
+HIR + typeck + MtyIR. **v0.13 ships the Wasm core-module codegen**,
+closing the self-host chain end-to-end for the slice-1-supported
+subset (i.e. examples 01-02 round-trip through Mighty-emitted Wasm
+bytes that validate via `wasmparser`). Cranelift + LLVM stay in Rust
+post-1.0 as 3rd-party-dep-heavy alternative back-ends.
 
 ## Roadmap
 
@@ -24,7 +27,8 @@ HIR + typeck + MtyIR. Codegen (Cranelift + LLVM + Wasm —
 | v0.8 | Typeck (minimal) | SHIPPED-SUBSET — 5 bootstrap tests pass against Rust typeck (examples 01-03) | `crates/mty-types/*` |
 | v0.9 | MtyIR lowering | SHIPPED-SUBSET — 7 bootstrap tests pass against Rust IR pipeline (examples 01-03) | `crates/mty-ir/src/lower/*` |
 | v0.10 | HIR / typeck / MtyIR — examples 04 + 05 | **SHIPPED — 7/7/9 bootstrap tests pass on examples 01-05 (no more `#[ignore]`s)** | (same as above) |
-| post-1.0 | Codegen | future (Cranelift + LLVM + Wasm) | `crates/mty-codegen-*/*` |
+| v0.13 | Codegen (Wasm core module) | **SHIPPED-SUBSET — 6 bootstrap tests pass; Mighty-emitted bytes round-trip through `wasmparser::Validator` for examples 01-02 + a synthetic arithmetic fixture** | `crates/mty-codegen-wasm/src/emit.rs` |
+| post-1.0 | Codegen (Cranelift + LLVM) | future | `crates/mty-codegen-cranelift/*`, `crates/mty-codegen-llvm/*` |
 
 "SUBSET" means the Mighty source `mty check`s clean and exercises
 the documented production set, but defers a handful of advanced grammars
@@ -36,9 +40,22 @@ gap catalog, `SELFHOST_HIR_V0_8_NOTES.md` for the v0.8 HIR + typeck,
 `SELFHOST_PARSER_V0_6_NOTES.md` for the v0.6 parser, and
 `SELFHOST_V0_4_NOTES.md` for the v0.4 lexer catalog.
 
-After v0.10, the only thing not self-hosted is back-end code
-generation. Cranelift, LLVM, and Wasm are 3rd-party-dep-heavy and
-unlikely to land before 1.0.
+After **v0.13** the only thing not self-hosted is the Cranelift +
+LLVM back-ends. Wasm-core-module emission landed in v0.13 (see
+`SELFHOST_CODEGEN_V0_13_NOTES.md` for the production matrix). The
+v0.13 emitter handles the v0.9-IR-supported subset (i32/i64
+arithmetic, locals, structured if/else, calls, log import). Match
+arms, ADT init, agents, send/ask, and capability values still emit
+`unreachable` placeholders — they remain post-1.0 deferrals because
+their HIR/IR shape isn't yet self-hosted either. The bootstrap test
+gates on `wasmparser::Validator` accepting the Mighty-emitted bytes:
+**Mighty can now describe the algorithm that produces a valid Wasm
+module from its own MtyIR for the slice-1 subset, end-to-end.**
+
+**Cranelift + LLVM** are 3rd-party-dep-heavy alternative back-ends
+that stay in Rust until post-1.0 — they would each require porting
+~5-10 KLOC of binding-heavy code that doesn't materially improve
+the self-host story already established by the Wasm back-end.
 
 ## Where the lexer lives
 

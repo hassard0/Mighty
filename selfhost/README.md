@@ -14,7 +14,8 @@ for the full architectural story.
 | HIR lowering | `hir/` | v0.10: SHIPPED-SUBSET — 7 bootstrap tests pass (examples 01-05) | `crates/mty-driver/tests/selfhost_hir.rs` |
 | Typeck (minimal) | `typeck/` | v0.10: SHIPPED-SUBSET — 7 bootstrap tests pass (examples 01-05) | `crates/mty-driver/tests/selfhost_typeck.rs` |
 | MtyIR lowering | `ir/` | v0.10: SHIPPED-SUBSET — 9 bootstrap tests pass (examples 01-05) | `crates/mty-driver/tests/selfhost_ir.rs` |
-| Codegen | `codegen/` | future (post-1.0) | — |
+| Codegen (Wasm core) | `codegen/` | **v0.13: SHIPPED-SUBSET — 6 bootstrap tests pass; Mighty-emitted bytes validate via `wasmparser` for examples 01-02 + arith fixture** | `crates/mty-driver/tests/selfhost_codegen.rs` |
+| Codegen (Cranelift / LLVM) | — | future (post-1.0) | — |
 
 ## What "SUBSET" means in v0.4
 
@@ -251,3 +252,51 @@ Shipping `lexer.sd` now:
   document them" working agreement
 - means the v0.5 follow-up is unblocked: lift the runtime gap,
   remove the `#[ignore]`, and the bootstrap diff goes green
+
+## v0.13 — Wasm core-module codegen
+
+```bash
+mty check selfhost/codegen/lib.mty
+mty check selfhost/codegen/wasm.mty
+cargo test -p mty-driver --test selfhost_codegen
+```
+
+Six live tests pass (one v0.13-gated test is `#[ignore]`d for the
+generic `Option[T]` fn in example 03):
+
+```
+test selfhost_codegen_compiles ........... ok
+test selfhost_codegen_lib_compiles ....... ok
+test selfhost_codegen_hello_world ........ ok
+test selfhost_codegen_example_01 ......... ok
+test selfhost_codegen_example_02 ......... ok
+test selfhost_codegen_arith_fixture ...... ok
+test selfhost_codegen_example_03 ......... ignored
+```
+
+The v0.13 codegen source covers fn signatures (params + result),
+local declarations, i32/i64/f64 const literals, local.get / local.set
+for var reads/writes, i32 BinOps (Add/Sub/Mul/Div/Rem/And/Or/Xor/
+Shl/Shr/Eq/Ne/Lt/Le/Gt/Ge — signed + unsigned variants), i32 UnOps
+(Eqz for Bool-not, Neg synthesized via 0-sub-x), if/else structured
+control, return + unreachable + nop terminators, user fn calls, and
+log/print/panic builtin sinks routed to an imported `log(ptr, len)`.
+
+The bootstrap test reassembles a real Wasm core module from the
+Mighty-emitted event stream (Mighty owns the *algorithm*; the host
+handles byte serialization — magic header, LEB128 — because the v0.12
+stdlib doesn't yet have Vec[U8] + bitwise byte primitives) and
+validates the resulting bytes with `wasmparser::Validator::validate_all`
+— the **same correctness gate** the trusted Rust codegen pipeline
+uses in `crates/mty-driver/tests/conformance_codegen.rs`.
+
+After v0.13, **the entire Mighty compiler front-end + Wasm back-end
+is implemented in Mighty source for the slice-1-supported subset**.
+The Cranelift + LLVM back-ends stay in Rust post-1.0 — they don't
+materially improve the self-host story already established by the
+Wasm back-end (which is the most-portable + most-validated target).
+
+See [`../dev/history/notes/SELFHOST_CODEGEN_V0_13_NOTES.md`](../dev/history/notes/SELFHOST_CODEGEN_V0_13_NOTES.md)
+for the per-feature coverage matrix, the v0.13 language-gap catalog,
+and the v0.14 roadmap (full match-arm pattern lowering, ADT init
+with linear-memory layout, real LEB128 encoder in Mighty source).

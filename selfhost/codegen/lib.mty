@@ -1,0 +1,65 @@
+// selfhost/codegen/lib.mty
+//
+// Self-hosted Wasm core-module codegen — v0.13 SHIPPED-SUBSET.
+//
+// This is the package entry-point for the self-hosted Wasm core-module
+// emitter, the last front-end phase to land in Mighty source. It
+// documents the intended module layout once cross-file resolution lands;
+// today everything is consolidated into `wasm.mty` because the v0.12
+// driver still compiles one `.mty` file at a time (see
+// `SELFHOST_HIR_V0_8_NOTES.md` gap #1).
+//
+// ## Intended v1.0+ layout
+//
+//   selfhost.codegen
+//   ├── lib.mty       — this file: re-exports + package decl
+//   └── wasm.mty      — MtyIR → Wasm core-module emitter (runnable,
+//                       v0.13 subset)
+//
+// ## Current v0.13 layout (single-file compile workaround)
+//
+// The runnable emitter + bridge live in `wasm.mty`. `lib.mty` exists
+// for parity with the `selfhost/ir` layout and to provide a single
+// package id (`selfhost_codegen`) for downstream importers.
+//
+// ## Status
+//
+// - `wasm.mty` — `mty check` clean, services the v0.13 bootstrap test
+//
+// ## Why ship a SUBSET
+//
+// The Rust Wasm core-module lowerer in `crates/mty-codegen-wasm/src/emit.rs`
+// is ~1700 LOC and exercises the entirety of the `wasm-encoder`
+// section/instruction API. The v0.13 self-host budget is 5 hours and the
+// language-level byte-manipulation primitives Mighty would need to write
+// real LEB128 / canonical-ABI byte emitters are NOT yet in the stdlib
+// (Vec[U8], for-each-byte, bitwise shifts on byte streams). The Mighty
+// emitter therefore drives **section-level + instruction-level Wasm
+// shape decisions** via a host-bridge event stream — exactly the same
+// architectural choice the lexer (v0.4-v0.5), parser (v0.6),
+// HIR (v0.8), typeck (v0.8), and MtyIR (v0.9) phases made.
+//
+// The actual byte serialization (LEB128 encoding, magic header, version
+// bytes, etc.) is done by the trusted Rust `wasm-encoder` crate in the
+// bootstrap test host. The Mighty source is responsible for:
+//
+//   1. Selecting which Wasm sections are needed (type / function /
+//      export / code).
+//   2. Computing the function type signature (params, results) for
+//      each MtyIR fn.
+//   3. Walking each MtyIR block + statement + rvalue + terminator
+//      and emitting the corresponding Wasm opcode marker.
+//   4. Recording local variable slots for `local.get`/`local.set`.
+//   5. Closing each function body with the right `end` markers.
+//
+// After the bootstrap test runs the Mighty emitter, the host reassembles
+// a real Wasm core module from the event stream and validates it with
+// `wasmparser::Validator::validate_all` — the same correctness check
+// the trusted Rust codegen pipeline uses in
+// `crates/mty-driver/tests/conformance_codegen.rs`.
+//
+// See `crates/mty-driver/tests/selfhost_codegen.rs` for the runner
+// and `dev/history/notes/SELFHOST_CODEGEN_V0_13_NOTES.md` for the
+// production matrix + gap catalog.
+
+package selfhost_codegen
