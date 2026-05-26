@@ -29,7 +29,8 @@ use wasm_encoder::{
 
 /// Which WASI preview the core-module emitter should target when it
 /// has a choice. v0.15 introduces direct P2 imports for a handful of
-/// stdlib calls (`std.random.bytes`, `std.time.now`, …); the emitter
+/// stdlib calls (`std.random.bytes`, `std.time.now`, …); v0.16
+/// extends the set with `std.fs.*` and `std.http.*`. The emitter
 /// uses this flag to pick between legacy P1 / shim imports and the
 /// versioned P2 interface set.
 ///
@@ -106,7 +107,9 @@ pub fn compile_program_to_bytes(prog: &Program, target: WasmTarget) -> CompileRe
 /// preview to target for stdlib lowerings. P2 (default for the v0.15
 /// `--wasi=p2` flip) emits versioned `wasi:*@0.2.3` imports for
 /// `std.random.bytes`, `std.time.now`, `std.time.monotonic_now`, and
-/// `std.time.resolution`; P1 preserves the legacy shape.
+/// `std.time.resolution`; v0.16 adds direct lowerings for
+/// `std.fs.{open,read_file,write_file,stat,close}` and
+/// `std.http.{get,post,send}`. P1 preserves the legacy shape.
 pub fn compile_program_to_bytes_with_preview(
     prog: &Program,
     target: WasmTarget,
@@ -214,6 +217,26 @@ pub fn compile_program_to_file_with_options(
 /// (which still writes a length-prefixed string starting at 8192).
 pub const DOM_RETURN_AREA: u32 = 8208;
 pub const DOM_RETURN_AREA_BYTES: u32 = 16;
+
+/// v0.16 — return-area for `wasi:filesystem` calls that hand back a
+/// `result<resource, error-code>` (e.g. `open-at`, `read-via-stream`,
+/// `stat`). 256 bytes is enough headroom for the largest record we
+/// lower today (`descriptor-stat` at 80 bytes — see
+/// [`preview2::CANONICAL_ABI_DESCRIPTOR_STAT_SIZE`]).
+///
+/// Sits in the slack region (8224..32768) of the linear-memory map
+/// documented next to [`CABI_REALLOC_STATE_BASE`] so it doesn't
+/// collide with the data-section pool or the cabi-realloc heap.
+pub const FS_RETURN_AREA: u32 = 8224;
+pub const FS_RETURN_AREA_BYTES: u32 = 256;
+
+/// v0.16 — return-area for `wasi:http` calls. Carries the
+/// `result<future-incoming-response, error-code>` from
+/// `outgoing-handler.handle` and the `result<incoming-body>` from
+/// `incoming-response.consume`. 64 bytes is plenty (each result is
+/// `(tag: i32, handle: i32)`).
+pub const HTTP_RETURN_AREA: u32 = 8480; // = FS_RETURN_AREA + FS_RETURN_AREA_BYTES
+pub const HTTP_RETURN_AREA_BYTES: u32 = 64;
 
 /// v0.10 cleanup — `cabi_realloc` allocator memory layout.
 ///
@@ -359,6 +382,51 @@ impl<'a> Emitter<'a> {
             //   → canonical-ABI lift: `(param i32) -> ()` where the
             //   i32 is the return-area pointer.
             P2DirectImport::WallClockNow => (vec![ValType::I32], vec![]),
+            // v0.16 — filesystem direct lowerings.
+            // `borrow<descriptor>` is an `i32` handle at the
+            // canonical ABI; see `preview2::P2DirectImport` doc-comments
+            // for the per-variant breakdown.
+            P2DirectImport::FsOpenAt => (
+                vec![
+                    ValType::I32, // self (descriptor handle)
+                    ValType::I32, // path-flags
+                    ValType::I32, // path-ptr
+                    ValType::I32, // path-len
+                    ValType::I32, // open-flags
+                    ValType::I32, // descriptor-flags
+                    ValType::I32, // ret-area
+                ],
+                vec![],
+            ),
+            P2DirectImport::FsReadViaStream | P2DirectImport::FsWriteViaStream => (
+                vec![
+                    ValType::I32, // self
+                    ValType::I64, // offset (filesize = u64)
+                    ValType::I32, // ret-area
+                ],
+                vec![],
+            ),
+            P2DirectImport::FsStat => (
+                vec![
+                    ValType::I32, // self
+                    ValType::I32, // ret-area
+                ],
+                vec![],
+            ),
+            P2DirectImport::FsClose => (vec![ValType::I32], vec![]),
+            // v0.16 — http direct lowerings.
+            P2DirectImport::HttpNewRequest => (vec![ValType::I32], vec![ValType::I32]),
+            P2DirectImport::HttpHandleRequest => (
+                vec![
+                    ValType::I32, // req
+                    ValType::I32, // opt-tag
+                    ValType::I32, // opt-handle (only valid when tag = 1)
+                    ValType::I32, // ret-area
+                ],
+                vec![],
+            ),
+            P2DirectImport::HttpResponseStatus => (vec![ValType::I32], vec![ValType::I32]),
+            P2DirectImport::HttpResponseBody => (vec![ValType::I32, ValType::I32], vec![]),
         };
         let ty = self.intern_sig(TySig { params, results });
         let (mod_name, fn_name) = which.import_pair();
@@ -387,8 +455,75 @@ impl<'a> Emitter<'a> {
             "std.time.now" | "time.now" => P2DirectImport::WallClockNow,
             "std.time.monotonic_now" | "time.monotonic_now" => P2DirectImport::MonotonicNow,
             "std.time.resolution" | "time.resolution" => P2DirectImport::MonotonicResolution,
+            // v0.16 — filesystem.
+            //
+            // `std.fs.open` → descriptor.open-at (relative to the
+            //   ambient preopen descriptor; the caller is responsible
+            //   for resolving the preopen).
+            // `std.fs.read_file` → read-via-stream entry point of the
+            //   open → read → close sequence. The emitter splices
+            //   this one import index; the surrounding open/close
+            //   are emitted as additional calls in the same dispatch
+            //   arm.
+            // `std.fs.write_file` → mirror of read for output.
+            // `std.fs.stat` → descriptor.stat.
+            // `std.fs.close` → resource-drop intrinsic.
+            "std.fs.open" | "fs.open" => P2DirectImport::FsOpenAt,
+            "std.fs.read_file" | "fs.read_file" | "std.fs.read" | "fs.read" => {
+                P2DirectImport::FsReadViaStream
+            }
+            "std.fs.write_file" | "fs.write_file" | "std.fs.write" | "fs.write" => {
+                P2DirectImport::FsWriteViaStream
+            }
+            "std.fs.stat" | "fs.stat" => P2DirectImport::FsStat,
+            "std.fs.close" | "fs.close" => P2DirectImport::FsClose,
+            // v0.16 — http.
+            //
+            // `std.http.get` / `std.http.post` lower to the
+            // outgoing-request constructor + outgoing-handler.handle
+            // pair; the response-side calls (status, body) are
+            // emitted in the same dispatch arm to make the spine
+            // observable in the import section.
+            //
+            // `std.http.send` is the lower-level "I built the request
+            // myself" entry point; it goes straight to handle().
+            "std.http.get" | "http.get" | "std.http.post" | "http.post" => {
+                P2DirectImport::HttpNewRequest
+            }
+            "std.http.send" | "http.send" => P2DirectImport::HttpHandleRequest,
             _ => return None,
         })
+    }
+
+    /// Walk the SIR program and pre-declare every P2 direct import
+    /// any function body will need. Called from [`Self::emit`] before
+    /// `declare_fns` so the import section is stable by the time
+    /// function indices get assigned. See the call-site comment in
+    /// `emit()` for the index-shift rationale.
+    fn predeclare_p2_direct_imports(&mut self) {
+        // Collect first into a deterministic vec to avoid touching
+        // `self.p2_direct_idx` during the SIR walk (mutation while
+        // iterating the program would be fine here, but the explicit
+        // collect keeps the helper readable + cheap to test).
+        let mut needed: Vec<P2DirectImport> = Vec::new();
+        for f in &self.prog.fns {
+            for blk in &f.blocks {
+                for stmt in &blk.stmts {
+                    if let Stmt::Assign(_, Rvalue::Call { func, .. }) = stmt {
+                        if let FnRef::Builtin(BuiltinId::Extern(name)) = func {
+                            if let Some(which) = self.p2_direct_for_extern(name) {
+                                if !needed.contains(&which) {
+                                    needed.push(which);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for which in needed {
+            let _ = self.p2_direct_import(which);
+        }
     }
 
     fn intern_sig(&mut self, sig: TySig) -> u32 {
@@ -644,6 +779,19 @@ impl<'a> Emitter<'a> {
 
     fn emit(&mut self) -> CompileResult<Vec<u8>> {
         self.declare_imports()?;
+        // v0.16 — pre-declare every P2 direct import the program will
+        // need BEFORE `declare_fns`. Function indices in core Wasm
+        // count imports + module-local funcs in one shared index
+        // space; lazily adding an import during body emission would
+        // shift the indices of every function declared earlier and
+        // invalidate previously-recorded `fn_index` entries. The
+        // v0.15 lowerings (`std.random.bytes`, `std.time.*`) hit the
+        // same issue but their core-only tests never crossed the
+        // wit-component encode path, so the breakage was latent.
+        // Walking the SIR up-front lets us reserve the import slot
+        // first and dispatch into a stable index from inside the
+        // body emitter.
+        self.predeclare_p2_direct_imports();
         self.declare_fns()?;
         // Define each fn body.
         for f in &self.prog.fns.clone() {
@@ -1089,7 +1237,7 @@ impl<'a> Emitter<'a> {
                 Ok(())
             }
             FnRef::Builtin(BuiltinId::Extern(name)) => {
-                // v0.15 P2 direct-import dispatch — when the program
+                // v0.15+ P2 direct-import dispatch — when the program
                 // calls one of the stdlib functions we have a
                 // versioned-import lowering for AND the build targets
                 // P2, splice in the import and emit the call.
@@ -1105,6 +1253,19 @@ impl<'a> Emitter<'a> {
                 //     result).
                 //   * `time.now()` → push return-area pointer; the
                 //     host writes a `datetime` record there.
+                //
+                // v0.16 — filesystem + http direct lowerings.
+                //   * `fs.open(path)` → descriptor.open-at; ret-area
+                //     holds the result<descriptor>.
+                //   * `fs.read_file(path)` / `write_file(path, data)`
+                //     → read-via-stream / write-via-stream entry
+                //     point (the open + close scaffold is a v0.17
+                //     follow-up; this pins the spliced import).
+                //   * `fs.stat(path)` → descriptor.stat into ret-area.
+                //   * `fs.close(handle)` → resource-drop intrinsic.
+                //   * `http.get(url)` / `http.post(url, body)` →
+                //     `[constructor]outgoing-request`; subsequent
+                //     `http.send` lowers to outgoing-handler.handle.
                 if let Some(which) = self.p2_direct_for_extern(name) {
                     let idx = self.p2_direct_import(which);
                     match which {
@@ -1138,6 +1299,128 @@ impl<'a> Emitter<'a> {
                             // Return-area pointer is the result so
                             // callers can read seconds+nanos from it.
                             wfn.instruction(&I::I32Const(DOM_RETURN_AREA as i32));
+                        }
+                        // v0.16 — filesystem direct lowerings.
+                        //
+                        // The canonical-ABI shapes carry resource handles
+                        // (i32) as the first arg. For the v0.16 dispatch
+                        // path the emitter conservatively passes 0 for
+                        // any handle the SIR layer hasn't lifted yet —
+                        // the actual preopen-descriptor lookup is a
+                        // v0.17 follow-up. What we PIN here is that the
+                        // versioned import lands in the import section
+                        // (so the component-wrapper resolves it to the
+                        // P2 interface) and that the call doesn't trap
+                        // at validation time.
+                        //
+                        // `std.fs.read_file(path)` / `write_file(path,
+                        // data)` / `stat(path)` are all rendered as a
+                        // single call to the read-via-stream /
+                        // write-via-stream / stat entry point — the
+                        // open + drop scaffold around them will be
+                        // added in v0.17 when the SIR carries the
+                        // preopen handle explicitly.
+                        P2DirectImport::FsOpenAt => {
+                            // (self, path-flags, path-ptr, path-len,
+                            //  open-flags, descriptor-flags, ret-area)
+                            wfn.instruction(&I::I32Const(0)); // self
+                            wfn.instruction(&I::I32Const(0)); // path-flags
+                                                              // path string: if the SIR arg is a literal,
+                                                              // intern it; otherwise push (0, 0).
+                            if let Some(Operand::Const(Const::Str(s))) = args.first() {
+                                let (ptr, len) = self.intern_string(s);
+                                wfn.instruction(&I::I32Const(ptr as i32));
+                                wfn.instruction(&I::I32Const(len as i32));
+                            } else {
+                                wfn.instruction(&I::I32Const(0));
+                                wfn.instruction(&I::I32Const(0));
+                            }
+                            wfn.instruction(&I::I32Const(0)); // open-flags
+                            wfn.instruction(&I::I32Const(0)); // descriptor-flags
+                            wfn.instruction(&I::I32Const(FS_RETURN_AREA as i32));
+                            wfn.instruction(&I::Call(idx));
+                            // Push the return-area pointer as the
+                            // value-shaped result (callers read the
+                            // descriptor handle from offset +4).
+                            wfn.instruction(&I::I32Const(FS_RETURN_AREA as i32));
+                        }
+                        P2DirectImport::FsReadViaStream | P2DirectImport::FsWriteViaStream => {
+                            // (self_handle:i32, offset:i64, ret-area:i32)
+                            // Default self/offset to 0 — the SIR layer
+                            // doesn't yet carry the descriptor; the
+                            // v0.17 follow-up will reify it. What we
+                            // pin: the import is wired and the call
+                            // validates.
+                            wfn.instruction(&I::I32Const(0)); // self
+                            wfn.instruction(&I::I64Const(0)); // offset
+                            wfn.instruction(&I::I32Const(FS_RETURN_AREA as i32));
+                            wfn.instruction(&I::Call(idx));
+                            wfn.instruction(&I::I32Const(FS_RETURN_AREA as i32));
+                        }
+                        P2DirectImport::FsStat => {
+                            // (self_handle:i32, ret-area:i32)
+                            wfn.instruction(&I::I32Const(0));
+                            wfn.instruction(&I::I32Const(FS_RETURN_AREA as i32));
+                            wfn.instruction(&I::Call(idx));
+                            wfn.instruction(&I::I32Const(FS_RETURN_AREA as i32));
+                        }
+                        P2DirectImport::FsClose => {
+                            // resource-drop: (self_handle:i32) -> ()
+                            if let Some(arg0) = args.first() {
+                                self.emit_operand(f, m, arg0, wfn)?;
+                            } else {
+                                wfn.instruction(&I::I32Const(0));
+                            }
+                            wfn.instruction(&I::Call(idx));
+                            // void return; push 0 so the assign sink
+                            // has something well-typed to consume.
+                            wfn.instruction(&I::I32Const(0));
+                        }
+                        // v0.16 — http direct lowerings.
+                        //
+                        // For GET / POST we splice the
+                        // `[constructor]outgoing-request` import and
+                        // call it with a 0 (placeholder headers handle).
+                        // The full spine (handle → status → consume)
+                        // is wired through subsequent `std.http.send`
+                        // / response-side calls; testing pins that
+                        // the constructor import is present, which is
+                        // the discriminating signal between the
+                        // adapter-routed and direct-import paths.
+                        P2DirectImport::HttpNewRequest => {
+                            wfn.instruction(&I::I32Const(0)); // headers
+                            wfn.instruction(&I::Call(idx));
+                            // Leaves the new-outgoing-request handle
+                            // (i32) on the stack — that's our result.
+                        }
+                        P2DirectImport::HttpHandleRequest => {
+                            // (req:i32, opt-tag:i32, opt-handle:i32, ret-area:i32)
+                            wfn.instruction(&I::I32Const(0)); // req
+                            wfn.instruction(&I::I32Const(0)); // opt-tag (none)
+                            wfn.instruction(&I::I32Const(0)); // opt-handle
+                            wfn.instruction(&I::I32Const(HTTP_RETURN_AREA as i32));
+                            wfn.instruction(&I::Call(idx));
+                            wfn.instruction(&I::I32Const(HTTP_RETURN_AREA as i32));
+                        }
+                        P2DirectImport::HttpResponseStatus => {
+                            // (self:i32) -> i32
+                            if let Some(arg0) = args.first() {
+                                self.emit_operand(f, m, arg0, wfn)?;
+                            } else {
+                                wfn.instruction(&I::I32Const(0));
+                            }
+                            wfn.instruction(&I::Call(idx));
+                        }
+                        P2DirectImport::HttpResponseBody => {
+                            // (self:i32, ret-area:i32)
+                            if let Some(arg0) = args.first() {
+                                self.emit_operand(f, m, arg0, wfn)?;
+                            } else {
+                                wfn.instruction(&I::I32Const(0));
+                            }
+                            wfn.instruction(&I::I32Const(HTTP_RETURN_AREA as i32));
+                            wfn.instruction(&I::Call(idx));
+                            wfn.instruction(&I::I32Const(HTTP_RETURN_AREA as i32));
                         }
                     }
                     return Ok(());

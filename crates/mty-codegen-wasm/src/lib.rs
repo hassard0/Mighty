@@ -39,10 +39,12 @@ pub use emit::{
 };
 pub use error::{CompileResult, WasmError};
 pub use preview2::{
-    build_direct_p2_probe_module, compile_program_to_bytes_p2, compile_program_to_file_p2,
-    emit_wit_p2, AdapterKind, P2DirectImport, Preview2Options, UserWit, VENDORED_WASI_P2_WIT,
-    WASI_P1_ADAPTER_COMMAND, WASI_P1_ADAPTER_PROXY, WASI_P1_ADAPTER_REACTOR,
-    WASI_P1_ADAPTER_VERSION, WASI_P2_VERSION,
+    build_direct_p2_probe_module, canonical_abi_descriptor_signature,
+    canonical_abi_outgoing_request_signature, compile_program_to_bytes_p2,
+    compile_program_to_file_p2, emit_resource_borrow_passthrough, emit_resource_drop_call,
+    emit_wit_p2, AdapterKind, P2DirectImport, Preview2Options, UserWit,
+    CANONICAL_ABI_DESCRIPTOR_STAT_SIZE, VENDORED_WASI_P2_WIT, WASI_P1_ADAPTER_COMMAND,
+    WASI_P1_ADAPTER_PROXY, WASI_P1_ADAPTER_REACTOR, WASI_P1_ADAPTER_VERSION, WASI_P2_VERSION,
 };
 pub use target::WasmTarget;
 pub use wit::{emit_wit, WitDocument};

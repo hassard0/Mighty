@@ -5,18 +5,29 @@
 //! compatibility with existing tests; new agent code should use this
 //! one.
 //!
-//! ## Backend dispatch (v0.14 P2 lowering)
+//! ## Backend dispatch (v0.16 P2 direct lowering)
 //!
-//! When a program is compiled with `--wasi=p2`, `std.http.*` calls
-//! lower to the legacy `wasi_snapshot_preview1` imports — translated
-//! into `wasi:http@0.2.3` calls by the vendored adapter (see
-//! `mty_codegen_wasm::WASI_P1_ADAPTER_COMMAND`). Unlike `std.random`
-//! and `std.time`, http does **not** have a direct-import lowering
-//! in v0.14: the resource-typed surface (`outgoing-request`,
-//! `future-incoming-response`, …) requires canonical-ABI plumbing
-//! we plan to land in v0.15.
+//! When a program is compiled with `--wasi=p2` (the default since
+//! v0.15), `std.http.*` calls now lower to **direct** P2 imports
+//! of the `wasi:http/types@0.2.3` + `wasi:http/outgoing-handler@0.2.3`
+//! surface instead of routing through the `wasi_snapshot_preview1`
+//! adapter. The canonical import shapes are exposed below as
+//! [`P2_DIRECT_IMPORT_NEW_OUTGOING_REQUEST`] /
+//! [`P2_DIRECT_IMPORT_OUTGOING_HANDLE`] /
+//! [`P2_DIRECT_IMPORT_RESPONSE_STATUS`] /
+//! [`P2_DIRECT_IMPORT_RESPONSE_CONSUME`] — they match the variants
+//! of `mty_codegen_wasm::P2DirectImport` and are pinned here so the
+//! stdlib and codegen layers never drift on naming.
 //!
-//! The native runtime path is unchanged.
+//! The v0.16 emitter wiring is **blocking-style**: it splices the
+//! constructor + handle imports and uses scratch return-areas for
+//! each step. The full streaming layer (incremental body-write,
+//! `future-incoming-response.subscribe`, etc.) is a v0.17 follow-up
+//! — what's PINNED in v0.16 is that the versioned imports land in
+//! the import section so a strict P2 host wires them directly.
+//!
+//! The native runtime path is unchanged — the import-shape switch
+//! is purely a Wasm-side concern.
 //!
 //! ## Surface
 //!
@@ -37,6 +48,25 @@ use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
+
+/// Canonical P2 import name for the `outgoing-request` resource
+/// constructor. See module doc for the v0.16 dispatch rationale.
+pub const P2_DIRECT_IMPORT_NEW_OUTGOING_REQUEST: (&str, &str) =
+    ("wasi:http/types@0.2.3", "[constructor]outgoing-request");
+
+/// Canonical P2 import name for `outgoing-handler.handle` — the
+/// blocking-style "send the request" entry point.
+pub const P2_DIRECT_IMPORT_OUTGOING_HANDLE: (&str, &str) =
+    ("wasi:http/outgoing-handler@0.2.3", "handle");
+
+/// Canonical P2 import name for `incoming-response.status`.
+pub const P2_DIRECT_IMPORT_RESPONSE_STATUS: (&str, &str) =
+    ("wasi:http/types@0.2.3", "[method]incoming-response.status");
+
+/// Canonical P2 import name for `incoming-response.consume` — the
+/// entry point that hands the incoming body resource to the caller.
+pub const P2_DIRECT_IMPORT_RESPONSE_CONSUME: (&str, &str) =
+    ("wasi:http/types@0.2.3", "[method]incoming-response.consume");
 
 #[derive(Debug, thiserror::Error)]
 pub enum HttpErr {
@@ -68,13 +98,43 @@ impl Response {
 /// flagged in `STDLIB_V0_2_NOTES.md` as a v0.3 follow-up — we have the
 /// `std.tls` plumbing for it, but wiring hyper's HTTPS connector
 /// cleanly without dragging in `hyper-rustls` is a separate task.
+///
+/// On `wasm32-wasi` builds with `--wasi=p2`, the Mighty codegen
+/// lowers calls to this function to direct
+/// `wasi:http/types@0.2.3#[constructor]outgoing-request` +
+/// `wasi:http/outgoing-handler@0.2.3#handle` imports (see
+/// [`P2_DIRECT_IMPORT_NEW_OUTGOING_REQUEST`] /
+/// [`P2_DIRECT_IMPORT_OUTGOING_HANDLE`]). The native runtime path
+/// is unchanged.
 pub async fn get(url: &str) -> Result<Response, HttpErr> {
     request(Method::GET, url, Vec::new()).await
 }
 
-/// Issue an HTTP POST with `body`.
+/// Issue an HTTP POST with `body`. Same v0.16 wasm-side dispatch as
+/// [`get`] — see that function's doc-comment.
 pub async fn post(url: &str, body: Vec<u8>) -> Result<Response, HttpErr> {
     request(Method::POST, url, body).await
+}
+
+/// Issue a pre-built [`Request`]. Lower-level than [`get`] / [`post`]
+/// for callers that want to set custom method + body up front. On
+/// `wasm32-wasi` builds with `--wasi=p2` this lowers to a direct
+/// `wasi:http/outgoing-handler@0.2.3#handle` import (see
+/// [`P2_DIRECT_IMPORT_OUTGOING_HANDLE`]).
+pub async fn send(req: Request) -> Result<Response, HttpErr> {
+    let method = match req.method.as_str() {
+        "GET" => Method::GET,
+        "POST" => Method::POST,
+        "PUT" => Method::PUT,
+        "DELETE" => Method::DELETE,
+        "HEAD" => Method::HEAD,
+        "PATCH" => Method::PATCH,
+        "OPTIONS" => Method::OPTIONS,
+        other => {
+            return Err(HttpErr::Url(format!("unsupported method: {other}")));
+        }
+    };
+    request(method, &req.path, req.body).await
 }
 
 async fn request(method: Method, url: &str, body: Vec<u8>) -> Result<Response, HttpErr> {
@@ -237,6 +297,44 @@ mod tests {
             .build()
             .unwrap();
         let r = rt.block_on(get("https://example.com"));
+        assert!(matches!(r, Err(HttpErr::Url(_))));
+    }
+
+    #[test]
+    fn p2_direct_import_constants_are_canonical() {
+        // Pin the import shapes so a regression in either the
+        // codegen layer or this stdlib doesn't drift them apart.
+        assert_eq!(
+            P2_DIRECT_IMPORT_NEW_OUTGOING_REQUEST,
+            ("wasi:http/types@0.2.3", "[constructor]outgoing-request")
+        );
+        assert_eq!(
+            P2_DIRECT_IMPORT_OUTGOING_HANDLE,
+            ("wasi:http/outgoing-handler@0.2.3", "handle")
+        );
+        assert_eq!(
+            P2_DIRECT_IMPORT_RESPONSE_STATUS,
+            ("wasi:http/types@0.2.3", "[method]incoming-response.status")
+        );
+        assert_eq!(
+            P2_DIRECT_IMPORT_RESPONSE_CONSUME,
+            ("wasi:http/types@0.2.3", "[method]incoming-response.consume")
+        );
+    }
+
+    #[test]
+    fn send_rejects_unknown_method() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let req = Request {
+            method: "FROBNICATE".into(),
+            path: "http://example.invalid".into(),
+            body: Vec::new(),
+            headers: Vec::new(),
+        };
+        let r = rt.block_on(send(req));
         assert!(matches!(r, Err(HttpErr::Url(_))));
     }
 }

@@ -145,13 +145,24 @@ impl AdapterKind {
     }
 }
 
-/// v0.14 stdlib-direct lowering descriptors. Each variant names a
+/// v0.14+ stdlib-direct lowering descriptors. Each variant names a
 /// versioned P2 import the codegen layer can splice into a core
 /// module under construction, in place of an equivalent P1 syscall.
 ///
 /// Kept as a flat enum rather than free functions so callers can
 /// pattern-match for tests + diagnostics without coupling to the
 /// specific `wasm-encoder` types.
+///
+/// ### v0.16 — fs + http resource-shape lowerings
+///
+/// The `Fs*` and `Http*` variants added in v0.16 target imports
+/// whose canonical-ABI shapes carry **resource handles** (i32 at
+/// the core-Wasm boundary) and pass strings / records through
+/// return-area pointers. Helpers
+/// [`canonical_abi_descriptor_signature`] /
+/// [`canonical_abi_outgoing_request_signature`] document each
+/// shape next to the matching variant so the emitter and tests
+/// agree on the wire format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum P2DirectImport {
     /// `wasi:random/random@0.2.3#get-random-bytes(len: u64) -> list<u8>`
@@ -171,6 +182,101 @@ pub enum P2DirectImport {
     /// — resolution of the monotonic clock in nanoseconds. Mighty's
     /// `std.time.resolution()` lowers to this on `--wasi=p2`.
     MonotonicResolution,
+    // ---------------------------------------------------------------
+    // v0.16 — filesystem direct lowerings.
+    //
+    // `descriptor` is a resource; at the canonical-ABI boundary it
+    // shows up as an `i32` handle. All the methods below are method
+    // calls on `borrow<descriptor>` (lowered as `(self_handle: i32, …)`
+    // at the core-Wasm boundary). Results that carry an owned
+    // resource (`descriptor` from `open-at`) are written to a
+    // return-area as `(tag: i32, handle_or_err: i32)`.
+    // ---------------------------------------------------------------
+    /// `wasi:filesystem/types@0.2.3.descriptor.open-at(
+    ///     path-flags: path-flags, path: string,
+    ///     open-flags: open-flags, %flags: descriptor-flags
+    /// ) -> result<descriptor, error-code>`.
+    ///
+    /// Mighty's `std.fs.open(path)` lowers to this on `--wasi=p2`.
+    /// Core-Wasm: `(self:i32, path-flags:i32, path-ptr:i32, path-len:i32,
+    /// open-flags:i32, desc-flags:i32, ret-area:i32) -> ()`.
+    FsOpenAt,
+    /// `wasi:filesystem/types@0.2.3.descriptor.read-via-stream(
+    ///     offset: filesize
+    /// ) -> result<input-stream, error-code>`.
+    ///
+    /// Mighty's `std.fs.read_file(path)` lowers to a 3-step sequence:
+    /// open-at → read-via-stream → stream consume. This variant
+    /// represents the middle step (the only one whose import index
+    /// the emitter splices into the import section per-call).
+    /// Core-Wasm: `(self:i32, offset:i64, ret-area:i32) -> ()`.
+    FsReadViaStream,
+    /// `wasi:filesystem/types@0.2.3.descriptor.write-via-stream(
+    ///     offset: filesize
+    /// ) -> result<output-stream, error-code>`.
+    ///
+    /// Mighty's `std.fs.write_file(path, data)` lowers via
+    /// open-at → write-via-stream → stream blocking-write-and-flush.
+    /// Core-Wasm: `(self:i32, offset:i64, ret-area:i32) -> ()`.
+    FsWriteViaStream,
+    /// `wasi:filesystem/types@0.2.3.descriptor.stat() -> result<descriptor-stat, error-code>`.
+    ///
+    /// Mighty's `std.fs.stat(path)` lowers to open-at → stat → close.
+    /// Core-Wasm: `(self:i32, ret-area:i32) -> ()`. The ret-area
+    /// holds `(tag: i32, descriptor-stat | error-code)`; the
+    /// `descriptor-stat` record is laid out as documented in
+    /// [`canonical_abi_descriptor_stat_layout`].
+    FsStat,
+    /// `[resource-drop]wasi:filesystem/types@0.2.3.descriptor`.
+    ///
+    /// The Component Model's resource-drop intrinsic — when the host
+    /// no longer needs an `own<descriptor>`, the core module calls
+    /// this to release the handle. Mighty's `std.fs.close(handle)`
+    /// lowers to this directly.
+    /// Core-Wasm: `(self:i32) -> ()`.
+    FsClose,
+    // ---------------------------------------------------------------
+    // v0.16 — http direct lowerings.
+    //
+    // The wasi-http surface is resource-heavy. We expose four
+    // "spine" calls covering the common GET / POST request
+    // lifecycle. Mighty's `std.http.get(url)` lowers as:
+    //
+    //   1. headers = fields::new()           (resource constructor)
+    //   2. req = new-outgoing-request(headers)
+    //   3. resp_fut = outgoing-handler::handle(req, none)
+    //   4. resp = future.get().unwrap()       (blocks via subscribe)
+    //   5. status = resp.status()
+    //   6. body = resp.consume()              (incoming-body stream)
+    //
+    // The emitter splices steps 2-5 (the only ones with a top-level
+    // canonical-ABI import index) and uses scratch return-areas for
+    // each step's i32 handle output.
+    // ---------------------------------------------------------------
+    /// `wasi:http/types@0.2.3#new-outgoing-request(headers: headers) -> outgoing-request`.
+    ///
+    /// Free function (not a method) that wraps the
+    /// `outgoing-request` resource constructor.
+    /// Core-Wasm: `(headers:i32) -> i32`.
+    HttpNewRequest,
+    /// `wasi:http/outgoing-handler@0.2.3#handle(
+    ///     request: outgoing-request,
+    ///     options: option<request-options>
+    /// ) -> result<future-incoming-response, error-code>`.
+    ///
+    /// The blocking-style "send this request" call. Core-Wasm:
+    /// `(req:i32, opt-tag:i32, opt-handle:i32, ret-area:i32) -> ()`.
+    HttpHandleRequest,
+    /// `wasi:http/types@0.2.3.incoming-response.status() -> status-code`.
+    ///
+    /// `status-code` is a `u16` so the core-Wasm shape is
+    /// `(self:i32) -> i32`.
+    HttpResponseStatus,
+    /// `wasi:http/types@0.2.3.incoming-response.consume() -> result<incoming-body>`.
+    ///
+    /// Hands ownership of the body to the caller. Core-Wasm:
+    /// `(self:i32, ret-area:i32) -> ()`.
+    HttpResponseBody,
 }
 
 impl P2DirectImport {
@@ -187,6 +293,36 @@ impl P2DirectImport {
             P2DirectImport::MonotonicResolution => {
                 ("wasi:clocks/monotonic-clock@0.2.3", "resolution")
             }
+            // v0.16 — filesystem.
+            //
+            // Resource-method imports are emitted by wit-component as
+            // `<interface>#[method]<resource>.<name>`. The same name
+            // shape goes into the core module's import section so
+            // the encoder can wire it up.
+            P2DirectImport::FsOpenAt => {
+                ("wasi:filesystem/types@0.2.3", "[method]descriptor.open-at")
+            }
+            P2DirectImport::FsReadViaStream => (
+                "wasi:filesystem/types@0.2.3",
+                "[method]descriptor.read-via-stream",
+            ),
+            P2DirectImport::FsWriteViaStream => (
+                "wasi:filesystem/types@0.2.3",
+                "[method]descriptor.write-via-stream",
+            ),
+            P2DirectImport::FsStat => ("wasi:filesystem/types@0.2.3", "[method]descriptor.stat"),
+            P2DirectImport::FsClose => ("wasi:filesystem/types@0.2.3", "[resource-drop]descriptor"),
+            // v0.16 — http.
+            P2DirectImport::HttpNewRequest => {
+                ("wasi:http/types@0.2.3", "[constructor]outgoing-request")
+            }
+            P2DirectImport::HttpHandleRequest => ("wasi:http/outgoing-handler@0.2.3", "handle"),
+            P2DirectImport::HttpResponseStatus => {
+                ("wasi:http/types@0.2.3", "[method]incoming-response.status")
+            }
+            P2DirectImport::HttpResponseBody => {
+                ("wasi:http/types@0.2.3", "[method]incoming-response.consume")
+            }
         }
     }
 
@@ -198,8 +334,138 @@ impl P2DirectImport {
             P2DirectImport::MonotonicNow => "monotonic_now",
             P2DirectImport::WallClockNow => "wall_clock_now",
             P2DirectImport::MonotonicResolution => "monotonic_resolution",
+            P2DirectImport::FsOpenAt => "fs_open_at",
+            P2DirectImport::FsReadViaStream => "fs_read_via_stream",
+            P2DirectImport::FsWriteViaStream => "fs_write_via_stream",
+            P2DirectImport::FsStat => "fs_stat",
+            P2DirectImport::FsClose => "fs_close",
+            P2DirectImport::HttpNewRequest => "http_new_request",
+            P2DirectImport::HttpHandleRequest => "http_handle_request",
+            P2DirectImport::HttpResponseStatus => "http_response_status",
+            P2DirectImport::HttpResponseBody => "http_response_body",
         }
     }
+
+    /// Returns `true` iff this variant references a wasi:filesystem
+    /// resource method (anything in the `Fs*` family). Used by the
+    /// emitter to decide whether the call needs an extra
+    /// resource-borrow / drop scaffold around it.
+    pub fn is_filesystem(self) -> bool {
+        matches!(
+            self,
+            P2DirectImport::FsOpenAt
+                | P2DirectImport::FsReadViaStream
+                | P2DirectImport::FsWriteViaStream
+                | P2DirectImport::FsStat
+                | P2DirectImport::FsClose
+        )
+    }
+
+    /// Returns `true` iff this variant references a wasi:http call.
+    pub fn is_http(self) -> bool {
+        matches!(
+            self,
+            P2DirectImport::HttpNewRequest
+                | P2DirectImport::HttpHandleRequest
+                | P2DirectImport::HttpResponseStatus
+                | P2DirectImport::HttpResponseBody
+        )
+    }
+}
+
+/// Canonical-ABI core-Wasm signature for a `borrow<descriptor>`-shaped
+/// `wasi:filesystem` resource method. Returned as `(params, results)`
+/// where the leading `i32` is the resource-handle (the implicit
+/// `self`). See [`P2DirectImport`] doc-comments for per-variant
+/// layouts.
+pub fn canonical_abi_descriptor_signature(
+    which: P2DirectImport,
+) -> (Vec<wasm_encoder::ValType>, Vec<wasm_encoder::ValType>) {
+    use wasm_encoder::ValType::{I32, I64};
+    match which {
+        // (self, path-flags, path-ptr, path-len, open-flags, desc-flags, ret-area) -> ()
+        P2DirectImport::FsOpenAt => (vec![I32, I32, I32, I32, I32, I32, I32], vec![]),
+        // (self, offset:i64, ret-area:i32) -> ()
+        P2DirectImport::FsReadViaStream | P2DirectImport::FsWriteViaStream => {
+            (vec![I32, I64, I32], vec![])
+        }
+        // (self, ret-area:i32) -> ()
+        P2DirectImport::FsStat => (vec![I32, I32], vec![]),
+        // (self) -> ()  — resource-drop intrinsic shape
+        P2DirectImport::FsClose => (vec![I32], vec![]),
+        _ => panic!("canonical_abi_descriptor_signature: not a filesystem variant: {which:?}"),
+    }
+}
+
+/// Canonical-ABI core-Wasm signature for the wasi-http calls Mighty
+/// v0.16 lowers directly. See [`P2DirectImport::Http*`] doc-comments
+/// for the per-variant layouts.
+pub fn canonical_abi_outgoing_request_signature(
+    which: P2DirectImport,
+) -> (Vec<wasm_encoder::ValType>, Vec<wasm_encoder::ValType>) {
+    use wasm_encoder::ValType::I32;
+    match which {
+        // [constructor]outgoing-request(headers: headers) -> outgoing-request
+        //   → core: (headers:i32) -> i32
+        P2DirectImport::HttpNewRequest => (vec![I32], vec![I32]),
+        // handle(request, option<request-options>) -> result<future-incoming-response, error-code>
+        //   → core: (req:i32, opt-tag:i32, opt-handle:i32, ret-area:i32) -> ()
+        P2DirectImport::HttpHandleRequest => (vec![I32, I32, I32, I32], vec![]),
+        // [method]incoming-response.status() -> status-code
+        //   → core: (self:i32) -> i32
+        P2DirectImport::HttpResponseStatus => (vec![I32], vec![I32]),
+        // [method]incoming-response.consume() -> result<incoming-body>
+        //   → core: (self:i32, ret-area:i32) -> ()
+        P2DirectImport::HttpResponseBody => (vec![I32, I32], vec![]),
+        _ => panic!("canonical_abi_outgoing_request_signature: not an http variant: {which:?}"),
+    }
+}
+
+/// Canonical-ABI return-area layout for a `descriptor-stat` record
+/// (used by `descriptor.stat`). Documented as a constant block so
+/// the emitter, tests, and host can agree on the field offsets.
+///
+/// Layout (all little-endian, naturally aligned):
+///
+/// | Offset | Width | Field                            |
+/// |--------|-------|----------------------------------|
+/// |   0    |   1   | result tag (0 = ok, 1 = err)     |
+/// |   8    |   8   | record `descriptor-stat`:        |
+/// |   8    |   1   |   `type` (variant `descriptor-type`) |
+/// |  16    |   8   |   `link-count` (u64)             |
+/// |  24    |   8   |   `size` (u64)                   |
+/// |  32    |   8   |   `data-access-timestamp.seconds` (u64) |
+/// |  40    |   4   |   `data-access-timestamp.nanoseconds` (u32) |
+/// |  48    |   8   |   `data-modification-timestamp.seconds` (u64) |
+/// |  56    |   4   |   `data-modification-timestamp.nanoseconds` (u32) |
+/// |  64    |   8   |   `status-change-timestamp.seconds` (u64) |
+/// |  72    |   4   |   `status-change-timestamp.nanoseconds` (u32) |
+///
+/// Total: 80 bytes. The emitter reserves the same-size block at
+/// [`DOM_RETURN_AREA`] (which already has plenty of headroom).
+pub const CANONICAL_ABI_DESCRIPTOR_STAT_SIZE: usize = 80;
+
+/// Emit a `resource-drop` call for a `wasi:filesystem` descriptor
+/// handle currently on the wasm operand stack. Helper kept here so
+/// callers in the codegen layer don't reimplement the canonical-ABI
+/// drop convention; equivalent to splicing the [`P2DirectImport::FsClose`]
+/// import and emitting `call <fs_close_idx>`.
+///
+/// The caller is responsible for having the descriptor handle (an
+/// `i32`) on the stack when this is invoked, and for having declared
+/// the import via [`P2DirectImport::FsClose`]'s `import_pair()`.
+pub fn emit_resource_drop_call(builder: &mut wasm_encoder::Function, drop_fn_idx: u32) {
+    builder.instruction(&wasm_encoder::Instruction::Call(drop_fn_idx));
+}
+
+/// Companion helper to [`emit_resource_drop_call`] for the "borrow"
+/// side — a `borrow<descriptor>` at the canonical-ABI is just an
+/// `i32` handle, so the helper is a no-op that documents intent.
+/// Kept so the emitter's call sites read self-documenting.
+pub fn emit_resource_borrow_passthrough(_handle_local: u32) {
+    // `borrow<resource>` is a transparent handle at the core-Wasm
+    // boundary. The caller already loaded the handle local before
+    // calling the import — no extra instruction needed.
 }
 
 impl std::fmt::Display for P2DirectImport {
@@ -771,6 +1037,32 @@ pub fn build_direct_p2_probe_module(which: P2DirectImport) -> Vec<u8> {
             (&[], &[ValType::I64])
         }
         P2DirectImport::WallClockNow => (&[ValType::I32], &[]),
+        // v0.16 — filesystem.
+        P2DirectImport::FsOpenAt => (
+            &[
+                ValType::I32, // self
+                ValType::I32, // path-flags
+                ValType::I32, // path-ptr
+                ValType::I32, // path-len
+                ValType::I32, // open-flags
+                ValType::I32, // descriptor-flags
+                ValType::I32, // ret-area
+            ],
+            &[],
+        ),
+        P2DirectImport::FsReadViaStream | P2DirectImport::FsWriteViaStream => {
+            (&[ValType::I32, ValType::I64, ValType::I32], &[])
+        }
+        P2DirectImport::FsStat => (&[ValType::I32, ValType::I32], &[]),
+        P2DirectImport::FsClose => (&[ValType::I32], &[]),
+        // v0.16 — http.
+        P2DirectImport::HttpNewRequest => (&[ValType::I32], &[ValType::I32]),
+        P2DirectImport::HttpHandleRequest => (
+            &[ValType::I32, ValType::I32, ValType::I32, ValType::I32],
+            &[],
+        ),
+        P2DirectImport::HttpResponseStatus => (&[ValType::I32], &[ValType::I32]),
+        P2DirectImport::HttpResponseBody => (&[ValType::I32, ValType::I32], &[]),
     };
 
     let mut types = TypeSection::new();

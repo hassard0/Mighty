@@ -392,7 +392,7 @@ fn p2_monotonic_clock_uses_direct_import() {
 /// drift if someone bumps one but not the other.
 #[test]
 fn p2_direct_import_names_match_stdlib_constants() {
-    use mty_stdlib::{random as stdrand, time as stdtime};
+    use mty_stdlib::{fs as stdfs, http as stdhttp, random as stdrand, time as stdtime};
 
     assert_eq!(
         P2DirectImport::RandomBytes.import_pair(),
@@ -409,6 +409,44 @@ fn p2_direct_import_names_match_stdlib_constants() {
     assert_eq!(
         P2DirectImport::MonotonicResolution.import_pair(),
         stdtime::P2_DIRECT_IMPORT_MONOTONIC_RESOLUTION
+    );
+    // v0.16 — filesystem.
+    assert_eq!(
+        P2DirectImport::FsOpenAt.import_pair(),
+        stdfs::P2_DIRECT_IMPORT_OPEN_AT
+    );
+    assert_eq!(
+        P2DirectImport::FsReadViaStream.import_pair(),
+        stdfs::P2_DIRECT_IMPORT_READ_VIA_STREAM
+    );
+    assert_eq!(
+        P2DirectImport::FsWriteViaStream.import_pair(),
+        stdfs::P2_DIRECT_IMPORT_WRITE_VIA_STREAM
+    );
+    assert_eq!(
+        P2DirectImport::FsStat.import_pair(),
+        stdfs::P2_DIRECT_IMPORT_STAT
+    );
+    assert_eq!(
+        P2DirectImport::FsClose.import_pair(),
+        stdfs::P2_DIRECT_IMPORT_CLOSE
+    );
+    // v0.16 — http.
+    assert_eq!(
+        P2DirectImport::HttpNewRequest.import_pair(),
+        stdhttp::P2_DIRECT_IMPORT_NEW_OUTGOING_REQUEST
+    );
+    assert_eq!(
+        P2DirectImport::HttpHandleRequest.import_pair(),
+        stdhttp::P2_DIRECT_IMPORT_OUTGOING_HANDLE
+    );
+    assert_eq!(
+        P2DirectImport::HttpResponseStatus.import_pair(),
+        stdhttp::P2_DIRECT_IMPORT_RESPONSE_STATUS
+    );
+    assert_eq!(
+        P2DirectImport::HttpResponseBody.import_pair(),
+        stdhttp::P2_DIRECT_IMPORT_RESPONSE_CONSUME
     );
 }
 
