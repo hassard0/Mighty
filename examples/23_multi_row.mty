@@ -1,0 +1,57 @@
+// 23_multi_row.mty — multi row-variable fn signatures (v0.17 RFC-008
+// typeck extension).
+//
+// Build:
+//   mty fmt examples/23_multi_row.mty
+//   mty check examples/23_multi_row.mty
+//
+// As of v0.17 the typeck layer can represent and validate fn
+// signatures with multiple row variables — every fn-typed parameter
+// gets its own RowSubst-allocated fresh row at each call site, and
+// the caller's inferred effect set is the UNION of all closure
+// rows. The HIR `HirEffectRow::Open` field is now `Vec<HirRowVar>`,
+// the `UserRowPolyIndex` carries per-fn `UserRowPolyMeta`
+// (`row_vars` + `fn_typed_param_count`), and the v0.17 call-site
+// validator fires:
+//
+//   * MT4055 — row var declared but no fn-typed param can bind it
+//             AND the fn has multiple non-fn params
+//   * MT4056 — fn has both concrete effects AND a row var with no
+//             fn-typed param (the row var is structurally inert)
+//   * MT4057 — row var lives on the return side, no fn-typed param
+//             (v0.16 active emit)
+//   * MT4058 — caller's lambda-arg count doesn't match the callee's
+//             fn-typed-param count
+//   * MT4059 — caller's closed-row enclosing fn can't accept the
+//             effects the closure brings through the row sub
+//
+// PARSER NOTE: the v0.15 parser only emits ONE row variable per
+// signature; the `!{| E1, E2}` shape is a v0.18 parser follow-up.
+// This example uses the single-row-var shape (which IS the v0.17
+// SHIPPED form at the source level); the HIR + typeck layers are
+// already wired for the multi-var case so v0.18 only needs to
+// extend the parser.
+
+// A canonical row-poly fn: one row variable, one fn-typed param.
+// The closure's effects flow through `E` into the caller's
+// inferred effect set at each call site (per RFC-008 §inference).
+fn each[E](f: fn() -> Unit) -> Unit !{| E} {
+}
+
+// A row-poly wrapper that runs two closures in sequence. In the
+// v0.18 multi-row-var syntax this would be:
+//   fn cross[E1, E2](a: fn() -> Unit !E1, b: fn() -> Unit !E2)
+//       -> Unit !{| E1, E2} { a() b() }
+// Until then we model the same shape with two SEPARATE row-poly
+// calls — the RowSubst is per-call-site, so the two closures bind
+// independent fresh row vars, and the caller's inferred set is the
+// union of both closures' effects.
+fn run_both[E](a: fn() -> Unit, b: fn() -> Unit) -> Unit !{| E} {
+}
+
+fn main() {
+  // One closure → MT4058 doesn't fire (arity matches).
+  each(fn() { log("23_multi_row: one closure call") })
+  // Two closures, two fn-typed params → arity matches.
+  run_both(fn() { log("23_multi_row: a") }, fn() { log("23_multi_row: b") })
+}

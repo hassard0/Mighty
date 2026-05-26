@@ -692,35 +692,83 @@ pub fn row_var_returned_but_unbound(fn_name: &str, row_var: &str, span: &SourceS
     d
 }
 
-/// MT4058 row_var_arity_mismatch: multiple distinct row variables in
-/// the same signature. v0.16 SHIPPED-SUBSET supports one.
-#[allow(dead_code)] // emit-site reserved for v0.17 multi-row-var work
-pub fn row_var_arity_mismatch(fn_name: &str, declared: &[String], span: &SourceSpan) -> Diagnostic {
+/// v0.17 — MT4056 row_var_in_concrete_only: the fn declares both a
+/// concrete effects component AND a row variable, but no fn-typed
+/// parameter exists to bind the row var. The concrete part is doing
+/// all the work; the row var sits structurally inert. The
+/// declaration is most likely a typo (`!{fs}` was intended).
+///
+/// Caller-side: a whole-program version that inspects every call
+/// site to confirm the row var never actually binds anything is
+/// deferred to v0.18; the v0.17 emit is a heuristic — "no fn-typed
+/// param AND concrete effects exist" — that catches the most common
+/// misuse without false positives.
+pub fn row_var_in_concrete_only(fn_name: &str, row_var: &str, span: &SourceSpan) -> Diagnostic {
+    let mut d = Diagnostic::error(
+        ROW_VAR_IN_CONCRETE_ONLY,
+        label(
+            span,
+            format!(
+                "function `{}` declares row variable `{}` next to a \
+                 concrete effects component, but has no closure \
+                 parameter that could bind it — the row var sits \
+                 structurally inert",
+                fn_name, row_var
+            ),
+        ),
+    );
+    d.notes.push(format!(
+        "either drop `| {}` and keep just the concrete effects, \
+         or add a `fn(...) -> _` parameter so the row variable can \
+         carry caller-side effects",
+        row_var
+    ));
+    d.notes
+        .push("RFC-008 §inference — see `mty explain MT4056`".into());
+    d
+}
+
+/// MT4058 row_var_arity_mismatch: the caller supplied the wrong
+/// number of closure args for a user row-poly fn (v0.17 active emit
+/// at the call site). RFC-008 §inference.
+///
+/// `fn_name` is the callee's name. `expected_param_count` is how
+/// many fn-typed parameters the callee declared; `got_lambda_count`
+/// is how many lambda-shaped args the caller actually passed.
+pub fn row_var_arity_mismatch(
+    fn_name: &str,
+    expected_param_count: usize,
+    got_lambda_count: usize,
+    span: &SourceSpan,
+) -> Diagnostic {
     let mut d = Diagnostic::error(
         ROW_VAR_ARITY_MISMATCH,
         label(
             span,
             format!(
-                "function `{}` declares {} distinct row variables — \
-                 v0.16 supports one",
-                fn_name,
-                declared.len()
+                "call to row-poly fn `{}` supplies {} closure \
+                 argument(s), but the fn declares {} fn-typed \
+                 parameter(s)",
+                fn_name, got_lambda_count, expected_param_count
             ),
         ),
     );
     d.notes.push(format!(
-        "use one row name (e.g. `{}`) across all closure parameters, \
-         or wait for the v0.17 multi-row-var extension",
-        declared.first().cloned().unwrap_or_else(|| "E".into())
+        "each closure-typed parameter binds the row variable \
+         independently; supply exactly {} closure(s)",
+        expected_param_count
     ));
+    d.notes
+        .push("RFC-008 §inference — see `mty explain MT4058`".into());
     d
 }
 
 /// MT4059 row_var_subsumption_fail: the closure passed to a user
 /// row-poly fn carries effects the caller's declared effect clause
 /// does not allow. Caller-side analogue of MT4050 (stdlib HOFs).
-#[allow(dead_code)] // call-site emit reserved for v0.17 — v0.16 currently
-                    // leans on MT4001 for the fn-level catch-all.
+/// v0.17 active emit — fires at the call site when the caller's
+/// enclosing fn has a closed effect row and the row substitution
+/// would add effects.
 pub fn row_var_subsumption_fail(
     fn_name: &str,
     disallowed: &[String],

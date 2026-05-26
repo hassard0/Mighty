@@ -235,8 +235,17 @@ fn legacy_keyword_row_tail_form_propagates() {
         .find(|(_, hf)| hf.name == "observed")
         .and_then(|(_, hf)| hf.effect_row.clone());
     match &observed_row {
-        Some(mty_hir::HirEffectRow::Open(concrete, rv)) => {
-            assert_eq!(rv.name, "E", "row var name should be E");
+        Some(mty_hir::HirEffectRow::Open(concrete, rvs)) => {
+            // v0.17: row vars are a Vec; the v0.15 parser still emits
+            // exactly one per fn (multi-var parser support is a v0.18
+            // follow-up).
+            assert_eq!(
+                rvs.len(),
+                1,
+                "v0.15 parser emits exactly one row var per fn; got {}",
+                rvs.len()
+            );
+            assert_eq!(rvs[0].name, "E", "row var name should be E");
             let names: Vec<&str> = concrete.iter().map(|n| n.as_str()).collect();
             assert!(
                 names.contains(&"time"),

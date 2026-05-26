@@ -165,6 +165,13 @@ pub fn infer_and_validate(
     // points to the exact call site, MT4001 to the fn signature.
     validate_row_dispatch(pkg, defs, arena, &known, diagnostics);
 
+    // v0.17 RFC-008: user-fn row-poly call-site validation. Walks
+    // every fn body looking for calls to user-authored row-poly fns
+    // and fires MT4058 (arity mismatch) + MT4059 (caller closed-row
+    // can't accept the row substitution). Complementary to
+    // validate_row_dispatch above, which only covers stdlib HOFs.
+    validate_user_row_dispatch(pkg, defs, arena, &known, &user_row_poly, diagnostics);
+
     // Public-fn validation.
     for (fid, hir_fn) in pkg.fns.iter() {
         if !hir_fn.is_pub {
@@ -278,6 +285,464 @@ fn validate_row_dispatch(
         // declared row ⇒ closures may carry effects in the declared
         // set but not outside.
         walk_block_for_row_violations(body, pkg, defs, arena, known, &declared, diagnostics);
+    }
+}
+
+/// v0.17 RFC-008: caller-side validation for **user-authored**
+/// row-poly fns. Walks every pub fn body looking for `Call(Path(...))`
+/// expressions whose callee is in [`UserRowPolyIndex::fns`], then
+/// emits:
+///
+///   * **MT4058** (`row_var_arity_mismatch`) when the caller passes
+///     a number of lambda arguments that doesn't match the callee's
+///     declared fn-typed parameter count. v0.15 parser commits to a
+///     single row var per fn, so single-fn-typed-param sigs are the
+///     v0.17 norm; the multi-param case will exercise MT4058 once
+///     the v0.18 parser learns multi-row-var syntax.
+///
+///   * **MT4059** (`row_var_subsumption_fail`) when the caller's
+///     enclosing fn has a CLOSED row constraint (`!{}` or an
+///     explicit list of effects) and the lambda's body carries
+///     effects outside that closed set. Caller-side analogue of
+///     MT4050 (stdlib HOFs).
+///
+/// Runs AFTER the initial inference + fixpoint so we know each
+/// closure's body effects in full. The check is purely local to each
+/// call site — no fixpoint needed.
+///
+/// Architecturally complementary to MT4001 (`effect_undeclared`):
+/// MT4001 fires at the fn level when the inferred set isn't a subset
+/// of the declared set; MT4059 fires at the CALL site with the
+/// specific user fn name + the disallowed effects. Both can co-fire
+/// (and that's intentional — the MT4059 message points to the exact
+/// call, MT4001 to the fn signature).
+fn validate_user_row_dispatch(
+    pkg: &Package,
+    defs: &DefMap,
+    arena: &TyArena,
+    known: &KnownEffects,
+    user_row_poly: &UserRowPolyIndex,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for (_fid, hir_fn) in pkg.fns.iter() {
+        // The caller's closed declared row — only populated for pub
+        // fns (matches the MT4001/MT4050 discipline). Private fns
+        // have no declared row, so we can't tell what they "accept";
+        // skip them here — MT4001 still catches under-declared pub
+        // fns at the fn level.
+        if !hir_fn.is_pub {
+            continue;
+        }
+        let Some(body) = hir_fn.body else {
+            continue;
+        };
+        // Build the caller's declared closed set the same way the
+        // pub-fn validator does (above). Honour the v0.16
+        // `HirEffectRow::Closed(...)` shape too — for fns declared
+        // `!{}` the set is just empty.
+        let declared: HashSet<EffectId> = hir_fn
+            .effects
+            .iter()
+            .map(|n| {
+                defs.effects
+                    .get(n.as_str())
+                    .copied()
+                    .unwrap_or(EffectId(u32::MAX))
+            })
+            .collect();
+        // A row-poly caller (one whose own clause carries a row
+        // variable) is permissive — any closure effect that comes
+        // through propagates onward to the caller's caller. v0.17
+        // only fires MT4059 when the caller is CLOSED-row, so we
+        // skip open-row callers here.
+        let caller_is_open = matches!(
+            hir_fn.effect_row.as_ref(),
+            Some(mty_hir::HirEffectRow::Open(_, _))
+        );
+        if caller_is_open {
+            continue;
+        }
+        walk_block_for_user_row_violations(
+            body,
+            pkg,
+            defs,
+            arena,
+            known,
+            user_row_poly,
+            &declared,
+            diagnostics,
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)] // recursive walker
+fn walk_block_for_user_row_violations(
+    bid: BlockId,
+    pkg: &Package,
+    defs: &DefMap,
+    arena: &TyArena,
+    known: &KnownEffects,
+    user_row_poly: &UserRowPolyIndex,
+    declared: &HashSet<EffectId>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let block = &pkg.blocks[bid];
+    for stmt in &block.stmts {
+        match stmt {
+            HirStmt::Let { init: Some(e), .. } => {
+                walk_expr_for_user_row_violations(
+                    *e,
+                    pkg,
+                    defs,
+                    arena,
+                    known,
+                    user_row_poly,
+                    declared,
+                    diagnostics,
+                );
+            }
+            HirStmt::Expr(e) => {
+                walk_expr_for_user_row_violations(
+                    *e,
+                    pkg,
+                    defs,
+                    arena,
+                    known,
+                    user_row_poly,
+                    declared,
+                    diagnostics,
+                );
+            }
+            _ => {}
+        }
+    }
+    if let Some(t) = block.tail {
+        walk_expr_for_user_row_violations(
+            t,
+            pkg,
+            defs,
+            arena,
+            known,
+            user_row_poly,
+            declared,
+            diagnostics,
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)] // recursive walker
+fn walk_expr_for_user_row_violations(
+    eid: ExprId,
+    pkg: &Package,
+    defs: &DefMap,
+    arena: &TyArena,
+    known: &KnownEffects,
+    user_row_poly: &UserRowPolyIndex,
+    declared: &HashSet<EffectId>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let expr = &pkg.exprs[eid];
+    if let HirExpr::Call { callee, args } = expr {
+        walk_expr_for_user_row_violations(
+            *callee,
+            pkg,
+            defs,
+            arena,
+            known,
+            user_row_poly,
+            declared,
+            diagnostics,
+        );
+        if let HirExpr::Path(segs) = &pkg.exprs[*callee] {
+            if segs.len() == 1 {
+                if let Some(DefRef::Fn(fid)) = defs.lookup(&segs[0]) {
+                    if let Some(callee_hir) = defs.fn_def(fid).and_then(|f| f.hir_fn) {
+                        if let Some(meta) = user_row_poly.meta.get(&callee_hir) {
+                            // MT4058: arity mismatch between caller's
+                            // lambda args and callee's fn-typed
+                            // params.
+                            let lambda_count = args
+                                .iter()
+                                .filter(|a| matches!(pkg.exprs[a.value], HirExpr::Lambda { .. }))
+                                .count();
+                            if lambda_count > 0 && lambda_count != meta.fn_typed_param_count {
+                                diagnostics.push(crate::diag::row_var_arity_mismatch(
+                                    &meta.name,
+                                    meta.fn_typed_param_count,
+                                    lambda_count,
+                                    &meta.span,
+                                ));
+                            }
+                            // MT4059: collect every lambda body's
+                            // effect set and check against the
+                            // caller's declared closed row.
+                            let empty_idx = UserRowPolyIndex::default();
+                            for a in args {
+                                if let HirExpr::Lambda { body, .. } = &pkg.exprs[a.value] {
+                                    let mut closure_effects = EffectSet::default();
+                                    let mut sink: Vec<FnDefId> = vec![];
+                                    walk_block_effects(
+                                        *body,
+                                        pkg,
+                                        defs,
+                                        arena,
+                                        known,
+                                        &empty_idx,
+                                        &mut closure_effects,
+                                        &mut sink,
+                                    );
+                                    let disallowed: Vec<EffectId> = closure_effects
+                                        .iter()
+                                        .copied()
+                                        .filter(|e| !declared.contains(e))
+                                        .collect();
+                                    if !disallowed.is_empty() {
+                                        let mut names: Vec<String> = disallowed
+                                            .iter()
+                                            .filter_map(|e| effect_name(defs, *e))
+                                            .collect();
+                                        names.sort();
+                                        diagnostics.push(crate::diag::row_var_subsumption_fail(
+                                            &meta.name, &names, &meta.span,
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for a in args {
+            walk_expr_for_user_row_violations(
+                a.value,
+                pkg,
+                defs,
+                arena,
+                known,
+                user_row_poly,
+                declared,
+                diagnostics,
+            );
+        }
+        return;
+    }
+    // Recurse into composite shapes — we only care about Call to
+    // user-row-poly fns, but those can be nested arbitrarily.
+    match expr {
+        HirExpr::Block(b) => walk_block_for_user_row_violations(
+            *b,
+            pkg,
+            defs,
+            arena,
+            known,
+            user_row_poly,
+            declared,
+            diagnostics,
+        ),
+        HirExpr::Tuple(xs) | HirExpr::Array(xs) => {
+            for x in xs {
+                walk_expr_for_user_row_violations(
+                    *x,
+                    pkg,
+                    defs,
+                    arena,
+                    known,
+                    user_row_poly,
+                    declared,
+                    diagnostics,
+                );
+            }
+        }
+        HirExpr::Binary { lhs, rhs, .. } => {
+            walk_expr_for_user_row_violations(
+                *lhs,
+                pkg,
+                defs,
+                arena,
+                known,
+                user_row_poly,
+                declared,
+                diagnostics,
+            );
+            walk_expr_for_user_row_violations(
+                *rhs,
+                pkg,
+                defs,
+                arena,
+                known,
+                user_row_poly,
+                declared,
+                diagnostics,
+            );
+        }
+        HirExpr::Unary { rhs, .. } => walk_expr_for_user_row_violations(
+            *rhs,
+            pkg,
+            defs,
+            arena,
+            known,
+            user_row_poly,
+            declared,
+            diagnostics,
+        ),
+        HirExpr::If { cond, then, else_ } => {
+            walk_expr_for_user_row_violations(
+                *cond,
+                pkg,
+                defs,
+                arena,
+                known,
+                user_row_poly,
+                declared,
+                diagnostics,
+            );
+            walk_block_for_user_row_violations(
+                *then,
+                pkg,
+                defs,
+                arena,
+                known,
+                user_row_poly,
+                declared,
+                diagnostics,
+            );
+            if let Some(e) = else_ {
+                walk_expr_for_user_row_violations(
+                    *e,
+                    pkg,
+                    defs,
+                    arena,
+                    known,
+                    user_row_poly,
+                    declared,
+                    diagnostics,
+                );
+            }
+        }
+        HirExpr::Match { scrutinee, arms } => {
+            walk_expr_for_user_row_violations(
+                *scrutinee,
+                pkg,
+                defs,
+                arena,
+                known,
+                user_row_poly,
+                declared,
+                diagnostics,
+            );
+            for arm in arms {
+                walk_expr_for_user_row_violations(
+                    arm.body,
+                    pkg,
+                    defs,
+                    arena,
+                    known,
+                    user_row_poly,
+                    declared,
+                    diagnostics,
+                );
+            }
+        }
+        HirExpr::Return(Some(e)) => walk_expr_for_user_row_violations(
+            *e,
+            pkg,
+            defs,
+            arena,
+            known,
+            user_row_poly,
+            declared,
+            diagnostics,
+        ),
+        HirExpr::Lambda { body, .. } => walk_block_for_user_row_violations(
+            *body,
+            pkg,
+            defs,
+            arena,
+            known,
+            user_row_poly,
+            declared,
+            diagnostics,
+        ),
+        HirExpr::For { iter, body, .. } => {
+            walk_expr_for_user_row_violations(
+                *iter,
+                pkg,
+                defs,
+                arena,
+                known,
+                user_row_poly,
+                declared,
+                diagnostics,
+            );
+            walk_block_for_user_row_violations(
+                *body,
+                pkg,
+                defs,
+                arena,
+                known,
+                user_row_poly,
+                declared,
+                diagnostics,
+            );
+        }
+        HirExpr::While { cond, body } => {
+            walk_expr_for_user_row_violations(
+                *cond,
+                pkg,
+                defs,
+                arena,
+                known,
+                user_row_poly,
+                declared,
+                diagnostics,
+            );
+            walk_block_for_user_row_violations(
+                *body,
+                pkg,
+                defs,
+                arena,
+                known,
+                user_row_poly,
+                declared,
+                diagnostics,
+            );
+        }
+        HirExpr::Loop { body } => walk_block_for_user_row_violations(
+            *body,
+            pkg,
+            defs,
+            arena,
+            known,
+            user_row_poly,
+            declared,
+            diagnostics,
+        ),
+        HirExpr::MethodCall { receiver, args, .. } => {
+            walk_expr_for_user_row_violations(
+                *receiver,
+                pkg,
+                defs,
+                arena,
+                known,
+                user_row_poly,
+                declared,
+                diagnostics,
+            );
+            for a in args {
+                walk_expr_for_user_row_violations(
+                    a.value,
+                    pkg,
+                    defs,
+                    arena,
+                    known,
+                    user_row_poly,
+                    declared,
+                    diagnostics,
+                );
+            }
+        }
+        _ => {}
     }
 }
 
@@ -622,55 +1087,108 @@ fn effect_name(defs: &DefMap, eid: EffectId) -> Option<String> {
         .map(|(k, _)| k.clone())
 }
 
-/// v0.16 RFC-008: per-package side table of user-authored fns that
-/// declared a row variable in their effect clause. The call-site
-/// walker in [`walk_expr_effects`] keys off this set to decide
-/// whether to apply row-propagation (walk closure-arg bodies and add
-/// their effects to the caller's set).
+/// v0.16/v0.17 RFC-008: per-package side table of user-authored fns
+/// that declared one or more row variables in their effect clause.
+/// The call-site walker in [`walk_expr_effects`] keys off this map
+/// to decide whether to apply row-propagation (walk closure-arg
+/// bodies and add their effects to the caller's set).
 ///
 /// Built once per package by [`build_user_row_poly_index`] before the
-/// effect-fixpoint runs; only [`mty_hir::FnId`]s are stored, so the
-/// lookup is `O(1)` and the index is cheap to thread through the
-/// recursive walkers.
+/// effect-fixpoint runs.
+///
+/// ## v0.17 extension
+///
+/// The single `HashSet<FnId>` of v0.16 is now joined by `meta` — a
+/// per-fn record of how many row variables the fn declared and how
+/// many fn-typed parameters it has. The call-site walker uses this
+/// to fire MT4058 (`row_var_arity_mismatch`) when the caller
+/// supplies the wrong number of closure args, and to keep the per-
+/// row-var instantiation honest when (in v0.18) the parser starts
+/// emitting `!{| E1, E2}`. Membership in `fns` is preserved for the
+/// v0.16 call sites that only need the boolean "is this fn row-poly".
 #[derive(Debug, Default, Clone)]
 pub struct UserRowPolyIndex {
     /// HIR fn ids of every fn whose `HirFn::effect_row` is
-    /// `Some(HirEffectRow::Open(...))` AND which passed v0.16
-    /// validation (MT4055/MT4056/MT4057/MT4058 didn't fire). Fns that
-    /// fail validation are intentionally **excluded** so a structurally
-    /// broken row-poly sig doesn't cause cascade row-propagation that
-    /// would mask the diagnostic.
+    /// `Some(HirEffectRow::Open(...))` AND which passed v0.17
+    /// validation (MT4055/MT4056/MT4057/MT4058 didn't fire). Fns
+    /// that fail validation are intentionally **excluded** so a
+    /// structurally broken row-poly sig doesn't cause cascade
+    /// row-propagation that would mask the diagnostic.
     pub fns: HashSet<FnId>,
+    /// v0.17: per-fn metadata captured during validation. Indexed
+    /// by the same `FnId` as `fns`; absence means the fn was either
+    /// closed-row, ineligible (validation failed), or not present
+    /// in the package. The meta is used by the call-site walker for
+    /// MT4058 (arity) and (when v0.18 parser ships) per-var
+    /// substitution.
+    pub meta: HashMap<FnId, UserRowPolyMeta>,
 }
 
-/// v0.16 RFC-008: walk every fn's [`HirEffectRow`] and:
+/// v0.17: per-fn record kept in [`UserRowPolyIndex::meta`].
 ///
-/// 1. Emit MT4055 (row_var_unused) when the row variable doesn't
-///    appear in any fn-typed parameter — i.e. no parameter exists
-///    whose type is `fn(...) -> _` that could carry the row in.
-///    Without such a parameter the row variable can never be bound
-///    at the call site, so the open-row signature is degenerate.
+/// Captures the row-variable shape of a single user-authored
+/// row-poly fn signature. Populated by [`build_user_row_poly_index`]
+/// only for fns that passed validation; consumers (call-site
+/// walkers, MT4058 / MT4059 emit sites) read it via
+/// `index.meta.get(&fn_id)`.
+#[derive(Debug, Clone)]
+pub struct UserRowPolyMeta {
+    /// Source-order row-variable names (e.g. `["E"]` for the v0.15
+    /// shape, `["E1", "E2"]` once the v0.18 parser learns
+    /// `!{| E1, E2}`).
+    pub row_vars: Vec<String>,
+    /// Number of fn-typed parameters in the signature. Used by the
+    /// MT4058 emit site to compare against the caller's actual
+    /// closure-arg count.
+    pub fn_typed_param_count: usize,
+    /// The fn's source span — re-used as the diagnostic anchor for
+    /// any post-build emit sites that don't have a more specific
+    /// span (e.g. MT4058 at a call site).
+    pub span: SourceSpan,
+    /// The fn's name — for diagnostic rendering.
+    pub name: String,
+    /// The concrete-effect names declared on the row clause's
+    /// non-row component. Cached so the MT4059 emit site can
+    /// produce "introduced effects {X}" diagnostics without
+    /// re-walking the HIR.
+    pub concrete_effects: Vec<String>,
+}
+
+/// v0.16/v0.17 RFC-008: walk every fn's [`HirEffectRow`] and:
 ///
-/// 2. Emit MT4056 (row_var_in_concrete_only) when the row clause
-///    has an open form (`!{a, b | E}`) but the fn never accepts a
-///    closure parameter — the row var is structurally unable to
-///    bind anything, so the concrete part is the only effective
-///    component.
+/// 1. Emit MT4055 (`row_var_unused`) — v0.17 actively fires — when
+///    the fn declares a row variable but EVERY parameter is a
+///    non-fn-typed value AND there are multiple parameters (i.e.
+///    the row var clearly has no binding site even though the
+///    parameter list is long enough that the author probably meant
+///    to include a closure). The single-no-param case is reported
+///    via MT4057 instead because the return-position framing is
+///    more actionable for the author.
 ///
-/// 3. Emit MT4057 (row_var_returned_but_unbound) when the row var
-///    appears in the RETURN side but the fn has no fn-typed
-///    parameter at all (RFC-008 §rules §"MT4023"). Specialisation
-///    of MT4055 surfaced with a return-position message so the
-///    author understands the fix is to add a closure parameter
-///    (not to remove `E` from the clause).
+/// 2. Emit MT4056 (`row_var_in_concrete_only`) — v0.17 partial
+///    heuristic emit — when the fn has BOTH a concrete-effects
+///    component AND a row var, but the row var cannot be bound by
+///    any parameter (analogous to MT4055 but emphasising that the
+///    concrete part is doing all the work and the row var is
+///    structurally inert). The full whole-program version that
+///    inspects every call site is deferred to v0.18.
 ///
-/// 4. Emit MT4058 (row_var_arity_mismatch) when multiple parameters
-///    reference distinct row vars — v0.16 SHIPPED-SUBSET only
-///    supports a single row variable per signature. Reserved for the
-///    v0.17 multi-row-var extension.
+/// 3. Emit MT4057 (`row_var_returned_but_unbound`) — v0.16 active
+///    emit — when the row var appears in the RETURN effect set but
+///    the fn has no fn-typed parameter at all. The return-position
+///    specialisation of MT4055; surfaced first because the v0.16
+///    single-row-var path collapses every parameterless row-poly
+///    fn into this bucket.
 ///
-/// On success, register the fn id in [`UserRowPolyIndex::fns`] so the
-/// call-site walker propagates closure effects through the call.
+/// 4. Emit MT4058 (`row_var_arity_mismatch`) — v0.17 actively fires
+///    at the CALL site (see [`walk_expr_effects`]); not at this
+///    declaration-time pass. Declaration-time we record the row-var
+///    arity in [`UserRowPolyMeta`] so the call-site walker can
+///    compare against the caller's actual closure-arg count.
+///
+/// On success, register the fn id in [`UserRowPolyIndex::fns`] AND
+/// populate `UserRowPolyIndex::meta` so the call-site walker can
+/// propagate closure effects + fire the call-site diagnostics.
 fn build_user_row_poly_index(pkg: &Package, diagnostics: &mut Vec<Diagnostic>) -> UserRowPolyIndex {
     use mty_hir::HirEffectRow;
     let mut idx = UserRowPolyIndex::default();
@@ -678,17 +1196,17 @@ fn build_user_row_poly_index(pkg: &Package, diagnostics: &mut Vec<Diagnostic>) -
         let Some(row) = hir_fn.effect_row.as_ref() else {
             continue;
         };
-        let HirEffectRow::Open(_concrete, row_var) = row else {
+        let HirEffectRow::Open(concrete, row_vars) = row else {
             // Closed `!{...}` form — no row variable, nothing to
             // validate or index for row-propagation.
             continue;
         };
         // Detect fn-typed parameters. A fn-typed parameter is any
-        // parameter whose HirType is HirType::Fn. The v0.16 SHIPPED-
-        // SUBSET treats EVERY fn-typed parameter as carrying the row
-        // var (rather than tracking per-parameter row binding) — this
-        // matches the v0.13 stdlib HOF shape where the closure param
-        // is `Var(0)`.
+        // parameter whose HirType is HirType::Fn. The v0.17 path
+        // treats EVERY fn-typed parameter as carrying a row var
+        // (rather than tracking per-parameter row binding) — this
+        // matches the v0.13 stdlib HOF shape where the closure
+        // param is `Var(0)`.
         let fn_typed_params: usize = hir_fn
             .params
             .iter()
@@ -697,25 +1215,70 @@ fn build_user_row_poly_index(pkg: &Package, diagnostics: &mut Vec<Diagnostic>) -
                 None => false,
             })
             .count();
-        // MT4055 / MT4057: row variable declared but no fn-typed
-        // parameter can bind it.
+        let row_var_names: Vec<String> = row_vars.iter().map(|v| v.name.clone()).collect();
+        let first_var_name = row_var_names
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "E".to_string());
+
+        // No fn-typed parameter exists to bind the row variable.
+        // Choose the right diagnostic based on the surrounding
+        // shape so the author sees the most actionable framing:
+        //   * MT4055 — "unused" — when the fn has multiple
+        //     parameters (the author plausibly meant to make one of
+        //     them a closure).
+        //   * MT4056 — "concrete-only" — when there IS a concrete
+        //     effects component alongside the row var, so the row
+        //     part is structurally inert: the fn is effectively a
+        //     concrete-row fn with a vestigial `| E`.
+        //   * MT4057 — "returned but unbound" — when the fn has
+        //     0 or 1 non-fn parameters and no concrete effects —
+        //     the classic v0.16 case where the row var is purely
+        //     return-position.
         if fn_typed_params == 0 {
-            // Surface MT4057 (return-side specialisation) when the
-            // user fn has a concrete return type AND the row var is
-            // structurally a return-position-only marker. v0.16
-            // SHIPPED-SUBSET: every open-row fn without a fn-typed
-            // param falls into this bucket since the row var lives in
-            // the effect clause (which annotates the return side).
-            diagnostics.push(crate::diag::row_var_returned_but_unbound(
-                &hir_fn.name,
-                &row_var.name,
-                &hir_fn.span,
-            ));
+            let has_concrete = !concrete.is_empty();
+            let many_params = hir_fn.params.len() >= 2;
+            if has_concrete {
+                // MT4056 heuristic emit: the concrete-effects part
+                // is doing all the work; the row var sits inert.
+                diagnostics.push(crate::diag::row_var_in_concrete_only(
+                    &hir_fn.name,
+                    &first_var_name,
+                    &hir_fn.span,
+                ));
+            } else if many_params {
+                // MT4055: multiple non-fn-typed parameters but no
+                // fn-typed binder for the row var.
+                diagnostics.push(crate::diag::row_var_unused(
+                    &hir_fn.name,
+                    &first_var_name,
+                    &hir_fn.span,
+                ));
+            } else {
+                // MT4057: classic v0.16 case — bare row var,
+                // probably return-position-only.
+                diagnostics.push(crate::diag::row_var_returned_but_unbound(
+                    &hir_fn.name,
+                    &first_var_name,
+                    &hir_fn.span,
+                ));
+            }
             // Skip indexing — propagation would be degenerate.
             continue;
         }
         // Successful validation — eligible for row propagation.
         idx.fns.insert(fid);
+        let concrete_names: Vec<String> = concrete.iter().map(|n| n.as_str().to_string()).collect();
+        idx.meta.insert(
+            fid,
+            UserRowPolyMeta {
+                row_vars: row_var_names,
+                fn_typed_param_count: fn_typed_params,
+                span: hir_fn.span.clone(),
+                name: hir_fn.name.clone(),
+                concrete_effects: concrete_names,
+            },
+        );
     }
     idx
 }

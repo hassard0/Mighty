@@ -141,10 +141,16 @@ fn lower_effect_clause(
     let row_var_name = clause.row_var_name();
     let effect_row = match row_var_name {
         Some(rv_name) => {
-            let row_var = HirRowVar::new(rv_name, 0);
+            // v0.17: HirEffectRow::Open carries `Vec<HirRowVar>`. The
+            // v0.15 parser still emits exactly one row variable per
+            // fn signature; once the v0.18 parser learns the
+            // `!{| E1, E2}` shape we will replace `row_var_name`
+            // here with an iterator over every `EFFECT_ROW_VAR`
+            // child.
+            let row_vars = vec![HirRowVar::new(rv_name, 0)];
             let concrete: Vec<HirEffectName> =
                 names.iter().cloned().map(HirEffectName::new).collect();
-            Some(HirEffectRow::Open(concrete, row_var))
+            Some(HirEffectRow::Open(concrete, row_vars))
         }
         None => {
             // Distinguish between the new braced closed form `!{a, b}`

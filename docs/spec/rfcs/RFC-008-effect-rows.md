@@ -261,3 +261,80 @@ These slot into the existing `MT4001..MT4010` effect-checker range.
   can declare `[E]` row vars without a stdlib-style entry point.
 - LSP hover support that renders row variables in inferred-type
   display.
+
+## v0.17 — multi row-variable extension
+
+v0.13 shipped the single-row-var path: `unify_rows` already handles
+multiple distinct row vars (the two-open case allocates a shared
+fresh tail), and `RowPolySig::row_var_count` already counts >= 1
+slots. v0.17 generalises the *user-authored* fn surface to match: a
+single fn signature may now declare any number of row variables,
+each bound by an independent fn-typed parameter, with the call
+site's RowSubst threading one fresh `RowVar` per declared slot.
+
+### HIR representation
+
+`HirEffectRow::Open`'s second field changed from
+`HirRowVar` to `Vec<HirRowVar>`. Length 1 covers the v0.16
+SHIPPED-SUBSET single-row-var path bit-for-bit; length N covers the
+new multi-row-var case once the parser starts emitting it.
+
+### Typeck representation
+
+`UserRowPolyIndex` is now `{ fns: HashSet<FnId>, meta:
+HashMap<FnId, UserRowPolyMeta> }` where `UserRowPolyMeta` carries
+the row-variable names + the fn-typed param count. The call-site
+walker uses `meta` to fire MT4058 (arity mismatch) when the caller
+supplies the wrong number of closure args, and to keep multi-row-
+var instantiation honest once the parser ships multi-var surface
+syntax.
+
+### Inference rules (multi-var case)
+
+For a callee declared `fn cross[E1, E2](a: fn() -> Unit !E1,
+b: fn() -> Unit !E2) -> Unit !{| E1, E2}`:
+
+1. At each call site, allocate two fresh row vars `f1`, `f2` via
+   `RowSubst::fresh()`.
+2. Substitute `E1 ↦ f1` and `E2 ↦ f2` in the parameter rows and
+   the return row.
+3. For each closure arg `i`, compute its body's effect row (per
+   §inference) and unify it with the substituted parameter row.
+4. The return row resolves to `Open({}, f1) ∪ Open({}, f2)`,
+   which after closure bindings collapses to the union of all
+   closure-arg effect sets.
+
+### Active diagnostics (v0.17)
+
+| Code     | Trigger                                                       |
+|----------|---------------------------------------------------------------|
+| MT4055   | Row var declared + multiple non-fn-typed params, no closure   |
+| MT4056   | Concrete effects + row var, no fn-typed param (heuristic)     |
+| MT4057   | Bare row var, parameterless fn or single non-fn param         |
+| MT4058   | Caller's lambda-arg count != callee's fn-typed-param count    |
+| MT4059   | Caller's closed-row fn can't accept the row substitution      |
+
+### Acceptance for v0.17
+
+- `HirEffectRow::Open` carries `Vec<HirRowVar>`; HIR readiness
+  tests in `crates/mty-hir/src/effects.rs::tests` exercise the
+  multi-var shape directly.
+- `UserRowPolyIndex` carries per-fn `UserRowPolyMeta`.
+- Five new active diagnostics in `crates/mty-types/src/diag.rs`
+  (`row_var_unused`, `row_var_in_concrete_only`,
+  `row_var_returned_but_unbound`, `row_var_arity_mismatch`,
+  `row_var_subsumption_fail`).
+- `crates/mty-types/tests/effect_row_multi.rs` covers the new
+  diagnostic emit sites + the HIR-level multi-var round-trip.
+- `examples/23_multi_row.mty` demonstrates the v0.17 single-var
+  shape (multi-var parser surface deferred to v0.18).
+
+### v0.18 follow-ups
+
+- Parser extension for `!{a | E1, E2}` (the syntactic gap).
+- MT4056 whole-program emit: confirm no caller's closure ever
+  binds the row var, then promote the heuristic warning to an
+  error.
+- LSP hover that renders the per-call-site `RowSubst` for the
+  selected expression (so authors can see "this `each` call binds
+  E ↦ {fs, net}").
