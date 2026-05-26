@@ -325,43 +325,40 @@ fn validate_user_row_dispatch(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     for (_fid, hir_fn) in pkg.fns.iter() {
-        // The caller's closed declared row — only populated for pub
-        // fns (matches the MT4001/MT4050 discipline). Private fns
-        // have no declared row, so we can't tell what they "accept";
-        // skip them here — MT4001 still catches under-declared pub
-        // fns at the fn level.
-        if !hir_fn.is_pub {
-            continue;
-        }
         let Some(body) = hir_fn.body else {
             continue;
         };
-        // Build the caller's declared closed set the same way the
-        // pub-fn validator does (above). Honour the v0.16
-        // `HirEffectRow::Closed(...)` shape too — for fns declared
-        // `!{}` the set is just empty.
-        let declared: HashSet<EffectId> = hir_fn
-            .effects
-            .iter()
-            .map(|n| {
-                defs.effects
-                    .get(n.as_str())
-                    .copied()
-                    .unwrap_or(EffectId(u32::MAX))
-            })
-            .collect();
-        // A row-poly caller (one whose own clause carries a row
-        // variable) is permissive — any closure effect that comes
-        // through propagates onward to the caller's caller. v0.17
-        // only fires MT4059 when the caller is CLOSED-row, so we
-        // skip open-row callers here.
+        // MT4058 (arity) is universal — every caller can structurally
+        // mis-arrange closure args, so we walk every fn's body and
+        // emit arity diagnostics regardless of visibility.
+        //
+        // MT4059 (subsumption) only fires when the caller declares a
+        // CLOSED row constraint that the row substitution would
+        // violate. Pub fns get one for free via the `effects` clause;
+        // open-row pub fns are permissive (any closure effect
+        // propagates through their tail). For private fns the
+        // subsumption check is meaningless — there's no declared
+        // constraint to violate. We still walk them (for MT4058) but
+        // pass `enforce_subsumption = false` so MT4059 is silent.
         let caller_is_open = matches!(
             hir_fn.effect_row.as_ref(),
             Some(mty_hir::HirEffectRow::Open(_, _))
         );
-        if caller_is_open {
-            continue;
-        }
+        let enforce_subsumption = hir_fn.is_pub && !caller_is_open;
+        let declared: HashSet<EffectId> = if enforce_subsumption {
+            hir_fn
+                .effects
+                .iter()
+                .map(|n| {
+                    defs.effects
+                        .get(n.as_str())
+                        .copied()
+                        .unwrap_or(EffectId(u32::MAX))
+                })
+                .collect()
+        } else {
+            HashSet::new()
+        };
         walk_block_for_user_row_violations(
             body,
             pkg,
@@ -370,6 +367,7 @@ fn validate_user_row_dispatch(
             known,
             user_row_poly,
             &declared,
+            enforce_subsumption,
             diagnostics,
         );
     }
@@ -384,6 +382,7 @@ fn walk_block_for_user_row_violations(
     known: &KnownEffects,
     user_row_poly: &UserRowPolyIndex,
     declared: &HashSet<EffectId>,
+    enforce_subsumption: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let block = &pkg.blocks[bid];
@@ -398,6 +397,7 @@ fn walk_block_for_user_row_violations(
                     known,
                     user_row_poly,
                     declared,
+                    enforce_subsumption,
                     diagnostics,
                 );
             }
@@ -410,6 +410,7 @@ fn walk_block_for_user_row_violations(
                     known,
                     user_row_poly,
                     declared,
+                    enforce_subsumption,
                     diagnostics,
                 );
             }
@@ -425,6 +426,7 @@ fn walk_block_for_user_row_violations(
             known,
             user_row_poly,
             declared,
+            enforce_subsumption,
             diagnostics,
         );
     }
@@ -439,6 +441,7 @@ fn walk_expr_for_user_row_violations(
     known: &KnownEffects,
     user_row_poly: &UserRowPolyIndex,
     declared: &HashSet<EffectId>,
+    enforce_subsumption: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let expr = &pkg.exprs[eid];
@@ -451,6 +454,7 @@ fn walk_expr_for_user_row_violations(
             known,
             user_row_poly,
             declared,
+            enforce_subsumption,
             diagnostics,
         );
         if let HirExpr::Path(segs) = &pkg.exprs[*callee] {
@@ -473,38 +477,43 @@ fn walk_expr_for_user_row_violations(
                                     &meta.span,
                                 ));
                             }
-                            // MT4059: collect every lambda body's
-                            // effect set and check against the
-                            // caller's declared closed row.
-                            let empty_idx = UserRowPolyIndex::default();
-                            for a in args {
-                                if let HirExpr::Lambda { body, .. } = &pkg.exprs[a.value] {
-                                    let mut closure_effects = EffectSet::default();
-                                    let mut sink: Vec<FnDefId> = vec![];
-                                    walk_block_effects(
-                                        *body,
-                                        pkg,
-                                        defs,
-                                        arena,
-                                        known,
-                                        &empty_idx,
-                                        &mut closure_effects,
-                                        &mut sink,
-                                    );
-                                    let disallowed: Vec<EffectId> = closure_effects
-                                        .iter()
-                                        .copied()
-                                        .filter(|e| !declared.contains(e))
-                                        .collect();
-                                    if !disallowed.is_empty() {
-                                        let mut names: Vec<String> = disallowed
+                            // MT4059 (pub closed-row caller only):
+                            // collect every lambda body's effect
+                            // set and check against the caller's
+                            // declared closed row.
+                            if enforce_subsumption {
+                                let empty_idx = UserRowPolyIndex::default();
+                                for a in args {
+                                    if let HirExpr::Lambda { body, .. } = &pkg.exprs[a.value] {
+                                        let mut closure_effects = EffectSet::default();
+                                        let mut sink: Vec<FnDefId> = vec![];
+                                        walk_block_effects(
+                                            *body,
+                                            pkg,
+                                            defs,
+                                            arena,
+                                            known,
+                                            &empty_idx,
+                                            &mut closure_effects,
+                                            &mut sink,
+                                        );
+                                        let disallowed: Vec<EffectId> = closure_effects
                                             .iter()
-                                            .filter_map(|e| effect_name(defs, *e))
+                                            .copied()
+                                            .filter(|e| !declared.contains(e))
                                             .collect();
-                                        names.sort();
-                                        diagnostics.push(crate::diag::row_var_subsumption_fail(
-                                            &meta.name, &names, &meta.span,
-                                        ));
+                                        if !disallowed.is_empty() {
+                                            let mut names: Vec<String> = disallowed
+                                                .iter()
+                                                .filter_map(|e| effect_name(defs, *e))
+                                                .collect();
+                                            names.sort();
+                                            diagnostics.push(
+                                                crate::diag::row_var_subsumption_fail(
+                                                    &meta.name, &names, &meta.span,
+                                                ),
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -522,6 +531,7 @@ fn walk_expr_for_user_row_violations(
                 known,
                 user_row_poly,
                 declared,
+                enforce_subsumption,
                 diagnostics,
             );
         }
@@ -538,6 +548,7 @@ fn walk_expr_for_user_row_violations(
             known,
             user_row_poly,
             declared,
+            enforce_subsumption,
             diagnostics,
         ),
         HirExpr::Tuple(xs) | HirExpr::Array(xs) => {
@@ -550,6 +561,7 @@ fn walk_expr_for_user_row_violations(
                     known,
                     user_row_poly,
                     declared,
+                    enforce_subsumption,
                     diagnostics,
                 );
             }
@@ -563,6 +575,7 @@ fn walk_expr_for_user_row_violations(
                 known,
                 user_row_poly,
                 declared,
+                enforce_subsumption,
                 diagnostics,
             );
             walk_expr_for_user_row_violations(
@@ -573,6 +586,7 @@ fn walk_expr_for_user_row_violations(
                 known,
                 user_row_poly,
                 declared,
+                enforce_subsumption,
                 diagnostics,
             );
         }
@@ -584,6 +598,7 @@ fn walk_expr_for_user_row_violations(
             known,
             user_row_poly,
             declared,
+            enforce_subsumption,
             diagnostics,
         ),
         HirExpr::If { cond, then, else_ } => {
@@ -595,6 +610,7 @@ fn walk_expr_for_user_row_violations(
                 known,
                 user_row_poly,
                 declared,
+                enforce_subsumption,
                 diagnostics,
             );
             walk_block_for_user_row_violations(
@@ -605,6 +621,7 @@ fn walk_expr_for_user_row_violations(
                 known,
                 user_row_poly,
                 declared,
+                enforce_subsumption,
                 diagnostics,
             );
             if let Some(e) = else_ {
@@ -616,6 +633,7 @@ fn walk_expr_for_user_row_violations(
                     known,
                     user_row_poly,
                     declared,
+                    enforce_subsumption,
                     diagnostics,
                 );
             }
@@ -629,6 +647,7 @@ fn walk_expr_for_user_row_violations(
                 known,
                 user_row_poly,
                 declared,
+                enforce_subsumption,
                 diagnostics,
             );
             for arm in arms {
@@ -640,6 +659,7 @@ fn walk_expr_for_user_row_violations(
                     known,
                     user_row_poly,
                     declared,
+                    enforce_subsumption,
                     diagnostics,
                 );
             }
@@ -652,6 +672,7 @@ fn walk_expr_for_user_row_violations(
             known,
             user_row_poly,
             declared,
+            enforce_subsumption,
             diagnostics,
         ),
         HirExpr::Lambda { body, .. } => walk_block_for_user_row_violations(
@@ -662,6 +683,7 @@ fn walk_expr_for_user_row_violations(
             known,
             user_row_poly,
             declared,
+            enforce_subsumption,
             diagnostics,
         ),
         HirExpr::For { iter, body, .. } => {
@@ -673,6 +695,7 @@ fn walk_expr_for_user_row_violations(
                 known,
                 user_row_poly,
                 declared,
+                enforce_subsumption,
                 diagnostics,
             );
             walk_block_for_user_row_violations(
@@ -683,6 +706,7 @@ fn walk_expr_for_user_row_violations(
                 known,
                 user_row_poly,
                 declared,
+                enforce_subsumption,
                 diagnostics,
             );
         }
@@ -695,6 +719,7 @@ fn walk_expr_for_user_row_violations(
                 known,
                 user_row_poly,
                 declared,
+                enforce_subsumption,
                 diagnostics,
             );
             walk_block_for_user_row_violations(
@@ -705,6 +730,7 @@ fn walk_expr_for_user_row_violations(
                 known,
                 user_row_poly,
                 declared,
+                enforce_subsumption,
                 diagnostics,
             );
         }
@@ -716,6 +742,7 @@ fn walk_expr_for_user_row_violations(
             known,
             user_row_poly,
             declared,
+            enforce_subsumption,
             diagnostics,
         ),
         HirExpr::MethodCall { receiver, args, .. } => {
@@ -727,6 +754,7 @@ fn walk_expr_for_user_row_violations(
                 known,
                 user_row_poly,
                 declared,
+                enforce_subsumption,
                 diagnostics,
             );
             for a in args {
@@ -738,6 +766,7 @@ fn walk_expr_for_user_row_violations(
                     known,
                     user_row_poly,
                     declared,
+                    enforce_subsumption,
                     diagnostics,
                 );
             }
