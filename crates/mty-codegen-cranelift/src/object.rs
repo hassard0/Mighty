@@ -5,7 +5,7 @@
 //! the final executable.
 
 use crate::artifact::{BuildMode, NativeArtifact};
-use crate::debug::{build_dwarf_for, DwarfInputs};
+use crate::debug::{build_dwarf_dispatch, DwarfInputs};
 use crate::error::{CodegenError, CompileResult};
 use crate::lower::{default_flags, LowerCtx};
 use cranelift_codegen::isa::{self};
@@ -104,13 +104,12 @@ fn compile_object_inner(
         product.object.set_macho_build_version(bv);
     }
 
-    // Attach DWARF sections if requested.
+    // Attach DWARF sections if requested. `build_dwarf_dispatch`
+    // selects v4 (default) or v5 (`MTY_DWARF5=1`) — the section names
+    // and Mach-O segment translation below are identical for both.
     if let Some(inputs) = dwarf_inputs {
-        let builder = build_dwarf_for(prog, &inputs)
+        let encoded = build_dwarf_dispatch(prog, &inputs)
             .map_err(|e| CodegenError::Module(format!("dwarf build: {e:?}")))?;
-        let encoded = builder
-            .finish()
-            .map_err(|e| CodegenError::Module(format!("dwarf encode: {e:?}")))?;
         attach_dwarf_sections(&mut product.object, &encoded);
     }
 

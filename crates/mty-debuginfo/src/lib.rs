@@ -26,9 +26,11 @@
 //!   location lists.
 
 pub mod dwarf;
+pub mod dwarf5;
 pub mod sourcemap;
 
 pub use dwarf::{DwarfBuilder, DwarfSection, DwarfSections, EncodedDwarf};
+pub use dwarf5::Dwarf5Builder;
 pub use sourcemap::{NameSection, SourceMap, SourceMapMapping};
 
 /// Errors raised by the debug-info builders.

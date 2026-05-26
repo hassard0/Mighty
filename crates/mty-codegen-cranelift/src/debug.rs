@@ -27,7 +27,8 @@
 //!   offsets.
 
 use mty_debuginfo::{
-    line_col_for, DebugInfoError, DwarfBuilder, FunctionDebugInfo, SourcePos, VarDebugInfo,
+    line_col_for, DebugInfoError, Dwarf5Builder, DwarfBuilder, EncodedDwarf, FunctionDebugInfo,
+    SourcePos, VarDebugInfo,
 };
 use mty_ir::ir::{Function, IrTy, LocalSource, Program};
 
@@ -68,6 +69,60 @@ pub fn build_dwarf_for(
     }
     b.set_total_code_size(total);
     Ok(b)
+}
+
+/// Same shape as [`build_dwarf_for`] but produces DWARF v5 output via
+/// [`Dwarf5Builder`]. v5 brings the indirect `.debug_line_str` string
+/// table, str-offsets, loclists/rnglists, and a per-instruction line
+/// program (each line_table entry becomes its own row). See
+/// `crates/mty-debuginfo/src/dwarf5.rs` for the section-level shape.
+pub fn build_dwarf5_for(
+    prog: &Program,
+    inputs: &DwarfInputs<'_>,
+) -> Result<Dwarf5Builder, DebugInfoError> {
+    let mut b = Dwarf5Builder::new(inputs.source_path.to_string(), inputs.comp_dir.clone());
+    b.init_compile_unit()?;
+    // Same per-fn placeholder layout as the v4 path so the two
+    // builders produce comparable-shape output. The v5 line program
+    // emits one row per `line_table` entry — `function_debug_info`
+    // currently produces a coarse 2-entry table; a follow-up wires
+    // per-MachInst rows from cranelift's `MachSrcLoc` map (see
+    // crate-level docs in mty-debuginfo/src/dwarf5.rs).
+    let mut low: u64 = 0;
+    let placeholder_size: u64 = 16;
+    let mut total: u64 = 0;
+    for f in &prog.fns {
+        let info = function_debug_info(f, inputs.source_text, low, placeholder_size);
+        b.add_function(&info)?;
+        low += placeholder_size;
+        total += placeholder_size;
+    }
+    b.set_total_code_size(total);
+    Ok(b)
+}
+
+/// Returns true when the build should emit DWARF v5 rather than v4.
+///
+/// Toggled by the `MTY_DWARF5=1` env var. Default is v4 for
+/// back-compat with downstream DWARF parsers in CI and external tools.
+pub fn dwarf5_enabled() -> bool {
+    std::env::var("MTY_DWARF5")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes"))
+        .unwrap_or(false)
+}
+
+/// Dispatch helper: build + finish either a v4 or v5 DWARF blob per the
+/// env-var toggle, returning the encoded section bytes ready to attach
+/// to an object file.
+pub fn build_dwarf_dispatch(
+    prog: &Program,
+    inputs: &DwarfInputs<'_>,
+) -> Result<EncodedDwarf, DebugInfoError> {
+    if dwarf5_enabled() {
+        build_dwarf5_for(prog, inputs)?.finish()
+    } else {
+        build_dwarf_for(prog, inputs)?.finish()
+    }
 }
 
 /// Build a [`FunctionDebugInfo`] for a single SIR fn.
@@ -220,6 +275,23 @@ mod tests {
         };
         let b = build_dwarf_for(&prog, &inputs).unwrap();
         let enc = b.finish().unwrap();
+        assert!(enc.sections.iter().any(|s| s.name == ".debug_info"));
+    }
+
+    #[test]
+    fn build_dwarf5_emits_indirect_str_section() {
+        let mut prog = Program::default();
+        prog.fns.push(dummy_main());
+        let inputs = DwarfInputs {
+            source_text: "fn main() {}\n",
+            source_path: "x.mty",
+            comp_dir: "/tmp".into(),
+        };
+        let b = build_dwarf5_for(&prog, &inputs).unwrap();
+        let enc = b.finish().unwrap();
+        // v5 must produce .debug_line_str when comp_dir/comp_file go
+        // through LineString::LineStringRef.
+        assert!(enc.sections.iter().any(|s| s.name == ".debug_line_str"));
         assert!(enc.sections.iter().any(|s| s.name == ".debug_info"));
     }
 
