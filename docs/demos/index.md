@@ -41,7 +41,7 @@ panic: shard 1 crashed on purpose
 The panicked shard's mailbox stays alive (slice-7 partial-restart
 shape), the other shards keep serving, and the final `stats` shows
 the per-shard sizes + the telemetry counter's running totals. See
-the demo's [README](../../demos/04_kvstore/README.md) for the
+the demo's [README](https://github.com/hassard0/Mighty/blob/main/demos/04_kvstore/README.md) for the
 architecture diagram + the per-feature breakdown.
 
 ## v0.4 limitations the demos document

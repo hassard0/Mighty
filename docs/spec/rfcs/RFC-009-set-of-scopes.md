@@ -2,7 +2,7 @@
 
 * Status: **Accepted** (v0.13)
 * Owner: macros track
-* Companion: [`macros-v0.5.md`](../macros-v0.5.md), [`MACRO_HYGIENE_V0_13_NOTES.md`](../../../dev/history/notes/MACRO_HYGIENE_V0_13_NOTES.md)
+* Companion: [`macros-v0.5.md`](../macros-v0.5.md), [`MACRO_HYGIENE_V0_13_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/dev/history/notes/MACRO_HYGIENE_V0_13_NOTES.md)
 * Reference: Matthew Flatt, "Bindings as Sets of Scopes", POPL 2016.
   Cross-reference Rust's hygiene model (`rustc_expand::mbe`, `SyntaxContext`).
 

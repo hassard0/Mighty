@@ -56,7 +56,7 @@ the lexer and parser.
 impl-py/tests/`.
 
 **Findings count**: 16 documented spec ambiguities. See
-[`PYTHON_IMPL_V0_11_NOTES.md`](../../dev/history/notes/PYTHON_IMPL_V0_11_NOTES.md)
+[`PYTHON_IMPL_V0_11_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/dev/history/notes/PYTHON_IMPL_V0_11_NOTES.md)
 for the full list. Highlights:
 
 * Operator precedence is not in the normative spec (§11.1 defers to
@@ -90,7 +90,7 @@ Pre-known representational deviations:
   inside each band may differ from the Rust reference.
 
 All other observable behaviours are documented in
-[`PYTHON_IMPL_V0_11_NOTES.md`](../../dev/history/notes/PYTHON_IMPL_V0_11_NOTES.md)
+[`PYTHON_IMPL_V0_11_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/dev/history/notes/PYTHON_IMPL_V0_11_NOTES.md)
 as findings or deviations.
 
 ## How to add a third independent implementation
@@ -104,7 +104,7 @@ two-to-three-week front-end-only project. The recommended approach:
    a finding.
 2. **Use the Python impl's findings as a starting checklist.** The
    16 documented ambiguities in
-   [`PYTHON_IMPL_V0_11_NOTES.md`](../../dev/history/notes/PYTHON_IMPL_V0_11_NOTES.md)
+   [`PYTHON_IMPL_V0_11_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/dev/history/notes/PYTHON_IMPL_V0_11_NOTES.md)
    tell you what spec text to scrutinise.
 3. **Test against `examples/*.mty`.** Every example must lex and
    parse with zero diagnostics. This is the load-bearing
@@ -120,7 +120,7 @@ two-to-three-week front-end-only project. The recommended approach:
 * **v0.11 (this slice)** — Python lexer + parser shipped.
 * **v0.12 (next)** — Python agent/protocol/supervisor structural
   parse (close the deferred items in
-  [`PYTHON_IMPL_V0_11_NOTES.md`](../../dev/history/notes/PYTHON_IMPL_V0_11_NOTES.md)).
+  [`PYTHON_IMPL_V0_11_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/dev/history/notes/PYTHON_IMPL_V0_11_NOTES.md)).
 * **v0.13+** — A real `mty dump --cst` diff harness. Once the
   Rust front-end can emit a stable JSON CST representation, the
   Python impl runs cross-impl conformance.
