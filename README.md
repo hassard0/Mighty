@@ -19,14 +19,18 @@ server, and stdlib are all in one Rust workspace and one `mty` binary.
 > **Status:** pre-alpha. The v1.0 language spec is at **v1.0-RC3**
 > (operator precedence promoted to normative §11.1.1; full
 > 63-reserved-keyword set enumerated). The toolchain is exercised by
-> 977 Rust tests across 20 crates plus a second independent Python
-> front-end at [`impl-py/`](impl-py/) (135 tests) and a third
+> 1051 Rust tests across 20 crates plus a second independent Python
+> front-end at [`impl-py/`](impl-py/) (137 tests) and a third
 > source-only Go front-end at [`impl-go/`](impl-go/) (4848 LOC,
 > cross-validation pending Go toolchain). All six CI jobs are
-> required gates. A `1.0` GA tag still awaits the completion of the
-> 2nd-impl through type-check, the 3rd-impl cross-validation, six
-> RFC comment-window closures, and the normative conformance suite
-> (currently 89 cases / 16 categories). See [Status](#status) below.
+> required gates. **End-to-end self-hosting is now complete** for the
+> slice-1 subset: lexer → parser → HIR → typeck → MtyIR → wasm
+> codegen, all written in Mighty. A `1.0` GA tag still awaits the
+> completion of the 2nd-impl through type-check, the 3rd-impl
+> cross-validation, eight RFC comment-window closures (RFC-001..006
+> plus the v0.13 RFC-008 + RFC-009 drafts), and the normative
+> conformance suite (currently 89 cases / 16 categories). See
+> [Status](#status) below.
 
 ## Install
 
@@ -104,15 +108,16 @@ Then:
 - Stdlib: `std.json`, `std.tls`, `std.http`, `std.fs`, `std.time`, `std.test`, `std.io` — backed by `rustls` / `hyper` / `serde_json` / `tokio`
 - Diagnostics: `MT0001`–`MT8010`, each with `mty explain`
 
-**Self-hosting (in progress)**
+**Self-hosting (full pipeline)**
 
-- Lexer (full), parser (~1.9 KLOC subset), HIR lowering, minimal typeck, and MtyIR lowering are all written in Mighty itself and exercised against examples 01-05.
-- 40 self-host tests passing.
+- Lexer (full), parser (~1.9 KLOC subset), HIR lowering, minimal typeck, MtyIR lowering, **and Wasm core-module codegen** are all written in Mighty itself and exercised end-to-end against examples 01-05 and an arithmetic fixture.
+- 46 self-host tests passing (6 codegen + 9 IR + 7 typeck + 7 HIR + 13 parser + 4 lexer; 1 codegen ignored — example 03 generic `Option[T]` is v0.14).
+- v0.13 closed the front-end-through-back-end self-host chain for the slice-1 subset.
 
 **Independent implementations**
 
 - Rust reference compiler (this repo, `crates/mty-*`).
-- Python 2nd-impl front-end at [`impl-py/`](impl-py/) — pure-Python lexer + parser built from the v1.0-RC2 spec prose alone. 135 tests, 20/20 examples lex+parse.
+- Python 2nd-impl front-end at [`impl-py/`](impl-py/) — pure-Python lexer + parser built from the v1.0-RC2 spec prose alone. 137 tests, 21/21 examples lex+parse (v0.13 picked up the new `21_wasi_preview2.mty` cleanly with no impl changes).
 - Go 3rd-impl front-end at [`impl-go/`](impl-go/) — Go 1.22+ lexer + parser + CLI built from the v1.0-RC3 spec prose alone. 4848 LOC; cross-validation (`go test ./...`, example sweep) pending Go toolchain on the build host.
 
 ## Documentation
@@ -176,9 +181,15 @@ The v1.0 spec is feature-complete at v1.0-RC2 (`docs/spec/v1.0-rc.md`).
 
 - Lossless live agent migration; per-message work-stealing.
 - Polonius-style borrows; real cap-name resolution wiring.
-- WASI Preview 2 + user-supplied WIT; DWARF v5 + per-instruction line program.
-- Effect-row polymorphism.
+- DWARF v5 + per-instruction line program.
 - Distributed agents; PGO / ThinLTO.
+
+### Landed pre-v1.0 (formerly post-v1.0)
+
+- WASI Preview 2 + user-supplied WIT — v0.13 (`--wasi=p2`, `--world`, `[wit]` section).
+- Effect-row polymorphism infrastructure — v0.13 (RFC-008, `mty-types::effects::row`).
+- Set-of-scopes macro hygiene infrastructure — v0.13 (RFC-009, `mty-macros::scopes` + `hygiene`).
+- End-to-end self-hosting through Wasm codegen — v0.13.
 
 For the full per-version history of what shipped on the road to v1.0,
 see [`CHANGELOG.md`](CHANGELOG.md).
@@ -186,16 +197,20 @@ see [`CHANGELOG.md`](CHANGELOG.md).
 ## Status
 
 Mighty is **pre-alpha**. Internal milestones have been tagged through
-v0.12. The v1.0 language spec is at v1.0-RC3 — see
-`docs/spec/v1.0-rc.md`. There are 977 Rust tests across the workspace
-(plus 135 Python tests in the [`impl-py/`](impl-py/) 2nd-impl, 89
-normative conformance cases, and 40 self-host tests = **1241
+v0.13. The v1.0 language spec is at v1.0-RC3 — see
+`docs/spec/v1.0-rc.md`. There are 1051 Rust tests across the workspace
+(plus 137 Python tests in the [`impl-py/`](impl-py/) 2nd-impl, 89
+normative conformance cases, and 46 self-host tests = **1323
 combined**), 0 clippy warnings *under the strict `pedantic` gate*
 (a required CI job, not advisory), and **4/4 demos** pass `smoke.sh`.
 The cargo-fuzz harness covers four targets (parser / typeck / fmt /
 codegen), and the normative conformance corpus stands at **89 cases
-across 16 categories** (3 ignored: 2 carried over from v0.11, 1 new
-red-shirt deferred to v0.13).
+across 16 categories** (3 ignored: 2 carried over from v0.11, 1
+red-shirt carried over from v0.12). v0.13 reached the
+**end-to-end self-host milestone** (lexer → parser → HIR → typeck →
+MtyIR → wasm codegen, all in Mighty) and added a WASI Preview 2
+backend (`--wasi=p2`) plus two RFC drafts with usable infrastructure
+(RFC-008 effect-row polymorphism, RFC-009 set-of-scopes macro hygiene).
 
 **There is no released binary yet.** Build from source, treat the
 language as unstable, and please file issues for everything that

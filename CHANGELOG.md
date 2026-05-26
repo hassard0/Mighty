@@ -19,9 +19,44 @@ For the full per-release notes, see
   Python over the `examples/` sweep; MT0001 funnel split
   (MT0002/MT0003/MT0010/MT0011/MT0012/MT0020/MT0021/MT0030);
   `mty-pkg` cross-file resolution; parametric newtypes for self-host
-  arena ids; set-of-scopes hygiene in LSP completion (A111);
-  normative conformance suite kit publication; full `TokenStream`
-  marshalling.
+  arena ids; v0.13 RFC-009 set-of-scopes wiring into mty-hir + LSP
+  completion (A111); WASI P2 stdlib lowerings + preview1-adapter
+  embed + default flip to P2 (closes v0.13 issue #15); effect-row
+  surface-syntax parser + typeck call-site validator + rest of
+  stdlib HOFs + MT4020-25 diagnostics (v0.13 RFC-008 follow-up);
+  self-host codegen broadening (string pool, pattern lowering, ADT
+  layout, for-loop iter); normative conformance suite kit
+  publication; full `TokenStream` marshalling.
+
+## [0.13.0] - 2026-05-25
+
+**Capability tier — end-to-end self-host complete + WASI Preview 2 +
+2 new RFCs (effect rows + set-of-scopes hygiene).** The Mighty
+compiler front-end + Wasm core-module back-end is now implemented in
+Mighty source for the slice-1 subset:
+[`selfhost/codegen/wasm.mty`](selfhost/codegen/wasm.mty) (~400 LOC)
+closes the bootstrap chain lexer → parser → HIR → typeck → MtyIR →
+wasm codegen, with 6/6 live driver tests passing (1 ignored — example
+03's generic `Option[T]`). **The self-host milestone called for since
+the v0.5 lexer port is reached.** A WASI Preview 2 backend lands
+behind `--wasi=p2` (default stays `p1`): new `--world <name>` flag, a
+new `[wit]` section in `mighty.toml` for user-supplied WIT, a vendored
+`wasi:*@0.2.3` slice covering `cli`/`io`/`clocks`/`filesystem`/`http`/
+`random`, example at [`examples/21_wasi_preview2.mty`](examples/21_wasi_preview2.mty),
+user-facing matrix at [`docs/reference/wasi.md`](docs/reference/wasi.md).
+Two new RFCs land with usable infrastructure: **RFC-008 effect-row
+polymorphism** (`!E`, `!{a | E}`, four-case unification, subsumption)
+with a 450-LOC row module in `crates/mty-types/src/effects.rs::row`
+and a relaxed `stdlib_list_map_sig()`; and **RFC-009 set-of-scopes
+macro hygiene** (Flatt-style scope sets) with `scopes.rs` + `hygiene.rs`
++ a new `expand_scoped()` entry point alongside the legacy mangler.
+Both ship as **SHIPPED-SUBSET**: infrastructure + tests + first wired
+consumer, with v0.14 follow-ups for surface-syntax parsing
+(RFC-008) and mty-hir rewire (RFC-009). The spec stays at v1.0-RC3;
+the conformance corpus stays at 89 cases / 16 categories / 3 ignored.
+**1051 Rust + 137 Python + 89 conformance + 46 self-host = 1323 tests
+passing** (+82 vs v0.12), 0 failing, 5 ignored.
+[Release notes](dev/history/releases/RELEASE-v0.13.md).
 
 ## [0.12.0] - 2026-05-25
 
