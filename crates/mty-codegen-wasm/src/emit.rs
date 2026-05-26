@@ -509,12 +509,17 @@ impl<'a> Emitter<'a> {
         for f in &self.prog.fns {
             for blk in &f.blocks {
                 for stmt in &blk.stmts {
-                    if let Stmt::Assign(_, Rvalue::Call { func, .. }) = stmt {
-                        if let FnRef::Builtin(BuiltinId::Extern(name)) = func {
-                            if let Some(which) = self.p2_direct_for_extern(name) {
-                                if !needed.contains(&which) {
-                                    needed.push(which);
-                                }
+                    if let Stmt::Assign(
+                        _,
+                        Rvalue::Call {
+                            func: FnRef::Builtin(BuiltinId::Extern(name)),
+                            ..
+                        },
+                    ) = stmt
+                    {
+                        if let Some(which) = self.p2_direct_for_extern(name) {
+                            if !needed.contains(&which) {
+                                needed.push(which);
                             }
                         }
                     }

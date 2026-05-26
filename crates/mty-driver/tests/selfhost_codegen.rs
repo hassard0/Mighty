@@ -2804,7 +2804,7 @@ fn selfhost_codegen_method_call_simple() {
         ret_ty: IrTy::Int(IntKind::I32),
         effects: vec![],
         hir_fn: None,
-        span,
+        span: span.clone(),
     };
 
     let caller_locals = vec![
@@ -2983,7 +2983,7 @@ fn selfhost_codegen_method_call_with_args() {
         ret_ty: IrTy::Int(IntKind::I32),
         effects: vec![],
         hir_fn: None,
-        span,
+        span: span.clone(),
     };
     let caller_locals = vec![
         LocalDecl {
@@ -3236,7 +3236,8 @@ fn selfhost_codegen_iter_custom() {
     // `consume` fn that calls `iter.next()` once and returns the
     // (raw int) discriminant via SwitchVariant. This exercises the
     // full v0.16 MethodCall lowering with the resolved-method path.
-    use mty_ir::ir::{AdtId, AdtRef, AdtRefKind, FieldRef, VariantRef};
+    use mty_ir::ir::{AdtRef, AdtRefKind, FieldRef, VariantRef};
+    use mty_types::AdtId;
     let span = SourceSpan { start: 0, end: 0 };
 
     // ADT: Option with 2 variants — None(0), Some(I32, 1).
@@ -3309,7 +3310,7 @@ fn selfhost_codegen_iter_custom() {
         ret_ty: IrTy::Adt(AdtId(0), vec![]),
         effects: vec![],
         hir_fn: None,
-        span,
+        span: span.clone(),
     };
 
     // fn consume(iter: I32) -> I32 {
