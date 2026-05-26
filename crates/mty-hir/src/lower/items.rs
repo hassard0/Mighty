@@ -107,6 +107,19 @@ fn lower_fn(ctx: &mut LoweringCtx, f: FnDecl) -> FnId {
 ///   * Bare row-var: `!E` — an `EFFECT_ROW_VAR` lives directly under
 ///     the `EFFECT_CLAUSE` (no set, no tail wrapper).
 ///
+/// ## v0.19 — multi-row-var lowering completeness
+///
+/// v0.18 broadened the parser surface (`EFFECT_ROW_VAR (COMMA
+/// EFFECT_ROW_VAR)*` under `EFFECT_ROW_TAIL`), but the v0.18 HIR
+/// lowerer still only consumed the first `EFFECT_ROW_VAR` child —
+/// observationally collapsing every `!{| E, F}` signature to a
+/// single-row-var sig at HIR-time. v0.19 closes that gap by reading
+/// every `EFFECT_ROW_VAR` via [`mty_ast::EffectClause::row_var_names`]
+/// and emitting a fully-populated `Vec<HirRowVar>`, each with a
+/// stable source-order `idx`. The v0.17 typeck-side
+/// `UserRowPolyMeta::row_vars` (and the per-call-site `RowSubst`
+/// allocator) consumes the resulting vec unchanged.
+///
 /// For a closed-set fn (no row var anywhere) we keep
 /// `effect_row = None` so the downstream closed-set path (the v0.13
 /// `EffectRow::Closed`-style legacy fixpoint and the public-fn MT4001
@@ -134,38 +147,40 @@ fn lower_effect_clause(
         .collect();
     let braced = clause.braced_concrete_names();
     names.extend(braced);
-    // Row variable: detect via `EffectClause::row_var_name` which
-    // handles all three shapes. We use idx=0 for the v0.16
-    // SHIPPED-SUBSET single-row-var case; the v0.17 multi-row-var
-    // extension will allocate per name (see HirRowVar docs).
-    let row_var_name = clause.row_var_name();
-    let effect_row = match row_var_name {
-        Some(rv_name) => {
-            // v0.17: HirEffectRow::Open carries `Vec<HirRowVar>`. The
-            // v0.15 parser still emits exactly one row variable per
-            // fn signature; once the v0.18 parser learns the
-            // `!{| E1, E2}` shape we will replace `row_var_name`
-            // here with an iterator over every `EFFECT_ROW_VAR`
-            // child.
-            let row_vars = vec![HirRowVar::new(rv_name, 0)];
+    // Row variables: v0.19 reads EVERY `EFFECT_ROW_VAR` child of
+    // the clause (across all three surface shapes), not just the
+    // first. v0.18 broadened the parser to emit `EFFECT_ROW_VAR
+    // (COMMA EFFECT_ROW_VAR)*` under `EFFECT_ROW_TAIL`, and v0.17
+    // typeck already consumes `Vec<HirRowVar>` — this lowering step
+    // is the final link that lets `!{| E, F}` (and `!{fs | E, F}`,
+    // and `effect fs | E, F`) carry every row variable end-to-end.
+    //
+    // Each `HirRowVar` gets a stable, source-order `idx` (0, 1, ...)
+    // so the typeck-side `UserRowPolyMeta::row_vars` matches the
+    // CST order. The single-row-var case still produces exactly
+    // `[HirRowVar { idx: 0 }]` — bit-for-bit equivalent to the
+    // v0.18 first-only path.
+    let row_vars: Vec<HirRowVar> = clause
+        .row_var_names()
+        .enumerate()
+        .map(|(i, v)| HirRowVar::new(v.text(), i as u32))
+        .collect();
+    let effect_row = if !row_vars.is_empty() {
+        let concrete: Vec<HirEffectName> = names.iter().cloned().map(HirEffectName::new).collect();
+        Some(HirEffectRow::Open(concrete, row_vars))
+    } else {
+        // Distinguish between the new braced closed form `!{a, b}`
+        // (worth tagging with HirEffectRow::Closed so the v0.16
+        // closed-row paths can flag e.g. `!{a, a}` duplicates) and
+        // the legacy `effect a, b` keyword form (existing
+        // closed-set inference already covers it; emit None to
+        // avoid perturbing it).
+        if clause.effect_set().is_some() {
             let concrete: Vec<HirEffectName> =
                 names.iter().cloned().map(HirEffectName::new).collect();
-            Some(HirEffectRow::Open(concrete, row_vars))
-        }
-        None => {
-            // Distinguish between the new braced closed form `!{a, b}`
-            // (worth tagging with HirEffectRow::Closed so the v0.16
-            // closed-row paths can flag e.g. `!{a, a}` duplicates) and
-            // the legacy `effect a, b` keyword form (existing
-            // closed-set inference already covers it; emit None to
-            // avoid perturbing it).
-            if clause.effect_set().is_some() {
-                let concrete: Vec<HirEffectName> =
-                    names.iter().cloned().map(HirEffectName::new).collect();
-                Some(HirEffectRow::Closed(concrete))
-            } else {
-                None
-            }
+            Some(HirEffectRow::Closed(concrete))
+        } else {
+            None
         }
     };
     (names, effect_row)

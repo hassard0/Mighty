@@ -104,6 +104,19 @@ impl EffectClause {
     /// Lookup the row-variable name across all three shapes (`!E`,
     /// `!{... | E}`, `effect a, b | E`). Returns the first match in
     /// source order, or `None` if this clause has no row variable.
+    ///
+    /// # v0.19 deprecation
+    ///
+    /// This first-only accessor was the v0.15-v0.18 single-row-var
+    /// path. v0.18 broadened the parser surface to emit any number
+    /// of `EFFECT_ROW_VAR` children (`!{| E1, E2}` etc.), but this
+    /// accessor still returns just the first match — silently
+    /// dropping the rest. Prefer [`Self::row_var_names`] which
+    /// yields every row var in source order.
+    #[deprecated(
+        since = "0.19.0",
+        note = "use row_var_names() — first-only accessor drops multi-row-var tails"
+    )]
     pub fn row_var_name(&self) -> Option<String> {
         if let Some(v) = self.row_var_direct() {
             return Some(v.text());
@@ -123,10 +136,48 @@ impl EffectClause {
         None
     }
 
+    /// v0.19: iterate over EVERY row-variable identifier in this
+    /// clause, in source order, regardless of which of the three
+    /// surface shapes it came from:
+    ///
+    ///   * Bare `!E` — a single direct `EFFECT_ROW_VAR` child.
+    ///   * Braced `!{... | E1, E2}` — `EFFECT_ROW_VAR` children of
+    ///     the inner `EFFECT_SET → EFFECT_ROW_TAIL`.
+    ///   * Legacy `effect a, b | E1, E2` — `EFFECT_ROW_VAR` children
+    ///     of the `EFFECT_ROW_TAIL` directly under the clause.
+    ///
+    /// The v0.18 parser emits at most one shape per clause, so the
+    /// three sources never produce duplicate row vars for a single
+    /// well-formed clause. Returns an empty iterator if the clause
+    /// has no row variable in any shape.
+    ///
+    /// Single-source-of-truth replacement for the first-only
+    /// [`Self::row_var_name`]; the v0.19 HIR lowerer reads this so
+    /// every row variable lands in the `Vec<HirRowVar>` that v0.17
+    /// typeck already consumes.
+    pub fn row_var_names(&self) -> impl Iterator<Item = EffectRowVar> + '_ {
+        // Direct `!E` child (only present on the bare form).
+        let direct = self.row_var_direct().into_iter();
+        // Inner `EFFECT_SET → EFFECT_ROW_TAIL → EFFECT_ROW_VAR*`.
+        let braced = self
+            .effect_set()
+            .and_then(|s| s.row_tail())
+            .into_iter()
+            .flat_map(|t| t.0.children().filter_map(EffectRowVar::cast));
+        // Legacy keyword form: `EFFECT_ROW_TAIL → EFFECT_ROW_VAR*`
+        // as a direct child of the clause (no enclosing
+        // EFFECT_SET).
+        let keyword = self
+            .keyword_row_tail()
+            .into_iter()
+            .flat_map(|t| t.0.children().filter_map(EffectRowVar::cast));
+        direct.chain(braced).chain(keyword)
+    }
+
     /// True iff this clause has a row variable in any of the three
     /// shapes (`!E`, `!{a | E}`, `effect a | E`).
     pub fn has_row_var(&self) -> bool {
-        self.row_var_name().is_some()
+        self.row_var_names().next().is_some()
     }
 
     /// The concrete effect names from the braced `!{a, b | E}` form

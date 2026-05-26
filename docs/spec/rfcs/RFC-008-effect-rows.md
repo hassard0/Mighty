@@ -338,3 +338,88 @@ b: fn() -> Unit !E2) -> Unit !{| E1, E2}`:
 - LSP hover that renders the per-call-site `RowSubst` for the
   selected expression (so authors can see "this `each` call binds
   E ↦ {fs, net}").
+
+## v0.18 — multi row-variable parser surface
+
+v0.18 added the **parser-side** complement to v0.17's multi-row-var
+typeck: `crates/mty-syntax/src/parser/types.rs::effect_row_tail`
+now loops `EFFECT_ROW_VAR (COMMA EFFECT_ROW_VAR)*` under one
+`EFFECT_ROW_TAIL`, so users can finally write the multi-row-var
+shape at the source level. Both surface forms gain the extension
+"for free" because they route through the same `effect_row_tail`
+helper:
+
+| Form                      | v0.15-v0.17 status | v0.18 status |
+|---------------------------|--------------------|--------------|
+| `!{| E}`                  | parses             | parses       |
+| `!{fs | E}`               | parses             | parses       |
+| `!{| E1, E2}`             | parse error        | parses       |
+| `!{fs | E1, E2}`          | parse error        | parses       |
+| `effect fs | E1, E2`      | parse error        | parses       |
+| `!{| E,}` (trailing comma)| parse error        | parse error  |
+
+The HIR layer in v0.18 still consumed only the first
+`EFFECT_ROW_VAR` child (calling the v0.15
+`EffectClause::row_var_name()` first-only accessor), so multi-var
+parser surfaces lowered to single-var HIR — observationally
+equivalent to v0.17 typeck behaviour. The v0.19 lowering completeness
+section below closes that gap.
+
+## v0.19 — lowering completeness
+
+v0.19 finishes the v0.17/v0.18 RFC-008 work by making
+`mty-hir::lower::items::lower_effect_clause` consume **every**
+`EFFECT_ROW_VAR` child of an `EFFECT_CLAUSE`, not just the first.
+The HIR `HirEffectRow::Open(_, Vec<HirRowVar>)` now matches the
+parser-emitted CST shape and the v0.17 typeck `UserRowPolyMeta`
+exactly, with no first-only collapse step in between.
+
+### AST iterator
+
+`crates/mty-ast/src/effects.rs::EffectClause` gains
+`row_var_names() -> impl Iterator<Item = EffectRowVar>` covering
+all three surface shapes uniformly:
+
+* Direct `!E` child (bare-bang form).
+* `EFFECT_SET → EFFECT_ROW_TAIL → EFFECT_ROW_VAR*` (braced form).
+* `EFFECT_CLAUSE → EFFECT_ROW_TAIL → EFFECT_ROW_VAR*` (legacy
+  `effect` keyword form).
+
+The v0.15 `row_var_name()` first-only accessor is preserved but
+marked `#[deprecated(since = "0.19.0")]` so any straggler
+consumers migrate.
+
+### HIR lowering
+
+`lower_effect_clause` now reads every row var via
+`row_var_names()` and emits a `Vec<HirRowVar>` in source order,
+each with a stable `idx` (0, 1, 2, ...):
+
+```rust
+let row_vars: Vec<HirRowVar> = clause
+    .row_var_names()
+    .enumerate()
+    .map(|(i, v)| HirRowVar::new(v.text(), i as u32))
+    .collect();
+```
+
+The single-row-var case is bit-for-bit equivalent to the v0.18
+output (one `HirRowVar` with idx 0); only the multi-var case is
+newly populated.
+
+### Acceptance for v0.19
+
+- `EffectClause::row_var_names()` iterator + `#[deprecated]` on
+  the first-only accessor.
+- `lower_effect_clause` reads every `EFFECT_ROW_VAR` child and
+  produces a fully-populated `Vec<HirRowVar>`.
+- `crates/mty-hir/tests/multi_row_lowering.rs` pins HIR shape
+  across single-var, multi-var, three-var, concrete+multi, and
+  legacy keyword form (8 tests, 1 of which lowers
+  `examples/24_multi_row_full.mty` from disk).
+- `crates/mty-types/tests/effect_row_e2e_multi.rs` covers
+  end-to-end multi-row-var typeck (6 tests): caller-side effect
+  union, partial propagation, arity-mismatch diagnostic, three-way
+  row-poly, clean-parse contract.
+- `examples/24_multi_row_full.mty` demonstrates the
+  parser → HIR → typeck pipeline end-to-end.
