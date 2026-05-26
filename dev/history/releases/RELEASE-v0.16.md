@@ -249,32 +249,46 @@ See
 
 ## Integration fixes (this tag commit)
 
-The pre-integrator commit (`4f5fe58`) landed:
+Three integrator commits land alongside the v0.16 swarm to keep the
+required-gate jobs green:
 
-- **`clippy::collapsible_match` fix** in
-  `crates/mty-codegen-wasm/src/emit.rs` — the prescan pass's
-  nested `if let Stmt::Assign(_, Rvalue::Call { func, .. })` →
-  `if let FnRef::Builtin(BuiltinId::Extern(name))` collapses into
-  a single deep destructure pattern, satisfying clippy under
-  `-D warnings`.
-- **Self-host test `span` clones** in
-  `crates/mty-driver/tests/selfhost_codegen.rs` — the new
-  `MethodCall` and iter-custom tests construct two `Function`
-  literals sharing a `SourceSpan` value; `SourceSpan` is not
-  `Copy` (and cannot become so without cascading clippy
-  `clone_on_copy` failures in callers), so the two new tests now
-  `.clone()` the span explicitly. Also: switched the `AdtId`
-  import from the private `mty_ir::ir::AdtId` re-export to the
-  public `mty_types::AdtId` to satisfy `E0603`.
-- **`audit.toml` advisory ignores** — added
-  RUSTSEC-2026-0096 + RUSTSEC-2025-0046 (wasmtime dev-dep
-  bundle continues to grow upstream; the rationale comment for
-  the bundle remains valid — wasmtime is dev-only),
-  RUSTSEC-2024-0436 (paste, unmaintained transitive),
-  RUSTSEC-2025-0134 (rustls-pemfile, unmaintained transitive),
-  and RUSTSEC-2026-0008 (git2 0.19.0 unsoundness on a
-  `Buf`-deref API surface that `mty-pkg` does not call; tracked
-  for a git2 bump in v0.17).
+- **`4f5fe58`** — **clippy `collapsible_match` + selfhost test
+  `span` clones + audit advisories**. The prescan pass in
+  `crates/mty-codegen-wasm/src/emit.rs` had nested
+  `if let Stmt::Assign(_, Rvalue::Call { func, .. })` →
+  `if let FnRef::Builtin(BuiltinId::Extern(name))` that clippy
+  rejects under `-D warnings`; the patch collapses both into a
+  single deep destructure pattern. The new `MethodCall` and
+  iter-custom tests in `crates/mty-driver/tests/selfhost_codegen.rs`
+  construct two `Function` literals sharing a `SourceSpan` value;
+  `SourceSpan` is not `Copy` (and cannot become so without cascading
+  clippy `clone_on_copy` failures in callers), so the two new tests
+  now `.clone()` the span explicitly. The `AdtId` import path was
+  switched from the private `mty_ir::ir::AdtId` re-export to the
+  public `mty_types::AdtId` to satisfy `E0603`. `audit.toml` picks
+  up two more wasmtime entries (RUSTSEC-2026-0096 + RUSTSEC-2025-0046)
+  + three transitive warnings (RUSTSEC-2024-0436 paste,
+  RUSTSEC-2025-0134 rustls-pemfile, RUSTSEC-2026-0008 git2 0.19.0
+  `Buf`-deref unsoundness on an API surface `mty-pkg` does not call,
+  tracked for a git2 bump in v0.17).
+- **`32ebec4`** — **`.cargo/audit.toml` + `examples/22_effect_row.mty`
+  fmt**. cargo-audit's documented config-file lookup is
+  `~/.cargo/audit.toml` or `.cargo/audit.toml`; the root
+  `audit.toml` introduced in `7148b56` was never being read (the
+  security workflow was red on every commit since), so the same
+  file was copied into `.cargo/`. The example sweep also flagged a
+  trailing blank line in `examples/22_effect_row.mty` — the
+  `@typeck-pending` marker removal in v0.16 exposed a minor fmt
+  deviation that the v0.15 skip-list had hidden.
+- **`380c35b`** — **`fs_capability_allowlist` test serialization**.
+  The `--no-default-features` Linux CI job intermittently failed on
+  `host_dispatch_read_outside_default_cap_returns_err_variant` because
+  cargo's default parallel-test execution let
+  `install_default_read_cap_returns_previous_for_scoped_overrides`
+  install `/scoped` as the process-wide default cap between the
+  scoped test's save and restore points. A `Mutex<()>` gate around
+  the two tests that mutate the global cap slot serializes them;
+  poisoned-lock recovery keeps a panicking test from cascading.
 
 No source-level behaviour changes; all three are gate-keeping
 plumbing.
