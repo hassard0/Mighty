@@ -15,12 +15,23 @@ pub mod address;
 pub mod correlation;
 pub mod mesh;
 pub mod peer;
+// v0.20 Tier 4.2 — cluster mTLS hardening + cluster-wide supervisor.
+pub mod supervisor;
+pub mod tls;
 pub mod wire;
 
 pub use address::{current_node_id, AgentAddr, NodeId};
 pub use correlation::CorrelationTable;
 pub use mesh::{ClusterConfig, ClusterMesh, MeshError, PeerEntry, TlsConfig, MESH_INBOX_CAPACITY};
 pub use peer::{InboundFrame, Peer, PeerError};
+pub use supervisor::{
+    ChildSpec, ChildState, ClusterSupervisor, ExitReason, RestartPolicy, RestartStrategy,
+    SupervisorEvent, SupervisorHook, SUPERVISOR_EVENT_CAPACITY,
+};
+pub use tls::{
+    build_acceptor as tls_build_acceptor, build_connector as tls_build_connector,
+    build_pair as tls_build_pair, cert_node_id, verify_peer_identity, ClusterTlsConfig, TlsError,
+};
 pub use wire::{
     decode_frame, encode_frame, read_frame_async, write_frame_async, WireError, WireFrame,
     MAX_FRAME_BYTES, WIRE_VERSION,

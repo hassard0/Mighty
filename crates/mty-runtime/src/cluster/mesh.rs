@@ -67,6 +67,13 @@ pub enum MeshError {
 
 /// Static configuration for the mesh. The "peer list" is typically
 /// read from `mighty.toml`; this struct is the in-memory form.
+///
+/// v0.20: the mTLS flag does NOT live here — it would be a breaking
+/// addition for v0.18 / v0.19 callers that still build `ClusterConfig`
+/// via struct-literal syntax. Instead, mTLS is enabled at mesh
+/// construction time via [`ClusterMesh::from_config_mtls`], which
+/// flips an internal flag the listener + dialer paths consult before
+/// installing peers.
 #[derive(Debug, Clone)]
 pub struct ClusterConfig {
     pub node_id: NodeId,
@@ -112,6 +119,17 @@ pub struct ClusterMesh {
     /// caller-facing `inbox_rx`.
     correlations: Arc<CorrelationTable>,
     shutdown: Arc<tokio::sync::Notify>,
+    /// v0.20: gate for the mTLS code path. When `true`, every accepted
+    /// listener connection is required to present a client cert and
+    /// every dialer pulls the listener's server cert post-handshake;
+    /// both sides verify the CN matches the `Hello.node_id` claim.
+    require_mtls: bool,
+    /// v0.20: cluster supervisors registered with this mesh. The mesh
+    /// notifies every supervisor when a peer disconnects so it can mark
+    /// the dead node's children `:noproc` and trigger the configured
+    /// restart strategy. Boxed so the mesh stays agnostic to the
+    /// concrete supervisor type.
+    supervisors: parking_lot::RwLock<Vec<Arc<dyn crate::cluster::supervisor::SupervisorHook>>>,
 }
 
 impl std::fmt::Debug for ClusterMesh {
@@ -128,7 +146,27 @@ impl ClusterMesh {
     /// `listen_addr` is set and a background dialer per configured
     /// peer. None of these block the call site — peers that are down
     /// keep retrying in the background.
+    ///
+    /// Uses **server-only TLS** (v0.18 / v0.19 shape). For the v0.20
+    /// mTLS + CN-bound identity path, see [`Self::from_config_mtls`].
     pub async fn from_config(cfg: ClusterConfig) -> Result<Arc<Self>, MeshError> {
+        Self::from_config_inner(cfg, false).await
+    }
+
+    /// v0.20: build an mTLS-bound mesh. Same shape as [`Self::from_config`]
+    /// but every accepted connection MUST present a client cert (the
+    /// caller is responsible for building `cfg.tls.acceptor` from a
+    /// [`crate::cluster::tls::ClusterTlsConfig`] with
+    /// `require_client_cert = true`), and the listener / dialer paths
+    /// both verify the peer cert CN against the `Hello.node_id`.
+    pub async fn from_config_mtls(cfg: ClusterConfig) -> Result<Arc<Self>, MeshError> {
+        Self::from_config_inner(cfg, true).await
+    }
+
+    async fn from_config_inner(
+        cfg: ClusterConfig,
+        require_mtls: bool,
+    ) -> Result<Arc<Self>, MeshError> {
         // Two-stage inbox plumbing:
         //   peer reader tasks ─► `raw_tx` (capacity MESH_INBOX_CAPACITY)
         //                       │
@@ -157,6 +195,8 @@ impl ClusterMesh {
             correlations: correlations.clone(),
             shutdown: Arc::new(tokio::sync::Notify::new()),
             config: cfg.clone(),
+            require_mtls,
+            supervisors: parking_lot::RwLock::new(Vec::new()),
         });
 
         // Demux task: split replies into the correlation table,
@@ -348,6 +388,28 @@ impl ClusterMesh {
         Ok(())
     }
 
+    /// v0.20: register a cluster supervisor with this mesh. The mesh
+    /// notifies every registered hook when a peer disconnects so it can
+    /// mark the dead node's children `:noproc` and apply its restart
+    /// strategy. Multiple supervisors may share one mesh.
+    pub fn register_supervisor(&self, hook: Arc<dyn crate::cluster::supervisor::SupervisorHook>) {
+        self.supervisors.write().push(hook);
+    }
+
+    /// v0.20: deliver a "node disconnected" event to every registered
+    /// supervisor. Called by the dialer task when it notices a peer
+    /// has gone away (writer/reader tasks died). Also exposed for
+    /// tests that need to simulate a disconnect without driving the
+    /// actual TCP teardown.
+    pub async fn notify_node_disconnect(&self, node: &NodeId) {
+        // Clone Arcs out under the lock, then call hooks lock-free so
+        // a slow hook can't stall the dialer.
+        let hooks: Vec<_> = self.supervisors.read().iter().cloned().collect();
+        for h in hooks {
+            h.on_node_disconnect(node).await;
+        }
+    }
+
     /// Tear down the mesh: close every peer, abort the listener +
     /// dialers, drop the inbox. Idempotent.
     pub async fn shutdown(self: Arc<Self>) {
@@ -432,9 +494,26 @@ fn spawn_listener_task(mesh: Arc<ClusterMesh>, listener: TcpListener) -> JoinHan
                 };
                 let inbox = mesh.inbox_tx.clone();
                 let local_id = mesh.self_node.clone();
-                if let Ok(peer) =
+                let peer = if mesh.require_mtls {
+                    // mTLS path: pull peer certs off the freshly-
+                    // completed handshake BEFORE splitting the stream
+                    // for I/O. rustls only exposes the chain via the
+                    // `ServerConnection`; tokio-rustls 0.26 surfaces it
+                    // through `get_ref().1`.
+                    let peer_certs = stream
+                        .get_ref()
+                        .1
+                        .peer_certificates()
+                        .map(|c| c.to_vec())
+                        .unwrap_or_default();
+                    crate::cluster::peer::server_handshake_mtls(
+                        stream, peer_addr, local_id, inbox, peer_certs,
+                    )
+                    .await
+                } else {
                     crate::cluster::peer::server_handshake(stream, peer_addr, local_id, inbox).await
-                {
+                };
+                if let Ok(peer) = peer {
                     mesh.install_peer(Arc::new(peer));
                 }
             });
@@ -462,10 +541,13 @@ fn spawn_dialer_task(mesh: Arc<ClusterMesh>, entry: PeerEntry) -> JoinHandle<()>
             }
             // We just transitioned from "connected" to "not connected" —
             // wake every in-flight ask targeting this node so they
-            // resolve cleanly instead of hanging.
+            // resolve cleanly instead of hanging. v0.20 also notifies
+            // every cluster supervisor so it can mark this node's
+            // children `:noproc` and apply its restart strategy.
             if was_connected {
                 mesh.correlations
                     .fail_targeting_node(entry.node_id.as_str());
+                mesh.notify_node_disconnect(&entry.node_id).await;
                 was_connected = false;
             }
             attempt = attempt.saturating_add(1);
@@ -479,15 +561,27 @@ fn spawn_dialer_task(mesh: Arc<ClusterMesh>, entry: PeerEntry) -> JoinHandle<()>
             let Ok(server_name) = rustls::pki_types::ServerName::try_from(server_name_str) else {
                 break;
             };
-            let connect_res = Peer::connect(
-                entry.addr,
-                server_name,
-                mesh.config.tls.connector.clone(),
-                mesh.self_node.clone(),
-                mesh.inbox_tx.clone(),
-                (),
-            )
-            .await;
+            let connect_res = if mesh.require_mtls {
+                Peer::connect_mtls(
+                    entry.addr,
+                    server_name,
+                    mesh.config.tls.connector.clone(),
+                    mesh.self_node.clone(),
+                    Some(entry.node_id.clone()),
+                    mesh.inbox_tx.clone(),
+                )
+                .await
+            } else {
+                Peer::connect(
+                    entry.addr,
+                    server_name,
+                    mesh.config.tls.connector.clone(),
+                    mesh.self_node.clone(),
+                    mesh.inbox_tx.clone(),
+                    (),
+                )
+                .await
+            };
             match connect_res {
                 Ok(peer) => {
                     mesh.install_peer(Arc::new(peer));

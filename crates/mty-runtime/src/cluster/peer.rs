@@ -30,6 +30,7 @@
 //!   the mesh decides what to do.
 
 use crate::cluster::address::NodeId;
+use crate::cluster::tls::{verify_peer_identity, TlsError};
 use crate::cluster::wire::{
     read_frame_async, write_frame_async, WireError, WireFrame, WIRE_VERSION,
 };
@@ -40,6 +41,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
+use tokio_rustls::rustls::pki_types::CertificateDer;
 use tokio_rustls::{client::TlsStream, TlsConnector};
 
 /// How many outgoing frames we'll buffer before `send_frame` errors.
@@ -70,6 +72,12 @@ pub enum PeerError {
     VersionMismatch { expected: u32, got: u32 },
     #[error("peer handshake: missing Hello frame")]
     MissingHello,
+    /// `MT5040` — peer presented a TLS cert whose CN doesn't match the
+    /// `node_id` claimed in the post-TLS Hello frame, or chain was empty.
+    /// v0.20 mTLS hardening: rejecting these closes the door on any
+    /// peer holding a valid-but-misappropriated cert.
+    #[error("peer identity: {0}")]
+    Identity(#[from] TlsError),
 }
 
 /// A connected peer. Frames go in via [`Peer::send_frame`]; the
@@ -118,7 +126,47 @@ impl Peer {
             .connect(server_name.clone(), tcp)
             .await
             .map_err(|e| PeerError::Tls(e.to_string()))?;
-        spawn_peer_after_tls(stream, remote_addr, local_node_id, inbox).await
+        // v0.18-shape connect: server-cert validity is enforced by
+        // rustls during the handshake, but the CN→node_id binding is
+        // not. Use `connect_mtls` for the v0.20 hardened path.
+        spawn_peer_after_tls(stream, remote_addr, local_node_id, inbox, None).await
+    }
+
+    /// mTLS dialer (v0.20). Same as [`Self::connect`] except the peer
+    /// cert presented by the listener is extracted post-handshake and
+    /// its Subject CN is compared to the `node_id` the listener claims
+    /// in its `Hello` frame. Mismatch → `PeerError::Identity` with
+    /// diag code `MT5040`.
+    ///
+    /// `expected_node_id` is the operator-configured node id we expect
+    /// the listener to be. Set to `None` to trust whatever the cert
+    /// CN says (still useful — it pins the Hello.node_id to the cert).
+    pub async fn connect_mtls(
+        remote_addr: SocketAddr,
+        server_name: rustls::pki_types::ServerName<'static>,
+        connector: TlsConnector,
+        local_node_id: NodeId,
+        expected_node_id: Option<NodeId>,
+        inbox: mpsc::Sender<InboundFrame>,
+    ) -> Result<Self, PeerError> {
+        let tcp = TcpStream::connect(remote_addr).await?;
+        tcp.set_nodelay(true).ok();
+        let stream = connector
+            .connect(server_name.clone(), tcp)
+            .await
+            .map_err(|e| PeerError::Tls(e.to_string()))?;
+        // tokio-rustls 0.26: `get_ref().1` is the rustls
+        // `ClientConnection`, exposing `peer_certificates()`.
+        let peer_certs = stream.get_ref().1.peer_certificates().map(|c| c.to_vec());
+        spawn_peer_after_tls_verified(
+            stream,
+            remote_addr,
+            local_node_id,
+            inbox,
+            peer_certs,
+            expected_node_id,
+        )
+        .await
     }
 
     /// Variant of [`Peer::connect`] for tests that bring their own
@@ -130,7 +178,7 @@ impl Peer {
         local_node_id: NodeId,
         inbox: mpsc::Sender<InboundFrame>,
     ) -> Result<Self, PeerError> {
-        spawn_peer_after_tls(stream, remote_addr, local_node_id, inbox).await
+        spawn_peer_after_tls(stream, remote_addr, local_node_id, inbox, None).await
     }
 
     /// Test-side: wrap a pair of in-memory streams that already
@@ -146,7 +194,34 @@ impl Peer {
     where
         S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
-        spawn_peer_after_tls(stream, remote_addr, local_node_id, inbox).await
+        spawn_peer_after_tls(stream, remote_addr, local_node_id, inbox, None).await
+    }
+
+    /// Test-side variant of [`Self::from_raw_stream`] that simulates an
+    /// already-authenticated mTLS peer by handing in the cert chain the
+    /// caller wants the post-Hello validation to run against. Used by
+    /// the v0.20 mtls integration tests to exercise the CN-binding
+    /// path without actually negotiating a TLS handshake.
+    pub async fn from_raw_stream_with_cert<S>(
+        stream: S,
+        remote_addr: SocketAddr,
+        local_node_id: NodeId,
+        inbox: mpsc::Sender<InboundFrame>,
+        peer_certs: Vec<CertificateDer<'static>>,
+        expected_node_id: Option<NodeId>,
+    ) -> Result<Self, PeerError>
+    where
+        S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    {
+        spawn_peer_after_tls_verified(
+            stream,
+            remote_addr,
+            local_node_id,
+            inbox,
+            Some(peer_certs),
+            expected_node_id,
+        )
+        .await
     }
 
     /// Push a frame onto the outbound queue. Non-blocking: returns
@@ -219,11 +294,36 @@ pub struct InboundFrame {
 
 /// Split + spawn the reader/writer tasks for a freshly-handshaken
 /// TLS connection. Performs the `Hello` exchange before returning.
+///
+/// `peer_certs` and `expected_node_id`: if `peer_certs` is `Some`, the
+/// leaf cert's Subject CN is checked against the claimed `Hello.node_id`
+/// (v0.20 mTLS hardening). If `expected_node_id` is also `Some`, both
+/// values must match the CN — this gives the dialer side a way to pin
+/// the listener's identity to the operator-configured node id, not
+/// just to what the listener self-advertises.
 async fn spawn_peer_after_tls<S>(
     stream: S,
     remote_addr: SocketAddr,
     local_node_id: NodeId,
     inbox: mpsc::Sender<InboundFrame>,
+    _peer_certs: Option<Vec<CertificateDer<'static>>>,
+) -> Result<Peer, PeerError>
+where
+    S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+{
+    spawn_peer_after_tls_verified(stream, remote_addr, local_node_id, inbox, None, None).await
+}
+
+/// Lower-level entry that drives the post-TLS handshake AND optionally
+/// validates the peer cert CN against the Hello-claimed `node_id`.
+/// See [`spawn_peer_after_tls`] for the no-validation path.
+async fn spawn_peer_after_tls_verified<S>(
+    stream: S,
+    remote_addr: SocketAddr,
+    local_node_id: NodeId,
+    inbox: mpsc::Sender<InboundFrame>,
+    peer_certs: Option<Vec<CertificateDer<'static>>>,
+    expected_node_id: Option<NodeId>,
 ) -> Result<Peer, PeerError>
 where
     S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
@@ -249,6 +349,21 @@ where
         Some(_) => return Err(PeerError::MissingHello),
         None => return Err(PeerError::MissingHello),
     };
+
+    // v0.20 mTLS: CN-bound identity. If the caller supplied a peer cert
+    // chain, the leaf cert's Subject CN must equal the Hello-claimed
+    // node_id (and, optionally, also equal the operator-configured
+    // expected node id). Mismatch raises `MT5040` and the connection is
+    // dropped before we install the peer.
+    if let Some(certs) = &peer_certs {
+        let leaf = certs
+            .first()
+            .ok_or_else(|| PeerError::Identity(TlsError::BadPeerCert("empty cert chain".into())))?;
+        verify_peer_identity(leaf, &peer_node_id)?;
+        if let Some(expected) = &expected_node_id {
+            verify_peer_identity(leaf, expected)?;
+        }
+    }
 
     let (tx, mut rx) = mpsc::channel::<WireFrame>(PEER_TX_CAPACITY);
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
@@ -333,7 +448,31 @@ pub async fn server_handshake<S>(
 where
     S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
-    spawn_peer_after_tls(stream, remote_addr, local_node_id, inbox).await
+    spawn_peer_after_tls(stream, remote_addr, local_node_id, inbox, None).await
+}
+
+/// Server-side mTLS variant: same as [`server_handshake`] but also
+/// validates the dialer's client cert CN against the `node_id` the
+/// dialer claims in its `Hello` frame.
+pub async fn server_handshake_mtls<S>(
+    stream: S,
+    remote_addr: SocketAddr,
+    local_node_id: NodeId,
+    inbox: mpsc::Sender<InboundFrame>,
+    peer_certs: Vec<CertificateDer<'static>>,
+) -> Result<Peer, PeerError>
+where
+    S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+{
+    spawn_peer_after_tls_verified(
+        stream,
+        remote_addr,
+        local_node_id,
+        inbox,
+        Some(peer_certs),
+        None,
+    )
+    .await
 }
 
 /// Compute the next reconnect backoff given the attempt count

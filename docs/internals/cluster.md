@@ -1,10 +1,9 @@
-# Cluster — distributed agents (Tier 4.1, v0.18 + v0.19)
+# Cluster — distributed agents (Tier 4.1 + 4.2, v0.18 + v0.19 + v0.20)
 
 > Status: **transport layer landed in v0.18; runtime integration landed
-> in v0.19** (`Runtime::send_addr` / `Runtime::ask_addr` consult an
-> optional [`ClusterRouter`](#runtime-integration), `[cluster]`
-> manifest section parses). Cluster-aware supervisors + lossless live
-> migration are Tier 4.2 / 4.3, scheduled for v0.20+.
+> in v0.19; mTLS + CN-bound identity + cluster supervisor (Tier 4.2)
+> landed in v0.20**. Lossless live migration is Tier 4.3, scheduled for
+> v0.21+.
 
 Mighty's first three tiers (v0.10–v0.17) deliver an in-process
 agent runtime. Tier 4.1 lifts that out of one process:
@@ -315,13 +314,137 @@ pub struct CorrelationTable {
   socket goes through `tokio-rustls`. The same rustls 0.23 + `ring`
   provider as `std.tls`.
 - **Cert layout.** For self-hosted clusters: one internal CA, one
-  cert per node (SAN = the node's public DNS or `node_id`),
+  cert per node (SAN = the node's public DNS or `node_id`, **CN =
+  `node_id`** so mTLS can bind cert identity to advertised id),
   every node trusts the internal CA. For dev: per-node self-signed
   certs with explicit trust roots (the integration tests do this
   with `rcgen`).
-- **No client certs (yet).** v0.18 trusts the server-cert + node id
-  to identify peers. Mutual TLS lands with the v0.19 hardening
-  pass.
+- **Mutual TLS (v0.20).** Opt-in via `ClusterMesh::from_config_mtls`
+  (and the `[cluster.tls].require_client_cert = true` manifest
+  knob, when wired). Every accepted connection MUST present a
+  client cert chaining to `ClusterTlsConfig::client_ca`; every
+  dialer MUST present `client_cert` (or, by default, the
+  `server_cert` reused for both roles).
+- **CN-bound identity (v0.20).** After the TLS handshake completes,
+  both sides peel the peer's leaf cert and verify the Subject CN
+  equals the `Hello.node_id` the peer claims. A cert holder
+  pretending to be a different node fails the post-Hello check
+  with diag `MT5040`.
+
+### v0.20 mTLS config
+
+```rust
+use mty_runtime::cluster::tls::ClusterTlsConfig;
+
+let cfg = ClusterTlsConfig {
+    server_cert: node_a_cert,
+    server_key:  node_a_key,
+    client_ca:   Arc::new(cluster_ca_roots), // who can dial us
+    server_ca:   Arc::new(cluster_ca_roots), // who we trust as server
+    client_cert: None,         // default: reuse server_cert
+    client_key:  None,         // default: reuse server_key
+    require_client_cert: true,
+};
+
+let acceptor  = mty_runtime::cluster::tls::build_acceptor(&cfg)?;
+let connector = mty_runtime::cluster::tls::build_connector(&cfg)?;
+
+let mesh = ClusterMesh::from_config_mtls(ClusterConfig {
+    node_id: NodeId::new("node-a"),
+    listen_addr: Some("0.0.0.0:9700".parse()?),
+    peers: vec![/* … */],
+    tls: TlsConfig { acceptor: (*acceptor).clone(), connector: (*connector).clone() },
+}).await?;
+```
+
+`require_client_cert: false` keeps the v0.18 / v0.19 server-only
+TLS shape — `ClusterMesh::from_config` still works unchanged.
+
+### Diag codes added in v0.20
+
+- `MT5040` — peer cert CN does not match the `Hello.node_id` claim,
+  OR the peer presented an empty / unparseable cert chain. Mesh
+  drops the connection before installing the peer.
+
+## Cluster supervisor (Tier 4.2, v0.20)
+
+The in-process [`supervisor`] tree restarts agents that crash inside
+this node. The cluster supervisor lifts that one level up: its
+children can live on **remote** nodes, and the events it reacts to
+include "peer disconnected → every child on that node is now
+`:noproc`".
+
+### Shape
+
+```rust
+use mty_runtime::cluster::supervisor::{
+    ChildSpec, ClusterSupervisor, RestartPolicy, RestartStrategy,
+    SupervisorEvent,
+};
+
+let sup = Arc::new(ClusterSupervisor::new(RestartStrategy::OneForOne));
+sup.add_child(ChildSpec {
+    addr: AgentAddr::remote("node-b", "Worker", 1),
+    restart: RestartPolicy::Permanent,
+    max_restarts: 5,
+    window_ms: 30_000,
+});
+
+// Wire mesh disconnect events into the supervisor:
+mesh.register_supervisor(sup.clone());
+
+// Drain restart events:
+while let Some(ev) = sup.next_event().await {
+    match ev {
+        SupervisorEvent::RestartRequested { child, siblings, reason } => {
+            // Caller re-spawns child + every sibling the strategy lists.
+        }
+        SupervisorEvent::CircuitBreakerTripped { child, attempts, window_ms } => {
+            // Operator alert — supervisor has stopped trying.
+        }
+        SupervisorEvent::NodeDisconnect { node, lost_children } => {
+            // Diagnostic — emitted alongside the per-child events.
+        }
+    }
+}
+```
+
+### Strategies
+
+| Strategy     | Effect when child `B` of `{A, B, C, D}` (insertion order) fails |
+| ------------ | --------------------------------------------------------------- |
+| `OneForOne`  | Restart only `B`.                                               |
+| `OneForAll`  | Restart `B` + `{A, C, D}`.                                      |
+| `RestForOne` | Restart `B` + `{C, D}` (siblings inserted AFTER `B`).           |
+
+### Circuit breaker
+
+Each child carries a `(max_restarts, window_ms)` budget. The
+supervisor keeps a sliding-window count of recent restart timestamps;
+once the count exceeds `max_restarts` within `window_ms`, the
+supervisor emits `SupervisorEvent::CircuitBreakerTripped` and moves
+the child to `ChildState::Dead(why)`. No further restart events fire
+until the operator re-adds the child via `add_child`.
+
+### Node-disconnect cascade
+
+When the mesh's dialer task notices a peer is gone, it calls
+`ClusterMesh::notify_node_disconnect(node)`. Every registered
+supervisor's `SupervisorHook::on_node_disconnect` fires. The
+supervisor:
+
+1. Finds every child whose `addr.node == node` and marks them
+   `ChildState::NoProc`. (Idempotent — already-NoProc children
+   are skipped.)
+2. Emits one `NodeDisconnect { node, lost_children }` event.
+3. For each lost child, runs `plan_restart_locked` (which applies
+   the strategy + circuit breaker) and emits `RestartRequested`.
+
+The supervisor does NOT re-place children on a different node. That's
+**cross-node fail-over** and lives in Tier 4.2.1 / v0.21+ once a
+placement-policy abstraction lands. v0.20's restart events let the
+caller decide: try the same node again when it reconnects, or pick a
+new one from operator-supplied policy.
 
 ## Operational notes
 
@@ -364,6 +487,36 @@ post-v0.20 item.
 - `mesh_returns_error_on_local_loop` — clear error on self-target.
 - `peer_reconnects_after_disconnect` — kill peer, dialer reconnects.
 
+`crates/mty-runtime/tests/cluster_mtls.rs` (v0.20, 5 tests):
+
+- `mtls_handshake_with_matching_cert_succeeds` — happy path A→B
+  with mTLS + CN binding; B's inbox receives the routed Send.
+- `mtls_handshake_with_wrong_cn_rejected` — peer presents a cert
+  with CN=`node-attacker` but claims `node-victim-impostor` in Hello
+  → `MT5040 IdentityMismatch`.
+- `mtls_handshake_with_untrusted_ca_rejected` — A requires client
+  certs signed by A's CA; B's cert isn't trusted → rustls rejects
+  before the Hello exchange runs.
+- `server_only_tls_still_works_when_mtls_disabled` — back-compat
+  regression: a v0.18-shape mesh routes A→B unchanged.
+- `cert_node_id_pins_subject_cn_against_san_only_cert` — guard
+  against rcgen behaviour change in the CN-extraction path.
+
+`crates/mty-runtime/tests/cluster_supervisor.rs` (v0.20, 6 tests):
+
+- `supervisor_marks_children_noproc_on_peer_disconnect` — node-b
+  goes away, every child whose addr.node == "node-b" is NoProc.
+- `one_for_one_restart_strategy` — only the failing child gets
+  a `RestartRequested`.
+- `one_for_all_restart_strategy` — failing child + every sibling.
+- `rest_for_one_restart_strategy` — failing child + only siblings
+  inserted after it.
+- `max_restarts_window_circuit_breaker` — fourth crash within
+  the window trips the breaker and stops further restarts.
+- `mesh_disconnect_propagates_to_registered_supervisor` — covers
+  the `ClusterMesh::notify_node_disconnect` → supervisor hook
+  wiring path.
+
 `crates/mty-runtime/tests/cluster_routing.rs` (v0.19, 8 tests):
 
 - `runtime_with_cluster_routes_remote_send` — A → B Send through the
@@ -390,8 +543,10 @@ Self-signed certs minted per-test via `rcgen`; no on-disk fixtures.
 
 | Item | Slice |
 | --- | --- |
-| Mutual TLS (client certs) | v0.20 |
-| Per-frame ACK / retransmit | v0.20+ |
-| Cluster-aware supervisors (Tier 4.2) | v0.20+ |
-| Lossless live migration (Tier 4.3) | v0.20+ |
+| Mutual TLS (client certs) | **shipped v0.20** |
+| Cluster-aware supervisor (Tier 4.2) | **shipped v0.20** |
+| Cross-node fail-over (Tier 4.2.1) | v0.21 |
+| Per-frame ACK / retransmit | v0.21+ |
+| Lossless live migration (Tier 4.3) | v0.21+ |
+| SPIFFE / SAN-URI identity | v0.21+ (post-CN-binding) |
 | Discovery / gossip | post-v0.20 |
