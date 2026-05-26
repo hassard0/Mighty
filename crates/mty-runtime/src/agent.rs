@@ -23,6 +23,7 @@ use crate::budget::BudgetTracker;
 use crate::cancel::{CancelReason, CancellationToken};
 use crate::error::{RuntimeError, RuntimeResult};
 use crate::mailbox::{Mailbox, MessageFrame};
+use crate::replay::with_recorder;
 use crate::telemetry::{TelemetryEvent, TelemetrySink};
 use dashmap::DashMap;
 use mty_ir::interp::host::Host;
@@ -148,12 +149,26 @@ pub fn run_one_turn_with_shared_reply(
         host,
     );
 
-    desc.budget.record_cpu(started.elapsed());
+    let elapsed = started.elapsed();
+    desc.budget.record_cpu(elapsed);
     telemetry.emit(&TelemetryEvent::TurnEnd {
         agent: desc.name.clone(),
         msg: proto_msg.clone(),
-        duration_us: started.elapsed().as_micros(),
+        duration_us: elapsed.as_micros(),
     });
+    // v0.18 replay: record the MessageHandled event here — before
+    // the reply channel fires — so an `ask()` caller can't observe
+    // the reply before the trace contains the matching handled
+    // event. (We do this regardless of trap vs success vs budget so
+    // every dispatched message has a paired handled record.)
+    {
+        let aid = desc.id.0;
+        let proto = proto_msg.as_str();
+        let elapsed_us = elapsed.as_micros() as u64;
+        with_recorder(|r| {
+            r.record_message_handled(aid, proto, elapsed_us);
+        });
+    }
 
     match rr {
         mty_ir::interp::run::RunResult::Ok { .. } => {

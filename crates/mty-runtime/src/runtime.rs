@@ -33,6 +33,7 @@ use crate::error::{RuntimeError, RuntimeResult};
 use crate::host_std::StdHost;
 use crate::introspect::{AgentIntrospectState, IntrospectMap};
 use crate::mailbox::{Mailbox, MessageFrame, SendPolicy, SmallPayload};
+use crate::replay::{install_from_env, with_recorder, Recorder};
 use crate::scheduler::{Affinity, LoadMonitor, Scheduler};
 use crate::slab_pool::DEFAULT_POOL_SIZE;
 use crate::supervisor::SupervisorRegistry;
@@ -121,6 +122,12 @@ impl RuntimeBuilder {
             Scheduler::multi_worker(self.workers)
         };
         let scheduler = Arc::new(scheduler);
+        // v0.18: opt-in deterministic-replay recording. If
+        // `MTY_RECORD_TRACE=<path>` is set, install a process-wide
+        // `Recorder`; otherwise the with_recorder() hooks are no-ops.
+        // We hand back the `Arc` so `Runtime::shutdown` can flush.
+        let runtime_seed = self.deterministic_seed.unwrap_or(0);
+        let recorder = install_from_env(runtime_seed, scheduler.worker_count() as u32);
         // Spin up the load monitor unless we're in deterministic mode.
         let monitor = if scheduler.deterministic || scheduler.worker_count() < 2 {
             None
@@ -156,6 +163,7 @@ impl RuntimeBuilder {
             monitor_thread: Mutex::new(None),
             monitor_stop: Arc::new(AtomicBool::new(false)),
             control_socket: Mutex::new(control_socket),
+            recorder,
         }
     }
 }
@@ -184,6 +192,10 @@ pub struct Runtime {
     /// v0.16: optional control-socket listener. `None` when the env
     /// var was unset or bind failed. Aborted on shutdown.
     control_socket: Mutex<Option<ControlSocketHandle>>,
+    /// v0.18: optional deterministic-replay recorder, installed when
+    /// `MTY_RECORD_TRACE=<path>` is set in the environment. Flushed
+    /// to disk on `Runtime::shutdown` and on `Drop`.
+    pub(crate) recorder: Option<Arc<Recorder>>,
 }
 
 impl std::fmt::Debug for Runtime {
@@ -283,6 +295,14 @@ impl Runtime {
         });
         // v0.16 OTel agent span — RAII guard ends when this fn returns.
         let _otel = crate::telemetry::span_spawn(name);
+        // v0.18 replay: record the spawn before the agent loop starts
+        // so any subsequent MessageHandled/Exit events have a matching
+        // Spawn earlier in the stream (self-consistency requirement).
+        {
+            let name_for_trace = name.to_string();
+            let aid = id.0;
+            with_recorder(|r| r.record_spawn(aid, &name_for_trace, None));
+        }
         let task = spawn_agent_loop(self, desc.clone(), worker);
         self.tasks.lock().push(task);
         Ok(AgentHandle {
@@ -305,6 +325,15 @@ impl Runtime {
         });
         // v0.16 OTel agent span — fire-and-forget, no guard.
         crate::telemetry::span_send(msg);
+        // v0.18 replay: capture the message-send. Sender is the
+        // synthetic "extern" id (0) — this matches the v0.17 wire
+        // contract where `0` is the well-known external caller.
+        {
+            let to_id = target.id.0;
+            let msg_owned = msg.to_string();
+            let payload = encode_payload_for_trace(&args);
+            with_recorder(|r| r.record_message_sent(0, to_id, &msg_owned, payload));
+        }
         let frame = MessageFrame::fire_and_forget(msg, SmallPayload::inline(args));
         target.mailbox.send(frame).await
     }
@@ -326,6 +355,15 @@ impl Runtime {
         // synchronous-closure shape via a manual RAII guard because
         // span_ask's closure form would need an async-friendly wrapper.
         let _otel = crate::telemetry::span_handler(&target.name, msg);
+        // v0.18 replay: capture the ask as a MessageSent event from
+        // the synthetic external sender (0). The MessageHandled event
+        // is recorded by the agent loop when it dispatches.
+        {
+            let to_id = target.id.0;
+            let msg_owned = msg.to_string();
+            let payload = encode_payload_for_trace(&args);
+            with_recorder(|r| r.record_message_sent(0, to_id, &msg_owned, payload));
+        }
         let (frame, rx) = MessageFrame::ask(msg, SmallPayload::inline(args), deadline);
         target.mailbox.send(frame).await?;
         let reply = with_deadline(deadline, rx).await?;
@@ -362,8 +400,29 @@ impl Runtime {
         }
         self.telemetry.emit(&TelemetryEvent::Shutdown);
         self.telemetry.flush();
+        // v0.18 replay: flush the recorder to disk + uninstall the
+        // process-wide handle so subsequent Runtime::new calls start
+        // fresh. Flush failures are logged but not fatal.
+        if let Some(rec) = self.recorder.as_ref() {
+            if let Err(e) = rec.flush_to_disk() {
+                eprintln!("mty-runtime: replay trace flush failed: {e}");
+            }
+            let _ = crate::replay::uninstall();
+        }
         // Scheduler `Drop` joins worker threads.
         RunOutcome::Ok
+    }
+}
+
+impl Drop for Runtime {
+    fn drop(&mut self) {
+        // v0.18 replay: if the runtime was dropped without an explicit
+        // `shutdown().await`, still flush the recorder. Best-effort —
+        // we can't do anything about errors during a drop.
+        if let Some(rec) = self.recorder.as_ref() {
+            let _ = rec.flush_to_disk();
+            let _ = crate::replay::uninstall();
+        }
     }
 }
 
@@ -392,9 +451,11 @@ fn spawn_agent_loop(rt: &Runtime, desc: Arc<AgentDescriptor>, worker: usize) -> 
     let handle = rt.scheduler.handle_for(worker);
     let capture_bodies = crate::introspect::capture_bodies_enabled();
     handle.spawn(async move {
-        let host: Arc<Mutex<Box<dyn Host + Send>>> =
-            Arc::new(Mutex::new(Box::new(StdHost::new(desc.budget.clone()))));
+        let host: Arc<Mutex<Box<dyn Host + Send>>> = Arc::new(Mutex::new(Box::new(
+            StdHost::new(desc.budget.clone()).with_agent_id(desc.id.0),
+        )));
         let intr = introspect_map.get(desc.id.0);
+        let mut exit_reason: Option<String> = None;
         while let Some(frame) = rx.recv().await {
             // v0.16 introspection: mark handler start (and optionally
             // capture the proto-msg body in the ring buffer).
@@ -410,6 +471,11 @@ fn spawn_agent_loop(rt: &Runtime, desc: Arc<AgentDescriptor>, worker: usize) -> 
             // shutdown token. If shutdown fires, every per-turn token
             // is automatically cancelled.
             let per_turn = shutdown.child();
+            // v0.18 replay: MessageHandled events are recorded inside
+            // `run_one_turn_with_shared_reply` (before the reply is
+            // sent on the oneshot channel) so that an `ask()` caller
+            // never observes its reply before the trace has the
+            // matching handled record. See agent.rs.
             let (res, outcome) = run_one_turn_async(
                 prog.clone(),
                 desc.clone(),
@@ -434,6 +500,16 @@ fn spawn_agent_loop(rt: &Runtime, desc: Arc<AgentDescriptor>, worker: usize) -> 
                     });
                     // v0.16 OTel: record on the active handler span if any.
                     crate::telemetry::record_budget_exhausted(e.diag_code());
+                    // v0.18 replay: budget / trap exhaustion is the
+                    // canonical "agent died" signal — capture both
+                    // BudgetExhausted (when relevant) + Exit.
+                    {
+                        let aid = desc.id.0;
+                        let code = e.diag_code();
+                        let kind = format!("trap:{}", code);
+                        with_recorder(|r| r.record_budget_exhausted(aid, code));
+                        exit_reason = Some(kind);
+                    }
                     registry.remove(desc.id);
                     introspect_map.remove(desc.id.0);
                     break;
@@ -447,17 +523,50 @@ fn spawn_agent_loop(rt: &Runtime, desc: Arc<AgentDescriptor>, worker: usize) -> 
                     });
                     // v0.16 OTel.
                     crate::telemetry::record_budget_exhausted(reason.as_str());
+                    // v0.18 replay.
+                    {
+                        let aid = desc.id.0;
+                        let reason_str = reason.as_str().to_string();
+                        with_recorder(|r| r.record_budget_exhausted(aid, &reason_str));
+                        exit_reason = Some(reason_str);
+                    }
                     registry.remove(desc.id);
                     introspect_map.remove(desc.id.0);
                     break;
                 }
             }
             if shutdown.is_cancelled() {
+                exit_reason.get_or_insert_with(|| "shutdown".into());
                 break;
             }
         }
         // v0.16: clean up introspect state on normal loop exit too
         // (e.g. mailbox closed).
         introspect_map.remove(desc.id.0);
+        // v0.18 replay: record the Exit event after the loop has
+        // drained. "normal" covers both "mailbox closed cleanly" and
+        // "agent ran to completion".
+        {
+            let aid = desc.id.0;
+            let reason = exit_reason.unwrap_or_else(|| "normal".into());
+            with_recorder(|r| r.record_exit(aid, &reason));
+        }
     })
+}
+
+/// v0.18 replay helper: serialize a payload slice to opaque bytes for
+/// the trace event. The interpreter `Value` doesn't derive Serialize
+/// (it carries Host-side references), so we render via `Debug` — the
+/// shape is opaque-but-human-readable, which is enough for v0.18
+/// trace inspection. v0.19 stretch: structured payload encoding for
+/// byte-identical replay. Best-effort: failures fall back to empty.
+fn encode_payload_for_trace(args: &[Value]) -> Vec<u8> {
+    if !crate::replay::recording_enabled() {
+        // Cheap fast-path: skip the format walk when no recorder is
+        // attached. Recording call-sites already gate on
+        // `with_recorder`, but encoding the payload happens *before*
+        // the call, so we double-check here too.
+        return Vec::new();
+    }
+    format!("{:?}", args).into_bytes()
 }

@@ -1,9 +1,20 @@
 //! Budget + sandbox enforcement (spec §16.2).
+//!
+//! ## v0.18 replay wiring
+//!
+//! `BudgetTracker::trip` is the canonical "budget exhausted" entry
+//! point for the replay recorder. Internal `check_*` calls return a
+//! `Result` so the caller decides how to surface the breach; `trip`
+//! is the cross-cut helper the agent loop calls when it has both the
+//! breach + the owning agent id, and it threads the event into the
+//! optional process-wide recorder via `with_recorder`. Zero overhead
+//! when recording is disabled.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use crate::error::RuntimeError;
+use crate::replay::with_recorder;
 
 #[derive(Debug, Clone, Default)]
 pub struct Budget {
@@ -146,6 +157,37 @@ impl BudgetTracker {
 
     pub fn check_write_path(&self, path: &str) -> Result<(), BudgetBreach> {
         check_path(path, self.budget.write_paths.as_deref())
+    }
+
+    /// v0.18 replay: record an explicit budget exhaustion event for
+    /// `agent_id`. The caller already has the breach + the agent id
+    /// in scope (usually the agent dispatch loop) — this helper just
+    /// forwards into the process-wide recorder.
+    ///
+    /// No-op when no recorder is installed. The returned `RuntimeError`
+    /// is what the caller surfaces to user code, so the agent loop
+    /// can keep its existing error-handling shape intact.
+    pub fn trip(&self, agent_id: u64, breach: BudgetBreach) -> RuntimeError {
+        let reason = breach.trace_reason();
+        with_recorder(|r| r.record_budget_exhausted(agent_id, reason));
+        breach.into_runtime_error()
+    }
+}
+
+impl BudgetBreach {
+    /// v0.18 replay: short, stable label for the trace event. Keeps
+    /// the wire output diffable across runs (no Duration formatting,
+    /// no per-call byte counts in the label itself).
+    pub fn trace_reason(&self) -> &'static str {
+        match self {
+            BudgetBreach::Cpu(_) => "cpu",
+            BudgetBreach::Wall(_) => "wall",
+            BudgetBreach::Mem(_) => "mem",
+            BudgetBreach::Mailbox(_) => "mailbox",
+            BudgetBreach::Spawned(_) => "spawned",
+            BudgetBreach::Host(_) => "host",
+            BudgetBreach::Path(_) => "path",
+        }
     }
 }
 

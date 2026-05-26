@@ -30,8 +30,8 @@ pub mod recorder;
 pub mod wire;
 
 pub use recorder::{
-    decode, encode, global_recorder, install, install_from_env, uninstall, Recorder, RecorderError,
-    TraceCodec, RECORD_ENV,
+    decode, encode, global_recorder, install, install_from_env, recording_enabled, uninstall,
+    with_recorder, Recorder, RecorderError, TraceCodec, RECORD_ENV,
 };
 pub use wire::{TraceEvent, TraceFile, TraceSummary, TRACE_MAGIC, TRACE_WIRE_VERSION};
 

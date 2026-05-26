@@ -281,6 +281,31 @@ pub fn global_recorder() -> Option<Arc<Recorder>> {
     GLOBAL.read().clone()
 }
 
+/// Fire-and-forget hook for runtime instrumentation sites: invoke `f`
+/// with the process-wide recorder if one is installed, otherwise no-op.
+///
+/// This is the v0.18 hot-path entry point. The read-lock is taken
+/// briefly to grab the `Arc`, then released before `f` runs — so `f`
+/// may freely call back into other recorder helpers without deadlock.
+///
+/// Zero-overhead when disabled: a single `RwLock::read` + `Option::is_none`
+/// check; the `Arc` clone only happens when recording is active.
+#[inline]
+pub fn with_recorder<F: FnOnce(&Recorder)>(f: F) {
+    if let Some(rec) = global_recorder() {
+        f(&rec);
+    }
+}
+
+/// `true` if a process-wide recorder is currently installed. Cheap;
+/// useful for fast-pathing instrumentation sites that need to compute
+/// expensive arguments (e.g. cloning a payload) before calling
+/// `with_recorder`.
+#[inline]
+pub fn recording_enabled() -> bool {
+    GLOBAL.read().is_some()
+}
+
 /// Convenience: read `MTY_RECORD_TRACE` and, if set to a non-empty
 /// path, install a [`Recorder`] writing to that path. Returns the
 /// installed handle so the caller (typically the CLI / runtime
@@ -303,6 +328,14 @@ fn now_unix_ms() -> u64 {
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicU64;
+
+    // Tests that touch the process-wide GLOBAL recorder must take this
+    // lock to avoid racing with each other. Tests that only build
+    // local recorders don't need it.
+    fn global_lock() -> &'static parking_lot::Mutex<()> {
+        static M: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+        &M
+    }
 
     // Tests use a unique env-var-name-per-test pattern via per-test
     // tempdirs to avoid the global recorder state leaking across
@@ -387,7 +420,42 @@ mod tests {
     }
 
     #[test]
+    fn with_recorder_is_noop_when_uninstalled() {
+        let _g = global_lock().lock();
+        // Ensure global is clear (other tests may have installed).
+        let prev = uninstall();
+        let mut called = false;
+        with_recorder(|_| called = true);
+        assert!(!called);
+        assert!(!recording_enabled());
+        // Restore (defensive — should be empty anyway).
+        if let Some(r) = prev {
+            install(r);
+        }
+    }
+
+    #[test]
+    fn with_recorder_runs_when_installed() {
+        let _g = global_lock().lock();
+        let prev = uninstall();
+        let r = Arc::new(Recorder::new(tmp_path("with"), 0, 1));
+        install(r.clone());
+        assert!(recording_enabled());
+        let mut seen = 0;
+        with_recorder(|rec| {
+            rec.record_spawn(99, "Hot", None);
+            seen = rec.len();
+        });
+        assert_eq!(seen, 1);
+        let _ = uninstall();
+        if let Some(r) = prev {
+            install(r);
+        }
+    }
+
+    #[test]
     fn install_uninstall_cycle() {
+        let _g = global_lock().lock();
         // Don't depend on env var here — we install directly.
         let prev = uninstall();
         assert!(prev.is_none() || prev.is_some()); // no precondition

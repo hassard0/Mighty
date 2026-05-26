@@ -29,7 +29,9 @@ pub mod mailbox;
 #[cfg(feature = "otlp")]
 pub mod otlp;
 // v0.17 Tier 1.4 — deterministic replay (record + step a binary trace).
-// See `replay/mod.rs` for the surface; CLI: `mty replay <trace>`.
+// v0.18: the recorder is wired into the Runtime hot path; opt-in via
+// `MTY_RECORD_TRACE=<path>`. See `replay/mod.rs` for the surface;
+// CLI: `mty replay <trace>`.
 pub mod replay;
 pub mod runtime;
 pub mod scheduler;
@@ -62,6 +64,13 @@ pub use scheduler::{Affinity, LoadMonitor, Scheduler, WorkerStatsSnapshot};
 pub use slab_pool::{SlabPool, DEFAULT_INLINE_BYTES, DEFAULT_POOL_SIZE};
 pub use supervisor::{ChildFailure, Strategy};
 pub use telemetry::{TelemetryEvent, TelemetrySink};
+
+// v0.18 Tier 1.4 — process-wide recorder accessors for the hot path.
+// `global_recorder` returns the installed handle (if any) so callers
+// can opt out of the `with_recorder` callback shape when they need to
+// hold the `Arc` (e.g. across an async await point). `with_recorder`
+// + `recording_enabled` are the standard fire-and-forget hooks.
+pub use replay::{global_recorder, recording_enabled, with_recorder};
 
 // v0.16 OpenTelemetry agent-span layer (roadmap Tier 1.2 / 1.3).
 // Additive — the slice-7 `TelemetryEvent` / `TelemetrySink` path keeps
