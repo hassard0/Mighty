@@ -1,0 +1,143 @@
+// selfhost/codegen/method_call.mty
+//
+// Self-hosted MethodCall lowering for the Wasm core-module emitter — v0.16.
+//
+// Lowers MtyIR `Rvalue::MethodCall { receiver, method, args }` into a
+// Wasm `call` sequence. Mirrors the SUBSET of `crates/mty-codegen-wasm/
+// src/emit.rs`'s method-call lowering that the trusted Rust pipeline
+// runs through `monomorphize::resolve_method`.
+//
+// ## v0.15 baseline (what we replace)
+//
+// Pre-v0.16, MethodCall fell through `compile_unsupported_rvalue` →
+// `unreachable`. The validator accepted this (Wasm validates
+// `unreachable` as stack-polymorphic) but the emitted module did no
+// useful work for any program that called a method — and most
+// importantly, the `__mty_iter_next` MethodCall in the for-loop iter
+// protocol never executed iteration logic at the Wasm level.
+//
+// ## v0.16 lowering shape
+//
+// For `recv.method(arg1, arg2, ...)`:
+//
+//   local.get $recv          ;; push receiver
+//   local.get $arg1          ;; push arg 1
+//   local.get $arg2          ;; push arg 2
+//   ...
+//   call $method_idx         ;; resolved via the host bridge
+//   local.set $dest          ;; store result (or drop if dest is sentinel)
+//
+// ## Method resolution
+//
+// Full vtable / trait-dispatch resolution requires the typed package
+// (typeck output), which the selfhost emitter doesn't yet consume
+// directly (v0.13's bridge contract only exposes IR shape, not types).
+// v0.16 therefore delegates resolution to the host through:
+//
+//   std.io.ir_method_resolve(method: Str) -> USize
+//
+// The host returns:
+//   - the wasm fn index for a monomorphizable receiver (i.e. the Rust
+//     pipeline has already resolved which impl is called)
+//   - sentinel_none() if the method is unknown or routes through a
+//     trait/dyn dispatch the Rust pipeline currently expands at IR
+//     level via a fallback fn body
+//
+// On sentinel, we degrade gracefully: drop the receiver + arg values
+// and push a default i32 0 so the stack stays coherent and `local.set
+// $dest` still has something to store. This keeps the emitted module
+// validatable for shapes the host can't (yet) resolve — the same
+// graceful-degradation philosophy v0.13 used for unmodelled rvalues.
+//
+// ## Custom-iter integration
+//
+// The selfhost-IR layer (`selfhost/ir/lower.mty`) v0.16 desugars
+// non-range `for` loops into the iter-protocol pattern documented in
+// `selfhost/codegen/iter.mty`:
+//
+//   loop {
+//     match iter.next() {
+//       Some(x) => body,
+//       None => break,
+//     }
+//   }
+//
+// `iter.next()` lowers as `Rvalue::MethodCall { receiver: iter, method:
+// "next", args: [] }` — which now produces a real `call` sequence
+// (validating in the Wasm output) instead of `unreachable`.
+
+package selfhost_codegen
+
+// =====================================================================
+// Sentinels (mirror selfhost/codegen/wasm.mty)
+// =====================================================================
+
+fn method_call_sentinel_none() -> USize { 4294967295 }
+fn method_call_is_none(id: USize) -> Bool { id == method_call_sentinel_none() }
+
+// =====================================================================
+// Bridge contract — method resolution (v0.16 additions)
+// =====================================================================
+//
+// Per-MethodCall rvalue:
+//   std.io.ir_block_stmt_rvalue_method_name(fid, bid, j) -> Str
+//   std.io.ir_block_stmt_rvalue_method_receiver_local(fid, bid, j) -> USize
+//
+// (args reuse the existing `rvalue_call_arg_local` / `rvalue_call_arg_count`
+//  slots — same vocabulary as Call.)
+//
+// Method resolution:
+//   std.io.ir_method_resolve(method: Str) -> USize
+//     - Returns the wasm fn index (in IR-fn-id space; the emitter adds
+//       +1 to skip the log import)
+//     - Returns sentinel_none() if unresolvable
+
+// =====================================================================
+// Per-MethodCall lowering
+// =====================================================================
+
+/// Emit the call sequence for `recv.method(args...)`. The dest is the
+/// local that receives the method's return value; pass
+/// `method_call_sentinel_none()` to drop the result instead.
+pub fn emit_method_call(recv_local: USize, method_name: Str, dest: USize, na: USize, arg_lookup_fid: USize, arg_lookup_bid: USize, arg_lookup_j: USize) -> Unit {
+  // Resolve the method via the host bridge.
+  let resolved = std.io.ir_method_resolve(method_name)
+  if method_call_is_none(resolved) == true {
+    // Graceful degradation: drop receiver value (already implicit since
+    // we never pushed it) + emit a default i32 0 so the dest local.set
+    // has something to consume.
+    let _ = recv_local
+    let _ = na
+    let _ = arg_lookup_fid
+    let _ = arg_lookup_bid
+    let _ = arg_lookup_j
+    std.io.wasm_emit_i32_const(0)
+    if dest == method_call_sentinel_none() {
+      std.io.wasm_emit_drop()
+    } else {
+      std.io.wasm_emit_local_set(dest)
+    }
+    return
+  }
+  // Push receiver first.
+  std.io.wasm_emit_local_get(recv_local)
+  // Then push each arg in order. (The arg locals are looked up via the
+  // same call_arg_local bridge slot Call uses.)
+  let mut k: USize = 0
+  loop {
+    if k >= na { break }
+    let a = std.io.ir_block_stmt_rvalue_call_arg_local(arg_lookup_fid, arg_lookup_bid, arg_lookup_j, k)
+    std.io.wasm_emit_local_get(a)
+    k = k + 1
+  }
+  // Resolved is in IR-fn-id space; the wasm fn-idx adds +1 for the log
+  // import slot — matching the convention in compile_call_rvalue.
+  let callee_widx = resolved + 1
+  std.io.wasm_emit_call(callee_widx)
+  if dest == method_call_sentinel_none() {
+    std.io.wasm_emit_drop()
+  } else {
+    std.io.wasm_emit_local_set(dest)
+  }
+}
+

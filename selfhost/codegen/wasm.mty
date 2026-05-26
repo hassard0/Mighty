@@ -27,7 +27,7 @@
 //     now lowers to the proper `i32.load offset=…` from the matched
 //     value's payload.
 //
-// ## v0.14 status: SHIPPED-SUBSET
+// ## v0.16 status: SHIPPED-SUBSET (extends v0.14/v0.15)
 //
 // We ship the productions exercised by examples 01-03 + a pattern-
 // match fixture + a string-const fixture:
@@ -52,18 +52,27 @@
 //   - ADT match (SwitchVariant) for up to 4 variants
 //   - variant-field projection (payload binding) via i32.load
 //
-// Deferred to v0.15+ (documented in SELFHOST_CODEGEN_V0_14_NOTES.md):
-//   - tuple / array values (need composite layout — out of v0.14 scope)
-//   - method calls (need vtable / trait-resolution decisions)
-//   - SwitchInt with multi-arm i32 discriminants (still emits
-//     unreachable)
-//   - for loops (the iter-protocol desugar is HIR-level; not modelled)
+// v0.15 closed: variant-call lowering, SwitchInt cascade, for-range
+// desugar at the selfhost-IR layer.
+//
+// v0.16 closes:
+//   - MethodCall lowering (real call sequence via host-bridge resolution;
+//     graceful degradation on unresolvable methods). Closes the
+//     `__mty_iter_next` `unreachable` gap from v0.15.
+//   - Custom-iter for-loop desugar at the selfhost-IR layer: non-range
+//     iterators now expand into the loop-match-Some/None pattern shape
+//     described in `selfhost/codegen/iter.mty`.
+//
+// Deferred to v0.17+:
+//   - tuple / array values (need composite layout)
+//   - trait / dyn dispatch (currently methods resolve to a single impl)
 //   - agent / send / ask / spawn / arena / capability lowering
 //   - explicit Drop / StorageLive / StorageDead (Wasm has GC-like
 //     locals; we lean on Wasm's automatic scope-popping)
 //   - DOM imports + canonical-ABI strings (web target only)
 //   - Component Model wrapping (post-emit; happens above us in Rust)
 //   - free / arena drop for ADT instances (allocator never shrinks)
+//   - real LEB128 / canonical-ABI encoders in Mighty source
 //
 // ## Bootstrap technique
 //
@@ -163,6 +172,11 @@ fn is_none(id: USize) -> Bool { id == sentinel_none() }
 //   std.io.ir_block_term_switchint_arm_value(fid, bid, k) -> I64
 //   std.io.ir_block_term_switchint_arm_target(fid, bid, k) -> USize
 //   std.io.ir_block_term_switchint_default(fid, bid)     -> USize
+//
+// v0.16 — MethodCall queries (real iter-protocol dispatch):
+//   std.io.ir_block_stmt_rvalue_method_name(fid, bid, j) -> Str
+//   std.io.ir_block_stmt_rvalue_method_receiver_local(fid, bid, j) -> USize
+//   std.io.ir_method_resolve(method: Str) -> USize    sentinel_none() if unresolvable
 //
 // =====================================================================
 // Host bridge — Wasm sink (write side)
@@ -363,6 +377,9 @@ fn compile_assign_stmt(fid: USize, bid: USize, j: USize) -> Unit {
     "UnOp" => compile_unop_rvalue(fid, bid, j, dest)
     "Call" => compile_call_rvalue(fid, bid, j, dest)
     "AdtInit" => compile_adt_init_rvalue(fid, bid, j, dest)
+    // v0.16 — real MethodCall dispatch (previously fell through to
+    // `compile_unsupported_rvalue` → `unreachable`).
+    "MethodCall" => compile_method_call_rvalue(fid, bid, j, dest)
     _ => compile_unsupported_rvalue(dest)
   }
 }
@@ -509,6 +526,71 @@ fn compile_call_rvalue(fid: USize, bid: USize, j: USize, dest: USize) -> Unit {
   let callee_widx = callee + 1
   std.io.wasm_emit_call(callee_widx)
   // If the dest is the return-slot sentinel, drop the result instead.
+  if dest == sentinel_none() {
+    std.io.wasm_emit_drop()
+  } else {
+    std.io.wasm_emit_local_set(dest)
+  }
+}
+
+// =====================================================================
+// v0.16 — MethodCall lowering
+// =====================================================================
+//
+// Lowers `Rvalue::MethodCall { receiver, method, args }` to a real Wasm
+// call sequence:
+//
+//   local.get $recv         ;; push receiver
+//   local.get $arg1         ;; push arg 1
+//   local.get $arg2         ;; push arg 2
+//   ...
+//   call $method_idx        ;; resolved via the host bridge
+//   local.set $dest         ;; store result (or drop if dest is sentinel)
+//
+// Method resolution: the host bridge `ir_method_resolve(method_name)`
+// returns the wasm fn index (in IR-fn-id space, +1 for log import) or
+// `sentinel_none()` for unresolvable receivers (trait/dyn dispatch the
+// Rust pipeline didn't monomorphize). On sentinel we degrade gracefully:
+// drop the receiver/args and push i32.const 0 so the dest local.set has
+// something to store and the module stays validatable.
+//
+// See `selfhost/codegen/method_call.mty` for the standalone helper
+// shape; the runnable form lives here because the v0.12 driver still
+// compiles one `.mty` file at a time.
+
+fn compile_method_call_rvalue(fid: USize, bid: USize, j: USize, dest: USize) -> Unit {
+  let method_name = std.io.ir_block_stmt_rvalue_method_name(fid, bid, j)
+  let recv_local = std.io.ir_block_stmt_rvalue_method_receiver_local(fid, bid, j)
+  let na = std.io.ir_block_stmt_rvalue_call_arg_count(fid, bid, j)
+  let resolved = std.io.ir_method_resolve(method_name)
+  if is_none(resolved) == true {
+    // Unresolvable: emit a placeholder i32.const 0 so the dest local
+    // has something to receive. The receiver and arg locals are not
+    // pushed onto the operand stack, so no drops are needed. This
+    // matches the v0.15 compile_unsupported_rvalue contract but keeps
+    // forward progress via a real value (vs `unreachable`).
+    let _ = recv_local
+    let _ = na
+    std.io.wasm_emit_i32_const(0)
+    if dest == sentinel_none() {
+      std.io.wasm_emit_drop()
+    } else {
+      std.io.wasm_emit_local_set(dest)
+    }
+    return
+  }
+  // Resolved: real call sequence.
+  std.io.wasm_emit_local_get(recv_local)
+  let mut k: USize = 0
+  loop {
+    if k >= na { break }
+    let a = std.io.ir_block_stmt_rvalue_call_arg_local(fid, bid, j, k)
+    std.io.wasm_emit_local_get(a)
+    k = k + 1
+  }
+  // Resolved idx is in IR-fn-id space; +1 for the log import slot.
+  let callee_widx = resolved + 1
+  std.io.wasm_emit_call(callee_widx)
   if dest == sentinel_none() {
     std.io.wasm_emit_drop()
   } else {

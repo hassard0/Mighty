@@ -572,9 +572,20 @@ fn lower_for_expr(eid: USize) -> Unit {
   //   let i = lo
   //   while i < hi { let x = i; <body>; i = i + 1 }
   //
-  // The selfhost-IR event stream stays consistent with the Rust
-  // pipeline for the common case. Non-range iterators (slice, array,
-  // custom Iter) keep the v0.9 minimal shape and remain v0.16+.
+  // v0.16 — non-range custom-iter desugar via the iter-protocol shape:
+  //
+  //   let iter = <iter>
+  //   loop {
+  //     match iter.next() {
+  //       Some(x) => { <body>; continue }
+  //       None    => break
+  //     }
+  //   }
+  //
+  // This expansion uses MethodCall (for `iter.next()`) — which v0.16's
+  // selfhost-codegen MethodCall lowering now turns into a real call
+  // sequence (vs v0.15's `unreachable`). Pattern matching on Some|None
+  // is already covered by `Term::SwitchVariant` (v0.14).
   let iter = std.io.hir_expr_for_iter(eid)
   let iter_kind = std.io.hir_expr_kind(iter)
   if iter_kind == "Binary" {
@@ -592,18 +603,63 @@ fn lower_for_expr(eid: USize) -> Unit {
       return
     }
   }
-  // Non-range iterator: fall back to the v0.9 minimal shape.
+  // Non-range iterator: emit the v0.16 iter-protocol shape.
+  lower_for_iter_protocol(eid, iter)
+}
+
+/// v0.16 — desugar `for x in <iter> { body }` (non-range) into the
+/// equivalent iter-protocol loop:
+///
+///   let iter = <iter>
+///   loop {
+///     match iter.next() {
+///       Some(x) => { <body>; goto loop_header }
+///       None    => goto after
+///     }
+///   }
+///
+/// Event-stream shape:
+///   bb_init   stmts: [Assign(_iter, Use(<iter>))]   term: Goto(bb_loop)
+///   bb_loop   stmts: [Assign(_opt, MethodCall(_iter, "next", []))]
+///             term: SwitchVariant(_opt) { Some => bb_some, None => bb_none }
+///   bb_some   stmts: [Assign(_x, Use(_opt.VariantField(1, 0)))] + body
+///             term: Goto(bb_loop)
+///   bb_none   term: Goto(bb_after)
+///   bb_after  (caller continues lowering here)
+fn lower_for_iter_protocol(eid: USize, iter: USize) -> Unit {
+  // 1. bb_init: evaluate `iter` once. The selfhost-IR layer doesn't
+  //    track temp local ids (no first-class symbol table — the Rust
+  //    pipeline owns that). We emit the Assign + Use events and rely
+  //    on the snapshot's per-stmt slot to carry the rvalue shape; the
+  //    runnable host fills in the local ids when it materializes the
+  //    IR for the Wasm emitter.
   lower_expr(iter)
+  std.io.ir_emit_stmt("Assign")
+  std.io.ir_emit_rvalue("Use")
+  // Close bb_init with Goto(bb_loop).
   std.io.ir_emit_terminator("Goto")
   std.io.ir_emit_block_end()
+  // 2. bb_loop: loop header. Compute `_opt = _iter.next()` via
+  //    MethodCall, then SwitchVariant on the Option result.
   let _ = std.io.ir_emit_block_start()
-  std.io.ir_emit_terminator("If")
+  std.io.ir_emit_stmt("Assign")
+  std.io.ir_emit_rvalue("MethodCall")
+  std.io.ir_emit_terminator("SwitchVariant")
   std.io.ir_emit_block_end()
+  // 3. bb_some: bind x = _opt.VariantField(1, 0), lower body, goto loop.
   let _ = std.io.ir_emit_block_start()
+  std.io.ir_emit_stmt("Assign")
+  std.io.ir_emit_rvalue("Use")
   let body = std.io.hir_expr_for_body_block(eid)
   let _ = lower_block(body)
   std.io.ir_emit_terminator("Goto")
   std.io.ir_emit_block_end()
+  // 4. bb_none: empty arm, just goto bb_after.
+  let _ = std.io.ir_emit_block_start()
+  std.io.ir_emit_terminator("Goto")
+  std.io.ir_emit_block_end()
+  // 5. bb_after: open the post-loop join block; caller continues
+  //    lowering into this block.
   let _ = std.io.ir_emit_block_start()
 }
 

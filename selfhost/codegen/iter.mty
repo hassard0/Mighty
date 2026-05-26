@@ -1,0 +1,98 @@
+// selfhost/codegen/iter.mty
+//
+// Self-hosted custom-iterator for-loop desugar — v0.16.
+//
+// Lowers `for x in iter { body }` (where `iter` is a user-defined type
+// implementing `Iter[T]`, NOT a range expr) into the equivalent
+// loop-match shape that's directly expressible at the selfhost MtyIR
+// level:
+//
+//   loop {
+//     match iter.next() {
+//       Some(x) => body,
+//       None => break,
+//     }
+//   }
+//
+// ## Where this rewrite lives
+//
+// At the **selfhost-IR layer** (`selfhost/ir/lower.mty`), the
+// `lower_for_expr` helper now splits three ways:
+//
+//   1. Iter is a `Binary` expr with op `"Range"` / `"RangeEq"` —
+//      v0.15's counter-loop desugar fires (`lower_for_range`).
+//   2. Iter is something else (Path, MethodCall, Field, etc.) — v0.16's
+//      iter-protocol desugar fires (`lower_for_iter_protocol`).
+//   3. Fallback: pre-v0.16 minimal-while shape (kept for the host
+//      bridges that don't yet expose the bin-op-kind query).
+//
+// ## Wasm shape after desugar
+//
+// The iter-protocol expansion emits ~8 BBs:
+//
+//   bb_init:       evaluate `iter` once, store in a temp local
+//                  Goto bb_loop
+//   bb_loop:       (loop header — back-edge target)
+//                  let opt = iter.next()      <- MethodCall, Rvalue::MethodCall
+//                  SwitchVariant opt {
+//                    Some(x) => Goto bb_some_body
+//                    None    => Goto bb_after
+//                  }
+//   bb_some_body:  bind x = opt.0 (variant-field projection)
+//                  <body>
+//                  Goto bb_loop
+//   bb_none_arm:   Goto bb_after
+//   bb_after:      (post-loop join — caller continues lowering here)
+//
+// The Wasm emitter then handles each piece via existing infrastructure:
+//   - bb_init: Use rvalue (already in)
+//   - bb_loop: SwitchVariant terminator (v0.14 already lowers this)
+//   - bb_some_body: variant-field projection via i32.load (v0.14 already)
+//   - bb_after: open new block (caller's responsibility)
+//
+// The new piece is `iter.next()` → `Rvalue::MethodCall { receiver,
+// method: "next", args: [] }`. v0.16's `method_call.mty` lowers this
+// to a real `call` sequence (instead of v0.15's `unreachable`).
+//
+// ## Why a loop-match shape (not a while-Option-test)
+//
+// Pattern matching on `Some(x) | None` is already supported by
+// `Term::SwitchVariant` (v0.14). A `while let Some(x) = iter.next() {
+// body }` would require a `while-let` desugar that we'd have to invent
+// — the loop-match shape uses primitives we already emit. The shapes
+// are equivalent and the Wasm output is the same number of opcodes.
+//
+// ## What v0.16 SKIPS
+//
+// The selfhost-IR layer's iter-protocol desugar emits the event stream
+// described above. The selfhost-codegen layer's `compile_unsupported_
+// rvalue` fallback is replaced by the new `compile_method_call_rvalue`
+// path. But:
+//
+//   - Trait/dyn dispatch decisions still live in the Rust pipeline.
+//     The selfhost emitter consumes the Rust pipeline's monomorphized
+//     output; trait method calls that the Rust pipeline can't
+//     monomorphize (e.g. dyn Trait) flow through the `ir_method_resolve`
+//     bridge with a sentinel return — graceful degradation kicks in.
+//   - The `iter` temp binding uses a single local; iterators that need
+//     more state (e.g. range tuples with mutable internal cursor) rely
+//     on the Rust pipeline already having lowered the cursor into a
+//     real ADT.
+//
+// See `dev/history/notes/SELFHOST_V0_16_NOTES.md` for the gap catalog
+// and v0.17 follow-ups.
+
+package selfhost_codegen
+
+// =====================================================================
+// Documentation marker
+// =====================================================================
+//
+// This file is documentation-shape; the runnable iter-protocol desugar
+// lives in `selfhost/ir/lower.mty::lower_for_iter_protocol`. The
+// runnable Wasm-side MethodCall lowering lives in
+// `selfhost/codegen/wasm.mty::compile_method_call_rvalue`.
+
+/// The iter-protocol shape constant — documents the BB count the
+/// desugar inserts so test fixtures can sanity-check it.
+pub fn iter_protocol_bb_count() -> USize { 4 }

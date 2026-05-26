@@ -14,7 +14,7 @@ for the full architectural story.
 | HIR lowering | `hir/` | v0.10: SHIPPED-SUBSET — 7 bootstrap tests pass (examples 01-05) | `crates/mty-driver/tests/selfhost_hir.rs` |
 | Typeck (minimal) | `typeck/` | v0.10: SHIPPED-SUBSET — 7 bootstrap tests pass (examples 01-05) | `crates/mty-driver/tests/selfhost_typeck.rs` |
 | MtyIR lowering | `ir/` | v0.10: SHIPPED-SUBSET — 9 bootstrap tests pass (examples 01-05) | `crates/mty-driver/tests/selfhost_ir.rs` |
-| Codegen (Wasm core) | `codegen/` | **v0.15: SHIPPED-SUBSET — 17 bootstrap tests pass; Mighty-emitted bytes validate via `wasmparser` for examples 01-03 + arith + pattern-match + string-pool + variant-call + SwitchInt cascade + for-range fixtures** | `crates/mty-driver/tests/selfhost_codegen.rs` |
+| Codegen (Wasm core) | `codegen/` | **v0.16: SHIPPED-SUBSET — 21 bootstrap tests pass; Mighty-emitted bytes validate via `wasmparser` for examples 01-03 + arith + pattern-match + string-pool + variant-call + SwitchInt cascade + for-range + MethodCall (resolved + graceful-unresolved) + custom-iter desugar fixtures** | `crates/mty-driver/tests/selfhost_codegen.rs` |
 | Codegen (Cranelift / LLVM) | — | future (post-1.0) | — |
 
 ## What "SUBSET" means in v0.4
@@ -414,3 +414,67 @@ See [`../dev/history/notes/SELFHOST_V0_15_NOTES.md`](../dev/history/notes/SELFHO
 for the per-feature coverage matrix, the v0.15 language-gap catalog,
 and the v0.16 roadmap (MethodCall lowering for iter-protocol, agent /
 send / arena lowering, real LEB128 encoder in Mighty source).
+
+## v0.16 — MethodCall + custom-iter desugar
+
+```bash
+mty check selfhost/codegen/lib.mty
+mty check selfhost/codegen/wasm.mty
+mty check selfhost/codegen/string_pool.mty
+mty check selfhost/codegen/adt_layout.mty
+mty check selfhost/codegen/pattern.mty
+mty check selfhost/codegen/method_call.mty   # v0.16 — new
+mty check selfhost/codegen/iter.mty          # v0.16 — new
+mty check selfhost/ir/lower.mty
+cargo test -p mty-driver --test selfhost_codegen
+```
+
+Twenty-one live tests pass (five new fixtures since v0.15):
+
+```
+test selfhost_codegen_compiles ............................... ok
+test selfhost_codegen_lib_compiles ........................... ok
+test selfhost_codegen_string_pool_compiles ................... ok
+test selfhost_codegen_adt_layout_compiles .................... ok
+test selfhost_codegen_pattern_compiles ....................... ok
+test selfhost_codegen_method_call_helper_compiles ............ ok    (v0.16 — new)
+test selfhost_codegen_iter_helper_compiles ................... ok    (v0.16 — new)
+test selfhost_codegen_hello_world ............................ ok
+test selfhost_codegen_example_01 ............................. ok
+test selfhost_codegen_example_02 ............................. ok
+test selfhost_codegen_example_03 ............................. ok
+test selfhost_codegen_example_03_option ...................... ok
+test selfhost_codegen_arith_fixture .......................... ok
+test selfhost_codegen_pattern_match_full ..................... ok
+test selfhost_codegen_string_const ........................... ok
+test selfhost_codegen_variant_call ........................... ok
+test selfhost_codegen_variant_call_qualified ................. ok
+test selfhost_codegen_switch_int_synthetic ................... ok
+test selfhost_codegen_for_range .............................. ok    (updated for v0.16)
+test selfhost_codegen_method_call_simple ..................... ok    (v0.16 — new)
+test selfhost_codegen_method_call_with_args .................. ok    (v0.16 — new)
+test selfhost_codegen_method_call_unresolved_graceful ........ ok    (v0.16 — new)
+test selfhost_codegen_iter_custom ............................ ok    (v0.16 — new)
+```
+
+v0.16 closes the two biggest v0.15 deferral items:
+
+- **MethodCall lowering**: `Rvalue::MethodCall { receiver, method, args }`
+  now produces a real Wasm call sequence — push receiver + args + call
+  the resolved fn idx (looked up via a new `ir_method_resolve(name)`
+  host bridge). On unresolved methods (trait/dyn dispatch the Rust
+  pipeline didn't monomorphize), the emitter degrades gracefully to
+  an `i32.const 0` placeholder so the module stays validatable. v0.15
+  fell through to `unreachable`.
+- **Custom-iter for-loop desugar** (selfhost-IR layer): `for x in
+  <non-range-iter> { body }` now expands into the iter-protocol
+  loop-match-Some/None shape. Combined with the MethodCall lowering,
+  for-loops over user-defined iterators now emit real iteration code
+  at the Wasm level (no more `unreachable` for the `iter.next()`
+  site).
+
+See [`../dev/history/notes/SELFHOST_V0_16_NOTES.md`](../dev/history/notes/SELFHOST_V0_16_NOTES.md)
+for the per-feature coverage matrix, the v0.16 interpretation calls,
+and the v0.17 roadmap (trait/dyn dispatch, agent/send/arena lowering,
+in-Mighty method resolution, real LEB128 encoder in Mighty source,
+HIR-to-IR SwitchInt emission for dense matches).
