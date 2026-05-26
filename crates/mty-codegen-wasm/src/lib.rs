@@ -23,6 +23,7 @@
 //! current coverage matrix.
 
 pub mod artifact;
+pub mod cabi_realloc;
 pub mod component;
 pub mod emit;
 pub mod error;
@@ -32,6 +33,10 @@ pub mod target;
 pub mod wit;
 
 pub use artifact::WasmArtifact;
+pub use cabi_realloc::{
+    build_cabi_realloc_body, emit_size_class, CABI_REALLOC_HEAP_BASE, CABI_REALLOC_LARGE_THRESHOLD,
+    CABI_REALLOC_NUM_CLASSES, CABI_REALLOC_STATE_BASE,
+};
 pub use component::{is_component, wrap_as_component};
 pub use emit::{
     compile_program, compile_program_to_bytes, compile_program_to_bytes_with_preview,

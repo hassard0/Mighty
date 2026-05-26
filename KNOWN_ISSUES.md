@@ -18,21 +18,24 @@ fixed in this prep; the rest are P1 or below.
 
 ## P1 — should-fix before v1.0-RC
 
-### 1. `cabi_realloc` is a bump allocator with no `free`
+### 1. `cabi_realloc` is a bump allocator with no `free` (RESOLVED v0.18)
 
-- **Where**: `crates/mty-codegen-wasm/src/emit.rs::build_cabi_realloc_body`
-- **Symptom**: long-running components that repeatedly invoke
-  string-returning DOM imports (`dom.get-text`, `dom.query`) will
-  grow linear memory monotonically. The 16-page (1 MiB) initial
-  memory is enough for the v0.9 demos; pathological cases will need
-  `memory.grow`.
-- **Workaround**: nothing user-visible. The bump pointer wraps via
-  the legacy `RETURN_BUF` region for the cases the JS shim cares
-  about (see `dom-shim.js::writeStringToReturnArea`).
-- **Fix plan (v0.10)**: replace with a real free-list / `wee_alloc`-
-  style buddy allocator emitted as a small precompiled module
-  imported by the codegen, *or* generate `cabi_realloc` from a
-  vendored Rust source via `cargo-component` and link it in.
+- **Where**: `crates/mty-codegen-wasm/src/cabi_realloc.rs`
+  (extracted from `emit.rs::build_cabi_realloc_body` in v0.18).
+- **Status**: **RESOLVED**. The free-list allocator landed inline
+  in v0.10; v0.18 extracts it to its own module + adds focused
+  coverage tests (`tests/cabi_realloc.rs`, 8 tests; existing
+  `tests/cabi_realloc_real.rs` keeps its 9 tests).
+- **Implementation**: segregated free-list with 8 size classes
+  (8B → 1024B, powers of 2) + a "large" bump path for requests
+  > 1024B. State region at linear-memory `[32768, 32800)` holds
+  one i32 free-list head per class; the link in each free block is
+  the first 4 bytes (LIFO). Realloc copies `min(old_size, new)`
+  bytes byte-by-byte and pushes `old` onto its class's free list.
+- **Follow-ups (v0.19)**: see
+  `dev/history/notes/CABI_REALLOC_V0_18_NOTES.md` — per-component
+  allocator tuning, large-path coalescing, true in-place realloc
+  when the size class wouldn't change.
 
 ### 2. Package signing is a stub (no real OIDC / Rekor)
 

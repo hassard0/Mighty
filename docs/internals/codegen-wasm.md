@@ -229,7 +229,7 @@ wasmtime target/01_hello.wasm
 a v0.2 task. For now the user runs the emitted module under their
 own wasmtime/wasmer/JS host.)
 
-## `cabi_realloc` allocator (v0.10)
+## `cabi_realloc` allocator (v0.10, extracted v0.18)
 
 Every emitted module exports a `cabi_realloc(old, old_size, align,
 new) -> ptr` function with the canonical-ABI signature. The
@@ -239,8 +239,23 @@ any future string/list-returning import. Without the export
 `wit-component::ComponentEncoder::encode()` rejects the module.
 
 v0.9 shipped a bump-only allocator (`old_ptr` ignored, no
-deallocation). v0.10 replaces it with a **segregated free-list
+deallocation). v0.10 replaced it with a **segregated free-list
 allocator** that recycles freed blocks within their size class.
+v0.18 extracts the body builder + size-class helper into
+`crate::cabi_realloc` so the allocator has a stable review surface
+independent of the rest of the emitter (KNOWN_ISSUES #1 RESOLVED).
+The wasm bytes are byte-identical pre/post extraction — the
+emitter still calls `build_cabi_realloc_body()` once per module
+and splices the result into the code section.
+
+### Module split (v0.18)
+
+| File | Owns |
+|------|------|
+| `src/cabi_realloc.rs` | layout constants, body builder, `emit_size_class` helper, unit tests |
+| `src/emit.rs::Emitter::emit` | declares the function type, allocates the function slot, exports `cabi_realloc`, initialises the bump-pointer global |
+| `tests/cabi_realloc.rs` | v0.18-focused integration tests (8 tests) |
+| `tests/cabi_realloc_real.rs` | v0.10-focused integration tests (9 tests) — kept for historical regression coverage |
 
 ### Memory layout
 
@@ -359,7 +374,10 @@ See `CLEANUP_V0_10_NOTES.md` for the v0.10 decision matrix.
 
 ### Testing
 
-`crates/mty-codegen-wasm/tests/cabi_realloc_real.rs` exercises:
+Two integration suites exercise `cabi_realloc` end-to-end (compile
+SIR → wasm → instantiate under wasmtime → call the export):
+
+`crates/mty-codegen-wasm/tests/cabi_realloc_real.rs` (v0.10 — 9 tests):
 
 - fresh malloc returns aligned non-zero pointer
 - free + re-alloc same class reuses the block (LIFO order)
@@ -370,6 +388,25 @@ See `CLEANUP_V0_10_NOTES.md` for the v0.10 decision matrix.
 - realloc grow preserves the old bytes (memcpy correctness)
 - `realloc(p, _, _, 0)` returns 0 and pushes p onto its class's free list
 - static check that `STATE_BASE + 8*4 == HEAP_BASE`
+
+`crates/mty-codegen-wasm/tests/cabi_realloc.rs` (v0.18 — 8 tests):
+
+- 100 mixed-size allocs return pairwise-disjoint pointers
+- alloc + free + alloc returns the same pointer (LIFO recycle)
+- realloc 16 → 32 preserves the first 16 bytes
+- realloc 64 → 32 preserves the first 32 bytes + frees the old slot
+- 100 alloc/free cycles leave linear-memory page count unchanged
+- the first alloc lands exactly at `CABI_REALLOC_HEAP_BASE`
+  (bump-path proof)
+- module emission is deterministic byte-for-byte
+- state region at `[STATE_BASE, HEAP_BASE)` is zero-initialised
+
+Module-local unit tests in `crate::cabi_realloc::tests` (3 tests)
+cover the layout invariants:
+
+- `state_region_sized_for_class_heads` — STATE_BASE + N*4 == HEAP_BASE
+- `large_threshold_matches_top_class` — the largest size class equals `CABI_REALLOC_LARGE_THRESHOLD`
+- `build_body_smoke` — the body builder runs without panicking
 
 ## v0.5 dogfood — DOM lowering for `wasm32-web`
 
