@@ -35,6 +35,9 @@ mty-pkg = { path = "../mty-pkg" }
 # blocked v0.2 (see STDLIB_V0_2_NOTES.md).
 mty-stdlib = { path = "../mty-stdlib", default-features = false }
 mty-runtime = { path = "../mty-runtime" }
+# v0.16 `mty inspect` subcommand: JSON over the runtime control socket.
+serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

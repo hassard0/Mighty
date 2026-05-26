@@ -2384,6 +2384,8 @@ dependencies = [
  "mty-stdlib",
  "mty-syntax",
  "mty-types",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2604,6 +2606,8 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "parking_lot",
+ "serde",
+ "serde_json",
  "thiserror 1.0.69",
  "tokio",
  "tokio-util",

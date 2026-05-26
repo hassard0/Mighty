@@ -4,6 +4,7 @@ pub mod doc;
 pub mod dump;
 pub mod explain;
 pub mod fmt;
+pub mod inspect;
 pub mod lsp;
 pub mod new;
 pub mod pkg;

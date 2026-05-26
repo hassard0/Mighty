@@ -97,6 +97,24 @@ enum Cmd {
         #[arg(long, global = true)]
         manifest_dir: Option<std::path::PathBuf>,
     },
+    /// Connect to a running Mighty runtime's control socket and
+    /// print a snapshot of every live agent. Requires the runtime
+    /// to have been started with `MTY_RUNTIME_CONTROL_SOCK=<path>`.
+    /// See `docs/reference/cli/mty-inspect.md`.
+    Inspect {
+        /// Socket path (overrides `MTY_RUNTIME_CONTROL_SOCK`).
+        #[arg(long)]
+        sock: Option<String>,
+        /// Return a single agent's snapshot instead of the whole runtime.
+        #[arg(long)]
+        agent: Option<u64>,
+        /// Emit raw JSON instead of the pretty-printed table.
+        #[arg(long)]
+        json: bool,
+        /// Poll every N milliseconds until interrupted.
+        #[arg(long, value_name = "MS")]
+        watch: Option<u64>,
+    },
     /// Render package documentation extracted from `///` doc comments.
     ///
     /// With no flags, prints a Go-style summary of the package's public
@@ -197,6 +215,17 @@ fn main() {
             wasi,
             world,
         ),
+        Cmd::Inspect {
+            sock,
+            agent,
+            json,
+            watch,
+        } => cmd::inspect::run(cmd::inspect::InspectArgs {
+            sock,
+            agent,
+            json,
+            watch_ms: watch,
+        }),
         Cmd::Explain { code } => cmd::explain::run(&code),
         Cmd::Lsp => cmd::lsp::run(),
         Cmd::Pkg {

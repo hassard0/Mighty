@@ -66,6 +66,21 @@ impl BudgetTracker {
         &self.budget
     }
 
+    /// v0.16 introspection: read CPU nanoseconds consumed so far.
+    pub fn cpu_ns_used(&self) -> u64 {
+        self.cpu_ns.load(Ordering::Relaxed)
+    }
+
+    /// v0.16 introspection: read memory bytes consumed so far.
+    pub fn mem_used(&self) -> u64 {
+        self.mem.load(Ordering::Relaxed)
+    }
+
+    /// v0.16 introspection: wall-clock ms elapsed since the tracker was created.
+    pub fn elapsed_ms(&self) -> u64 {
+        self.start.elapsed().as_millis() as u64
+    }
+
     pub fn record_cpu(&self, d: Duration) {
         self.cpu_ns
             .fetch_add(d.as_nanos() as u64, Ordering::Relaxed);

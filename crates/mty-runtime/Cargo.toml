@@ -20,6 +20,9 @@ bumpalo.workspace = true
 libloading.workspace = true
 crossbeam-deque.workspace = true
 crossbeam-utils.workspace = true
+# v0.16 introspect: snapshot type + control-socket JSON I/O.
+serde.workspace = true
+serde_json.workspace = true
 opentelemetry = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }

@@ -28,8 +28,10 @@
 use crate::agent::{run_one_turn_async, AgentDescriptor, AgentHandle, AgentRegistry, TurnOutcome};
 use crate::budget::{Budget, BudgetTracker};
 use crate::cancel::{CancelReason, CancellationToken};
+use crate::control_socket::{spawn_control_socket, ControlContext, ControlSocketHandle};
 use crate::error::{RuntimeError, RuntimeResult};
 use crate::host_std::StdHost;
+use crate::introspect::{AgentIntrospectState, IntrospectMap};
 use crate::mailbox::{Mailbox, MessageFrame, SendPolicy, SmallPayload};
 use crate::scheduler::{Affinity, LoadMonitor, Scheduler};
 use crate::slab_pool::DEFAULT_POOL_SIZE;
@@ -125,10 +127,26 @@ impl RuntimeBuilder {
         } else {
             Some(Arc::new(LoadMonitor::new(scheduler.clone())))
         };
+        let registry = Arc::new(AgentRegistry::new());
+        let introspect = Arc::new(IntrospectMap::new());
+
+        // v0.16: optional control socket. Spawns onto the driver
+        // runtime if `MTY_RUNTIME_CONTROL_SOCK` is set. Failures are
+        // logged, never fatal.
+        let control_socket = {
+            let ctx = ControlContext {
+                registry: registry.clone(),
+                introspect: introspect.clone(),
+                worker_count: scheduler.worker_count(),
+            };
+            spawn_control_socket(ctx, &scheduler.rt.handle())
+        };
+
         Runtime {
             prog,
             scheduler,
-            registry: Arc::new(AgentRegistry::new()),
+            registry,
+            introspect,
             supervisors: Arc::new(SupervisorRegistry::new()),
             telemetry: Arc::new(self.telemetry),
             default_budget: self.default_budget,
@@ -137,6 +155,7 @@ impl RuntimeBuilder {
             monitor,
             monitor_thread: Mutex::new(None),
             monitor_stop: Arc::new(AtomicBool::new(false)),
+            control_socket: Mutex::new(control_socket),
         }
     }
 }
@@ -145,6 +164,10 @@ pub struct Runtime {
     pub prog: Arc<Program>,
     pub scheduler: Arc<Scheduler>,
     pub registry: Arc<AgentRegistry>,
+    /// v0.16: per-agent introspection state (mailbox high-water,
+    /// in-flight handler, last-N ring). Populated alongside the
+    /// agent descriptor on spawn and torn down on agent removal.
+    pub introspect: Arc<IntrospectMap>,
     pub supervisors: Arc<SupervisorRegistry>,
     pub telemetry: Arc<TelemetrySink>,
     pub default_budget: Budget,
@@ -158,6 +181,9 @@ pub struct Runtime {
     pub monitor: Option<Arc<LoadMonitor>>,
     monitor_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     monitor_stop: Arc<AtomicBool>,
+    /// v0.16: optional control-socket listener. `None` when the env
+    /// var was unset or bind failed. Aborted on shutdown.
+    control_socket: Mutex<Option<ControlSocketHandle>>,
 }
 
 impl std::fmt::Debug for Runtime {
@@ -245,6 +271,9 @@ impl Runtime {
             mailbox_depth: AtomicU64::new(0),
         });
         self.registry.insert(desc.clone());
+        // v0.16: introspect-state lives next to the descriptor.
+        self.introspect
+            .insert(id.0, Arc::new(AgentIntrospectState::default()));
         // Pick worker + register route.
         let worker = self.scheduler.assign_worker(affinity);
         self.scheduler.register_route(id.0, worker, affinity);
@@ -252,6 +281,8 @@ impl Runtime {
             name: name.into(),
             agent_id: id.0,
         });
+        // v0.16 OTel agent span — RAII guard ends when this fn returns.
+        let _otel = crate::telemetry::span_spawn(name);
         let task = spawn_agent_loop(self, desc.clone(), worker);
         self.tasks.lock().push(task);
         Ok(AgentHandle {
@@ -272,6 +303,8 @@ impl Runtime {
             to: target.name.clone(),
             msg: msg.into(),
         });
+        // v0.16 OTel agent span — fire-and-forget, no guard.
+        crate::telemetry::span_send(msg);
         let frame = MessageFrame::fire_and_forget(msg, SmallPayload::inline(args));
         target.mailbox.send(frame).await
     }
@@ -289,6 +322,10 @@ impl Runtime {
             msg: msg.into(),
             deadline_ms: deadline.map(|d| d.as_millis() as u64),
         });
+        // v0.16 OTel agent span — wraps the round-trip. We use the
+        // synchronous-closure shape via a manual RAII guard because
+        // span_ask's closure form would need an async-friendly wrapper.
+        let _otel = crate::telemetry::span_handler(&target.name, msg);
         let (frame, rx) = MessageFrame::ask(msg, SmallPayload::inline(args), deadline);
         target.mailbox.send(frame).await?;
         let reply = with_deadline(deadline, rx).await?;
@@ -313,6 +350,16 @@ impl Runtime {
         if let Some(t) = self.monitor_thread.lock().take() {
             let _ = t.join();
         }
+        // v0.16: abort the control socket listener if it was started,
+        // and clean up the socket file. Failure-to-remove is fine —
+        // a subsequent run will overwrite it.
+        if let Some(handle) = self.control_socket.lock().take() {
+            handle.task.abort();
+            #[cfg(unix)]
+            {
+                let _ = std::fs::remove_file(&handle.sock_path);
+            }
+        }
         self.telemetry.emit(&TelemetryEvent::Shutdown);
         self.telemetry.flush();
         // Scheduler `Drop` joins worker threads.
@@ -335,6 +382,7 @@ fn spawn_agent_loop(rt: &Runtime, desc: Arc<AgentDescriptor>, worker: usize) -> 
     let prog = rt.prog.clone();
     let telemetry = rt.telemetry.clone();
     let registry = rt.registry.clone();
+    let introspect_map = rt.introspect.clone();
     let shutdown = rt.shutdown_token.clone();
     let wall_budget = rt.default_budget.wall;
     let mut rx = desc
@@ -342,10 +390,22 @@ fn spawn_agent_loop(rt: &Runtime, desc: Arc<AgentDescriptor>, worker: usize) -> 
         .take_receiver()
         .expect("mailbox receiver already taken");
     let handle = rt.scheduler.handle_for(worker);
+    let capture_bodies = crate::introspect::capture_bodies_enabled();
     handle.spawn(async move {
         let host: Arc<Mutex<Box<dyn Host + Send>>> =
             Arc::new(Mutex::new(Box::new(StdHost::new(desc.budget.clone()))));
+        let intr = introspect_map.get(desc.id.0);
         while let Some(frame) = rx.recv().await {
+            // v0.16 introspection: mark handler start (and optionally
+            // capture the proto-msg body in the ring buffer).
+            if let Some(intr) = &intr {
+                let body = if capture_bodies {
+                    Some(frame.proto_msg.clone())
+                } else {
+                    None
+                };
+                intr.note_handler_start(&frame.proto_msg, body);
+            }
             // Per-turn cancellation token is a child of the runtime
             // shutdown token. If shutdown fires, every per-turn token
             // is automatically cancelled.
@@ -360,6 +420,9 @@ fn spawn_agent_loop(rt: &Runtime, desc: Arc<AgentDescriptor>, worker: usize) -> 
                 wall_budget,
             )
             .await;
+            if let Some(intr) = &intr {
+                intr.note_handler_end();
+            }
             match (res, outcome) {
                 (Ok(()), TurnOutcome::Completed) => {
                     // happy path
@@ -369,7 +432,10 @@ fn spawn_agent_loop(rt: &Runtime, desc: Arc<AgentDescriptor>, worker: usize) -> 
                         agent: desc.name.clone(),
                         kind: e.diag_code().into(),
                     });
+                    // v0.16 OTel: record on the active handler span if any.
+                    crate::telemetry::record_budget_exhausted(e.diag_code());
                     registry.remove(desc.id);
+                    introspect_map.remove(desc.id.0);
                     break;
                 }
                 (Ok(()), TurnOutcome::Cancelled(reason)) => {
@@ -379,7 +445,10 @@ fn spawn_agent_loop(rt: &Runtime, desc: Arc<AgentDescriptor>, worker: usize) -> 
                         agent: desc.name.clone(),
                         kind: reason.diag_code().into(),
                     });
+                    // v0.16 OTel.
+                    crate::telemetry::record_budget_exhausted(reason.as_str());
                     registry.remove(desc.id);
+                    introspect_map.remove(desc.id.0);
                     break;
                 }
             }
@@ -387,5 +456,8 @@ fn spawn_agent_loop(rt: &Runtime, desc: Arc<AgentDescriptor>, worker: usize) -> 
                 break;
             }
         }
+        // v0.16: clean up introspect state on normal loop exit too
+        // (e.g. mailbox closed).
+        introspect_map.remove(desc.id.0);
     })
 }
