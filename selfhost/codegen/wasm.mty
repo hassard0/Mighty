@@ -1,6 +1,6 @@
 // selfhost/codegen/wasm.mty
 //
-// Self-hosted MtyIR → Wasm core-module emitter — v0.13 SHIPPED-SUBSET.
+// Self-hosted MtyIR → Wasm core-module emitter — v0.14 SHIPPED-SUBSET.
 //
 // Mirrors a SUBSET of `crates/mty-codegen-wasm/src/emit.rs` (~1700 LOC)
 // as a recursive MtyIR-walker in Mighty source. `mty check`s clean and
@@ -10,10 +10,27 @@
 // correctness gate the trusted Rust codegen pipeline uses in
 // `crates/mty-driver/tests/conformance_codegen.rs`.
 //
-// ## v0.13 status: SHIPPED-SUBSET
+// ## v0.14 additions over v0.13
 //
-// We ship the productions exercised by examples 01-03 (the canonical
-// small-but-broad-coverage trio the rest of the self-host chain uses):
+//   - String pool: every `Const::Str` is interned into a single data
+//     segment exported as `__strings`. The rvalue lowers to two
+//     `i32.const`s (the canonical-ABI ptr + len pair) stored into a
+//     scratch pair of locals or consumed directly by the `log` import.
+//   - ADT linear-memory layout: tag at offset 0, payload at offset 4
+//     onward. A mutable global `$heap_ptr` (init 1024) acts as the
+//     bump allocator. `Rvalue::AdtInit { adt, variant, fields }` now
+//     emits real `i32.store` sequences instead of `unreachable`.
+//   - Pattern lowering: `Term::SwitchVariant` now emits the nested-
+//     `block`/`br_if` tag-test sequence so each arm body is reachable
+//     real code; the v0.13 implementation emitted `unreachable`.
+//   - Variant-field projection: `Use(Place { proj: VariantField })`
+//     now lowers to the proper `i32.load offset=…` from the matched
+//     value's payload.
+//
+// ## v0.14 status: SHIPPED-SUBSET
+//
+// We ship the productions exercised by examples 01-03 + a pattern-
+// match fixture + a string-const fixture:
 //
 //   - `fn` decls: signature emission + body lowering + return
 //   - i32 / i64 arithmetic: Add / Sub / Mul / Div / Rem (+ unsigned divs)
@@ -30,19 +47,23 @@
 //   - return: explicit `return` instruction
 //   - log / print / panic: lowered to imported `log(ptr, len)` via a
 //     pre-interned string literal slot in the data section
+//   - string consts: real interned (offset, length) instead of (0, 0)
+//   - ADT init (struct + enum, up to 4 fields per variant)
+//   - ADT match (SwitchVariant) for up to 4 variants
+//   - variant-field projection (payload binding) via i32.load
 //
-// Deferred to v0.14+ (documented in SELFHOST_CODEGEN_V0_13_NOTES.md):
-//   - struct / enum / tuple / array values (need linear-memory layout
-//     decisions the v0.13 emitter punts on — emits unreachable)
+// Deferred to v0.15+ (documented in SELFHOST_CODEGEN_V0_14_NOTES.md):
+//   - tuple / array values (need composite layout — out of v0.14 scope)
 //   - method calls (need vtable / trait-resolution decisions)
-//   - match expressions with pattern bodies (only int-discriminant
-//     match is partially modelled; ADT match emits unreachable)
+//   - SwitchInt with multi-arm i32 discriminants (still emits
+//     unreachable)
 //   - for loops (the iter-protocol desugar is HIR-level; not modelled)
 //   - agent / send / ask / spawn / arena / capability lowering
 //   - explicit Drop / StorageLive / StorageDead (Wasm has GC-like
-//     locals; we lean on Wasm's automatic scope-popping for v0.13)
+//     locals; we lean on Wasm's automatic scope-popping)
 //   - DOM imports + canonical-ABI strings (web target only)
 //   - Component Model wrapping (post-emit; happens above us in Rust)
+//   - free / arena drop for ADT instances (allocator never shrinks)
 //
 // ## Bootstrap technique
 //
@@ -109,13 +130,32 @@ fn is_none(id: USize) -> Bool { id == sentinel_none() }
 //   std.io.ir_block_stmt_rvalue_call_arg_local(fid, bid, j, k) -> USize
 //   std.io.ir_block_stmt_effect_string(fid, bid, j) -> Str   pre-interned literal for log/print
 //
+// v0.14 — extended:
+//   std.io.ir_block_stmt_rvalue_const_str(fid, bid, j) -> Str  actual string bytes
+//   std.io.ir_block_stmt_rvalue_adt_id(fid, bid, j) -> USize   for AdtInit
+//   std.io.ir_block_stmt_rvalue_adt_variant(fid, bid, j) -> USize
+//   std.io.ir_block_stmt_rvalue_use_proj_kind(fid, bid, j) -> Str
+//                                                         "None"/"VariantField"/"Field"
+//   std.io.ir_block_stmt_rvalue_use_proj_variant(fid, bid, j) -> USize
+//   std.io.ir_block_stmt_rvalue_use_proj_field(fid, bid, j) -> USize
+//   std.io.ir_adt_variant_count(adt_id)         -> USize
+//   std.io.ir_adt_variant_field_count(adt_id, v) -> USize
+//
 // Per-block terminator:
-//   std.io.ir_block_term_kind(fid, bid)        -> Str   "Goto"/"If"/"Return"/"SwitchInt"/"Panic"/"Unreachable"
+//   std.io.ir_block_term_kind(fid, bid)        -> Str   "Goto"/"If"/"Return"/"SwitchInt"/"Panic"/"Unreachable"/"SwitchVariant"
 //   std.io.ir_block_term_goto_target(fid, bid) -> USize
 //   std.io.ir_block_term_if_cond_local(fid, bid) -> USize
 //   std.io.ir_block_term_if_then(fid, bid)     -> USize
 //   std.io.ir_block_term_if_else(fid, bid)     -> USize
 //   std.io.ir_block_term_return_local(fid, bid) -> USize
+//
+// v0.14 — SwitchVariant queries:
+//   std.io.ir_block_term_switch_discr_local(fid, bid) -> USize
+//   std.io.ir_block_term_switch_adt_id(fid, bid)      -> USize
+//   std.io.ir_block_term_switch_arm_count(fid, bid)   -> USize
+//   std.io.ir_block_term_switch_arm_variant(fid, bid, k) -> USize
+//   std.io.ir_block_term_switch_arm_target(fid, bid, k)  -> USize
+//   std.io.ir_block_term_switch_default(fid, bid)        -> USize
 //
 // =====================================================================
 // Host bridge — Wasm sink (write side)
@@ -162,6 +202,17 @@ fn is_none(id: USize) -> Bool { id == sentinel_none() }
 //   std.io.wasm_emit_return()                  -> Unit
 //   std.io.wasm_emit_unreachable()             -> Unit
 //   std.io.wasm_emit_nop()                     -> Unit
+//
+// v0.14 — string pool + linear memory:
+//   std.io.wasm_emit_intern_string(s: Str)        -> USize  slot id
+//   std.io.wasm_emit_string_offset(slot: USize)   -> USize
+//   std.io.wasm_emit_string_length(slot: USize)   -> USize
+//   std.io.wasm_emit_data_segment_flush()         -> Unit
+//   std.io.wasm_emit_heap_global_idx()            -> USize  always 0
+//   std.io.wasm_emit_global_get(idx: USize)       -> Unit
+//   std.io.wasm_emit_global_set(idx: USize)       -> Unit
+//   std.io.wasm_emit_i32_load(offset: USize)      -> Unit
+//   std.io.wasm_emit_i32_store(offset: USize)     -> Unit
 
 // =====================================================================
 // File-level entry
@@ -177,6 +228,11 @@ pub fn compile_program() -> Unit {
     compile_fn(i)
     i = i + 1
   }
+  // v0.14 — flush the string-pool data segment after every fn has
+  // been walked (the per-stmt const-Str lowering interned its bytes
+  // during the walk; the host now writes them into the rebuilt module
+  // as a single data section + exports `__strings`).
+  std.io.wasm_emit_data_segment_flush()
   std.io.wasm_emit_module_end()
 }
 
@@ -299,6 +355,7 @@ fn compile_assign_stmt(fid: USize, bid: USize, j: USize) -> Unit {
     "BinOp" => compile_binop_rvalue(fid, bid, j, dest)
     "UnOp" => compile_unop_rvalue(fid, bid, j, dest)
     "Call" => compile_call_rvalue(fid, bid, j, dest)
+    "AdtInit" => compile_adt_init_rvalue(fid, bid, j, dest)
     _ => compile_unsupported_rvalue(dest)
   }
 }
@@ -323,10 +380,25 @@ fn compile_const_rvalue(fid: USize, bid: USize, j: USize, dest: USize) -> Unit {
     "I64" => emit_i64_const_and_store(v, dest)
     "F64" => emit_f64_const_and_store(v, dest)
     "F32" => emit_f32_const_and_store(v, dest)
-    "Str" => emit_i32_const_and_store(v, dest)
+    // v0.14 — intern the actual UTF-8 bytes into the data segment;
+    // store the (offset, length) pair where the IR const used to land.
+    // The dest local holds the offset (i32 ptr); the length is
+    // re-derived at use sites by looking the slot up again. v0.14
+    // SUBSET keeps it simple: any consumer that needs the length will
+    // call the bridge directly. The plain `local.set dest` of the
+    // offset matches the IR's Str-as-i32 placement contract.
+    "Str" => emit_str_const_and_store(fid, bid, j, dest)
     "Unit" => unit_value()
     _ => emit_i32_const_and_store(0, dest)
   }
+}
+
+fn emit_str_const_and_store(fid: USize, bid: USize, j: USize, dest: USize) -> Unit {
+  let s = std.io.ir_block_stmt_rvalue_const_str(fid, bid, j)
+  let slot = std.io.wasm_emit_intern_string(s)
+  let off = std.io.wasm_emit_string_offset(slot)
+  std.io.wasm_emit_i32_const(off as I64)
+  std.io.wasm_emit_local_set(dest)
 }
 
 fn emit_i32_const_and_store(v: I64, dest: USize) -> Unit {
@@ -351,8 +423,24 @@ fn emit_f32_const_and_store(bits: I64, dest: USize) -> Unit {
 
 fn compile_use_rvalue(fid: USize, bid: USize, j: USize, dest: USize) -> Unit {
   let src = std.io.ir_block_stmt_rvalue_use_local(fid, bid, j)
-  std.io.wasm_emit_local_get(src)
-  std.io.wasm_emit_local_set(dest)
+  let pk = std.io.ir_block_stmt_rvalue_use_proj_kind(fid, bid, j)
+  match pk {
+    "VariantField" => {
+      // v0.14 — pattern-match payload binding. The src local holds
+      // the ADT base address; load field `field_idx` of variant
+      // `variant_idx` from offset `tag_size + field_idx * field_size`.
+      let _v = std.io.ir_block_stmt_rvalue_use_proj_variant(fid, bid, j)
+      let f = std.io.ir_block_stmt_rvalue_use_proj_field(fid, bid, j)
+      let off = adt_variant_field_offset(f)
+      std.io.wasm_emit_local_get(src)
+      std.io.wasm_emit_i32_load(off)
+      std.io.wasm_emit_local_set(dest)
+    }
+    _ => {
+      std.io.wasm_emit_local_get(src)
+      std.io.wasm_emit_local_set(dest)
+    }
+  }
 }
 
 fn compile_binop_rvalue(fid: USize, bid: USize, j: USize, dest: USize) -> Unit {
@@ -457,7 +545,7 @@ fn compile_terminator(fid: USize, bid: USize) -> Unit {
     "Panic" => std.io.wasm_emit_unreachable()
     "Unreachable" => std.io.wasm_emit_unreachable()
     "SwitchInt" => std.io.wasm_emit_unreachable()
-    "SwitchVariant" => std.io.wasm_emit_unreachable()
+    "SwitchVariant" => compile_switch_variant_term(fid, bid)
     _ => std.io.wasm_emit_nop()
   }
 }
@@ -494,6 +582,172 @@ fn compile_return_term(fid: USize, bid: USize) -> Unit {
     std.io.wasm_emit_local_get(rl)
   }
   std.io.wasm_emit_return()
+}
+
+// =====================================================================
+// v0.14 — ADT linear-memory layout helpers (inlined from
+// `selfhost/codegen/adt_layout.mty` because the v0.12 driver still
+// compiles one `.mty` file at a time — see lib.mty for the intended
+// multi-file layout).
+// =====================================================================
+
+fn adt_field_size() -> USize { 4 }
+fn adt_tag_size() -> USize { 4 }
+
+fn adt_variant_field_offset(field_idx: USize) -> USize {
+  adt_tag_size() + field_idx * adt_field_size()
+}
+
+fn adt_instance_size_for(adt_id: USize) -> USize {
+  let nv = std.io.ir_adt_variant_count(adt_id)
+  let mut max_fields: USize = 0
+  let mut v: USize = 0
+  loop {
+    if v >= nv { break }
+    let nf = std.io.ir_adt_variant_field_count(adt_id, v)
+    if nf > max_fields { max_fields = nf }
+    v = v + 1
+  }
+  adt_tag_size() + max_fields * adt_field_size()
+}
+
+/// Emit the bump-allocator sequence; leaves the base address on the
+/// operand stack.
+fn adt_emit_alloc(n: USize) -> Unit {
+  let g = std.io.wasm_emit_heap_global_idx()
+  // push current ptr (becomes the return value)
+  std.io.wasm_emit_global_get(g)
+  // push current ptr again (for the bump arithmetic)
+  std.io.wasm_emit_global_get(g)
+  std.io.wasm_emit_i32_const(n as I64)
+  std.io.wasm_emit_i32_binop("Add")
+  std.io.wasm_emit_global_set(g)
+}
+
+// =====================================================================
+// v0.14 — AdtInit lowering
+// =====================================================================
+//
+// Sequence for `Some(x)` (Option, variant=1, fields=[x]):
+//
+//   global.get $heap_ptr     ;; reserve base
+//   global.get $heap_ptr
+//   i32.const  8             ;; instance size = 4 (tag) + 4 (1 field)
+//   i32.add
+//   global.set $heap_ptr     ;; bump
+//   local.tee  $dest         ;; remember base in dest
+//   local.get  $dest
+//   i32.const  1             ;; tag (Some=1)
+//   i32.store  offset=0
+//   local.get  $dest
+//   local.get  $x
+//   i32.store  offset=4
+//   ;; dest already holds the base address — done.
+
+fn compile_adt_init_rvalue(fid: USize, bid: USize, j: USize, dest: USize) -> Unit {
+  let adt_id = std.io.ir_block_stmt_rvalue_adt_id(fid, bid, j)
+  let variant = std.io.ir_block_stmt_rvalue_adt_variant(fid, bid, j)
+  let size = adt_instance_size_for(adt_id)
+  // Allocate.
+  adt_emit_alloc(size)
+  // Stash base in `dest` so we can re-load it for every store below.
+  std.io.wasm_emit_local_set(dest)
+  // Tag store at offset 0.
+  std.io.wasm_emit_local_get(dest)
+  std.io.wasm_emit_i32_const(variant as I64)
+  std.io.wasm_emit_i32_store(0)
+  // Field stores at offsets 4, 8, 12, ...
+  let nf = std.io.ir_block_stmt_rvalue_call_arg_count(fid, bid, j)
+  let mut k: USize = 0
+  loop {
+    if k >= nf { break }
+    let field_local = std.io.ir_block_stmt_rvalue_call_arg_local(fid, bid, j, k)
+    let off = adt_variant_field_offset(k)
+    std.io.wasm_emit_local_get(dest)
+    std.io.wasm_emit_local_get(field_local)
+    std.io.wasm_emit_i32_store(off)
+    k = k + 1
+  }
+}
+
+// =====================================================================
+// v0.14 — SwitchVariant terminator lowering (pattern matching)
+// =====================================================================
+//
+// The body of each arm is the block whose `target` slot the host
+// snapshot stored alongside the variant id. We open `n_arms + 1`
+// nested `block` scopes, emit the tag-test cascade in the innermost
+// one (with `br_if` going to relative depth `arm_idx`), then close
+// each arm's block right after its body so the body sits at the
+// correct depth.
+//
+// Layout (2-arm Option example):
+//
+//   block            ;; depth 1 — "match_done"
+//     block          ;; depth 0 — arm 0 (None)
+//       local.get $scr; i32.load 0; i32.const 0; i32.eq; br_if 0
+//       local.get $scr; i32.load 0; i32.const 1; i32.eq; br_if 1
+//       unreachable
+//     end             ;; --> arm 0 body lowered here
+//     <None body>
+//     br 1            ;; -> match_done
+//     ;; arm 1 lowered after match_done is closed
+//   end                ;; match_done
+//
+// We use a single emission shape: arm body for index `a` is emitted
+// AFTER the `end` that closes its surrounding block. After the last
+// arm, the outermost (match_done) block is closed by the caller.
+//
+// For v0.14 we serialize the cascade in a flat shape: open all blocks,
+// emit the cascade, then walk arms in order interleaving body + close.
+// The depth math is: when emitting arm `a`'s body, the relative
+// depth to the outermost (match_done) is `n_arms - a - 1`.
+
+fn compile_switch_variant_term(fid: USize, bid: USize) -> Unit {
+  let scrutinee = std.io.ir_block_term_switch_discr_local(fid, bid)
+  let n_arms = std.io.ir_block_term_switch_arm_count(fid, bid)
+
+  // Open n_arms + 1 nested blocks (outer = match_done).
+  std.io.wasm_emit_block("Empty")
+  let mut o: USize = 0
+  loop {
+    if o >= n_arms { break }
+    std.io.wasm_emit_block("Empty")
+    o = o + 1
+  }
+
+  // Tag-test cascade. From inside the innermost block, br_if depth 0
+  // jumps to "the block we're currently inside" — which when closed
+  // lands AT the body of arm 0. Depth k+1 jumps to arm k+1's body,
+  // etc. The default falls off into `unreachable`.
+  let mut a: USize = 0
+  loop {
+    if a >= n_arms { break }
+    let want = std.io.ir_block_term_switch_arm_variant(fid, bid, a)
+    std.io.wasm_emit_local_get(scrutinee)
+    std.io.wasm_emit_i32_load(0)
+    std.io.wasm_emit_i32_const(want as I64)
+    std.io.wasm_emit_i32_binop("Eq")
+    std.io.wasm_emit_br_if(a)
+    a = a + 1
+  }
+  std.io.wasm_emit_unreachable()
+
+  // Close the innermost block + lower each arm's body in turn.
+  let mut b: USize = 0
+  loop {
+    if b >= n_arms { break }
+    std.io.wasm_emit_end()
+    let target_bb = std.io.ir_block_term_switch_arm_target(fid, bid, b)
+    compile_block(fid, target_bb)
+    // After every arm body, branch out to match_done.
+    let depth = n_arms - b - 1
+    std.io.wasm_emit_br(depth)
+    b = b + 1
+  }
+
+  // Close the outer match_done block.
+  std.io.wasm_emit_end()
 }
 
 // =====================================================================

@@ -1,0 +1,169 @@
+// selfhost/codegen/adt_layout.mty
+//
+// Self-hosted ADT linear-memory layout helpers — v0.14.
+//
+// The Mighty Wasm emitter (`wasm.mty`) constructs ADT values in
+// linear memory via a bump allocator. This module owns the layout
+// algorithm:
+//
+//   * Tag (i32) at offset 0.
+//   * Payload starts at offset 4.
+//   * Variants share the payload region — the payload size of the
+//     whole ADT is `max(payload_size_of_each_variant)`.
+//   * Variant `i`'s field `j` lives at offset `4 + sum(prev_field_sizes)`.
+//     For v0.14 every field is treated as 4 bytes (i32 / pointer / fat-
+//     string-ptr-half) — the SUBSET caveat is documented in the notes
+//     file.
+//
+// The allocator is a single mutable i32 global `$heap_ptr` initialised
+// to 1024 (above any string-pool bytes the data segment writes between
+// offsets 0 and 1023). Each `Allocate(n)` returns the current heap
+// pointer and bumps it by `n`.
+//
+// ## v0.14 status: SHIPPED-SUBSET
+//
+// - Treats every payload field as 4 bytes (i32).
+// - Allocator never frees (a v0.15 follow-up: arena drop integration).
+// - The host bridge resolves ADT sizes via two read methods:
+//     std.io.ir_adt_variant_field_count(adt_id, variant_idx) -> USize
+//     std.io.ir_adt_variant_count(adt_id)                    -> USize
+//   so the size computation honors what the trusted Rust pipeline knows.
+
+package selfhost_codegen
+
+// =====================================================================
+// Size + offset helpers
+// =====================================================================
+
+/// Every payload field is 4 bytes in v0.14 (the SUBSET caveat).
+pub fn field_size() -> USize { 4 }
+
+/// Tag size at the start of every ADT instance.
+pub fn tag_size() -> USize { 4 }
+
+/// Compute the byte offset of field `j` inside variant `variant_idx`'s
+/// payload region. v0.14: always `tag_size() + j * field_size()`.
+pub fn variant_field_offset(_adt_id: USize, _variant_idx: USize, field_idx: USize) -> USize {
+  tag_size() + field_idx * field_size()
+}
+
+/// Compute the total instance size for ADT `adt_id`. v0.14 walks every
+/// variant via the host bridge and takes the max field count.
+pub fn adt_instance_size(adt_id: USize) -> USize {
+  let nv = std.io.ir_adt_variant_count(adt_id)
+  let mut max_fields: USize = 0
+  let mut v: USize = 0
+  loop {
+    if v >= nv { break }
+    let nf = std.io.ir_adt_variant_field_count(adt_id, v)
+    if nf > max_fields { max_fields = nf }
+    v = v + 1
+  }
+  tag_size() + max_fields * field_size()
+}
+
+// =====================================================================
+// Bump allocator
+// =====================================================================
+//
+// The allocator state is a single mutable i32 global. We obtain its
+// idx from the host once via `wasm_emit_heap_global_idx`. The Wasm
+// sequence to allocate `n` bytes is:
+//
+//   global.get $heap_ptr     ;; push current ptr
+//   global.get $heap_ptr     ;; push current ptr again
+//   i32.const  n             ;; push n
+//   i32.add                  ;; ptr + n
+//   global.set $heap_ptr     ;; bump
+//
+// The first push stays on the operand stack as the allocation's
+// address; the rest of the sequence stores it back via the global.
+
+/// Emit the allocator sequence; leaves the allocation's base address
+/// on the operand stack.
+pub fn emit_alloc(n: USize) -> Unit {
+  let g = std.io.wasm_emit_heap_global_idx()
+  std.io.wasm_emit_global_get(g)
+  std.io.wasm_emit_global_get(g)
+  std.io.wasm_emit_i32_const(n as I64)
+  std.io.wasm_emit_i32_binop("Add")
+  std.io.wasm_emit_global_set(g)
+}
+
+// =====================================================================
+// Construction
+// =====================================================================
+//
+// `emit_adt_init` emits:
+//
+//   1. The allocation, leaving the base address on the operand stack.
+//   2. local.tee {tmp}  ;; copy base into a scratch local so we can
+//                       ;; reuse it for the per-field stores.
+//   3. For each field: local.get {tmp}; <push field value>; i32.store
+//      offset=<computed offset>.
+//   4. local.get {tmp}; i32.const <tag>; i32.store offset=0.
+//   5. local.get {tmp}      ;; final result address — ready to be
+//                           ;; consumed by `local.set` from the
+//                           ;; calling Assign.
+//
+// The caller (in `wasm.mty`) supplies a scratch local slot id that
+// the emitter can reuse for the duration of the construction
+// (typically a freshly-minted IR temp).
+
+/// Emit the address of a newly-allocated ADT instance + the tag store.
+/// Field values are pushed and stored by the caller in `wasm.mty` via
+/// `emit_field_store` since the field operand lookup lives there.
+pub fn emit_adt_alloc_with_tag(adt_id: USize, variant: USize, scratch: USize) -> Unit {
+  let size = adt_instance_size(adt_id)
+  emit_alloc(size)
+  // dup the base into the scratch local
+  std.io.wasm_emit_local_tee(scratch)
+  // store the tag at offset 0
+  std.io.wasm_emit_local_get(scratch)
+  std.io.wasm_emit_i32_const(variant as I64)
+  std.io.wasm_emit_i32_store(0)
+}
+
+/// Store `value_local` into the payload field `field_idx` of `variant`.
+pub fn emit_field_store(
+  adt_id: USize,
+  variant: USize,
+  field_idx: USize,
+  scratch: USize,
+  value_local: USize,
+) -> Unit {
+  let off = variant_field_offset(adt_id, variant, field_idx)
+  std.io.wasm_emit_local_get(scratch)
+  std.io.wasm_emit_local_get(value_local)
+  std.io.wasm_emit_i32_store(off)
+}
+
+/// Push the address held in `scratch` onto the operand stack — the
+/// caller stores it into the rvalue's destination local.
+pub fn emit_finish_adt(scratch: USize) -> Unit {
+  std.io.wasm_emit_local_get(scratch)
+}
+
+// =====================================================================
+// Projection (variant-field load)
+// =====================================================================
+
+/// Emit the load for variant `variant_idx`'s field `field_idx` given
+/// the ADT base address sits in `base_local`. Pushes the field value
+/// onto the operand stack.
+pub fn emit_variant_field_load(
+  adt_id: USize,
+  variant_idx: USize,
+  field_idx: USize,
+  base_local: USize,
+) -> Unit {
+  let off = variant_field_offset(adt_id, variant_idx, field_idx)
+  std.io.wasm_emit_local_get(base_local)
+  std.io.wasm_emit_i32_load(off)
+}
+
+/// Emit the tag load (the i32 at offset 0). Used by pattern matching.
+pub fn emit_tag_load(base_local: USize) -> Unit {
+  std.io.wasm_emit_local_get(base_local)
+  std.io.wasm_emit_i32_load(0)
+}

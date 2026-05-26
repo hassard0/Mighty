@@ -1,0 +1,124 @@
+// selfhost/codegen/pattern.mty
+//
+// Self-hosted pattern-match lowering for the Wasm core-module emitter — v0.14.
+//
+// Lowers MtyIR `SwitchVariant` terminators into a tagged-union test
+// sequence wrapped in Wasm `block` scopes. Each arm:
+//
+//   1. Loads the discriminant ADT base into the scratch local that
+//      `wasm.mty` allocated for the matched value.
+//   2. Loads the tag (i32 at offset 0).
+//   3. Compares against the expected variant id.
+//   4. `br_if` to the *outer* `block` if the tag matches, jumping over
+//      the remaining arm tests; otherwise falls through to the next arm.
+//   5. After all arm tests, falls through to the default (unmatched)
+//      block — which itself ends with an `unreachable` for exhaustive
+//      matches.
+//
+// Layout (3-arm example):
+//
+//   block        ;; "match_done"
+//     block      ;; "arm 2"
+//       block    ;; "arm 1"
+//         block  ;; "arm 0"
+//           local.get $scrutinee
+//           i32.load offset=0  ;; tag
+//           i32.const 0        ;; expected
+//           i32.eq
+//           br_if 0            ;; jump to arm 0 body
+//           local.get $scrutinee
+//           i32.load offset=0
+//           i32.const 1
+//           i32.eq
+//           br_if 1            ;; arm 1
+//           local.get $scrutinee
+//           i32.load offset=0
+//           i32.const 2
+//           i32.eq
+//           br_if 2            ;; arm 2
+//           unreachable        ;; default (exhaustive)
+//         end                   ;; arm 0 body
+//         <lower arm 0 body>
+//         br 2                  ;; -> match_done
+//       end
+//       <lower arm 1 body>
+//       br 1
+//     end
+//     <lower arm 2 body>
+//   end
+//
+// This shape validates cleanly under wasmparser without us having to
+// model phi nodes or tracked block parameters — every arm body falls
+// off the end into the outer `match_done` block.
+
+package selfhost_codegen
+
+// =====================================================================
+// Match-arm test sequence
+// =====================================================================
+
+/// Emit the tag-test sequence for `n_arms` arms. After this returns,
+/// the operand stack is empty and control will branch into the matched
+/// arm's block (or hit `unreachable` for an exhaustive match miss).
+///
+/// `scrutinee_local` is the local that holds the ADT base address.
+/// `variants` is the host-side per-arm variant id sequence — looked up
+/// individually via the bridge.
+///
+/// The block-depth contract: arm `i` is entered at relative depth `i`
+/// (because the test sequence sits inside `n_arms` nested blocks).
+pub fn emit_arm_tag_tests(scrutinee_local: USize, fid: USize, bid: USize) -> Unit {
+  let n_arms = std.io.ir_block_term_switch_arm_count(fid, bid)
+  let mut a: USize = 0
+  loop {
+    if a >= n_arms { break }
+    let want = std.io.ir_block_term_switch_arm_variant(fid, bid, a)
+    // load tag
+    std.io.wasm_emit_local_get(scrutinee_local)
+    std.io.wasm_emit_i32_load(0)
+    // expected variant id
+    std.io.wasm_emit_i32_const(want as I64)
+    std.io.wasm_emit_i32_binop("Eq")
+    // br_if to the arm's block (arm i lives at relative depth i from
+    // the innermost block; we emit the tests from inside the innermost
+    // arm's nested block, so the depth equals the arm index).
+    std.io.wasm_emit_br_if(a)
+    a = a + 1
+  }
+  // Default — no arm matched. v0.14 emits `unreachable` for exhaustive
+  // matches; non-exhaustive matches are a typecheck error so we don't
+  // model a fall-through default arm here.
+  std.io.wasm_emit_unreachable()
+}
+
+// =====================================================================
+// Per-arm block scaffolding
+// =====================================================================
+
+/// Open `n_arms + 1` nested `block` scopes. The outermost is the
+/// "match_done" target every arm branches to once its body is lowered.
+pub fn emit_open_blocks(n_arms: USize) -> Unit {
+  // outer "match_done"
+  std.io.wasm_emit_block("Empty")
+  let mut a: USize = 0
+  loop {
+    if a >= n_arms { break }
+    std.io.wasm_emit_block("Empty")
+    a = a + 1
+  }
+}
+
+/// Close one nested block — emitted after the per-arm body lowering.
+/// The caller is responsible for emitting `br <depth-to-match_done>`
+/// before this is called.
+pub fn emit_close_block() -> Unit {
+  std.io.wasm_emit_end()
+}
+
+/// Branch to the "match_done" target from inside arm `arm_idx`. The
+/// depth equals `n_arms - arm_idx - 1` (the number of `block end`s
+/// between arm body and the outer scope).
+pub fn emit_branch_to_match_done(arm_idx: USize, n_arms: USize) -> Unit {
+  let depth = n_arms - arm_idx - 1
+  std.io.wasm_emit_br(depth)
+}

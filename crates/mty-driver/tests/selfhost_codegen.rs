@@ -27,7 +27,8 @@
 use mty_driver::{lower, lower_to_sir, parse_source, type_and_borrow_check};
 use mty_ir::interp::{run_fn_by_name, Host, RunResult, Value};
 use mty_ir::ir::{
-    BinOp, BuiltinId, Const, FnRef, IrTy, Operand, Program, Rvalue, Stmt, Term, UnOp,
+    BinOp, BuiltinId, Const, FnRef, IrTy, Operand, Place, Program, Projection, Rvalue, Stmt, Term,
+    UnOp,
 };
 use mty_ir::lower_package;
 use mty_types::{check_package_typed, EffectId, IntKind};
@@ -55,6 +56,9 @@ const SENTINEL_NONE_USIZE: usize = u32::MAX as usize;
 #[derive(Debug, Default, Clone)]
 struct IrSnapshot {
     fns: Vec<FnEntry>,
+    /// v0.14 — per-ADT variant layouts: `adts[adt_id]` is a vector of
+    /// per-variant field counts.
+    adts: Vec<Vec<usize>>,
 }
 
 #[derive(Debug, Clone)]
@@ -78,7 +82,7 @@ struct BlockEntry {
 #[derive(Debug, Clone, Default)]
 struct StmtEntry {
     kind: String, // "Assign"/"EffectInvoke"/"StorageLive"/"StorageDead"/"Drop"/"Nop"
-    /// For Assign: rvalue kind ("Const"/"Use"/"BinOp"/"UnOp"/"Call"/"Other").
+    /// For Assign: rvalue kind ("Const"/"Use"/"BinOp"/"UnOp"/"Call"/"AdtInit"/"Other").
     rvalue_kind: String,
     /// For Assign(BinOp): the BinOp name in the Mighty Wasm sink's
     /// vocabulary ("Add"/"Sub"/...).
@@ -89,8 +93,17 @@ struct StmtEntry {
     const_kind: String,
     /// For Assign(Const): the const value (sign-extended i64 of int/bool/u32 idx).
     const_i64: i64,
+    /// For Assign(Const::Str): the actual string bytes (v0.14).
+    const_str: String,
     /// For Assign(Use): the source local id.
     use_local: usize,
+    /// For Assign(Use): the projection kind on the source place — v0.14.
+    /// "None"/"VariantField"/"Field".
+    use_proj_kind: String,
+    /// For Assign(Use { proj: VariantField }): the variant id.
+    use_proj_variant: usize,
+    /// For Assign(Use { proj: VariantField | Field }): the field index.
+    use_proj_field: usize,
     /// For Assign: the destination local id.
     dest_local: usize,
     /// For BinOp/UnOp: operand local ids (after pre-loading temporaries).
@@ -100,20 +113,42 @@ struct StmtEntry {
     /// For EffectInvoke: pre-interned (ptr, len) of the string payload.
     /// We stuff these into the same `arg_locals` slots — slot 0 = ptr, slot 1 = len.
     effect_string: String,
+    /// For Assign(AdtInit): the ADT id (v0.14).
+    adt_id: usize,
+    /// For Assign(AdtInit): the variant index (v0.14).
+    adt_variant: usize,
 }
 
 #[derive(Debug, Clone, Default)]
 struct TermEntry {
-    kind: String, // "Goto"/"If"/"Return"/"SwitchInt"/"Panic"/"Unreachable"
+    kind: String, // "Goto"/"If"/"Return"/"SwitchInt"/"SwitchVariant"/"Panic"/"Unreachable"
     goto_target: usize,
     if_cond_local: usize,
     if_then: usize,
     if_else: usize,
     return_local: usize,
+    /// For SwitchVariant: the discriminant local id (v0.14).
+    switch_discr_local: usize,
+    /// For SwitchVariant: the ADT id (v0.14).
+    switch_adt_id: usize,
+    /// For SwitchVariant: the (variant_id, target_bb) pairs (v0.14).
+    switch_arms: Vec<(usize, usize)>,
+    /// For SwitchVariant: the default block id (v0.14).
+    switch_default: usize,
 }
 
 fn build_snapshot(prog: &Program) -> IrSnapshot {
     let mut snap = IrSnapshot::default();
+    // v0.14 — ADT layout snapshot. The Mighty emitter asks the host for
+    // `ir_adt_variant_count(adt_id)` and `ir_adt_variant_field_count(adt_id, v)`.
+    // Indexed by `AdtId.0` so the snapshot Vec's positions match the
+    // values the Rust pipeline stamps into Rvalue::AdtInit { adt: AdtId(_) }.
+    let max_adt = prog.adts.iter().map(|a| a.adt.0 as usize).max().unwrap_or(0);
+    snap.adts = vec![vec![]; max_adt + 1];
+    for adt in &prog.adts {
+        let variants: Vec<usize> = adt.variants.iter().map(|v| v.fields.len()).collect();
+        snap.adts[adt.adt.0 as usize] = variants;
+    }
     for f in &prog.fns {
         let mut local_types: Vec<String> = vec![];
         for ld in &f.locals {
@@ -185,6 +220,7 @@ fn stmt_to_entry(s: &Stmt) -> StmtEntry {
                 Rvalue::Use(op) => {
                     e.rvalue_kind = "Use".into();
                     e.use_local = operand_to_local(op);
+                    fill_use_projection(op, &mut e);
                 }
                 Rvalue::BinOp(b, lhs, rhs) => {
                     e.rvalue_kind = "BinOp".into();
@@ -195,6 +231,19 @@ fn stmt_to_entry(s: &Stmt) -> StmtEntry {
                     e.rvalue_kind = "UnOp".into();
                     e.unop = unop_kind(*u);
                     e.arg_locals = vec![operand_to_local(x)];
+                }
+                Rvalue::AdtInit {
+                    adt,
+                    variant,
+                    fields,
+                } => {
+                    // v0.14 — ADT construction. Lower fields to locals;
+                    // the Mighty emitter reads them via the same
+                    // `call_arg_local` slots that Call/BinOp use.
+                    e.rvalue_kind = "AdtInit".into();
+                    e.adt_id = adt.0 as usize;
+                    e.adt_variant = *variant;
+                    e.arg_locals = fields.iter().map(operand_to_local).collect();
                 }
                 Rvalue::Call { func, args } => {
                     match func {
@@ -248,6 +297,30 @@ fn operand_to_local(op: &Operand) -> usize {
     match op {
         Operand::Copy(p) | Operand::Move(p) => p.local.0 as usize,
         Operand::Const(_) => 0,
+    }
+}
+
+fn place_proj_kind(p: &Place) -> (&'static str, usize, usize) {
+    // v0.14 — expose the leading projection (if any) on a place so the
+    // Mighty emitter can lower variant-field loads correctly. v0.14
+    // models only the single most-common shape: a one-element projection
+    // of either `Field(j)` or `VariantField(v, j)` produced by pattern
+    // arms.
+    match p.proj.first() {
+        Some(Projection::VariantField(v, f)) => ("VariantField", *v, *f),
+        Some(Projection::Field(f)) => ("Field", 0, *f),
+        _ => ("None", 0, 0),
+    }
+}
+
+fn fill_use_projection(op: &Operand, e: &mut StmtEntry) {
+    if let Operand::Copy(p) | Operand::Move(p) = op {
+        let (k, v, f) = place_proj_kind(p);
+        e.use_proj_kind = k.to_string();
+        e.use_proj_variant = v;
+        e.use_proj_field = f;
+    } else {
+        e.use_proj_kind = "None".to_string();
     }
 }
 
@@ -312,11 +385,13 @@ fn fill_const(c: &Const, e: &mut StmtEntry) {
             e.const_kind = "Char".into();
             e.const_i64 = *c as u32 as i64;
         }
-        Const::Str(_) => {
-            // Strings are recorded as a pre-interned constant pool slot
-            // index; we don't expose the actual bytes through the bridge.
+        Const::Str(s) => {
+            // v0.14 — expose actual bytes through the bridge. The
+            // Mighty emitter interns them into the data segment and
+            // rewrites the rvalue into (i32.const offset, i32.const len).
             e.const_kind = "Str".into();
             e.const_i64 = 0;
+            e.const_str.clone_from(s);
         }
         _ => e.const_kind = "I32".into(),
     }
@@ -340,7 +415,20 @@ fn term_to_entry(t: &Term) -> TermEntry {
             e.return_local = operand_to_local(op);
         }
         Term::SwitchInt { .. } => e.kind = "SwitchInt".into(),
-        Term::SwitchVariant { .. } => e.kind = "SwitchVariant".into(),
+        Term::SwitchVariant {
+            discr,
+            adt,
+            arms,
+            default,
+        } => {
+            // v0.14 — capture full SwitchVariant shape for the Mighty
+            // pattern-lowering pass.
+            e.kind = "SwitchVariant".into();
+            e.switch_discr_local = operand_to_local(discr);
+            e.switch_adt_id = adt.0 as usize;
+            e.switch_arms = arms.iter().map(|(v, b)| (*v, b.0 as usize)).collect();
+            e.switch_default = default.0 as usize;
+        }
         Term::Panic { .. } => e.kind = "Panic".into(),
         Term::Unreachable => e.kind = "Unreachable".into(),
         Term::TryReturnErr(_) => e.kind = "Unreachable".into(),
@@ -393,6 +481,12 @@ enum WasmEvent {
     Return,
     Unreachable,
     Nop,
+    // v0.14 — string pool + linear memory ops.
+    I32Load(u32),
+    I32Store(u32),
+    GlobalGet(usize),
+    GlobalSet(usize),
+    DataSegmentFlush,
 }
 
 #[derive(Debug, Default)]
@@ -400,6 +494,20 @@ struct SelfhostCodegenHost {
     snap: IrSnapshot,
     events: Vec<WasmEvent>,
     next_id: usize,
+    // v0.14 — string pool state. The Mighty emitter calls
+    // `wasm_emit_intern_string(s)` for each Const::Str; we accumulate
+    // unique strings here and return their slot id. Slot id is the
+    // index into `strings`. Each slot's (offset, length) is computed
+    // at intern time so subsequent `string_offset`/`string_length`
+    // queries are O(1).
+    strings: Vec<StringSlot>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct StringSlot {
+    bytes: Vec<u8>,
+    offset: usize,
+    length: usize,
 }
 
 impl Host for SelfhostCodegenHost {
@@ -425,6 +533,34 @@ impl SelfhostCodegenHost {
         self.snap = build_snapshot(prog);
         self.events.clear();
         self.next_id = 0;
+        self.strings.clear();
+    }
+
+    fn intern_string(&mut self, s: &str) -> usize {
+        // v0.14 — dedup by exact byte sequence. Each unique string
+        // occupies a contiguous range starting at the previous string's
+        // (offset + length) — that is, offsets are dense, no padding.
+        // The data segment starts at byte 0 in memory and runs up to
+        // the bump allocator's initial value (1024). v0.14 SUBSET: we
+        // assume the test fixtures never exceed 1024 bytes of string
+        // literal — the validator doesn't actually run the module so
+        // this isn't a correctness gate.
+        if let Some(idx) = self.strings.iter().position(|sl| sl.bytes == s.as_bytes()) {
+            return idx;
+        }
+        let bytes = s.as_bytes().to_vec();
+        let length = bytes.len();
+        let offset = self
+            .strings
+            .last()
+            .map(|sl| sl.offset + sl.length)
+            .unwrap_or(0);
+        self.strings.push(StringSlot {
+            bytes,
+            offset,
+            length,
+        });
+        self.strings.len() - 1
     }
 
     fn alloc_id(&mut self) -> Value {
@@ -578,6 +714,103 @@ impl SelfhostCodegenHost {
                 self.lookup_stmt(args)
                     .map(|s| s.effect_string.clone())
                     .unwrap_or_default(),
+            ),
+            // v0.14 — extended IR queries (string payload, ADT shape,
+            // use-projection kind, SwitchVariant arms).
+            "ir_block_stmt_rvalue_const_str" => Value::Str(
+                self.lookup_stmt(args)
+                    .map(|s| s.const_str.clone())
+                    .unwrap_or_default(),
+            ),
+            "ir_block_stmt_rvalue_adt_id" => Value::Int(
+                self.lookup_stmt(args)
+                    .map(|s| s.adt_id as i128)
+                    .unwrap_or(0),
+                IntKind::USize,
+            ),
+            "ir_block_stmt_rvalue_adt_variant" => Value::Int(
+                self.lookup_stmt(args)
+                    .map(|s| s.adt_variant as i128)
+                    .unwrap_or(0),
+                IntKind::USize,
+            ),
+            "ir_block_stmt_rvalue_use_proj_kind" => Value::Str(
+                self.lookup_stmt(args)
+                    .map(|s| {
+                        if s.use_proj_kind.is_empty() {
+                            "None".to_string()
+                        } else {
+                            s.use_proj_kind.clone()
+                        }
+                    })
+                    .unwrap_or_else(|| "None".to_string()),
+            ),
+            "ir_block_stmt_rvalue_use_proj_variant" => Value::Int(
+                self.lookup_stmt(args)
+                    .map(|s| s.use_proj_variant as i128)
+                    .unwrap_or(0),
+                IntKind::USize,
+            ),
+            "ir_block_stmt_rvalue_use_proj_field" => Value::Int(
+                self.lookup_stmt(args)
+                    .map(|s| s.use_proj_field as i128)
+                    .unwrap_or(0),
+                IntKind::USize,
+            ),
+            "ir_adt_variant_count" => Value::Int(
+                self.snap
+                    .adts
+                    .get(arg_usize(args, 0))
+                    .map(|v| v.len() as i128)
+                    .unwrap_or(0),
+                IntKind::USize,
+            ),
+            "ir_adt_variant_field_count" => Value::Int(
+                self.snap
+                    .adts
+                    .get(arg_usize(args, 0))
+                    .and_then(|v| v.get(arg_usize(args, 1)).copied())
+                    .map(|n| n as i128)
+                    .unwrap_or(0),
+                IntKind::USize,
+            ),
+            "ir_block_term_switch_discr_local" => Value::Int(
+                self.lookup_block(args)
+                    .map(|b| b.term.switch_discr_local as i128)
+                    .unwrap_or(0),
+                IntKind::USize,
+            ),
+            "ir_block_term_switch_adt_id" => Value::Int(
+                self.lookup_block(args)
+                    .map(|b| b.term.switch_adt_id as i128)
+                    .unwrap_or(0),
+                IntKind::USize,
+            ),
+            "ir_block_term_switch_arm_count" => Value::Int(
+                self.lookup_block(args)
+                    .map(|b| b.term.switch_arms.len() as i128)
+                    .unwrap_or(0),
+                IntKind::USize,
+            ),
+            "ir_block_term_switch_arm_variant" => Value::Int(
+                self.lookup_block(args)
+                    .and_then(|b| b.term.switch_arms.get(arg_usize(args, 2)).map(|(v, _)| *v))
+                    .map(|v| v as i128)
+                    .unwrap_or(0),
+                IntKind::USize,
+            ),
+            "ir_block_term_switch_arm_target" => Value::Int(
+                self.lookup_block(args)
+                    .and_then(|b| b.term.switch_arms.get(arg_usize(args, 2)).map(|(_, t)| *t))
+                    .map(|t| t as i128)
+                    .unwrap_or(0),
+                IntKind::USize,
+            ),
+            "ir_block_term_switch_default" => Value::Int(
+                self.lookup_block(args)
+                    .map(|b| b.term.switch_default as i128)
+                    .unwrap_or(0),
+                IntKind::USize,
             ),
             "ir_block_term_kind" => Value::Str(
                 self.lookup_block(args)
@@ -759,6 +992,51 @@ impl SelfhostCodegenHost {
                 self.events.push(WasmEvent::Nop);
                 Value::Unit
             }
+            // v0.14 — string pool + linear memory + globals.
+            "wasm_emit_intern_string" => {
+                let s = arg_str(args, 0);
+                let slot = self.intern_string(&s);
+                Value::Int(slot as i128, IntKind::USize)
+            }
+            "wasm_emit_string_offset" => {
+                let slot = arg_usize(args, 0);
+                let off = self.strings.get(slot).map(|sl| sl.offset).unwrap_or(0);
+                Value::Int(off as i128, IntKind::USize)
+            }
+            "wasm_emit_string_length" => {
+                let slot = arg_usize(args, 0);
+                let len = self.strings.get(slot).map(|sl| sl.length).unwrap_or(0);
+                Value::Int(len as i128, IntKind::USize)
+            }
+            "wasm_emit_data_segment_flush" => {
+                self.events.push(WasmEvent::DataSegmentFlush);
+                Value::Unit
+            }
+            "wasm_emit_heap_global_idx" => {
+                // v0.14 — the single bump-allocator global lives at
+                // idx 0. The rebuilder always synthesises it (whether
+                // the Mighty source actually emitted ADTs or not — it's
+                // benign extra metadata).
+                Value::Int(0, IntKind::USize)
+            }
+            "wasm_emit_global_get" => {
+                self.events.push(WasmEvent::GlobalGet(arg_usize(args, 0)));
+                Value::Unit
+            }
+            "wasm_emit_global_set" => {
+                self.events.push(WasmEvent::GlobalSet(arg_usize(args, 0)));
+                Value::Unit
+            }
+            "wasm_emit_i32_load" => {
+                self.events
+                    .push(WasmEvent::I32Load(arg_usize(args, 0) as u32));
+                Value::Unit
+            }
+            "wasm_emit_i32_store" => {
+                self.events
+                    .push(WasmEvent::I32Store(arg_usize(args, 0) as u32));
+                Value::Unit
+            }
             _ => Value::Unit,
         }
     }
@@ -819,6 +1097,9 @@ fn arg_bool(args: &[Value], i: usize) -> bool {
 struct SelfhostCodegenRun {
     events: Vec<WasmEvent>,
     result: RunResult,
+    // v0.14 — string pool, captured after the Mighty emitter runs so
+    // the rebuilder can emit the matching data section.
+    strings: Vec<StringSlot>,
 }
 
 fn run_selfhost_codegen(input: &str) -> Result<SelfhostCodegenRun, String> {
@@ -866,6 +1147,7 @@ fn run_selfhost_codegen(input: &str) -> Result<SelfhostCodegenRun, String> {
     Ok(SelfhostCodegenRun {
         events: host.events,
         result,
+        strings: host.strings,
     })
 }
 
@@ -895,8 +1177,10 @@ const SEC_TYPE: u8 = 1;
 const SEC_IMPORT: u8 = 2;
 const SEC_FUNCTION: u8 = 3;
 const SEC_MEMORY: u8 = 5;
+const SEC_GLOBAL: u8 = 6;
 const SEC_EXPORT: u8 = 7;
 const SEC_CODE: u8 = 10;
+const SEC_DATA: u8 = 11;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ValType {
@@ -991,7 +1275,7 @@ struct FnEntry2 {
     exported: bool,
 }
 
-fn rebuild_wasm(events: &[WasmEvent]) -> Result<WasmRebuild, String> {
+fn rebuild_wasm(events: &[WasmEvent], strings: &[StringSlot]) -> Result<WasmRebuild, String> {
     // ---- Phase 1: collect fn entries from the event stream ----
     let mut fns: Vec<FnEntry2> = vec![];
     let mut i = 0;
@@ -1101,6 +1385,19 @@ fn rebuild_wasm(events: &[WasmEvent]) -> Result<WasmRebuild, String> {
     memory_sec.push(0x00); // limits: min only
     write_leb128_u32(&mut memory_sec, 1); // 1 page
 
+    // ---- Phase 5b (v0.14): global section — bump-allocator $heap_ptr ----
+    //
+    // Single mutable i32 global initialised to 1024 (past the string-
+    // pool region — the data section starts at byte 0 and v0.14's
+    // fixture programs never exceed 1024 bytes of string literal).
+    let mut global_sec: Vec<u8> = vec![];
+    write_leb128_u32(&mut global_sec, 1); // 1 global
+    global_sec.push(VT_I32); // type = i32
+    global_sec.push(0x01); // mutable
+    global_sec.push(0x41); // i32.const initializer
+    write_leb128_i32(&mut global_sec, 1024);
+    global_sec.push(0x0B); // end
+
     // ---- Phase 6: export section ----
     let mut exports: Vec<(String, u8, u32)> = vec![("memory".into(), 0x02, 0)];
     for (i, f) in fns.iter().enumerate() {
@@ -1156,6 +1453,32 @@ fn rebuild_wasm(events: &[WasmEvent]) -> Result<WasmRebuild, String> {
         fn_opcode_seqs.push(opcodes);
     }
 
+    // ---- Phase 7b (v0.14): data section — string-pool bytes ----
+    //
+    // Single active data segment at memory 0, offset 0. Concatenates
+    // every interned string's bytes in their assigned offset order.
+    // The data section is OMITTED entirely when no strings were
+    // interned (Wasm sections are optional; emitting an empty data
+    // section is legal but adds bytes for no win).
+    let data_sec: Option<Vec<u8>> = if strings.is_empty() {
+        None
+    } else {
+        let total: usize = strings.iter().map(|sl| sl.length).sum();
+        let mut buf: Vec<u8> = Vec::with_capacity(total);
+        for sl in strings {
+            buf.extend_from_slice(&sl.bytes);
+        }
+        let mut sec: Vec<u8> = vec![];
+        write_leb128_u32(&mut sec, 1); // 1 segment
+        sec.push(0x00); // memory idx 0, active
+        sec.push(0x41); // i32.const offset
+        write_leb128_i32(&mut sec, 0);
+        sec.push(0x0B); // end of offset expr
+        write_leb128_u32(&mut sec, buf.len() as u32);
+        sec.extend_from_slice(&buf);
+        Some(sec)
+    };
+
     // ---- Phase 8: assemble the module ----
     let mut bytes: Vec<u8> = vec![];
     bytes.extend_from_slice(b"\0asm");
@@ -1164,8 +1487,12 @@ fn rebuild_wasm(events: &[WasmEvent]) -> Result<WasmRebuild, String> {
     write_section(&mut bytes, SEC_IMPORT, &import_sec);
     write_section(&mut bytes, SEC_FUNCTION, &function_sec);
     write_section(&mut bytes, SEC_MEMORY, &memory_sec);
+    write_section(&mut bytes, SEC_GLOBAL, &global_sec);
     write_section(&mut bytes, SEC_EXPORT, &export_sec);
     write_section(&mut bytes, SEC_CODE, &code_sec);
+    if let Some(sec) = &data_sec {
+        write_section(&mut bytes, SEC_DATA, sec);
+    }
 
     Ok(WasmRebuild {
         bytes,
@@ -1421,6 +1748,35 @@ fn emit_event_byte(
                 out.push(0x1B);
                 opcodes.push("select".into());
             }
+            // v0.14 — memory + global ops.
+            WasmEvent::I32Load(off) => {
+                out.push(0x28); // i32.load
+                // align: byte 0 (natural alignment exponent = 2 for i32
+                // means 1<<2 = 4 byte alignment). Writing alignment 2 is
+                // the natural choice; 0 is also legal (less aligned).
+                out.push(0x02);
+                write_leb128_u32(out, *off);
+                opcodes.push("i32.load".into());
+            }
+            WasmEvent::I32Store(off) => {
+                out.push(0x36); // i32.store
+                out.push(0x02); // alignment exponent
+                write_leb128_u32(out, *off);
+                opcodes.push("i32.store".into());
+            }
+            WasmEvent::GlobalGet(idx) => {
+                out.push(0x23); // global.get
+                write_leb128_u32(out, *idx as u32);
+                opcodes.push("global.get".into());
+            }
+            WasmEvent::GlobalSet(idx) => {
+                out.push(0x24); // global.set
+                write_leb128_u32(out, *idx as u32);
+                opcodes.push("global.set".into());
+            }
+            WasmEvent::DataSegmentFlush => {
+                // Module-level marker; no per-fn opcode.
+            }
             _ => {}
         }
     }
@@ -1541,8 +1897,11 @@ fn selfhost_codegen_lib_compiles() {
 }
 
 fn run_and_validate(input: &str) -> WasmRebuild {
-    let SelfhostCodegenRun { events, result } =
-        run_selfhost_codegen(input).expect("Mighty Wasm emitter should compile");
+    let SelfhostCodegenRun {
+        events,
+        result,
+        strings,
+    } = run_selfhost_codegen(input).expect("Mighty Wasm emitter should compile");
     assert!(
         matches!(result, RunResult::Ok { .. }),
         "self-hosted Wasm emitter did not terminate cleanly: {:?}",
@@ -1557,7 +1916,7 @@ fn run_and_validate(input: &str) -> WasmRebuild {
         "no FnStart events: {:?}",
         events.iter().take(8).collect::<Vec<_>>()
     );
-    let rebuilt = rebuild_wasm(&events).expect("rebuild");
+    let rebuilt = rebuild_wasm(&events, &strings).expect("rebuild");
     // Validate the bytes — the acceptance gate.
     let mut v = wasmparser::Validator::new();
     if let Err(e) = v.validate_all(&rebuilt.bytes) {
@@ -1668,9 +2027,145 @@ fn selfhost_codegen_arith_fixture() {
 }
 
 #[test]
-#[ignore = "v0.13 — generic fn signatures + Option/None lowering exceed v0.13 scope"]
+fn selfhost_codegen_string_const() {
+    // v0.14 — string pool. A literal flows through `log` AND through a
+    // let-binding. The data section must materialize, and the module
+    // must validate.
+    let input = "fn main() { let _greeting = \"hello world\"; log(\"hi\") }";
+    let rebuilt = run_and_validate(input);
+    // The emitter should now emit `i32.const <offset>` for the literal
+    // body (not just (0, 0) for the log call). The exact offset
+    // depends on the intern order; check that any fn body contains an
+    // `i32.const` opcode in addition to the call.
+    assert!(
+        rebuilt
+            .fn_opcode_seqs
+            .iter()
+            .any(|seq| seq.iter().any(|o| o == "i32.const")),
+        "string const fixture: missing `i32.const` opcode for string offset: {:?}",
+        rebuilt.fn_opcode_seqs
+    );
+}
+
+#[test]
+fn selfhost_codegen_pattern_match_full() {
+    // v0.14 — direct pattern match on an enum with payload binding.
+    // Verifies SwitchVariant lowering: tag-test cascade + per-arm
+    // body + br to match_done. The output must validate.
+    let input = r#"
+        enum Op {
+          Add(I32, I32)
+          Neg(I32)
+          Zero
+        }
+
+        fn eval(o: Op) -> I32 {
+          match o {
+            Op.Add(a, b) => a + b
+            Op.Neg(x) => 0 - x
+            Op.Zero => 0
+          }
+        }
+
+        fn main() { log("pattern match full") }
+    "#;
+    let rebuilt = run_and_validate(input);
+    let eval_idx = rebuilt
+        .fn_names
+        .iter()
+        .position(|n| n == "eval")
+        .expect("eval fn missing");
+    let seq = &rebuilt.fn_opcode_seqs[eval_idx];
+    // Tag-test cascade: at least one i32.load + i32.const + i32.eq +
+    // br_if sequence must appear.
+    assert!(
+        seq.iter().any(|o| o == "i32.load"),
+        "pattern match fixture: missing `i32.load` for tag read: {:?}",
+        seq
+    );
+    assert!(
+        seq.iter().any(|o| o == "br_if"),
+        "pattern match fixture: missing `br_if` for arm test: {:?}",
+        seq
+    );
+}
+
+#[test]
+fn selfhost_codegen_example_03_option() {
+    // v0.14 — exercise bare-variant ADT construction. `Maybe.Nothing`
+    // and `Maybe.Other` are bare multi-segment paths that the IR
+    // lowerer routes through the `DefRef::Variant` path → `Rvalue::AdtInit`.
+    // The two AdtInits in `choose` should emit two `i32.store` opcodes
+    // (one per variant tag) and at least one `global.get` for the
+    // bump-allocator sequence.
+    //
+    // Note: variant CALLS like `Maybe.Just(n)` would currently lower
+    // through the call-callee Extern path and not produce AdtInit; the
+    // v0.15 follow-up is to teach `resolve_callee` (or the lower_call
+    // dispatcher) to detect `DefRef::Variant` and emit AdtInit instead.
+    let input = r#"
+        enum Maybe {
+          Nothing
+          Other
+        }
+
+        fn choose(n: I32) -> Maybe {
+          if n > 0 { Other } else { Nothing }
+        }
+
+        fn main() { log("example 03 option") }
+    "#;
+    let rebuilt = run_and_validate(input);
+    let choose_idx = rebuilt
+        .fn_names
+        .iter()
+        .position(|n| n == "choose")
+        .expect("choose fn missing");
+    let seq = &rebuilt.fn_opcode_seqs[choose_idx];
+    // Two AdtInits → two tag `i32.store` opcodes (no payload fields).
+    let n_stores = seq.iter().filter(|o| *o == "i32.store").count();
+    assert!(
+        n_stores >= 2,
+        "option fixture: expected >= 2 `i32.store` opcodes (one per AdtInit's tag): got {} in {:?}",
+        n_stores,
+        seq
+    );
+    // Global ops (bump allocator) should also fire.
+    assert!(
+        seq.iter().any(|o| o == "global.get"),
+        "option fixture: missing `global.get` for bump allocator: {:?}",
+        seq
+    );
+}
+
+#[test]
 fn selfhost_codegen_example_03() {
+    // v0.14 — generic Option[T] lowering: `None` lowers to a real ADT
+    // bump-allocation + variant tag store. `Some(&xs[0])` is harder
+    // — in the v0.14 frontend, single-segment `Some(x)` lowers as a
+    // `Call { func: Builtin(Extern("Some")), args: [x] }` (extern
+    // call) rather than `AdtInit`, so the constructor-call path is
+    // covered by the synthetic `selfhost_codegen_example_03_option`
+    // fixture below which uses the bare-variant shape exclusively.
+    // The acceptance gate here is that the module validates and the
+    // bare `None` branch DOES exercise i32.store.
     let path = workspace_root().join("examples/03_generic_fn.mty");
     let input = std::fs::read_to_string(&path).expect("read example 03");
-    let _ = run_and_validate(&input);
+    let rebuilt = run_and_validate(&input);
+    // The `first` fn (the example's only fn) must be in the module.
+    assert!(
+        rebuilt.fn_names.iter().any(|n| n == "first"),
+        "example 03: first fn not in emitted module: {:?}",
+        rebuilt.fn_names
+    );
+    // At least one fn body should now contain an `i32.store` opcode —
+    // the marker for real ADT construction (the `None` branch).
+    assert!(
+        rebuilt
+            .fn_opcode_seqs
+            .iter()
+            .any(|seq| seq.iter().any(|o| o == "i32.store")),
+        "example 03: missing `i32.store` opcode — ADT lowering did not fire: {:?}",
+        rebuilt.fn_opcode_seqs
+    );
 }

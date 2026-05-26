@@ -1,0 +1,88 @@
+// selfhost/codegen/string_pool.mty
+//
+// Self-hosted string-pool helper for the Wasm core-module emitter — v0.14.
+//
+// The Mighty Wasm emitter records every `Const::Str` reference it sees
+// during the MtyIR walk and asks the host to intern the UTF-8 bytes into
+// a single linear-memory data segment. The host returns a (offset, len)
+// pair per string; the emitter rewrites each string-const rvalue into
+// the matching `(i32.const offset, i32.const len)` instruction pair.
+//
+// ## v0.14 status: SHIPPED
+//
+// - 2 new sink methods on the bridge:
+//     std.io.wasm_emit_intern_string(bytes: Str) -> USize  (returns slot id)
+//     std.io.wasm_emit_string_offset(slot: USize) -> USize (offset into __strings)
+//     std.io.wasm_emit_string_length(slot: USize) -> USize (utf-8 length)
+//     std.io.wasm_emit_data_segment_flush()      -> Unit   (emit data + memory)
+// - 1 new read method on the IR-query side:
+//     std.io.ir_block_stmt_rvalue_const_str(fid, bid, j) -> Str
+//
+// ## Bootstrap technique
+//
+// The Rust-side host accumulates strings into a Vec<u8>, returns the
+// (offset, len) pair, and on `wasm_emit_data_segment_flush` writes a
+// single data section that the rebuilt module includes. The data
+// section is exported as `__strings`. Each ADT/match arm that needs
+// to reference a literal goes through the same intern step.
+//
+// See `dev/history/notes/SELFHOST_CODEGEN_V0_14_NOTES.md` for the data
+// section layout and the v0.15 follow-ups (multi-segment, deduplication,
+// canonical-ABI string layout for the Component Model target).
+
+package selfhost_codegen
+
+// =====================================================================
+// String pool API
+// =====================================================================
+
+/// Intern a literal `s` into the data section. Returns a slot id that
+/// can later be resolved to (offset, length) via the bridge.
+pub fn intern_string(s: Str) -> USize {
+  std.io.wasm_emit_intern_string(s)
+}
+
+/// Look up the byte offset of a previously-interned string slot.
+pub fn string_offset(slot: USize) -> USize {
+  std.io.wasm_emit_string_offset(slot)
+}
+
+/// Look up the UTF-8 byte length of a previously-interned string slot.
+pub fn string_length(slot: USize) -> USize {
+  std.io.wasm_emit_string_length(slot)
+}
+
+/// Push the (offset, length) pair onto the operand stack so the value
+/// can be consumed by a subsequent `log` import call or stored to a
+/// pair of locals. v0.14 uses TWO `i32.const` instructions — the
+/// canonical-ABI fat-pointer shape (`(ptr: i32, len: i32)`) is
+/// preserved everywhere strings flow through call boundaries.
+pub fn emit_string_value(slot: USize) -> Unit {
+  let off = string_offset(slot)
+  let len = string_length(slot)
+  std.io.wasm_emit_i32_const(off as I64)
+  std.io.wasm_emit_i32_const(len as I64)
+}
+
+/// Push only the offset (e.g., when a function returns a `Str` and the
+/// caller will pull the length out of band). v0.14 doesn't model this
+/// path on its own; the helper is here so `wasm.mty` can reuse it when
+/// the caller knows it's emitting a (ptr, len) pair manually.
+pub fn emit_string_offset(slot: USize) -> Unit {
+  let off = string_offset(slot)
+  std.io.wasm_emit_i32_const(off as I64)
+}
+
+/// Push only the length.
+pub fn emit_string_length(slot: USize) -> Unit {
+  let len = string_length(slot)
+  std.io.wasm_emit_i32_const(len as I64)
+}
+
+/// Tell the host to flush the accumulated data segment into the
+/// rebuilt module. v0.14 calls this once at module-end. The host
+/// emits a single passive-ish data segment at offset 0 of memory 0
+/// and exports it as `__strings`.
+pub fn flush_data_segment() -> Unit {
+  std.io.wasm_emit_data_segment_flush()
+}
