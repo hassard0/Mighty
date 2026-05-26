@@ -45,12 +45,16 @@ jobs:
           path: ~/.cargo/bin/cargo-audit
           # Cache keyed on the installer version we pin below; bump
           # the suffix to force a reinstall.
-          key: ${{ runner.os }}-cargo-audit-v0.21
+          key: ${{ runner.os }}-cargo-audit-v0.22
 
       - name: Install cargo-audit
+        # Pinned to ^0.22 — earlier versions crash parsing 2026
+        # RustSec advisories that use CVSS 4.0 (e.g. RUSTSEC-2026-0076,
+        # "unsupported CVSS version: 4.0"). Bump when upstream
+        # stabilises CVSS 4.0 in a later major.
         run: |
           if ! command -v cargo-audit >/dev/null 2>&1; then
-            cargo install cargo-audit --locked --version "^0.21"
+            cargo install cargo-audit --locked --version "^0.22"
           fi
           cargo audit --version
 
