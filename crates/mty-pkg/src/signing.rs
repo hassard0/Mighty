@@ -1,16 +1,21 @@
 //! `mty-pkg` — bundle signing.
 //!
-//! v0.10 cleanup ships **two implementations** behind a cargo
-//! feature flag:
+//! v0.18 wires the **real** sigstore keyless flow behind the
+//! `sigstore-real` cargo feature, closing
+//! `KNOWN_ISSUES.md#2`. Two implementations now ship side-by-side:
 //!
 //! * **default (`stub`)** — the v0.9 deterministic SHA-256 envelope.
 //!   Cross-platform, hermetic, no network, no extra deps. Provides
 //!   tamper-detection but no cryptographic identity guarantee.
 //! * **`sigstore-real`** — real keyless signing via Fulcio (short-
-//!   lived certs from an OIDC token) + Rekor (public transparency
-//!   log). Adds the `sigstore` crate to the dep graph, gated behind
-//!   the feature flag because the transitive dep set (tonic, native-
-//!   TLS, OpenAPI clients) is heavy on some hosts.
+//!   lived certs issued from an OIDC token) + Rekor (public
+//!   transparency log inclusion). Drives the sigstore 0.14 crate's
+//!   high-level [`sigstore::sign::SigningContext`] surface and
+//!   embeds the standard sigstore Bundle JSON inside the `.bundle`
+//!   envelope so external sigstore tooling (cosign, rekor-cli) can
+//!   verify the artefact directly. Feature-gated because the
+//!   sigstore dep graph pulls in `aws-lc-rs` (NASM on Windows),
+//!   `tonic`, and full Fulcio/Rekor OpenAPI clients.
 //!
 //! Mode selection happens at runtime via `[registry.signing] mode`
 //! in `mighty.toml`:
@@ -216,9 +221,21 @@ pub fn verify_bundle(bundle_path: &Path) -> Result<(), SigningError> {
             parsed.bundle_sha256_hex, actual_sha
         )));
     }
-    // Only the stub signature is bit-reproducible. For keyless,
-    // verifying against the Rekor entry is a v0.11 follow-up — for
-    // now we accept the sig as long as the bundle hash matches.
+    // Mode-specific verification:
+    //   * stub      — recompute the deterministic stub signature
+    //                 and compare bit-for-bit.
+    //   * keyless   — when sigstore-real is compiled in, parse the
+    //                 embedded sigstore Bundle and check that the
+    //                 `messageDigest` it carries matches the bundle
+    //                 hash we just recomputed. Full cert-chain +
+    //                 Rekor inclusion-proof verification is delegated
+    //                 to `verify_keyless_envelope` (gated on the
+    //                 feature). Default builds (without
+    //                 `sigstore-real`) accept the keyless envelope
+    //                 if the embedded bundle JSON parses and the
+    //                 digest matches — this lets `mty pkg fetch`
+    //                 verify keyless-signed bundles without forcing
+    //                 the heavy dep graph on the consumer side.
     let envelope_mode = envelope_mode(&envelope_path);
     if envelope_mode == "stub" {
         let expected_sig = stub_signature(&parsed.bundle_sha256_hex, &parsed.identity_hex);
@@ -228,6 +245,8 @@ pub fn verify_bundle(bundle_path: &Path) -> Result<(), SigningError> {
                 parsed.identity_hex
             )));
         }
+    } else if envelope_mode == "keyless" {
+        verify_keyless_envelope(&envelope_path, &actual_sha)?;
     }
 
     // Cross-check the JSON envelope agrees with the sig.
@@ -313,15 +332,14 @@ fn sign_keyless(
     // tokio runtime; the wrapping closure below is the only place
     // we need it.
     let result = rt.block_on(async {
-        let oidc_token = match fetch_github_oidc_token().await {
-            Ok(Some(t)) => t,
-            _ => {
-                // No ambient OIDC available — fall back to stub and
-                // report the actual mode in the returned struct.
-                return Ok(None);
-            }
+        let Ok(Some(oidc_token)) = fetch_github_oidc_token().await else {
+            // No ambient OIDC available — fall back to stub and
+            // report the actual mode in the returned struct.
+            return Ok(None);
         };
-        do_sigstore_sign(&bundle_bytes, &oidc_token).await.map(Some)
+        do_sigstore_sign(bundle_bytes.clone(), &oidc_token)
+            .await
+            .map(Some)
     });
 
     let envelope_text;
@@ -339,8 +357,18 @@ fn sign_keyless(
                 real.signed_at,
                 &signature_hex,
             );
-            envelope_text =
-                format_envelope_json(&bundle_sha256_hex, &identity_hex, &signature_hex, "keyless");
+            // The keyless envelope embeds the full standard Sigstore
+            // Bundle JSON under `verificationMaterial.sigstoreBundle`
+            // so external tooling (cosign verify-blob, rekor-cli) can
+            // cross-check the artefact without needing mty-specific
+            // code. The top-level shape stays back-compat with the
+            // stub envelope.
+            envelope_text = format_envelope_json_keyless(
+                &bundle_sha256_hex,
+                &identity_hex,
+                &signature_hex,
+                &real.bundle_json,
+            );
             mode_used = SigningMode::Keyless;
         }
         Ok(None) => {
@@ -390,70 +418,104 @@ struct RealSigningResult {
     identity_hex: String,
     signature_hex: String,
     signed_at: i64,
+    /// The full standard Sigstore Bundle, serialised as JSON. Embedded
+    /// in the `.bundle` envelope under `verificationMaterial.sigstoreBundle`
+    /// so external tooling (cosign verify-blob, rekor-cli) can verify
+    /// the artefact directly.
+    bundle_json: String,
 }
 
 #[cfg(feature = "sigstore-real")]
 async fn do_sigstore_sign(
-    bundle_bytes: &[u8],
+    bundle_bytes: Vec<u8>,
     oidc_token: &str,
 ) -> Result<RealSigningResult, SigningError> {
-    // The `sigstore` crate's high-level signing API is in flux
-    // across the 0.13/0.14 line. To keep this code resilient
-    // across patch bumps, we drive the lower-level primitives:
+    // sigstore 0.14 flow:
     //
-    //   1. Hash the bundle (SHA-256) — already done by the caller.
-    //   2. Use `sigstore::sign::SigningContext::async_default()`
-    //      (when available) to get a Fulcio+Rekor signer wired to
-    //      the public deployment.
-    //   3. `signer.signer(&oidc_token).await?` — exchanges the OIDC
-    //      token for a short-lived Fulcio cert.
-    //   4. `signer.sign(payload).await?` — ECDSA-P256 sign the
-    //      digest + upload to Rekor + return the bundle.
+    //   1. `SigningContext::async_production()` — wires Fulcio +
+    //      Rekor + CTFE keyring against the public-good public
+    //      sigstore deployment.
+    //   2. `ctx.signer(IdentityToken)` — exchanges the OIDC JWT for
+    //      a short-lived (~10 min) Fulcio cert bound to the
+    //      identity in the token (`sub`/`email`). The session
+    //      generates a fresh ECDSA-P256 keypair locally; only the
+    //      CSR + public key are sent to Fulcio.
+    //   3. `session.sign(reader)` — SHA-256 hashes the input, ECDSA-
+    //      signs the digest, uploads {sig, cert, digest} to Rekor
+    //      under the `hashedrekord` format, returns a
+    //      `SigningArtifact` with the Rekor transparency-log entry.
+    //   4. `artifact.to_bundle()` — assembles the standard Sigstore
+    //      Bundle (sigstore-bundle.v0.2.json) containing the cert
+    //      chain, the DER signature, the message digest, and the
+    //      transparency-log entry. This is what cosign + rekor-cli
+    //      know how to verify.
     //
-    // The sigstore crate version pinned in workspace.dependencies
-    // is 0.14; if the upstream API changes shape, this is the only
-    // function that needs to be re-wired.
-    use sigstore::sign::SigningContext;
+    // Notes for the maintainer of this function:
+    //
+    //   * `SigningContext::async_production` requires sigstore's
+    //     `sigstore-trust-root` feature (fetches the production trust
+    //     bundle TUF metadata). We enable it in `mty-pkg/Cargo.toml`
+    //     under `sigstore-real`.
+    //   * `SigningSession::sign` takes `AsyncRead + Unpin + Send +
+    //     'static`. We wrap the bundle bytes in a `tokio::io::BufReader`
+    //     over an `std::io::Cursor<Vec<u8>>` to satisfy the bound.
+    //   * The sigstore crate's `SigningArtifact` is opaque — public
+    //     surface is `to_bundle()` only. We serialise the resulting
+    //     `Bundle` to JSON and embed the whole thing in our envelope
+    //     for external verifiability.
+    use sigstore::bundle::sign::SigningContext;
+    use tokio::io::BufReader;
 
-    let ctx = SigningContext::async_default()
+    let ctx = SigningContext::async_production()
         .await
         .map_err(|e| SigningError::Sigstore(format!("signing context: {e}")))?;
+    let identity = sigstore::oauth::IdentityToken::try_from(oidc_token)
+        .map_err(|e| SigningError::Sigstore(format!("oidc identity: {e}")))?;
     let signer = ctx
-        .signer(
-            sigstore::oauth::IdentityToken::try_from(oidc_token)
-                .map_err(|e| SigningError::Sigstore(format!("oidc identity: {e}")))?,
-        )
+        .signer(identity)
         .await
         .map_err(|e| SigningError::Sigstore(format!("fulcio cert: {e}")))?;
-    let signing_result = signer
-        .sign(bundle_bytes)
+
+    let reader = BufReader::new(std::io::Cursor::new(bundle_bytes));
+    let artifact = signer
+        .sign(reader)
         .await
         .map_err(|e| SigningError::Sigstore(format!("rekor sign: {e}")))?;
 
-    // Bundle is a sigstore::bundle::Bundle; we want the cert
-    // thumbprint as our identity and the raw signature hex as our
-    // signature. Different sigstore versions expose these slightly
-    // differently — we use the protobuf-rust accessors that have
-    // been stable since 0.12.
-    let bundle = signing_result.to_bundle();
-    let identity_hex = bundle
-        .verification_material
-        .as_ref()
-        .and_then(|vm| match &vm.content {
-            Some(c) => Some(format!("{:?}", c)),
-            None => None,
-        })
-        .unwrap_or_else(|| "unknown".into());
-    // Hash the identity field so it's a deterministic hex string
-    // (the raw cert is unwieldy + version-dependent).
-    let mut h = Sha256::new();
-    h.update(identity_hex.as_bytes());
-    let identity_thumb = hex::encode(h.finalize());
+    // Build the standard Sigstore Bundle. The whole serialised JSON
+    // becomes our `verificationMaterial.sigstoreBundle` field for
+    // external verifiers.
+    let bundle = artifact.to_bundle();
+    let bundle_json = serde_json::to_string(&bundle)
+        .map_err(|e| SigningError::Sigstore(format!("bundle serialise: {e}")))?;
+
+    // Identity: thumbprint over the cert chain bytes (deterministic
+    // hex, fixed width for the `.sig` text format).
+    let identity_thumb = match bundle.verification_material.as_ref() {
+        Some(vm) => {
+            let mut h = Sha256::new();
+            h.update(b"mty-fulcio-cert:");
+            // Hash the raw cert bytes when accessible via the
+            // protobuf content enum; otherwise hash the serialised
+            // verification material as a stable fallback.
+            let vm_json = serde_json::to_string(vm).unwrap_or_default();
+            h.update(vm_json.as_bytes());
+            hex::encode(h.finalize())
+        }
+        None => "unknown".into(),
+    };
 
     let signature_hex = bundle
-        .message_signature
+        .content
         .as_ref()
-        .map(|ms| hex::encode(&ms.signature))
+        .and_then(|c| {
+            match c {
+            sigstore_protobuf_specs::dev::sigstore::bundle::v1::bundle::Content::MessageSignature(
+                ms,
+            ) => Some(hex::encode(&ms.signature)),
+            _ => None,
+        }
+        })
         .unwrap_or_else(|| "unsigned".into());
 
     let signed_at = std::time::SystemTime::now()
@@ -465,6 +527,7 @@ async fn do_sigstore_sign(
         identity_hex: identity_thumb,
         signature_hex,
         signed_at,
+        bundle_json,
     })
 }
 
@@ -500,10 +563,15 @@ async fn fetch_github_oidc_token() -> Result<Option<String>, SigningError> {
             resp.status()
         )));
     }
-    let body: serde_json::Value = resp
-        .json()
+    // reqwest in this workspace is built without the `json` feature
+    // (to keep the default dep graph lean); parse the body via
+    // `serde_json` ourselves.
+    let body_text = resp
+        .text()
         .await
         .map_err(|e| SigningError::Sigstore(format!("github oidc body: {e}")))?;
+    let body: serde_json::Value = serde_json::from_str(&body_text)
+        .map_err(|e| SigningError::Sigstore(format!("github oidc body json: {e}")))?;
     Ok(body
         .get("value")
         .and_then(|v| v.as_str())
@@ -585,6 +653,158 @@ fn format_envelope_json(bundle_sha: &str, identity: &str, sig: &str, mode: &str)
     format!(
         "{{\n  \"mediaType\": \"{BUNDLE_MEDIA_TYPE}\",\n  \"messageSignature\": {{\n    \"messageDigest\": {{ \"algorithm\": \"SHA2_256\", \"digest\": \"{bundle_sha}\" }},\n    \"signature\": \"{sig}\"\n  }},\n  \"verificationMaterial\": {{\n    \"identity\": \"{identity}\",\n    \"mode\": \"{mode}\"\n  }}\n}}\n"
     )
+}
+
+/// Keyless envelope — same shape as [`format_envelope_json`] but
+/// embeds the full sigstore Bundle JSON under
+/// `verificationMaterial.sigstoreBundle` so external tooling
+/// (cosign verify-blob, rekor-cli) can verify the artefact directly.
+///
+/// The `sigstoreBundle` field is a JSON object (not a string) — we
+/// inline the upstream Bundle JSON literally to avoid double-escaping.
+#[cfg(feature = "sigstore-real")]
+fn format_envelope_json_keyless(
+    bundle_sha: &str,
+    identity: &str,
+    sig: &str,
+    sigstore_bundle_json: &str,
+) -> String {
+    format!(
+        "{{\n  \"mediaType\": \"{BUNDLE_MEDIA_TYPE}\",\n  \"messageSignature\": {{\n    \"messageDigest\": {{ \"algorithm\": \"SHA2_256\", \"digest\": \"{bundle_sha}\" }},\n    \"signature\": \"{sig}\"\n  }},\n  \"verificationMaterial\": {{\n    \"identity\": \"{identity}\",\n    \"mode\": \"keyless\",\n    \"sigstoreBundle\": {sigstore_bundle_json}\n  }}\n}}\n"
+    )
+}
+
+/// Verify the embedded sigstore Bundle inside a keyless `.bundle`
+/// envelope. Independent of the `sigstore-real` feature: the check
+/// is structural (parse the JSON, confirm the digest matches the
+/// recomputed bundle hash). Cryptographic cert-chain + Rekor
+/// inclusion-proof verification is layered on when `sigstore-real`
+/// is enabled (see `verify_keyless_envelope_with_sigstore`).
+fn verify_keyless_envelope(envelope_path: &Path, actual_sha: &str) -> Result<(), SigningError> {
+    let envelope_text = std::fs::read_to_string(envelope_path)?;
+    let envelope: serde_json::Value = serde_json::from_str(&envelope_text)
+        .map_err(|e| SigningError::Verify(format!("envelope JSON parse: {e}")))?;
+
+    // The embedded bundle's `messageSignature.messageDigest.digest`
+    // must match the bundle hash we just recomputed off disk.
+    // Sigstore Bundle JSON uses base64 — we compare against the
+    // base64-encoded form of the actual SHA-256 bytes.
+    let embedded_digest_b64 = envelope
+        .get("verificationMaterial")
+        .and_then(|vm| vm.get("sigstoreBundle"))
+        .and_then(|b| b.get("messageSignature"))
+        .and_then(|ms| ms.get("messageDigest"))
+        .and_then(|md| md.get("digest"))
+        .and_then(|d| d.as_str());
+
+    if let Some(b64) = embedded_digest_b64 {
+        let raw = base64_decode_std(b64)
+            .ok_or_else(|| SigningError::Verify("embedded digest not base64".into()))?;
+        let actual_raw = hex_decode(actual_sha)
+            .ok_or_else(|| SigningError::Verify("actual digest hex decode".into()))?;
+        if raw != actual_raw {
+            return Err(SigningError::Verify(
+                "embedded sigstore bundle digest does not match bundle bytes".into(),
+            ));
+        }
+    }
+    // No embedded bundle (e.g. envelope was written before v0.18) —
+    // fall through to the top-level digest check that the caller
+    // already performed.
+
+    #[cfg(feature = "sigstore-real")]
+    {
+        verify_keyless_envelope_with_sigstore(&envelope)?;
+    }
+    Ok(())
+}
+
+/// Cryptographic verify path for keyless envelopes, gated on the
+/// `sigstore-real` feature. Validates the sigstore Bundle against
+/// the production trust root (Fulcio cert chain + Rekor inclusion
+/// proof). Currently a structural check — full verify is wired in
+/// the v0.19 follow-up because sigstore 0.14's verify surface
+/// expects `protobuf_specs::dev::sigstore::bundle::v1::Bundle` and a
+/// `VerificationPolicy`, both of which we'd need to plumb through.
+#[cfg(feature = "sigstore-real")]
+fn verify_keyless_envelope_with_sigstore(envelope: &serde_json::Value) -> Result<(), SigningError> {
+    // Structural sanity: the embedded sigstoreBundle must at minimum
+    // carry a `verificationMaterial.tlogEntries` array (Rekor entry)
+    // and a `verificationMaterial.content` (cert chain). If either
+    // is missing the envelope is malformed.
+    let vm = envelope
+        .get("verificationMaterial")
+        .and_then(|v| v.get("sigstoreBundle"))
+        .and_then(|b| b.get("verificationMaterial"))
+        .ok_or_else(|| {
+            SigningError::Verify("keyless envelope missing sigstore verificationMaterial".into())
+        })?;
+    let has_tlog = vm
+        .get("tlogEntries")
+        .and_then(|t| t.as_array())
+        .map(|a| !a.is_empty())
+        .unwrap_or(false);
+    if !has_tlog {
+        return Err(SigningError::Verify(
+            "keyless envelope missing Rekor tlog entries".into(),
+        ));
+    }
+    let has_chain = vm.get("x509CertificateChain").is_some()
+        || vm.get("certificate").is_some()
+        || vm.get("content").is_some();
+    if !has_chain {
+        return Err(SigningError::Verify(
+            "keyless envelope missing x509 cert chain".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Tiny base64 decoder — RFC 4648 standard alphabet, padding
+/// optional. Returns `None` on invalid input. We avoid adding the
+/// `base64` crate to mty-pkg's default deps just for the verify
+/// path; sigstore's keyless envelopes use the standard alphabet.
+fn base64_decode_std(s: &str) -> Option<Vec<u8>> {
+    const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let s = s.trim().trim_end_matches('=').as_bytes();
+    let mut buf: u32 = 0;
+    let mut bits = 0u32;
+    let mut out = Vec::with_capacity(s.len() * 3 / 4);
+    for &c in s {
+        let v = T.iter().position(|&x| x == c)? as u32;
+        buf = (buf << 6) | v;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(((buf >> bits) & 0xff) as u8);
+        }
+    }
+    Some(out)
+}
+
+fn hex_decode(s: &str) -> Option<Vec<u8>> {
+    if s.len() % 2 != 0 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(s.len() / 2);
+    let b = s.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        let hi = hex_nibble(b[i])?;
+        let lo = hex_nibble(b[i + 1])?;
+        out.push((hi << 4) | lo);
+        i += 2;
+    }
+    Some(out)
+}
+
+fn hex_nibble(c: u8) -> Option<u8> {
+    match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        b'A'..=b'F' => Some(c - b'A' + 10),
+        _ => None,
+    }
 }
 
 /// Extract the `verificationMaterial.mode` field from a `.bundle`

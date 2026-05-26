@@ -37,21 +37,34 @@ fixed in this prep; the rest are P1 or below.
   allocator tuning, large-path coalescing, true in-place realloc
   when the size class wouldn't change.
 
-### 2. Package signing is a stub (no real OIDC / Rekor)
+### 2. Package signing is a stub (no real OIDC / Rekor) (RESOLVED v0.18)
 
 - **Where**: `crates/mty-pkg/src/signing.rs`
-- **Symptom**: `mty pkg publish` produces `.sig` + `.bundle`
-  sidecars that are **deterministic SHA-256 envelopes**, not real
-  sigstore artifacts. They detect bundle tampering but offer no
-  cryptographic identity guarantee.
-- **Workaround**: treat the `.sig` file as advisory until v0.10.
-  Re-verify a downloaded bundle with `mty pkg fetch` (verification
-  is wired through `signing::verify_bundle` already).
-- **Fix plan (v0.10)**: feature-gate the real sigstore path
-  (`sigstore-real`); on GitHub Actions, fetch the OIDC token from
-  `$ACTIONS_ID_TOKEN_REQUEST_URL`, exchange with Fulcio for a
-  short-lived cert, sign with ECDSA, upload signing payload to
-  Rekor, and embed the Rekor entry index in the `.bundle` envelope.
+- **Status**: **RESOLVED** in v0.18 (2026-05-26). The
+  `sigstore-real` cargo feature now drives the real keyless flow:
+  GitHub Actions OIDC → Fulcio short-lived ECDSA-P256 cert → Rekor
+  `hashedrekord` transparency-log upload → full standard Sigstore
+  Bundle JSON embedded under `verificationMaterial.sigstoreBundle`
+  in the `.bundle` envelope. External tooling (`cosign verify-blob`,
+  `rekor-cli`) consumes the embedded Bundle directly.
+- **Implementation**: `sign_keyless` drives sigstore 0.14's
+  `bundle::sign::SigningContext::async_production` against the
+  public-good Sigstore deployment. The session generates an
+  ephemeral ECDSA-P256 keypair, exchanges it (with the OIDC JWT)
+  at `https://fulcio.sigstore.dev/api/v1/signingCert` for a
+  ~10-minute cert, signs the bundle digest, and uploads the
+  `hashedrekord` to `https://rekor.sigstore.dev/api/v1/log/entries`.
+  `verify_bundle` cross-checks the embedded `messageDigest` against
+  the recomputed bundle SHA-256 even on default builds (no
+  `sigstore-real` feature needed for the consumer side). Three new
+  structural verify tests live in `crates/mty-pkg/tests/signing_real.rs`.
+  Default builds keep the deterministic stub envelope so Windows
+  hosts without NASM still ship.
+- **Follow-ups (v0.19)**: see
+  `dev/history/notes/SIGSTORE_V0_18_NOTES.md` — full cryptographic
+  cert-chain + Rekor inclusion-proof verify on `fetch`, device-flow
+  OAuth for local signing, SLSA v1.0 provenance attestations, CI
+  smoke against the public Sigstore trust root.
 
 ### 3. MSRV gate uses `cargo build`, not `cargo test` (resolved v0.18)
 

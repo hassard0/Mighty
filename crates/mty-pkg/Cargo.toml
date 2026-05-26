@@ -17,7 +17,12 @@ sha2.workspace = true
 hex.workspace = true
 reqwest = { workspace = true, optional = true }
 git2 = { workspace = true, optional = true }
-sigstore = { workspace = true, optional = true }
+sigstore = { workspace = true, optional = true, features = [
+    "sign",
+    "sigstore-trust-root",
+    "rustls-tls",
+] }
+sigstore_protobuf_specs = { version = "0.5", optional = true }
 tokio = { workspace = true, optional = true }
 mty-driver = { path = "../mty-driver" }
 tar = "0.4"
@@ -30,13 +35,24 @@ dirs = "5"
 #
 # `sigstore-real` is **opt-in** for v0.10 — the `sigstore` crate
 # pulls in a heavy dep graph (tonic, Fulcio + Rekor OpenAPI clients,
-# native-tls / openssl-sys on some hosts). Default builds keep the
-# v0.9 deterministic stub envelope. To exercise real keyless
-# signing: `cargo build -p mty-cli --features mty-pkg/sigstore-real`.
+# aws-lc-rs on most hosts — needs NASM on Windows). Default builds
+# keep the v0.9 deterministic stub envelope. To exercise real
+# keyless signing on Linux:
+#
+#   cargo build -p mty-cli --features mty-pkg/sigstore-real
+#
+# Windows hosts need NASM (`choco install nasm` or `winget install nasm`)
+# to build the aws-lc-rs transitive dep. See
+# `docs/internals/package-signing.md` for the dep-graph rationale.
 default = ["registry-fetch", "git-fetch"]
 registry-fetch = ["dep:reqwest"]
 git-fetch = ["dep:git2"]
-sigstore-real = ["dep:sigstore", "dep:tokio"]
+sigstore-real = [
+    "dep:sigstore",
+    "dep:sigstore_protobuf_specs",
+    "dep:tokio",
+    "dep:reqwest",
+]
 
 [dev-dependencies]
 tempfile = "3"

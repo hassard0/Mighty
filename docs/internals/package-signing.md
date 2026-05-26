@@ -1,11 +1,14 @@
 # Package signing
 
-> Status: **v0.10 — mode-aware**. Default builds keep the v0.9
-> deterministic stub envelope (cross-platform, hermetic, no extra
-> deps). Real keyless signing via Fulcio + Rekor is **opt-in** via
-> the `mty-pkg/sigstore-real` cargo feature. See
-> `CLEANUP_V0_10_NOTES.md` for the v0.10 cut-over rationale and
-> `KNOWN_ISSUES.md#2` for the upgrade plan.
+> Status: **v0.18 — sigstore-real wired**. Default builds keep the
+> v0.9 deterministic stub envelope (cross-platform, hermetic, no
+> extra deps). Real keyless signing via Fulcio + Rekor is **opt-in**
+> via the `mty-pkg/sigstore-real` cargo feature and now produces
+> standard Sigstore Bundle JSON that external tooling (cosign,
+> rekor-cli) can verify directly. See
+> `dev/history/notes/SIGSTORE_V0_18_NOTES.md` for the v0.18
+> cut-over rationale and `CLEANUP_V0_10_NOTES.md` for the original
+> v0.10 mode-dispatch shape.
 
 ## Goals
 
@@ -187,14 +190,174 @@ or stick with stub mode.
 |----------|--------|
 | Mode dispatch (`SigningMode::{Stub, Keyless, Off}`) | shipped |
 | `[registry.signing]` config plumbed through `publish` | shipped |
-| Real Fulcio cert exchange (feature-gated) | wired (`do_sigstore_sign`) |
-| GitHub Actions OIDC token fetch (feature-gated) | wired (`fetch_github_oidc_token`) |
-| Rekor transparency-log upload | covered by `sigstore::sign::SigningContext` |
-| Verify against Rekor entry on `fetch` | **v0.11 follow-up** |
-| Device-flow OAuth for local signing | **v0.11 follow-up** |
+| Real Fulcio cert exchange (feature-gated) | shipped (v0.18) |
+| GitHub Actions OIDC token fetch (feature-gated) | shipped (v0.18) |
+| Rekor transparency-log upload | shipped (v0.18) |
+| Standard Sigstore Bundle embedded in `.bundle` | shipped (v0.18) |
+| Structural verify of keyless envelopes (digest cross-check) | shipped (v0.18) |
+| Verify against Rekor entry on `fetch` (full crypto verify) | **v0.19 follow-up** |
+| Device-flow OAuth for local signing | **v0.19 follow-up** |
+| SLSA provenance attestations | **v0.19 follow-up** |
 | MSRV-compatible sigstore version pin | tracked — sigstore 0.14 + workspace MSRV 1.85 |
 
-See `KNOWN_ISSUES.md#2` for the residual follow-ups.
+See `dev/history/notes/SIGSTORE_V0_18_NOTES.md` for the v0.18
+implementation choices and v0.19 follow-ups.
+
+## v0.18: real keyless flow (OIDC + Fulcio + Rekor)
+
+When `[registry.signing] mode = "keyless"` is set **and** the
+binary was built with `--features mty-pkg/sigstore-real`, the
+publish path executes the full sigstore keyless flow:
+
+```text
+   ┌─────────────────────┐
+   │ mty pkg publish     │
+   └──────────┬──────────┘
+              │ bundle bytes + bundle SHA-256
+              ▼
+   ┌─────────────────────────────────────────┐
+   │ 1. OIDC token fetch                     │
+   │    GET $ACTIONS_ID_TOKEN_REQUEST_URL    │
+   │       ?audience=sigstore                │
+   │    Authorization: Bearer $..._TOKEN     │
+   │    → JWT bound to workflow identity     │
+   └──────────┬──────────────────────────────┘
+              │ JWT
+              ▼
+   ┌─────────────────────────────────────────┐
+   │ 2. SigningContext::async_production()   │
+   │    Loads the public-good sigstore TUF   │
+   │    trust root (CTFE keys + Fulcio root  │
+   │    + Rekor public key).                 │
+   └──────────┬──────────────────────────────┘
+              │ ctx
+              ▼
+   ┌─────────────────────────────────────────┐
+   │ 3. ctx.signer(IdentityToken)            │
+   │    Generates fresh ECDSA-P256 keypair   │
+   │    locally; POSTs CSR + pubkey to       │
+   │    https://fulcio.sigstore.dev/api/v1/  │
+   │       signingCert                       │
+   │    → short-lived (~10 min) x509 cert    │
+   │      bound to the OIDC identity (sub,   │
+   │      email) and a SCT proving CT log    │
+   │      inclusion.                         │
+   └──────────┬──────────────────────────────┘
+              │ session (privkey + cert)
+              ▼
+   ┌─────────────────────────────────────────┐
+   │ 4. session.sign(bundle_reader)          │
+   │    a. SHA-256(bundle bytes)             │
+   │    b. ECDSA-P256 sign(digest)           │
+   │    c. POST {sig, cert PEM, digest hex}  │
+   │       to https://rekor.sigstore.dev/    │
+   │       api/v1/log/entries (hashedrekord) │
+   │    d. Rekor returns TransparencyLog-    │
+   │       Entry with log index, integrated  │
+   │       time, signed inclusion-proof.     │
+   └──────────┬──────────────────────────────┘
+              │ SigningArtifact
+              ▼
+   ┌─────────────────────────────────────────┐
+   │ 5. artifact.to_bundle()                 │
+   │    Assembles the standard Sigstore      │
+   │    Bundle (sigstore-bundle.v0.2 JSON)   │
+   │    with cert chain, DER signature,      │
+   │    message digest, Rekor entry.         │
+   └──────────┬──────────────────────────────┘
+              │ Bundle JSON
+              ▼
+   ┌─────────────────────────────────────────┐
+   │ 6. Write <pkg>.tar.gz.sig + .bundle     │
+   │    .bundle embeds the full Sigstore     │
+   │    Bundle under                         │
+   │      verificationMaterial.sigstoreBundle│
+   │    so cosign / rekor-cli can verify     │
+   │    the artefact directly.               │
+   └─────────────────────────────────────────┘
+```
+
+### Example `.bundle` envelope (keyless mode)
+
+```json
+{
+  "mediaType": "application/vnd.mty.bundle.v0.10+json",
+  "messageSignature": {
+    "messageDigest": { "algorithm": "SHA2_256", "digest": "<bundle-hex>" },
+    "signature": "<ecdsa-sig-hex>"
+  },
+  "verificationMaterial": {
+    "identity": "<fulcio-cert-thumbprint-hex>",
+    "mode": "keyless",
+    "sigstoreBundle": {
+      "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.2",
+      "verificationMaterial": {
+        "x509CertificateChain": {
+          "certificates": [ { "rawBytes": "<leaf-cert-DER-base64>" } ]
+        },
+        "tlogEntries": [
+          {
+            "logIndex": "<rekor-index>",
+            "logId": { "keyId": "<rekor-pubkey-id>" },
+            "kindVersion": { "kind": "hashedrekord", "version": "0.0.1" },
+            "integratedTime": "<unix-secs>",
+            "canonicalizedBody": "<base64>",
+            "inclusionProof": { ... },
+            "inclusionPromise": { ... }
+          }
+        ]
+      },
+      "messageSignature": {
+        "messageDigest": { "algorithm": "SHA2_256", "digest": "<base64>" },
+        "signature": "<DER-base64>"
+      }
+    }
+  }
+}
+```
+
+### Verify path (v0.18)
+
+`verify_bundle(<bundle>.tar.gz)` runs the following for keyless envelopes:
+
+1. Recompute the SHA-256 of the bundle bytes off disk.
+2. Parse the `.sig` text + `.bundle` JSON; confirm the top-level
+   digest + signature appear in the JSON envelope (back-compat
+   cross-check).
+3. Decode the embedded
+   `verificationMaterial.sigstoreBundle.messageSignature.messageDigest.digest`
+   from base64 and confirm it matches the recomputed SHA-256.
+4. When built with `--features sigstore-real`, additionally check
+   that `tlogEntries[]` is non-empty and that an x509 cert chain
+   is present in the embedded bundle (structural — full Rekor
+   inclusion-proof crypto verify lands in v0.19).
+
+### CI integration
+
+For GitHub Actions to expose the OIDC endpoint to `mty pkg
+publish`, the workflow needs the `id-token: write` permission:
+
+```yaml
+permissions:
+  contents: write   # to upload the GitHub Release
+  id-token: write   # to mint an OIDC JWT for sigstore
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest      # Linux: NASM available out of the box
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p mty-cli --features mty-pkg/sigstore-real
+      - run: ./target/release/mty pkg publish
+```
+
+With the permission granted, `$ACTIONS_ID_TOKEN_REQUEST_URL` and
+`$ACTIONS_ID_TOKEN_REQUEST_TOKEN` are populated automatically. Outside
+of CI (or when those env vars are absent), `sign_keyless` degrades
+to stub mode and reports `SigningMode::Stub` in the returned
+`SignedBundle`. Device-flow OAuth for local signing is a v0.19
+follow-up.
 
 ## Testing
 
