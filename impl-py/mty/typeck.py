@@ -34,13 +34,16 @@ from typing import Optional, Union
 
 from .diagnostics import (
     CODE_TYPECK_ARITY_MISMATCH,
+    CODE_TYPECK_BOUND_UNSATISFIED,
     CODE_TYPECK_BRANCH_MISMATCH,
+    CODE_TYPECK_CLOSURE_ARITY,
     CODE_TYPECK_FIELD_MISMATCH,
     CODE_TYPECK_MISMATCH,
     CODE_TYPECK_NOT_CALLABLE,
     CODE_TYPECK_OCCURS_CHECK,
     CODE_TYPECK_OPERATOR_TYPE,
     CODE_TYPECK_RETURN_MISMATCH,
+    CODE_TYPECK_UNKNOWN_GENERIC,
     CODE_TYPECK_UNKNOWN_NAME,
     Diagnostic,
     Severity,
@@ -60,6 +63,7 @@ from .hir import (
     HirField_,
     HirFn,
     HirFor,
+    HirGenericParam,
     HirIdent,
     HirIf,
     HirIndex,
@@ -229,6 +233,87 @@ _PRELUDE_SCALARS: dict[str, Ty] = {
     "Bool": TY_BOOL, "Str": TY_STR, "Char": TY_CHAR, "Unit": TY_UNIT,
     "String": TY_STR,  # examples mix Str/String -- accept both.
 }
+
+
+# v0.19 — generic-bound vocabulary.
+#
+# We don't model trait items in the Python 2nd-impl. Instead we know
+# which built-in scalars satisfy a small set of well-known prelude
+# traits, and treat user-defined ``TyOpaque`` / ``TyRecord`` / closure /
+# container types as *potentially* satisfying any bound (the borrow-
+# check / trait pass in v1.0 will sharpen this — for the 2nd-impl,
+# conservative permissiveness is correct).
+#
+# The keys are bound names as they appear after ``:`` in a generic
+# parameter declaration: ``fn map[A, B: Display]`` -> ``"Display"``.
+_KNOWN_BOUNDS: frozenset[str] = frozenset({
+    "Display", "Debug", "Clone", "Copy", "Eq", "Ord",
+    "PartialEq", "PartialOrd", "Hash", "Default",
+    "Send", "Sync", "Sized",
+})
+
+_ALL_NUMERIC: frozenset[str] = frozenset({
+    "I8", "I16", "I32", "I64", "I128",
+    "U8", "U16", "U32", "U64", "U128",
+    "F32", "F64",
+})
+
+_ALL_SCALARS: frozenset[str] = _ALL_NUMERIC | frozenset({
+    "Bool", "Str", "Char", "Unit"
+})
+
+_INT_SCALARS: frozenset[str] = frozenset({
+    "I8", "I16", "I32", "I64", "I128",
+    "U8", "U16", "U32", "U64", "U128",
+})
+
+# Scalars and prelude types that satisfy each well-known bound. A type
+# satisfies a bound if its ``ty_show`` string appears in the bound's
+# satisfier set. Non-scalar / nominal / inference types are handled
+# separately in ``_satisfies_bound`` (conservatively true).
+_BOUND_SATISFIERS: dict[str, frozenset[str]] = {
+    "Display":    _ALL_SCALARS - {"Unit"},
+    "Debug":      _ALL_SCALARS,
+    "Clone":      _ALL_SCALARS,
+    # Copy excludes ``Str`` (heap-backed in the spec model).
+    "Copy":       _ALL_NUMERIC | frozenset({"Bool", "Char", "Unit"}),
+    "Eq":         _INT_SCALARS | frozenset({"Bool", "Str", "Char", "Unit"}),
+    "PartialEq":  _ALL_SCALARS,
+    # Ord excludes float (no total order).
+    "Ord":        _INT_SCALARS | frozenset({"Bool", "Str", "Char"}),
+    "PartialOrd": _ALL_SCALARS - {"Unit"},
+    # Hash excludes float.
+    "Hash":       _INT_SCALARS | frozenset({"Bool", "Str", "Char", "Unit"}),
+    "Default":    _ALL_SCALARS,
+    "Send":       _ALL_SCALARS,
+    "Sync":       _ALL_SCALARS,
+    "Sized":      _ALL_SCALARS,
+}
+
+
+def _satisfies_bound(t: "Ty", bound: str) -> bool:
+    """Return True if ``t`` satisfies the named ``bound``.
+
+    The rule (deliberately conservative — see module docstring):
+
+    * Unknown bounds are accepted (we don't know what they mean).
+    * ``TyAny`` / ``TyVar`` satisfy anything (inference hasn't pinned them
+      yet, so we can't reject them).
+    * Nominal / opaque / closure / container types satisfy any bound
+      conservatively (the borrow/trait pass in v1.0-RC will tighten).
+    * Scalar types satisfy a bound iff their ``ty_show`` name appears in
+      the bound's satisfier set.
+    """
+    if bound not in _KNOWN_BOUNDS:
+        return True
+    if isinstance(t, (TyAny, TyVar)):
+        return True
+    if isinstance(t, (TyOpaque, TyRecord, TyEnum, TyFn, TyArray,
+                      TyTuple, TyRef, TyResult, TyOption)):
+        return True
+    name = ty_show(t)
+    sats = _BOUND_SATISFIERS.get(bound, frozenset())
+    return name in sats
 
 
 # ---------------------------------------------------------------------------
@@ -462,6 +547,15 @@ class TypeChecker:
         self.struct_tys: dict[str, TyRecord] = {}
         self.enum_tys: dict[str, TyEnum] = {}
         self.type_aliases: dict[str, Ty] = {}
+        # v0.19 — per-fn generic scheme: ``fn_generics[name]`` is the
+        # ordered list of ``(generic_name, TyVar_id, bounds)`` records for
+        # that fn. Used at call sites to instantiate (refresh TyVars) and
+        # to discharge bounds. Empty list = non-generic fn.
+        self.fn_generics: dict[str, list[tuple[str, int, tuple[str, ...]]]] = {}
+        # Transient (per ``resolve_hir_ty`` call) generic-name → TyVar map.
+        # Set by ``_populate_signatures`` and ``check_fn`` to make multiple
+        # references to the same generic name resolve to the same TyVar.
+        self._generic_env: Optional[dict[str, TyVar]] = None
         # Filled in by check_module's first pass.
         self._populate_signatures()
 
@@ -540,7 +634,14 @@ class TypeChecker:
             return self.type_aliases[name]
         if name == "Self":
             return TY_ANY
-        # Single-letter generics like ``T``, ``E`` — fresh var.
+        # v0.19 — generic-name lookup through the current per-fn scope.
+        # The same ``T`` referenced twice in a signature must resolve to
+        # the same TyVar; without this, ``fn id(x: T) -> T`` couldn't be
+        # checked because the param and ret would be independent vars.
+        if self._generic_env is not None and name in self._generic_env:
+            return self._generic_env[name]
+        # Single-letter generics like ``T``, ``E`` outside a known scope —
+        # fresh var (legacy fallback used by extern decls and adhoc refs).
         if len(name) == 1 and name.isupper():
             return self.fresh()
         # Anything else: an opaque nominal type. Examples like
@@ -575,13 +676,33 @@ class TypeChecker:
                 self.struct_tys[item.name] = TyRecord(name=item.name, fields=fields)
             elif isinstance(item, HirTypeAlias):
                 self.type_aliases[item.name] = self.resolve_hir_ty(item.ty)
-        # Third: fn signatures.
+        # Third: fn signatures. v0.19 — build per-fn generic scope first
+        # so that multiple uses of the same generic name (``T``) inside the
+        # signature resolve to the same TyVar.
         for item in self.module.items:
             if isinstance(item, HirFn):
-                self.fn_sigs[item.name] = TyFn(
-                    params=tuple(self.resolve_hir_ty(p.ty) for p in item.params),
-                    ret=self.resolve_hir_ty(item.return_ty),
-                )
+                gscheme: list[tuple[str, int, tuple[str, ...]]] = []
+                gmap: dict[str, TyVar] = {}
+                # Prefer the v0.19 bound-carrying records when present;
+                # fall back to the plain names for backward compat.
+                gparams = item.generic_params if item.generic_params else [
+                    HirGenericParam(name=n) for n in item.generics
+                ]
+                for gp in gparams:
+                    if not gp.name:
+                        continue
+                    tv = self.fresh()
+                    gmap[gp.name] = tv
+                    gscheme.append((gp.name, tv.id, tuple(gp.bounds)))
+                self._generic_env = gmap
+                try:
+                    self.fn_sigs[item.name] = TyFn(
+                        params=tuple(self.resolve_hir_ty(p.ty) for p in item.params),
+                        ret=self.resolve_hir_ty(item.return_ty),
+                    )
+                finally:
+                    self._generic_env = None
+                self.fn_generics[item.name] = gscheme
 
     # ----- module entry -----
 
@@ -593,13 +714,23 @@ class TypeChecker:
     def check_fn(self, fn: HirFn) -> None:
         if fn.body is None:
             return  # extern decl
-        env = Env()
-        for p in fn.params:
-            pty = self.resolve_hir_ty(p.ty)
-            env.bindings_by_id[p.binding_id] = pty
-            env.locals_by_name[p.name] = pty
-        declared_ret = self.resolve_hir_ty(fn.return_ty)
-        body_ty = self.infer_block(fn.body, env)
+        # v0.19 — Re-use the same TyVars allocated during signature
+        # collection so the body sees the same vars (otherwise ``T`` in
+        # the signature and ``T`` in the body would unify trivially with
+        # everything).
+        scheme = self.fn_generics.get(fn.name, [])
+        gmap: dict[str, TyVar] = {name: TyVar(vid) for name, vid, _ in scheme}
+        self._generic_env = gmap
+        try:
+            env = Env()
+            for p in fn.params:
+                pty = self.resolve_hir_ty(p.ty)
+                env.bindings_by_id[p.binding_id] = pty
+                env.locals_by_name[p.name] = pty
+            declared_ret = self.resolve_hir_ty(fn.return_ty)
+            body_ty = self.infer_block(fn.body, env)
+        finally:
+            self._generic_env = None
         # Allow a Result-returning fn to be satisfied by either the bare ok
         # type or an explicit Ok(...). The HIR doesn't track this, so we
         # widen by accepting TyAny on either side.
@@ -885,33 +1016,129 @@ class TypeChecker:
         return TY_ANY
 
     def _infer_call(self, e: HirCall, env: Env) -> Ty:
-        callee_ty = self.infer(e.callee, env)
-        arg_tys = [self.infer(a, env) for a in e.args]
-        callee_ty = apply(self.subst, callee_ty)
+        # v0.19 — Generics instantiation + closure inference at the call
+        # site. The flow:
+        #
+        #   1. Resolve the callee to a fn signature (and its generic
+        #      scheme, if any).
+        #   2. Instantiate: clone the scheme's TyVars to fresh vars; record
+        #      bound obligations against the fresh vars.
+        #   3. Infer args. If the expected param type is a closure/fn shape
+        #      and the arg is a closure literal, push the expected param
+        #      types down into the closure's body so its params get a real
+        #      type instead of TyAny.
+        #   4. Unify per-arg, then discharge bounds.
+        instantiated_scheme: list[tuple[int, tuple[str, ...]]] = []
+        callee_ty: Ty
+        # Detect a direct fn-item callee so we can instantiate its generics.
+        callee_node = e.callee
+        if isinstance(callee_node, HirIdent) and callee_node.name in self.fn_sigs:
+            base = self.fn_sigs[callee_node.name]
+            scheme = self.fn_generics.get(callee_node.name, [])
+            callee_ty, instantiated_scheme = self._instantiate(base, scheme)
+        else:
+            callee_ty = self.infer(callee_node, env)
+            callee_ty = apply(self.subst, callee_ty)
         if isinstance(callee_ty, TyAny):
+            # Still infer args (and any nested closures with no expected ty).
+            for a in e.args:
+                self.infer(a, env)
             return TY_ANY
         if not isinstance(callee_ty, TyFn):
             # Widen tyvars to fn implicitly.
             if isinstance(callee_ty, TyVar):
+                arg_tys_v = [self.infer(a, env) for a in e.args]
                 ret = self.fresh()
-                fn_ty = TyFn(params=tuple(arg_tys), ret=ret)
+                fn_ty = TyFn(params=tuple(arg_tys_v), ret=ret)
                 self._unify(callee_ty, fn_ty, e.span, label="call site")
                 return ret
+            for a in e.args:
+                self.infer(a, env)
             self._diag(CODE_TYPECK_NOT_CALLABLE,
                        f"value of type {ty_show(callee_ty)} is not callable",
                        e.span)
             return TY_ANY
         # Arity check.
-        if len(callee_ty.params) != len(arg_tys):
+        if len(callee_ty.params) != len(e.args):
+            for a in e.args:
+                self.infer(a, env)
             self._diag(CODE_TYPECK_ARITY_MISMATCH,
-                       f"expected {len(callee_ty.params)} arg(s), got {len(arg_tys)}",
+                       f"expected {len(callee_ty.params)} arg(s), got {len(e.args)}",
                        e.span)
             return apply(self.subst, callee_ty.ret)
-        # Per-arg unification.
-        for i, (pt, at) in enumerate(zip(callee_ty.params, arg_tys)):
-            self._unify(pt, at, e.span,
+        # Per-arg inference + unification. Push expected closure-param
+        # types down when both shapes match (HM-with-bidirectional-hints
+        # for closure literals; v1.0-RC2 §11.6).
+        for i, (pt, arg_node) in enumerate(zip(callee_ty.params, e.args)):
+            expected = apply(self.subst, pt)
+            if isinstance(arg_node, HirClosure):
+                at = self._infer_closure(arg_node, env, expected_ty=expected)
+            else:
+                at = self.infer(arg_node, env)
+            self._unify(expected, at, e.span,
                         label=f"argument {i + 1}")
+        # Discharge bounds after unification: walk the recorded scheme,
+        # apply the substitution to each tyvar, and check the bound list.
+        for var_id, bounds in instantiated_scheme:
+            resolved = apply(self.subst, TyVar(var_id))
+            for bound in bounds:
+                if not _satisfies_bound(resolved, bound):
+                    self._diag(
+                        CODE_TYPECK_BOUND_UNSATISFIED,
+                        f"type `{ty_show(resolved)}` does not satisfy bound `{bound}`",
+                        e.span,
+                    )
         return apply(self.subst, callee_ty.ret)
+
+    def _instantiate(
+        self,
+        fn_ty: TyFn,
+        scheme: list[tuple[str, int, tuple[str, ...]]],
+    ) -> tuple[TyFn, list[tuple[int, tuple[str, ...]]]]:
+        """Instantiate a (possibly polymorphic) fn signature for a call site.
+
+        The signature is stored with one TyVar per generic param. To use
+        it at a call site we clone those TyVars to fresh ones (otherwise
+        a single fn called twice with different arg types would
+        cross-contaminate via the substitution).
+
+        Returns the rewritten ``TyFn`` and a list of
+        ``(fresh_var_id, bounds_tuple)`` records the caller uses to
+        discharge generic bounds after unification.
+        """
+        if not scheme:
+            return fn_ty, []
+        # Build a fresh-var-substitution map keyed by the original var id.
+        renaming: dict[int, TyVar] = {}
+        out_scheme: list[tuple[int, tuple[str, ...]]] = []
+        for _name, var_id, bounds in scheme:
+            fresh = self.fresh()
+            renaming[var_id] = fresh
+            out_scheme.append((fresh.id, bounds))
+        # Walk the fn type and rewrite.
+        def rw(t: Ty) -> Ty:
+            t = apply(self.subst, t)
+            if isinstance(t, TyVar):
+                if t.id in renaming:
+                    return renaming[t.id]
+                return t
+            if isinstance(t, TyFn):
+                return TyFn(params=tuple(rw(p) for p in t.params), ret=rw(t.ret))
+            if isinstance(t, TyTuple):
+                return TyTuple(elems=tuple(rw(x) for x in t.elems))
+            if isinstance(t, TyArray):
+                return TyArray(elem=rw(t.elem))
+            if isinstance(t, TyRef):
+                return TyRef(inner=rw(t.inner), mut=t.mut)
+            if isinstance(t, TyResult):
+                return TyResult(ok=rw(t.ok))
+            if isinstance(t, TyOption):
+                return TyOption(inner=rw(t.inner))
+            if isinstance(t, TyRecord):
+                return TyRecord(name=t.name,
+                                fields=tuple((n, rw(ft)) for n, ft in t.fields))
+            return t
+        return rw(fn_ty), out_scheme
 
     def _infer_field(self, e: HirField, env: Env) -> Ty:
         target_ty = self.infer(e.target, env)
@@ -1047,25 +1274,73 @@ class TypeChecker:
                             label=f"field `{fn_name}`")
         return decl
 
-    def _infer_closure(self, e: HirClosure, env: Env) -> Ty:
+    def _infer_closure(
+        self,
+        e: HirClosure,
+        env: Env,
+        expected_ty: Optional[Ty] = None,
+    ) -> Ty:
+        """Infer a closure literal's type.
+
+        v0.19 — accepts an optional ``expected_ty`` (typically the fn-ty
+        of the enclosing call's parameter). When the expected shape is a
+        ``TyFn`` of matching arity, its param/ret types are pushed down
+        into the closure's params/body. This is the bidirectional-typing
+        path that lets ``|x| x + 1`` get ``fn(I32) -> I32`` when the
+        callee expects ``fn(I32) -> I32`` without an annotation.
+
+        When ``expected_ty`` is absent (closure used outside a call or in
+        a let-binding without annotation), we fall back to fresh TyVars
+        for each unannotated param — the body's use of the param then
+        drives inference.
+        """
         body_env = env.child()
-        for p in e.params:
-            pty = self.resolve_hir_ty(p.ty) if p.ty.name != "_" else self.fresh()
+        expected_fn: Optional[TyFn] = None
+        if expected_ty is not None:
+            et = apply(self.subst, expected_ty)
+            if isinstance(et, TyFn) and len(et.params) == len(e.params):
+                expected_fn = et
+            elif isinstance(et, TyFn):
+                # Arity mismatch — emit a closure-arity diagnostic and
+                # fall through with the closure's declared shape (so the
+                # body still typechecks).
+                self._diag(
+                    CODE_TYPECK_CLOSURE_ARITY,
+                    f"closure has {len(e.params)} parameter(s), expected {len(et.params)}",
+                    e.span,
+                )
+        # Bind params, using the expected param types when known.
+        param_tys: list[Ty] = []
+        for i, p in enumerate(e.params):
+            if expected_fn is not None and p.ty.name == "_":
+                # Push the expected param type down — this is the v0.19
+                # closure-inference hook.
+                pty: Ty = expected_fn.params[i]
+            elif p.ty.name == "_":
+                pty = self.fresh()
+            else:
+                pty = self.resolve_hir_ty(p.ty)
+                # Even with an explicit annotation, unify against the
+                # expected so the diagnostic surfaces at the call site.
+                if expected_fn is not None:
+                    self._unify(expected_fn.params[i], pty, e.span,
+                                label=f"closure param {i + 1}")
             body_env.bindings_by_id[p.binding_id] = pty
             body_env.locals_by_name[p.name] = pty
+            param_tys.append(pty)
         if e.body is not None:
             ret = self.infer_block(e.body, body_env)
         else:
             ret = TY_UNIT
         if e.ret_ty is not None:
-            self._unify(self.resolve_hir_ty(e.ret_ty), ret, e.span,
+            declared_ret = self.resolve_hir_ty(e.ret_ty)
+            self._unify(declared_ret, ret, e.span,
                         label="closure return")
-            ret = self.resolve_hir_ty(e.ret_ty)
-        param_tys = tuple(
-            body_env.bindings_by_id.get(p.binding_id, TY_ANY)
-            for p in e.params
-        )
-        return TyFn(params=param_tys, ret=ret)
+            ret = declared_ret
+        if expected_fn is not None:
+            self._unify(expected_fn.ret, ret, e.span,
+                        label="closure return vs expected")
+        return TyFn(params=tuple(param_tys), ret=ret)
 
 
 # ---------------------------------------------------------------------------

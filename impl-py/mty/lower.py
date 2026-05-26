@@ -49,6 +49,7 @@ from .hir import (
     HirField_,
     HirFn,
     HirFor,
+    HirGenericParam,
     HirIdent,
     HirIf,
     HirIndex,
@@ -265,6 +266,15 @@ class Lowerer:
     def _lower_fn(self, item: Node) -> HirFn:
         name = item.get("name", "<anon>")
         generics = [g.get("name", "") for g in item.get("generics", [])]
+        # v0.19: keep generics with their bounds for the type checker.
+        generic_params = [
+            HirGenericParam(
+                name=g.get("name", ""),
+                bounds=tuple(g.get("bounds", []) or ()),
+                span=g.get("span", (0, 0)),
+            )
+            for g in item.get("generics", [])
+        ]
         # Open a fresh scope for params + body.
         self._push_scope()
         params: list[HirParam] = []
@@ -311,6 +321,7 @@ class Lowerer:
             name=name, params=params, return_ty=ret_ty, effects=effects,
             generics=generics, body=body, span=item.get("span", (0, 0)),
             visibility=item.get("visibility", "private"), has_body=has_body,
+            generic_params=generic_params,
         )
 
     def _lower_struct(self, item: Node) -> HirStruct:

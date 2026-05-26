@@ -85,3 +85,7 @@ CODE_TYPECK_BRANCH_MISMATCH = "MT2007"      # if/match branches disagree
 CODE_TYPECK_RETURN_MISMATCH = "MT2008"
 CODE_TYPECK_OPERATOR_TYPE = "MT2009"        # binop operand type bad
 CODE_TYPECK_OCCURS_CHECK = "MT2010"         # infinite-type
+# v0.19 — HM closure inference + generic constraints.
+CODE_TYPECK_CLOSURE_ARITY = "MT2011"        # closure arg count != expected
+CODE_TYPECK_BOUND_UNSATISFIED = "MT2012"    # generic bound unsatisfied
+CODE_TYPECK_UNKNOWN_GENERIC = "MT2013"      # generic name not declared

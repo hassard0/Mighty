@@ -16,15 +16,16 @@ from prose alone, not just from reading the Rust source.
 | Lexer           | **shipped** — every token kind in §3, all 23 examples                          |
 | Parser          | **shipped (subset)** — every top-level item kind in §4, all 23 examples        |
 | HIR + lowering  | **shipped (v0.17)** — name-resolved typed-dataclass tree, all 23 examples lower clean |
-| Type checker    | **shipped (subset, v0.17)** — H-M-style inference with TyAny absorption; 23/23 examples typeck clean |
+| Type checker    | **shipped (HM + closures + generic constraints, v0.19)** — full H-M with bidirectional closure inference and generic-bound discharge; 23/23 examples typeck clean |
 | Borrow checker  | **out of scope** (v0.18+)                                                      |
 | Codegen         | **out of scope** (v0.18+)                                                      |
 
 See `dev/history/notes/PYTHON_IMPL_V0_11_NOTES.md` for the v0.11
-front-end findings and
+front-end findings,
 `dev/history/notes/PYTHON_IMPL_V0_17_NOTES.md` for the v0.17
-HIR + typeck findings (per-example matrix, recovered-from-died-agent
-audit, v0.18 follow-ups).
+HIR + typeck findings, and
+`dev/history/notes/V1_FREEZE_PREP_V0_19_NOTES.md` for v0.19's
+HM-closure / generic-constraint polish and the v1.0-RC freeze plan.
 
 ## How to run
 
@@ -68,6 +69,8 @@ impl-py/
     test_examples.py         - sweep examples/*.mty through lex+parse
     test_hir.py              - HIR + lowering unit tests (v0.17)
     test_typeck.py           - type checker unit tests (v0.17)
+    test_typeck_closure.py   - HM closure inference unit tests (v0.19)
+    test_typeck_generics.py  - generic-constraint discharge unit tests (v0.19)
     test_examples_typeck.py  - full pipeline sweep on every example (v0.17)
   pyproject.toml
   README.md            - this file
@@ -98,6 +101,30 @@ comments are first-class trivia tokens (use
 
 MIT, same as the rest of the Mighty workspace. See `../LICENSE`.
 
+## v0.19 — closure inference + generic constraints
+
+`mty.typeck` now ships the two pieces the v0.18 integrator flagged as
+v1.0-freeze blocker #1:
+
+* **HM closure inference**. A closure literal in fn-call position
+  (`map(xs, fn(x) { x + 1 })`) is typed bidirectionally from the
+  expected fn-ty of the corresponding param. Unannotated closure
+  params receive the call-site's expected type instead of `TyAny`;
+  arity and return-type mismatches surface as `MT2011` / `MT2001`.
+
+* **Generics with constraints**. A fn declared `fn map[A, B: Display]`
+  records the bound on `B`. At each call site, the scheme is
+  instantiated with fresh TyVars, the per-arg unification runs, then
+  each bound is discharged against the resolved type. Built-in scalars
+  are checked against a small well-known bound table (`Display`,
+  `Debug`, `Clone`, `Copy`, `Eq`, `Ord`, `PartialEq`, `PartialOrd`,
+  `Hash`, `Default`, `Send`, `Sync`, `Sized`). Unknown bounds are
+  accepted conservatively (we don't model user traits). Failures emit
+  `MT2012`.
+
+The HM substitution is preserved across closure inference and across
+the new instantiation step — no shared-state leakage between calls.
+
 ## HIR + type checker (v0.17)
 
 The HIR (`mty.hir`) is the parser AST after name resolution, normalised
@@ -119,14 +146,16 @@ over the HIR. It models:
 * Struct-literal field-set matching
 * If/match branch unification
 
-What it does NOT model in v0.17 (these gracefully degrade via the
-`TyAny` absorbing type — they don't break inference):
+What the checker still does NOT model (these gracefully degrade via
+the `TyAny` absorbing type — they don't break inference):
 
 * Effect rows (treated as type-erased)
 * Trait/impl method dispatch (method calls return `TyAny`)
 * Agents, protocols, supervisors, `spawn`, `ask/send` sugars
 * Macros and macro calls
 * Lifetimes / borrow checking
+* User-defined trait items (generic bounds against user traits are
+  accepted conservatively — see v0.19 §5 above)
 
 Coverage matrix:
 

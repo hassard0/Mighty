@@ -377,6 +377,24 @@ class HirParam:
 
 
 @dataclass
+class HirGenericParam:
+    """A generic parameter with optional bounds.
+
+    Introduced in v0.19 to support generics-with-constraints typeck. The
+    older code path (which kept generics as ``list[str]`` of plain names)
+    is still accepted everywhere — ``HirFn.generics`` is a parallel field
+    holding the same names for backward compatibility. The bound vocabulary
+    is intentionally string-typed because we don't model trait items in
+    the Python 2nd-impl; the type checker treats bounds as opaque tags it
+    can verify presence-of-trait-name against.
+    """
+
+    name: str
+    bounds: tuple[str, ...] = ()
+    span: Span = (0, 0)
+
+
+@dataclass
 class HirFn:
     """A function declaration."""
 
@@ -389,6 +407,9 @@ class HirFn:
     span: Span = (0, 0)
     visibility: str = "private"
     has_body: bool = True
+    # v0.19 — generic-parameter records with bounds. The plain ``generics``
+    # list above is preserved for backward compatibility.
+    generic_params: list[HirGenericParam] = field(default_factory=list)
 
 
 @dataclass
