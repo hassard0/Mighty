@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 mod cmd;
 
@@ -9,10 +9,44 @@ struct Cli {
     cmd: Cmd,
 }
 
+/// Clap-side mirror of [`cmd::serve::ServeArgs`]. Kept in `main.rs`
+/// so the public `Cmd::Serve(ServeArgs)` variant stays self-contained.
+#[derive(Args, Debug, Clone)]
+struct ServeArgs {
+    /// Port to bind on `127.0.0.1`. Defaults to 8000.
+    #[arg(long, default_value_t = 8000)]
+    port: u16,
+    /// File-watch `src/` and rebuild + reload on every change.
+    #[arg(long)]
+    watch: bool,
+    /// Package root (default: current working directory).
+    #[arg(long)]
+    manifest_dir: Option<std::path::PathBuf>,
+}
+
 #[derive(Subcommand)]
 enum Cmd {
     /// Scaffold a new Mighty package.
-    New { name: String },
+    ///
+    /// v0.23 Track C: pass `--template <name>` to pick a scaffold
+    /// (`blank` is the default; `web-game` produces a wasm32-web
+    /// agent + canvas + dom-shim ready for `mty serve`).
+    New {
+        name: String,
+        /// Template name. Defaults to `blank`. Built-in templates:
+        /// `blank`, `web-game`.
+        #[arg(long)]
+        template: Option<String>,
+    },
+    /// Built-in dev server for a web-game package.
+    ///
+    /// Reads `mighty.toml`, builds with `--target wasm32-web`, and
+    /// serves `web/` + the freshly-built `main.wasm` on
+    /// `127.0.0.1:<port>` (default 8000). With `--watch`,
+    /// file-watches `src/` and pushes a reload to the page over a
+    /// websocket on every successful rebuild. See
+    /// `docs/reference/cli/mty-serve.md`.
+    Serve(ServeArgs),
     /// Format .mty files in place (or stdin).
     Fmt {
         #[arg(num_args = 0..)]
@@ -234,7 +268,12 @@ fn main() {
 
     let cli = Cli::parse();
     let code = match cli.cmd {
-        Cmd::New { name } => cmd::new::run(&name),
+        Cmd::New { name, template } => cmd::new::run(&name, template.as_deref()),
+        Cmd::Serve(args) => cmd::serve::run(cmd::serve::ServeArgs {
+            port: args.port,
+            watch: args.watch,
+            manifest_dir: args.manifest_dir,
+        }),
         Cmd::Fmt {
             paths,
             stdin,

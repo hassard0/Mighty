@@ -38,6 +38,24 @@ mty-runtime = { path = "../mty-runtime" }
 # v0.16 `mty inspect` subcommand: JSON over the runtime control socket.
 serde.workspace = true
 serde_json.workspace = true
+# v0.23 Track C — `mty serve` (built-in dev server) + `--watch` rebuild.
+# hyper/http stack is already pulled in by mty-stdlib; we add a direct
+# dep so cmd::serve can spin up its own listener. tokio gives us the
+# runtime + select! loop for accept + shutdown + watcher events. notify
+# powers the file-watch path that drives `--watch` rebuilds. See
+# `dev/history/notes/MTY_SERVE_V0_23_NOTES.md`.
+tokio.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+notify = "6"
+
+[dev-dependencies]
+# v0.23 Track C — `cmd_serve.rs` smoke tests hit the dev server with a
+# minimal blocking HTTP client. We deliberately don't pull in reqwest
+# here (which would add rustls + ring transitively); the tests use the
+# same tokio runtime they spawn the server under.
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "net", "io-util"] }
 
 [lints]
 workspace = true

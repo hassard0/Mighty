@@ -14,3 +14,6 @@ pub mod replay;
 // (state-preserving hot reload). See docs/internals/hot-reload.md.
 pub mod reload;
 pub mod run;
+// v0.23 Track C — `mty serve [--port N] [--watch]` (built-in dev
+// server + websocket-driven reload for the web-game template).
+pub mod serve;
