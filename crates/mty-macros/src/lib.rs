@@ -26,7 +26,8 @@ pub mod stdlib;
 pub mod token;
 
 pub use diag::{
-    MACRO_ARITY_MISMATCH, MACRO_BODY_PARSE_FAILED, PROC_MACRO_IMPURE, PROC_MACRO_IMPURE_AT_RUNTIME,
+    MACRO_ARITY_MISMATCH, MACRO_BODY_PARSE_FAILED, MACRO_FORMAT_BAD_TEMPLATE,
+    MACRO_FORMAT_UNSUPPORTED_SPEC, PROC_MACRO_IMPURE, PROC_MACRO_IMPURE_AT_RUNTIME,
     PROC_MACRO_RESOURCE_EXCEEDED, PROC_MACRO_UNSUPPORTED_V0_5, RECURSIVE_MACRO_TOO_DEEP,
     UNKNOWN_MACRO,
 };
@@ -38,6 +39,7 @@ pub use proc::{
 };
 pub use registry::{MacroDef, MacroKind, MacroRegistry, PackageMacros};
 pub use scopes::{resolve, ResolveAmbiguity, ScopeGen, ScopeId, Scopes};
+pub use stdlib::{expand_builtin_macro, is_builtin_macro, BUILTIN_MACRO_NAMES};
 pub use token::{lex_fragment, tokens_from_body_node, tokens_to_source, Tok};
 
 /// v0.5 macro-expansion depth limit. Recursive macro definitions are

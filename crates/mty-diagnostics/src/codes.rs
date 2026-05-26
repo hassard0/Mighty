@@ -218,6 +218,17 @@ pub const PROC_MACRO_IMPURE_AT_RUNTIME: DiagCode = DiagCode::new(6007);
 /// resource bounds (wall-clock, step count, or memory). The expansion
 /// is aborted and the call site is left as an inert sentinel.
 pub const PROC_MACRO_RESOURCE_EXCEEDED: DiagCode = DiagCode::new(6008);
+/// MT6009 — `format!` template is malformed: unmatched `{`/`}`, the
+/// first argument is not a string literal, or a named field refers to
+/// an identifier that's not in scope. See the diagnostic message for
+/// the specific failure mode. v0.24 baseline.
+pub const MACRO_FORMAT_BAD_TEMPLATE: DiagCode = DiagCode::new(6009);
+/// MT6010 — `format!` template uses a format specification that the
+/// v0.24 expander does not implement yet (width/padding/precision/align).
+/// The supported spec subset is `{}`, `{x}`, `{X}`, `{?}`. Width
+/// (`{:05}`), precision (`{:.3}`), and alignment (`{:>10}`) are tracked
+/// for v0.25 — see dev/history/notes/FORMAT_MACRO_V0_24_NOTES.md.
+pub const MACRO_FORMAT_UNSUPPORTED_SPEC: DiagCode = DiagCode::new(6010);
 
 // Borrow checker: MT3001..MT3099
 pub const USE_AFTER_MOVE: DiagCode = DiagCode::new(3001);
@@ -1027,6 +1038,34 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
              100,000 interpreter steps, or allocated more than 16 MiB. Reduce \
              the macro's complexity, or split the work between several smaller \
              macros."
+        }
+        6009 => {
+            "MT6009: Malformed `format!` template.\n\
+             \n\
+             Cause:   The first argument to `format!` could not be parsed as a \
+             template literal, or the template contains unbalanced braces, a \
+             positional argument index that's out of range, or a named field \
+             whose identifier is not in scope.\n\
+             Example: `format!(\"{\", x)`           // unmatched `{`\n\
+                      `format!(\"{a}\")`            // `a` not in scope\n\
+             Fix:     Ensure the first arg is a `\"...\"` string literal, \
+             escape literal braces as `{{`/`}}`, supply one trailing argument \
+             per `{}` placeholder, and double-check named-arg spellings.\n\
+             Spec:    \u{a7}20.3.5 (format macro) of v1.0-RC2."
+        }
+        6010 => {
+            "MT6010: `format!` spec not yet implemented.\n\
+             \n\
+             Cause:   The v0.24 `format!` expander ships a subset of Rust's \
+             format-spec grammar: `{}`, `{x}` (hex), `{X}` (HEX), `{?}` \
+             (debug), and named-arg passthrough `{name}`. Width, precision, \
+             alignment, fill, and sign flags are deferred to v0.25.\n\
+             Example: `format!(\"{:05}\", n)`     // width is v0.25\n\
+                      `format!(\"{:.3}\", pi)`    // precision is v0.25\n\
+             Fix:     Until v0.25 ships padding/width/precision, build the \
+             result by hand (`if n < 10 { \"0\" + n.to_str() } else \
+             { n.to_str() }`).\n\
+             Tracked: dev/history/notes/FORMAT_MACRO_V0_24_NOTES.md."
         }
         _ => return None,
     })

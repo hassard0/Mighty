@@ -19,10 +19,12 @@
 //! - [`fs`]    — sync filesystem ops gated by an `Fs` cap value
 //! - [`time`]  — monotonic clock + `sleep`
 //! - [`log`]   — `log()` / `print()` host fallback + v0.17 direct-import constants
+//! - [`fmt`]   — v0.24: runtime contract for `format!` conversion methods
 //! - [`test`]  — Mighty-native test discovery + reporter
 //! - [`host`]  — single entry point invoked from `mty-runtime`'s
 //!   `host_std` to dispatch `std.*` generic calls.
 
+pub mod fmt;
 pub mod fs;
 pub mod host;
 pub mod http;

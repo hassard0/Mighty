@@ -1,0 +1,6 @@
+// v0.24 Track B negative: too few positional args for the template.
+// Two `{}` placeholders, only one trailing arg → MT6002 arity mismatch.
+fn main() {
+  let n = 1
+  log(format!("{} + {}", n))
+}

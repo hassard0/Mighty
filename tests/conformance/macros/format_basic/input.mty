@@ -1,0 +1,8 @@
+// v0.24 Track B: format!() builtin macro.
+// Positive: a multi-arg format! call expands cleanly, types check, and
+// runs through the SIR interpreter to produce the expected output.
+fn main() {
+  let score = 5
+  let s = format!("score: {}", score)
+  log(s)
+}

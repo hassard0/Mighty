@@ -401,6 +401,13 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         "len",
         "to_str",
         "to_string",
+        // v0.24 (Track B): conversion sigils emitted by `format!` —
+        // `{:x}` → `.to_hex_str()`, `{:X}` → `.to_hex_upper_str()`,
+        // `{:?}` → `.to_debug_str()`. Runtime impls live in the SIR
+        // interp; the docs live in `mty_stdlib::fmt`.
+        "to_hex_str",
+        "to_hex_upper_str",
+        "to_debug_str",
         "get",
         "ok_or",
         "query",

@@ -1,0 +1,6 @@
+// v0.24 Track B negative: format spec `{:05}` is not yet supported.
+// Expected: MT6010 with a clear "use to_str() by hand" hint.
+fn main() {
+  let n = 42
+  log(format!("{:05}", n))
+}

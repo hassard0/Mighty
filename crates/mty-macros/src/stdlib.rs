@@ -1,20 +1,33 @@
-//! Standard macro library bundled with mty-macros (v0.5).
+//! Standard macro library bundled with mty-macros.
 //!
-//! The macros ship as real `.mty` source files in `lib/`. They are
-//! `include_str!`d here so the crate can hand callers their source
-//! text for compilation as part of a project's macro registry. Real
-//! "auto-import on `use mty_macros.…`" wiring is a mty-pkg
-//! concern — for v0.5 we expose just the text and let projects splice
-//! it into their own macro discovery.
+//! Two flavors live here:
+//!
+//!   1. **Source-shipped declarative macros** in `lib/*.mty`. The text
+//!      is `include_str!`d so the crate can hand callers the source for
+//!      compilation as part of a project's macro registry. Real
+//!      "auto-import on `use mty_macros.…`" wiring is a mty-pkg concern —
+//!      we expose the text and let projects splice it into their own
+//!      macro discovery.
+//!   2. **Code-driven builtin macros**, currently just [`format`]. These
+//!      are macros whose arguments have their own grammar
+//!      (`format!("score: {}", n)` has a *format-string* DSL inside the
+//!      first arg) and so cannot be expressed as pure token-substitution
+//!      templates. The HIR preprocessor consults this module *before* it
+//!      raises MT6001 for `name!(args)` calls whose name isn't in the
+//!      declarative registry.
 //!
 //! ## Layout
 //!
 //!   * `assert.mty` — `assert!`, `assert_eq!`, `assert_ne!`
 //!   * `debug.mty`  — `debug!` (eprintln of expression text + value)
 //!   * `unreachable.mty` — `unreachable!()`
+//!   * `format` module — `format!` (v0.24)
 //!
-//! Use [`load_into`] to merge the bundled macros into a
-//! [`PackageMacros`] instance.
+//! Use [`load_into`] to merge the bundled declarative macros into a
+//! [`PackageMacros`] instance, and [`is_builtin_macro`] /
+//! [`expand_builtin_macro`] to check + expand the builtin set.
+
+pub mod format;
 
 use crate::registry::PackageMacros;
 use mty_ast::{AstNode, File};
@@ -30,6 +43,37 @@ pub const UNREACHABLE_SD: &str = include_str!("../lib/unreachable.mty");
 /// Every bundled source file, in load order.
 pub fn bundled_sources() -> &'static [&'static str] {
     &[ASSERT_SD, DEBUG_SD, UNREACHABLE_SD]
+}
+
+/// Names of every code-driven builtin macro. The HIR preprocessor
+/// special-cases these — they bypass the declarative `MacroRegistry`
+/// and go straight to a custom expander (see [`expand_builtin_macro`]).
+pub const BUILTIN_MACRO_NAMES: &[&str] = &["format"];
+
+/// True if `name` is the name of a code-driven builtin macro shipped
+/// with the compiler. These macros are recognised by the preprocessor
+/// even with no `use` import and no declarative `macro` decl, mirroring
+/// Rust's built-in `format!`/`println!` shape.
+pub fn is_builtin_macro(name: &str) -> bool {
+    BUILTIN_MACRO_NAMES.contains(&name)
+}
+
+/// Expand a builtin macro call. Returns `Some(snippet)` on success,
+/// `Some(Err(...))` when the macro is known but the call is malformed,
+/// and `None` if the macro isn't a builtin at all (caller should fall
+/// back to declarative expansion or raise MT6001).
+///
+/// The returned source snippet is a Mighty expression text suitable
+/// for re-parsing. Callers splice it back into the source and re-run
+/// the preprocessor on the next pass.
+pub fn expand_builtin_macro(
+    name: &str,
+    args: &[&str],
+) -> Option<Result<String, format::FormatExpandError>> {
+    match name {
+        "format" => Some(format::expand_format_call(args)),
+        _ => None,
+    }
 }
 
 /// Load every bundled stdlib macro into `pm.local`. Public macros land
@@ -101,5 +145,25 @@ mod tests {
             assert!(pm.local.contains(name), "{name} missing from local");
             assert!(pm.exported.contains(name), "{name} missing from exported");
         }
+    }
+
+    #[test]
+    fn format_is_a_builtin() {
+        assert!(is_builtin_macro("format"));
+        assert!(!is_builtin_macro("frobnicate"));
+        assert!(!is_builtin_macro("assert_eq")); // declarative, not builtin
+    }
+
+    #[test]
+    fn expand_builtin_format_round_trips() {
+        let out = expand_builtin_macro("format", &["\"hi {}\"", "n"])
+            .expect("format is a builtin")
+            .expect("expansion succeeds");
+        assert!(out.contains("(n).to_str()"));
+    }
+
+    #[test]
+    fn expand_builtin_unknown_returns_none() {
+        assert!(expand_builtin_macro("nope", &[]).is_none());
     }
 }

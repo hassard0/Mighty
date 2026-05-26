@@ -1043,6 +1043,17 @@ impl<'a> Interp<'a> {
                 let qualified = format!("dom.{op}");
                 Ok(host.extern_call(&qualified, &args))
             }
+            BuiltinId::CanvasOp(op) => {
+                // v0.24 — Canvas builtin calls mirror the v0.6 DomOp
+                // pattern. The interpreter routes through the host's
+                // extern table as `canvas.<snake_name>` so headless
+                // test runs without a wasm32-web JS host get a
+                // deterministic default. Real Canvas dispatch is the
+                // wasm32-web backend's job — see `emit_canvas_call`
+                // in `crates/mty-codegen-wasm/src/web_lower.rs`.
+                let qualified = format!("canvas.{}", op.as_snake());
+                Ok(host.extern_call(&qualified, &args))
+            }
         }
     }
 }
@@ -1389,6 +1400,55 @@ fn eval_method(receiver: &Value, name: &str, args: &[Value]) -> Value {
         },
         "to_str" | "to_string" => Str(receiver.as_str()),
         "as_str" => Str(receiver.as_str()),
+        // v0.24 (Track B): conversion methods the `format!` builtin
+        // expands its placeholders to. Integers / chars / bools / floats
+        // get sensible formatting; everything else falls through to the
+        // generic `as_str` so the runtime never traps on a missing impl.
+        "to_hex_str" => match receiver {
+            Int(n, _) => {
+                let v = *n as i64;
+                if v < 0 {
+                    Str(format!("-{:x}", v.unsigned_abs()))
+                } else {
+                    Str(format!("{:x}", v as u64))
+                }
+            }
+            Char(c) => Str(format!("{:x}", *c as u32)),
+            Bool(b) => Str(format!("{:x}", if *b { 1 } else { 0 })),
+            Str(s) => {
+                let mut out = String::with_capacity(s.len() * 2);
+                for byte in s.as_bytes() {
+                    out.push_str(&format!("{:02x}", byte));
+                }
+                Str(out)
+            }
+            other => Str(other.as_str()),
+        },
+        "to_hex_upper_str" => match receiver {
+            Int(n, _) => {
+                let v = *n as i64;
+                if v < 0 {
+                    Str(format!("-{:X}", v.unsigned_abs()))
+                } else {
+                    Str(format!("{:X}", v as u64))
+                }
+            }
+            Char(c) => Str(format!("{:X}", *c as u32)),
+            Bool(b) => Str(format!("{:X}", if *b { 1 } else { 0 })),
+            Str(s) => {
+                let mut out = String::with_capacity(s.len() * 2);
+                for byte in s.as_bytes() {
+                    out.push_str(&format!("{:02X}", byte));
+                }
+                Str(out)
+            }
+            other => Str(other.as_str()),
+        },
+        "to_debug_str" => match receiver {
+            Str(s) => Str(format!("{:?}", s)),
+            Char(c) => Str(format!("{:?}", c)),
+            other => Str(other.as_str()),
+        },
         "is_empty" => match receiver {
             Str(s) => Bool(s.is_empty()),
             Array(xs) => Bool(xs.is_empty()),

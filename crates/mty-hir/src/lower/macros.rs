@@ -32,9 +32,10 @@ use mty_diagnostics::{
     diagnostic::{Diagnostic, Label, Severity},
 };
 use mty_macros::{
-    check_proc_macro_purity, expand_proc, expand_scoped_to_source, lex_fragment, tokens_to_source,
-    ImpurityReason, MacroDef, MacroKind, MacroRegistry, ProcMacroResult, ResourceBreach, ScopeGen,
-    ScopeId, ScopedExpansion, Scopes, MAX_EXPANSION_DEPTH,
+    check_proc_macro_purity, expand_proc, expand_scoped_to_source, is_builtin_macro, lex_fragment,
+    stdlib::format as fmt_macro, tokens_to_source, ImpurityReason, MacroDef, MacroKind,
+    MacroRegistry, ProcMacroResult, ResourceBreach, ScopeGen, ScopeId, ScopedExpansion, Scopes,
+    MAX_EXPANSION_DEPTH,
 };
 use mty_syntax::{SyntaxKind, SyntaxNode};
 
@@ -125,7 +126,13 @@ pub fn preprocess(source: &str) -> Preprocessed {
             diags.push(diag_unknown_macro(u.start, u.end, &u.name));
         }
 
-        if registry.is_empty() {
+        // v0.24: code-driven builtin macros (`format!`, ...). These bypass
+        // the declarative registry and route through their per-macro
+        // expander. Declarative shadowing is honoured — if the user declared
+        // `macro format(...) => { ... }` we treat it as a declarative call.
+        let builtins = collect_builtin_macro_calls(&file.0, &registry);
+
+        if registry.is_empty() && builtins.is_empty() {
             // Even with no decls we still rewrite unknown-macro call sites to
             // a sentinel so downstream lowering doesn't choke on `Path!(args)`
             // that the post-macro parse won't understand.
@@ -139,7 +146,7 @@ pub fn preprocess(source: &str) -> Preprocessed {
             };
         }
         let calls = collect_macro_calls(&file.0, &registry, &current);
-        if calls.is_empty() && !unknown_was_nonempty {
+        if calls.is_empty() && builtins.is_empty() && !unknown_was_nonempty {
             return Preprocessed {
                 source: current,
                 diagnostics: diags,
@@ -319,6 +326,39 @@ pub fn preprocess(source: &str) -> Preprocessed {
             });
             any_progress = true;
         }
+        // v0.24: builtin (code-driven) macros — currently just `format!`.
+        for b in &builtins {
+            let arg_refs: Vec<&str> = b.args.iter().map(|s| s.as_str()).collect();
+            match mty_macros::expand_builtin_macro(&b.name, &arg_refs) {
+                Some(Ok(snippet)) => {
+                    rewrites.push(Rewrite::Replace {
+                        start: b.start,
+                        end: b.end,
+                        with: snippet,
+                    });
+                    any_progress = true;
+                }
+                Some(Err(e)) => {
+                    diags.push(diag_format_error(b.start, b.end, &b.name, &e));
+                    rewrites.push(Rewrite::Replace {
+                        start: b.start,
+                        end: b.end,
+                        with: macro_sentinel(),
+                    });
+                    any_progress = true;
+                }
+                None => {
+                    // Defensive: shouldn't happen — name is in
+                    // BUILTIN_MACRO_NAMES per the collector check above.
+                    rewrites.push(Rewrite::Replace {
+                        start: b.start,
+                        end: b.end,
+                        with: macro_sentinel(),
+                    });
+                    any_progress = true;
+                }
+            }
+        }
         rewrites.sort_by_key(|r| match r {
             Rewrite::Replace { start, .. } => *start,
         });
@@ -473,7 +513,8 @@ fn collect_macro_calls<'a>(
 }
 
 /// Walk the CST and collect every MACRO_CALL whose name is NOT in
-/// the registry — those raise MT6001.
+/// the registry **and** isn't a code-driven builtin macro (see
+/// `mty_macros::stdlib::BUILTIN_MACRO_NAMES`) — those raise MT6001.
 fn collect_unknown_macro_calls(file: &SyntaxNode, reg: &MacroRegistry) -> Vec<UnknownMacroSite> {
     let mut out: Vec<UnknownMacroSite> = vec![];
     let mut stack: Vec<SyntaxNode> = vec![file.clone()];
@@ -486,7 +527,7 @@ fn collect_unknown_macro_calls(file: &SyntaxNode, reg: &MacroRegistry) -> Vec<Un
         }
         if n.kind() == SyntaxKind::MACRO_CALL {
             if let Some(name) = macro_call_name(&n) {
-                if reg.get(&name).is_none() {
+                if reg.get(&name).is_none() && !is_builtin_macro(&name) {
                     let range = n.text_range();
                     out.push(UnknownMacroSite {
                         name,
@@ -494,6 +535,63 @@ fn collect_unknown_macro_calls(file: &SyntaxNode, reg: &MacroRegistry) -> Vec<Un
                         end: usize::from(range.end()),
                     });
                     continue;
+                }
+            }
+        }
+        for child in n.children() {
+            stack.push(child);
+        }
+    }
+    out.sort_by_key(|u| u.start);
+    out
+}
+
+/// A builtin (code-driven) macro call site. Parsed by the same
+/// `MACRO_CALL` path as declarative macros, but expanded by
+/// `mty_macros::expand_builtin_macro` rather than the
+/// template-substitution expander.
+struct BuiltinMacroCallSite {
+    name: String,
+    args: Vec<String>,
+    start: usize,
+    end: usize,
+}
+
+/// Walk the CST and collect every MACRO_CALL whose name matches a
+/// builtin (currently just `format!`). These are NOT in the
+/// declarative `MacroRegistry`; the preprocessor routes them through
+/// the per-builtin expander instead.
+fn collect_builtin_macro_calls(
+    file: &SyntaxNode,
+    reg: &MacroRegistry,
+) -> Vec<BuiltinMacroCallSite> {
+    let mut out: Vec<BuiltinMacroCallSite> = vec![];
+    let mut stack: Vec<SyntaxNode> = vec![file.clone()];
+    while let Some(n) = stack.pop() {
+        if matches!(
+            n.kind(),
+            SyntaxKind::MACRO_DECL | SyntaxKind::PROC_MACRO_DECL
+        ) {
+            continue;
+        }
+        if n.kind() == SyntaxKind::MACRO_CALL {
+            if let Some(name) = macro_call_name(&n) {
+                // Declarative-macro shadowing rule: if the user defined
+                // a `macro format(...) => { ... }`, that takes priority
+                // over the builtin (we leave the normal flow to handle
+                // the call). The builtin only fires when there's no
+                // declarative entry.
+                if reg.get(&name).is_none() && is_builtin_macro(&name) {
+                    if let Some(args) = parse_macro_call_token_tree(&n) {
+                        let range = n.text_range();
+                        out.push(BuiltinMacroCallSite {
+                            name,
+                            args,
+                            start: usize::from(range.start()),
+                            end: usize::from(range.end()),
+                        });
+                        continue;
+                    }
                 }
             }
         }
@@ -849,6 +947,81 @@ fn diag_proc_macro_impure_runtime(
             "static MT6005 missed this site (likely aliased through a let binding)".to_string(),
         ],
         helps: vec![],
+    }
+}
+
+/// Map a [`fmt_macro::FormatExpandError`] to a concrete diagnostic.
+/// Arity mismatches funnel into MT6002 (the canonical macro arity code)
+/// so existing tooling that filters on MT6002 picks them up.
+/// Unsupported specs use MT6010; the rest go through MT6009.
+fn diag_format_error(
+    start: usize,
+    end: usize,
+    name: &str,
+    err: &fmt_macro::FormatExpandError,
+) -> Diagnostic {
+    use fmt_macro::FormatExpandError as E;
+    let (code, msg, notes, helps): (DiagCode, String, Vec<String>, Vec<String>) = match err {
+        E::NotEnoughArgs { expected, given } => (
+            DiagCode::new(mty_macros::MACRO_ARITY_MISMATCH),
+            format!(
+                "macro `{name}!` template requires {expected} argument(s), got {given}"
+            ),
+            vec![],
+            vec!["each `{{}}` / `{{x}}` / `{{X}}` / `{{?}}` placeholder consumes one positional argument".to_string()],
+        ),
+        E::TooManyArgs { expected, given } => (
+            DiagCode::new(mty_macros::MACRO_ARITY_MISMATCH),
+            format!(
+                "macro `{name}!` template uses {expected} positional argument(s); {given} supplied"
+            ),
+            vec![],
+            vec!["use `{{name}}` for named-arg passthrough instead of extra positional args".to_string()],
+        ),
+        E::UnsupportedSpec { spec, .. } => (
+            DiagCode::new(mty_macros::MACRO_FORMAT_UNSUPPORTED_SPEC),
+            format!(
+                "format spec `{{:{spec}}}` is not supported in v0.24 (supported: `{{}}`, `{{x}}`, `{{X}}`, `{{?}}`)"
+            ),
+            vec!["width/precision/alignment ship in v0.25; see dev/history/notes/FORMAT_MACRO_V0_24_NOTES.md".to_string()],
+            vec![],
+        ),
+        E::NotAStringLiteral => (
+            DiagCode::new(mty_macros::MACRO_FORMAT_BAD_TEMPLATE),
+            format!("first argument to `{name}!` must be a string literal"),
+            vec![],
+            vec!["if the format text is dynamic, build the result by hand: `\"prefix \" + arg.to_str()`".to_string()],
+        ),
+        E::UnclosedBrace { position } => (
+            DiagCode::new(mty_macros::MACRO_FORMAT_BAD_TEMPLATE),
+            format!("unclosed `{{` in format template at byte {position}"),
+            vec![],
+            vec!["escape a literal `{{` as `{{{{`".to_string()],
+        ),
+        E::UnexpectedCloseBrace { position } => (
+            DiagCode::new(mty_macros::MACRO_FORMAT_BAD_TEMPLATE),
+            format!("unexpected `}}` in format template at byte {position}"),
+            vec![],
+            vec!["escape a literal `}}` as `}}}}`".to_string()],
+        ),
+        E::EmptyArgList => (
+            DiagCode::new(mty_macros::MACRO_FORMAT_BAD_TEMPLATE),
+            format!("`{name}!` requires at least a template-string argument"),
+            vec![],
+            vec!["example: `format!(\"hello\")` or `format!(\"x={{}}\", x)`".to_string()],
+        ),
+    };
+    Diagnostic {
+        code,
+        severity: Severity::Error,
+        primary: Label {
+            start,
+            end,
+            message: msg,
+        },
+        secondary: vec![],
+        notes,
+        helps,
     }
 }
 

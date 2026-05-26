@@ -49,6 +49,14 @@ pub const PROC_MACRO_IMPURE_AT_RUNTIME: u16 = codes::PROC_MACRO_IMPURE_AT_RUNTIM
 /// memory bound. Expansion is aborted; the call site becomes inert.
 pub const PROC_MACRO_RESOURCE_EXCEEDED: u16 = codes::PROC_MACRO_RESOURCE_EXCEEDED.0;
 
+/// MT6009 — `format!` template was malformed (not a string literal,
+/// unbalanced braces, bad named-arg ident). v0.24.
+pub const MACRO_FORMAT_BAD_TEMPLATE: u16 = codes::MACRO_FORMAT_BAD_TEMPLATE.0;
+
+/// MT6010 — `format!` template used a spec the v0.24 expander doesn't
+/// understand (width/precision/alignment/fill). v0.24.
+pub const MACRO_FORMAT_UNSUPPORTED_SPEC: u16 = codes::MACRO_FORMAT_UNSUPPORTED_SPEC.0;
+
 /// Human-readable explanation for an SD6xxx code. v0.6: delegates to
 /// `mty_diagnostics::codes::explain` so the catalog stays
 /// single-sourced. Returns `None` for codes outside the macro band.
@@ -67,5 +75,11 @@ mod tests {
     fn new_codes_are_explainable() {
         assert!(explain(PROC_MACRO_IMPURE_AT_RUNTIME).is_some());
         assert!(explain(PROC_MACRO_RESOURCE_EXCEEDED).is_some());
+    }
+
+    #[test]
+    fn format_codes_are_explainable() {
+        assert!(explain(MACRO_FORMAT_BAD_TEMPLATE).is_some());
+        assert!(explain(MACRO_FORMAT_UNSUPPORTED_SPEC).is_some());
     }
 }
