@@ -1,0 +1,20 @@
+// MT2015 positive-fire: a `match` over an enum scrutinee misses one or
+// more variants AND has no unconditional (wildcard / plain-binding)
+// arm. The v0.22 exhaustiveness check emits MT2015 at the scrutinee
+// span with the missing variant set in the note.
+//
+// Variants are referenced via the qualified `Color.X` form so the
+// parser produces ENUM_PAT nodes (rather than treating the bare name
+// as a binding pattern).
+enum Color {
+  Red,
+  Green,
+  Blue,
+}
+
+fn name(c: Color) -> Str {
+  match c {
+    Color.Red => "red",
+    Color.Green => "green",
+  }
+}

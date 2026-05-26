@@ -229,7 +229,14 @@ fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
                 Some(else_e) => {
                     let else_ty = synth_expr(cx, else_e);
                     if unify(then_ty, else_ty, cx.subst, cx.arena).is_err() {
-                        cx.diag.push(diag::mismatch(
+                        // v0.22 Coverage Closure (MT2018 emit-site): the
+                        // two branches of an `if/else` produce
+                        // incompatible types. Pre-v0.22 this funnelled
+                        // through MT2001 (generic type mismatch); we now
+                        // surface MT2018 at the `if`-expression span so
+                        // `mty explain MT2018` text points at the join
+                        // site.
+                        cx.diag.push(diag::if_branch_mismatch(
                             then_ty,
                             else_ty,
                             &cx.span_of_expr(expr_id),
@@ -1242,7 +1249,15 @@ fn synth_index(cx: &mut Cx, receiver: ExprId, idx: ExprId) -> TyId {
 fn synth_match(cx: &mut Cx, scrutinee: ExprId, arms: &[HirMatchArm]) -> TyId {
     let scrut_ty = synth_expr(cx, scrutinee);
     let result = cx.fresh();
-    for arm in arms {
+    // v0.22 Coverage Closure (MT2016 emit-site): a match arm AFTER an
+    // unconditional arm (wildcard / plain binding with no guard) can
+    // never fire. Fire MT2016 as a warning on each subsequent arm.
+    let mut saw_unconditional_arm = false;
+    for (idx, arm) in arms.iter().enumerate() {
+        if saw_unconditional_arm {
+            cx.diag
+                .push(diag::unreachable_match_arm(&cx.span_of_expr(arm.body)));
+        }
         cx.locals.enter();
         check_pattern(cx, arm.pat, scrut_ty);
         if let Some(g) = arm.guard {
@@ -1251,8 +1266,81 @@ fn synth_match(cx: &mut Cx, scrutinee: ExprId, arms: &[HirMatchArm]) -> TyId {
         let arm_ty = synth_expr(cx, arm.body);
         let _ = unify(arm_ty, result, cx.subst, cx.arena);
         cx.locals.leave();
+        // A pattern is unconditional iff it's a wildcard or plain binding
+        // (no sub-pattern) AND the arm has no guard. Anything else may
+        // refuse to match, so following arms remain reachable.
+        let _ = idx;
+        if arm.guard.is_none() && is_unconditional_pattern(cx, arm.pat) {
+            saw_unconditional_arm = true;
+        }
+    }
+    // v0.22 Coverage Closure (MT2015 emit-site): when the scrutinee
+    // resolves to a known enum ADT, exhaustiveness requires either an
+    // unconditional arm OR every variant covered by an Enum-pattern.
+    // Conservative: skip the check for non-enum scrutinees (the v0.20
+    // analyser handled some via runtime traps; MT2015 only owns the
+    // statically-decidable enum shape).
+    if !saw_unconditional_arm {
+        let resolved = cx.subst.resolve(scrut_ty, cx.arena);
+        if let TyData::Adt(aid, _) = cx.arena.get(resolved).clone() {
+            if let Some(adt) = cx.defs.adt(aid) {
+                if adt.kind == AdtKind::Enum {
+                    let variants: Vec<String> =
+                        adt.variants.iter().map(|v| v.name.clone()).collect();
+                    let mut covered: std::collections::HashSet<String> = Default::default();
+                    for arm in arms {
+                        if arm.guard.is_some() {
+                            continue;
+                        }
+                        collect_covered_variants(cx, arm.pat, &mut covered);
+                    }
+                    let missing: Vec<String> = variants
+                        .iter()
+                        .filter(|v| !covered.contains(*v))
+                        .cloned()
+                        .collect();
+                    if !missing.is_empty() {
+                        cx.diag.push(diag::non_exhaustive_match(
+                            &cx.span_of_expr(scrutinee),
+                            &missing,
+                        ));
+                    }
+                }
+            }
+        }
     }
     result
+}
+
+/// v0.22 Coverage Closure helper: a pattern is "unconditional" iff it
+/// matches every possible scrutinee. v0.22 conservative set:
+/// `_`, plain `Binding { sub: None }`, and `Ref { inner }` over an
+/// unconditional inner.
+fn is_unconditional_pattern(cx: &Cx, pid: PatId) -> bool {
+    match &cx.pkg.pats[pid] {
+        HirPat::Wildcard => true,
+        HirPat::Binding { sub: None, .. } => true,
+        HirPat::Binding { sub: Some(s), .. } => is_unconditional_pattern(cx, *s),
+        HirPat::Ref { inner, .. } => is_unconditional_pattern(cx, *inner),
+        _ => false,
+    }
+}
+
+/// v0.22 Coverage Closure helper: collect the variant names this pattern
+/// "covers" so the MT2015 exhaustiveness check can compute the missing
+/// set. Skips guarded arms (callers filter those out).
+fn collect_covered_variants(cx: &Cx, pid: PatId, out: &mut std::collections::HashSet<String>) {
+    match &cx.pkg.pats[pid] {
+        HirPat::Enum { path, .. } => {
+            if let Some(name) = path.last() {
+                out.insert(name.clone());
+            }
+        }
+        // A binding sub-pattern lifts the inner pattern's coverage.
+        HirPat::Binding { sub: Some(s), .. } => collect_covered_variants(cx, *s, out),
+        HirPat::Ref { inner, .. } => collect_covered_variants(cx, *inner, out),
+        _ => {}
+    }
 }
 
 fn synth_struct(
@@ -1465,6 +1553,14 @@ pub fn check_block(cx: &mut Cx, block_id: BlockId, expected: Option<TyId>) -> Ty
     };
     cx.locals.leave();
     ty
+}
+
+/// v0.22 Coverage Closure: pub re-export of `check_stmt` so the
+/// items.rs custom function-body path (MT2019 emit) can drive
+/// statement checking directly without losing access through the
+/// private helper.
+pub fn check_stmt_pub(cx: &mut Cx, stmt: &HirStmt) {
+    check_stmt(cx, stmt)
 }
 
 fn check_stmt(cx: &mut Cx, stmt: &HirStmt) {

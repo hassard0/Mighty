@@ -1,5 +1,5 @@
 use mty_ast::{AstNode, File};
-use mty_diagnostics::{codes::UNEXPECTED_TOKEN, Diagnostic, Label};
+use mty_diagnostics::{codes::DiagCode, Diagnostic, Label};
 use mty_hir::Package;
 use mty_syntax::parse;
 
@@ -16,8 +16,13 @@ pub fn parse_source(source: String, source_id: String) -> ParsedFile {
         .errors
         .iter()
         .map(|e| {
+            // v0.22 (Coverage Closure): preserve the parser-supplied
+            // diagnostic code (default MT0001) instead of unconditionally
+            // collapsing every parse error to UNEXPECTED_TOKEN. This is
+            // how MT0004 (unknown duration unit) and MT0030 (depth limit
+            // exceeded) reach the diagnostic surface.
             Diagnostic::error(
-                UNEXPECTED_TOKEN,
+                DiagCode::new(e.code),
                 Label {
                     start: e.start,
                     end: e.end,

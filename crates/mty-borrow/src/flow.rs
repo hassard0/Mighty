@@ -271,12 +271,28 @@ impl<'a> BorrowCx<'a> {
     }
 
     fn bind_local(&mut self, name: String, ty: TyId, span: SourceSpan, mutable: bool) {
+        self.bind_local_with_state(name, ty, span, mutable, Ownership::Owned);
+    }
+
+    /// v0.22 Coverage Closure (MT3015 emit-site helper): like
+    /// [`Self::bind_local`] but takes an explicit `Ownership` so the
+    /// `let x: T;` declared-uninitialised shape can land as
+    /// `Ownership::Uninit`. Subsequent reads of `x` then hit the existing
+    /// MT3015 emit-sites at line 1085 / 1230 / 1267.
+    fn bind_local_with_state(
+        &mut self,
+        name: String,
+        ty: TyId,
+        span: SourceSpan,
+        mutable: bool,
+        ownership: Ownership,
+    ) {
         let is_copy_ty = is_copy(ty, &self.typed.ty_arena, &self.typed.def_map);
         let region = self.current_arena();
         let state = LocalState {
             name: name.clone(),
             ty,
-            state: Ownership::Owned,
+            state: ownership,
             declared_at: span,
             mutable,
             is_copy: is_copy_ty,
@@ -360,7 +376,17 @@ impl<'a> BorrowCx<'a> {
                     }
                     None => self.typed.ty_arena.unit,
                 };
-                self.bind_pattern_mut(*pat, init_ty, *mutable);
+                // v0.22 Coverage Closure (MT3015 emit-site activation):
+                // `let x: T;` (no initializer) binds the local as
+                // `Uninit`. Any subsequent read of `x` before an
+                // assignment hits the existing MT3015 emit-sites
+                // (see `do_move` / `do_use` / `do_borrow_*`).
+                let ownership = if init.is_none() {
+                    Ownership::Uninit
+                } else {
+                    Ownership::Owned
+                };
+                self.bind_pattern_mut_with_state(*pat, init_ty, *mutable, ownership);
             }
             HirStmt::Expr(e) => {
                 let _ = self.walk_expr(*e, Position::Use);
@@ -374,26 +400,42 @@ impl<'a> BorrowCx<'a> {
     /// in the side table yet).
     fn bind_pattern(&mut self, pid: PatId, scrut_ty: TyId) {
         let pat = self.pkg.pats[pid].clone();
-        self.bind_pattern_inner_mut(&pat, scrut_ty, false);
+        self.bind_pattern_inner_mut(&pat, scrut_ty, false, Ownership::Owned);
     }
 
-    fn bind_pattern_mut(&mut self, pid: PatId, scrut_ty: TyId, mutable: bool) {
+    /// v0.22 Coverage Closure (MT3015 emit-site activation): like
+    /// [`Self::bind_pattern`] but threads an explicit initial
+    /// ownership so `let x: T;` (no initializer) lands as `Uninit`.
+    fn bind_pattern_mut_with_state(
+        &mut self,
+        pid: PatId,
+        scrut_ty: TyId,
+        mutable: bool,
+        ownership: Ownership,
+    ) {
         let pat = self.pkg.pats[pid].clone();
-        self.bind_pattern_inner_mut(&pat, scrut_ty, mutable);
+        self.bind_pattern_inner_mut(&pat, scrut_ty, mutable, ownership);
     }
 
-    fn bind_pattern_inner_mut(&mut self, pat: &HirPat, scrut_ty: TyId, mutable: bool) {
+    fn bind_pattern_inner_mut(
+        &mut self,
+        pat: &HirPat,
+        scrut_ty: TyId,
+        mutable: bool,
+        ownership: Ownership,
+    ) {
         match pat {
             HirPat::Binding { name, sub } => {
-                self.bind_local(
+                self.bind_local_with_state(
                     name.clone(),
                     scrut_ty,
                     SourceSpan { start: 0, end: 0 },
                     mutable,
+                    ownership.clone(),
                 );
                 if let Some(s) = sub {
                     let sub_pat = self.pkg.pats[*s].clone();
-                    self.bind_pattern_inner_mut(&sub_pat, scrut_ty, mutable);
+                    self.bind_pattern_inner_mut(&sub_pat, scrut_ty, mutable, ownership.clone());
                 }
             }
             HirPat::Tuple(xs) => {
@@ -404,7 +446,7 @@ impl<'a> BorrowCx<'a> {
                 for (i, s) in xs.iter().enumerate() {
                     let sub_pat = self.pkg.pats[*s].clone();
                     let t = parts.get(i).copied().unwrap_or(self.typed.ty_arena.unit);
-                    self.bind_pattern_inner_mut(&sub_pat, t, mutable);
+                    self.bind_pattern_inner_mut(&sub_pat, t, mutable, ownership.clone());
                 }
             }
             HirPat::Struct { fields, .. } => {
@@ -413,14 +455,15 @@ impl<'a> BorrowCx<'a> {
                     match sub {
                         Some(s) => {
                             let sp = self.pkg.pats[*s].clone();
-                            self.bind_pattern_inner_mut(&sp, ut, mutable);
+                            self.bind_pattern_inner_mut(&sp, ut, mutable, ownership.clone());
                         }
                         None => {
-                            self.bind_local(
+                            self.bind_local_with_state(
                                 fname.clone(),
                                 ut,
                                 SourceSpan { start: 0, end: 0 },
                                 mutable,
+                                ownership.clone(),
                             );
                         }
                     }
@@ -430,7 +473,7 @@ impl<'a> BorrowCx<'a> {
                 let ut = self.typed.ty_arena.unit;
                 for s in args {
                     let sp = self.pkg.pats[*s].clone();
-                    self.bind_pattern_inner_mut(&sp, ut, mutable);
+                    self.bind_pattern_inner_mut(&sp, ut, mutable, ownership.clone());
                 }
             }
             HirPat::Ref { inner, .. } => {
@@ -439,7 +482,7 @@ impl<'a> BorrowCx<'a> {
                     _ => self.typed.ty_arena.unit,
                 };
                 let sp = self.pkg.pats[*inner].clone();
-                self.bind_pattern_inner_mut(&sp, inner_ty, mutable);
+                self.bind_pattern_inner_mut(&sp, inner_ty, mutable, ownership);
             }
             HirPat::Range { .. } | HirPat::Wildcard | HirPat::Literal(_) => {}
         }

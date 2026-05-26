@@ -1,0 +1,7 @@
+// MT2019 positive-fire: the function declares one return type but the
+// body's tail expression produces a different one. v0.22 upgrades the
+// would-be MT2001 mismatch at the tail to MT2019 so the diagnostic
+// surface points at the return-type contract.
+fn answer() -> I32 {
+  "forty-two"
+}

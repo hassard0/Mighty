@@ -116,8 +116,38 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
             cx.locals.bind(name.clone(), *ty);
         }
         if let Some(b) = body {
-            let body_ty = check_block(&mut cx, b, Some(ret));
-            let _ = body_ty;
+            // v0.22 Coverage Closure (MT2019 emit-site): drive the body
+            // check through a custom path that:
+            //   1. checks each statement (existing behaviour),
+            //   2. synthesises the tail expression's type WITHOUT
+            //      expected-propagation, so a tail-shape mismatch
+            //      doesn't fire MT2001 first,
+            //   3. unifies the tail's type with the declared return
+            //      type, and emits MT2019 on failure.
+            // Blocks with no tail (e.g. `fn main() { stmt; }`) fall
+            // back to the existing `Some(ret)` behaviour so MT2001
+            // still surfaces on internal let / call mismatches.
+            let block = pkg.blocks[b].clone();
+            if let Some(tail_expr) = block.tail {
+                cx.locals.enter();
+                for stmt in &block.stmts {
+                    crate::check::check_stmt_pub(&mut cx, stmt);
+                }
+                let tail_ty = synth_expr(&mut cx, tail_expr);
+                cx.locals.leave();
+                if crate::infer::unify(tail_ty, ret, cx.subst, cx.arena).is_err() {
+                    cx.diag.push(crate::diag::return_type_mismatch(
+                        ret,
+                        tail_ty,
+                        &mty_hir::SourceSpan { start: 0, end: 0 },
+                        cx.arena,
+                        cx.subst,
+                        cx.defs,
+                    ));
+                }
+            } else {
+                let _ = check_block(&mut cx, b, Some(ret));
+            }
         }
         cx.locals.leave();
         diagnostics.extend(cx_diag);

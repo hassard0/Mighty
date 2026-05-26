@@ -1,0 +1,7 @@
+// MT3015 positive-fire: `let x: I32;` declares the binding without
+// initialising it. Reading `x` before any assignment hits the v0.22
+// declared-uninit emit-site activation in mty-borrow's walker.
+fn f() -> I32 {
+  let x: I32;
+  x
+}

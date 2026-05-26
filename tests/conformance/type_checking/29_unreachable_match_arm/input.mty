@@ -1,0 +1,15 @@
+// MT2016 positive-fire: a match arm following an unconditional
+// (wildcard) arm can never fire. v0.22 emits MT2016 as a warning on the
+// shadowed arm; the function still type-checks successfully.
+enum Color {
+  Red,
+  Green,
+  Blue,
+}
+
+fn name(c: Color) -> Str {
+  match c {
+    _ => "anything",
+    Red => "red",
+  }
+}

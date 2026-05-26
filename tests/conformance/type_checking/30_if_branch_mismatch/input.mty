@@ -1,0 +1,10 @@
+// MT2018 positive-fire: the two branches of an `if/else` expression
+// produce incompatible types. v0.22 surfaces MT2018 at the if-expression
+// span instead of funnelling the failure through MT2001.
+fn pick(b: Bool) -> I32 {
+  if b {
+    1
+  } else {
+    "two"
+  }
+}

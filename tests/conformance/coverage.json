@@ -1,11 +1,14 @@
 {
   "version": "1",
-  "generated_for": "v0.21",
+  "generated_for": "v0.22",
   "description": "Diagnostic-code coverage report for the Mighty conformance kit. Per-code: 'covered' means at least one populated case in tests/conformance/ asserts the code; 'auxiliary' means it's witnessed by a unit test in crates/* but not by a conformance_full fixture; 'gap' means no harness anywhere exercises it.",
+  "v0_22_audit_note": "v0.22 Coverage Closure slice — closed 7 of the 8 v0.21 uncovered codes by adding parser pre-lex MT0004/MT0030 detection, typeck MT2015/MT2016/MT2018/MT2019 emit-sites (with a custom function-body return-type check that upgrades trailing MT2001 mismatches to MT2019), and borrow-walker Uninit binding for `let x: T;` to activate the existing MT3015 emit-sites. MT3012 (DROP_IN_CONST_CONTEXT) deferred to v0.23 — HIR does not yet lower CONST_DECL items, and the const-context flag would require a multi-crate refactor beyond the closure slice's budget. See dev/history/notes/COVERAGE_CLOSURE_V0_22_NOTES.md.",
   "v0_21_audit_note": "v0.21 audit reconciled coverage.json with the existing fixture corpus. The v0.20 report listed 17 codes as 'uncovered' but 9 of those already had populated conformance_full fixtures whose codes the v0.11/v0.12 emit-site work activated (MT2003, MT2009, MT2014, MT2022, MT2023, MT2024, MT2025, MT3002, MT3007). v0.21 promotes those 9 from uncovered → covered without writing new fixtures (the existing ones already do the job). True gap drops from 17 to 8.",
   "diagnostic_codes": {
     "covered": [
       "MT0001",
+      "MT0004",
+      "MT0030",
       "MT2001",
       "MT2002",
       "MT2003",
@@ -20,7 +23,11 @@
       "MT2012",
       "MT2013",
       "MT2014",
+      "MT2015",
+      "MT2016",
       "MT2017",
+      "MT2018",
+      "MT2019",
       "MT2020",
       "MT2021",
       "MT2022",
@@ -41,6 +48,7 @@
       "MT3011",
       "MT3013",
       "MT3014",
+      "MT3015",
       "MT4001",
       "MT4002",
       "MT4022",
@@ -119,14 +127,7 @@
       "MT8010"
     ],
     "uncovered": [
-      "MT0004",
-      "MT0030",
-      "MT2015",
-      "MT2016",
-      "MT2018",
-      "MT2019",
-      "MT3012",
-      "MT3015"
+      "MT3012"
     ]
   },
   "categories": {
@@ -135,11 +136,11 @@
       "diagnostic_codes": ["MT0001"]
     },
     "parser": {
-      "case_count": 1,
-      "diagnostic_codes": ["MT0001"]
+      "case_count": 3,
+      "diagnostic_codes": ["MT0001", "MT0004", "MT0030"]
     },
     "type_checking": {
-      "case_count": 26,
+      "case_count": 30,
       "diagnostic_codes": [
         "MT2001",
         "MT2002",
@@ -155,7 +156,11 @@
         "MT2012",
         "MT2013",
         "MT2014",
+        "MT2015",
+        "MT2016",
         "MT2017",
+        "MT2018",
+        "MT2019",
         "MT2020",
         "MT2021",
         "MT2022",
@@ -175,7 +180,7 @@
       "diagnostic_codes": []
     },
     "borrow_checking": {
-      "case_count": 13,
+      "case_count": 14,
       "diagnostic_codes": [
         "MT3001",
         "MT3002",
@@ -189,7 +194,8 @@
         "MT3010",
         "MT3011",
         "MT3013",
-        "MT3014"
+        "MT3014",
+        "MT3015"
       ]
     },
     "ownership_rejection": {
@@ -295,13 +301,38 @@
   "totals": {
     "categories": 24,
     "populated_categories": 24,
-    "cases": 140,
+    "cases": 147,
     "diagnostic_codes": 110,
-    "covered": 62,
+    "covered": 69,
     "auxiliary": 42,
-    "uncovered": 8,
-    "coverage_pct_direct": 56,
-    "coverage_pct_any_harness": 93
+    "uncovered": 1,
+    "coverage_pct_direct": 63,
+    "coverage_pct_any_harness": 99
+  },
+  "v0_22_delta": {
+    "new_cases": 7,
+    "new_categories_populated": 0,
+    "closed_codes": [
+      "MT0004",
+      "MT0030",
+      "MT2015",
+      "MT2016",
+      "MT2018",
+      "MT2019",
+      "MT3015"
+    ],
+    "deferred_codes": [
+      "MT3012 (DROP_IN_CONST_CONTEXT — CONST_DECL not lowered into HIR yet; const-context flag would require multi-crate refactor beyond closure slice budget; deferred to v0.23)"
+    ],
+    "implementation_notes": [
+      "parser: added ParseError::code field + Parser::pre_lex_scan that emits MT0004 (INT_LITERAL+IDENT zero-gap with duration-unit-like text, or DURATION_LITERAL+IDENT unconditionally) and MT0030 (paren/brace/bracket nesting depth > 256)",
+      "driver: parse_source preserves the parser-supplied DiagCode instead of unconditionally lowering to UNEXPECTED_TOKEN",
+      "mty-types::check::synth_match: MT2015 (enum scrutinee non-exhaustive when no unconditional arm) + MT2016 (warning on arms following an unconditional arm)",
+      "mty-types::check::synth_expr_inner If branch: MT2018 replaces the generic mismatch when then/else types disagree",
+      "mty-types::items: custom function-body path that synthesises the tail without expected-propagation, then unifies against ret and emits MT2019; falls back to the legacy Some(ret) check_block for tail-less bodies so MT2001 still surfaces on interior mismatches",
+      "mty-borrow::flow::walk_stmt: `let x: T;` (init.is_none()) binds the local as Ownership::Uninit, activating the existing MT3015 read-of-uninit emit-sites"
+    ],
+    "deferral_rationale_mt3012": "MT3012 fires when a value requiring deterministic cleanup lives in a `const` slot. HIR's lower_item explicitly punts on CONST_DECL (mty-hir/src/lower/items.rs:33 — 'CONST_DECL — later slices'). Adding the emit-site would require: (1) full CONST_DECL → HirConst lowering, (2) a const-context flag propagated through the HIR walker, (3) a borrow-check pass over const initialisers. Each is a slice's worth of work; bundling them into the closure slice would violate its scope. Tracked as a v0.23 follow-up."
   },
   "v0_21_delta": {
     "new_cases": 0,

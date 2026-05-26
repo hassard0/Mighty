@@ -19,6 +19,11 @@ pub struct ParseError {
     pub message: String,
     pub start: usize,
     pub end: usize,
+    /// v0.22: numeric diagnostic code (matches `mty_diagnostics::DiagCode`).
+    /// Defaults to `1` = MT0001 UNEXPECTED_TOKEN so existing call-sites
+    /// preserve behaviour. Set explicitly for MT0004 (unknown duration
+    /// unit), MT0030 (depth limit exceeded), etc.
+    pub code: u16,
 }
 
 pub struct ParseResult {
@@ -77,6 +82,10 @@ impl<'src> Parser<'src> {
     }
 
     pub fn parse_file(mut self) -> ParseResult {
+        // v0.22 Coverage Closure: pre-lex pass that surfaces MT0004
+        // (unknown duration unit) and MT0030 (depth limit exceeded) so
+        // the codes don't keep funnelling to MT0001.
+        self.pre_lex_scan();
         self.builder.start_node(SyntaxKind::FILE.into());
         self.skip_trivia();
         while !self.at(SyntaxKind::EOF) {
@@ -93,6 +102,104 @@ impl<'src> Parser<'src> {
         ParseResult {
             green: self.builder.finish(),
             errors: self.errors,
+        }
+    }
+
+    /// v0.22 Coverage Closure: one-pass scan over the lexed token stream
+    /// to detect two shapes that previously funnelled through the generic
+    /// MT0001 path:
+    ///
+    /// - **MT0004 UNKNOWN_DURATION_UNIT**: an `INT_LITERAL` immediately
+    ///   followed (zero source gap) by an `IDENT`. The lexer's duration
+    ///   regex (`[0-9]+(?:ns|us|ms|s|m|h)`) and size regex
+    ///   (`[0-9]+(?:KiB|MiB|GiB|B|k|M)`) only accept the canonical units;
+    ///   anything else (e.g. `5sec`, `10seconds`, `2z`) survives as
+    ///   `INT IDENT` and would otherwise hit MT0001.
+    ///
+    /// - **MT0030 DEPTH_LIMIT_EXCEEDED**: maximum nesting depth of
+    ///   `(`/`[`/`{` exceeds 256. Adversarial input that nests deeper
+    ///   gets a single MT0030 emitted at the point of overflow.
+    fn pre_lex_scan(&mut self) {
+        use crate::SyntaxKind::*;
+        const DEPTH_LIMIT: i32 = 256;
+        let mut depth: i32 = 0;
+        let mut depth_exceeded = false;
+        // First pass: collect MT0004 / MT0030 sites then push diagnostics
+        // (so we don't borrow self.tokens while pushing).
+        let mut to_emit: Vec<(u16, String, usize, usize)> = vec![];
+        for i in 0..self.tokens.len() {
+            let t = &self.tokens[i];
+            match t.kind {
+                L_PAREN | L_BRACK | L_BRACE => {
+                    depth += 1;
+                    if depth > DEPTH_LIMIT && !depth_exceeded {
+                        depth_exceeded = true;
+                        to_emit.push((
+                            30,
+                            format!("recursion depth limit exceeded ({} levels)", DEPTH_LIMIT),
+                            t.start,
+                            t.end,
+                        ));
+                    }
+                }
+                R_PAREN | R_BRACK | R_BRACE => {
+                    depth -= 1;
+                }
+                INT_LITERAL | DURATION_LITERAL => {
+                    // Look ahead for an IDENT with zero gap.
+                    //
+                    // INT_LITERAL+IDENT covers shapes like `5xs`,
+                    // `2nanoseconds` (lexer's duration regex doesn't
+                    // recognise the prefix because `x` / `na` aren't
+                    // valid prefix chars).
+                    //
+                    // DURATION_LITERAL+IDENT covers shapes like
+                    // `10seconds` — the lexer greedily matches the
+                    // canonical `s` suffix, leaving `econds` as a
+                    // trailing IDENT. The author clearly meant a
+                    // longer (invalid) unit, so we still surface
+                    // MT0004 unconditionally on that shape.
+                    if let Some(next) = self.tokens.get(i + 1) {
+                        if next.kind == IDENT && next.start == t.end {
+                            let should_fire = if t.kind == DURATION_LITERAL {
+                                // DURATION_LITERAL already produced a
+                                // valid duration — but an IDENT glued
+                                // to it signals a mistyped longer
+                                // unit. Always fire.
+                                true
+                            } else {
+                                is_duration_unit_like(next.text)
+                            };
+                            if should_fire {
+                                let full_unit = if t.kind == DURATION_LITERAL {
+                                    // Strip the leading digits to recover
+                                    // the canonical-unit fragment (`s`,
+                                    // `ms`, ...) so we can compose a
+                                    // human-friendly note.
+                                    let prefix: String =
+                                        t.text.chars().skip_while(|c| c.is_ascii_digit()).collect();
+                                    format!("{}{}", prefix, next.text)
+                                } else {
+                                    next.text.to_string()
+                                };
+                                to_emit.push((
+                                    4,
+                                    format!(
+                                        "unknown duration unit `{}` (expected one of `ns`, `us`, `ms`, `s`, `m`, `h`)",
+                                        full_unit
+                                    ),
+                                    t.start,
+                                    next.end,
+                                ));
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        for (code, msg, s, e) in to_emit {
+            self.error_at_code(code, msg, s, e);
         }
     }
 
@@ -178,6 +285,22 @@ impl<'src> Parser<'src> {
             message,
             start,
             end,
+            code: 1, // MT0001 UNEXPECTED_TOKEN
+        });
+    }
+
+    /// v0.22: emit a parse error with an explicit diagnostic code (e.g.
+    /// MT0004 = 4, MT0030 = 30). Used by lex-pass / depth-guard sites
+    /// that need to override the default MT0001 code.
+    pub(crate) fn error_at_code(&mut self, code: u16, message: String, start: usize, end: usize) {
+        if self.errors.len() >= self.max_diagnostics {
+            return;
+        }
+        self.errors.push(ParseError {
+            message,
+            start,
+            end,
+            code,
         });
     }
 
@@ -207,6 +330,59 @@ impl<'src> Parser<'src> {
         let e = self.tokens[self.pos].end;
         self.error_at(message.into(), s, e);
     }
+}
+
+/// v0.22 Coverage Closure: classifier for MT0004 (UNKNOWN_DURATION_UNIT).
+///
+/// Returns true iff the trailing identifier text looks like the author
+/// intended a duration unit but got the spelling wrong. Conservative —
+/// we surface MT0004 only when the ident is plausibly a (mistyped)
+/// duration unit, so legitimate identifiers that happen to follow a
+/// literal without whitespace (extremely rare in this grammar but
+/// possible through macros) don't get mis-tagged.
+///
+/// Heuristic: short (<=12 chars) lowercase identifier that contains the
+/// substring "s", "m", "h", "min", "sec", "hour", "day", "msec", "usec",
+/// or "nsec", AND is not one of the canonical valid units already
+/// consumed by the duration regex (`ns`, `us`, `ms`, `s`, `m`, `h`). The
+/// canonical units never appear in this path because the lexer's regex
+/// has higher priority.
+fn is_duration_unit_like(text: &str) -> bool {
+    if text.is_empty() || text.len() > 12 {
+        return false;
+    }
+    if !text.chars().all(|c| c.is_ascii_lowercase()) {
+        return false;
+    }
+    // Quick affirmative list of typical mistakes.
+    matches!(
+        text,
+        "sec"
+            | "secs"
+            | "second"
+            | "seconds"
+            | "min"
+            | "mins"
+            | "minute"
+            | "minutes"
+            | "hour"
+            | "hours"
+            | "day"
+            | "days"
+            | "msec"
+            | "msecs"
+            | "usec"
+            | "usecs"
+            | "nsec"
+            | "nsecs"
+            | "millis"
+            | "millisecond"
+            | "milliseconds"
+            | "microsecond"
+            | "microseconds"
+            | "nanosecond"
+            | "nanoseconds"
+    )
 }
 
 pub fn parse(src: &str) -> ParseResult {

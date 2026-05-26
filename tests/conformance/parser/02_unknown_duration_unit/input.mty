@@ -1,0 +1,6 @@
+// MT0004 positive-fire: integer literal followed (no whitespace) by an
+// identifier that looks like a duration unit but isn't one of the
+// canonical `ns`, `us`, `ms`, `s`, `m`, `h` suffixes.
+fn main() {
+  let dur = 5seconds
+}

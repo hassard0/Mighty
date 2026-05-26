@@ -219,6 +219,57 @@ pub fn non_exhaustive_match(span: &SourceSpan, missing: &[String]) -> Diagnostic
     d
 }
 
+/// v0.22 Coverage Closure (MT2016 emit-site): a `match` arm cannot fire
+/// because an earlier arm always matches first (typical shape: a literal
+/// or wildcard arm shadowing a later, more specific or identical arm).
+/// Emitted as a **warning** to match the explain text (§slice-3 semantics
+/// — unreachable arms are diagnostic noise, not a compile failure).
+pub fn unreachable_match_arm(span: &SourceSpan) -> Diagnostic {
+    let mut d = Diagnostic::error(
+        UNREACHABLE_MATCH_ARM,
+        label(
+            span,
+            "unreachable match arm (earlier arm always matches first)",
+        ),
+    );
+    d.severity = Severity::Warning;
+    d.notes
+        .push("remove the dead arm, or reorder so the more specific pattern comes first".into());
+    d
+}
+
+/// v0.22 Coverage Closure (MT2018 emit-site): the two branches of an
+/// `if/else` expression produce incompatible types. Pre-v0.22 this
+/// shape funnelled through MT2001 (generic type mismatch); v0.22 surfaces
+/// MT2018 at the `if`-expression span so `mty explain MT2018` text points
+/// at the join site rather than at one of the branch values.
+pub fn if_branch_mismatch(
+    then_ty: TyId,
+    else_ty: TyId,
+    span: &SourceSpan,
+    arena: &TyArena,
+    subst: &Substitution,
+    defs: &DefMap,
+) -> Diagnostic {
+    let t = pretty_ty(then_ty, arena, Some(subst), Some(defs));
+    let e = pretty_ty(else_ty, arena, Some(subst), Some(defs));
+    let mut d = Diagnostic::error(
+        IF_BRANCH_MISMATCH,
+        label(
+            span,
+            format!(
+                "`if` branches produce incompatible types: `{}` vs `{}`",
+                t, e
+            ),
+        ),
+    );
+    d.notes.push(
+        "unify the two branches (e.g. via a common type), or remove the value-use of the `if`"
+            .into(),
+    );
+    d
+}
+
 pub fn protocol_msg_unknown(msg: &str, span: &SourceSpan) -> Diagnostic {
     let mut d = Diagnostic::error(
         PROTOCOL_MSG_UNKNOWN,
