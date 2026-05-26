@@ -148,16 +148,21 @@ world custom-world {
     let doc = emit_wit_p2(&prog, &opts).expect("emit p2 wit + user");
     assert!(doc.text.contains("demo:user-pkg"));
     assert_eq!(doc.world_name, "custom-world");
-    // Re-parse the merged text with a fresh resolve and verify it
-    // accepts. We can't call `doc.resolve()` here because
-    // `WitDocument::resolve` selects the synthesized package by id
-    // (`mighty:smoke`) which doesn't host `custom-world` — the
-    // multi-package world lookup is the job of `emit_wit_p2` itself
-    // (which already validated this above).
-    let mut resolve = wit_parser::Resolve::default();
-    resolve
-        .push_str("merged.wit", &doc.text)
-        .expect("merged doc parses");
+    // `doc.text` is a *display* serialization concatenating multiple
+    // top-level packages — the v0.14 architecture pushes each
+    // package into a separate `Resolve::push_str` call so they can
+    // cross-reference (a single multi-package blob is not a legal
+    // .wit file). The end-to-end validation that the merge succeeded
+    // is `emit_wit_p2`'s round-trip parse (which has already run by
+    // the time `doc` is returned here).
+    assert!(
+        doc.text.contains("custom-world"),
+        "expected user world name in display text"
+    );
+    assert!(
+        doc.text.contains("greet"),
+        "expected user interface fn in display text"
+    );
 }
 
 #[test]
