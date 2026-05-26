@@ -132,5 +132,5 @@ directory with `0700` permissions (e.g.
 ## Related
 
 - [`docs/internals/agent-features-roadmap.md`](../../internals/agent-features-roadmap.md) — Tier 1.1 spec
-- [`dev/history/notes/INTROSPECT_V0_16_NOTES.md`](../../../dev/history/notes/INTROSPECT_V0_16_NOTES.md) — implementation notes
+- [`dev/history/notes/INTROSPECT_V0_16_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/dev/history/notes/INTROSPECT_V0_16_NOTES.md) — implementation notes
 - [`docs/internals/runtime.md`](../../internals/runtime.md) — runtime architecture
