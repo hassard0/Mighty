@@ -1,0 +1,73 @@
+// 22_effect_row.mty — RFC-008 effect-row surface syntax (v0.15 parser).
+//
+// Build (syntax-only, fmt-friendly):
+//   mty fmt examples/22_effect_row.mty
+//   mty check --syntax-only examples/22_effect_row.mty
+//
+// This example exercises the v0.15 parser support for row-polymorphic
+// effect annotations from RFC-008. The forms shown below all parse
+// cleanly today, but FULL TYPE-CHECKING through a row variable lands
+// in v0.16 — call sites that propagate `E` through `map` / `filter` /
+// `fold` etc. may still emit `MT4001 effect_undeclared` until the
+// v0.16 wiring (HIR `HirEffectRow` node + `RowPolySig` construction
+// in `check.rs`) lands.
+//
+// The driver's `examples_sweep` test treats `// @typeck-pending`
+// markers as "compile via syntax-only, skip full typeck". See the
+// marker on `map` below.
+//
+// Surface forms (RFC-008 §Syntax):
+//
+//   * `!E`               — bare row variable (open row, no concrete)
+//   * `!{}`              — empty closed row (= today's "pure" fn)
+//   * `!{fs, net}`       — concrete closed row (no tail)
+//   * `!{fs | E}`        — concrete + row-variable tail
+//   * `!{fs, net | E}`   — multiple concrete + row tail
+//   * `effect a, b | E`  — legacy keyword form, NEW row-tail extension
+//
+// The disambiguation rule that keeps `Page!{NetErr, ParseErr}` parsing
+// as the legacy anonymous-error-union sugar lives in
+// `mty-syntax::parser::types::peeks_as_effect_row_clause`:
+//   - first ident inside the braces is UPPERCASE and no `|` present →
+//     error sugar (back-compat)
+//   - first ident is LOWERCASE, or a `|` appears at depth 0 →
+//     effect-row clause
+
+// @typeck-pending: the row var `E` requires v0.16 HIR/typeck wiring
+// to flow from the closure parameter's effect set through to the
+// return type. v0.15 only PARSES the shape.
+fn map[A, B, E](xs: List[A], f: fn(A) -> B) -> List[B] !{| E} {
+  // Body is intentionally stubbed — call-site propagation through `E`
+  // depends on the v0.16 work in `crates/mty-types/src/check.rs`.
+  []
+}
+
+// Concrete + row-tail form: "at least `fs`, plus whatever the closure
+// brings". This is the most common shape for higher-order I/O wrappers
+// (e.g. `observed_fn` that logs as it reads).
+// @typeck-pending
+fn observed_read[E](path: String, log: fn(String) -> ()) -> String !{fs | E} {
+  ""
+}
+
+// Plain closed-row form — equivalent to the legacy `effect fs` clause
+// but written in the v0.15 `!{}` shape. THIS form already type-checks
+// today because it's just a closed effect set, no row variable.
+fn read_one(path: String) -> String !{fs} {
+  ""
+}
+
+// Legacy `effect ...` form keeps working unchanged.
+fn read_two(path: String) -> String effect fs {
+  ""
+}
+
+// NEW v0.15: the keyword form gains the same `| E` tail extension.
+// @typeck-pending
+fn read_three[E](path: String, k: fn(String) -> ()) -> String effect fs | E {
+  ""
+}
+
+fn main() {
+  log("22_effect_row: RFC-008 surface syntax parses in v0.15; typeck in v0.16")
+}

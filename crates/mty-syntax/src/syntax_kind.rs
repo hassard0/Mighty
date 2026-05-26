@@ -283,6 +283,31 @@ pub enum SyntaxKind {
     FN_PARAM_LIST,
     RET_TYPE,
     EFFECT_CLAUSE,
+    // v0.15 RFC-008 effect-row surface syntax — parser-only.
+    // HIR lowering / typeck wiring lands in v0.16 (per the RFC-008 follow-up
+    // table). These nodes are emitted by `parser::types::effect_clause` when
+    // it sees the `!E`, `!{a | E}`, or `!{a, b | E}` forms; downstream
+    // consumers (mty-hir, mty-types) treat the EFFECT_CLAUSE container the
+    // same as the legacy `effect a, b` keyword form and ignore the row-var
+    // tail until v0.16 wires it through.
+    /// `!{ ... }` braced effect-set introducer (the brace body — wrapping
+    /// the EFFECT_NAME list and the optional EFFECT_ROW_TAIL — lives inside
+    /// the parent EFFECT_CLAUSE).
+    EFFECT_SET,
+    /// A concrete effect name inside an EFFECT_SET (lowercase ident or
+    /// keyword token like `spawn`). Mirrors the existing NAME node used by
+    /// the legacy `effect a, b` form, but tagged so the v0.16 lowerer can
+    /// distinguish concrete-vs-row identifiers without re-parsing case.
+    EFFECT_NAME,
+    /// `| E` tail inside an EFFECT_SET, or the lone `E` of `!E`. Wraps a
+    /// single EFFECT_ROW_VAR child.
+    EFFECT_ROW_TAIL,
+    /// The row variable identifier itself (e.g. `E`, `R`, `F`). Per RFC-008
+    /// §Syntax, the v0.15 parser does NOT enforce the uppercase-first
+    /// convention — that's a v0.16 typeck-time check so the parser stays
+    /// case-agnostic and the typeck can emit a structured diagnostic
+    /// (MT4023 `row_var_in_concrete_set` shape).
+    EFFECT_ROW_VAR,
     STRUCT_DECL,
     STRUCT_FIELD,
     STRUCT_FIELD_LIST,
