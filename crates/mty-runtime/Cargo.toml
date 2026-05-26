@@ -25,6 +25,9 @@ serde.workspace = true
 serde_json.workspace = true
 # v0.18 cluster (Tier 4.1): framed CBOR over TLS for cross-node send/ask.
 ciborium.workspace = true
+# v0.21 hot reload: parse incoming wasm bytes to extract mty custom sections
+# (agent type + schema hash) before swapping the per-agent module slot.
+wasmparser.workspace = true
 rustls.workspace = true
 rustls-pemfile.workspace = true
 tokio-rustls.workspace = true
@@ -47,6 +50,10 @@ criterion.workspace = true
 # v0.18 cluster tests: synthesize a self-signed TLS cert per-test so the
 # multi-node mesh can handshake without any on-disk fixtures.
 rcgen = "0.13"
+# v0.21 hot reload tests: synthesize minimal wasm modules with mty custom
+# sections so the wasm_loader path can be exercised without a full codegen
+# round-trip.
+wasm-encoder.workspace = true
 
 [[bench]]
 name = "mailbox_throughput"

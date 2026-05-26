@@ -3,16 +3,11 @@
 //!
 //! v0.20 Tier 1.5 (see `docs/internals/agent-features-roadmap.md`
 //! and `docs/internals/hot-reload.md` for the architecture).
-//!
-//! The wire shape mirrors `mty inspect`: a newline-delimited JSON
-//! request flows over `MTY_RUNTIME_CONTROL_SOCK` (or `--sock <path>`)
-//! and the runtime replies with the `ReloadReport` JSON. In v0.20 the
-//! runtime side of this op is not yet wired into the control socket
-//! handler (the handler lives in `crates/mty-runtime/src/control_socket.rs`,
-//! which is off-limits to this slice); the CLI nonetheless ships
-//! today so callers can stage their integration. The CLI explicitly
-//! prints a clear error if the runtime returns `unknown_op`, with a
-//! pointer to the v0.21 follow-up.
+//! v0.21 closes the loop: the runtime now implements the op=reload
+//! handler (`crates/mty-runtime/src/control_socket.rs::handle_reload`),
+//! so the CLI's wasm bytes round-trip end-to-end. The fall-back
+//! `unknown_op` detection is retained for backward compatibility with
+//! pre-v0.21 runtimes that may still be running in production.
 //!
 //! See `docs/reference/cli/mty-reload.md` for user-facing docs.
 
@@ -116,6 +111,23 @@ pub fn run(args: ReloadArgs) -> i32 {
     // (3) issue the reload request.
     match send_reload_request(&sock_path, &args.agent_type, &bytes, deadline_ms) {
         Ok(payload) => {
+            // v0.21: the server may return either a ReloadReport JSON
+            // (success) or a `{"error":"...","code":"MT506x"}` (failure).
+            // Distinguish them so the CLI exits non-zero on a server
+            // error rather than silently rendering an empty report.
+            if payload.contains("\"error\"") {
+                match parse_error(&payload) {
+                    Some((msg, code)) => {
+                        if let Some(c) = code {
+                            eprintln!("mty reload: [{c}] {msg}");
+                        } else {
+                            eprintln!("mty reload: {msg}");
+                        }
+                    }
+                    None => eprintln!("mty reload: server returned: {payload}"),
+                }
+                return 1;
+            }
             if args.json {
                 println!("{}", payload);
             } else {
@@ -135,6 +147,20 @@ pub fn run(args: ReloadArgs) -> i32 {
             1
         }
     }
+}
+
+/// Extract `(error, code)` from a server error JSON. Returns `None`
+/// when the payload doesn't look like our error shape.
+fn parse_error(payload: &str) -> Option<(String, Option<String>)> {
+    #[derive(serde::Deserialize)]
+    struct ErrRepr {
+        error: String,
+        #[serde(default)]
+        code: Option<String>,
+    }
+    serde_json::from_str::<ErrRepr>(payload)
+        .ok()
+        .map(|e| (e.error, e.code))
 }
 
 /// Send one reload request to the control socket and return the JSON

@@ -19,7 +19,7 @@
 
 use mty_runtime::reload::{
     decode_snapshot, dry_run_swap, encode_snapshot, ModuleSource, ReloadError, ReloadGate,
-    ReloadOptions, ReloadRunner, Resumable, SwapPlan,
+    ReloadOptions, ReloadRunner, Resumable, SwapPlan, WasmLoadError,
 };
 use mty_runtime::AgentId;
 use parking_lot::Mutex;
@@ -109,6 +109,9 @@ fn reload_compatible_schema_succeeds() {
         desc: desc.clone(),
         state: state.clone(),
         gate: gate.clone(),
+        drain_signal: None,
+        schema_registry: None,
+        program: None,
     };
 
     let report = runner.run().expect("reload ok");
@@ -156,6 +159,9 @@ fn reload_incompatible_schema_rejected() {
         desc: desc.clone(),
         state: state.clone(),
         gate: gate.clone(),
+        drain_signal: None,
+        schema_registry: None,
+        program: None,
     };
 
     let err = runner.run().unwrap_err();
@@ -211,6 +217,9 @@ fn reload_drains_in_flight_handler() {
         desc: desc.clone(),
         state: state.clone(),
         gate: gate.clone(),
+        drain_signal: None,
+        schema_registry: None,
+        program: None,
     };
 
     let started = std::time::Instant::now();
@@ -261,6 +270,9 @@ fn reload_deadline_exceeded_fails_clean() {
         desc: desc.clone(),
         state: state.clone(),
         gate: gate.clone(),
+        drain_signal: None,
+        schema_registry: None,
+        program: None,
     };
 
     let err = runner.run().unwrap_err();
@@ -327,6 +339,9 @@ async fn reload_preserves_mailbox() {
         desc: desc.clone(),
         state: state.clone(),
         gate: gate.clone(),
+        drain_signal: None,
+        schema_registry: None,
+        program: None,
     };
     let _report = runner.run().expect("reload ok");
 
@@ -352,11 +367,13 @@ async fn reload_preserves_mailbox() {
 }
 
 // ---------------------------------------------------------------------
-// 6. raw wasm bytes rejected in v0.20
+// 6. raw wasm without mty custom sections is rejected by the loader
+//    (was: "rejected in v0.20"; v0.21 now plumbs the loader and gives
+//    a more specific MT5064 = wasm-load failure)
 // ---------------------------------------------------------------------
 
 #[test]
-fn reload_raw_wasm_rejected_in_v0_20() {
+fn reload_raw_wasm_without_mty_sections_rejected() {
     let desc = fixture_descriptor("Echo", 6);
     let state = Arc::new(Mutex::new(ConnState {
         count: 0,
@@ -379,14 +396,24 @@ fn reload_raw_wasm_rejected_in_v0_20() {
         desc: desc.clone(),
         state,
         gate: gate.clone(),
+        drain_signal: None,
+        schema_registry: None,
+        program: None,
     };
 
+    // v0.21 rewires the wasm-bytes path: the loader rejects this
+    // module (no custom sections) with `WasmLoad(MissingSection(...))`
+    // instead of the v0.20 placeholder `WasmReloadNotImplemented`.
+    // Diag code stays `MT5064` so CLI output is unchanged.
     let err = runner.run().unwrap_err();
-    assert!(matches!(err, ReloadError::WasmReloadNotImplemented));
+    match &err {
+        ReloadError::WasmLoad(WasmLoadError::MissingSection(_)) => {}
+        other => panic!("expected WasmLoad(MissingSection), got {other:?}"),
+    }
     assert_eq!(err.diag_code(), "MT5064");
 
-    // The gate was paused mid-pipeline; the runner must clear it
-    // before returning so the agent doesn't get stuck.
+    // Loader rejection happens before any state mutation so the gate
+    // must still be clear — the agent didn't even reach the pause step.
     assert!(!gate.is_paused(), "gate should be cleared on a clean error");
 }
 

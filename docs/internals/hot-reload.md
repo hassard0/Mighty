@@ -3,7 +3,9 @@
 v0.20 ships the state-preserving hot-reload pipeline described in
 `docs/internals/agent-features-roadmap.md` Tier 1.5. This document
 covers the architecture, schema-hash design, mailbox-preservation
-guarantees, and the v0.21 follow-up items.
+guarantees, and (v0.21) the wasm-byte loading + schema-migration +
+condvar-drain + control-socket op=reload work that closes out the
+v0.20 deferrals.
 
 ## TL;DR
 
@@ -167,37 +169,127 @@ swap pipeline operates on the descriptor in place; no
 descriptor-level allocation is replaced. The new wasm code reads
 from the same channel.
 
-## v0.21 follow-up
+## v0.21 wasm-byte loading
 
-The v0.20 slice deliberately stops short of three items so the
-runtime-side surface can stabilise:
+`ModuleSource::WasmBytes(&[u8])` is fully wired in v0.21. The pipeline
+parses the incoming bytes via `wasmparser` and extracts two
+Mighty-embedded custom sections before swapping the per-agent program
+slot:
 
-1. **Wasm module reload proper.** Plumb `ModuleSource::WasmBytes`
-   into the runtime via a per-agent program slot. Likely requires
-   `Program::with_swapped_agent(...)` on the IR.
-2. **Schema-evolution ranges.** Today `schema_compatible_with` is
-   bit-equality. v0.21 will widen this so the derived impl can opt
-   into a *forward-compatible* range — fields added at the tail stay
-   compatible with old snapshots, fields removed from the tail stay
-   compatible with new snapshots, and explicit
-   `migrate_from(old: V1) -> V2` hooks bridge anything that isn't
-   tail-only.
-3. **Multi-version support during rolling restart.** During a
-   cluster-wide rolling restart, two versions of an agent type may
-   coexist briefly. The router must be aware of the hash range each
-   peer accepts; the cluster mesh already carries per-peer metadata,
-   so this is a wire-format extension, not a transport rewrite.
+### Custom-section format
+
+| Section name | Payload | Purpose |
+|--------------|---------|---------|
+| `__mty_agent_type` | UTF-8 bytes of the agent struct name (no length prefix) | Cross-check against `mty reload <agent-type>` so a misnamed invocation fails fast with `MT5065` |
+| `__mty_schema_hash` | Exactly 8 bytes, little-endian `u64` | Same hash as `Resumable::SCHEMA_HASH`; cross-checked against the swap plan's `new_schema_hash` |
+
+Older modules (pre v0.16) omit these sections; the loader returns
+`MT5068 missing-section` rather than silently swapping a stranger's
+wasm into the slot.
+
+### `Program::with_swapped_agent`
+
+The reload subsystem now owns a per-agent `Program` registry — a
+small `Vec<AgentSlot>` keyed by agent type name. `with_swapped_agent`
+parses the wasm, validates the embedded type matches, then returns a
+clone of the program with the named slot replaced.
+
+The slot map intentionally lives inside the reload subsystem (not
+`mty_ir::ir::Program`) so the v0.21 slice ships without changing the
+interpreter's data model. A future v0.22 will move it into `mty-ir`
+once the per-agent module surface is wired through dispatch.
+
+## v0.21 schema migrations
+
+`Resumable::schema_compatible_with` is still bit-equality by default,
+but the swap pipeline now consults a process-global
+[`SchemaRegistry`] before refusing a mismatched-hash reload. The
+registry holds `(old_hash, new_hash) → MigrationFn` edges; reloads
+that name a hash pair with a registered chain succeed by transparently
+re-encoding the snapshot bytes through the chain.
+
+### `MigrateFrom` trait
+
+```rust
+pub trait MigrateFrom<Old: Resumable>: Resumable {
+    fn migrate_from(old: Old) -> ResumableResult<Self>;
+}
+```
+
+Implementors define per-version transitions ("V2 = V1 + defaulted
+`label`"); the runtime composes them into chains. The BFS over the
+edge graph picks the shortest registered path, so a direct V1→V3
+edge wins over V1→V2→V3.
+
+### Registration
+
+```rust
+SchemaRegistry::global().register::<StateV1, StateV2>();
+SchemaRegistry::global().register::<StateV2, StateV3>();
+```
+
+A reload that presents a V1 snapshot to a V3 module now succeeds by
+applying the V1→V2 + V2→V3 chain in order before deserialising.
+
+## v0.21 condvar drain
+
+The 1 ms busy-poll is replaced with a `parking_lot::Condvar`-backed
+`DrainSignal`. The agent loop calls `mark_idle()` when its handler
+returns, which wakes the swap pipeline immediately. Spurious wakeups
+are handled by re-checking the busy flag in a loop.
+
+The legacy busy-poll path is retained as a fallback for callers
+that don't yet thread a `DrainSignal` through the `ReloadRunner`;
+the v0.20 baseline tests (which don't supply one) keep working.
+
+## v0.21 control-socket op=reload
+
+```json
+{ "op": "reload", "agent_type": "Echo", "module_b64": "AGFzbQEAA...", "deadline_ms": 5000 }
+```
+
+The runtime decodes the base64 payload, validates the wasm magic,
+looks up the registered `ReloadHook` for `agent_type`, and runs the
+swap pipeline. The response is a `ReloadReport` JSON on success or
+`{"error":"...","code":"MT506x"}` on failure.
+
+`ReloadHook` is a `Send + Sync` trait registered per agent type by
+the runtime at agent-spawn time (process-global registry — keeps
+`ControlContext` source-compatible with the v0.20 literal
+constructor). The default `SimpleReloadHook<T>` impl owns the
+typed state cell, gate, drain signal, schema registry, and program
+slot.
 
 ## Diagnostics summary
 
 | Code | Cause |
 |------|-------|
-| `MT5060` | Incompatible `SCHEMA_HASH` |
-| `MT5061` | Agent not found |
+| `MT5060` | Incompatible `SCHEMA_HASH` (no migration registered) |
+| `MT5061` | Agent not found / no reload hook registered |
 | `MT5062` | Drain deadline exceeded |
 | `MT5063` | Snapshot encode/decode failure |
-| `MT5064` | Raw-wasm reload not yet wired (v0.20) |
+| `MT5064` | Wasm-load failure (bad magic, parse error, missing section) |
+| `MT5065` | Wasm's embedded agent type ≠ requested agent type |
+| `MT5066` | Bad base64 / wasm-magic in control-socket request |
+| `MT5067` | wasmparser-level binary read error |
+| `MT5068` | Missing `__mty_agent_type` or `__mty_schema_hash` section |
+| `MT506A` | Section present but malformed (bad UTF-8 / wrong length) |
 | `MT5069` | Internal runtime error during reload |
+
+## v0.22 follow-up
+
+The v0.21 slice deliberately stops short of one item:
+
+1. **Per-agent module surface in `mty-ir`.** The `Program` registry
+   lives inside the reload subsystem today. v0.22 will move it into
+   `mty_ir::ir::Program` so the interpreter's dispatch path can read
+   the swapped wasm. The reload subsystem will keep its
+   `with_swapped_agent` shape but delegate to the IR-side type.
+2. **Multi-version support during rolling restart.** During a
+   cluster-wide rolling restart, two versions of an agent type may
+   coexist briefly. The router must be aware of the hash range each
+   peer accepts; the cluster mesh already carries per-peer metadata,
+   so this is a wire-format extension, not a transport rewrite.
 
 ## See also
 

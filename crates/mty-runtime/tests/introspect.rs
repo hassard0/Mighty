@@ -70,7 +70,7 @@ fn agent_id_lookup_works() {
             other => panic!("expected Agent, got {:?}", other),
         }
         match ctx.handle(Request::SnapshotAgent { id: 99999 }) {
-            Response::Error { error } => assert_eq!(error, "not_found"),
+            Response::Error { error, .. } => assert_eq!(error, "not_found"),
             other => panic!("expected Error, got {:?}", other),
         }
         let _ = rt.shutdown().await;

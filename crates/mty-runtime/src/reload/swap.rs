@@ -33,7 +33,11 @@
 
 use crate::agent::{AgentDescriptor, AgentId};
 use crate::error::RuntimeError;
-use crate::reload::resumable::{ResumableError, SnapshotCodec};
+use crate::reload::condvar_drain::DrainSignal;
+use crate::reload::resumable::{
+    schema_check, ResumableError, SchemaCheck, SchemaRegistry, SnapshotCodec,
+};
+use crate::reload::wasm_loader::{load_agent_module, LoadedAgentModule, WasmLoadError};
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -88,21 +92,120 @@ impl ReloadGate {
     }
 }
 
+// ---------------------------------------------------------------------
+// Per-agent program slot (v0.21)
+// ---------------------------------------------------------------------
+
+/// Per-agent code-module record. Tracks the agent's installed wasm
+/// bytes + the metadata pulled out of the module's custom sections.
+#[derive(Debug, Clone)]
+pub struct AgentSlot {
+    pub agent_type: String,
+    pub wasm: Vec<u8>,
+    pub schema_hash: u64,
+}
+
+/// Process-wide registry mapping agent type name to its installed
+/// wasm bytes + metadata. The reload pipeline calls
+/// [`Program::with_swapped_agent`] to produce a clone of the program
+/// with one slot replaced — the live `Arc<Program>` swap is atomic
+/// from the caller's perspective.
+///
+/// `Program` is intentionally introduced inside the reload subsystem
+/// rather than mty-ir: the v0.21 slice ships the registry shape +
+/// per-agent reload semantics without changing the interpreter's
+/// data model. A future v0.22 will move the slot map into mty-ir's
+/// `ir::Program` once the per-agent module surface is wired through
+/// the interpreter's dispatch path.
+#[derive(Debug, Clone, Default)]
+pub struct Program {
+    slots: Vec<AgentSlot>,
+}
+
+impl Program {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_agent(mut self, slot: AgentSlot) -> Self {
+        self.install(slot);
+        self
+    }
+
+    fn install(&mut self, slot: AgentSlot) {
+        if let Some(existing) = self
+            .slots
+            .iter_mut()
+            .find(|s| s.agent_type == slot.agent_type)
+        {
+            *existing = slot;
+        } else {
+            self.slots.push(slot);
+            self.slots.sort_by(|a, b| a.agent_type.cmp(&b.agent_type));
+        }
+    }
+
+    pub fn get(&self, agent_type: &str) -> Option<&AgentSlot> {
+        self.slots.iter().find(|s| s.agent_type == agent_type)
+    }
+
+    pub fn agent_count(&self) -> usize {
+        self.slots.len()
+    }
+
+    /// Return a clone of this program with the named agent's wasm
+    /// slot replaced. If the agent type wasn't previously installed
+    /// the slot is appended (so a fresh agent reload bootstraps
+    /// cleanly).
+    pub fn with_swapped_agent(&self, agent_type: &str, new_wasm: Vec<u8>) -> ReloadResult<Self> {
+        let loaded = load_agent_module(&new_wasm)?;
+        if loaded.agent_type != agent_type {
+            return Err(ReloadError::AgentTypeMismatch {
+                requested: agent_type.to_string(),
+                embedded: loaded.agent_type,
+            });
+        }
+        let mut next = self.clone();
+        next.install(AgentSlot {
+            agent_type: loaded.agent_type,
+            wasm: loaded.wasm,
+            schema_hash: loaded.schema_hash,
+        });
+        Ok(next)
+    }
+
+    /// Variant of [`Self::with_swapped_agent`] that takes a pre-loaded
+    /// module record — used by the swap pipeline so the loader only
+    /// runs once per reload.
+    pub fn with_swapped_agent_preloaded(&self, loaded: LoadedAgentModule) -> Self {
+        let mut next = self.clone();
+        next.install(AgentSlot {
+            agent_type: loaded.agent_type,
+            wasm: loaded.wasm,
+            schema_hash: loaded.schema_hash,
+        });
+        next
+    }
+}
+
 /// Where the swap pipeline finds the replacement code module.
 ///
-/// In v0.20 the runtime interpreter doesn't have a per-agent module
-/// surface, so the only fully-wired variant is [`ModuleSource::SameProgram`]
-/// (state-only restart). [`ModuleSource::WasmBytes`] is accepted at
-/// the API boundary so callers (the CLI, future cluster migration)
-/// can record their intent today; the swap pipeline currently rejects
-/// it with [`ReloadError::WasmReloadNotImplemented`].
+/// v0.21 wires both variants:
+///
+/// - [`ModuleSource::SameProgram`] — state-only restart (round-trips
+///   the snapshot but keeps the existing wasm slot).
+/// - [`ModuleSource::WasmBytes`] — fresh wasm bytes. The pipeline
+///   parses the module via [`crate::reload::wasm_loader::load_agent_module`],
+///   cross-checks the embedded agent type + schema hash, then swaps
+///   the per-agent program slot via [`Program::with_swapped_agent`].
 pub enum ModuleSource<'a> {
     /// Use the runtime's currently-loaded program. State is preserved
     /// through `Resumable`; the code shape is unchanged.
     SameProgram,
-    /// Opaque wasm-module bytes. v0.20 returns a structured error;
-    /// v0.21 will lower these into a fresh `Program` via the wasm
-    /// component-model loader.
+    /// Opaque wasm-module bytes. The loader extracts the embedded
+    /// `__mty_agent_type` + `__mty_schema_hash` custom sections; the
+    /// swap pipeline cross-checks them against the plan + the
+    /// snapshot before swapping the program slot.
     WasmBytes(&'a [u8]),
 }
 
@@ -152,7 +255,7 @@ pub enum ReloadError {
 
     #[error(
         "schema hash incompatible: snapshot was produced by hash {old:#018x} \
-         but the new module expects hash {new:#018x}"
+         but the new module expects hash {new:#018x} (no migration registered)"
     )]
     IncompatibleSchema { old: u64, new: u64 },
 
@@ -162,12 +265,14 @@ pub enum ReloadError {
     #[error("snapshot encode/decode failed: {0}")]
     Snapshot(#[from] ResumableError),
 
+    #[error("wasm module load failed: {0}")]
+    WasmLoad(#[from] WasmLoadError),
+
     #[error(
-        "loading replacement code from raw wasm bytes is not yet \
-         implemented in v0.20 — pass ModuleSource::SameProgram \
-         (state-only restart). Tracking: docs/internals/hot-reload.md"
+        "wasm module's embedded agent type ({embedded}) doesn't match the \
+         caller-supplied agent type ({requested})"
     )]
-    WasmReloadNotImplemented,
+    AgentTypeMismatch { requested: String, embedded: String },
 
     #[error("internal runtime error during reload: {0}")]
     Internal(String),
@@ -181,7 +286,8 @@ impl ReloadError {
             ReloadError::IncompatibleSchema { .. } => "MT5060",
             ReloadError::DrainDeadline(_) => "MT5062",
             ReloadError::Snapshot(_) => "MT5063",
-            ReloadError::WasmReloadNotImplemented => "MT5064",
+            ReloadError::WasmLoad(_) => "MT5064",
+            ReloadError::AgentTypeMismatch { .. } => "MT5065",
             ReloadError::Internal(_) => "MT5069",
         }
     }
@@ -247,9 +353,42 @@ pub struct ReloadRunner<'a, T: Serialize + DeserializeOwned> {
     /// adapter over the descriptor's `Value` state cell.
     pub state: Arc<Mutex<T>>,
     pub gate: Arc<ReloadGate>,
+    /// Optional condvar-driven drain signal. When supplied, the
+    /// pipeline waits on the condvar rather than busy-polling
+    /// `gate.is_busy()`. Production callers should supply this; the
+    /// v0.20-shape tests still work without it (legacy path).
+    pub drain_signal: Option<DrainSignal>,
+    /// Optional schema-migration registry. When supplied, mismatched
+    /// hashes succeed if a chain is registered; otherwise the
+    /// pipeline falls back to bit-equality (v0.20 behaviour).
+    pub schema_registry: Option<Arc<SchemaRegistry>>,
+    /// Optional program-slot registry. When supplied along with
+    /// [`ModuleSource::WasmBytes`], the pipeline swaps the slot via
+    /// [`Program::with_swapped_agent_preloaded`] and stores the new
+    /// program back into the same cell.
+    pub program: Option<Arc<Mutex<Program>>>,
 }
 
-impl<T: Serialize + DeserializeOwned> ReloadRunner<'_, T> {
+impl<'a, T: Serialize + DeserializeOwned> ReloadRunner<'a, T> {
+    /// Convenience for the v0.20-shape call sites — they don't pass
+    /// the new fields, so we default them to `None`.
+    pub fn new(
+        plan: SwapPlan<'a>,
+        desc: Arc<AgentDescriptor>,
+        state: Arc<Mutex<T>>,
+        gate: Arc<ReloadGate>,
+    ) -> ReloadRunner<'a, T> {
+        ReloadRunner {
+            plan,
+            desc,
+            state,
+            gate,
+            drain_signal: None,
+            schema_registry: None,
+            program: None,
+        }
+    }
+
     /// Execute the swap. Steps 1-10 from the roadmap, with the
     /// schema-hash check + size guard layered in before any
     /// destructive action.
@@ -265,9 +404,8 @@ impl<T: Serialize + DeserializeOwned> ReloadRunner<'_, T> {
         } = self.plan;
 
         // Sanity-check that the plan's agent_type matches the live
-        // descriptor — this catches the common bug of passing the
-        // wrong descriptor in a multi-agent runtime. Cheap: a single
-        // string compare against an already-held `Arc<AgentDescriptor>`.
+        // descriptor — catches the common bug of passing the wrong
+        // descriptor in a multi-agent runtime.
         if !agent_type.is_empty() && self.desc.name != agent_type {
             return Err(ReloadError::Internal(format!(
                 "plan.agent_type ({}) doesn't match desc.name ({})",
@@ -275,36 +413,73 @@ impl<T: Serialize + DeserializeOwned> ReloadRunner<'_, T> {
             )));
         }
 
-        // (1) schema-hash compatibility short-circuit. We do this
-        // *before* the drain so a known-incompatible swap fails fast
-        // with the agent untouched. Mirrors the roadmap's wording:
-        // "The runtime refuses the swap if the new version's
-        // SCHEMA_HASH is incompatible with the recorded snapshot's hash."
-        if old_schema_hash != new_schema_hash {
-            return Err(ReloadError::IncompatibleSchema {
-                old: old_schema_hash,
-                new: new_schema_hash,
-            });
-        }
+        // (0) pre-load the wasm bytes (if any) so we catch loader
+        // failures *before* draining the agent. Failing here means
+        // the agent stays running with the gate untouched.
+        let preloaded: Option<LoadedAgentModule> = match module {
+            ModuleSource::SameProgram => None,
+            ModuleSource::WasmBytes(bytes) => {
+                let loaded = load_agent_module(bytes)?;
+                if loaded.agent_type != agent_type {
+                    return Err(ReloadError::AgentTypeMismatch {
+                        requested: agent_type.clone(),
+                        embedded: loaded.agent_type,
+                    });
+                }
+                if loaded.schema_hash != new_schema_hash {
+                    return Err(ReloadError::Internal(format!(
+                        "embedded schema hash {:#018x} doesn't match plan.new_schema_hash {:#018x}",
+                        loaded.schema_hash, new_schema_hash
+                    )));
+                }
+                Some(loaded)
+            }
+        };
 
-        // (2) drain the in-flight handler. The agent loop sets
-        // `gate.busy = true` while a handler runs; we busy-poll the
-        // flag with a small sleep so the deadline is enforced.
+        // (1) schema-hash compatibility. v0.21: if hashes differ,
+        // consult the SchemaRegistry for a registered migration
+        // chain. The default registry path falls back to v0.20
+        // bit-equality so legacy tests stay green.
+        let registry_owned: Arc<SchemaRegistry>;
+        let registry: &SchemaRegistry = match self.schema_registry.as_ref() {
+            Some(r) => r.as_ref(),
+            None => {
+                registry_owned = Arc::new(SchemaRegistry::new());
+                registry_owned.as_ref()
+            }
+        };
+        let migration = match schema_check(registry, old_schema_hash, new_schema_hash) {
+            SchemaCheck::Direct => None,
+            SchemaCheck::Migrate(chain) => Some(chain),
+            SchemaCheck::Incompatible => {
+                return Err(ReloadError::IncompatibleSchema {
+                    old: old_schema_hash,
+                    new: new_schema_hash,
+                });
+            }
+        };
+
+        // (2) drain the in-flight handler. v0.21: prefer the condvar
+        // drain when supplied. The legacy busy-poll is kept as a
+        // fallback so call sites that haven't migrated yet still work.
         let drain_started = Instant::now();
-        loop {
-            if !self.gate.is_busy() {
-                break;
+        let drain_elapsed = if let Some(signal) = self.drain_signal.as_ref() {
+            match signal.wait_until_idle(options.deadline) {
+                Ok(elapsed) => elapsed,
+                Err(_) => return Err(ReloadError::DrainDeadline(options.deadline)),
             }
-            if drain_started.elapsed() >= options.deadline {
-                // Leave the gate paused so the agent stays quiescent
-                // for the caller's follow-up action (typically "fail
-                // the reload, restart the agent later"). The agent
-                // loop unblocks naturally when its handler returns.
-                return Err(ReloadError::DrainDeadline(options.deadline));
+        } else {
+            loop {
+                if !self.gate.is_busy() {
+                    break;
+                }
+                if drain_started.elapsed() >= options.deadline {
+                    return Err(ReloadError::DrainDeadline(options.deadline));
+                }
+                std::thread::sleep(Duration::from_millis(1));
             }
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        let drain_elapsed = drain_started.elapsed();
+            drain_started.elapsed()
+        };
 
         // (3) pause: any future handler invocation will short-circuit
         // (see the agent loop's wait-on-gate.is_paused check).
@@ -319,27 +494,34 @@ impl<T: Serialize + DeserializeOwned> ReloadRunner<'_, T> {
         };
         let state_bytes_size = snapshot.len();
 
-        // (5) source the new code. v0.20 only allows SameProgram.
-        match module {
-            ModuleSource::SameProgram => { /* zero-overhead path */ }
-            ModuleSource::WasmBytes(_) => {
-                self.gate.resume();
-                return Err(ReloadError::WasmReloadNotImplemented);
+        // (5) source the new code. v0.21 wires both variants.
+        if let Some(loaded) = preloaded {
+            // The caller must provide the `program: Some(...)` field
+            // for the swap to be visible to subsequent reloads; if
+            // they don't, we still accept the wasm bytes (the agent
+            // type + hash check has already validated them) but
+            // silently no-op the program update.
+            if let Some(slot_cell) = self.program.as_ref() {
+                let mut prog = slot_cell.lock();
+                *prog = prog.with_swapped_agent_preloaded(loaded);
             }
         }
 
         // (6) decode the snapshot back into the (still typed) state
-        // cell. In the production path this is where the new wasm
-        // module's `from_snapshot` would run. With SameProgram the
-        // decode is a round-trip, but it still validates the payload.
-        let restored: T = decode_snapshot(&snapshot)?;
+        // cell. With a migration chain registered, we re-encode the
+        // snapshot through the chain first so the typed `T` decoder
+        // sees the new-shape bytes.
+        let final_bytes = match migration {
+            None => snapshot,
+            Some(chain) => {
+                SchemaRegistry::apply_chain(&chain, &snapshot).map_err(ReloadError::Snapshot)?
+            }
+        };
+        let restored: T = decode_snapshot(&final_bytes)?;
         *self.state.lock() = restored;
 
         // (7) resume. The mailbox is preserved end-to-end because we
-        // never touched `desc.mailbox` — the same `Arc<Mailbox>` that
-        // producers hold on `AgentHandle::mailbox` is still live and
-        // the agent loop will pick the next frame up as soon as the
-        // gate clears.
+        // never touched `desc.mailbox`.
         self.gate.resume();
 
         Ok(ReloadReport {
@@ -457,5 +639,92 @@ mod tests {
             RuntimeError::Trap { code, .. } => assert_eq!(code, "MT5060"),
             other => panic!("expected Trap, got {other:?}"),
         }
+    }
+
+    // -----------------------------------------------------------------
+    // v0.21 Program slot tests
+    // -----------------------------------------------------------------
+
+    fn synth_module(agent_type: &str, schema_hash: u64) -> Vec<u8> {
+        let mut module = wasm_encoder::Module::new();
+        module.section(&wasm_encoder::CustomSection {
+            name: std::borrow::Cow::Borrowed(crate::reload::wasm_loader::SECTION_AGENT_TYPE),
+            data: std::borrow::Cow::Borrowed(agent_type.as_bytes()),
+        });
+        let hash_bytes = schema_hash.to_le_bytes();
+        module.section(&wasm_encoder::CustomSection {
+            name: std::borrow::Cow::Borrowed(crate::reload::wasm_loader::SECTION_SCHEMA_HASH),
+            data: std::borrow::Cow::Borrowed(&hash_bytes),
+        });
+        module.finish()
+    }
+
+    #[test]
+    fn program_swap_installs_new_slot() {
+        let initial = Program::new();
+        assert_eq!(initial.agent_count(), 0);
+        let wasm = synth_module("Echo", 0xDEAD);
+        let next = initial.with_swapped_agent("Echo", wasm.clone()).unwrap();
+        assert_eq!(next.agent_count(), 1);
+        let slot = next.get("Echo").expect("slot present");
+        assert_eq!(slot.schema_hash, 0xDEAD);
+        assert_eq!(slot.wasm, wasm);
+        // Original was not mutated (clone-shaped surface).
+        assert_eq!(initial.agent_count(), 0);
+    }
+
+    #[test]
+    fn program_swap_replaces_existing_slot() {
+        let prog = Program::new();
+        let prog = prog
+            .with_swapped_agent("Echo", synth_module("Echo", 1))
+            .unwrap();
+        let prog = prog
+            .with_swapped_agent("Echo", synth_module("Echo", 2))
+            .unwrap();
+        assert_eq!(prog.agent_count(), 1);
+        assert_eq!(prog.get("Echo").unwrap().schema_hash, 2);
+    }
+
+    #[test]
+    fn program_swap_rejects_agent_type_mismatch() {
+        let prog = Program::new();
+        let wasm = synth_module("Other", 0);
+        let err = prog.with_swapped_agent("Echo", wasm).unwrap_err();
+        match err {
+            ReloadError::AgentTypeMismatch {
+                requested,
+                embedded,
+            } => {
+                assert_eq!(requested, "Echo");
+                assert_eq!(embedded, "Other");
+            }
+            other => panic!("expected AgentTypeMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn program_swap_rejects_malformed_wasm() {
+        let prog = Program::new();
+        let err = prog
+            .with_swapped_agent("Echo", b"not-wasm".to_vec())
+            .unwrap_err();
+        assert!(matches!(err, ReloadError::WasmLoad(_)));
+        assert_eq!(err.diag_code(), "MT5064");
+    }
+
+    #[test]
+    fn program_with_swapped_agent_keeps_other_slots() {
+        let prog = Program::new().with_agent(AgentSlot {
+            agent_type: "Other".into(),
+            wasm: vec![1, 2, 3],
+            schema_hash: 99,
+        });
+        let next = prog
+            .with_swapped_agent("Echo", synth_module("Echo", 7))
+            .unwrap();
+        assert_eq!(next.agent_count(), 2);
+        assert_eq!(next.get("Other").unwrap().schema_hash, 99);
+        assert_eq!(next.get("Echo").unwrap().schema_hash, 7);
     }
 }

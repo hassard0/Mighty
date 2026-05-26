@@ -41,8 +41,11 @@
 //! compatibility check a free function so the runtime can short-
 //! circuit at the start of the swap.
 
+use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::{Arc, OnceLock};
 
 /// Result returned by `Resumable` codec helpers. The runtime maps
 /// `Err` to the swap pipeline's [`crate::reload::ReloadError`]
@@ -88,10 +91,206 @@ pub trait Resumable: Sized + Serialize + DeserializeOwned {
     }
 
     /// True iff a snapshot produced by an impl with `other_hash` can
-    /// be decoded into `Self`. Default: bit-equal. v0.21 widens this
-    /// to a forward-compatible range — see module docs.
+    /// be decoded into `Self`. The default check is bit-equal; v0.21
+    /// callers register a migration via [`SchemaRegistry::register`]
+    /// to widen the accepted hash set without changing this trait
+    /// impl — see [`schema_check`] for the runtime-driven check that
+    /// consults the registry first and falls back to this method.
     fn schema_compatible_with(other_hash: u64) -> bool {
         Self::SCHEMA_HASH == other_hash
+    }
+}
+
+// ---------------------------------------------------------------------
+// v0.21 schema migrations
+// ---------------------------------------------------------------------
+
+/// Migrate an old snapshot value into the new shape.
+///
+/// Implementors define the per-version transition logic, e.g.
+/// "V2 = V1 with `created_at` defaulted to `epoch`". The runtime
+/// composes these into chains via [`SchemaRegistry`] so a V1
+/// snapshot can be lifted through V2 into V3 without the user
+/// writing every pairwise hop.
+///
+/// `Old` and `Self` (the `New` type) must both implement [`Resumable`]
+/// so the registry can chain migrations using their `SCHEMA_HASH`
+/// constants.
+pub trait MigrateFrom<Old: Resumable>: Resumable {
+    /// Translate an `Old` value into `Self`. Errors propagate up
+    /// through the swap pipeline as [`ResumableError::Decode`] — the
+    /// caller sees a `MT5063` with the migration's explanation.
+    fn migrate_from(old: Old) -> ResumableResult<Self>;
+}
+
+/// Re-encode a snapshot from `Old` shape into `New` shape via
+/// [`MigrateFrom`]. The runtime invokes this exactly once per
+/// registered migration hop; chained migrations apply the function
+/// sequentially.
+pub fn try_migrate<Old, New>(old_bytes: &[u8], old_hash: u64) -> ResumableResult<Vec<u8>>
+where
+    Old: Resumable,
+    New: Resumable + MigrateFrom<Old>,
+{
+    if old_hash != Old::SCHEMA_HASH {
+        return Err(ResumableError::Decode(format!(
+            "migrate: source snapshot hash {old_hash:#018x} doesn't match Old::SCHEMA_HASH {:#018x}",
+            Old::SCHEMA_HASH
+        )));
+    }
+    let old: Old = SnapshotCodec::decode(old_bytes)?;
+    let new = New::migrate_from(old)?;
+    SnapshotCodec::encode(&new)
+}
+
+/// A registered migration step: re-encode bytes from `old_hash` shape
+/// into `new_hash` shape.
+pub type MigrationFn = Arc<dyn Fn(&[u8]) -> ResumableResult<Vec<u8>> + Send + Sync + 'static>;
+
+/// Process-global registry of migration hops. Keyed by `(old, new)`
+/// hash pair; the runtime composes them at lookup time into a chain
+/// that lifts a snapshot from any registered source hash to a target
+/// hash.
+pub struct SchemaRegistry {
+    edges: Mutex<HashMap<(u64, u64), MigrationFn>>,
+}
+
+impl std::fmt::Debug for SchemaRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let g = self.edges.lock();
+        f.debug_struct("SchemaRegistry")
+            .field("edges", &g.len())
+            .finish()
+    }
+}
+
+impl SchemaRegistry {
+    /// Empty registry. Used by tests that need an isolated instance.
+    pub fn new() -> Self {
+        SchemaRegistry {
+            edges: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Process-global instance. The swap pipeline consults this when
+    /// the snapshot's source hash doesn't match the new module's
+    /// hash.
+    pub fn global() -> &'static SchemaRegistry {
+        static INSTANCE: OnceLock<SchemaRegistry> = OnceLock::new();
+        INSTANCE.get_or_init(SchemaRegistry::new)
+    }
+
+    /// Register a migration from `Old` (`Old::SCHEMA_HASH`) to `New`
+    /// (`New::SCHEMA_HASH`). Subsequent reloads that present an
+    /// `Old`-shape snapshot to a `New`-shape module succeed by
+    /// transparently re-encoding the bytes through `New::migrate_from`.
+    pub fn register<Old, New>(&self)
+    where
+        Old: Resumable + 'static,
+        New: Resumable + MigrateFrom<Old> + 'static,
+    {
+        let key = (Old::SCHEMA_HASH, New::SCHEMA_HASH);
+        let f: MigrationFn =
+            Arc::new(|bytes: &[u8]| try_migrate::<Old, New>(bytes, Old::SCHEMA_HASH));
+        self.edges.lock().insert(key, f);
+    }
+
+    /// Register a raw migration function — used by integration tests
+    /// that need a synthetic edge without owning both types statically.
+    pub fn register_raw(
+        &self,
+        old_hash: u64,
+        new_hash: u64,
+        f: impl Fn(&[u8]) -> ResumableResult<Vec<u8>> + Send + Sync + 'static,
+    ) {
+        let f: MigrationFn = Arc::new(f);
+        self.edges.lock().insert((old_hash, new_hash), f);
+    }
+
+    /// Compute a migration chain `old_hash → … → new_hash`. BFS so
+    /// the shortest registered path wins.
+    pub fn chain(&self, old_hash: u64, new_hash: u64) -> Option<Vec<MigrationFn>> {
+        if old_hash == new_hash {
+            return Some(Vec::new());
+        }
+        let edges = self.edges.lock();
+        let mut frontier: VecDeque<(u64, Vec<MigrationFn>)> = VecDeque::new();
+        let mut seen: HashSet<u64> = HashSet::new();
+        frontier.push_back((old_hash, Vec::new()));
+        seen.insert(old_hash);
+        while let Some((cur, path)) = frontier.pop_front() {
+            for (&(from, to), f) in edges.iter() {
+                if from != cur || seen.contains(&to) {
+                    continue;
+                }
+                let mut next_path = path.clone();
+                next_path.push(f.clone());
+                if to == new_hash {
+                    return Some(next_path);
+                }
+                seen.insert(to);
+                frontier.push_back((to, next_path));
+            }
+        }
+        None
+    }
+
+    /// Apply a chain of migrations to `bytes` in order.
+    pub fn apply_chain(chain: &[MigrationFn], bytes: &[u8]) -> ResumableResult<Vec<u8>> {
+        let mut cur = bytes.to_vec();
+        for f in chain {
+            cur = f(&cur)?;
+        }
+        Ok(cur)
+    }
+
+    /// Number of registered edges. Used by tests.
+    pub fn edge_count(&self) -> usize {
+        self.edges.lock().len()
+    }
+
+    /// Drop every registered migration.
+    pub fn clear(&self) {
+        self.edges.lock().clear();
+    }
+}
+
+impl Default for SchemaRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Outcome of a schema-compatibility check, used by the swap pipeline
+/// to decide whether to migrate, accept, or reject the snapshot.
+pub enum SchemaCheck {
+    /// Hashes match — pass the snapshot bytes through unchanged.
+    Direct,
+    /// Migration registered — apply the chain before deserialising.
+    Migrate(Vec<MigrationFn>),
+    /// No matching path — reload should fail with `MT5060`.
+    Incompatible,
+}
+
+impl std::fmt::Debug for SchemaCheck {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SchemaCheck::Direct => write!(f, "SchemaCheck::Direct"),
+            SchemaCheck::Migrate(chain) => write!(f, "SchemaCheck::Migrate(len={})", chain.len()),
+            SchemaCheck::Incompatible => write!(f, "SchemaCheck::Incompatible"),
+        }
+    }
+}
+
+/// Decide how the swap pipeline should handle the given (old, new)
+/// hash pair.
+pub fn schema_check(registry: &SchemaRegistry, old_hash: u64, new_hash: u64) -> SchemaCheck {
+    if old_hash == new_hash {
+        return SchemaCheck::Direct;
+    }
+    match registry.chain(old_hash, new_hash) {
+        Some(chain) if !chain.is_empty() => SchemaCheck::Migrate(chain),
+        _ => SchemaCheck::Incompatible,
     }
 }
 
@@ -239,5 +438,124 @@ mod tests {
         // Random non-ciborium bytes should fail cleanly with Decode.
         let err = Counter::from_snapshot(&[0xFFu8; 4]).unwrap_err();
         assert!(matches!(err, ResumableError::Decode(_)));
+    }
+
+    // -----------------------------------------------------------------
+    // v0.21 schema migration tests
+    // -----------------------------------------------------------------
+
+    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    struct StateV1 {
+        count: u64,
+    }
+    impl Resumable for StateV1 {
+        const SCHEMA_HASH: u64 = 0x0001_0000_0000_0001;
+    }
+
+    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    struct StateV2 {
+        count: u64,
+        label: String,
+    }
+    impl Resumable for StateV2 {
+        const SCHEMA_HASH: u64 = 0x0002_0000_0000_0002;
+    }
+
+    impl MigrateFrom<StateV1> for StateV2 {
+        fn migrate_from(old: StateV1) -> ResumableResult<Self> {
+            Ok(StateV2 {
+                count: old.count,
+                label: String::new(),
+            })
+        }
+    }
+
+    #[test]
+    fn try_migrate_v1_to_v2() {
+        let v1 = StateV1 { count: 42 };
+        let bytes = SnapshotCodec::encode(&v1).unwrap();
+        let v2_bytes = try_migrate::<StateV1, StateV2>(&bytes, StateV1::SCHEMA_HASH).unwrap();
+        let v2: StateV2 = SnapshotCodec::decode(&v2_bytes).unwrap();
+        assert_eq!(v2.count, 42);
+        assert_eq!(v2.label, "");
+    }
+
+    #[test]
+    fn try_migrate_rejects_wrong_hash() {
+        let v1 = StateV1 { count: 0 };
+        let bytes = SnapshotCodec::encode(&v1).unwrap();
+        let err = try_migrate::<StateV1, StateV2>(&bytes, StateV1::SCHEMA_HASH ^ 1).unwrap_err();
+        match err {
+            ResumableError::Decode(s) => assert!(s.contains("doesn't match")),
+            other => panic!("expected Decode, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn registry_register_and_chain_direct() {
+        let r = SchemaRegistry::new();
+        r.register::<StateV1, StateV2>();
+        assert_eq!(r.edge_count(), 1);
+        let chain = r
+            .chain(StateV1::SCHEMA_HASH, StateV2::SCHEMA_HASH)
+            .expect("chain");
+        assert_eq!(chain.len(), 1);
+    }
+
+    #[test]
+    fn registry_no_chain_for_unrelated_hashes() {
+        let r = SchemaRegistry::new();
+        r.register::<StateV1, StateV2>();
+        assert!(r.chain(0xDEAD_BEEF, 0xFEED_BEEF).is_none());
+    }
+
+    #[test]
+    fn schema_check_direct_when_hashes_equal() {
+        let r = SchemaRegistry::new();
+        match schema_check(&r, 42, 42) {
+            SchemaCheck::Direct => {}
+            other => panic!("expected Direct, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn schema_check_migrate_when_edge_present() {
+        let r = SchemaRegistry::new();
+        r.register::<StateV1, StateV2>();
+        match schema_check(&r, StateV1::SCHEMA_HASH, StateV2::SCHEMA_HASH) {
+            SchemaCheck::Migrate(chain) => assert_eq!(chain.len(), 1),
+            other => panic!("expected Migrate, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn schema_check_incompatible_when_no_edge() {
+        let r = SchemaRegistry::new();
+        match schema_check(&r, 1, 2) {
+            SchemaCheck::Incompatible => {}
+            other => panic!("expected Incompatible, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn apply_chain_round_trip() {
+        let r = SchemaRegistry::new();
+        r.register::<StateV1, StateV2>();
+        let chain = r
+            .chain(StateV1::SCHEMA_HASH, StateV2::SCHEMA_HASH)
+            .expect("chain");
+        let v1_bytes = SnapshotCodec::encode(&StateV1 { count: 7 }).unwrap();
+        let v2_bytes = SchemaRegistry::apply_chain(&chain, &v1_bytes).unwrap();
+        let v2: StateV2 = SnapshotCodec::decode(&v2_bytes).unwrap();
+        assert_eq!(v2.count, 7);
+    }
+
+    #[test]
+    fn registry_clear_removes_edges() {
+        let r = SchemaRegistry::new();
+        r.register::<StateV1, StateV2>();
+        assert_eq!(r.edge_count(), 1);
+        r.clear();
+        assert_eq!(r.edge_count(), 0);
     }
 }
