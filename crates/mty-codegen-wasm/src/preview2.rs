@@ -542,8 +542,8 @@ impl std::fmt::Display for P2DirectImport {
 /// Callers are responsible for:
 ///   * Having declared the three imports
 ///     ([`P2DirectImport::LogStdoutGet`],
-///      [`P2DirectImport::LogStreamWrite`],
-///      [`P2DirectImport::LogStreamDrop`]) and passing their
+///     [`P2DirectImport::LogStreamWrite`],
+///     [`P2DirectImport::LogStreamDrop`]) and passing their
 ///     function indices.
 ///   * Having reserved an `i32` local slot for the stream handle.
 ///   * Having interned the message bytes into linear memory and
