@@ -32,6 +32,12 @@ jobs:
     name: build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
+      # v0.17 polish: drop `fail-fast: false` so a stuck/queued platform
+      # cannot block the release publish step indefinitely. We still
+      # want a partial release (Linux + arm64 macOS + Windows) over no
+      # release at all. The publish job below uses
+      # `fail_on_unmatched_files: false` so missing platforms degrade
+      # gracefully.
       fail-fast: false
       matrix:
         include:
@@ -39,10 +45,14 @@ jobs:
             target: x86_64-unknown-linux-gnu
             artifact: mty
             asset: mty-x86_64-unknown-linux-gnu.tar.gz
-          - os: macos-13
-            target: x86_64-apple-darwin
-            artifact: mty
-            asset: mty-x86_64-apple-darwin.tar.gz
+          # Intel macOS (`macos-13` / `x86_64-apple-darwin`) is
+          # intentionally OFF the matrix. The GitHub-hosted Intel
+          # macOS runner pool was queueing builds for 6+ hours,
+          # blocking every v0.15.0 / v0.16.0 / v0.17.0 release from
+          # publishing because the publish job has `needs: build`.
+          # Apple Silicon (arm64) is the current-generation Mac;
+          # users on Intel Macs can build from source. v0.18+ may
+          # add Intel back when GitHub's runner pool improves.
           - os: macos-14
             target: aarch64-apple-darwin
             artifact: mty

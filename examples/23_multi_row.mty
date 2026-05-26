@@ -31,7 +31,6 @@
 // SHIPPED form at the source level); the HIR + typeck layers are
 // already wired for the multi-var case so v0.18 only needs to
 // extend the parser.
-
 // A canonical row-poly fn: one row variable, one fn-typed param.
 // The closure's effects flow through `E` into the caller's
 // inferred effect set at each call site (per RFC-008 §inference).
