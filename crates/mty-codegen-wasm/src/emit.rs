@@ -1126,8 +1126,7 @@ impl<'a> Emitter<'a> {
                             // typically read (ptr, len) from there).
                             wfn.instruction(&I::I32Const(DOM_RETURN_AREA as i32));
                         }
-                        P2DirectImport::MonotonicNow
-                        | P2DirectImport::MonotonicResolution => {
+                        P2DirectImport::MonotonicNow | P2DirectImport::MonotonicResolution => {
                             wfn.instruction(&I::Call(idx));
                             // Leaves i64 on the stack — already a
                             // valid Mighty `Instant` / `Duration`
@@ -1143,9 +1142,7 @@ impl<'a> Emitter<'a> {
                     }
                     return Ok(());
                 }
-                Err(WasmError::Unsupported(format!(
-                    "wasm extern call {name}"
-                )))
+                Err(WasmError::Unsupported(format!("wasm extern call {name}")))
             }
             FnRef::Builtin(other) => Err(WasmError::Unsupported(format!("wasm builtin {other:?}"))),
         }

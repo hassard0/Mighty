@@ -332,7 +332,23 @@ pub fn emit_wit_p2(_prog: &Program, opts: &Preview2Options) -> CompileResult<Wit
     //       `@0.2.3` annotation). Co-exists with the versioned
     //       wasi:cli@0.2.3 package because they have different
     //       package versions.
+    //
+    //       v0.15 status: shim still wired. The canonical-ABI
+    //       translation of Mighty's `log(ptr: i32, len: i32)` into
+    //       `wasi:cli/stdout@0.2.3#get-stdout` +
+    //       `wasi:io/streams@0.2.3#output-stream.blocking-write-and-flush`
+    //       requires a multi-instruction lift that's deferred to
+    //       v0.16 (tracked in WASI_P2_FINISH_V0_15_NOTES.md). Until
+    //       then the shim is the documented routing point for
+    //       Mighty's `log()` builtin — `#[deprecated]`-style notice
+    //       sits in the WIT comment below so anyone inspecting the
+    //       emitted document sees the migration plan.
     let cli_shim_text = "package wasi:cli;\n\
+         // DEPRECATED: replaced in v0.16 by a direct lowering to\n\
+         // wasi:cli/stdout@0.2.3 + wasi:io/streams@0.2.3. The shim\n\
+         // is preserved for v0.15 back-compat so existing core\n\
+         // modules built with the slice-8 `log()` import keep\n\
+         // resolving via wit-component.\n\
          interface log {\n\
            log: func(msg: string);\n\
          }\n"

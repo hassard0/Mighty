@@ -5,32 +5,42 @@ Mighty targets the WebAssembly Component Model on every `mty build
 **WASI Preview 1** (P1) — the imports the slice-8 emitter wires
 (`wasi:cli/log#log`) match the P1 snapshot interface.
 
-v0.13 introduces an opt-in **WASI Preview 2** (P2) backend driven by
-the `--wasi=p2` flag. This page describes both modes, the
-compatibility matrix, and how to consume user-authored `.wit` files.
+v0.13 introduced an opt-in **WASI Preview 2** (P2) backend driven by
+the `--wasi=p2` flag. **v0.15 flips the default**: passing
+`--target wasm32-wasi` without `--wasi=...` now produces a P2
+component. `--wasi=p1` keeps the legacy import shape for back-compat.
+This page describes both modes, the compatibility matrix, and how to
+consume user-authored `.wit` files.
 
 ## TL;DR
 
 ```bash
-# Default — keeps the v0.2..v0.12 P1 shape.
+# Default since v0.15 — P2 component with versioned wasi:*@0.2.3
+# imports + the vendored P1→P2 adapter for the surfaces that still
+# route through it.
 mty build hello.mty --target wasm32-wasi
 
-# Opt into the v0.13 P2 backend.
+# Explicit opt-in to P2 (identical to the default since v0.15;
+# retained for explicit-intent build scripts).
 mty build hello.mty --target wasm32-wasi --wasi=p2
 
+# Back-compat — keep the v0.2..v0.14 P1 import shape. Useful for
+# downstream tooling that hasn't moved to the Component Model yet.
+mty build hello.mty --target wasm32-wasi --wasi=p1
+
 # P2 + user-supplied WIT (worlds defined in mighty.toml `[wit]`).
-mty build hello.mty --target wasm32-wasi --wasi=p2 --world my-world
+mty build hello.mty --target wasm32-wasi --world my-world
 ```
 
 ## Compatibility matrix
 
-| Mighty surface | P1 (default) | P2 (`--wasi=p2`) |
+| Mighty surface | P1 (`--wasi=p1`) | P2 (default since v0.15) |
 |----------------|--------------|------------------|
-| `log()` / `print()` | imports `wasi:cli/log` | imports `wasi:cli/log` (unversioned shim) — v0.15 replaces with `wasi:cli/stdout@0.2.3` |
-| `std.fs.read()` / `write()` | P1 syscall | P1 syscall, **translated to `wasi:filesystem@0.2.3` by the vendored adapter** (v0.15 adds direct lowering) |
-| `std.http.get()` / `post()` | P1 syscall | P1 syscall, **translated to `wasi:http@0.2.3` by the vendored adapter** (v0.15 adds direct lowering) |
-| `std.time.now()` / `monotonic_now()` / `resolution()` | P1 syscall | **direct P2 import** `wasi:clocks/{wall-clock,monotonic-clock}@0.2.3` (v0.14) |
-| `std.random.bytes()` / `u64()` | P1 syscall | **direct P2 import** `wasi:random/random@0.2.3` (v0.14) |
+| `log()` / `print()` | imports `wasi:cli/log` | imports `wasi:cli/log` (unversioned shim, **deprecated for v0.16** — will route to `wasi:cli/stdout@0.2.3` + `wasi:io/streams@0.2.3#output-stream.blocking-write-and-flush`) |
+| `std.fs.read()` / `write()` | P1 syscall | P1 syscall, **translated to `wasi:filesystem@0.2.3` by the vendored adapter** (v0.16 adds direct lowering) |
+| `std.http.get()` / `post()` | P1 syscall | P1 syscall, **translated to `wasi:http@0.2.3` by the vendored adapter** (v0.16 adds direct lowering) |
+| `std.time.now()` / `monotonic_now()` / `resolution()` | P1 syscall | **direct P2 import** `wasi:clocks/{wall-clock,monotonic-clock}@0.2.3` (wired into emitter v0.15) |
+| `std.random.bytes()` / `u64()` | P1 syscall | **direct P2 import** `wasi:random/random@0.2.3` (wired into emitter v0.15) |
 | `wasi_snapshot_preview1` adapter | n/a | **embedded** (~54 KB) — wasmtime v32.0.0 command shape |
 | User-WIT `[wit]` section | ignored | merged into world |
 | `--world <name>` | ignored | picks world from user WIT |
@@ -50,14 +60,19 @@ Two transport modes coexist in v0.14:
   instantiation. From the host's perspective the component
   imports the same `wasi:*@0.2.3` interfaces either way.
 
-The v0.15 plan flips `std.fs` + `std.http` + `log()` to the
+The v0.16 plan flips `std.fs` + `std.http` + `log()` to the
 direct path, after which the adapter becomes optional and can be
 opted out via `Preview2Options::with_adapter(None)` for smaller
-components.
+components. v0.15 already wired direct lowerings for
+`std.random.bytes` and `std.time.{now,monotonic_now,resolution}`
+into the core-module emitter — building any program that uses
+those calls under `--wasi=p2` (the default) splices the versioned
+imports directly into the core module's import section.
 
-## How `--wasi=p2` changes the output
+## How the P2 backend works
 
-A P2 build does five things differently from the default P1 path:
+A P2 build (the v0.15 default) does five things differently from the
+explicit `--wasi=p1` legacy path:
 
 1. The generated WIT document imports versioned P2 interfaces:
    `wasi:cli@0.2.3`, `wasi:io@0.2.3`, `wasi:clocks@0.2.3`,
@@ -163,33 +178,44 @@ When the user package declares more than one world, the build either:
 
 ## Which `std.*` modules lower to P2?
 
-v0.14 status:
+v0.15 status:
 
-- **direct P2 lowering**: `std.time.now()`,
+- **direct P2 lowering** (wired into the core-module emitter via
+  `mty_codegen_wasm::P2DirectImport`): `std.time.now()`,
   `std.time.monotonic_now()`, `std.time.resolution()`,
   `std.random.bytes()`, `std.random.u64()`. The core module
   imports the versioned P2 interface (e.g.
   `wasi:random/random@0.2.3#get-random-bytes`) verbatim — no
-  adapter hop needed.
-- **adapter-routed P2**: `std.fs.*`, `std.http.*`, `log()`. The
-  core module still imports the P1 syscall (e.g.
+  adapter hop needed. v0.14 shipped the helper constants but
+  routed through the emitter's `WasmError::Unsupported` fallback
+  for these extern calls; v0.15 wires them through.
+- **adapter-routed P2**: `std.fs.*`, `std.http.*`. The core
+  module still imports the P1 syscall (e.g.
   `wasi_snapshot_preview1#fd_write`); the vendored adapter
   translates that into the matching `wasi:filesystem@0.2.3`
   call at instantiation.
+- **shim-routed P2** (deprecated for v0.16): `log()` / `print()`.
+  Mighty's slice-8 emitter declares `wasi:cli/log#log` as an
+  unversioned import; the P2 wrap path declares a matching
+  unversioned `wasi:cli` package containing only that shim so
+  `wit-component::ComponentEncoder` can resolve it. The shim's
+  WIT carries a `// DEPRECATED:` comment flagging the v0.16
+  migration plan: route to
+  `wasi:cli/stdout@0.2.3#get-stdout` +
+  `wasi:io/streams@0.2.3#output-stream.blocking-write-and-flush`.
 
 Both transports produce a P2-compliant component — the host sees
 versioned `wasi:*@0.2.3` imports either way. The difference is the
 ~54 KB of adapter Wasm embedded into the component when any
 adapter-routed surface is used.
 
-The v0.15 plan flips the remaining surfaces (`std.fs`, `std.http`,
+The v0.16 plan flips the remaining surfaces (`std.fs`, `std.http`,
 `log()`) to direct lowering, at which point the adapter becomes
-opt-in. P2 will become the default for `wasm32-wasi` once all four
-surfaces lower directly.
+opt-in.
 
 ## Versioning
 
-Mighty v0.14 targets **WASI 0.2.3**. The exact version string is
+Mighty v0.15 targets **WASI 0.2.3**. The exact version string is
 exposed as `mty_codegen_wasm::WASI_P2_VERSION`. The vendored P2 WIT
 text lives at `crates/mty-codegen-wasm/wit/wasi-p2/wasi-p2.wit`
 (the full upstream wasi-cli + wasi-http surface, concatenated). The
@@ -205,13 +231,22 @@ release tag for the vendored adapter (e.g. `"wasmtime-v32.0.0"`).
 ## Roadmap
 
 - v0.14 (shipped): vendored P1→P2 adapter embedded by default;
-  `std.random` + `std.time` lower to direct P2 imports.
-- v0.15: direct lowering for `std.fs`, `std.http`, `log()`; adapter
-  becomes opt-in; `--wasi=p2` becomes the default for `wasm32-wasi`.
+  `std.random` + `std.time` direct-import helpers landed as
+  constants; emitter still routed those calls through the
+  Unsupported fallback.
+- v0.15 (shipped): direct-import dispatch wired through emit.rs for
+  `std.random.bytes` + `std.time.{now,monotonic_now,resolution}`;
+  `--wasi=p2` is now the default for `wasm32-wasi`; `--wasi=p1`
+  remains supported for back-compat.
+- v0.16: direct lowering for `std.fs`, `std.http`, and `log()`
+  (the last replaces the `wasi:cli/log` shim with a real
+  `wasi:cli/stdout@0.2.3` + `wasi:io/streams@0.2.3` lift);
+  adapter becomes opt-in for builds that avoid all P1 syscalls.
 - v1.0 RC4: P1 becomes a tier-2 target (still emitted on request but
   no longer the default; the documentation tree assumes P2).
 
 See `dev/history/notes/WASI_P2_V0_13_NOTES.md` for the v0.13
-plan + open decisions and
+plan + open decisions,
 `dev/history/notes/WASI_P2_LOWERINGS_V0_14_NOTES.md` for the v0.14
-follow-up.
+follow-up, and `dev/history/notes/WASI_P2_FINISH_V0_15_NOTES.md`
+for the v0.15 default-flip + emitter-wiring rationale.

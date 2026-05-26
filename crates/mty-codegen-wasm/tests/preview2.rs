@@ -427,6 +427,249 @@ fn adapter_kind_bytes_are_wasm_shaped() {
     }
 }
 
+// ============================================================
+// v0.15 — wired-in direct-import dispatch coverage.
+// ============================================================
+
+use mty_codegen_wasm::{compile_program_to_bytes_with_preview, EmitWasiPreview};
+
+/// When the emitter is built with [`EmitWasiPreview::P2`] AND the
+/// SIR program calls `std.random.bytes(n)`, the produced *core*
+/// module must declare a direct
+/// `wasi:random/random@0.2.3#get-random-bytes` import — no
+/// `wasi_snapshot_preview1` hop. Pins the v0.15 dispatch path.
+#[test]
+fn random_bytes_emits_direct_p2_import() {
+    let prog = std_call_program("std.random.bytes", /*pass_arg=*/ true);
+    let core = compile_program_to_bytes_with_preview(
+        &prog,
+        mty_codegen_wasm::WasmTarget::Wasi,
+        EmitWasiPreview::P2,
+    )
+    .expect("compile p2");
+    assert!(
+        core_module_imports(&core, "wasi:random/random@0.2.3", "get-random-bytes"),
+        "expected versioned wasi:random direct import in core module"
+    );
+    assert!(
+        !core_module_imports(&core, "wasi_snapshot_preview1", "fd_random_get"),
+        "core module must not fall back to wasi_snapshot_preview1 for random"
+    );
+}
+
+/// Same idea for `std.time.now` → wasi:clocks/wall-clock.now.
+#[test]
+fn time_now_emits_direct_p2_import() {
+    let prog = std_call_program("std.time.now", /*pass_arg=*/ false);
+    let core = compile_program_to_bytes_with_preview(
+        &prog,
+        mty_codegen_wasm::WasmTarget::Wasi,
+        EmitWasiPreview::P2,
+    )
+    .expect("compile p2");
+    assert!(
+        core_module_imports(&core, "wasi:clocks/wall-clock@0.2.3", "now"),
+        "expected versioned wasi:clocks/wall-clock direct import"
+    );
+}
+
+/// Same idea for `std.time.monotonic_now` →
+/// wasi:clocks/monotonic-clock.now.
+#[test]
+fn time_monotonic_now_emits_direct_p2_import() {
+    let prog = std_call_program("std.time.monotonic_now", /*pass_arg=*/ false);
+    let core = compile_program_to_bytes_with_preview(
+        &prog,
+        mty_codegen_wasm::WasmTarget::Wasi,
+        EmitWasiPreview::P2,
+    )
+    .expect("compile p2");
+    assert!(
+        core_module_imports(&core, "wasi:clocks/monotonic-clock@0.2.3", "now"),
+        "expected versioned wasi:clocks/monotonic-clock direct import"
+    );
+}
+
+/// And `std.time.resolution` →
+/// wasi:clocks/monotonic-clock.resolution.
+#[test]
+fn time_resolution_emits_direct_p2_import() {
+    let prog = std_call_program("std.time.resolution", /*pass_arg=*/ false);
+    let core = compile_program_to_bytes_with_preview(
+        &prog,
+        mty_codegen_wasm::WasmTarget::Wasi,
+        EmitWasiPreview::P2,
+    )
+    .expect("compile p2");
+    assert!(
+        core_module_imports(&core, "wasi:clocks/monotonic-clock@0.2.3", "resolution"),
+        "expected versioned wasi:clocks/monotonic-clock.resolution direct import"
+    );
+}
+
+/// On the **P1** dispatch path the same SIR program must NOT splice
+/// in any versioned `wasi:*@0.2.3` import — we'd regress back-compat
+/// otherwise. The body falls through to the legacy
+/// `WasmError::Unsupported` → single-`unreachable` placeholder, which
+/// still validates and still doesn't reference the versioned
+/// interfaces.
+#[test]
+fn random_bytes_under_p1_skips_direct_import() {
+    let prog = std_call_program("std.random.bytes", /*pass_arg=*/ true);
+    let core = compile_program_to_bytes_with_preview(
+        &prog,
+        mty_codegen_wasm::WasmTarget::Wasi,
+        EmitWasiPreview::P1,
+    )
+    .expect("compile p1");
+    assert!(
+        !core_module_imports(&core, "wasi:random/random@0.2.3", "get-random-bytes"),
+        "P1 build must not declare the direct P2 import for std.random.bytes"
+    );
+}
+
+/// The `wasi:cli/log` shim remains wired in v0.15 (the canonical-ABI
+/// translation to `wasi:cli/stdout@0.2.3#print` is deferred to v0.16).
+/// The shim's WIT block lives alongside the synthesized world; pin
+/// that the P2 doc still declares it AND the doc carries a note
+/// flagging the v0.16-removal so future readers don't accidentally
+/// promote the shim to permanent surface.
+#[test]
+fn log_shim_still_present_with_deprecation_note() {
+    let prog = common::empty_main();
+    let opts = Preview2Options::new("shim-doc");
+    let doc = emit_wit_p2(&prog, &opts).expect("p2 wit");
+    // Shim is still declared so legacy `log()` lowerings keep wiring.
+    assert!(
+        doc.text.contains("wasi:cli/log"),
+        "wasi:cli/log shim must still be present in v0.15 P2 WIT"
+    );
+    // Pin the v0.16 deprecation note so the migration plan is visible
+    // to anyone inspecting the emitted WIT.
+    assert!(
+        doc.text.contains("v0.16") || doc.text.contains("deprecated"),
+        "expected v0.16 / deprecated note next to the cli/log shim"
+    );
+}
+
+/// Build a Program that calls one of the std.* extern paths. When
+/// `pass_arg` is true, the call gets a single i32 arg (matches the
+/// `std.random.bytes(n)` shape); otherwise it's a no-arg call.
+///
+/// The body discards the call result (sinks via Drop on a fresh
+/// temp). This is enough for the emitter to splice in the import;
+/// what we assert in the test is the import section's contents.
+fn std_call_program(extern_name: &str, pass_arg: bool) -> mty_ir::ir::Program {
+    use mty_hir::SourceSpan;
+    use mty_ir::ir::{
+        Block, BlockId, BuiltinId, Const, FnRef, Function, IrFnId, IrTy, Local, LocalDecl,
+        LocalSource, Operand, Place, Program, Rvalue, Stmt, Term,
+    };
+    use mty_types::IntKind;
+
+    let mut p = Program::default();
+    // Local 0 = return slot (Unit).
+    // Local 1 = call-result sink (Error-typed so emit drops it).
+    let mut locals = vec![
+        LocalDecl {
+            name: "_0".into(),
+            ty: IrTy::Unit,
+            mutable: false,
+            source: LocalSource::Return,
+        },
+        LocalDecl {
+            name: "_1".into(),
+            ty: IrTy::Error,
+            mutable: false,
+            source: LocalSource::Temp,
+        },
+    ];
+    let mut args: Vec<Operand> = Vec::new();
+    if pass_arg {
+        // Local 2 = constant `n`.
+        locals.push(LocalDecl {
+            name: "n".into(),
+            ty: IrTy::Int(IntKind::I32),
+            mutable: false,
+            source: LocalSource::Temp,
+        });
+        args.push(Operand::Const(Const::Int(16, IntKind::I32)));
+    }
+    let stmts = vec![Stmt::Assign(
+        Place::local(Local(1)),
+        Rvalue::Call {
+            func: FnRef::Builtin(BuiltinId::Extern(extern_name.into())),
+            args,
+        },
+    )];
+    p.fns.push(Function {
+        id: IrFnId(0),
+        name: "main".into(),
+        params: vec![],
+        locals,
+        blocks: vec![Block {
+            id: BlockId(0),
+            stmts,
+            terminator: Term::Return(Operand::Const(Const::Unit)),
+        }],
+        entry: BlockId(0),
+        ret_ty: IrTy::Unit,
+        effects: vec![],
+        hir_fn: None,
+        span: SourceSpan { start: 0, end: 0 },
+    });
+    p
+}
+
+/// Walk the core module's import section and return true iff any
+/// import matches the `(module, name)` pair exactly.
+///
+/// wasmparser's [`wasmparser::Imports`] groups imports by module
+/// name when the encoder packs them together; we handle all three
+/// shapes (`Single`, `Compact1`, `Compact2`) to match what
+/// `wasm-encoder` produces today.
+fn core_module_imports(bytes: &[u8], module: &str, name: &str) -> bool {
+    use wasmparser::{Imports, Parser, Payload};
+    for payload in Parser::new(0).parse_all(bytes) {
+        let Ok(Payload::ImportSection(reader)) = payload else {
+            continue;
+        };
+        for group in reader {
+            let Ok(group) = group else { continue };
+            match group {
+                Imports::Single(_, imp) => {
+                    if imp.module == module && imp.name == name {
+                        return true;
+                    }
+                }
+                Imports::Compact1 {
+                    module: m, items, ..
+                } => {
+                    if m == module {
+                        for it in items.into_iter().flatten() {
+                            if it.name == name {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                Imports::Compact2 {
+                    module: m, names, ..
+                } => {
+                    if m == module {
+                        for n in names.into_iter().flatten() {
+                            if n == name {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 // ---- helpers ----------------------------------------------------------------
 
 /// Wrap a hand-crafted probe core-module as a P2 component by
