@@ -14,7 +14,8 @@ use mty_codegen_cranelift::{
     Monomorphizer,
 };
 use mty_codegen_wasm::{
-    compile_program_to_file_with_options, BuildOptions as WasmBuildOptions, WasmError, WasmTarget,
+    compile_program_to_file_p2, compile_program_to_file_with_options,
+    BuildOptions as WasmBuildOptions, Preview2Options, UserWit, WasmError, WasmTarget,
 };
 use mty_diagnostics::{render::ariadne::render_all, Severity};
 use mty_runtime::codegen_abi;
@@ -36,6 +37,41 @@ pub struct BuildOptions {
     /// wrapper and emit a bare core Wasm module. Default = false
     /// (component output; v0.2 wave-2, closes A47).
     pub no_component: bool,
+    /// Wasm targets only: which WASI preview to target. Default
+    /// [`WasiPreview::P1`] (back-compat with v0.2..v0.12). Set to
+    /// [`WasiPreview::P2`] via the `--wasi=p2` CLI flag to emit a
+    /// component that imports `wasi:*@0.2.3` interfaces. See
+    /// `docs/reference/wasi.md`.
+    pub wasi_preview: WasiPreview,
+    /// Wasm targets only: optional user-supplied WIT package
+    /// (loaded by `mty_pkg::wit_resolve`). When `Some`, the user's
+    /// world is merged into the generated component world. The
+    /// driver crate itself doesn't load files — the CLI does the
+    /// load and hands the text down.
+    pub user_wit: Option<UserWit>,
+}
+
+/// Which WASI preview to target for Wasm builds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WasiPreview {
+    /// WASI Preview 1 — the default through v0.13. Routes `log` to
+    /// the legacy `wasi:cli/log` import.
+    #[default]
+    P1,
+    /// WASI Preview 2 (0.2.3) — opt-in via `--wasi=p2`. Emits a
+    /// component whose imports are the versioned P2 interface set
+    /// (`wasi:cli@0.2.3`, `wasi:io@0.2.3`, …).
+    P2,
+}
+
+impl WasiPreview {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "p1" | "preview1" => WasiPreview::P1,
+            "p2" | "preview2" => WasiPreview::P2,
+            _ => return None,
+        })
+    }
 }
 
 impl BuildOptions {
@@ -46,6 +82,8 @@ impl BuildOptions {
             out_dir,
             binary_name: name.into(),
             no_component: false,
+            wasi_preview: WasiPreview::P1,
+            user_wit: None,
         }
     }
     pub fn native_release(out_dir: PathBuf, name: impl Into<String>) -> Self {
@@ -55,6 +93,8 @@ impl BuildOptions {
             out_dir,
             binary_name: name.into(),
             no_component: false,
+            wasi_preview: WasiPreview::P1,
+            user_wit: None,
         }
     }
 }
@@ -133,6 +173,26 @@ pub fn build_wasm(
         return BuildOutcome::BackendError(format!("mkdir {}: {}", opts.out_dir.display(), e));
     }
     let out = opts.out_dir.join(format!("{}.wasm", opts.binary_name));
+
+    // v0.13: WASI Preview 2 path. Only valid for the Wasi target;
+    // Web ignores `wasi_preview` (Web has no WASI concept).
+    if matches!(opts.wasi_preview, WasiPreview::P2)
+        && matches!(target, WasmTarget::Wasi)
+        && !opts.no_component
+    {
+        let mut p2_opts = Preview2Options::new(&opts.binary_name);
+        if let Some(uw) = &opts.user_wit {
+            p2_opts = p2_opts.with_user_wit(uw.clone());
+        }
+        return match compile_program_to_file_p2(&prog, &p2_opts, &out) {
+            Ok((_bytes, _doc)) => BuildOutcome::WasmOk(out),
+            Err(WasmError::Unsupported(reason)) => {
+                BuildOutcome::BackendError(format!("wasm p2: unsupported SIR — {reason}"))
+            }
+            Err(e) => BuildOutcome::BackendError(format!("wasm p2: {e}")),
+        };
+    }
+
     let wasm_opts = if opts.no_component {
         WasmBuildOptions::core_only(&opts.binary_name)
     } else {
@@ -304,6 +364,8 @@ mod tests {
             binary_name: "hello".into(),
             // Default = Component Model output.
             no_component: false,
+            wasi_preview: WasiPreview::P1,
+            user_wit: None,
         };
         let outcome = build_wasm(
             "fn main() {}\n".into(),
@@ -338,6 +400,8 @@ mod tests {
             out_dir: dir.path().to_path_buf(),
             binary_name: "hello_core".into(),
             no_component: true,
+            wasi_preview: WasiPreview::P1,
+            user_wit: None,
         };
         let outcome = build_wasm(
             "fn main() {}\n".into(),
@@ -357,5 +421,41 @@ mod tests {
             }
             other => panic!("wrong outcome: {other:?}"),
         }
+    }
+
+    #[test]
+    fn build_wasm_p2_emits_p2_component() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let opts = BuildOptions {
+            target: BuildTarget::Wasm(WasmTarget::Wasi),
+            mode: BuildMode::Release,
+            out_dir: dir.path().to_path_buf(),
+            binary_name: "hello_p2".into(),
+            no_component: false,
+            wasi_preview: WasiPreview::P2,
+            user_wit: None,
+        };
+        let outcome = build_wasm(
+            "fn main() {}\n".into(),
+            "x.mty".into(),
+            &opts,
+            WasmTarget::Wasi,
+        );
+        match outcome {
+            BuildOutcome::WasmOk(p) => {
+                let bytes = std::fs::read(&p).expect("read wasm");
+                assert!(mty_codegen_wasm::is_component(&bytes), "expected component");
+            }
+            other => panic!("wrong outcome: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn wasi_preview_parse() {
+        assert_eq!(WasiPreview::parse("p1"), Some(WasiPreview::P1));
+        assert_eq!(WasiPreview::parse("p2"), Some(WasiPreview::P2));
+        assert_eq!(WasiPreview::parse("preview1"), Some(WasiPreview::P1));
+        assert_eq!(WasiPreview::parse("preview2"), Some(WasiPreview::P2));
+        assert_eq!(WasiPreview::parse("garbage"), None);
     }
 }

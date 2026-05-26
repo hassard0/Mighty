@@ -1,0 +1,55 @@
+// hello-world.wit — sample user-authored WIT package for the
+// `mty build --wasi=p2` flow.
+//
+// Reference this file from `mighty.toml`:
+//
+//   [wit]
+//   world = "demo-world"
+//   files = ["wit/example/hello-world.wit"]
+//
+// When the build runs, Mighty merges this package into the generated
+// component world. Functions declared on the exported interface become
+// component exports; imports add to the component's import surface.
+
+package demo:hello-world;
+
+/// A small interface describing extra host APIs the user program
+/// can import. (For v0.13, custom exports require the core module
+/// to actually implement them — covered in v0.14. Custom imports
+/// work end-to-end today.)
+interface telemetry {
+  /// Report a counter increment to the host.
+  bump: func(metric: string, by: u64);
+}
+
+/// `demo-world` defines the component's surface. A user-defined
+/// world *replaces* (does not extend) the synthesized
+/// `<pkg>-world`, so it must re-declare every host capability the
+/// core module needs.
+///
+/// For v0.13: user worlds can add custom *imports* and call them
+/// via `extern` (work-in-progress lowering). Custom *exports*
+/// require the core module to provide a matching function, which
+/// the slice-8 emitter doesn't do yet — see `WASI_P2_V0_13_NOTES.md`
+/// for the roadmap.
+world demo-world {
+  // Inherited-by-convention: the slice-8 core module imports
+  // `wasi:cli/log#log` for its `log()` builtin. Until v0.14
+  // re-routes that call to `wasi:cli/stdout#print`, user worlds
+  // must declare this import explicitly.
+  import wasi:cli/log;
+
+  // P2 host interfaces the user program plans to use.
+  import wasi:cli/stdout@0.2.3;
+  import wasi:clocks/wall-clock@0.2.3;
+
+  // Custom user-defined import. Available to the user program via
+  // `extern wit { fn bump(metric: Str, by: u64) }` (lowering TODO
+  // in v0.14).
+  import telemetry;
+
+  // Re-export `main` so the component is runnable. v0.13: only
+  // `main` is supported as an export from a user world; richer
+  // exports land in v0.14 alongside the lowering pass.
+  export main: func();
+}

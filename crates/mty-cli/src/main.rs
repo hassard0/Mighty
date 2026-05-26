@@ -65,6 +65,19 @@ enum Cmd {
         /// output (v0.2 wave-2, closes A47).
         #[arg(long)]
         no_component: bool,
+        /// Wasm targets only: which WASI preview to target.
+        /// `p1` (default) keeps the v0.2..v0.12 import shape;
+        /// `p2` emits a component that imports `wasi:*@0.2.3`
+        /// interfaces (see `docs/reference/wasi.md`).
+        #[arg(long)]
+        wasi: Option<String>,
+        /// Wasm targets only: pick the component world by name
+        /// when the user's `[wit]` package defines more than one.
+        /// Defaults to the world declared in `mighty.toml`'s
+        /// `[wit] world = ...`, or the synthesized
+        /// `<pkg>-world` if none is declared.
+        #[arg(long)]
+        world: Option<String>,
     },
     /// Print a human-readable explanation of a diagnostic code.
     Explain {
@@ -169,7 +182,18 @@ fn main() {
             target,
             out_dir,
             no_component,
-        } => cmd::build::run(&path, debug, release, target, out_dir, no_component),
+            wasi,
+            world,
+        } => cmd::build::run(
+            &path,
+            debug,
+            release,
+            target,
+            out_dir,
+            no_component,
+            wasi,
+            world,
+        ),
         Cmd::Explain { code } => cmd::explain::run(&code),
         Cmd::Lsp => cmd::lsp::run(),
         Cmd::Pkg {

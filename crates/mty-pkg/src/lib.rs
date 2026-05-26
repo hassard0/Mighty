@@ -40,6 +40,7 @@ pub mod registry;
 pub mod resolver;
 pub mod semver;
 pub mod signing;
+pub mod wit_resolve;
 
 pub use mty_driver::manifest::{
     BuildConfig, Dep, DepSourceKind, DetailedDep, Manifest, ManifestError, Package,

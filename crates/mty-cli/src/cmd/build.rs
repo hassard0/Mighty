@@ -1,9 +1,11 @@
 use mty_codegen_cranelift::artifact::BuildMode;
-use mty_codegen_wasm::WasmTarget;
+use mty_codegen_wasm::{UserWit, WasmTarget};
+use mty_driver::build::WasiPreview;
 use mty_driver::{build_native, build_wasm, BuildOptions, BuildOutcome, BuildTarget};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     path: &Path,
     debug: bool,
@@ -11,6 +13,8 @@ pub fn run(
     target: Option<String>,
     out_dir: Option<PathBuf>,
     no_component: bool,
+    wasi: Option<String>,
+    world: Option<String>,
 ) -> i32 {
     let src = match fs::read_to_string(path) {
         Ok(s) => s,
@@ -49,12 +53,43 @@ pub fn run(
         .and_then(|s| s.to_str())
         .unwrap_or("a")
         .to_string();
+
+    // v0.13: WASI Preview selection. Default = P1 for back-compat
+    // with v0.2..v0.12. `--wasi=p2` opts into the Preview 2 path
+    // (see docs/reference/wasi.md). Invalid values are surfaced
+    // before invoking the codegen so the diagnostic shows the
+    // user's typo rather than a downstream wasm-encoder error.
+    let wasi_preview = match wasi.as_deref() {
+        None => WasiPreview::P1,
+        Some(s) => match WasiPreview::parse(s) {
+            Some(v) => v,
+            None => {
+                eprintln!("unknown --wasi value: {s} (expected `p1` or `p2`)");
+                return 2;
+            }
+        },
+    };
+
+    // v0.13: load `[wit]` from `mighty.toml` if present (next to the
+    // source file). We deliberately treat WIT-load failures as fatal
+    // because they always indicate user misconfiguration (a manifest
+    // with `[wit]` but missing files, malformed TOML, etc).
+    let user_wit = match load_user_wit(path, world.clone()) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("user-wit load error: {e}");
+            return 2;
+        }
+    };
+
     let opts = BuildOptions {
         target: build_target,
         mode,
         out_dir,
         binary_name: name,
         no_component,
+        wasi_preview,
+        user_wit,
     };
 
     let outcome = match build_target {
@@ -82,6 +117,43 @@ pub fn run(
         BuildOutcome::BackendError(e) => {
             eprintln!("build error: {e}");
             2
+        }
+    }
+}
+
+/// Walk upward from the source file looking for a `mighty.toml`; if
+/// one is found, ask `mty_pkg::wit_resolve` to load any `[wit]`
+/// section. Returns `Ok(None)` when there's no manifest or no `[wit]`
+/// section (the common case for v0.13).
+///
+/// `world_override` mirrors the CLI's `--world <name>` flag.
+fn load_user_wit(
+    src_path: &Path,
+    world_override: Option<String>,
+) -> Result<Option<UserWit>, String> {
+    let Some(pkg_root) = find_manifest_root(src_path) else {
+        return Ok(None);
+    };
+    let loaded = mty_pkg::wit_resolve::load_from_manifest(&pkg_root, world_override)
+        .map_err(|e| e.to_string())?;
+    Ok(loaded.map(|l| UserWit {
+        text: l.text,
+        world: l.world,
+        source_label: l.source_label,
+    }))
+}
+
+/// Walk upward from `src` looking for a directory containing
+/// `mighty.toml`. Returns the directory on success.
+fn find_manifest_root(src: &Path) -> Option<PathBuf> {
+    let abs = src.canonicalize().ok()?;
+    let mut cur = abs.parent()?.to_path_buf();
+    loop {
+        if cur.join("mighty.toml").is_file() {
+            return Some(cur);
+        }
+        if !cur.pop() {
+            return None;
         }
     }
 }

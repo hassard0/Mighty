@@ -26,6 +26,7 @@ pub mod artifact;
 pub mod component;
 pub mod emit;
 pub mod error;
+pub mod preview2;
 pub mod sourcemap;
 pub mod target;
 pub mod wit;
@@ -37,5 +38,9 @@ pub use emit::{
     compile_program_to_file_with_options, BuildOptions,
 };
 pub use error::{CompileResult, WasmError};
+pub use preview2::{
+    compile_program_to_bytes_p2, compile_program_to_file_p2, emit_wit_p2, Preview2Options, UserWit,
+    VENDORED_WASI_P2_WIT, WASI_P2_VERSION,
+};
 pub use target::WasmTarget;
 pub use wit::{emit_wit, WitDocument};

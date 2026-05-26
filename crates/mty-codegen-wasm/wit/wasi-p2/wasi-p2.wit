@@ -1,0 +1,128 @@
+// Vendored, minimal slice of WASI Preview 2 (0.2.3) for Mighty v0.13.
+//
+// This is *not* the canonical upstream WIT — it's the minimum surface
+// Mighty's codegen needs in order to emit components that target
+// `wasi:cli@0.2.3`, `wasi:io@0.2.3`, `wasi:filesystem@0.2.3`, and
+// `wasi:http@0.2.3`. The shapes match the upstream interface names so
+// real WASI P2 hosts can wire imports through, but resource bodies and
+// rarely-used helpers are stubbed.
+//
+// When Mighty grows real P2 lowering (v0.14+), these stubs will be
+// replaced by the full upstream WIT under `wit/deps/`.
+
+package wasi:io@0.2.3 {
+  interface error {
+    resource error;
+  }
+
+  interface poll {
+    resource pollable;
+  }
+
+  interface streams {
+    use error.{error};
+    use poll.{pollable};
+
+    variant stream-error {
+      last-operation-failed(error),
+      closed,
+    }
+
+    resource input-stream;
+    resource output-stream;
+  }
+}
+
+package wasi:clocks@0.2.3 {
+  interface monotonic-clock {
+    use wasi:io/poll@0.2.3.{pollable};
+    type instant = u64;
+    type duration = u64;
+    now: func() -> instant;
+    resolution: func() -> duration;
+  }
+
+  interface wall-clock {
+    record datetime {
+      seconds: u64,
+      nanoseconds: u32,
+    }
+    now: func() -> datetime;
+    resolution: func() -> datetime;
+  }
+}
+
+package wasi:random@0.2.3 {
+  interface random {
+    get-random-bytes: func(len: u64) -> list<u8>;
+    get-random-u64: func() -> u64;
+  }
+}
+
+package wasi:filesystem@0.2.3 {
+  interface types {
+    use wasi:io/streams@0.2.3.{input-stream, output-stream, error};
+    use wasi:clocks/wall-clock@0.2.3.{datetime};
+    resource descriptor;
+  }
+
+  interface preopens {
+    use types.{descriptor};
+    get-directories: func() -> list<tuple<descriptor, string>>;
+  }
+}
+
+package wasi:sockets@0.2.3 {
+  interface network {
+    resource network;
+  }
+}
+
+package wasi:cli@0.2.3 {
+  interface environment {
+    get-environment: func() -> list<tuple<string, string>>;
+    get-arguments: func() -> list<string>;
+    initial-cwd: func() -> option<string>;
+  }
+
+  interface exit {
+    exit: func(status: result);
+  }
+
+  interface stdin {
+    use wasi:io/streams@0.2.3.{input-stream};
+    get-stdin: func() -> input-stream;
+  }
+
+  interface stdout {
+    use wasi:io/streams@0.2.3.{output-stream};
+    get-stdout: func() -> output-stream;
+  }
+
+  interface stderr {
+    use wasi:io/streams@0.2.3.{output-stream};
+    get-stderr: func() -> output-stream;
+  }
+}
+
+package wasi:http@0.2.3 {
+  interface types {
+    use wasi:io/streams@0.2.3.{input-stream, output-stream};
+    use wasi:io/poll@0.2.3.{pollable};
+    use wasi:clocks/monotonic-clock@0.2.3.{duration};
+
+    resource fields;
+    resource incoming-request;
+    resource incoming-response;
+    resource incoming-body;
+    resource outgoing-request;
+    resource outgoing-response;
+    resource outgoing-body;
+    resource future-incoming-response;
+  }
+
+  interface outgoing-handler {
+    use types.{outgoing-request, future-incoming-response};
+    handle: func(request: outgoing-request) -> result<future-incoming-response, string>;
+  }
+}

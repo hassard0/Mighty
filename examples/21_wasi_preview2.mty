@@ -1,0 +1,24 @@
+// 21_wasi_preview2.mty — WASI Preview 2 + user-WIT demo (v0.13).
+//
+// Build:
+//   mty build examples/21_wasi_preview2.mty --target wasm32-wasi --wasi=p2
+//
+// The emitted component imports the versioned WASI P2 surface
+// (`wasi:cli@0.2.3`, `wasi:io@0.2.3`, `wasi:filesystem@0.2.3`,
+// `wasi:http@0.2.3`). For now the body is a small log() call that
+// still routes through Mighty's internal `mighty:cli-adapter/log`
+// shim — the v0.14 lowering pass will replace the shim with a real
+// `wasi:cli/stdout#print` call.
+//
+// To consume a user-authored `.wit` file from this package, add the
+// following to `mighty.toml` alongside this source:
+//
+//   [wit]
+//   world = "demo-world"
+//   files = ["wit/example/hello-world.wit"]
+//
+// See `docs/reference/wasi.md` for the full reference.
+
+fn main() {
+  log("21_wasi_preview2: hello from a P2-targeted Mighty component")
+}
