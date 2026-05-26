@@ -1,3 +1,4 @@
+use crate::effects::HirEffectRow;
 use crate::ids::*;
 use la_arena::Arena;
 
@@ -46,7 +47,20 @@ pub struct HirFn {
     pub generics: Vec<String>,
     pub params: Vec<HirParam>,
     pub ret: Option<TypeId>,
+    /// Legacy flat list of concrete effect names. ALWAYS populated for
+    /// backward compatibility with the v0.13/v0.14 closed-row consumers
+    /// (`mty-types::effects::infer_and_validate`, the formatter, the
+    /// borrow checker). For row-polymorphic signatures this list mirrors
+    /// the `concrete()` slice of [`Self::effect_row`].
     pub effects: Vec<String>,
+    /// v0.16 RFC-008 effect-row shape. `Some(HirEffectRow::Open(...))`
+    /// when the parser emitted a row-variable annotation (`!E`, `!{a |
+    /// E}`, `effect a | E`). `Some(HirEffectRow::Closed(...))` for an
+    /// explicitly closed `!{...}` form. `None` for fns with no effect
+    /// clause OR for the legacy `effect ...` (no row-tail) keyword
+    /// form — those are already covered by `effects` above and the
+    /// downstream code paths read from there.
+    pub effect_row: Option<HirEffectRow>,
     pub body: Option<BlockId>,
     pub span: SourceSpan,
 }

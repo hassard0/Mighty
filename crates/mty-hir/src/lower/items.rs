@@ -74,15 +74,7 @@ fn lower_fn(ctx: &mut LoweringCtx, f: FnDecl) -> FnId {
         .ret_type()
         .and_then(|r| r.0.children().next())
         .map(|t| super::types::lower_type(ctx, t));
-    let effects = f
-        .effect_clause()
-        .map(|e| {
-            e.0.children()
-                .filter_map(mty_ast::Name::cast)
-                .map(|n| n.text())
-                .collect()
-        })
-        .unwrap_or_default();
+    let (effects, effect_row) = lower_effect_clause(f.effect_clause().as_ref());
     let body = f.body().map(|b| super::exprs::lower_block(ctx, b));
     let generics = lower_generics(&f.0);
     let hf = HirFn {
@@ -93,10 +85,83 @@ fn lower_fn(ctx: &mut LoweringCtx, f: FnDecl) -> FnId {
         params,
         ret,
         effects,
+        effect_row,
         body,
         span: span_of(&f.0),
     };
     ctx.package.fns.alloc(hf)
+}
+
+/// v0.16 RFC-008: lower an effect clause to BOTH the legacy
+/// `Vec<String>` (concrete effects only — keeps existing consumers
+/// happy) and the new [`HirEffectRow`] (carries the row-variable tail
+/// when the parser produced one).
+///
+/// Handles all three v0.15 surface shapes:
+///   * Legacy keyword form: `effect a, b [| E]` — concrete names are
+///     emitted by the parser as bare `NAME` children of `EFFECT_CLAUSE`;
+///     the optional `| E` tail lives in an `EFFECT_ROW_TAIL` child.
+///   * Braced form: `!{a, b [| E]}` — concrete names are wrapped in
+///     `EFFECT_NAME` nodes inside an `EFFECT_SET`; the tail lives in
+///     an `EFFECT_ROW_TAIL` inside the same set.
+///   * Bare row-var: `!E` — an `EFFECT_ROW_VAR` lives directly under
+///     the `EFFECT_CLAUSE` (no set, no tail wrapper).
+///
+/// For a closed-set fn (no row var anywhere) we keep
+/// `effect_row = None` so the downstream closed-set path (the v0.13
+/// `EffectRow::Closed`-style legacy fixpoint and the public-fn MT4001
+/// check) doesn't take the row-poly branch needlessly. The `effects`
+/// field is populated in source order from BOTH the bare `NAME`
+/// children AND any `EFFECT_NAME` wrappers — the parser emits exactly
+/// one shape per fn, so there's no double-count risk.
+fn lower_effect_clause(
+    clause: Option<&mty_ast::EffectClause>,
+) -> (Vec<String>, Option<crate::effects::HirEffectRow>) {
+    use crate::effects::{HirEffectName, HirEffectRow, HirRowVar};
+    let Some(clause) = clause else {
+        return (Vec::new(), None);
+    };
+    // Concrete names: legacy keyword form puts them as bare NAME
+    // children; braced form wraps them in EFFECT_NAME nodes inside an
+    // EFFECT_SET. Either branch is mutually exclusive per fn (the
+    // parser commits to one shape at the leading `effect` vs `!`
+    // token).
+    let mut names: Vec<String> = clause
+        .0
+        .children()
+        .filter_map(mty_ast::Name::cast)
+        .map(|n| n.text())
+        .collect();
+    let braced = clause.braced_concrete_names();
+    names.extend(braced);
+    // Row variable: detect via `EffectClause::row_var_name` which
+    // handles all three shapes. We use idx=0 for the v0.16
+    // SHIPPED-SUBSET single-row-var case; the v0.17 multi-row-var
+    // extension will allocate per name (see HirRowVar docs).
+    let row_var_name = clause.row_var_name();
+    let effect_row = match row_var_name {
+        Some(rv_name) => {
+            let row_var = HirRowVar::new(rv_name, 0);
+            let concrete: Vec<HirEffectName> = names.iter().cloned().map(HirEffectName::new).collect();
+            Some(HirEffectRow::Open(concrete, row_var))
+        }
+        None => {
+            // Distinguish between the new braced closed form `!{a, b}`
+            // (worth tagging with HirEffectRow::Closed so the v0.16
+            // closed-row paths can flag e.g. `!{a, a}` duplicates) and
+            // the legacy `effect a, b` keyword form (existing
+            // closed-set inference already covers it; emit None to
+            // avoid perturbing it).
+            if clause.effect_set().is_some() {
+                let concrete: Vec<HirEffectName> =
+                    names.iter().cloned().map(HirEffectName::new).collect();
+                Some(HirEffectRow::Closed(concrete))
+            } else {
+                None
+            }
+        }
+    };
+    (names, effect_row)
 }
 
 fn lower_struct(ctx: &mut LoweringCtx, s: StructDecl) -> StructId {
@@ -315,6 +380,7 @@ fn lower_extern_block(ctx: &mut LoweringCtx, node: SyntaxNode) -> HirExternBlock
             params,
             ret,
             effects: vec![],
+            effect_row: None,
             body: None,
             span: span_of(&child),
         };
