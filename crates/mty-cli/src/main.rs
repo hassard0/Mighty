@@ -147,6 +147,30 @@ enum Cmd {
         #[arg(long)]
         program: Option<std::path::PathBuf>,
     },
+    /// Hot-reload a running agent: drain its current handler, snapshot
+    /// state via `Resumable`, swap the code, restore the state, and
+    /// resume — preserving the mailbox end-to-end. v0.20 Tier 1.5.
+    /// See `docs/reference/cli/mty-reload.md`.
+    Reload {
+        /// The agent type (registry name) to reload.
+        agent_type: String,
+        /// Path to the replacement wasm module.
+        #[arg(long)]
+        from: std::path::PathBuf,
+        /// How long to wait for the agent's current handler to drain
+        /// before failing with `MT5062` (default: 5000 ms).
+        #[arg(long, value_name = "MS")]
+        deadline_ms: Option<u64>,
+        /// Control-socket path (overrides `MTY_RUNTIME_CONTROL_SOCK`).
+        #[arg(long)]
+        sock: Option<String>,
+        /// Emit the raw `ReloadReport` JSON instead of the pretty-printed table.
+        #[arg(long)]
+        json: bool,
+        /// Validate inputs without contacting the runtime. Useful in CI.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Render package documentation extracted from `///` doc comments.
     ///
     /// With no flags, prints a Go-style summary of the package's public
@@ -288,6 +312,21 @@ fn main() {
             byte_identical,
             mock_io,
             program,
+        }),
+        Cmd::Reload {
+            agent_type,
+            from,
+            deadline_ms,
+            sock,
+            json,
+            dry_run,
+        } => cmd::reload::run(cmd::reload::ReloadArgs {
+            agent_type,
+            from,
+            deadline_ms,
+            sock,
+            json,
+            dry_run,
         }),
     };
     std::process::exit(code);

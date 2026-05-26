@@ -33,6 +33,10 @@ pub mod otlp;
 // `MTY_RECORD_TRACE=<path>`. See `replay/mod.rs` for the surface;
 // CLI: `mty replay <trace>`.
 pub mod replay;
+// v0.20 Tier 1.5 — hot reload + Resumable trait. Additive: no
+// existing path consumes this module unless an agent opts in.
+// See `docs/internals/hot-reload.md`.
+pub mod reload;
 pub mod runtime;
 pub mod scheduler;
 pub mod slab_pool;
