@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Mighty — Notetris (v0.23 demo 06, canvas-driven)</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d12;
+      --fg: #e7ecf3;
+      --dim: #7f8a9c;
+      --accent: #b6f;
+      --grid: #1d2230;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+      gap: 1rem;
+    }
+    h1 { margin: 0; font-size: 1.4rem; font-weight: 600; letter-spacing: 0.02em; }
+    h1 .v { color: var(--accent); }
+    .layout { display: flex; gap: 1.5rem; align-items: flex-start; }
+    .panel {
+      background: #11141d;
+      border: 1px solid #1f2533;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      min-width: 12rem;
+    }
+    .stat { display: flex; justify-content: space-between; gap: 1rem; margin: 0.35rem 0; font-variant-numeric: tabular-nums; }
+    .stat .k { color: var(--dim); }
+    .stat .v { font-weight: 600; }
+    canvas {
+      background: var(--grid);
+      border: 1px solid #2a3142;
+      border-radius: 4px;
+      display: block;
+    }
+    .key { background: #1d2230; padding: 0 0.4rem; border-radius: 3px; font-family: ui-monospace, monospace; font-size: 0.85em; }
+    .controls { color: var(--dim); font-size: 0.9rem; line-height: 1.7; }
+    .footer { color: var(--dim); font-size: 0.8rem; margin-top: 1rem; text-align: center; max-width: 36rem; }
+    .footer code { background: #1d2230; padding: 0 0.3rem; border-radius: 3px; }
+    #log {
+      background: #08090d;
+      color: #9bf;
+      padding: 0.5rem 0.75rem;
+      border-radius: 4px;
+      height: 8rem;
+      overflow: auto;
+      font-family: ui-monospace, monospace;
+      font-size: 0.75rem;
+      width: 100%;
+      margin-top: 0.5rem;
+    }
+    .gameover {
+      position: absolute;
+      top: 40%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.78);
+      color: var(--fg);
+      padding: 0.6rem 1rem;
+      border-radius: 4px;
+      font-weight: 600;
+      display: none;
+    }
+    .gameover.show { display: block; }
+  </style>
+</head>
+<body>
+  <h1>Mighty Notetris <span class="v">v0.23 demo 06 — canvas-driven</span></h1>
+
+  <div class="layout">
+    <div style="position: relative;">
+      <canvas id="board" width="240" height="480"></canvas>
+      <div id="gameover" class="gameover">GAME OVER — press <span class="key">R</span></div>
+    </div>
+
+    <div class="panel">
+      <div class="stat"><span class="k">score</span><span class="v" id="score">0</span></div>
+      <div class="stat"><span class="k">lines</span><span class="v" id="lines">0</span></div>
+      <div class="stat"><span class="k">level</span><span class="v" id="level">1</span></div>
+      <hr style="border: 0; border-top: 1px solid #2a3142; margin: 0.6rem 0;">
+      <div class="controls">
+        <span class="key">&larr;</span> <span class="key">&rarr;</span> move<br>
+        <span class="key">&uarr;</span> rotate<br>
+        <span class="key">&darr;</span> soft drop<br>
+        <span class="key">Space</span> hard drop<br>
+        <span class="key">R</span> reset
+      </div>
+    </div>
+  </div>
+
+  <details style="width: min(100%, 36rem);">
+    <summary style="cursor: pointer; color: var(--dim); font-size: 0.85rem;">
+      <code>mty:web/log</code> stream from the Mighty agent
+    </summary>
+    <pre id="log"></pre>
+  </details>
+
+  <div class="footer">
+    The Notetris agent in <code>src/main.mty</code> owns the score / level /
+    lines state + the input-intent stream; this shim implements the
+    <code>mty:web/canvas@0.1</code> + <code>mty:web/input@0.1</code> WIT
+    import surface against a real Canvas2D context + window keyboard
+    listeners. Built with <code>mty build --target wasm32-web</code>;
+    run with <code>bash web/serve.sh</code>.
+  </div>
+
+  <script type="module" src="./dom-shim.js"></script>
+</body>
+</html>

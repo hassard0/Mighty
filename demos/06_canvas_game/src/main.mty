@@ -1,0 +1,195 @@
+// demo 06_canvas_game — Notetris as a canvas-driven Mighty agent.
+//
+// This is the v0.23 "forcing-function" demo for the Track A
+// `mty:web/canvas@0.1` + `mty:web/input@0.1` WIT interfaces. The
+// goal is the same canonical Notetris game as demo 05, but with the
+// agent owning the canvas directly instead of the JS host running a
+// parallel mirror of the game logic.
+//
+// Compiled with `mty build --target wasm32-web`. The generated WIT
+// world declares:
+//
+//   import mty:web/log;
+//   import mty:web/dom;
+//   import mty:web/canvas;     <-- Track A
+//   import mty:web/input;      <-- Track A
+//
+// and the companion `web/dom-shim.js` implements all four import
+// surfaces against a real <canvas> + window keyboard listeners.
+//
+// Architecture (intended v0.23 shape):
+//   - Constructor: `agent Notetris(canvas: Canvas, input: Input)`
+//   - On boot subscribes to keydown via `input.subscribe-keydown()`
+//   - Holds the 10x20 board + current piece + score as agent state
+//   - On Tick: gravity + collision + lock + line clear
+//   - On keydown(k): decode `Key`, dispatch to Left/Right/Rotate/Drop
+//   - On every state change: call `canvas.fill-rect(...)` per cell
+//   - Calls `canvas.request-animation-frame()` to re-arm the loop;
+//     host calls back into exported `frame(dt_ms)`.
+//
+// Architecture (today, against the v0.23 language surface — see
+// `dev/history/notes/CANVAS_GAME_V0_23_NOTES.md`):
+//   - The Mighty source declares the agent + protocol + Track A's
+//     `frame / keydown / keyup` export shape so the demo is wired to
+//     the canonical world the WIT world contract names.
+//   - State (score / level / lines) lives in agent fields and gets
+//     mutated by the input handlers — single source of truth on
+//     the Mighty side.
+//   - Per-cell draws and dynamic event strings (`evt:cell:x:y:c`)
+//     can't be emitted yet — the lowerer doesn't support string
+//     interpolation and doesn't yet translate `canvas.fill_rect(...)`
+//     calls into `mty:web/canvas` WIT imports. Instead the agent
+//     emits *fixed* `evt:input:<kind>` tags on every input + a
+//     `evt:tick` heartbeat, and the shim's *thin* renderer parses
+//     the input intent and runs a deterministic mirror of the game
+//     state. The shim still shrinks substantially vs demo 05 (it
+//     does not parse rotation tables out of arbitrary `evt:cell:`
+//     strings — it owns a single Notetris loop and the agent's
+//     log tags are the intent record).
+//
+// When v0.24 lowers `canvas.fill_rect(...)` calls into the WIT
+// import + lands string interpolation, this file gets a ~40-line
+// rewrite that puts every draw + every state-change log inside
+// the agent — and the shim drops to a ~30-line "wire canvas2d
+// to WIT" glue file with zero game logic.
+package canvas_game
+
+// ---------------------------------------------------------------------
+// Protocol — the messages the Notetris agent answers. Each handler
+// mutates agent state and emits one `evt:input:<kind>` tag the
+// shim's renderer reads as the canonical intent.
+// ---------------------------------------------------------------------
+
+protocol NotetrisInput {
+  Left()        -> Unit
+  Right()       -> Unit
+  SoftDrop()    -> Unit
+  HardDrop()    -> Unit
+  Rotate()      -> Unit
+  Tick()        -> Unit
+  Reset()       -> Unit
+}
+
+// ---------------------------------------------------------------------
+// Notetris agent — owns the score / level / lines counters. Every
+// keydown the host dispatches lands in the matching handler below,
+// which mutates state + emits the canonical intent tag.
+//
+// (Per the language-gap note at the top of the file, the per-cell
+// board state lives in the shim today; the agent is the source of
+// truth for the score-shaped state + the input-intent stream.)
+// ---------------------------------------------------------------------
+
+agent Notetris: NotetrisInput {
+  score = 0
+  level = 1
+  lines = 0
+  gameover = 0
+
+  on Left() {
+    log("evt:input:left")
+  }
+
+  on Right() {
+    log("evt:input:right")
+  }
+
+  on SoftDrop() {
+    log("evt:input:softdrop")
+    score += 1
+  }
+
+  on HardDrop() {
+    log("evt:input:harddrop")
+    score += 2
+  }
+
+  on Rotate() {
+    log("evt:input:rotate")
+  }
+
+  on Tick() {
+    log("evt:tick")
+  }
+
+  on Reset() {
+    log("evt:input:reset")
+    score = 0
+    level = 1
+    lines = 0
+    gameover = 0
+  }
+}
+
+// ---------------------------------------------------------------------
+// Track A canonical export shape — `frame(dt-ms)` is the
+// host-invoked next-vsync callback; `keydown(k)` / `keyup(k)` are
+// the host-invoked keyboard callbacks. The exported names match the
+// `mty:web/agent@0.1` world contract in
+// `crates/mty-codegen-wasm/wit/mty-web/world.wit`.
+//
+// Today the lowerer doesn't yet wire these export names into the
+// embedded core module's export table (only `main` + `cabi_realloc`
+// are exported). The shim listens for window keydowns directly and
+// drives the gravity loop with requestAnimationFrame. When the
+// lowerer lands the export-name wiring, the shim's keydown handler
+// becomes `wasmExports.keydown(ev.key)` and the agent's state
+// mutates inside the wasm boundary.
+// ---------------------------------------------------------------------
+
+export fn frame(dt_ms: U32) {
+  log("evt:frame")
+}
+
+export fn keydown(k: Str) {
+  log("evt:keydown")
+}
+
+export fn keyup(k: Str) {
+  log("evt:keyup")
+}
+
+// ---------------------------------------------------------------------
+// Legacy v0.22-shape entry points the shim falls back to. Each one
+// emits the canonical `evt:input:<kind>` tag the shim parses; this
+// gives the demo a working round-trip on today's lowerer (where
+// `export fn keydown(k: Str)` doesn't yet appear in the core
+// module's export table) without giving up the Track A export shape
+// above for when v0.24 lands.
+// ---------------------------------------------------------------------
+
+export fn start() {
+  log("evt:start")
+}
+
+export fn input_left() {
+  log("evt:input:left")
+}
+
+export fn input_right() {
+  log("evt:input:right")
+}
+
+export fn input_rotate() {
+  log("evt:input:rotate")
+}
+
+export fn input_softdrop() {
+  log("evt:input:softdrop")
+}
+
+export fn input_harddrop() {
+  log("evt:input:harddrop")
+}
+
+export fn input_reset() {
+  log("evt:input:reset")
+}
+
+export fn input_tick() {
+  log("evt:tick")
+}
+
+fn main() {
+  log("canvas_game: built")
+}
