@@ -277,46 +277,12 @@ fn serve_fails_outside_a_package() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Stretch goal — left wired up but `#[ignore]`'d by default. The
-/// watch loop is exercised end-to-end in dev; the CI bots have been
-/// flaky on filesystem event timing so we don't gate the slice on
-/// this.
-#[test]
-#[ignore = "stretch — file-watcher event timing is flaky on CI"]
-fn serve_watch_rebuilds_on_change() {
-    let pkg = scaffold_web_game("watch");
-    prebuild(&pkg);
-    let port = pick_port(6);
-    let child = spawn_serve(&pkg, port, true);
-    let mut guard = ChildGuard(child);
-
-    assert!(
-        wait_for_listen(port, Duration::from_secs(15)),
-        "mty serve --watch never started: {}",
-        drain_stderr(&mut guard.0)
-    );
-
-    let original = std::fs::read(pkg.join("target/main.wasm")).expect("read wasm");
-
-    // Touch the source file with a trivial change.
-    let src = pkg.join("src/main.mty");
-    let mut body = std::fs::read_to_string(&src).expect("read src");
-    body.push_str("\n// touched\n");
-    std::fs::write(&src, body).expect("write src");
-
-    // Give the watcher up to 30s to rebuild.
-    let deadline = Instant::now() + Duration::from_secs(30);
-    let mut rebuilt = false;
-    while Instant::now() < deadline {
-        let (status, _h, body) = http_get(port, "/main.wasm");
-        if status == 200 && body != original {
-            rebuilt = true;
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(500));
-    }
-    assert!(rebuilt, "watch never rebuilt the wasm after a src change");
-}
+// v0.23 had a `serve_watch_rebuilds_on_change` test here that was
+// `#[ignore]`'d on filesystem-event timing flake. v0.24 Track C
+// replaced it with `crates/mty-cli/tests/cmd_serve_watch.rs`, which
+// drives the same `rebuild_and_broadcast` path via a hidden
+// env-gated HTTP endpoint instead of waiting on `notify` events.
+// See `dev/history/notes/SERVE_WATCH_V0_24_NOTES.md`.
 
 fn drain_stderr(child: &mut Child) -> String {
     use std::io::Read;

@@ -18,6 +18,20 @@
 //!
 //! See `dev/history/notes/MTY_SERVE_V0_23_NOTES.md` for the design
 //! rationale and the ws handshake details.
+//!
+//! ## v0.24 Track C — deterministic test hook
+//!
+//! `ReadDirectoryChangesW` event timing on Windows CI flakes badly
+//! under load; v0.23 had to `#[ignore]` the watcher integration test.
+//! v0.24 factors the rebuild-and-broadcast path out of the notify
+//! callback into [`AppState::rebuild_and_broadcast`] so we can drive
+//! the same path from a hidden HTTP endpoint, `POST
+//! /_test_trigger_reload`, gated by the `MTY_SERVE_TEST_HOOKS=1`
+//! environment variable. The endpoint is never wired in normal use
+//! (the env var is opt-in, and only consulted at startup) so there's
+//! no security or surprise-behaviour surface for end users. The real
+//! `notify` integration is still exercised manually — see the
+//! "Real-notify smoke" section in `SERVE_WATCH_V0_24_NOTES.md`.
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -59,6 +73,41 @@ struct AppState {
     web_dir: PathBuf,
     wasm_path: RwLock<PathBuf>,
     reload_tx: broadcast::Sender<()>,
+    /// `Some(pkg_root)` when `--watch` is on. Drives the watcher AND
+    /// the v0.24 test hook (`/_test_trigger_reload`) so both code
+    /// paths invoke the same `rebuild_and_broadcast` body.
+    watch_root: Option<PathBuf>,
+    /// Set at startup from `MTY_SERVE_TEST_HOOKS=1`. When true and
+    /// `watch_root` is `Some`, the hidden `POST /_test_trigger_reload`
+    /// endpoint synthetically fires a rebuild so integration tests
+    /// don't depend on `ReadDirectoryChangesW` timing. v0.24 Track C.
+    test_hooks_enabled: bool,
+}
+
+impl AppState {
+    /// Run one `wasm32-web` build, swap the served wasm path on
+    /// success, and broadcast a `reload` to every connected
+    /// websocket subscriber. Errors are logged but never propagated:
+    /// a failed rebuild leaves the previously-served wasm in place,
+    /// matching the v0.23 watcher semantics.
+    async fn rebuild_and_broadcast(&self, pkg_root: &Path) {
+        match build_once(pkg_root) {
+            Ok(new_path) => {
+                *self.wasm_path.write().await = new_path;
+                let _ = self.reload_tx.send(());
+                println!("mty serve: rebuild ok");
+            }
+            Err(BuildErr::Frontend) => {
+                eprintln!("mty serve: rebuild failed (frontend errors above)");
+            }
+            Err(BuildErr::Backend(e)) => {
+                eprintln!("mty serve: rebuild failed: {e}");
+            }
+            Err(BuildErr::Io(e)) => {
+                eprintln!("mty serve: rebuild failed: {e}");
+            }
+        }
+    }
 }
 
 /// Public entry point invoked by `main.rs`. Spins up the server,
@@ -121,10 +170,22 @@ pub fn run(args: ServeArgs) -> i32 {
     };
 
     let (reload_tx, _) = broadcast::channel::<()>(8);
+    // v0.24: opt-in test hook surface. Off by default; the
+    // `mty serve` user never trips it. The env var is read here
+    // (not per-request) so flipping it mid-session has no effect.
+    let test_hooks_enabled = std::env::var("MTY_SERVE_TEST_HOOKS")
+        .map(|v| v == "1")
+        .unwrap_or(false);
     let state = Arc::new(AppState {
         web_dir,
         wasm_path: RwLock::new(initial_wasm),
         reload_tx,
+        watch_root: if args.watch {
+            Some(pkg_root.clone())
+        } else {
+            None
+        },
+        test_hooks_enabled,
     });
 
     let result = rt.block_on(async move {
@@ -274,22 +335,7 @@ fn spawn_watcher(pkg_root: PathBuf, state: Arc<AppState>) -> tokio::task::JoinHa
             while arx.try_recv().is_ok() {}
 
             println!("mty serve: change detected, rebuilding");
-            match build_once(&pkg_root) {
-                Ok(new_path) => {
-                    *state.wasm_path.write().await = new_path;
-                    let _ = state.reload_tx.send(());
-                    println!("mty serve: rebuild ok");
-                }
-                Err(BuildErr::Frontend) => {
-                    eprintln!("mty serve: rebuild failed (frontend errors above)");
-                }
-                Err(BuildErr::Backend(e)) => {
-                    eprintln!("mty serve: rebuild failed: {e}");
-                }
-                Err(BuildErr::Io(e)) => {
-                    eprintln!("mty serve: rebuild failed: {e}");
-                }
-            }
+            state.rebuild_and_broadcast(&pkg_root).await;
         }
     })
 }
@@ -348,6 +394,16 @@ async fn handle(
     // this. See MTY_SERVE_V0_23_NOTES.md §"Reload websocket".
     if path == "/_reload" {
         return handle_reload_ws(state, req).await;
+    }
+
+    // v0.24 Track C — test-only hook (gated by `MTY_SERVE_TEST_HOOKS=1`
+    // at startup). When the watcher is wired, drives the same
+    // `rebuild_and_broadcast` path that `notify` callbacks fire, so
+    // the integration test for `--watch` reload signaling doesn't
+    // depend on `ReadDirectoryChangesW` event timing. The endpoint
+    // is invisible to normal users; see the module-doc rationale.
+    if path == "/_test_trigger_reload" && state.test_hooks_enabled {
+        return handle_test_trigger(state).await;
     }
 
     // `/main.wasm` → the freshly-built artefact.
@@ -544,6 +600,35 @@ fn base64_encode(bytes: &[u8]) -> String {
         }
     }
     out
+}
+
+/// v0.24 Track C — test-only hook. Drives the same rebuild path
+/// the `notify` watcher fires when `MTY_SERVE_TEST_HOOKS=1` is set
+/// at server startup AND `--watch` is on (i.e. `watch_root` is
+/// populated). Returns:
+///
+/// * `200 ok` after the rebuild + broadcast complete
+/// * `409 watch not on` when called without `--watch` (still gated
+///   by the env-var check above, so the only path here is a buggy
+///   test calling the hook on a non-watch server).
+async fn handle_test_trigger(
+    state: Arc<AppState>,
+) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
+    use http_body_util::Full;
+    use hyper::body::Bytes;
+    let Some(root) = state.watch_root.clone() else {
+        return hyper::Response::builder()
+            .status(409)
+            .header("content-type", "text/plain; charset=utf-8")
+            .body(Full::new(Bytes::from_static(b"watch not enabled")))
+            .expect("409 builds");
+    };
+    state.rebuild_and_broadcast(&root).await;
+    hyper::Response::builder()
+        .status(200)
+        .header("content-type", "text/plain; charset=utf-8")
+        .body(Full::new(Bytes::from_static(b"ok")))
+        .expect("200 builds")
 }
 
 async fn handle_reload_ws(
