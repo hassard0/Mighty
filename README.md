@@ -20,7 +20,7 @@ server, and stdlib are all in one Rust workspace and one `mty` binary.
 > (operator precedence promoted to normative §11.1.1; full
 > 63-reserved-keyword set enumerated; effect-row grammar admits the
 > multi-row-variable tail since v0.18). The toolchain is exercised by
-> **1433 Rust tests** across 20 crates plus a second independent
+> **1529 Rust tests** across 20 crates plus a second independent
 > Python implementation at [`impl-py/`](impl-py/) (front-end + HIR +
 > typeck through HM closures + generic-constraints, **311 tests**,
 > 23/23 examples typeck clean) and a third source-only Go front-end
@@ -30,8 +30,9 @@ server, and stdlib are all in one Rust workspace and one `mty` binary.
 > comment windows**: blocker #1 (Python 2nd-impl typeck) closed with
 > HM closures + generic-constraints; blocker #3 (normative conformance
 > suite) closed with the 140-case kit + normative
-> `docs/spec/conformance.md`; blocker #2 (eight RFC comment-window
-> closures) is infrastructure-ready
+> `docs/spec/conformance.md` (coverage now **56% direct / 93% any-
+> harness** after the v0.21 audit); blocker #2 (eight RFC comment-
+> window closures) is infrastructure-ready
 > (`docs/spec/rfcs/COMMENT_WINDOWS.md` tracks all 8 windows) and
 > awaits the user-side Discussion-thread openings.
 > **Earliest possible v1.0.0 tag: 2026-07-26** (the day after the
@@ -39,20 +40,25 @@ server, and stdlib are all in one Rust workspace and one `mty` binary.
 
 ## Release timeline
 
-- **v0.20.0** (this release): the full former post-v1.0 roadmap is
-  now live pre-v1.0. Hot reload (Tier 1.5) with `Resumable` + swap
-  pipeline + `mty reload` CLI; cluster mTLS + CN-bound identity +
-  Tier 4.2 supervisor with 3 restart strategies + circuit breaker;
-  DWARF v5 opt-in (`MTY_DWARF5=1`); strict-equality replay payloads
-  (v0.18 hot-path migrated from Opaque to Values); conformance kit
-  grows 122 → 140 cases and now auto-publishes alongside binaries.
-- **v0.21-RC1** (next): wasm hot reload + schema-evolution migration
-  hooks + control-socket reload handler; cluster `PlacementPolicy`
-  + Tier 4.3 lossless live migration + supervisor OpenTelemetry
-  metrics; DWARF v5 per-instruction line program enablement
-  (cranelift `MachSrcLoc`); strict-equality recording-on benchmark +
-  per-payload size cap; conformance per-backend link-and-run
-  assertions + diagnostic-code gap closure.
+- **v0.21.0** (this release): Polonius borrows + cap-name resolver
+  + Tier 4.3 lossless live migration + DWARF v5 dense rows.
+  Hot reload (Tier 1.5) completes (wasm-bytes swap + schema
+  migrations + condvar drain + control-socket `op=reload`); Tier
+  4.3 lossless live agent migration (RFC-006) with 3 placement
+  policies + OTel cluster metrics; DWARF v5 MachSrcLoc plumbing
+  (per-instruction line program + `.debug_loclists` per-local; v5
+  binary-size flips from +3.2% to -2.3% vs v4); Polonius behind
+  the `polonius` cargo feature (datalog + fixpoint solver) + cap-
+  name resolver activating MT4060–MT4065; conformance per-backend
+  harnesses (`conformance_native` + `conformance_wasm_component`)
+  + coverage audit (uncovered 17 → 8, direct coverage 56%, any-
+  harness 93%).
+- **v0.22-RC1** (next): per-message work-stealing (Tier 5) with
+  locality-preserving steal ordering; closure of the last 8
+  uncovered diagnostic codes; PGO / ThinLTO build profile; Python
+  2nd-impl borrow + codegen (wasm-only) for cross-validation;
+  MtyIR `Stmt` real source-span carrier so DWARF v5 dense rows are
+  byte-accurate; `mty conform <kit.tar.gz>` implementer-CLI shim.
 - **v1.0.0 GA**: when all 8 RFC comment windows close.
   **Earliest: 2026-07-26** (the day after RFC-002 / RFC-006's 60-day
   windows close). The integrator collects dispositions →
@@ -169,15 +175,49 @@ Then:
   `SUPERVISOR_EVENT_CAPACITY = 256` channel (caller picks
   placement); mesh `notify_node_disconnect` hook marks affected
   children `:noproc`
-- **Hot reload — `Resumable` + swap pipeline (v0.20, Tier 1.5)** —
+- **Hot reload — `Resumable` + swap pipeline (v0.20/v0.21, Tier 1.5)** —
   `Resumable` trait (FNV-1a `SCHEMA_HASH` const + default
   ciborium-backed `to_snapshot`/`from_snapshot`); swap pipeline
   `reload::swap` (pause → drain → snapshot → schema check → restore
   → resume) via `ReloadGate`, mailbox preserved across the boundary;
   `mty reload <agent-type> --from new.wasm` CLI with `--dry-run` /
   `--deadline-ms` / `--sock` / `--json`; new diagnostic band
-  `MT5060`–`MT5069`; `ModuleSource::SameProgram` wired end-to-end
-  (raw-wasm rejected with `MT5064` until v0.21)
+  `MT5060`–`MT5069`; **v0.21 completes the wasm-bytes path** via a
+  `wasmparser`-driven loader (`__mty_agent_type` + `__mty_schema_hash`
+  custom sections), `MigrateFrom<Old>` + `SchemaRegistry` BFS over
+  `(old_hash, new_hash)` edges (V1 → V2 → V3 supported), the
+  control-socket `op=reload` handler + `ReloadHook` registry, and
+  a parking_lot condvar drain (no more 1 ms busy-poll)
+- **Lossless live agent migration (v0.21, Tier 4.3 — RFC-006)** —
+  `MigrationOrchestrator::migrate_agent(agent, target, deadline)`
+  ships a running agent's snapshot + queued mailbox + continuation
+  between cluster nodes via the new `WireFrame::MigrateSnapshot` /
+  `MigrateAck` / `MigrateError` frames; abstracted over the runtime
+  via `SnapshotSource` / `SnapshotSink` / mesh wire hooks (6 MB
+  hard cap on snapshot payload); new `PlacementPolicy` trait + 3
+  bundled policies (`StickyPolicy`, `LeastLoadedPolicy`,
+  `StaticPolicy`) feed `RestartRequested` events with
+  `placement_hint: Option<NodeId>`; new `[cluster.placement]`
+  manifest block; OTel cluster metrics
+  (migrations_started/completed/failed/rolled_back_total,
+  migration_state_bytes_sum, placements_chosen_total{policy}); new
+  `MT507x` diagnostic band (MT5071..MT5079)
+- **Polonius-style borrows (v0.21, opt-in `polonius` feature)** —
+  second-pass borrow checker layered on the v0.3-vintage NLL walker;
+  datalog fact model (`Borrow(origin, place, mut)`, `Loan(origin,
+  scope)`, `Subset(o1, o2, point)`, `Invalidates(origin, point)`)
+  + 4 inference rules (transitive subset closure, loan-region
+  intersection, mutual-borrow conflict, end-of-scope loan death) +
+  fixpoint solver; default build (no feature) is byte-identical to
+  v0.20 borrow-check semantics
+- **Cap-name resolver — MT4060–MT4065 active (v0.21)** — 3-layer
+  scope-frame resolver (current fn signature, enclosing impl/trait,
+  module-level prelude) pinning `Fs` / `Net` / `Clock` / `Dom` /
+  `Model` names against their cap family + narrowing surface; the
+  six v0.20-uncovered MT4xxx codes now actively emit (MT4060
+  Unbound / MT4061 FamilyMismatch / MT4062 NarrowingParamMismatch /
+  MT4063 NarrowingInBodyButNotSignature / MT4064
+  FamilySurfaceInconsistency / MT4065 NarrowingConstructorArgShape)
 
 **Codegen**
 
@@ -203,10 +243,16 @@ Then:
   WIT via `[wit]` in `mighty.toml`
 - DWARF v4 debug info + Wasm source maps + `name` section; opt-in
   DWARF v5 + per-instruction line program via `MTY_DWARF5=1`
-  (v0.20) — parallel emission path with the v5 `.debug_line_str`
-  quintuple; v5 capacity for denser opcode-table rows + cross-CU
-  string sharing is wired (the wins are dormant until cranelift
-  `MachSrcLoc` plumbing lands per-instruction rows in v0.21)
+  (v0.20/v0.21) — parallel emission path with the v5
+  `.debug_line_str` quintuple; **v0.21 plumbs cranelift's
+  `MachSrcLoc` map through `Module::define_function`** so every
+  machine instruction inherits its MtyIR statement source loc
+  (`LowerCtx { fn_debug, capture_debug_info }` + per-stmt
+  `b.set_srcloc(...)`); `.debug_loclists` per-local emitted from
+  cranelift slot offsets; v5 binary-size delta flips from +3.2%
+  (v0.20, conservative 2-entry table) to **-2.3% vs v4** (v0.21,
+  dense `DW_LNS_advance_pc` + small-delta `DW_LNS_copy` opcodes
+  beat the equivalent v4 stream once you cross ~8 rows per fn)
 
 **Tooling**
 
@@ -302,9 +348,7 @@ The v1.0 spec is feature-complete at **v1.0-RC4** (`docs/spec/v1.0-rc.md`).
 
 ### Post-v1.0
 
-- Lossless live agent migration (Tier 4.3); per-message work-stealing
-  (Tier 5); cluster `PlacementPolicy` for cross-node fail-over.
-- Polonius-style borrows; real cap-name resolution wiring.
+- Per-message work-stealing (Tier 5).
 - PGO / ThinLTO.
 - Python 2nd-impl borrow + codegen layers
   (out-of-scope for v1.0; the v1.0 freeze ships through HM typeck
@@ -327,6 +371,11 @@ The v1.0 spec is feature-complete at **v1.0-RC4** (`docs/spec/v1.0-rc.md`).
 - Cluster mTLS + Tier 4.2 supervisor (v0.20) — mTLS via opt-in `ClusterMesh::from_config_mtls(cfg)` with CN-bound `verify_peer_identity` (hand-rolled `extract_cn_from_der` TLV walker, no extra dep); `ClusterSupervisor` with three restart strategies (`OneForOne` / `RestForOne` / `OneForAll`) + per-child circuit breaker; restart decisions emit on a bounded event channel (caller picks placement; v0.21 lands `PlacementPolicy`); mesh `notify_node_disconnect` hook marks affected children `:noproc`.
 - DWARF v5 + per-instruction line program (v0.20, opt-in) — `MTY_DWARF5=1` env-var toggle (parallel emission alongside the v4 default); new `crates/mty-debuginfo/src/dwarf5.rs` emits the v5 `.debug_info` + `.debug_line` + `.debug_str` + `.debug_line_str` + `.debug_abbrev` quintuple; v5 *capacity* for denser opcode-table line rows + cross-CU `.debug_line_str` string sharing is wired (the *enablement* of those wins waits on cranelift `MachSrcLoc` plumbing in v0.21).
 - Strict-equality replay payloads (v0.20) — v0.18 hot-path migration of `Runtime::send` / `Runtime::ask` from `Opaque(format!("{:?}", args))` to `Values(...)`; the `ReplayDriver`'s strict structural equality arm is now the live replay semantic (the `Opaque ≈ Opaque` loose-equality arm becomes a back-compat fallback that never fires for fresh recordings; cluster routing still uses the byte envelope by transport contract).
+- Hot reload completion + wasm-bytes swap + schema migrations (v0.21, Tier 1.5) — `wasm_loader` parses `__mty_agent_type` + `__mty_schema_hash` custom sections via `wasmparser`; `Program::with_swapped_agent` clones the per-agent slot map; `MigrateFrom<Old>` + `SchemaRegistry` BFS over `(old_hash, new_hash)` edges supports schema-evolution chains (V1 → V2 → V3); control-socket `op=reload` handler via `Request::Reload { agent_type, module_b64, deadline_ms }` + `ReloadHook` registry; parking_lot condvar drain replaces the 1 ms busy-poll.
+- Lossless live agent migration (v0.21, Tier 4.3, RFC-006) — `MigrationOrchestrator::migrate_agent(agent, target, deadline)` ships an agent's snapshot + queued mailbox + continuation between cluster nodes; abstracted over the runtime via `SnapshotSource` / `SnapshotSink` / mesh wire hooks; 6 MB hard cap; `PlacementPolicy` trait + 3 bundled policies (`StickyPolicy` / `LeastLoadedPolicy` / `StaticPolicy`) feeding `RestartRequested` placement hints; `[cluster.placement]` manifest block; OTel cluster metrics; new `MT507x` diagnostic band.
+- DWARF v5 MachSrcLoc plumbing (v0.21) — cranelift's per-instruction `MachSrcLoc` map flows through `Module::define_function`; v0.20's conservative 2-entry line table replaced with a dense per-statement line program; `.debug_loclists` per-local emitted from cranelift slot offsets; v5 binary-size flips from +3.2% to -2.3% vs v4 on the synthetic benchmark.
+- Polonius-style borrows (v0.21, opt-in `polonius` feature) — datalog fact model + 4 inference rules + fixpoint solver layered on the v0.3-vintage NLL walker; default build (no feature) is byte-identical to v0.20 borrow-check semantics.
+- Cap-name resolver — MT4060–MT4065 active emit (v0.21) — 3-layer scope-frame resolver (current fn signature, enclosing impl/trait, module-level prelude) pinning `Fs` / `Net` / `Clock` / `Dom` / `Model` names against their cap family + narrowing surface; closes the 6 v0.20-uncovered MT4xxx typeck codes.
 
 For the full per-version history of what shipped on the road to v1.0,
 see [`CHANGELOG.md`](CHANGELOG.md).
@@ -334,28 +383,20 @@ see [`CHANGELOG.md`](CHANGELOG.md).
 ## Status
 
 Mighty is **pre-alpha**. Internal milestones have been tagged through
-**v0.20**. The v1.0 language spec is at v1.0-RC4 — see
-`docs/spec/v1.0-rc.md`. There are **1433 Rust tests** across the
+**v0.21**. The v1.0 language spec is at v1.0-RC4 — see
+`docs/spec/v1.0-rc.md`. There are **1529 Rust tests** across the
 workspace (plus **311 Python tests** in the [`impl-py/`](impl-py/)
-2nd-impl, **140 normative conformance cases**, and **23 self-host
-driver** codegen tests = **1907 combined**), 0 clippy warnings *under
-the strict `pedantic` gate* (a required CI job, not advisory), and
-**4/4 demos** pass `smoke.sh`. The cargo-fuzz harness covers four
-targets (parser / typeck / fmt / codegen). **All KNOWN_ISSUES P1/P2
-items are closed**; v1.0 freeze blockers are down to the RFC
-comment windows (infrastructure shipped; awaits user-side Discussion
+2nd-impl, **140 normative conformance cases** at **56% direct /
+93% any-harness** coverage, and **23 self-host driver** codegen
+tests = **2003 combined**), 0 clippy warnings *under the strict
+`pedantic` gate* (a required CI job, not advisory), and **4/4
+demos** pass `smoke.sh`. The cargo-fuzz harness covers four targets
+(parser / typeck / fmt / codegen). **All KNOWN_ISSUES P1/P2 items
+are closed**; **v1.0 freeze blockers are down to the RFC comment
+windows only** (infrastructure shipped; awaits user-side Discussion
 thread openings; earliest v1.0.0 tag 2026-07-26 — see
 [Release timeline](#release-timeline) above and
 [`docs/spec/rfcs/COMMENT_WINDOWS.md`](docs/spec/rfcs/COMMENT_WINDOWS.md)).
-v0.20's swarm landed the entire former post-v1.0 roadmap pre-v1.0:
-hot reload with `Resumable` + the swap pipeline + the `mty reload`
-CLI (Tier 1.5), cluster mTLS with CN-bound node identity + the
-Tier 4.2 supervisor (3 restart strategies + per-child circuit
-breaker), DWARF v5 + per-instruction line program (opt-in via
-`MTY_DWARF5=1`), the strict-equality replay payload migration
-(v0.18 hot-path now emits `Values` by default), and the conformance
-corpus expansion from 122 → 140 cases (kit ~108 K, now auto-
-attached to every tagged release).
 
 **Pre-built `mty` binaries** for Linux x86_64, macOS arm64, and
 Windows x86_64 are produced automatically on every `v*` tag push

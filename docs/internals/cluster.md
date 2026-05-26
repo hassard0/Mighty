@@ -478,12 +478,12 @@ The supervisor also exposes `set_available_nodes(...)` so the runtime
 can keep the policy's view of the cluster in sync with the mesh's
 connection state.
 
-## Live migration (v0.21 Tier 4.3)
+## Live migration (v0.21 Tier 4.3) {#live-migration}
 
 `migrate_agent(agent, target, deadline)` ships a running agent's
 mailbox + continuation from the source node to `target`. Implementation
-in [`migration.rs`](../../crates/mty-runtime/src/cluster/migration.rs);
-RFC-006 carries the design discussion.
+in `crates/mty-runtime/src/cluster/migration.rs`; RFC-006 carries the
+design discussion.
 
 ### Sequence
 

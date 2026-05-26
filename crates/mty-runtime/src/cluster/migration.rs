@@ -398,11 +398,10 @@ impl MigrationOrchestrator {
 
         // (1) drain + snapshot.
         let drain_started = Instant::now();
-        let snapshot = source.drain_and_snapshot(&agent).await.map_err(|e| {
+        let snapshot = source.drain_and_snapshot(&agent).await.inspect_err(|_| {
             self.metrics
                 .migrations_failed
                 .fetch_add(1, Ordering::Relaxed);
-            e
         })?;
         let drain_elapsed = drain_started.elapsed();
         if snapshot.state.len() > MAX_MIGRATION_SNAPSHOT_BYTES {
@@ -511,7 +510,10 @@ impl MigrationOrchestrator {
         };
 
         // (4) forward any messages queued during drain → ack.
-        let queued = source.drain_queued_messages(&agent).await.unwrap_or_default();
+        let queued = source
+            .drain_queued_messages(&agent)
+            .await
+            .unwrap_or_default();
         let mut forwarded = 0u32;
         for q in &queued {
             let fwd = WireFrame::Send {

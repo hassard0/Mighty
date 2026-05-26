@@ -9,28 +9,143 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- v0.21-RC1 candidates: wasm hot reload + `Resumable::migrate_from`
-  schema-evolution hooks + control-socket `op=reload` handler +
-  condvar drain wake-up (replacing the 1 ms busy-poll); cluster
-  `PlacementPolicy` trait + Tier 4.3 lossless live migration +
-  `[cluster.tls].require_client_cert` manifest plumbing + supervisor
-  OpenTelemetry metrics (restart_total / circuit_breaker_tripped_total
-  / node_disconnect_total); DWARF v5 per-instruction line program
-  enablement (cranelift `MachSrcLoc` through `define_function`) +
-  `.debug_loclists` per-local from cranelift slot offsets; strict-
-  equality replay recording-on benchmark + per-payload size cap
-  that elides the structural walk above ~64 KiB; conformance kit
-  per-backend link-and-run + component-shape assertions for the
-  v0.20 `native_abi/` and `wasm_component/` fixtures; closure of
-  the 17 uncovered diagnostic codes (highest-leverage targets: 6
-  `MT4xxx` typeck codes blocked on the cap-name resolver wiring);
-  `mty conform <kit.tar.gz>` implementer-CLI shim; sigstore inclusion-
-  proof crypto verify on `fetch`; MT0001 funnel split (MT0002/MT0003/
-  MT0010/MT0011/MT0012/MT0020/MT0021/MT0030); `mty-pkg` cross-file
-  resolution; parametric newtypes for self-host arena ids; self-
-  host codegen broadening (real LEB128 in Mighty, arena drops at
-  scope exit, agent backend); Windows named-pipe introspect
+- v0.22-RC1 candidates: per-message work-stealing (Tier 5) — promote
+  the per-worker crossbeam-deque scheduler from agent-affinity hints
+  (v0.10) to true per-message work-stealing with locality-preserving
+  steal ordering (NUMA → socket → anywhere) + new
+  `worker.steals_total{src,dst}` OTel counter; diagnostic-code gap
+  closure of the last 8 uncovered codes (MT0004 / MT0030 / MT2015 /
+  MT2016 / MT2018 / MT2019 / MT3012 / MT3015 — all need crate-source
+  emit-site work or HIR shape gaps closed); PGO / ThinLTO build
+  profile + a `mty-bench`-driven `.profraw` collection; Python
+  2nd-impl borrow + codegen (wasm-only) for cross-validation
+  against the Rust reference; MtyIR `Stmt` real source-span carrier
+  so DWARF v5 dense line-program rows are byte-accurate rather than
+  synthetic-uniform; `mty conform <kit.tar.gz>` implementer-CLI shim;
+  sigstore inclusion-proof crypto verify on `fetch`; `mty-pkg`
+  cross-file resolution; parametric newtypes for self-host arena
+  ids; self-host codegen broadening (real LEB128 in Mighty, arena
+  drops at scope exit, agent backend); Windows named-pipe introspect
   backend; full `TokenStream` marshalling.
+
+## [0.21.0] - 2026-05-26
+
+**The post-v1.0 roadmap continues to land pre-v1.0 — Polonius
+borrows + cap-name resolver + Tier 4.3 lossless live migration +
+DWARF v5 dense rows.** v0.21 finishes everything v0.20 deferred
+and lands the last three items from the v0.19 "Post-v1.0" block.
+**Hot reload (Tier 1.5) completes**: `MT5064` placeholder is gone —
+new `crates/mty-runtime/src/reload/wasm_loader.rs` parses
+`__mty_agent_type` + `__mty_schema_hash` custom sections via
+`wasmparser`; `Program::with_swapped_agent` clones the per-agent
+slot map; `MigrateFrom<Old>` + a `SchemaRegistry` BFS over
+`(old_hash, new_hash)` edges supports schema-evolution chains
+(V1 → V2 → V3 supported); the control-socket `op=reload` handler
+is end-to-end via `Request::Reload { agent_type, module_b64,
+deadline_ms }` + `ReloadHook` trait + process-global
+`reload_hooks()` registry; the 1 ms busy-poll is gone, replaced
+with a `condvar_drain::DrainSignal` (parking_lot `Condvar` over
+`Mutex<DrainState>`). +27 reload tests across `reload_wasm.rs`
+(6), `reload_migration.rs` (8), updated `reload.rs` baseline,
+and inline control-socket / condvar / resumable / wasm_loader
+tests (65 reload-related tests across the crate).
+**Tier 4.3 lossless live agent migration (RFC-006)** lands: new
+`crates/mty-runtime/src/cluster/migration.rs` (~680 LOC) carries
+`MigrationOrchestrator::migrate_agent(agent, target, deadline)`
+running the canonical drain → snapshot → ship
+`WireFrame::MigrateSnapshot` → `MigrateAck` → forward queued
+mailbox → mark agent `REMOTE(target, new_id)` sequence; abstracted
+over the runtime via three hooks (`SnapshotSource` / `SnapshotSink`
+/ mesh wire surface) so `agent.rs` / `runtime.rs` stay untouched;
+6 MB hard cap on snapshot payload
+(`MAX_MIGRATION_SNAPSHOT_BYTES`); new `MT507x` diagnostic band
+reserved for migration (MT5071 AgentNotFound / MT5072
+TargetUnreachable / MT5073 SameNode / MT5074 Deadline / MT5075
+Rejected / MT5076 SnapshotTooLarge / MT5077 Mesh / MT5079
+Internal — plus MT5060 IncompatibleSchema shared with reload);
+new `crates/mty-runtime/src/cluster/placement.rs` (~250 LOC)
+lands `PlacementPolicy` trait + 3 bundled policies (`StickyPolicy`,
+`LeastLoadedPolicy`, `StaticPolicy`); supervisor's
+`RestartRequested` event now carries
+`placement_hint: Option<NodeId>`; new `[cluster.placement]`
+manifest block with `policy = "sticky"|"least_loaded"|"static"` +
+`default_node`; OTel cluster metrics (migrations_started_total /
+migrations_completed_total / migrations_failed_total /
+migrations_rolled_back_total / migration_state_bytes_sum /
+placements_chosen_total{policy}); +8 migration tests in
+`tests/cluster_migration.rs`. **DWARF v5 MachSrcLoc plumbing**:
+cranelift's per-instruction `MachSrcLoc` map flows through
+`Module::define_function` so the v0.20 conservative 2-entry line
+table is replaced with a dense per-statement line program;
+`LowerCtx` grows `fn_debug: HashMap<IrFnId, FnSrcLocMap>` + a
+`capture_debug_info` flag; `FnLower::note_stmt_loc(byte_offset)`
+pushes synthetic byte offsets into `stmt_byte_offsets[idx]` and
+calls `b.set_srcloc(SourceLoc::new(idx))`; `lower_one_block`
+invokes `note_stmt_loc` at every MtyIR statement boundary +
+terminator; `.debug_loclists` per-local emitted from cranelift
+slot offsets (same gap as v4 today, now closed for v5); v5
+binary-size delta flips from +3.2% to -2.3% vs v4 on the
+synthetic benchmark (dense `DW_LNS_advance_pc` + small-delta
+`DW_LNS_copy` opcodes compress better than the equivalent v4
+stream once you cross ~8 rows per fn); +5 integration tests in
+`crates/mty-codegen-cranelift/tests/debug_mach_src_loc.rs`
+(uses `MTY_CRANELIFT_NO_OPT=1` to keep cranelift's egraph from
+coalescing arithmetic chains and breaking per-statement row
+determinism). **Polonius-style borrows** ship behind the
+`polonius` cargo feature: datalog fact model
+(`Borrow(origin, place, mut)`, `Loan(origin, scope)`,
+`Subset(o1, o2, point)`, `Invalidates(origin, point)`) + 4
+inference rules (transitive subset closure, loan-region
+intersection, mutual-borrow conflict, end-of-scope loan death)
++ fixpoint solver layered on the v0.3-vintage NLL walker;
+default build uses NLL unchanged so v0.21 default semantics are
+byte-identical to v0.20; +20 tests (10 integration + 10 inline)
+in `crates/mty-borrow`. **Cap-name resolver**: new
+`crates/mty-types/src/cap_resolver.rs` + `cap_check.rs` lands a
+3-layer scope frame (current fn signature, enclosing impl/trait,
+module-level prelude) pinning `Fs` / `Net` / `Clock` / `Dom` /
+`Model` names against their cap family + narrowing surface; the
+6 v0.20-uncovered MT4xxx codes (MT4060 Unbound / MT4061
+FamilyMismatch / MT4062 NarrowingParamMismatch / MT4063
+NarrowingInBodyButNotSignature / MT4064 FamilySurfaceInconsistency
+/ MT4065 NarrowingConstructorArgShape) now actively emit; +18
+unit tests in `tests/cap_resolution.rs`; +6 conformance fixtures
+in `tests/conformance/type_checking/22..27/`. **Conformance
+expansion**: per-backend test crates
+`crates/mty-codegen-cranelift/tests/conformance_native.rs` (5
+tests: 4 per-case object-shape MUSTs + best-effort `cc` link-and-
+run smoke + 1 inventory) and `crates/mty-codegen-wasm/tests/
+conformance_wasm_component.rs` (5 tests: 4 per-case import/export-
+subset MUSTs against `expected_component.txt` + 1 inventory);
+`tests/conformance/coverage.json` audit reconciles the v0.20
+report against the actual fixture corpus — 9 codes promote from
+`uncovered` → `covered` without writing new fixtures (MT2003 /
+MT2009 / MT2014 / MT2022 / MT2023 / MT2024 / MT2025 / MT3002 /
+MT3007 — existing v0.11/v0.12 emit-site work + fixture coverage
+was already there); true gap drops 17 → 8; coverage 53 → 62
+direct (56%) and 93% any-harness. The 8 remaining gaps (MT0004
+/ MT0030 / MT2015 / MT2016 / MT2018 / MT2019 / MT3012 / MT3015)
+need crate-source emit-site work + HIR shape gap closure, all
+documented in the new `v0_21_audit_note` field of `coverage.json`
+for v0.22 follow-up. **`docs/internals/cluster.md`** gains a new
+`## Live migration (v0.21 Tier 4.3)` section with the sequence
+diagram, the three-hook abstraction, the wire-frame shape, and
+the placement-policy surface; `docs/internals/borrowck.md` gains
+§21 Polonius; `docs/internals/capabilities.md` gains a v0.21
+§Cap name resolution section; `docs/internals/hot-reload.md`
+gains wasm-byte loading + schema-migration + condvar-drain +
+control-socket protocol sections; RFC-006 now cross-references
+the implementation at `docs/internals/cluster.md#live-migration`.
+**KNOWN_ISSUES P1+P2 lists stay empty.** **v1.0 freeze blockers
+unchanged from v0.19/v0.20**: #1 + #3 CLOSED, #2 infrastructure
+live, awaits user-side Discussion-thread openings.
+**1529 Rust + 311 Python + 140 conformance + 23 selfhost-driver =
+2003 tests passing** (+96 vs v0.20), 0 failing, 7 ignored
+(unchanged), 0 clippy warnings under the strict `pedantic` gate,
+all 6 CI workflows green (CI / Pages / Python second-impl / bench
+/ security / release), conformance kit ~108 K (unchanged)
+auto-attached to v0.21.0 alongside Linux x86_64 + macOS arm64 +
+Windows x86_64 binaries.
 
 ## [0.20.0] - 2026-05-26
 

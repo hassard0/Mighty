@@ -30,9 +30,7 @@ use mty_runtime::cluster::{
         SnapshotSink, SnapshotSource,
     },
     placement::{LeastLoadedPolicy, PlacementContext, PlacementPolicy, StickyPolicy},
-    supervisor::{
-        ChildSpec, ClusterSupervisor, RestartPolicy, RestartStrategy,
-    },
+    supervisor::{ChildSpec, ClusterSupervisor, RestartPolicy, RestartStrategy},
     WireFrame,
 };
 use parking_lot::Mutex as PlMutex;
@@ -246,9 +244,8 @@ impl SnapshotSource for MockSource {
     fn drain_queued_messages<'a>(
         &'a self,
         agent: &'a AgentAddr,
-    ) -> Pin<
-        Box<dyn std::future::Future<Output = MigrationResult<Vec<QueuedMessage>>> + Send + 'a>,
-    > {
+    ) -> Pin<Box<dyn std::future::Future<Output = MigrationResult<Vec<QueuedMessage>>> + Send + 'a>>
+    {
         Box::pin(async move {
             let mut g = self.inner.lock();
             Ok(g.queued.remove(agent).unwrap_or_default())
@@ -307,6 +304,7 @@ impl MockSink {
         })
     }
 
+    #[allow(dead_code)]
     fn reject_next(self: &Arc<Self>) {
         self.inner.lock().reject = true;
     }
@@ -685,8 +683,11 @@ async fn supervisor_emits_placement_hint_when_policy_installed() {
         window_ms: 30_000,
     });
     let failed = AgentAddr::remote("node-a", "X", 2);
-    sup.on_child_exit(failed.clone(), mty_runtime::cluster::supervisor::ExitReason::Crashed("boom".into()))
-        .await;
+    sup.on_child_exit(
+        failed.clone(),
+        mty_runtime::cluster::supervisor::ExitReason::Crashed("boom".into()),
+    )
+    .await;
 
     let ev = sup.try_next_event().expect("event");
     match ev {
@@ -698,10 +699,7 @@ async fn supervisor_emits_placement_hint_when_policy_installed() {
             assert_eq!(child, failed);
             // node-a has 3 (incl the failing one), node-b has 1,
             // node-c has 0 → least-loaded picks node-c.
-            assert_eq!(
-                placement_hint.as_ref().map(|n| n.as_str()),
-                Some("node-c")
-            );
+            assert_eq!(placement_hint.as_ref().map(|n| n.as_str()), Some("node-c"));
         }
         other => panic!("expected RestartRequested, got {other:?}"),
     }

@@ -522,9 +522,7 @@ impl ClusterSupervisor {
                 if matches!(child.state, ChildState::Dead(_) | ChildState::NoProc) {
                     continue;
                 }
-                *counts
-                    .entry(child.spec.addr.node.clone())
-                    .or_insert(0usize) += 1;
+                *counts.entry(child.spec.addr.node.clone()).or_insert(0usize) += 1;
             }
             let ctx = PlacementContext {
                 available_nodes: inner.available_nodes.clone(),

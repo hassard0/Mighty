@@ -26,7 +26,15 @@ pub mod placement;
 pub use address::{current_node_id, AgentAddr, NodeId};
 pub use correlation::CorrelationTable;
 pub use mesh::{ClusterConfig, ClusterMesh, MeshError, PeerEntry, TlsConfig, MESH_INBOX_CAPACITY};
+pub use migration::{
+    AgentSnapshot, MigrationError, MigrationMetrics, MigrationMetricsSnapshot,
+    MigrationOrchestrator, MigrationReport, MigrationResult, QueuedMessage, SnapshotSink,
+    SnapshotSource, MAX_MIGRATION_SNAPSHOT_BYTES,
+};
 pub use peer::{InboundFrame, Peer, PeerError};
+pub use placement::{
+    LeastLoadedPolicy, PlacementContext, PlacementPolicy, StaticPolicy, StickyPolicy,
+};
 pub use supervisor::{
     ChildSpec, ChildState, ClusterSupervisor, ExitReason, RestartPolicy, RestartStrategy,
     SupervisorEvent, SupervisorHook, SUPERVISOR_EVENT_CAPACITY,
@@ -38,14 +46,6 @@ pub use tls::{
 pub use wire::{
     decode_frame, encode_frame, read_frame_async, write_frame_async, WireError, WireFrame,
     MAX_FRAME_BYTES, WIRE_VERSION,
-};
-pub use migration::{
-    AgentSnapshot, MigrationError, MigrationMetrics, MigrationMetricsSnapshot,
-    MigrationOrchestrator, MigrationReport, MigrationResult, QueuedMessage, SnapshotSink,
-    SnapshotSource, MAX_MIGRATION_SNAPSHOT_BYTES,
-};
-pub use placement::{
-    LeastLoadedPolicy, PlacementContext, PlacementPolicy, StaticPolicy, StickyPolicy,
 };
 
 use std::future::Future;
