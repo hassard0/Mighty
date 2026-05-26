@@ -116,9 +116,13 @@ nav:
     - Codegen (Wasm): internals/codegen-wasm.md
     - Debug Info: internals/debug-info.md
     - Runtime: internals/runtime.md
+    - Agents: internals/agents.md
     - Scheduler: internals/scheduler.md
     - Mailboxes: internals/mailboxes.md
     - Supervisors: internals/supervisors.md
+    - Cluster: internals/cluster.md
+    - Introspect: internals/introspect.md
+    - Replay: internals/replay.md
     - Interpreter: internals/interpreter.md
     - Macros: internals/macros.md
     - Effects: internals/effects.md
@@ -133,14 +137,17 @@ nav:
     - Diagnostics (Internals): internals/diagnostics.md
     - Budgets: internals/budgets.md
     - Telemetry: internals/telemetry.md
+    - Telemetry Spans: internals/telemetry-spans.md
     - Telemetry OTLP: internals/telemetry-otlp.md
     - LSP: internals/lsp.md
     - Formatter: internals/formatter.md
+    - Fuzzing: internals/fuzzing.md
     - Doc Generator: internals/doc-generator.md
     - Package Manager: internals/package-manager.md
     - Package Signing: internals/package-signing.md
     - Self-hosting: internals/self-hosting.md
     - Benchmarking: internals/benchmarking.md
+    - Agent-features Roadmap: internals/agent-features-roadmap.md
   - Demos: demos/index.md
   # v0.10: `superpowers/` contains plans/ + specs/ subdirs but no
   # top-level index.md. mkdocs auto-discovers the markdown files

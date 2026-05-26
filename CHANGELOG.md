@@ -9,24 +9,67 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- v1.0-RC4 work: replay full Runtime re-execution + hot-path wire-up
-  (drive the `Replayer` from inside a live `Runtime` and assert
-  byte-identical handler outputs; emit `TraceEvent`s from the live
-  agent boundaries spawn / send / handler / restart); RFC-008
-  multi-row surface syntax parser extension (`!{| E1, E2}` shape;
-  flips MT4059 to active emit); delete the vendored preview1-adapter
-  bytes from `crates/mty-codegen-wasm/src/embedded/` once a
-  back-compat sweep confirms no downstream relies on the always-on
-  default; Python 2nd-impl typeck polish (HM closure inference,
-  generics-with-constraints, full trait dispatch; cross-validation
-  against the Rust reference); MT0001 funnel split
+- v1.0-RC5 / v0.19 candidates: replay byte-identical full
+  re-execution (structural `Value` serialisation so the replayer can
+  drive a fresh `Runtime` from the seed and assert byte-identical
+  handler outputs); HIR multi-row-var lowerer broadening (read every
+  `EFFECT_ROW_VAR` child of `EFFECT_ROW_TAIL`); cluster `Runtime::send`
+  routing (`Runtime::cluster: Option<SharedRouter>` + `[cluster.peers]`
+  manifest parser); cluster correlation table for `Ask` (match
+  incoming `Reply` / `Error` by correlation id); sigstore
+  inclusion-proof crypto verify on `fetch`; mutual-TLS client-cert
+  verification by node id in the cluster mesh; delete the vendored
+  preview1-adapter bytes from `crates/mty-codegen-wasm/src/embedded/`
+  once a back-compat sweep confirms no downstream relies on the
+  always-on default; Python 2nd-impl typeck polish (HM closure
+  inference, generics-with-constraints, full trait dispatch;
+  cross-validation against the Rust reference); MT0001 funnel split
   (MT0002/MT0003/MT0010/MT0011/MT0012/MT0020/MT0021/MT0030);
   `mty-pkg` cross-file resolution; parametric newtypes for self-host
   arena ids; self-host codegen broadening (real LEB128 in Mighty,
   arena drops at scope exit, agent backend); Windows named-pipe
-  introspect backend for parity with the POSIX Unix-domain control
-  socket; normative conformance suite kit publication; full
-  `TokenStream` marshalling.
+  introspect backend; open RFC-001..006 + RFC-008 + RFC-009 30-day
+  comment windows; normative conformance suite kit publication;
+  full `TokenStream` marshalling; flip the `clippy-strict` job from
+  `continue-on-error: true` to `false` (KNOWN_ISSUES #4).
+
+## [0.18.0] - 2026-05-26
+
+**v1.0 freeze gates closing fast — KNOWN_ISSUES P1 list cleared
+(#1, #2, #3), replay end-to-end, distributed agents land.** v0.18
+clears every P1 entry on `KNOWN_ISSUES.md`, wires deterministic
+replay into the Runtime hot path across 13 instrumentation sites,
+and grows the agent runtime a distributed transport layer (Tier 4.1
+of `docs/internals/agent-features-roadmap.md`). The spec promotes
+to **v1.0-RC4** with the RFC-008 multi-row-variable parser grammar
+amendment at §9.2. The `cabi_realloc` real free-list allocator
+(KNOWN_ISSUES #1) extracts from inline-in-emit to its own
+`cabi_realloc.rs` module (8 size classes, ~190 wasm instructions, 17
+dedicated coverage tests); the `mty-pkg/sigstore-real` cargo feature
+(KNOWN_ISSUES #2) now compiles and drives the real keyless flow
+end-to-end (Fulcio short-lived ECDSA-P256 cert + Rekor
+`hashedrekord` upload with full standard Sigstore Bundle JSON
+embedded under `verificationMaterial.sigstoreBundle`; `cosign
+verify-blob` consumes it directly); the v0.17 replay recorder wires
+into `Runtime::{spawn_agent, send, ask, shutdown}`, `agent.rs`'s
+inner `run_one_turn_with_shared_reply`, the agent loop's
+budget-exhaust / cancellation / terminal-exit arms, and every
+`StdHost::effect_call` route for fs / http / time / random (13
+sites total, zero overhead when `MTY_RECORD_TRACE` is unset);
+`AgentAddr = node:type:pid` + `ClusterMesh` with framed CBOR over
+TLS lands the Tier 4.1 transport layer (`Runtime::send` consults
+the router in v0.19); the parser tail accepts `(',' RowVar)*` so
+the multi-row source forms (`!{| E1, E2}` / `effect a, b | E1, E2`)
+parse cleanly and flip MT4059 to active emit; the MSRV gate
+(KNOWN_ISSUES #3) hardens to `cargo build --workspace --tests`
+which pulls in the full `[dev-dependencies]` graph. The release
+workflow that first fired on v0.15.0 continues to ship `mty`
+binaries for Linux / macOS×2 / Windows on every `v*` tag push.
+**1324 Rust + 274 Python + 92 conformance + 23 selfhost-driver =
+1713 tests passing** (+50 vs v0.17), 0 failing, 5 ignored. Three
+new internals doc pages land (`agents.md`, `introspect.md`,
+`replay.md`); `mkdocs build --strict` passes locally.
+[Release notes](dev/history/releases/RELEASE-v0.18.md).
 
 ## [0.17.0] - 2026-05-26
 

@@ -1,7 +1,7 @@
 # Mighty
 
 [![Status](https://img.shields.io/badge/status-pre--alpha-orange)](#status)
-[![Spec](https://img.shields.io/badge/spec-v1.0--RC3-blueviolet)](docs/spec/v1.0-rc.md)
+[![Spec](https://img.shields.io/badge/spec-v1.0--RC4-blueviolet)](docs/spec/v1.0-rc.md)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/hassard0/Mighty/ci.yml?branch=main)](https://github.com/hassard0/Mighty/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-online-success)](https://hassard0.github.io/Mighty/)
@@ -16,26 +16,30 @@ default; bare core modules via `--no-component`).
 The compiler, runtime, formatter, package manager, doc generator, LSP
 server, and stdlib are all in one Rust workspace and one `mty` binary.
 
-> **Status:** pre-alpha. The v1.0 language spec is at **v1.0-RC3**
+> **Status:** pre-alpha. The v1.0 language spec is at **v1.0-RC4**
 > (operator precedence promoted to normative §11.1.1; full
-> 63-reserved-keyword set enumerated). The toolchain is exercised by
-> 1274 Rust tests across 20 crates plus a second independent Python
-> implementation at [`impl-py/`](impl-py/) (front-end + HIR + typeck,
-> 274 tests, 23/23 examples typeck clean) and a third source-only Go
-> front-end at [`impl-go/`](impl-go/) (4848 LOC, cross-validation
-> pending Go toolchain). All six CI jobs are required gates.
-> **End-to-end self-hosting** is complete for the slice-1 subset
-> (lexer → parser → HIR → typeck → MtyIR → wasm codegen, all in
-> Mighty); the codegen lowers `Rvalue::MethodCall` through a
+> 63-reserved-keyword set enumerated; effect-row grammar admits the
+> multi-row-variable tail since v0.18). The toolchain is exercised by
+> **1324 Rust tests** across 20 crates plus a second independent
+> Python implementation at [`impl-py/`](impl-py/) (front-end + HIR +
+> typeck, 274 tests, 23/23 examples typeck clean) and a third
+> source-only Go front-end at [`impl-go/`](impl-go/) (4848 LOC,
+> cross-validation pending Go toolchain). All six CI jobs are required
+> gates. **End-to-end self-hosting** is complete for the slice-1
+> subset (lexer → parser → HIR → typeck → MtyIR → wasm codegen, all
+> in Mighty); the codegen lowers `Rvalue::MethodCall` through a
 > host-bridged dispatch and desugars `for x in custom_iter` into the
 > iter-protocol shape (23 live driver tests), and examples 01-03 all
-> bootstrap through the self-host chain. A `1.0` GA tag still awaits
-> the completion of 2nd-impl typeck polish (HM closure inference +
-> generics-with-constraints; the typeck baseline shipped in v0.17),
-> the 3rd-impl cross-validation, eight RFC comment-window closures
-> (RFC-001..006 plus the v0.13 RFC-008 + RFC-009 drafts), and the
-> normative conformance suite (currently 92 cases / 16 categories).
-> See [Status](#status) below.
+> bootstrap through the self-host chain. **KNOWN_ISSUES P1 list now
+> cleared** (`cabi_realloc` real free-list allocator, real Sigstore
+> keyless signing under `sigstore-real`, replay end-to-end through
+> the Runtime hot path, MSRV gate hardened, distributed-agents
+> single-cluster mesh landed). A `1.0` GA tag still awaits the
+> completion of 2nd-impl typeck polish (HM closure inference +
+> generics-with-constraints), the 3rd-impl cross-validation, eight
+> RFC comment-window closures (RFC-001..006 plus RFC-008 + RFC-009),
+> and the normative conformance suite (currently 92 cases / 16
+> categories). See [Status](#status) below.
 
 ## Install
 
@@ -108,10 +112,17 @@ Then:
 - **OpenTelemetry agent spans** — spawn / send / ask / handler /
   restart / budget-exhausted spans, plus `agent.event(name, &[(k, v)])`
   helper; lazy init from `MTY_OTLP_ENDPOINT`, cost-zero when disabled
-- **Deterministic replay** — `Recorder` + 8 typed `TraceEvent`
-  variants on a `MTYTRACE`-magic wire format v1; `mty replay
-  <trace>` CLI with `--dump-json` and `--step` modes; opt-in via
-  `MTY_REPLAY_RECORD=/path/to/trace`
+- **Deterministic replay (end-to-end since v0.18)** — `Recorder` +
+  8 typed `TraceEvent` variants on a `MTYTRACE`-magic wire format
+  v1, wired into the Runtime hot path (13 instrumentation sites
+  covering spawn / send / ask / handle / IO / clock / random /
+  budget / exit); `mty replay <trace>` CLI with `--dump-json` and
+  `--step` modes; opt-in via `MTY_RECORD_TRACE=/path/to/trace`
+- **Distributed agents — single-cluster mesh (v0.18, Tier 4.1)** —
+  `AgentAddr = node:type:pid` + framed CBOR-over-TLS transport
+  + `ClusterRouter` trait, multi-peer mesh with reconnect +
+  heartbeat; `Runtime::send` consults the router in v0.19, the
+  transport layer is feature-complete today
 
 **Codegen**
 
@@ -125,6 +136,11 @@ Then:
   (`wasi:filesystem` / `wasi:http` / `wasi:random` / `wasi:clocks` /
   `wasi:cli/stdout` + `wasi:io/streams`); no surface still flows
   through the adapter on a default build
+- **Real free-list `cabi_realloc` (v0.18)** — extracted from
+  `emit.rs` into `cabi_realloc.rs`; segregated free-list with 8 size
+  classes (8B → 1024B, powers of 2) + a large bump path, with
+  per-class LIFO push/pop, ~190 emitted wasm instructions, 32-byte
+  state region; 17 dedicated coverage tests
 - Wasm Component Model (`wit-component`) emission with user-supplied
   WIT via `[wit]` in `mighty.toml`
 - DWARF v4 debug info + Wasm source maps + `name` section
@@ -133,6 +149,7 @@ Then:
 
 - `mty lsp` — LSP 3.17 server (diagnostics, hover, completion, go-to-def, semantic tokens, rename, inlay hints, code actions, signature help, workspace folders)
 - `mty pkg` — package manager: resolver, lockfile, GitHub-Releases-backed registry, `.tar.gz` bundles, signed sidecars
+- **`mty pkg publish --sign` — real Sigstore keyless (v0.18, `sigstore-real` feature)** — Fulcio short-lived ECDSA-P256 cert + Rekor `hashedrekord` transparency-log entry, full Sigstore Bundle JSON embedded in the `.bundle` envelope; `cosign verify-blob` / `rekor-cli` consume the embedded Bundle directly
 - `mty doc` — markdown / HTML doc generator with search index
 - `mty fmt` — canonical formatter (idempotent under fuzz)
 - Stdlib: `std.json`, `std.tls`, `std.http`, `std.fs`, `std.time`, `std.test`, `std.io` — backed by `rustls` / `hyper` / `serde_json` / `tokio`
@@ -209,20 +226,25 @@ The v1.0 spec is feature-complete at v1.0-RC2 (`docs/spec/v1.0-rc.md`).
 
 ### Post-v1.0
 
-- Lossless live agent migration; per-message work-stealing.
+- Lossless live agent migration (Tier 4.3); per-message work-stealing
+  (Tier 5).
+- Cluster-aware supervisors (Tier 4.2).
 - Polonius-style borrows; real cap-name resolution wiring.
 - DWARF v5 + per-instruction line program.
-- Distributed agents; PGO / ThinLTO.
+- PGO / ThinLTO.
 
 ### Landed pre-v1.0 (formerly post-v1.0)
 
-- WASI Preview 2 + user-supplied WIT — v0.13 (`--wasi=p2`, `--world`, `[wit]` section). v0.14 embeds the upstream wasmtime preview1→preview2 adapter and ships direct P2 imports for `std.random` / `std.time`. v0.15 wires `P2DirectImport` into `emit.rs` dispatch and **flips the toolchain default to P2 for `wasm32-wasi`** (explicit `--wasi=p1` opts back). v0.16 takes nine more lowerings direct (full `std.fs.*` + `std.http.*`). **v0.17 finishes the adapter-free hot path:** `log()` / `print()` lower directly to `wasi:cli/stdout@0.2.3` + `wasi:io/streams@0.2.3`, the embedded adapter flips from always-on to opt-in (`Preview2Options::with_adapter`), and no surface still flows through the adapter on a default build.
-- Effect-row polymorphism end-to-end — v0.13 (RFC-008, `mty-types::effects::row`). v0.14 ships 19 row-polymorphic stdlib signatures; v0.15 wires call-site dispatch (`BuiltinMethod.row_sig` + `walk_expr_effects`, MT4050 on closed-row rejection) and lands the surface syntax (`!E` / `!{a | E}` / `effect a | E`). v0.16 wires the surface syntax through typed AST → `HirEffectRow` → `UserRowPolyIndex` typeck, with five new diagnostic codes (MT4055–MT4059, MT4057 actively emits). **v0.17 broadens `HirEffectRow::Open` to `Vec<HirRowVar>` (multi-row-var representation), wires the `UserRowPolyMeta` side table, and flips MT4055 / MT4056 / MT4058 to active emit** (MT4059 reserved pending the v0.18 parser ship of `!{| E1, E2}`).
+- WASI Preview 2 + user-supplied WIT — v0.13 (`--wasi=p2`, `--world`, `[wit]` section). v0.14 embeds the upstream wasmtime preview1→preview2 adapter and ships direct P2 imports for `std.random` / `std.time`. v0.15 wires `P2DirectImport` into `emit.rs` dispatch and **flips the toolchain default to P2 for `wasm32-wasi`** (explicit `--wasi=p1` opts back). v0.16 takes nine more lowerings direct (full `std.fs.*` + `std.http.*`). v0.17 finishes the adapter-free hot path: `log()` / `print()` lower directly to `wasi:cli/stdout@0.2.3` + `wasi:io/streams@0.2.3`, the embedded adapter flips from always-on to opt-in (`Preview2Options::with_adapter`), and no surface still flows through the adapter on a default build.
+- Effect-row polymorphism end-to-end — v0.13 (RFC-008). v0.14 ships 19 row-polymorphic stdlib signatures; v0.15 wires call-site dispatch and lands the surface syntax (`!E` / `!{a | E}` / `effect a | E`). v0.16 wires the surface syntax through typed AST → `HirEffectRow` → `UserRowPolyIndex` typeck with five new diagnostic codes (MT4055–MT4059, MT4057 actively emits). v0.17 broadens `HirEffectRow::Open` to `Vec<HirRowVar>` (multi-row-var representation) and flips MT4055 / MT4056 / MT4058 to active emit. **v0.18 ships the multi-row-var parser surface (`!{| E1, E2}` / `effect a, b | E1, E2`), flipping MT4059 to active emit and closing the RFC-008 end-to-end surface area.**
 - Set-of-scopes macro hygiene — v0.13 (RFC-009); v0.14 wires HIR macro resolution to `expand_scoped_to_source`; v0.15 removes the deprecated `mty_macros::expand` / `expand_to_source` API.
 - End-to-end self-hosting through Wasm codegen — v0.13; v0.14 broadens with string pool + ADT layout + pattern lowering so example 03 passes; v0.15 adds variant-call lowering, SwitchInt cascade, and for-range desugar; v0.16 lowers `Rvalue::MethodCall` through the host bridge and desugars `for x in custom_iter` into the iter-protocol shape (23 codegen driver tests, 0 ignored).
 - Live agent introspection + OpenTelemetry — v0.16. `mty inspect` CLI + opt-in `MTY_RUNTIME_CONTROL_SOCK` runtime control socket exposing agent snapshots (mailbox depth, in-flight handler, budgets, last-N messages); OTel spans at every agent boundary plus `agent.event(name, &[(k, v)])` helper, lazy init from `MTY_OTLP_ENDPOINT` (cost-zero when disabled). Tiers 1.1–1.3 of `docs/internals/agent-features-roadmap.md`.
-- Deterministic replay — **v0.17.** `mty-runtime::replay::*` recorder + 8 typed `TraceEvent` variants on a `MTYTRACE`-magic wire format v1; `mty replay <trace>` CLI with `--dump-json` + `--step` + `--json` modes; opt-in via `MTY_REPLAY_RECORD`. Tier 1.4 of the agent-features roadmap; full Runtime re-execution + hot-path wire-up tracked for v0.18.
-- Independent implementation through typeck — **v0.17.** `impl-py/` Python 2nd-impl extends from front-end-only (139 tests, parse-only) to front-end + HIR + lowering + Hindley-Milner typeck (274 tests, 23/23 examples typeck clean). Substantially closes v1.0 freeze blocker #2; HM closure inference + generics-with-constraints polish queued for v0.18.
+- Deterministic replay end-to-end — v0.17 (recorder + wire format + CLI) → **v0.18 (Runtime hot-path wire-up)**. `mty-runtime::replay::*` records 8 typed `TraceEvent` variants on a `MTYTRACE`-magic wire format v1 from 13 instrumentation sites (spawn / send / ask / handle / IO / clock / random / budget / exit); `mty replay <trace>` CLI with `--dump-json` + `--step` + `--json` modes; opt-in via `MTY_RECORD_TRACE`. Tier 1.4 of the agent-features roadmap.
+- Independent implementation through typeck — v0.17. `impl-py/` Python 2nd-impl extends from front-end-only (139 tests, parse-only) to front-end + HIR + lowering + Hindley-Milner typeck (274 tests, 23/23 examples typeck clean). Substantially closes v1.0 freeze blocker #2; HM closure inference + generics-with-constraints polish queued for v0.19.
+- Real `cabi_realloc` free-list allocator — **v0.18.** Closes KNOWN_ISSUES #1. Extracted from `emit.rs` into its own `cabi_realloc.rs` module; segregated free-list with 8 size classes (8B → 1024B, powers of 2) + a large bump path. 17 dedicated coverage tests.
+- Real Sigstore keyless signing — **v0.18.** Closes KNOWN_ISSUES #2. The `sigstore-real` cargo feature drives the real keyless flow (Fulcio short-lived ECDSA-P256 cert + Rekor `hashedrekord` transparency-log entry); the full standard Sigstore Bundle JSON is embedded under `verificationMaterial.sigstoreBundle` in the `.bundle` envelope so external tooling (`cosign verify-blob`, `rekor-cli`) consumes it directly.
+- Distributed agents — single-cluster mesh — **v0.18 (Tier 4.1).** `AgentAddr = node:type:pid` + framed CBOR-over-TLS transport (length-prefixed frames, ciborium codec) + `ClusterRouter` trait, `ClusterMesh` with multi-peer dialer + listener + reconnect + heartbeat absorption; 7 integration tests against real TLS sockets. `Runtime::send` consults the router in v0.19; the transport layer is feature-complete today.
 
 For the full per-version history of what shipped on the road to v1.0,
 see [`CHANGELOG.md`](CHANGELOG.md).
@@ -230,28 +252,35 @@ see [`CHANGELOG.md`](CHANGELOG.md).
 ## Status
 
 Mighty is **pre-alpha**. Internal milestones have been tagged through
-v0.17. The v1.0 language spec is at v1.0-RC3 — see
-`docs/spec/v1.0-rc.md`. There are 1274 Rust tests across the workspace
-(plus 274 Python tests in the [`impl-py/`](impl-py/) 2nd-impl, 92
-normative conformance cases, and 23 self-host driver codegen tests
-= **1663 combined**), 0 clippy warnings *under the strict `pedantic`
-gate* (a required CI job, not advisory), and **4/4 demos** pass
-`smoke.sh`. The cargo-fuzz harness covers four targets
-(parser / typeck / fmt / codegen), and the normative conformance
-corpus stands at **92 cases across 16 categories** (2 ignored:
-long-standing `capability_checking/03_narrow_to_ro` and
-`supervisor_restart/02_escalate`). v0.17 finishes the
-**adapter-free WASI Preview 2 hot path** — `log()` now lowers
-directly to `wasi:cli/stdout@0.2.3` + `wasi:io/streams@0.2.3` and
-the embedded preview1-adapter flips from always-on to opt-in via
-`Preview2Options::with_adapter`. **Deterministic replay** lands
-as Tier 1.4 of the
-[agent-features roadmap](docs/internals/agent-features-roadmap.md):
-recorder + wire format v1 + step replayer + `mty replay <trace>`
-CLI (full Runtime re-execution + hot-path wire-up tracked for
-v0.18). The **Python 2nd-impl reaches typeck** with HM + `TyAny`
-absorption and clears all 23 examples (139 → 274 tests),
-substantially closing v1.0 freeze blocker #2.
+**v0.18**. The v1.0 language spec is at v1.0-RC4 — see
+`docs/spec/v1.0-rc.md`. There are **1324 Rust tests** across the
+workspace (plus 274 Python tests in the [`impl-py/`](impl-py/)
+2nd-impl, 92 normative conformance cases, and 23 self-host driver
+codegen tests = **1713 combined**), 0 clippy warnings *under the
+strict `pedantic` gate* (a required CI job, not advisory), and
+**4/4 demos** pass `smoke.sh`. The cargo-fuzz harness covers four
+targets (parser / typeck / fmt / codegen), and the normative
+conformance corpus stands at **92 cases across 16 categories**
+(2 ignored: long-standing `capability_checking/03_narrow_to_ro` and
+`supervisor_restart/02_escalate`). **v0.18 clears the KNOWN_ISSUES
+P1 list** in one slice: the `cabi_realloc` real free-list allocator
+graduates from inline-in-emit to its own module (8 size classes,
+~190 emitted wasm instructions; 17 dedicated tests); package signing
+under the new `sigstore-real` cargo feature drives the real keyless
+flow (Fulcio short-lived cert + Rekor `hashedrekord` upload with the
+full standard Sigstore Bundle JSON embedded for direct `cosign
+verify-blob` / `rekor-cli` consumption); deterministic-replay
+recording wires into the Runtime hot path across 13 instrumentation
+sites (spawn / send / ask / handle / IO / clock / random / budget /
+exit) with 8 new end-to-end tests; the MSRV gate hardens to
+`cargo build --workspace --tests`; the RFC-008 multi-row-variable
+parser surface ships (`!{| E1, E2}` / `effect a, b | E1, E2`),
+flipping MT4059 to active emit. **Distributed agents land as Tier
+4.1** of the [agent-features
+roadmap](docs/internals/agent-features-roadmap.md) — `AgentAddr =
+node:type:pid` + framed CBOR-over-TLS mesh with multi-peer reconnect
++ heartbeat; the transport layer is opt-in and feature-complete
+today, `Runtime::send` consults the router in v0.19.
 
 **Pre-built `mty` binaries** for Linux x86_64, macOS x86_64 + arm64,
 and Windows x86_64 are now produced automatically on every `v*` tag
