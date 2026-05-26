@@ -6,6 +6,32 @@ check, MT6006 gates every call site in v1.0).
 **Target release:** v1.1.
 **Owner:** *unassigned* — design owner needed before promotion.
 
+## Implementation Status
+
+**NOT YET SHIPPED.** Forward-looking RFC. The v1.0 contract — parse
++ store + purity check, MT6005 / MT6006 active emit at every call
+site — is still in force.
+
+Adjacent v0.13..v0.23 work that lowers but does not close this RFC's
+backlog:
+
+* The sandbox-budget constants — `PROC_MACRO_WALL_MS`,
+  `PROC_MACRO_MEM_BYTES`, `PROC_MACRO_STEPS` — already live in
+  `sdust_macros::proc` so the spec and implementation cannot drift
+  when the sandbox executor lands.
+* The deterministic-replay infrastructure (v0.17 → v0.19) gives the
+  v1.1 sandbox executor a ready-made budget-enforcement substrate;
+  reusing it would shrink the RFC's implementation work.
+
+Diagnostic codes MT6005 (impurity) and MT6006 (call-site gate)
+remain the only catch in v1.0. The window opened 2026-05-26
+(close 2026-06-25) is **substantive**.
+
+Cross-references:
+
+* [`v1.0-rc.md`](../v1.0-rc.md) §20.3 — proc macros v1.0 contract.
+* [`RFC_DASHBOARD.md`](RFC_DASHBOARD.md) — live window status.
+
 ## Summary
 
 Replace v1.0's `MT6006 proc_macro_unsupported_v0_5` call-site gate

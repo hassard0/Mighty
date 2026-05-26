@@ -1,12 +1,43 @@
 # RFC-008 — Effect row polymorphism
 
-**Status:** Draft (v0.13 swarm).
+**Status:** **IMPLEMENTED in v0.13..v0.19**, comment window open
+through 2026-06-25 (see [`RFC_DASHBOARD.md`](RFC_DASHBOARD.md)).
+Originally Draft (v0.13 swarm).
 **Tracks amendment:** new — initially scoped from the post-v1.0 roadmap
 ("higher-order effects" / "effect propagation"). Pulled forward to v0.13
 because the v1.0-RC3 spec is locked and the type-checker is mature
 enough to absorb a row-polymorphism layer additively.
 **Target release:** v0.13 (infra), v0.14 (stdlib HOF roll-out).
 **Owner:** type-system swarm (auto-assigned).
+
+## Implementation Status
+
+**SHIPPED end-to-end across v0.13..v0.19.** Slice-by-slice:
+
+* **v0.13** — Row variables landed in `mty-hir` (`HirEffectRow::Open`)
+  and `mty-types` (effect inference threads row variables through HOF
+  call sites). The closed-set effect language is now a special case
+  of "row tail is empty" / `RowTail::Closed`.
+* **v0.18** — Parser absorbed the multi-row-variable tail forms
+  (`!{| E1, E2}` and `effect a, b | E1, E2`). The v1.0-RC spec went
+  RC3 → RC4 to admit the new grammar (see
+  [`v1.0-rc.md`](../v1.0-rc.md) §9.2).
+* **v0.19** — HIR multi-row lowering complete (every
+  `EFFECT_ROW_VAR` child of an `EFFECT_ROW` is read; previously
+  only the first row variable lowered). Multi-var signatures now
+  round-trip; the v0.18 parse-then-single-var-lower stopgap is
+  retired. `HirEffectRow::Open(Vec<HirRowVar>)` is the canonical
+  shape.
+
+Diagnostic codes MT4055..MT4059 (this RFC's `## 8.` table) are all
+**active emit** as of v0.19. Conformance fixtures for the row-poly
+fire-conditions live under
+`tests/conformance/effect_checking/` (the v0.20 normative split).
+
+The public comment window opened 2026-05-26 closes the **process**,
+not the design — reviewers may surface bugs / clarifications that
+absorb as point patches; the row-polymorphism contract itself is
+stable.
 
 ## Summary
 

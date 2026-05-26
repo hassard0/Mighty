@@ -7,6 +7,40 @@ in v1.0).
 **Target release:** v1.1.
 **Owner:** *unassigned* — design owner needed before promotion.
 
+## Implementation Status
+
+**NOT YET SHIPPED.** Forward-looking RFC. The A102 contract —
+runtime `Affinity::Sticky` / `Affinity::Elastic` API only — remains
+the v1.0 surface. Front-end syntax `agent X with affinity = sticky`
+is reserved-but-not-parsed.
+
+Adjacent v0.13..v0.23 work:
+
+* **v0.22** — Per-message work-stealing (Tier 5) replaced the v0.10
+  affinity-hint scheduler with true crossbeam-deque per-worker queues
+  + NUMA-locality steal ordering. The `Affinity` runtime API is
+  unchanged; the underlying scheduler is now stronger.
+* **v0.20** — Cluster `PlacementPolicy` trait + 3 bundled policies
+  (RFC-006). These are **cluster-scope** placement and complementary
+  to RFC-005 (which is **worker-scope** within a node), so RFC-005
+  remains substantive.
+
+The v1.1 surface is unchanged:
+
+```mty
+agent X(ctor_args, ...): MyAgent with affinity = sticky
+agent Y(ctor_args, ...): MyAgent with affinity = elastic
+agent Z(ctor_args, ...): MyAgent                          // implicit elastic
+```
+
+The window opened 2026-05-26 (close 2026-06-09, 14-day track —
+shortest) is **substantive** and **closes first**.
+
+Cross-references:
+
+* [`v1.0-rc.md`](../v1.0-rc.md) §25.2 — agent affinity (A102).
+* [`RFC_DASHBOARD.md`](RFC_DASHBOARD.md) — live window status.
+
 ## Summary
 
 Promote the v0.6 `Affinity` runtime API (`Sticky` / `Elastic`) to a

@@ -7,6 +7,43 @@ area bridge OPEN).
 **Target release:** v1.1.
 **Owner:** *unassigned* — design owner needed before promotion.
 
+## Implementation Status
+
+**NOT YET SHIPPED.** Forward-looking RFC.
+
+Adjacent v0.13..v0.23 work that **does not** moot this RFC but
+narrows its scope:
+
+* **v0.13..v0.19** — WASI Preview 2 + user-supplied WIT
+  (`[wit]` manifest section; default for `wasm32-wasi`; every
+  `std.*` lowering goes through versioned P2 imports). Preview1
+  adapter is opt-in via `AdapterEmbed::new(kind, bytes)`; the
+  vendored bytes were removed in v0.19.
+* **v0.23** — `mty:web/canvas@0.1` + `mty:web/input@0.1` WIT pair
+  shipped, with `WIT_IMPORT_*` / `WIT_EXPORT_*` drift-guards.
+  `wasm32-web` embedded-core-module regression harness verified
+  the core module IS embedded at byte offset 189 (the
+  long-standing "header-only component" suspicion was wrong).
+
+The remaining v1.0 OPEN items the RFC must close are unchanged:
+
+* `wit-component` end-to-end wrap (currently raw `wasm-encoder` core
+  modules).
+* Canonical-ABI return bridge for `string` / `option<string>`
+  returns from `mty:web/dom` (`get-text`, `query` still return
+  `u32` handles in v1.0).
+* preview2 / `wasi-cli`-compatible host adapter for non-browser
+  execution.
+
+The window opened 2026-05-26 (close 2026-07-25, 60-day track) is
+**substantive**: reviewers can still drive the wit-component shape.
+
+Cross-references:
+
+* [`v1.0-rc.md`](../v1.0-rc.md) §22.3, §22.4, §24.5 — current
+  Wasm-component contract.
+* [`RFC_DASHBOARD.md`](RFC_DASHBOARD.md) — live window status.
+
 ## Summary
 
 Promote the v1.0 core-Wasm-module output of `mty build --target

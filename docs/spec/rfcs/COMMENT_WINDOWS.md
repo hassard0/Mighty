@@ -7,6 +7,14 @@ before it can be normative-accepted into `docs/spec/v1.0-rc.md`. This
 document is the single source of truth for **which window is open,
 when each closes, and how feedback is received**.
 
+> **Companion live view:** [`RFC_DASHBOARD.md`](RFC_DASHBOARD.md).
+> The dashboard adds (1) the per-window "days remaining" countdown,
+> (2) a per-RFC Implementation Status pointer into v0.13..v0.23
+> shipped work, and (3) a Pending User Action column tracking which
+> threads still need to be opened. This document remains the
+> authoritative source for opening dates and policy; the dashboard
+> defers to it on any conflict.
+
 The v0.19 slice ships this tracking infrastructure. The actual
 opening of each window (creating the GitHub Discussion thread,
 sending the announcement email, posting to the mailing list) is a
@@ -145,3 +153,8 @@ is built (Track B) and the Python 2nd-impl is feature-frozen (Track A).
 ## Changelog
 
 * **2026-05-26** — initial table populated; all 8 windows opened.
+* **2026-05-26** (v0.24 Track D) — companion
+  [`RFC_DASHBOARD.md`](RFC_DASHBOARD.md) authored. Each RFC file
+  gained an "Implementation Status" section noting which slices
+  (if any) have already shipped the design. No window dates were
+  changed.

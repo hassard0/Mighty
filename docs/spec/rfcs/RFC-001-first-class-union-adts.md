@@ -6,6 +6,28 @@
 **Target release:** v1.1.
 **Owner:** *unassigned* — design owner needed before promotion.
 
+## Implementation Status
+
+**NOT YET SHIPPED.** Forward-looking RFC.
+
+As of v0.23 (the slice immediately preceding this dashboard), the
+A11 sentinel lowering — anonymous error unions `T!{A, B}` resolve
+to `Result[T, Error]` with a poison `Error` that unifies permissively
+with any concrete error — **remains the v1.0 normative contract**
+(see [`v1.0-rc.md`](../v1.0-rc.md) §6.3 and §17.2).
+
+No v0.13..v0.23 slice has pre-empted this RFC's design space. The
+window opened 2026-05-26 (close 2026-06-25) is **substantive**:
+reviewers can still drive the v1.1 first-class-union shape.
+
+Cross-references:
+
+* [`v1.0-rc.md`](../v1.0-rc.md) §17.2 — anon error union sugar
+  (v1.0 sentinel behaviour).
+* [`v1.0-rc.md`](../v1.0-rc.md) §A.2 — v1.1 promotion target row
+  pointing here.
+* [`RFC_DASHBOARD.md`](RFC_DASHBOARD.md) — live window status.
+
 ## Summary
 
 Replace the v0.1..v1.0 sentinel lowering of anonymous error unions

@@ -11,6 +11,42 @@ routing-table-only, lossless live migration deferred).
 **Target release:** v0.21 (shipped).
 **Owner:** v0.21 Tier 4.3 implementation slice.
 
+## Implementation Status
+
+**SHIPPED in v0.21 (Tier 4.3).** Cross-reference with
+[`RFC_DASHBOARD.md`](RFC_DASHBOARD.md). Concrete artefacts:
+
+* `MigrationOrchestrator::migrate_agent(agent, target, deadline)` —
+  ships an agent's snapshot + queued mailbox + continuation between
+  cluster nodes.
+* `SnapshotSource` / `SnapshotSink` / mesh wire hooks — runtime
+  abstractions so the orchestrator doesn't bake in a single transport.
+* 6 MB hard cap on snapshot payloads.
+* `PlacementPolicy` trait + 3 bundled policies
+  (`StickyPolicy` / `LeastLoadedPolicy` / `StaticPolicy`) consumed by
+  `RestartRequested` placement hints; matches the RFC's "policy
+  pluggability" requirement.
+* `[cluster.placement]` manifest block — declarative placement-hint
+  surface, parsed by `mty-pkg`.
+* OTel cluster metrics for migration in-flight / completed / failed.
+* New `MT507x` diagnostic band (cluster / migration failures); see
+  the `mty explain` catalog.
+
+Foundation work shipped earlier:
+
+* **v0.18** — Cluster transport (`AgentAddr = node:type:pid` +
+  framed CBOR-over-TLS) and `SharedRouter`.
+* **v0.19** — Cross-node send + ask routing, peer-disconnect fan-out
+  to in-flight asks (`MT5032`).
+* **v0.20** — mTLS via `ClusterMesh::from_config_mtls`; Tier 4.2
+  `ClusterSupervisor` (`OneForOne` / `RestForOne` / `OneForAll`) +
+  per-child circuit breaker.
+
+The public comment window opened 2026-05-26 closes the **process**;
+the design has shipped. Expected disposition is **accept**, ratifying
+the shipped semantics; reviewer-surfaced refinements would land as
+point patches.
+
 ## Summary
 
 Promote the v0.6 **lightweight migration** model (the monitor updates

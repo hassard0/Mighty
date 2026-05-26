@@ -8,6 +8,19 @@ The conformance kit closes v1.0-freeze blocker #3: it gives implementors
 a self-contained set of inputs + expected diagnostics that can be run
 against any Mighty implementation to verify spec conformance.
 
+> **v1.0 GA readiness (v0.24 freeze-prep slice).** The kit is
+> shipping-ready for v1.0 GA. **153 cases across 24 categories**
+> are now classified into a normative / informative split — see
+> the companion [`v1.0-NORMATIVE.md`](v1.0-NORMATIVE.md) for the
+> per-category breakdown. The headline split is **104 normative
+> / 49 informative**; a front-end-only impl can claim v1.0
+> conformance by passing 104 / 104. The four backend-specific
+> categories (`runtime/`, `runtime-7/`, `codegen/`, `native_abi/`,
+> `wasm_component/`) are informative and may be skipped by an impl
+> that documents why. The kit-builder script emits a clear
+> NORMATIVE / INFORMATIVE banner in the summary output so reviewers
+> can read a one-line conformance claim.
+
 ## Kit version
 
 The kit's version matches the spec RC tag at the time of packaging
@@ -39,33 +52,33 @@ mty-conformance-kit-<version>.tar.gz
 
 ## Manifest — per category
 
-| Category               | Cases | Status   |
-|------------------------|-------|----------|
-| `lexical/`             | 3     | populated |
-| `parser/`              | 1     | populated |
-| `type_checking/`       | 20    | populated |
-| `type_inference/`      | 5     | populated |
-| `borrow_checking/`     | 13    | populated |
-| `ownership_rejection/` | 4     | populated |
-| `effect_checking/`     | 5     | populated |
-| `capability_checking/` | 4     | populated |
-| `budget_violation/`    | 6     | populated |
-| `traits_derive/`       | 4     | populated |
-| `macros/`              | 6     | populated |
-| `agent_protocol/`      | 5     | populated |
-| `mailbox_ordering/`    | 7     | populated |
-| `supervisor_restart/`  | 4     | populated |
-| `control_flow/`        | 5     | populated |
-| `runtime/`             | 6     | populated |
-| `runtime-7/`           | 8     | populated |
-| `runtime_traps/`       | 2     | populated |
-| `codegen/`             | 9     | populated |
-| `spec_coverage/`       | 5     | populated |
-| `deterministic_replay/` | 5    | populated (v0.20) |
-| `formatter_idempotence/` | 5   | populated (v0.20) |
-| `native_abi/`          | 4     | populated (v0.20 fixtures, v0.21 per-backend harness) |
-| `wasm_component/`      | 4     | populated (v0.20 fixtures, v0.21 per-backend harness) |
-| **Total**              | **140** | 24 populated / 24 categories |
+| Category               | Cases | Status   | v1.0 GA bucket    |
+|------------------------|------:|----------|-------------------|
+| `lexical/`             |     3 | populated | normative         |
+| `parser/`              |     3 | populated | normative         |
+| `type_checking/`       |    30 | populated | normative         |
+| `type_inference/`      |     5 | populated | normative         |
+| `borrow_checking/`     |    14 | populated | normative         |
+| `ownership_rejection/` |     4 | populated | normative         |
+| `effect_checking/`     |     5 | populated | normative         |
+| `capability_checking/` |     4 | populated | normative         |
+| `budget_violation/`    |     6 | populated | normative         |
+| `traits_derive/`       |     4 | populated | normative         |
+| `macros/`              |     6 | populated | normative         |
+| `agent_protocol/`      |     5 | populated | normative         |
+| `mailbox_ordering/`    |     7 | populated | normative         |
+| `supervisor_restart/`  |     4 | populated | normative         |
+| `control_flow/`        |     5 | populated | normative         |
+| `runtime/`             |     6 | populated | informative       |
+| `runtime-7/`           |     8 | populated | informative       |
+| `runtime_traps/`       |     2 | populated | normative         |
+| `codegen/`             |     9 | populated | informative       |
+| `spec_coverage/`       |     5 | populated | normative         |
+| `deterministic_replay/` |    5 | populated (v0.20) | normative (conditional)   |
+| `formatter_idempotence/` |   5 | populated (v0.20) | normative (conditional)   |
+| `native_abi/`          |     4 | populated (v0.20 fixtures, v0.21 per-backend harness) | informative       |
+| `wasm_component/`      |     4 | populated (v0.20 fixtures, v0.21 per-backend harness) | informative       |
+| **Total**              | **153** | 24 populated / 24 categories | 104 normative / 49 informative |
 
 ### v0.21 deltas
 

@@ -1,7 +1,7 @@
 # Mighty
 
 [![Status](https://img.shields.io/badge/status-pre--alpha-orange)](#status)
-[![Spec](https://img.shields.io/badge/spec-v1.0--RC4-blueviolet)](docs/spec/v1.0-rc.md)
+[![Spec](https://img.shields.io/badge/spec-v1.0--RC5-blueviolet)](docs/spec/v1.0-rc.md)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/hassard0/Mighty/ci.yml?branch=main)](https://github.com/hassard0/Mighty/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-online-success)](https://hassard0.github.io/Mighty/)
@@ -16,10 +16,12 @@ default; bare core modules via `--no-component`).
 The compiler, runtime, formatter, package manager, doc generator, LSP
 server, and stdlib are all in one Rust workspace and one `mty` binary.
 
-> **Status:** pre-alpha. The v1.0 language spec is at **v1.0-RC4**
+> **Status:** pre-alpha. The v1.0 language spec is at **v1.0-RC5**
 > (operator precedence promoted to normative §11.1.1; full
 > 63-reserved-keyword set enumerated; effect-row grammar admits the
-> multi-row-variable tail since v0.18). The toolchain is exercised by
+> multi-row-variable tail since v0.18; v0.24 RC5 polish absorbed
+> cluster mesh + hot reload + std.web + the v1.0 normative
+> conformance split into prose). The toolchain is exercised by
 > **1604 Rust tests** across 20 crates plus a second independent
 > Python implementation at [`impl-py/`](impl-py/) (full pipeline:
 > lex → parse → lower → typeck → borrow → wasm; **474 tests**,
@@ -36,8 +38,9 @@ server, and stdlib are all in one Rust workspace and one `mty` binary.
 > uncovered code, deferred pending HIR `CONST_DECL` lowering);
 > blocker #2 (eight RFC comment-window closures) is
 > infrastructure-ready (`docs/spec/rfcs/COMMENT_WINDOWS.md` tracks
-> all 8 windows) and awaits the user-side Discussion-thread
-> openings. **Every former Post-v1.0 roadmap item has now landed
+> all 8 windows; `docs/spec/rfcs/RFC_DASHBOARD.md` gives the live
+> per-window countdown + per-RFC implementation status as of v0.24)
+> and awaits the user-side Discussion-thread openings. **Every former Post-v1.0 roadmap item has now landed
 > pre-v1.0.** **Earliest possible v1.0.0 tag: 2026-07-26** (the day
 > after the longest 60-day windows close). See [Status](#status)
 > below.
@@ -417,7 +420,7 @@ in Mighty), `tests/conformance/` (cross-crate behavioural specs),
 
 ### To `v1.0`
 
-The v1.0 spec is feature-complete at **v1.0-RC4** (`docs/spec/v1.0-rc.md`).
+The v1.0 spec is feature-complete at **v1.0-RC5** (`docs/spec/v1.0-rc.md`).
 **Earliest possible v1.0.0 tag: 2026-07-26.** Remaining blockers:
 
 1. ~~A second independent compiler implementation (RFC-007).~~
@@ -426,18 +429,26 @@ The v1.0 spec is feature-complete at **v1.0-RC4** (`docs/spec/v1.0-rc.md`).
    474 tests; 23/23 examples typeck clean; 21/24 emit wasm.
 2. The eight RFC comment windows
    (RFC-001..006 + RFC-008 + RFC-009).
-   **Infrastructure shipped v0.19** in
-   [`docs/spec/rfcs/COMMENT_WINDOWS.md`](docs/spec/rfcs/COMMENT_WINDOWS.md);
-   awaits user-side Discussion-thread openings. Earliest close
-   2026-06-09 (RFC-005, 14 days); latest close 2026-07-25 (RFC-002
-   / RFC-006, 60 days each).
+   **Infrastructure shipped v0.19, live dashboard added v0.24** in
+   [`docs/spec/rfcs/RFC_DASHBOARD.md`](docs/spec/rfcs/RFC_DASHBOARD.md)
+   (with countdowns + per-RFC implementation status) +
+   [`docs/spec/rfcs/COMMENT_WINDOWS.md`](docs/spec/rfcs/COMMENT_WINDOWS.md)
+   (window policy). All 8 windows opened 2026-05-26; awaits user-side
+   Discussion-thread openings. Earliest close 2026-06-09 (RFC-005,
+   14 days); latest close 2026-07-25 (RFC-002 / RFC-006, 60 days each).
+   Three RFCs (006, 008, 009) are already implemented and await
+   procedural ratification; five (001..005) are substantive
+   forward-looking proposals.
 3. ~~A published normative conformance suite.~~ **CLOSED v0.19,
-   grown v0.20/v0.22/v0.23** —
+   grown v0.20/v0.22/v0.23, normative-split declared v0.24** —
    [`scripts/build-conformance-kit.sh`](scripts/build-conformance-kit.sh)
    packages **153 cases** / 24 categories + the normative
    [`docs/spec/conformance.md`](docs/spec/conformance.md) into a
    tarball attached to every tagged release. Coverage 63%
-   direct / 99% any-harness (only MT3012 uncovered).
+   direct / 99% any-harness (only MT3012 uncovered). The v0.24
+   slice declared the v1.0 GA normative-vs-informative split
+   ([`tests/conformance/v1.0-NORMATIVE.md`](tests/conformance/v1.0-NORMATIVE.md)):
+   **104 normative / 49 informative**.
 
 ### Post-v1.0
 
@@ -488,7 +499,7 @@ see [`CHANGELOG.md`](CHANGELOG.md).
 ## Status
 
 Mighty is **pre-alpha**. Internal milestones have been tagged through
-**v0.23**. The v1.0 language spec is at v1.0-RC4 — see
+**v0.23**. The v1.0 language spec is at v1.0-RC5 — see
 `docs/spec/v1.0-rc.md`. There are **1604 Rust tests** across the
 workspace (plus **474 Python tests** in the [`impl-py/`](impl-py/)
 2nd-impl now covering the full pipeline lex → parse → lower → typeck
@@ -507,8 +518,10 @@ landed pre-v1.0** (per-message work-stealing, PGO/ThinLTO, Python
 blockers are down to the RFC comment windows only** (infrastructure
 shipped; awaits user-side Discussion thread openings; earliest
 v1.0.0 tag 2026-07-26 — see [Release timeline](#release-timeline)
-above and
-[`docs/spec/rfcs/COMMENT_WINDOWS.md`](docs/spec/rfcs/COMMENT_WINDOWS.md)).
+above,
+[`docs/spec/rfcs/COMMENT_WINDOWS.md`](docs/spec/rfcs/COMMENT_WINDOWS.md),
+and the live [`docs/spec/rfcs/RFC_DASHBOARD.md`](docs/spec/rfcs/RFC_DASHBOARD.md)
+added in v0.24).
 
 **Pre-built `mty` binaries** for Linux x86_64, macOS arm64, and
 Windows x86_64 are produced automatically on every `v*` tag push

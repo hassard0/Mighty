@@ -6,6 +6,26 @@
 * Reference: Matthew Flatt, "Bindings as Sets of Scopes", POPL 2016.
   Cross-reference Rust's hygiene model (`rustc_expand::mbe`, `SyntaxContext`).
 
+## Implementation Status
+
+**SHIPPED in v0.13, wired into HIR in v0.14, ratified through the
+v0.24 dashboard.** This RFC has been implemented and was accepted
+during the v0.13 swarm. The artefacts at the time of v0.24 freeze
+prep:
+
+* `crates/mty-macros/src/scopes.rs` — `ScopeId`, `Scopes`, `ScopeGen`,
+  `resolve`, `ResolveAmbiguity` per §3 of this RFC.
+* `crates/mty-macros/src/hygiene.rs` — `ScopedTok`, `HygieneEnv`.
+* `crates/mty-macros/src/expand.rs` — `expand_scoped` entry point;
+  `tests/sets_of_scopes.rs` covers the 8 acceptance scenarios.
+* HIR consumes the scope-aware resolver as of v0.14 (the v0.13 RFC
+  deferred this — that follow-up has shipped).
+
+The public comment window opened 2026-05-26 ([dashboard](RFC_DASHBOARD.md))
+is a procedural ratification of the already-accepted design; the
+window must complete before v1.0 freeze per
+[`COMMENT_WINDOWS.md`](COMMENT_WINDOWS.md) §3.
+
 ## 1. Motivation
 
 Up through v0.12 Mighty's declarative macros (`macro foo($x) => …`) use

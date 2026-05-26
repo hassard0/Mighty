@@ -7,6 +7,37 @@ yet wired through the MtyIR lower).
 **Target release:** v1.1.
 **Owner:** *unassigned* — design owner needed before promotion.
 
+## Implementation Status
+
+**NOT YET SHIPPED.** Forward-looking RFC. The A100 stopgap — a
+process-wide default `FsCap` installed via `install_default_read_cap`
+/ `install_default_write_cap` — **remains the v1.0 enforcement
+primitive**. A109's isolation invariant test still pins it.
+
+Adjacent v0.13..v0.23 work that does not pre-empt this RFC:
+
+* **v0.20** — Cluster mTLS opt-in (`ClusterMesh::from_config_mtls`)
+  added a parallel "cap-from-config" surface for cluster identities;
+  the FsCap world stays process-wide.
+* **v0.21** — Cap-name resolver (MT4060..MT4065 active emit) added
+  scope-frame resolution for `Fs` / `Net` / `Clock` / `Dom` / `Model`
+  names against their cap family + narrowing surface. The resolver
+  is the **front half** of the RFC — it knows which cap value should
+  flow at each site; the back half (threading the value through the
+  MtyIR lower) is what the RFC must still close.
+
+The v1.1 per-call surface is unchanged: each `std.fs.*` call
+receives an explicit `FsCap` value threaded from the surrounding
+`sandbox` block's `with { fs.ro(...) }` manifest entries.
+
+The window opened 2026-05-26 (close 2026-06-25) is **substantive**.
+
+Cross-references:
+
+* [`v1.0-rc.md`](../v1.0-rc.md) §8.6 — per-call FsCap isolation
+  (A100, A109).
+* [`RFC_DASHBOARD.md`](RFC_DASHBOARD.md) — live window status.
+
 ## Summary
 
 Replace v1.0's process-wide-default `FsCap` (`install_default_read_cap`
