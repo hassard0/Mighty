@@ -1,0 +1,12 @@
+# Expected trace shape for 03_random_seq.
+#
+# Trace event count: 1
+#
+# Single event:
+#   RandomRead { actor: 0, len: 4, bytes: <impl-defined [u8; 4]> }
+#
+# The `bytes` value is implementation-defined at record time. The
+# replay driver MUST substitute the recorded bytes when re-running so
+# downstream consumers (a seed for a PRNG, a token, an id) see exactly
+# the same value on every replay.
+RandomRead

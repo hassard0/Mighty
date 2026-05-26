@@ -1,0 +1,17 @@
+// An agent that handles a single message kind. Recorded trace MUST
+// contain a Spawn(Echoer), a MessageSent(external -> Echoer, "Ping"),
+// and a matching MessageHandled(Echoer, "Ping") event in that order.
+//
+// The shape under test is the per-event ordering invariant: every
+// send is followed (some events later) by a matching handled event
+// from the target actor. The conformance_full harness validates the
+// program type-checks; the trace shape is asserted by the
+// replay-integration tests under
+// `crates/mty-runtime/tests/replay_*.rs`.
+protocol Echo {
+  Ping(msg: Str) -> Str
+}
+
+agent Echoer: Echo {
+  on Ping(msg) -> msg
+}

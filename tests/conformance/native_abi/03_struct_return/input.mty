@@ -1,0 +1,13 @@
+// Struct return shape: the emitted entry returns a `Point` via the
+// cabi_realloc out-parameter convention (caller passes a hidden
+// pointer to a uninitialised slot; callee writes the fields).
+struct Point {
+  x: I32
+  y: I32
+}
+
+export c fn _origin() -> Point = Point { x: 3, y: 4 }
+
+fn main() {
+  log("03_struct_return")
+}

@@ -1,0 +1,11 @@
+// Declarative macro: the body MUST be preserved verbatim. The
+// formatter MAY re-indent the call sites but MUST NOT rewrite the
+// macro body itself (the v0.6 declarative-macro spec freezes the
+// body as a token sequence).
+macro assert_eq(a, b) => {
+  if a != b { panic("assert_eq failed") }
+}
+
+fn main() {
+  assert_eq!(1 + 1, 2)
+}

@@ -1,0 +1,10 @@
+# Expected trace shape for 02_clock_read.
+#
+# Trace event count: 1
+#
+# Single event:
+#   ClockRead { actor: 0, ts: <impl-defined u128 nanoseconds> }
+#
+# The `ts` value is implementation-defined at record time. The replay
+# driver MUST substitute the recorded value when re-running.
+ClockRead

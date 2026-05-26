@@ -1,0 +1,16 @@
+# Expected trace shape for 04_send_message.
+#
+# Trace event count: 3 (ordered)
+#
+# 1. Spawn { actor: <new agent id>, kind: "Echoer" }
+# 2. MessageSent { from: 0, to: <agent id>, msg: "Ping",
+#                  payload: ReplayPayload::Values [Str("hello")] }
+# 3. MessageHandled { actor: <agent id>, msg: "Ping" }
+#
+# The ordering MUST be Spawn -> MessageSent -> MessageHandled. A
+# conforming replay driver re-issues the Spawn from the trace, then
+# substitutes the recorded payload at the MessageSent boundary, then
+# pairs the next MessageHandled with the matching agent.
+Spawn
+MessageSent
+MessageHandled

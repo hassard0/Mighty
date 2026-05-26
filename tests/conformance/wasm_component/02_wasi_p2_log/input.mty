@@ -1,0 +1,7 @@
+// Uses `log("...")` which lowers (under `--wasi=p2`) to a direct
+// import of `wasi:cli/stdout@0.2.3 stream` plus a write into the
+// stream sink. The v0.17 log direct-lowering pass replaced the
+// preview1 adapter shim with the canonical p2 imports.
+fn main() {
+  log("02_wasi_p2_log")
+}

@@ -1,0 +1,10 @@
+# Expected trace shape for 01_pure_program.
+#
+# Trace event count: 0
+#
+# A pure arithmetic program produces NO observable effects and therefore
+# emits zero events into the v0.18 replay trace. Both the recorder and
+# the replay driver MUST accept the empty trace as a valid record.
+#
+# Format: one event per line, kind followed by canonical arguments.
+# Lines starting with `#` are comments.

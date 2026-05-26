@@ -1,0 +1,15 @@
+// Top-of-file doc comment. The formatter MUST preserve every leading
+// line-comment in the same source order, with a single space after
+// the `//` delimiter.
+//
+// A blank-comment line (above) is preserved verbatim.
+
+// A second comment block, separated from the first by a single
+// blank line. The blank line MUST survive the format pass.
+fn add(a: I64, b: I64) -> I64 {
+  // An inner comment hugs the expression it describes.
+  a + b
+}
+
+fn main() {
+}

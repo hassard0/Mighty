@@ -61,15 +61,20 @@ mty-conformance-kit-<version>.tar.gz
 | `runtime_traps/`       | 2     | populated |
 | `codegen/`             | 9     | populated |
 | `spec_coverage/`       | 5     | populated |
-| `deterministic_replay/` | 0    | placeholder (v1.0 backlog) |
-| `formatter_idempotence/` | 0   | placeholder (v1.0 backlog) |
-| `native_abi/`          | 0     | placeholder (v1.0 backlog) |
-| `wasm_component/`      | 0     | placeholder (v1.0 backlog) |
-| **Total**              | **122** | 20 populated / 24 categories |
+| `deterministic_replay/` | 5    | populated (v0.20) |
+| `formatter_idempotence/` | 5   | populated (v0.20) |
+| `native_abi/`          | 4     | populated (v0.20) |
+| `wasm_component/`      | 4     | populated (v0.20) |
+| **Total**              | **140** | 24 populated / 24 categories |
 
-The 4 placeholder categories ship as empty directories with stub
-`README.md` files. Implementations are not required to pass placeholder
-categories for v1.0; the post-v1.0 roadmap fills them.
+All 24 categories are now populated. The four v0.20 categories use a
+split-harness shape: the conformance_full check validates that the
+fixture's `input.mty` parses + type-checks, while the deeper
+behavioural assertion (trace shape, fmt equivalence, link-and-run,
+component imports) lives in a per-backend test under `crates/*/tests/`.
+The fixture directories also carry secondary files (`expected_trace.txt`,
+`canonical.mty`, `harness.c`, `expected_component.txt`) that the
+secondary harness reads.
 
 ## How to use the kit
 
@@ -138,9 +143,25 @@ kit's expected_diagnostics.txt uses the Rust reference's codes; a
 
 ## Roadmap
 
-* v0.20 — fill `deterministic_replay/` + `formatter_idempotence/`
-  category placeholders (target: ~15 additional cases).
-* v1.0 — `native_abi/` and `wasm_component/` get their first cases
-  (these depend on codegen completion).
+* v0.20 — **DONE.** All four placeholder categories
+  (`deterministic_replay/`, `formatter_idempotence/`, `native_abi/`,
+  `wasm_component/`) filled with seed cases. The kit-builder script
+  is wired into `.github/workflows/release.yml` so every tagged
+  release ships a fresh kit alongside the binaries.
+* v0.21+ — deepen the new categories' assertion machinery:
+  - `deterministic_replay`: integration tests under
+    `crates/mty-runtime/tests/` that exec each case under
+    `STARDUST_REPLAY_RECORD` + `STARDUST_REPLAY_PLAY` and diff
+    the traces against `expected_trace.txt`.
+  - `formatter_idempotence`: a `crates/mty-fmt/tests/conformance_idem.rs`
+    that asserts `fmt(input.mty) == canonical.mty` for every case.
+  - `native_abi`: a `crates/mty-codegen-cranelift/tests/native_abi.rs`
+    that drives the link-and-run cycle and checks
+    `expected_harness_exit.txt`.
+  - `wasm_component`: a `crates/mty-codegen-wasm/tests/component_shape.rs`
+    that inspects the emitted component's imports/exports and diffs
+    against `expected_component.txt`.
+* v1.0 — promote the new categories from "category MAY skip" to
+  normative; freeze the wire-format of every `expected_*.txt`.
 * Post-v1.0 — a public per-impl scorecard tracker, updated when each
   release of the Rust reference and the Python 2nd-impl ship.

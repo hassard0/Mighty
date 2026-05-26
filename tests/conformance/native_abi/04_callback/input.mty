@@ -1,0 +1,16 @@
+// Callback shape: the emitted entry accepts an `fn(I32) -> I32`
+// callback. The C harness passes a `int (*)(int32_t)` and observes
+// the callback invoked once with argument 21, then the Mighty side
+// returns 2 * the callback's return value.
+//
+// v0.20 status: the function-pointer ABI is the most fragile part
+// of the native interface; this case pins the shape so future
+// codegen changes have to preserve it.
+export c fn _twice_via_cb(cb: fn(I32) -> I32) -> I32 {
+  let v = cb(21)
+  v + v
+}
+
+fn main() {
+  log("04_callback")
+}

@@ -1,0 +1,8 @@
+// Simplest native-ABI shape: a single integer return. The C harness
+// expects to find an `_add` symbol in the emitted object, call it
+// with (40, 2), and observe 42 via its return value.
+export c fn _add(a: I32, b: I32) -> I32 = a + b
+
+fn main() {
+  log("01_export_main")
+}

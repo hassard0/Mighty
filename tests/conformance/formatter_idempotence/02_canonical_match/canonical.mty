@@ -1,0 +1,12 @@
+// Match expression in canonical form: one arm per line, two-space
+// indent, `=>` aligned with body expression.
+fn classify(n: I32) -> Str {
+  match n {
+    0 => "zero"
+    1..10 => "small"
+    _ => "big"
+  }
+}
+
+fn main() {
+}

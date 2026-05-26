@@ -1,0 +1,13 @@
+// v0.19 multi-row-var surface: `!{| E, F}` form. The formatter MUST
+// preserve every row variable in source order and MUST NOT drop
+// trailing row vars (that bug was the v0.19 HIR fix).
+fn observe_both[E, F](f: fn() -> Unit, g: fn() -> Unit) -> Unit !{| E, F} {
+}
+
+// Concrete + multi-row-var form.
+fn observed[E, F](path: Str, f: fn(Str) -> Unit, g: fn(Str) -> Unit) -> Str !{fs | E, F} {
+  ""
+}
+
+fn main() {
+}

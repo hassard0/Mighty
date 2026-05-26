@@ -1,0 +1,10 @@
+// Struct with unusual whitespace — the formatter MUST emit the
+// canonical-form shape in `canonical.mty`.
+struct User {
+  id: U64
+  name: Str
+  email: Str
+}
+
+fn main() {
+}

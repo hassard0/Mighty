@@ -116,9 +116,34 @@ jobs:
             ${{ matrix.asset }}
             ${{ matrix.asset }}.sha256
 
+  conformance-kit:
+    # v0.20: every tagged release ships a conformance kit alongside
+    # the binaries so independent implementations can verify against
+    # the exact spec / fixture set the binaries were built from.
+    # The kit tarball is published as a GitHub Actions artifact AND
+    # attached to the GitHub Release via the `release` job below.
+    name: build conformance kit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Build conformance kit
+        run: bash scripts/build-conformance-kit.sh ${{ github.event.inputs.tag || github.ref_name }}
+
+      - name: List kit output
+        run: ls -la mty-conformance-kit-*.tar.gz
+
+      - name: Upload conformance kit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-kit
+          path: mty-conformance-kit-*.tar.gz
+
   release:
     name: publish release
-    needs: build
+    needs: [build, conformance-kit]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -134,7 +159,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          find dist -type f \( -name "mty-*.tar.gz" -o -name "mty-*.zip" -o -name "*.sha256" \) -exec cp {} out/ \;
+          find dist -type f \( -name "mty-*.tar.gz" -o -name "mty-*.zip" -o -name "*.sha256" -o -name "mty-conformance-kit-*.tar.gz" \) -exec cp {} out/ \;
           ls -la out/
 
       - name: Create or update release
@@ -148,3 +173,4 @@ jobs:
             out/mty-*.tar.gz
             out/mty-*.zip
             out/*.sha256
+            out/mty-conformance-kit-*.tar.gz

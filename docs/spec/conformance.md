@@ -58,14 +58,14 @@ manifest (`tests/conformance/CONFORMANCE_KIT.md`).
 The kit's version matches the spec's version. A kit built from spec
 v1.0 is `mty-conformance-kit-v1.0.tar.gz`.
 
-## 4. Categories (v0.19 snapshot)
+## 4. Categories (v0.20 snapshot)
 
-The kit ships **122 cases across 20 populated categories**. Conformance
+The kit ships **140 cases across 24 populated categories**. Conformance
 is computed per category — an implementation MAY claim conformance for
 a subset of categories (e.g., a parse-only tool conforms to `lexical/`
 and `parser/` only).
 
-Populated categories at v0.19:
+Populated categories at v0.20:
 
 | Category               | Cases | What it checks                                      |
 |------------------------|-------|-----------------------------------------------------|
@@ -89,10 +89,18 @@ Populated categories at v0.19:
 | `runtime_traps/`       | 2     | Trap propagation                                    |
 | `codegen/`             | 9     | WASM-component / native codegen output              |
 | `spec_coverage/`       | 5     | Cross-cutting cases that exercise §-by-§ spec rules |
+| `deterministic_replay/`| 5     | Recorder / replay-driver invariants (§28)            |
+| `formatter_idempotence/`| 5    | `mty fmt` canonical-form + idempotence (§27.4)      |
+| `native_abi/`          | 4     | C-ABI export shape + cabi_realloc (§29)              |
+| `wasm_component/`      | 4     | Wasm Component Model imports/exports (§30)           |
 
-Placeholder categories (v1.0 backlog, do NOT block conformance for
-v1.0): `deterministic_replay/`, `formatter_idempotence/`,
-`native_abi/`, `wasm_component/`.
+The four v0.20 categories use a split-harness shape: the
+conformance_full check validates `input.mty` parses + type-checks,
+while the deeper behavioural assertion (trace shape, fmt
+equivalence, link-and-run exit code, component import list) lives
+in a per-backend test under `crates/*/tests/`. Implementations
+without a particular backend (e.g. a check-only front-end with no
+codegen) MAY skip the backend-driven assertion per §6.5.
 
 ## 5. Test-driver protocol
 
@@ -197,5 +205,12 @@ scorecard tracking known conformance claims; submission is voluntary.
 
 ## 10. Changelog
 
-* **v0.19** (this document, 2026-05-26) — initial publication. Closes
+* **v0.20** (2026-05-26) — populated all four placeholder categories
+  (`deterministic_replay/`, `formatter_idempotence/`, `native_abi/`,
+  `wasm_component/`) with 18 seed cases. Bumped total to **140 cases
+  across 24 categories**. Added `tests/conformance/coverage.json` as
+  a machine-readable diagnostic-code coverage report. Wired the
+  kit-builder script into `.github/workflows/release.yml` so every
+  tagged release publishes a fresh kit alongside the binaries.
+* **v0.19** (initial publication, 2026-05-26) — first cut. Closes
   v1.0-freeze blocker #3.

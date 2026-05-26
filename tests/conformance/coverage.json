@@ -1,0 +1,289 @@
+{
+  "version": "1",
+  "generated_for": "v0.20",
+  "description": "Diagnostic-code coverage report for the Mighty conformance kit. Per-code: 'covered' means at least one populated case in tests/conformance/ asserts the code; 'auxiliary' means it's witnessed by a unit test in crates/* but not by a conformance_full fixture; 'gap' means no harness anywhere exercises it.",
+  "diagnostic_codes": {
+    "covered": [
+      "MT0001",
+      "MT2001",
+      "MT2002",
+      "MT2004",
+      "MT2005",
+      "MT2006",
+      "MT2007",
+      "MT2008",
+      "MT2010",
+      "MT2011",
+      "MT2012",
+      "MT2013",
+      "MT2017",
+      "MT2020",
+      "MT2021",
+      "MT2026",
+      "MT3001",
+      "MT3003",
+      "MT3004",
+      "MT3005",
+      "MT3006",
+      "MT3008",
+      "MT3009",
+      "MT3010",
+      "MT3011",
+      "MT3013",
+      "MT3014",
+      "MT4001",
+      "MT4002",
+      "MT4022",
+      "MT4030",
+      "MT4031",
+      "MT4032",
+      "MT4033",
+      "MT4040",
+      "MT4041",
+      "MT4050",
+      "MT4055",
+      "MT4057",
+      "MT4058",
+      "MT4059",
+      "MT5001",
+      "MT5003",
+      "MT5009",
+      "MT5011",
+      "MT5012",
+      "MT5014",
+      "MT6001",
+      "MT6002",
+      "MT6003",
+      "MT6004",
+      "MT6005",
+      "MT6008"
+    ],
+    "auxiliary": [
+      "MT0002",
+      "MT0003",
+      "MT0010",
+      "MT0011",
+      "MT0012",
+      "MT0020",
+      "MT0021",
+      "MT1001",
+      "MT1002",
+      "MT4010",
+      "MT4020",
+      "MT4021",
+      "MT4023",
+      "MT4051",
+      "MT4052",
+      "MT4053",
+      "MT4054",
+      "MT4056",
+      "MT5002",
+      "MT5004",
+      "MT5005",
+      "MT5006",
+      "MT5007",
+      "MT5008",
+      "MT5010",
+      "MT5013",
+      "MT5015",
+      "MT5020",
+      "MT5021",
+      "MT5050",
+      "MT6006",
+      "MT6007",
+      "MT8001",
+      "MT8002",
+      "MT8003",
+      "MT8004",
+      "MT8005",
+      "MT8006",
+      "MT8007",
+      "MT8008",
+      "MT8009",
+      "MT8010"
+    ],
+    "uncovered": [
+      "MT0004",
+      "MT0030",
+      "MT2003",
+      "MT2009",
+      "MT2014",
+      "MT2015",
+      "MT2016",
+      "MT2018",
+      "MT2019",
+      "MT2022",
+      "MT2023",
+      "MT2024",
+      "MT2025",
+      "MT3002",
+      "MT3007",
+      "MT3012",
+      "MT3015"
+    ]
+  },
+  "categories": {
+    "lexical": {
+      "case_count": 3,
+      "diagnostic_codes": ["MT0001"]
+    },
+    "parser": {
+      "case_count": 1,
+      "diagnostic_codes": ["MT0001"]
+    },
+    "type_checking": {
+      "case_count": 20,
+      "diagnostic_codes": [
+        "MT2001",
+        "MT2002",
+        "MT2004",
+        "MT2005",
+        "MT2006",
+        "MT2007",
+        "MT2008",
+        "MT2010",
+        "MT2011",
+        "MT2012",
+        "MT2013",
+        "MT2017",
+        "MT2020",
+        "MT2021"
+      ]
+    },
+    "type_inference": {
+      "case_count": 5,
+      "diagnostic_codes": []
+    },
+    "borrow_checking": {
+      "case_count": 13,
+      "diagnostic_codes": [
+        "MT3001",
+        "MT3003",
+        "MT3004",
+        "MT3005",
+        "MT3006",
+        "MT3008",
+        "MT3009",
+        "MT3010",
+        "MT3011",
+        "MT3013",
+        "MT3014"
+      ]
+    },
+    "ownership_rejection": {
+      "case_count": 4,
+      "diagnostic_codes": ["MT3001"]
+    },
+    "effect_checking": {
+      "case_count": 5,
+      "diagnostic_codes": ["MT4001", "MT4002"]
+    },
+    "capability_checking": {
+      "case_count": 4,
+      "diagnostic_codes": []
+    },
+    "budget_violation": {
+      "case_count": 6,
+      "diagnostic_codes": ["MT5009", "MT5011", "MT5012"]
+    },
+    "traits_derive": {
+      "case_count": 4,
+      "diagnostic_codes": ["MT4022", "MT4040", "MT4041"]
+    },
+    "macros": {
+      "case_count": 6,
+      "diagnostic_codes": [
+        "MT6001",
+        "MT6002",
+        "MT6003",
+        "MT6004",
+        "MT6005",
+        "MT6008"
+      ]
+    },
+    "agent_protocol": {
+      "case_count": 5,
+      "diagnostic_codes": [
+        "MT2026",
+        "MT4030",
+        "MT4031",
+        "MT4032",
+        "MT4033"
+      ]
+    },
+    "mailbox_ordering": {
+      "case_count": 7,
+      "diagnostic_codes": []
+    },
+    "supervisor_restart": {
+      "case_count": 4,
+      "diagnostic_codes": ["MT5014"]
+    },
+    "control_flow": {
+      "case_count": 5,
+      "diagnostic_codes": []
+    },
+    "runtime": {
+      "case_count": 6,
+      "diagnostic_codes": ["MT5001"]
+    },
+    "runtime-7": {
+      "case_count": 8,
+      "diagnostic_codes": []
+    },
+    "runtime_traps": {
+      "case_count": 2,
+      "diagnostic_codes": ["MT5001", "MT5003"]
+    },
+    "codegen": {
+      "case_count": 9,
+      "diagnostic_codes": []
+    },
+    "spec_coverage": {
+      "case_count": 5,
+      "diagnostic_codes": [
+        "MT4050",
+        "MT4055",
+        "MT4057",
+        "MT4058",
+        "MT4059"
+      ]
+    },
+    "deterministic_replay": {
+      "case_count": 5,
+      "diagnostic_codes": [],
+      "note": "v0.20 — placeholder filled; trace-shape semantics asserted by crates/mty-runtime replay integration tests"
+    },
+    "formatter_idempotence": {
+      "case_count": 5,
+      "diagnostic_codes": [],
+      "note": "v0.20 — placeholder filled; fmt-equivalence asserted by crates/mty-fmt tests"
+    },
+    "native_abi": {
+      "case_count": 4,
+      "diagnostic_codes": [],
+      "note": "v0.20 — placeholder filled; link-and-run asserted by crates/mty-codegen-cranelift tests"
+    },
+    "wasm_component": {
+      "case_count": 4,
+      "diagnostic_codes": [],
+      "note": "v0.20 — placeholder filled; component-shape asserted by crates/mty-codegen-wasm tests"
+    }
+  },
+  "totals": {
+    "categories": 24,
+    "populated_categories": 24,
+    "cases": 140,
+    "diagnostic_codes": 110,
+    "covered": 53,
+    "auxiliary": 42,
+    "uncovered": 17,
+    "coverage_pct_direct": 48,
+    "coverage_pct_any_harness": 86
+  },
+  "v0_20_delta": {
+    "new_cases": 18,
+    "new_categories_populated": 4,
+    "category_delta": "0 -> 5 deterministic_replay, 0 -> 5 formatter_idempotence, 0 -> 4 native_abi, 0 -> 4 wasm_component"
+  }
+}

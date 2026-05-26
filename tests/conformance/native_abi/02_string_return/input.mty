@@ -1,0 +1,12 @@
+// String return shape: the emitted entry returns a `Str` via the
+// cabi_realloc out-parameter convention (the cabi_realloc fn the
+// runtime provides allocates the buffer; the impl writes the bytes
+// + length and returns a pointer to a (ptr, len) record).
+//
+// v0.20 status: the v0.18 CABI_REALLOC plumbing wired the runtime
+// side; the codegen-side is captured here as a normative shape.
+export c fn _greeting() -> Str = "hello, world"
+
+fn main() {
+  log("02_string_return")
+}

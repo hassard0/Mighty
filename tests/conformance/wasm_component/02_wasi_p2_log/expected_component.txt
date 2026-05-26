@@ -1,0 +1,11 @@
+# Expected component shape for 02_wasi_p2_log.
+#
+# Imports MUST include (per v0.17 log direct lowering):
+#   wasi:cli/stdout@0.2.3              — get-stdout()
+#   wasi:io/streams@0.2.3              — blocking-write-and-flush()
+#
+# Exports unchanged from minimal_component.
+imports:
+  - "wasi:cli/stdout@0.2.3"
+  - "wasi:io/streams@0.2.3"
+exports: ["mty:main/run#run"]

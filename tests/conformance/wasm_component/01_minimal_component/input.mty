@@ -1,0 +1,6 @@
+// Smallest valid Wasm Component: empty `fn main`. The component
+// model wrapper MUST emit a structurally-valid component (validates
+// under `wasm-tools validate --features=component-model`) even when
+// the inner core module has no exports beyond `_start`.
+fn main() {
+}

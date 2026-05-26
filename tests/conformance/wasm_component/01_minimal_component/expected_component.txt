@@ -1,0 +1,8 @@
+# Expected component shape for 01_minimal_component.
+#
+# Imports: <none>
+# Exports: <none beyond the default `mty:main/run` world's `run` entry>
+#
+# wasm-tools validate --features=component-model MUST succeed.
+imports: []
+exports: ["mty:main/run#run"]

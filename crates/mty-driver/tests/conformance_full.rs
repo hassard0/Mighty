@@ -443,16 +443,38 @@ fn phase1_conformance_full() {
     }
 
     // v0.10 conformance audit expanded the corpus: ≥70 cases across
-    // 15 categories (was 25 / 9 at v0.2; +50 at v0.10). See
-    // CONFORMANCE_V0_10_NOTES.md + docs/spec/conformance-coverage.md
-    // for the per-FROZEN-code coverage table. Skip the floor check
-    // when bisecting via STARDUST_CONF_ONLY.
+    // 15 categories (was 25 / 9 at v0.2; +50 at v0.10). v0.20 backfilled
+    // the 4 placeholder categories (deterministic_replay, formatter_idempotence,
+    // native_abi, wasm_component) with 18 new cases, bringing the
+    // discoverable corpus floor up to 130+. See
+    // CONFORMANCE_V0_10_NOTES.md, CONFORMANCE_V0_20_NOTES.md, and
+    // docs/spec/conformance-coverage.md for the per-FROZEN-code coverage
+    // table. Skip the floor check when bisecting via STARDUST_CONF_ONLY.
     if only.is_none() && only_case.is_none() {
         assert!(
             ran >= 70,
             "expected ≥70 conformance_full cases, ran {} (have you regressed the corpus?)",
             ran
         );
+        // v0.20: explicit check that the four previously-placeholder
+        // categories are now picked up by the discovery walker. Each
+        // category MUST contribute at least one case; the lower bound
+        // is set per-category and protects against accidental rmdir.
+        for (cat, min) in &[
+            ("deterministic_replay", 5usize),
+            ("formatter_idempotence", 5),
+            ("native_abi", 4),
+            ("wasm_component", 4),
+        ] {
+            let got = by_category.get(*cat).copied().unwrap_or(0);
+            assert!(
+                got >= *min,
+                "v0.20 regression: category `{}` discovered {} cases, expected ≥{}",
+                cat,
+                got,
+                min
+            );
+        }
     }
     assert!(
         failures.is_empty(),

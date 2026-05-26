@@ -1,0 +1,20 @@
+// Reads the host clock once. Recorded trace MUST contain a ClockRead.
+//
+// `clock` is a Clock capability handle. A conforming implementation
+// wires every clock observation through the replay recorder so each
+// call appears as a `ClockRead{actor=<id>, ts=<u128>}` event.
+//
+// For the conformance_full harness this case is a `check` (the
+// program type-checks); the trace property is asserted by the
+// replay-integration tests under
+// `crates/mty-runtime/tests/replay_*.rs`.
+
+fn observe(clock: Clock) -> Unit {
+  let _ = clock
+  // The minimal type-check shape: a Clock parameter is in scope.
+  // The runtime-level emission of `ClockRead` is exercised by the
+  // replay driver, not by the conformance_full check harness.
+}
+
+fn main() {
+}

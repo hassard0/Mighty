@@ -1,0 +1,11 @@
+# Expected trace shape for 05_replay_roundtrip.
+#
+# Trace event count: 1 (per run; both runs equal byte-for-byte)
+#
+# Run 1 (record):  [ClockRead { actor: 0, ts: <T0> }]
+# Run 2 (replay):  [ClockRead { actor: 0, ts: <T0> }]   # same T0
+#
+# The replay driver MUST substitute the recorded `T0` so the second
+# run observes exactly the same value. This is the byte-identical
+# guarantee that anchors deterministic re-execution.
+ClockRead

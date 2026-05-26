@@ -1,0 +1,12 @@
+// Uses `Fs` capability so the component imports
+// `wasi:filesystem/types@0.2.3` + `wasi:filesystem/preopens@0.2.3`
+// directly (per v0.16 direct-lowering pass). The conformance_full
+// check asserts the program parses + types; the import-list
+// assertion lives in the wasm-component integration tests.
+fn load(fs: Fs, path: Path) -> Bytes!IoErr {
+  fs.read(path)?
+}
+
+fn main() {
+  log("03_wasi_p2_fs")
+}

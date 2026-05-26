@@ -1,0 +1,8 @@
+# Expected component shape for 04_user_wit.
+#
+# World: example:greeter/greeter@0.1.0 (from world.wit)
+# Exports:
+#   example:greeter/greeter#greet  — wraps the Mighty `_greet` fn
+# Imports: <none>
+imports: []
+exports: ["example:greeter/greeter#greet"]

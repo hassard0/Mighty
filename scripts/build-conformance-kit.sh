@@ -37,6 +37,14 @@ if [ ! -f tests/conformance/CONFORMANCE_KIT.md ]; then
 fi
 
 # Build the tarball. Exclude .git, target/, __pycache__/ for cleanliness.
+#
+# v0.20: the tarball also picks up the secondary per-case files
+# introduced by the placeholder backfill — expected_trace.txt
+# (deterministic_replay/), canonical.mty (formatter_idempotence/),
+# harness.c + expected_harness_exit.txt (native_abi/),
+# expected_component.txt + world.wit (wasm_component/). Plus the new
+# top-level coverage.json. tar's recursive traversal picks them up
+# automatically; no per-extension allowlist is needed.
 tar --exclude='.git' \
     --exclude='target' \
     --exclude='__pycache__' \
@@ -49,12 +57,17 @@ tar --exclude='.git' \
 SIZE=$(du -h "$KIT" | cut -f1)
 CASES=$(find tests/conformance -name 'input.mty' | wc -l | tr -d ' ')
 CATEGORIES=$(find tests/conformance -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')
+COVERAGE_PRESENT="no"
+if [ -f tests/conformance/coverage.json ]; then
+  COVERAGE_PRESENT="yes"
+fi
 
 cat <<EOF
 Built ${KIT} (${SIZE})
   * version:     ${VERSION}
   * categories:  ${CATEGORIES}
   * cases:       ${CASES}
+  * coverage:    ${COVERAGE_PRESENT} (tests/conformance/coverage.json)
   * spec doc:    docs/spec/v1.0-rc.md
   * kit doc:     tests/conformance/CONFORMANCE_KIT.md
 

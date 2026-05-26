@@ -1,19 +1,21 @@
 # Mighty Conformance Suite
 
 Per Mighty v0.1 spec §37 (now §37 of v1.0-RC2). Each subdirectory holds
-tests for one category. The current corpus has **122 cases across 20
-populated categories** (24 categories total — 4 are v1.0 backlog
-placeholders).
+tests for one category. The current corpus has **140 cases across 24
+populated categories** — every category is populated as of v0.20.
 
 As of v0.19 the conformance suite is also published as a downloadable
 **kit** for use by independent implementations — see
 `CONFORMANCE_KIT.md` in this directory and `docs/spec/conformance.md`
 for the normative description of how to use it. The kit is built by
-`scripts/build-conformance-kit.sh`.
+`scripts/build-conformance-kit.sh` and (since v0.20) is attached to
+every tagged GitHub Release by `.github/workflows/release.yml`.
 
-## Categories (v0.19)
+The machine-readable diagnostic-code coverage report lives in
+`coverage.json` — it lists every registered `MTxxxx` code split into
+`covered` / `auxiliary` / `uncovered` tiers.
 
-Populated:
+## Categories (v0.20)
 
 * `lexical/` (3), `parser/` (1)
 * `type_checking/` (20), `type_inference/` (5)
@@ -26,11 +28,9 @@ Populated:
 * `runtime/` (6), `runtime-7/` (8), `runtime_traps/` (2)
 * `codegen/` (9)
 * `spec_coverage/` (5)
-
-Placeholders (v1.0 backlog):
-
-* `deterministic_replay/`, `formatter_idempotence/`,
-  `native_abi/`, `wasm_component/`
+* **v0.20 newly populated:** `deterministic_replay/` (5),
+  `formatter_idempotence/` (5), `native_abi/` (4),
+  `wasm_component/` (4)
 
 ## Running
 

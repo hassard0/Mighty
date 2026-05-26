@@ -1,0 +1,11 @@
+// User-supplied .wit file defines the world. The companion file
+// `world.wit` in this directory MUST be loaded by the codegen
+// driver when `--wit world.wit` is on the command line, replacing
+// the default `mty:main/run` world.
+//
+// The exported fn `_greet` matches the wit world's `greet: func() ->
+// string` declaration.
+export c fn _greet() -> Str = "hi from wit"
+
+fn main() {
+}

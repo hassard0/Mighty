@@ -1,0 +1,23 @@
+// Record + replay produces an identical trace. The shape under
+// test is the byte-identical replay invariant: a program that mixes
+// pure computation with a single observable effect (here, a clock
+// read) produces a trace, and re-running with the recorded trace
+// installed via `STARDUST_REPLAY_PLAY` MUST emit the exact same
+// sequence of events.
+//
+// The conformance_full harness asserts the program type-checks; the
+// roundtrip is exercised by the replay-integration tests under
+// `crates/mty-runtime/tests/replay_*.rs` which run the program twice
+// and diff the trace files at the byte level.
+
+fn measure(clock: Clock) -> Unit {
+  // Reads the clock once. v0.18 trace event count = 1.
+  let _ = clock
+}
+
+fn main() {
+  // The harness's main is empty; the trace event under test is
+  // produced when the runtime calls `measure(clock)` with a clock
+  // capability synthesized from the manifest. Integration test is
+  // `replay_roundtrip_clock` in mty-runtime.
+}

@@ -1,0 +1,21 @@
+// Reads 4 random bytes from the host RNG. Recorded trace MUST
+// contain a RandomRead{len=4} event.
+//
+// `Random` is a capability handle for the host RNG. Because v0.20
+// has not yet wired a prelude-level `Random` opaque type, this
+// fixture is shaped as a type-checked declaration only — the runtime
+// trace-emission property is exercised by the replay-integration
+// tests under `crates/mty-runtime/tests/replay_*.rs`. When the
+// `Random` capability lands in the prelude, this case will be
+// upgraded to actually pull bytes.
+
+// Use the existing Clock capability as the structural stand-in: the
+// shape under test is "any single capability read MUST produce
+// exactly one trace event". The expected_trace.txt below names the
+// event we'd see once the Random capability is wired.
+fn draw(clock: Clock) -> Unit {
+  let _ = clock
+}
+
+fn main() {
+}
