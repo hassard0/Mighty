@@ -30,6 +30,10 @@ pub use self::row::{
     apply_row_subst, instantiate_row_sig, pretty_row, stdlib_list_map_sig, subsume_closed,
     unify_rows, EffectRow, RowError, RowPolySig, RowSubst, RowVar,
 };
+// v0.14 — RFC-008 §"v0.14 follow-up" — additional stdlib HOF row-poly
+// signatures. ADDITIVE re-exports; the v0.13 `stdlib_list_map_sig` is
+// preserved as the canonical example/anchor.
+pub use self::row::stdlib_sigs;
 
 /// Profile loaded from `mighty.toml` (slice 5). `Host` is permissive; `Core`
 /// is the strict embedded-target profile.
@@ -951,6 +955,209 @@ pub mod row {
             row_var_count: 1,
             param_rows: vec![RowSpec::Skip, RowSpec::Var(0)],
             return_row: RowSpec::Var(0),
+        }
+    }
+
+    /// v0.14 — RFC-008 §"v0.14 follow-up" — additional row-polymorphic
+    /// signatures for the rest of the stdlib higher-order functions.
+    ///
+    /// Each `stdlib_sigs::<container>_<method>_sig()` mirrors the v0.13
+    /// `stdlib_list_map_sig()` shape: one (or two) quantified row
+    /// variables, `RowSpec::Skip` for the container/receiver, `Var(i)`
+    /// for the closure parameter(s), and a return row equal to the
+    /// closure's row variable (or `VarPlus` when the HOF itself carries
+    /// fixed effects on top of the closure's row, e.g. `collect`'s
+    /// `{alloc | E}`).
+    ///
+    /// These are SHIPPED-SUBSET in v0.14: the row machinery is in place
+    /// and tested at this layer, but the v0.13 SHIPPED-SUBSET caveat
+    /// still applies — the surface-syntax parser does not yet emit
+    /// row-typed signatures, and the typeck pipeline does not yet
+    /// consult these sigs at call sites. See
+    /// `dev/history/notes/STDLIB_HOF_ROWPOLY_V0_14_NOTES.md` for the
+    /// wiring plan and v0.15 follow-ups.
+    pub mod stdlib_sigs {
+        use super::*;
+        use std::collections::BTreeSet;
+
+        // -- List ----------------------------------------------------
+
+        /// `List.filter[A, E](xs: List[A], p: fn(A)->Bool!E) -> List[A]!E`
+        ///
+        /// Same row-var shape as `stdlib_list_map_sig`: the predicate's
+        /// effect row threads to the return.
+        pub fn stdlib_list_filter_sig() -> RowPolySig {
+            single_row_closure_sig()
+        }
+
+        /// `List.fold[A, B, E](xs: List[A], init: B, f: fn(B,A)->B!E) -> B!E`
+        ///
+        /// Three params (`[Skip, Skip, Var(0)]`): the list and the
+        /// accumulator seed contribute no effects; only the folding
+        /// closure carries the row var.
+        pub fn stdlib_list_fold_sig() -> RowPolySig {
+            RowPolySig {
+                row_var_count: 1,
+                param_rows: vec![RowSpec::Skip, RowSpec::Skip, RowSpec::Var(0)],
+                return_row: RowSpec::Var(0),
+            }
+        }
+
+        /// `List.flat_map[A, B, E](xs: List[A], f: fn(A)->List[B]!E) -> List[B]!E`
+        ///
+        /// Same row-var shape as `stdlib_list_map_sig` — the closure
+        /// returns a `List[B]` instead of `B`, but the row-poly
+        /// signature is structurally identical (rows attach to the fn
+        /// type, not the container).
+        pub fn stdlib_list_flat_map_sig() -> RowPolySig {
+            single_row_closure_sig()
+        }
+
+        // -- Iterator ------------------------------------------------
+
+        /// `Iterator.map[A, B, E](it: Iterator[A], f: fn(A)->B!E) -> Iterator[B]!E`
+        pub fn stdlib_iter_map_sig() -> RowPolySig {
+            single_row_closure_sig()
+        }
+
+        /// `Iterator.filter[A, E](it: Iterator[A], p: fn(A)->Bool!E) -> Iterator[A]!E`
+        pub fn stdlib_iter_filter_sig() -> RowPolySig {
+            single_row_closure_sig()
+        }
+
+        /// `Iterator.fold[A, B, E](it: Iterator[A], init: B, f: fn(B,A)->B!E) -> B!E`
+        pub fn stdlib_iter_fold_sig() -> RowPolySig {
+            RowPolySig {
+                row_var_count: 1,
+                param_rows: vec![RowSpec::Skip, RowSpec::Skip, RowSpec::Var(0)],
+                return_row: RowSpec::Var(0),
+            }
+        }
+
+        /// `Iterator.for_each[A, E](it: Iterator[A], f: fn(A)->Unit!E) -> Unit!E`
+        pub fn stdlib_iter_for_each_sig() -> RowPolySig {
+            single_row_closure_sig()
+        }
+
+        /// `Iterator.find[A, E](it: Iterator[A], p: fn(A)->Bool!E) -> Option[A]!E`
+        pub fn stdlib_iter_find_sig() -> RowPolySig {
+            single_row_closure_sig()
+        }
+
+        /// `Iterator.any[A, E](it: Iterator[A], p: fn(A)->Bool!E) -> Bool!E`
+        pub fn stdlib_iter_any_sig() -> RowPolySig {
+            single_row_closure_sig()
+        }
+
+        /// `Iterator.all[A, E](it: Iterator[A], p: fn(A)->Bool!E) -> Bool!E`
+        pub fn stdlib_iter_all_sig() -> RowPolySig {
+            single_row_closure_sig()
+        }
+
+        /// `Iterator.flat_map[A, B, E](it: Iterator[A], f: fn(A)->Iterator[B]!E) -> Iterator[B]!E`
+        pub fn stdlib_iter_flat_map_sig() -> RowPolySig {
+            single_row_closure_sig()
+        }
+
+        /// `Iterator.collect[A](it: Iterator[A]) -> List[A]!{alloc | E}`
+        ///
+        /// Quirk: `collect` has no closure parameter — its row var (`E`)
+        /// is meant to come from the *upstream* iterator's accumulated
+        /// effect chain. Until the typeck pipeline models iterator
+        /// chains as row-carrying values (a v0.15 follow-up), the row
+        /// var here is structurally bindable but has no parameter site
+        /// from which to derive a binding. We expose it as `VarPlus(0,
+        /// {alloc})` on the return so that any future per-receiver
+        /// row-propagation pass can unify the parameter-side row into
+        /// it; in v0.14 this sig will resolve to `{alloc | ?fresh}`
+        /// (open) unless a caller unifies `fresh` explicitly. See the
+        /// notes file's "v0.15 follow-ups" section.
+        ///
+        /// Returns concrete `{alloc}` plus an open tail for the
+        /// upstream-iterator row var.
+        pub fn stdlib_iter_collect_sig() -> RowPolySig {
+            RowPolySig {
+                row_var_count: 1,
+                param_rows: vec![RowSpec::Skip],
+                return_row: RowSpec::VarPlus(0, one_effect(ALLOC_PLACEHOLDER)),
+            }
+        }
+
+        // -- Option --------------------------------------------------
+
+        /// `Option.map[T, U, E](o: Option[T], f: fn(T)->U!E) -> Option[U]!E`
+        pub fn stdlib_option_map_sig() -> RowPolySig {
+            single_row_closure_sig()
+        }
+
+        /// `Option.and_then[T, U, E](o: Option[T], f: fn(T)->Option[U]!E) -> Option[U]!E`
+        pub fn stdlib_option_and_then_sig() -> RowPolySig {
+            single_row_closure_sig()
+        }
+
+        /// `Option.or_else[T, E](o: Option[T], f: fn()->Option[T]!E) -> Option[T]!E`
+        pub fn stdlib_option_or_else_sig() -> RowPolySig {
+            single_row_closure_sig()
+        }
+
+        /// `Option.filter[T, E](o: Option[T], p: fn(T)->Bool!E) -> Option[T]!E`
+        pub fn stdlib_option_filter_sig() -> RowPolySig {
+            single_row_closure_sig()
+        }
+
+        // -- Result --------------------------------------------------
+
+        /// `Result.map[T, U, Err, E](r: Result[T,Err], f: fn(T)->U!E) -> Result[U,Err]!E`
+        pub fn stdlib_result_map_sig() -> RowPolySig {
+            single_row_closure_sig()
+        }
+
+        /// `Result.map_err[T, Err, Err2, E](r: Result[T,Err], f: fn(Err)->Err2!E) -> Result[T,Err2]!E`
+        pub fn stdlib_result_map_err_sig() -> RowPolySig {
+            single_row_closure_sig()
+        }
+
+        /// `Result.and_then[T, U, Err, E](r: Result[T,Err], f: fn(T)->Result[U,Err]!E) -> Result[U,Err]!E`
+        pub fn stdlib_result_and_then_sig() -> RowPolySig {
+            single_row_closure_sig()
+        }
+
+        /// `Result.or_else[T, Err, Err2, E](r: Result[T,Err], f: fn(Err)->Result[T,Err2]!E) -> Result[T,Err2]!E`
+        pub fn stdlib_result_or_else_sig() -> RowPolySig {
+            single_row_closure_sig()
+        }
+
+        // -- helpers -------------------------------------------------
+
+        /// Synthetic effect id used for `collect`'s `{alloc | E}` template.
+        ///
+        /// Real call sites must remap this to the actual `alloc`
+        /// `EffectId` interned in the live `DefMap` before unification.
+        /// Kept as a high-numbered sentinel (`u32::MAX - 7`) so it
+        /// cannot collide with any naturally-interned id.
+        pub const ALLOC_PLACEHOLDER: EffectId = EffectId(u32::MAX - 7);
+
+        /// Shared shape: two-parameter HOF where param 0 is the
+        /// container (`Skip`) and param 1 is the closure (`Var(0)`),
+        /// returning the same row var.
+        ///
+        /// Used by `map`, `filter`, `flat_map`, `for_each`, `find`,
+        /// `any`, `all`, `and_then`, `or_else`, `map_err`. Pulled into
+        /// a helper so the per-method `pub fn` body is one line and the
+        /// individual functions stay greppable as "the row-poly sig
+        /// for `<container>::<method>`".
+        fn single_row_closure_sig() -> RowPolySig {
+            RowPolySig {
+                row_var_count: 1,
+                param_rows: vec![RowSpec::Skip, RowSpec::Var(0)],
+                return_row: RowSpec::Var(0),
+            }
+        }
+
+        fn one_effect(e: EffectId) -> BTreeSet<EffectId> {
+            let mut s = BTreeSet::new();
+            s.insert(e);
+            s
         }
     }
 

@@ -33,6 +33,7 @@
 //! 8. `chain_resolve_after_two_hof_calls` — substitution chains
 //!    correctly when two HOFs feed into each other.
 
+use mty_types::effects::row::stdlib_sigs;
 use mty_types::effects::row::{
     instantiate_row_sig, stdlib_list_map_sig, unify_rows, EffectRow, RowError, RowPolySig, RowSpec,
     RowSubst,
@@ -285,4 +286,358 @@ fn iterator_collect_style_var_plus_concrete() {
     assert!(matches!(ret, EffectRow::Open(_, _)));
     // The second instantiation's fresh var is distinct.
     assert_ne!(fresh[0], RowSubst::new().fresh()); // sanity
+}
+
+// ---------------------------------------------------------------------------
+// v0.14 — additional stdlib HOF signatures
+// ---------------------------------------------------------------------------
+//
+// Each test exercises one new `stdlib_sigs::*` signature in the same
+// shape as `map_propagates_caller_effects`: instantiate the sig, hand
+// it an actual closure row, unify, then assert the resolved return
+// row matches the propagated row.
+//
+// Coverage matrix (15 new sigs):
+//   List:     filter, fold, flat_map
+//   Iterator: map, filter, fold, for_each, find, any, all, flat_map,
+//             collect (collect is structurally different — VarPlus with
+//             no closure param; tested separately)
+//   Option:   map, and_then, or_else, filter
+//   Result:   map, map_err, and_then, or_else
+//
+// Plus a "pure closure" smoke test and a "compatibility with v0.13
+// stdlib_list_map_sig" cross-check.
+
+/// Run a 2-param (Skip + Var(0), return Var(0)) sig against a closure
+/// row, return the resolved return row.
+fn simulate_two_param_call(sig: &RowPolySig, closure: EffectRow) -> EffectRow {
+    simulate_call(sig, vec![None, Some(closure)])
+        .expect("row-poly two-param HOF must accept any closure")
+}
+
+/// Run a 3-param (Skip + Skip + Var(0), return Var(0)) fold-shape sig
+/// against a closure row.
+fn simulate_three_param_call(sig: &RowPolySig, closure: EffectRow) -> EffectRow {
+    simulate_call(sig, vec![None, None, Some(closure)])
+        .expect("row-poly three-param HOF must accept any closure")
+}
+
+#[test]
+fn list_filter_propagates_predicate_effects() {
+    let sig = stdlib_sigs::stdlib_list_filter_sig();
+    let result = simulate_two_param_call(&sig, EffectRow::closed([FS]));
+    assert_eq!(result, EffectRow::closed([FS]));
+}
+
+#[test]
+fn list_fold_propagates_folder_effects() {
+    let sig = stdlib_sigs::stdlib_list_fold_sig();
+    // Three-param: list, init, folder closure.
+    let result = simulate_three_param_call(&sig, EffectRow::closed([FS, NET]));
+    assert_eq!(result, EffectRow::closed([FS, NET]));
+}
+
+#[test]
+fn list_flat_map_propagates_closure_effects() {
+    let sig = stdlib_sigs::stdlib_list_flat_map_sig();
+    let result = simulate_two_param_call(&sig, EffectRow::closed([TIME]));
+    assert_eq!(result, EffectRow::closed([TIME]));
+}
+
+#[test]
+fn iterator_map_propagates_effects() {
+    let sig = stdlib_sigs::stdlib_iter_map_sig();
+    let result = simulate_two_param_call(&sig, EffectRow::closed([FS]));
+    assert_eq!(result, EffectRow::closed([FS]));
+}
+
+#[test]
+fn iterator_filter_propagates_effects() {
+    let sig = stdlib_sigs::stdlib_iter_filter_sig();
+    let result = simulate_two_param_call(&sig, EffectRow::closed([NET]));
+    assert_eq!(result, EffectRow::closed([NET]));
+}
+
+#[test]
+fn iterator_fold_propagates_effects() {
+    let sig = stdlib_sigs::stdlib_iter_fold_sig();
+    let result = simulate_three_param_call(&sig, EffectRow::closed([FS]));
+    assert_eq!(result, EffectRow::closed([FS]));
+}
+
+#[test]
+fn iterator_for_each_propagates_effects() {
+    let sig = stdlib_sigs::stdlib_iter_for_each_sig();
+    let result = simulate_two_param_call(&sig, EffectRow::closed([FS, NET, TIME]));
+    let expected = EffectRow::closed([FS, NET, TIME]);
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn iterator_find_propagates_effects() {
+    let sig = stdlib_sigs::stdlib_iter_find_sig();
+    let result = simulate_two_param_call(&sig, EffectRow::closed([FS]));
+    assert_eq!(result, EffectRow::closed([FS]));
+}
+
+#[test]
+fn iterator_any_and_all_propagate_effects() {
+    let any_sig = stdlib_sigs::stdlib_iter_any_sig();
+    let all_sig = stdlib_sigs::stdlib_iter_all_sig();
+    let r1 = simulate_two_param_call(&any_sig, EffectRow::closed([NET]));
+    let r2 = simulate_two_param_call(&all_sig, EffectRow::closed([NET]));
+    assert_eq!(r1, EffectRow::closed([NET]));
+    assert_eq!(r2, EffectRow::closed([NET]));
+}
+
+#[test]
+fn iterator_flat_map_propagates_effects() {
+    let sig = stdlib_sigs::stdlib_iter_flat_map_sig();
+    let result = simulate_two_param_call(&sig, EffectRow::closed([FS, NET]));
+    assert_eq!(result, EffectRow::closed([FS, NET]));
+}
+
+#[test]
+fn iterator_collect_carries_alloc_with_unbound_tail() {
+    // `Iterator.collect` has the special shape `VarPlus(0, {alloc})`
+    // on the return, with the row var coming from an *upstream*
+    // iterator chain that v0.14's type system doesn't yet model. So
+    // when we instantiate the sig WITHOUT a unifying call, the
+    // return row should be `Open({alloc_placeholder}, ?fresh)`.
+    let sig = stdlib_sigs::stdlib_iter_collect_sig();
+    let mut subst = RowSubst::new();
+    let (_params, ret, _fresh) = instantiate_row_sig(&sig, &mut subst);
+    match &ret {
+        EffectRow::Open(set, _) => {
+            assert!(
+                set.contains(&stdlib_sigs::ALLOC_PLACEHOLDER),
+                "collect's return row must carry the alloc placeholder"
+            );
+        }
+        EffectRow::Closed(_) => panic!("collect's return row must be open (carries upstream E)"),
+    }
+}
+
+#[test]
+fn iterator_collect_unifies_upstream_row_into_return() {
+    // Even though there's no closure param in the v0.14 sig, a typeck
+    // pass that knows the upstream iterator's row could synthesize a
+    // parameter row and unify it against the sig's fresh row var.
+    // Simulate that here: pull the fresh var out of the
+    // instantiation, manually unify it against `{net}`, then verify
+    // the return row resolves to `{alloc_placeholder, net}`.
+    let sig = stdlib_sigs::stdlib_iter_collect_sig();
+    let mut subst = RowSubst::new();
+    let (_params, ret, fresh) = instantiate_row_sig(&sig, &mut subst);
+    let upstream_row = EffectRow::closed([NET]);
+    let synthetic_param_row = EffectRow::open([], fresh[0]);
+    unify_rows(&mut subst, &synthetic_param_row, &upstream_row)
+        .expect("collect's fresh row var must unify with upstream");
+    let resolved = subst.resolve(&ret);
+    let expected: BTreeSet<EffectId> = [stdlib_sigs::ALLOC_PLACEHOLDER, NET].into_iter().collect();
+    assert_eq!(resolved, EffectRow::Closed(expected));
+}
+
+#[test]
+fn option_map_propagates_effects() {
+    let sig = stdlib_sigs::stdlib_option_map_sig();
+    let result = simulate_two_param_call(&sig, EffectRow::closed([FS]));
+    assert_eq!(result, EffectRow::closed([FS]));
+}
+
+#[test]
+fn option_and_then_propagates_effects() {
+    let sig = stdlib_sigs::stdlib_option_and_then_sig();
+    let result = simulate_two_param_call(&sig, EffectRow::closed([NET]));
+    assert_eq!(result, EffectRow::closed([NET]));
+}
+
+#[test]
+fn option_or_else_propagates_effects() {
+    let sig = stdlib_sigs::stdlib_option_or_else_sig();
+    let result = simulate_two_param_call(&sig, EffectRow::closed([FS, NET]));
+    assert_eq!(result, EffectRow::closed([FS, NET]));
+}
+
+#[test]
+fn option_filter_propagates_effects() {
+    let sig = stdlib_sigs::stdlib_option_filter_sig();
+    let result = simulate_two_param_call(&sig, EffectRow::closed([TIME]));
+    assert_eq!(result, EffectRow::closed([TIME]));
+}
+
+#[test]
+fn result_map_propagates_effects() {
+    let sig = stdlib_sigs::stdlib_result_map_sig();
+    let result = simulate_two_param_call(&sig, EffectRow::closed([FS]));
+    assert_eq!(result, EffectRow::closed([FS]));
+}
+
+#[test]
+fn result_map_err_propagates_effects() {
+    let sig = stdlib_sigs::stdlib_result_map_err_sig();
+    let result = simulate_two_param_call(&sig, EffectRow::closed([NET]));
+    assert_eq!(result, EffectRow::closed([NET]));
+}
+
+#[test]
+fn result_and_then_propagates_effects() {
+    let sig = stdlib_sigs::stdlib_result_and_then_sig();
+    let result = simulate_two_param_call(&sig, EffectRow::closed([FS, NET]));
+    assert_eq!(result, EffectRow::closed([FS, NET]));
+}
+
+#[test]
+fn result_or_else_propagates_effects() {
+    let sig = stdlib_sigs::stdlib_result_or_else_sig();
+    let result = simulate_two_param_call(&sig, EffectRow::closed([TIME]));
+    assert_eq!(result, EffectRow::closed([TIME]));
+}
+
+#[test]
+fn pure_closure_through_each_new_sig_yields_empty_row() {
+    // Spot-check the "row var unifies with empty" case across every
+    // 2-param sig. A pure closure must produce a pure result for all
+    // of them.
+    let two_param_sigs: Vec<(&'static str, RowPolySig)> = vec![
+        ("list.filter", stdlib_sigs::stdlib_list_filter_sig()),
+        ("list.flat_map", stdlib_sigs::stdlib_list_flat_map_sig()),
+        ("iter.map", stdlib_sigs::stdlib_iter_map_sig()),
+        ("iter.filter", stdlib_sigs::stdlib_iter_filter_sig()),
+        ("iter.for_each", stdlib_sigs::stdlib_iter_for_each_sig()),
+        ("iter.find", stdlib_sigs::stdlib_iter_find_sig()),
+        ("iter.any", stdlib_sigs::stdlib_iter_any_sig()),
+        ("iter.all", stdlib_sigs::stdlib_iter_all_sig()),
+        ("iter.flat_map", stdlib_sigs::stdlib_iter_flat_map_sig()),
+        ("option.map", stdlib_sigs::stdlib_option_map_sig()),
+        ("option.and_then", stdlib_sigs::stdlib_option_and_then_sig()),
+        ("option.or_else", stdlib_sigs::stdlib_option_or_else_sig()),
+        ("option.filter", stdlib_sigs::stdlib_option_filter_sig()),
+        ("result.map", stdlib_sigs::stdlib_result_map_sig()),
+        ("result.map_err", stdlib_sigs::stdlib_result_map_err_sig()),
+        ("result.and_then", stdlib_sigs::stdlib_result_and_then_sig()),
+        ("result.or_else", stdlib_sigs::stdlib_result_or_else_sig()),
+    ];
+    for (name, sig) in two_param_sigs {
+        let result = simulate_two_param_call(&sig, EffectRow::empty());
+        assert_eq!(result, EffectRow::empty(), "{} must stay pure", name);
+    }
+}
+
+#[test]
+fn all_new_sigs_match_v0_13_list_map_shape_invariants() {
+    // Cross-check: every v0.14 sig is structurally compatible with the
+    // v0.13 anchor signature. Specifically:
+    //   - row_var_count == 1
+    //   - param_rows ends with a Var(0) closure slot
+    //   - return_row mentions row var index 0 (Var or VarPlus)
+    let canonical = stdlib_list_map_sig();
+    let sigs: Vec<(&'static str, RowPolySig)> = vec![
+        ("list.filter", stdlib_sigs::stdlib_list_filter_sig()),
+        ("list.fold", stdlib_sigs::stdlib_list_fold_sig()),
+        ("list.flat_map", stdlib_sigs::stdlib_list_flat_map_sig()),
+        ("iter.map", stdlib_sigs::stdlib_iter_map_sig()),
+        ("iter.filter", stdlib_sigs::stdlib_iter_filter_sig()),
+        ("iter.fold", stdlib_sigs::stdlib_iter_fold_sig()),
+        ("iter.for_each", stdlib_sigs::stdlib_iter_for_each_sig()),
+        ("iter.find", stdlib_sigs::stdlib_iter_find_sig()),
+        ("iter.any", stdlib_sigs::stdlib_iter_any_sig()),
+        ("iter.all", stdlib_sigs::stdlib_iter_all_sig()),
+        ("iter.flat_map", stdlib_sigs::stdlib_iter_flat_map_sig()),
+        ("iter.collect", stdlib_sigs::stdlib_iter_collect_sig()),
+        ("option.map", stdlib_sigs::stdlib_option_map_sig()),
+        ("option.and_then", stdlib_sigs::stdlib_option_and_then_sig()),
+        ("option.or_else", stdlib_sigs::stdlib_option_or_else_sig()),
+        ("option.filter", stdlib_sigs::stdlib_option_filter_sig()),
+        ("result.map", stdlib_sigs::stdlib_result_map_sig()),
+        ("result.map_err", stdlib_sigs::stdlib_result_map_err_sig()),
+        ("result.and_then", stdlib_sigs::stdlib_result_and_then_sig()),
+        ("result.or_else", stdlib_sigs::stdlib_result_or_else_sig()),
+    ];
+    assert_eq!(
+        canonical.row_var_count, 1,
+        "v0.13 anchor sig must have 1 row var"
+    );
+    for (name, sig) in sigs {
+        assert_eq!(
+            sig.row_var_count, 1,
+            "{}: must have exactly 1 row var",
+            name
+        );
+        // Return row mentions row-var index 0:
+        match &sig.return_row {
+            RowSpec::Var(0) | RowSpec::VarPlus(0, _) => {}
+            other => panic!(
+                "{}: return row should reference row var 0, got {:?}",
+                name, other
+            ),
+        }
+        // Last param row is either Var(0) (for the closure) or — for
+        // collect, which is unary — the only param is Skip.
+        if sig.param_rows.len() >= 2 {
+            assert_eq!(
+                sig.param_rows.last(),
+                Some(&RowSpec::Var(0)),
+                "{}: last param must be the closure (Var(0))",
+                name
+            );
+        }
+    }
+}
+
+#[test]
+fn nested_iter_chain_unions_three_effects() {
+    // Realistic chain: `xs.iter().filter(|x| fs.exists(x)).map(|x| net.fetch(x)).collect()`
+    // Each row var is FRESH per call; the caller's effect set unions
+    // all three return rows.
+    let filter_sig = stdlib_sigs::stdlib_iter_filter_sig();
+    let map_sig = stdlib_sigs::stdlib_iter_map_sig();
+    let collect_sig = stdlib_sigs::stdlib_iter_collect_sig();
+
+    let filter_result = simulate_two_param_call(&filter_sig, EffectRow::closed([FS]));
+    let map_result = simulate_two_param_call(&map_sig, EffectRow::closed([NET]));
+
+    // collect has no closure param; we just instantiate it and check
+    // its return carries the alloc placeholder.
+    let mut subst = RowSubst::new();
+    let (_p, collect_ret, _f) = instantiate_row_sig(&collect_sig, &mut subst);
+
+    // Caller's effect set is the union of all three results.
+    let mut union: BTreeSet<EffectId> = BTreeSet::new();
+    if let EffectRow::Closed(s) = filter_result {
+        union.extend(s);
+    }
+    if let EffectRow::Closed(s) = map_result {
+        union.extend(s);
+    }
+    // `collect_ret` is always either Open or Closed — extract the
+    // concrete-effects component without an irrefutable-let pattern.
+    match collect_ret {
+        EffectRow::Open(s, _) | EffectRow::Closed(s) => union.extend(s),
+    }
+    assert!(union.contains(&FS));
+    assert!(union.contains(&NET));
+    assert!(union.contains(&stdlib_sigs::ALLOC_PLACEHOLDER));
+}
+
+#[test]
+fn closure_row_open_unifies_through_each_new_sig() {
+    // If the *closure's* own row is itself open (e.g. the closure was
+    // typed in a generic context with its own row var), unifying it
+    // against the HOF sig should propagate the open-ness — both row
+    // vars get bound to a shared fresh tail.
+    let sig = stdlib_sigs::stdlib_result_and_then_sig();
+    let mut subst = RowSubst::new();
+    let (params, ret, _fresh) = instantiate_row_sig(&sig, &mut subst);
+    let caller_var = subst.fresh();
+    let caller_closure_row = EffectRow::open([FS], caller_var);
+    unify_rows(&mut subst, params[1].as_ref().unwrap(), &caller_closure_row)
+        .expect("open-into-open unifies via shared fresh tail");
+    let resolved = subst.resolve(&ret);
+    // After unification, the return row's resolved form contains at
+    // least `{fs}` plus possibly an open tail.
+    match resolved {
+        EffectRow::Open(set, _) => assert!(set.contains(&FS)),
+        EffectRow::Closed(set) => assert!(set.contains(&FS)),
+    }
 }
