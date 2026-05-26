@@ -29,7 +29,6 @@
 // the example focus is the SIGNATURE syntax, not exportability —
 // `Str`-returning helpers would otherwise need a runtime-side
 // string-building stub to satisfy the wasm-component sweep.)
-
 // Braced bare row-var form: open row with no concrete effects.
 fn _observe[E](f: fn() -> Unit) -> Unit !{| E} {
 }

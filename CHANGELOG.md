@@ -15,16 +15,58 @@ For the full per-release notes, see
   Python over the `examples/` sweep; MT0001 funnel split
   (MT0002/MT0003/MT0010/MT0011/MT0012/MT0020/MT0021/MT0030);
   `mty-pkg` cross-file resolution; parametric newtypes for self-host
-  arena ids; v0.15 effect-row HIR/typeck wiring (pickup of
-  EFFECT_SET / EFFECT_NAME / EFFECT_ROW_TAIL / EFFECT_ROW_VAR;
-  unification against user-authored row variables;
-  `examples/22_effect_row.mty` end-to-end) + MT4020-25 diagnostics;
-  WASI P2 finish (canonical-ABI rewrite for the log shim; direct
-  lowering for `std.fs` + `std.http`); self-host codegen broadening
-  (real LEB128 in Mighty, arena drops at scope exit, agent backend);
-  v0.16 agent-features tier-1 (`mty agent inspect` / `mty agent
-  dump` per `docs/internals/agent-features-roadmap.md`); normative
+  arena ids; WASI P2 `log()` finish (canonical-ABI rewrite for the
+  `wasi:logging` interface — closes the last adapter dependency);
+  self-host codegen broadening (real LEB128 in Mighty, arena drops at
+  scope exit, agent backend); Windows named-pipe introspect backend
+  for parity with the POSIX Unix-domain control socket; wasmtime
+  dev-dep bump or swap (clear the advisory ignore bundle); RFC-008
+  typeck broadening (wire MT4055 / MT4056 / MT4058 / MT4059 to active
+  emission paths beyond the v0.16 row-poly contexts); normative
   conformance suite kit publication; full `TokenStream` marshalling.
+
+## [0.16.0] - 2026-05-26
+
+**Observability + RFC-008 typeck-finishing tier — live agent
+introspection (`mty inspect` + control socket), OpenTelemetry agent
+spans, user-authored effect rows typecheck end-to-end, WASI Preview 2
+fs + http direct, self-host MethodCall + custom iterators.** Tier 1.1
+of `docs/internals/agent-features-roadmap.md` lands as
+`crates/mty-runtime/src/introspect.rs` + `control_socket.rs` and a
+new `mty inspect` CLI (pretty / JSON / `--watch` modes) wired to an
+opt-in `MTY_RUNTIME_CONTROL_SOCK` Unix-domain socket; `AgentSnapshot`
+exposes agent type, mailbox depth + high-water, in-flight handler +
+elapsed, CPU / mem / tick budgets, and the last-N messages (opt-in
+body capture) at wire `version: 1` (additive evolution). Tier 1.2 +
+1.3 land as a new `telemetry/` submodule under `mty-runtime`:
+`span_spawn` / `span_send` / `span_ask` / `span_handler` plus
+`record_restart` + `record_budget_exhausted`; the
+`agent.event(name, &[(k, v)])` helper attaches user attributes to the
+active handler span; lazy init from `MTY_OTLP_ENDPOINT` keeps the
+runtime cost-zero when telemetry is disabled. The v0.15 RFC-008
+surface syntax is wired through typed AST accessors
+(`mty-ast::effects`) → `HirEffectRow` (`Closed | Open`) on
+`HirFn::effect_row` → `UserRowPolyIndex` in `mty-types::effects`;
+five new diagnostic codes (**MT4055 / MT4056 / MT4057 / MT4058 /
+MT4059**) are wired, MT4057 actively emits, and
+`examples/22_effect_row.mty` flips from `@typeck-pending` to live in
+the example sweep. The WASI P2 emitter takes nine more stdlib
+lowerings direct: five `std.fs` fns (`open` / `read_file` /
+`write_file` / `stat` / `close`) hit
+`wasi:filesystem/types@0.2.3#descriptor.*` and four `std.http`
+variants (`get` / `post` / `send` / `incoming_request_consume`) hit
+`wasi:http/types@0.2.3` + `wasi:http/outgoing-handler@0.2.3`; a
+latent emitter import-index bug is fixed via a new `prescan_p2_direct`
+predeclare pass. The self-host Wasm codegen lowers `Rvalue::MethodCall`
+through the host `ir_method_resolve(name)` bridge (v0.15 emitted
+`unreachable`) and desugars `for x in custom_iter` at the selfhost-IR
+layer into the iter-protocol loop-match-`Some`/`None` shape; driver
+tests go **17 → 23 live / 0 ignored**. The release workflow that
+first fired on v0.15.0 continues to ship `mty` binaries for Linux /
+macOS×2 / Windows on every `v*` tag push. The spec stays at v1.0-RC3.
+**1217 Rust + 139 Python + 92 conformance + 23 selfhost-driver = 1471
+tests passing** (+43 vs v0.15), 0 failing, 4 ignored.
+[Release notes](dev/history/releases/RELEASE-v0.16.md).
 
 ## [0.15.0] - 2026-05-25
 
