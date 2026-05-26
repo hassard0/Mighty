@@ -166,6 +166,92 @@ pub enum BuiltinId {
     /// interpreter routes them through the host's extern table as
     /// `dom.<name>` so non-wasm test runs still execute.
     DomOp(String),
+    /// v0.24 — first-class Canvas capability op. Emitted when a
+    /// `std.web.Canvas` method call lowers from the HIR. The
+    /// wasm32-web backend routes these through `emit_canvas_call`
+    /// to the eight `mty:web/canvas@0.1` WIT imports (clear,
+    /// fill-rect, stroke-rect, fill-text, set-fill-style, width,
+    /// height, request-animation-frame). On native targets the
+    /// interpreter routes them through `host.extern_call("canvas.<op>",
+    /// args)` so headless tests get a deterministic default — same
+    /// pattern as `DomOp`.
+    CanvasOp(CanvasOpKind),
+}
+
+/// v0.24 — typed enum of `mty:web/canvas@0.1` methods. Pinned by
+/// `crates/mty-stdlib/src/web/canvas.rs` and by
+/// `crates/mty-codegen-wasm/wit/mty-web/canvas.wit`; the wasm32-web
+/// emitter pattern-matches on the variant to pick the right import
+/// + argument shape.
+///
+/// Order matches the WIT file so the canonical-name table in the
+/// emitter is index-stable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CanvasOpKind {
+    /// `clear: func()` — wipe the surface.
+    Clear,
+    /// `fill-rect: func(x: s32, y: s32, w: u32, h: u32, color: u32)`.
+    FillRect,
+    /// `stroke-rect: func(x: s32, y: s32, w: u32, h: u32, color: u32)`.
+    StrokeRect,
+    /// `fill-text: func(text: string, x: s32, y: s32, color: u32)`.
+    FillText,
+    /// `set-fill-style: func(color: u32)`.
+    SetFillStyle,
+    /// `width: func() -> u32`.
+    Width,
+    /// `height: func() -> u32`.
+    Height,
+    /// `request-animation-frame: func()`.
+    RequestAnimationFrame,
+}
+
+impl CanvasOpKind {
+    /// WIT method name (kebab-cased) for this op.
+    pub fn as_wit_method(self) -> &'static str {
+        match self {
+            CanvasOpKind::Clear => "clear",
+            CanvasOpKind::FillRect => "fill-rect",
+            CanvasOpKind::StrokeRect => "stroke-rect",
+            CanvasOpKind::FillText => "fill-text",
+            CanvasOpKind::SetFillStyle => "set-fill-style",
+            CanvasOpKind::Width => "width",
+            CanvasOpKind::Height => "height",
+            CanvasOpKind::RequestAnimationFrame => "request-animation-frame",
+        }
+    }
+
+    /// Snake-case ASCII name used by the SIR-interpreter's
+    /// extern-table key (`canvas.<name>`) and by the SIR dumper.
+    /// Mirrors the method names on `std.web.Canvas` in
+    /// `crates/mty-stdlib/src/web/canvas.rs`.
+    pub fn as_snake(self) -> &'static str {
+        match self {
+            CanvasOpKind::Clear => "clear",
+            CanvasOpKind::FillRect => "fill_rect",
+            CanvasOpKind::StrokeRect => "stroke_rect",
+            CanvasOpKind::FillText => "fill_text",
+            CanvasOpKind::SetFillStyle => "set_fill_style",
+            CanvasOpKind::Width => "width",
+            CanvasOpKind::Height => "height",
+            CanvasOpKind::RequestAnimationFrame => "request_animation_frame",
+        }
+    }
+
+    /// Every variant, in WIT-declaration order. Lets sweep-style
+    /// tests iterate the surface without hand-listing each one.
+    pub fn all() -> &'static [CanvasOpKind] {
+        &[
+            CanvasOpKind::Clear,
+            CanvasOpKind::FillRect,
+            CanvasOpKind::StrokeRect,
+            CanvasOpKind::FillText,
+            CanvasOpKind::SetFillStyle,
+            CanvasOpKind::Width,
+            CanvasOpKind::Height,
+            CanvasOpKind::RequestAnimationFrame,
+        ]
+    }
 }
 
 // ----- Operands + places ---------------------------------------------------

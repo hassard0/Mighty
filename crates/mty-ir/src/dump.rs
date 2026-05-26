@@ -338,6 +338,7 @@ fn dump_builtin(b: &BuiltinId) -> String {
         BuiltinId::Null => "null".into(),
         BuiltinId::Extern(n) => format!("extern:{}", n),
         BuiltinId::DomOp(op) => format!("dom.{}", op),
+        BuiltinId::CanvasOp(op) => format!("canvas.{}", op.as_snake()),
     }
 }
 

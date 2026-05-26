@@ -1782,6 +1782,13 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 // never reach a DOM call at runtime on native.
                 Ok(self.b.ins().iconst(ct::I64, 0))
             }
+            FnRef::Builtin(BuiltinId::CanvasOp(_)) => {
+                // v0.24 — `canvas.*` ops are wasm32-web only (the
+                // imports point at the JS host's 2D canvas context).
+                // The cranelift backend never reaches these on
+                // native; return zero placeholder, same as DomOp.
+                Ok(self.b.ins().iconst(ct::I64, 0))
+            }
         }
     }
 

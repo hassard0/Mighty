@@ -30,6 +30,7 @@ pub mod error;
 pub mod preview2;
 pub mod sourcemap;
 pub mod target;
+pub mod web_lower;
 pub mod wit;
 
 pub use artifact::WasmArtifact;
@@ -52,4 +53,7 @@ pub use preview2::{
     WASI_P2_VERSION,
 };
 pub use target::WasmTarget;
+pub use web_lower::{
+    canvas_signature, ensure_canvas_import, is_web_callback_export, CanvasImports, CANVAS_MODULE,
+};
 pub use wit::{emit_wit, WitDocument};

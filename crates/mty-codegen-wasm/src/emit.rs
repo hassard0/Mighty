@@ -14,10 +14,11 @@ use crate::component::wrap_as_component;
 use crate::error::{CompileResult, WasmError};
 use crate::preview2::P2DirectImport;
 use crate::target::WasmTarget;
+use crate::web_lower::{ensure_canvas_import, is_web_callback_export, CanvasImports};
 use crate::wit::emit_wit;
 use mty_ir::ir::{
-    BinOp, BlockId, BuiltinId, Const, FnRef, Function, IrFnId, IrTy, Operand, Place, Program,
-    Rvalue, Stmt, Term, UnOp,
+    BinOp, BlockId, BuiltinId, CanvasOpKind, Const, FnRef, Function, IrFnId, IrTy, Operand, Place,
+    Program, Rvalue, Stmt, Term, UnOp,
 };
 use mty_types::IntKind;
 use std::collections::HashMap;
@@ -284,6 +285,10 @@ struct Emitter<'a> {
     dom_get_text_idx: Option<u32>,
     dom_on_click_idx: Option<u32>,
     dom_query_idx: Option<u32>,
+    /// v0.24 — Canvas import indices (Web target only). Lazily
+    /// declared per-op the first time a `BuiltinId::CanvasOp(kind)`
+    /// call site is lowered.
+    canvas_imports: CanvasImports,
     /// v0.15 P2 direct-import indices, allocated lazily the first
     /// time a stdlib call needs one. Each entry maps a
     /// [`P2DirectImport`] variant to the function index assigned
@@ -304,6 +309,26 @@ struct Emitter<'a> {
 struct TySig {
     params: Vec<ValType>,
     results: Vec<ValType>,
+}
+
+/// v0.24 — public type-signature handle used by the canvas-lowering
+/// helper in `web_lower.rs`. Mirrors the private `TySig` 1:1; conversion
+/// is `From`-style. Lives at module scope so external test fixtures
+/// can compose call-site signatures without re-implementing the
+/// wasm-encoder ValType plumbing.
+#[derive(Hash, PartialEq, Eq, Clone)]
+pub struct TySigPub {
+    pub params: Vec<ValType>,
+    pub results: Vec<ValType>,
+}
+
+impl From<TySigPub> for TySig {
+    fn from(p: TySigPub) -> Self {
+        TySig {
+            params: p.params,
+            results: p.results,
+        }
+    }
 }
 
 impl<'a> Emitter<'a> {
@@ -331,6 +356,7 @@ impl<'a> Emitter<'a> {
             dom_get_text_idx: None,
             dom_on_click_idx: None,
             dom_query_idx: None,
+            canvas_imports: CanvasImports::default(),
             p2_direct_idx: HashMap::new(),
             log_handle_local: None,
             string_pool: HashMap::new(),
@@ -465,6 +491,80 @@ impl<'a> Emitter<'a> {
         self.import_count += 1;
         self.p2_direct_idx.insert(which, idx);
         idx
+    }
+
+    /// v0.24 — look up (or lazily declare) the function-table index for
+    /// a `mty:web/canvas@0.1` import. The first call for a given
+    /// [`CanvasOpKind`] appends a fresh `(import ...)` to the import
+    /// section; subsequent calls reuse the cached index from
+    /// `self.canvas_imports`.
+    ///
+    /// Only valid on the **Web** target; callers on `wasm32-wasi` hit
+    /// the type-system fail-safe in [`Self::emit_call`].
+    fn canvas_import(&mut self, op: CanvasOpKind) -> u32 {
+        // Closure-based intern_sig avoids ownership-tangling the
+        // `Emitter` (we can't call `&mut self.intern_sig` while
+        // simultaneously holding `&mut self.canvas_imports` and
+        // `&mut self.import_section`).
+        let sigs = &mut self.sigs;
+        let type_section = &mut self.type_section;
+        let intern = |sig: TySigPub| -> u32 {
+            let tysig: TySig = sig.into();
+            if let Some(&idx) = sigs.get(&tysig) {
+                return idx;
+            }
+            let idx = sigs.len() as u32;
+            type_section
+                .ty()
+                .function(tysig.params.iter().copied(), tysig.results.iter().copied());
+            sigs.insert(tysig, idx);
+            idx
+        };
+        ensure_canvas_import(
+            &mut self.canvas_imports,
+            &mut self.import_section,
+            &mut self.import_count,
+            intern,
+            op,
+        )
+    }
+
+    /// Walk the SIR program and pre-declare every `mty:web/canvas@0.1`
+    /// import any function body references. Mirrors
+    /// [`Self::predeclare_p2_direct_imports`] — function indices in
+    /// core wasm count imports + module-local funcs in one shared
+    /// space, so we must reserve every import slot BEFORE
+    /// `declare_fns` runs (otherwise lazy mid-body declaration would
+    /// shift previously-recorded fn indices and invalidate the
+    /// `fn_index` map).
+    fn predeclare_canvas_imports(&mut self) {
+        if !matches!(self.target, WasmTarget::Web) {
+            return;
+        }
+        // Collect in deterministic order so the resulting import
+        // indices are stable across re-compiles.
+        let mut needed: Vec<CanvasOpKind> = Vec::new();
+        for f in &self.prog.fns {
+            for blk in &f.blocks {
+                for stmt in &blk.stmts {
+                    if let Stmt::Assign(
+                        _,
+                        Rvalue::Call {
+                            func: FnRef::Builtin(BuiltinId::CanvasOp(kind)),
+                            ..
+                        },
+                    ) = stmt
+                    {
+                        if !needed.contains(kind) {
+                            needed.push(*kind);
+                        }
+                    }
+                }
+            }
+        }
+        for kind in needed {
+            let _ = self.canvas_import(kind);
+        }
     }
 
     /// If `extern_name` (an `std.*`-shaped path) names a stdlib call
@@ -821,9 +921,29 @@ impl<'a> Emitter<'a> {
             let fn_idx = self.import_count + self.function_section.len();
             self.function_section.function(ty_idx);
             self.fn_index.insert(f.id, fn_idx);
-            // Export `main` for the wasm runtime to find.
+            // Export `main` for the wasm runtime to find (every
+            // target). The wasm32-wasi entry-point convention as well
+            // as the v0.23 wasm32-web JS bootstrap both look for this
+            // export by name.
             if f.name == "main" {
                 self.export_section.export("main", ExportKind::Func, fn_idx);
+                continue;
+            }
+            // v0.24 — on `wasm32-web` also export every user fn whose
+            // name is one of the canonical host-callback names the JS
+            // shim expects (`frame`, `keydown`, `keyup`). Prior to
+            // v0.24 these export-fn declarations only surfaced in the
+            // generated WIT, never in the embedded core module's
+            // export section, so `inst.exports.frame(t)` trapped with
+            // "frame is not a function".
+            //
+            // We deliberately keep the predicate narrow (just the
+            // three canonical names) so unrelated user helpers
+            // continue to stay hidden from the host — matches the
+            // v0.23 surface promise.
+            if matches!(self.target, WasmTarget::Web) && is_web_callback_export(&f.name) {
+                self.export_section
+                    .export(&f.name, ExportKind::Func, fn_idx);
             }
         }
         Ok(())
@@ -861,6 +981,10 @@ impl<'a> Emitter<'a> {
         // first and dispatch into a stable index from inside the
         // body emitter.
         self.predeclare_p2_direct_imports();
+        // v0.24 — same pre-declare protocol for `mty:web/canvas@0.1`
+        // imports. Reserving the slot before `declare_fns` keeps the
+        // function-index space stable.
+        self.predeclare_canvas_imports();
         self.declare_fns()?;
         // Define each fn body.
         for f in &self.prog.fns.clone() {
@@ -1354,6 +1478,49 @@ impl<'a> Emitter<'a> {
                 }
                 // emit_dom_call pushes a placeholder for void-returning
                 // ops; nothing more to do.
+                Ok(())
+            }
+            FnRef::Builtin(BuiltinId::CanvasOp(kind)) => {
+                // v0.24 — first-class Canvas call. Push args following
+                // the canonical-ABI flat layout (strings → (ptr,len)
+                // pairs, everything else as the operand's lowered
+                // wasm type), then `call $canvas.<op>`. The
+                // `mty:web/canvas@0.1` import was pre-declared by
+                // `predeclare_canvas_imports`, so its fn-index is
+                // stable.
+                if !matches!(self.target, WasmTarget::Web) {
+                    return Err(WasmError::Unsupported(format!(
+                        "wasm canvas op {kind:?} on non-Web target — \
+                         mty:web/canvas@0.1 imports are wasm32-web only"
+                    )));
+                }
+                for a in args {
+                    if let Operand::Const(Const::Str(s)) = a {
+                        let (ptr, len) = self.intern_string(s);
+                        wfn.instruction(&I::I32Const(ptr as i32));
+                        wfn.instruction(&I::I32Const(len as i32));
+                    } else {
+                        self.emit_operand(f, m, a, wfn)?;
+                    }
+                }
+                let idx = self.canvas_import(*kind);
+                wfn.instruction(&I::Call(idx));
+                // Push a placeholder i32 result for the assign sink.
+                // - width/height already return i32 from the import,
+                //   so nothing extra is needed; the call result is
+                //   already on the stack.
+                // - clear / fill-rect / stroke-rect / fill-text /
+                //   set-fill-style / request-animation-frame return
+                //   void; we push a zero so the upstream
+                //   `emit_assign` has a typed value to consume.
+                match kind {
+                    CanvasOpKind::Width | CanvasOpKind::Height => {
+                        // Result is already on the stack.
+                    }
+                    _ => {
+                        wfn.instruction(&I::I32Const(0));
+                    }
+                }
                 Ok(())
             }
             FnRef::Builtin(BuiltinId::Extern(name)) => {
