@@ -9,8 +9,10 @@
 //!      argument's source. Arguments are wrapped in `(` `)` so that
 //!      operator precedence at the call site is preserved.
 //!   2. **Hygiene mangling.** Identifiers introduced by `let` bindings
-//!      inside the macro body are renamed to `__mac_<ctx>_<orig>`. The
-//!      `ctx` is a per-expansion counter so two nested expansions don't
+//!      inside the macro body are renamed to `__mac_<intro>_<orig>`,
+//!      where `<intro>` is the fresh [`crate::scopes::ScopeId`] minted
+//!      for the call. Two nested expansions get distinct IDs off the
+//!      shared [`crate::scopes::ScopeGen`] so the mangled names never
 //!      alias. v0.5 extends this to tuple patterns `let (a, b) = ...`,
 //!      struct patterns `let User { id, name } = ...`, ref patterns
 //!      `let &x = ...`, and binding patterns. Parameters and free names
@@ -28,10 +30,6 @@ use crate::registry::MacroDef;
 use crate::scopes::{ScopeGen, ScopeId, Scopes};
 use crate::token::{lex_fragment, tokens_to_source, Tok};
 use mty_syntax::SyntaxKind;
-
-/// Unique tag for a single macro expansion. The expander assigns one
-/// per call; mangled identifiers embed the value.
-pub type MacroContext = u32;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExpandError {
@@ -58,92 +56,6 @@ impl std::fmt::Display for ExpandError {
 }
 
 impl std::error::Error for ExpandError {}
-
-/// Expand `def` with `args` (each arg is the source text of one
-/// call-site argument expression). Returns the rewritten token stream.
-///
-/// `ctx` is the unique tag for this expansion — typically a monotonic
-/// counter maintained by the caller (HIR lowering) so each expansion
-/// gets a fresh identity.
-///
-/// **Deprecated in v0.14.** The legacy single-mark expander only
-/// catches textbook hygiene cases; the set-of-scopes path
-/// ([`expand_scoped`]) also handles macro-in-macro composition,
-/// recursive macros, and swap macros. New callers should consume
-/// [`expand_scoped`] and either lift its scope-set data into name
-/// resolution OR `strip_scopes` the resulting stream when only the
-/// source text is needed. `expand` is scheduled for removal in v0.15.
-#[deprecated(
-    since = "0.14.0",
-    note = "use expand_scoped (set-of-scopes hygiene). expand() will be removed in v0.15."
-)]
-pub fn expand(def: &MacroDef, args: &[&str], ctx: MacroContext) -> Result<Vec<Tok>, ExpandError> {
-    if args.len() != def.params.len() {
-        return Err(ExpandError::ArityMismatch {
-            expected: def.params.len(),
-            actual: args.len(),
-        });
-    }
-
-    // Pre-lex each argument so substitution preserves token kinds.
-    let mut arg_toks: Vec<Vec<Tok>> = Vec::with_capacity(args.len());
-    for (i, arg) in args.iter().enumerate() {
-        match lex_fragment(arg) {
-            Some(t) => arg_toks.push(t),
-            None => return Err(ExpandError::BadArgumentTokens { index: i }),
-        }
-    }
-
-    // First pass: collect the identifier names introduced by `let` bindings
-    // inside the macro body. v0.5 walks tuple/struct/ref/binding patterns
-    // in addition to the v0.4 simple `let IDENT` shape. We deliberately
-    // do NOT mangle parameters (those are substituted) or free names.
-    let bound = collect_bound_idents(&def.body, &def.params);
-
-    // Second pass: produce the output stream.
-    let mut out: Vec<Tok> = Vec::with_capacity(def.body.len() + args.len() * 4);
-    for tok in &def.body {
-        if tok.kind == SyntaxKind::IDENT {
-            // Parameter? Substitute with the matching argument's tokens,
-            // wrapped in parens so precedence is preserved.
-            if let Some(idx) = def.params.iter().position(|p| p == &tok.text) {
-                out.push(Tok::new(SyntaxKind::L_PAREN, "("));
-                out.extend(arg_toks[idx].iter().cloned());
-                out.push(Tok::new(SyntaxKind::R_PAREN, ")"));
-                continue;
-            }
-            // Macro-introduced binding? Mangle.
-            if bound.iter().any(|b| b == &tok.text) {
-                out.push(Tok::new(
-                    SyntaxKind::IDENT,
-                    format!("__mac_{ctx}_{}", tok.text),
-                ));
-                continue;
-            }
-        }
-        out.push(tok.clone());
-    }
-    Ok(out)
-}
-
-/// Convenience: expand and emit re-parsable source text in one step.
-///
-/// **Deprecated in v0.14.** Use [`expand_scoped_to_source`] to obtain
-/// the same source while also receiving the set-of-scopes hygiene
-/// trace. Scheduled for removal in v0.15.
-#[deprecated(
-    since = "0.14.0",
-    note = "use expand_scoped_to_source (set-of-scopes hygiene). expand_to_source() will be removed in v0.15."
-)]
-pub fn expand_to_source(
-    def: &MacroDef,
-    args: &[&str],
-    ctx: MacroContext,
-) -> Result<String, ExpandError> {
-    #[allow(deprecated)]
-    let toks = expand(def, args, ctx)?;
-    Ok(tokens_to_source(&toks))
-}
 
 /// Walk the macro body and gather every identifier introduced by a
 /// `let` binding. v0.5 supports the following pattern shapes:
@@ -388,10 +300,11 @@ fn add_binding(name: &str, params: &[String], bound: &mut Vec<String>) {
 /// macro body (each binding's scope set is what later references must
 /// be matched against — see [`crate::scopes::resolve`]).
 ///
-/// The expander emits this alongside the legacy `Vec<Tok>` so the
-/// existing mangling-based pipeline keeps working unchanged; the
-/// front-end can opt into scope-aware resolution by consuming the
-/// scoped variant.
+/// The expander emits the token stream tagged with scope sets and a
+/// list of binding occurrences (`bindings`) introduced by this
+/// invocation. Callers that need the source text can run the result
+/// through `strip_scopes` + `tokens_to_source`; the convenience
+/// [`expand_scoped_to_source`] does both in one step.
 #[derive(Debug, Clone)]
 pub struct ScopedExpansion {
     /// The expanded token stream, each token tagged with its scope set.
@@ -407,7 +320,11 @@ pub struct ScopedExpansion {
 
 /// Expand `def` with `args` and a scope-set hygiene environment.
 ///
-/// Differences from [`expand`]:
+/// The sole macro-expansion entry point as of v0.15. (The pre-v0.14
+/// single-mark `expand` / `expand_to_source` shims were removed once
+/// the deprecation window closed.)
+///
+/// Inputs:
 ///   * Each output token carries a [`Scopes`] set.
 ///   * The caller supplies a [`ScopeGen`] so each invocation gets a
 ///     fresh scope ID minted off the same allocator.
@@ -424,9 +341,10 @@ pub struct ScopedExpansion {
 ///   * Body tokens receive `def_scopes ∪ {fresh}`.
 ///   * Argument tokens receive the caller's scope set unchanged (they
 ///     were not introduced by *this* macro, per Flatt 2016 §3).
-///   * The mangling pass from [`expand`] is also applied so the
-///     emitted source remains parseable by the existing front-end;
-///     bindings are recorded with their scope sets for the resolver.
+///   * A mangling pass (`__mac_<intro>_<orig>`) is also applied to
+///     macro-introduced bindings so the emitted source remains
+///     parseable by the existing front-end; bindings are recorded
+///     with their scope sets for the resolver.
 pub fn expand_scoped(
     def: &MacroDef,
     args: &[&str],
@@ -524,8 +442,12 @@ pub fn expand_scoped_to_source(
 }
 
 #[cfg(test)]
-#[allow(deprecated)] // exercises the deprecated `expand` / `expand_to_source` path
 mod tests {
+    //! Unit tests for the scope-aware expander. Behavioural coverage
+    //! for the source-text shape lives in `tests/` (integration tests
+    //! migrated off the pre-v0.15 `expand_to_source`). The cases kept
+    //! here are the few that don't duplicate any integration test.
+
     use super::*;
     use crate::registry::MacroRegistry;
     use mty_ast::{AstNode, File};
@@ -539,10 +461,19 @@ mod tests {
         reg.get(name).cloned().unwrap()
     }
 
+    fn expand_src(d: &MacroDef, args: &[&str]) -> (String, ScopeId) {
+        let mut gen = ScopeGen::new();
+        let exp = expand_scoped(d, args, &mut gen, Scopes::empty(), Scopes::empty()).unwrap();
+        let plain = crate::hygiene::strip_scopes(&exp.tokens);
+        (tokens_to_source(&plain), exp.intro)
+    }
+
     #[test]
     fn arity_mismatch_reported() {
         let d = def("macro id(x) => { x }\n", "id");
-        let e = expand(&d, &["1", "2"], 0).unwrap_err();
+        let mut gen = ScopeGen::new();
+        let e =
+            expand_scoped(&d, &["1", "2"], &mut gen, Scopes::empty(), Scopes::empty()).unwrap_err();
         assert!(matches!(
             e,
             ExpandError::ArityMismatch {
@@ -553,100 +484,11 @@ mod tests {
     }
 
     #[test]
-    fn parameter_substitution_wraps_in_parens() {
-        let d = def("macro id(x) => { x }\n", "id");
-        let s = expand_to_source(&d, &["1 + 1"], 0).unwrap();
-        assert!(s.contains("(1 + 1)"), "got: {s}");
-    }
-
-    #[test]
     fn free_name_not_mangled() {
         let d = def("macro p() => { panic(\"oops\") }\n", "p");
-        let s = expand_to_source(&d, &[], 7).unwrap();
+        let (s, _intro) = expand_src(&d, &[]);
         assert!(s.contains("panic"), "got: {s}");
         assert!(!s.contains("__mac_"), "free names must not be mangled");
-    }
-
-    #[test]
-    fn let_binding_is_mangled() {
-        let d = def("macro twice(x) => { let y = x; y + y }\n", "twice");
-        let s = expand_to_source(&d, &["3"], 5).unwrap();
-        // `y` becomes `__mac_5_y` everywhere it appears.
-        assert!(s.contains("let __mac_5_y"), "got: {s}");
-        assert!(s.contains("__mac_5_y + __mac_5_y"), "got: {s}");
-    }
-
-    #[test]
-    fn distinct_contexts_yield_distinct_mangles() {
-        let d = def("macro twice(x) => { let y = x; y + y }\n", "twice");
-        let s1 = expand_to_source(&d, &["3"], 1).unwrap();
-        let s2 = expand_to_source(&d, &["3"], 2).unwrap();
-        assert!(s1.contains("__mac_1_y"));
-        assert!(s2.contains("__mac_2_y"));
-        assert!(s1 != s2);
-    }
-
-    // v0.5 extended hygiene tests:
-
-    #[test]
-    fn tuple_pattern_bindings_are_mangled() {
-        let d = def("macro split(p) => { let (a, b) = p; a + b }\n", "split");
-        let s = expand_to_source(&d, &["pair"], 7).unwrap();
-        assert!(s.contains("let (__mac_7_a, __mac_7_b)"), "got: {s}");
-        assert!(s.contains("__mac_7_a + __mac_7_b"), "got: {s}");
-    }
-
-    #[test]
-    fn struct_pattern_bindings_are_mangled_shorthand() {
-        let d = def(
-            "macro pick(u) => { let User { id, name } = u; id }\n",
-            "pick",
-        );
-        let s = expand_to_source(&d, &["u"], 3).unwrap();
-        assert!(s.contains("__mac_3_id"), "shorthand id not mangled: {s}");
-        assert!(
-            s.contains("__mac_3_name"),
-            "shorthand name not mangled: {s}"
-        );
-        // `User` and `id` (field selector) are not bindings — User stays.
-        assert!(s.contains("User"), "User type was incorrectly mangled: {s}");
-    }
-
-    #[test]
-    fn struct_pattern_bindings_are_mangled_renamed() {
-        let d = def("macro pick(u) => { let User { id: x } = u; x }\n", "pick");
-        let s = expand_to_source(&d, &["u"], 4).unwrap();
-        // `x` is the binding; `id` is just the field selector.
-        assert!(s.contains("__mac_4_x"), "x not mangled: {s}");
-        // The `id` token must remain unmangled (it's a field selector).
-        assert!(
-            !s.contains("__mac_4_id"),
-            "field selector id should not be mangled: {s}"
-        );
-    }
-
-    #[test]
-    fn ref_pattern_binding_is_mangled() {
-        let d = def("macro deref(p) => { let &x = p; x }\n", "deref");
-        let s = expand_to_source(&d, &["r"], 8).unwrap();
-        assert!(s.contains("__mac_8_x"), "got: {s}");
-    }
-
-    #[test]
-    fn ref_mut_pattern_binding_is_mangled() {
-        let d = def("macro deref(p) => { let &mut x = p; x }\n", "deref");
-        let s = expand_to_source(&d, &["r"], 9).unwrap();
-        assert!(s.contains("__mac_9_x"), "got: {s}");
-    }
-
-    #[test]
-    fn mut_binding_is_mangled() {
-        let d = def(
-            "macro double(x) => { let mut y = x; y = y + y; y }\n",
-            "double",
-        );
-        let s = expand_to_source(&d, &["3"], 11).unwrap();
-        assert!(s.contains("let mut __mac_11_y"), "got: {s}");
     }
 
     #[test]
@@ -654,10 +496,13 @@ mod tests {
         // The macro parameter `p` appears inside the body — it should be
         // substituted, not mangled.
         let d = def("macro head(p) => { let (a, _) = p; a }\n", "head");
-        let s = expand_to_source(&d, &["pair"], 1).unwrap();
+        let (s, intro) = expand_src(&d, &["pair"]);
         // `p` gets substituted to `(pair)`.
         assert!(s.contains("(pair)"), "param not substituted: {s}");
         // `a` is the macro-introduced binding.
-        assert!(s.contains("__mac_1_a"), "a not mangled: {s}");
+        assert!(
+            s.contains(&format!("__mac_{intro}_a")),
+            "a not mangled: {s}"
+        );
     }
 }

@@ -5,11 +5,13 @@
 //! Two-file fixture: exporter declares `pub macro greet()`, importer
 //! gets it merged via `register_use`. Real package-aware resolution
 //! lands when mty-pkg wires its symbol table into HIR lowering.
-
-#![allow(deprecated)] // exercises legacy `expand_to_source` (removal scheduled for v0.15)
+//!
+//! v0.15 migration: uses the set-of-scopes expander
+//! (`expand_scoped_to_source`) — the legacy `expand_to_source` was
+//! deleted in v0.15.
 
 use mty_ast::{AstNode, File};
-use mty_macros::{expand_to_source, MacroKind, PackageMacros};
+use mty_macros::{expand_scoped_to_source, MacroKind, PackageMacros, ScopeGen, Scopes};
 use mty_syntax::SyntaxNode;
 
 fn parse_file(src: &str) -> SyntaxNode {
@@ -51,7 +53,9 @@ fn importer_pulls_in_exported_macros() {
 
     // The imported macro is usable: expand it.
     let def = importer.local.get("greet").unwrap();
-    let s = expand_to_source(def, &[], 1).unwrap();
+    let mut gen = ScopeGen::new();
+    let (s, _exp) =
+        expand_scoped_to_source(def, &[], &mut gen, Scopes::empty(), Scopes::empty()).unwrap();
     assert!(s.contains("print"), "expansion: {s}");
 }
 

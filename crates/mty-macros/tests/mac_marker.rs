@@ -3,11 +3,13 @@
 //! Verifies that the new MACRO_CALL parse path resolves to the registry
 //! and expands correctly. The args are extracted by splitting the
 //! opaque TOKEN_TREE on commas at depth 0.
-
-#![allow(deprecated)] // exercises legacy `expand_to_source` (removal scheduled for v0.15)
+//!
+//! v0.15 migration: uses the set-of-scopes expander
+//! (`expand_scoped_to_source`) — the legacy `expand_to_source` was
+//! deleted in v0.15.
 
 use mty_ast::{AstNode, File};
-use mty_macros::{expand_to_source, MacroRegistry};
+use mty_macros::{expand_scoped_to_source, MacroRegistry, ScopeGen, Scopes};
 use mty_syntax::{SyntaxKind, SyntaxNode};
 
 fn parse_file(src: &str) -> SyntaxNode {
@@ -56,7 +58,9 @@ fn registered_macro_expands_via_bang_syntax() {
     let file = parse_file(src);
     let reg = MacroRegistry::from_file(&file);
     let def = reg.get("inc").unwrap();
-    let s = expand_to_source(def, &["41"], 0).unwrap();
+    let mut gen = ScopeGen::new();
+    let (s, _exp) =
+        expand_scoped_to_source(def, &["41"], &mut gen, Scopes::empty(), Scopes::empty()).unwrap();
     assert!(s.contains("(41) + 1"), "got: {s}");
 }
 

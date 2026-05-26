@@ -2,11 +2,15 @@
 //! [`MAX_EXPANSION_DEPTH`] = 32. The expander itself does NOT recurse
 //! across calls — recursion accounting lives in the caller (HIR
 //! lowering). This test simulates that loop and checks the limit.
-
-#![allow(deprecated)] // exercises legacy `expand_to_source` (removal scheduled for v0.15)
+//!
+//! v0.15 migration: uses the set-of-scopes expander
+//! (`expand_scoped_to_source`) — the legacy `expand_to_source` was
+//! deleted in v0.15. The depth-cap behavior is identical; the only
+//! shape change is that the per-invocation context comes from a
+//! `ScopeGen` rather than an explicit `ctx` argument.
 
 use mty_ast::{AstNode, File};
-use mty_macros::{expand_to_source, MacroRegistry, MAX_EXPANSION_DEPTH};
+use mty_macros::{expand_scoped_to_source, MacroRegistry, ScopeGen, Scopes, MAX_EXPANSION_DEPTH};
 use mty_syntax::SyntaxNode;
 
 fn registry(src: &str) -> MacroRegistry {
@@ -32,8 +36,16 @@ fn recursive_expansion_terminates_at_limit() {
     let mut current = String::from("x");
     let mut depth = 0u32;
     let limit = MAX_EXPANSION_DEPTH;
+    let mut gen = ScopeGen::new();
     while depth < limit {
-        let next = expand_to_source(def, &[&current], depth).unwrap();
+        let (next, _exp) = expand_scoped_to_source(
+            def,
+            &[current.as_str()],
+            &mut gen,
+            Scopes::empty(),
+            Scopes::empty(),
+        )
+        .unwrap();
         // crude detect: presence of `r(` indicates another macro call.
         if !next.contains("r(") {
             break;
@@ -51,7 +63,9 @@ fn recursive_expansion_terminates_at_limit() {
 fn non_recursive_expansion_terminates_immediately() {
     let reg = registry("macro flat(x) => { x + 1 }\n");
     let def = reg.get("flat").unwrap();
-    let out = expand_to_source(def, &["41"], 0).unwrap();
+    let mut gen = ScopeGen::new();
+    let (out, _exp) =
+        expand_scoped_to_source(def, &["41"], &mut gen, Scopes::empty(), Scopes::empty()).unwrap();
     assert!(out.contains("(41) + 1"), "got: {out}");
     // No further macro call: the lowering loop would stop after one step.
     assert!(!out.contains("flat("), "got: {out}");
