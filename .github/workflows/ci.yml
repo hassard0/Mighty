@@ -154,6 +154,13 @@ jobs:
   # (syntax / types / fmt / diagnostics) catches the most common
   # MSRV regression — a dep silently bumping its rust-version floor
   # — without paying for the codegen / runtime crates twice.
+  #
+  # v0.18 (KNOWN_ISSUES #3 closure): the standalone `cargo build
+  # --workspace` step is dropped — `cargo build --workspace --tests`
+  # subsumes it, compiling the lib/bin AND test targets in one pass
+  # so a dev-dep MSRV bump can never sneak through. The bedrock
+  # `cargo test` step continues to actually RUN tests on MSRV so
+  # behaviour regressions tied to the toolchain still get caught.
   # ----------------------------------------------------------------
   msrv:
     name: msrv (1.85.0)
@@ -171,20 +178,16 @@ jobs:
         with:
           shared-key: msrv
 
-      - name: cargo build (MSRV)
-        # Build the full workspace first so a missing-feature failure
-        # surfaces with the original (non-test) symbol names.
+      - name: cargo build --tests (MSRV, workspace)
+        # KNOWN_ISSUES #3: compile lib/bin AND every test target so
+        # a dev-dep that silently bumps its rust-version floor fails
+        # the gate here rather than slipping into a later release.
+        # Equivalent to `cargo test --workspace --no-run` but a
+        # single command and a strictly larger build surface than
+        # the previous `cargo build --workspace`.
         env:
           RUSTFLAGS: ""
-        run: cargo build --workspace
-
-      - name: cargo test --no-run (MSRV, workspace)
-        # Compile-check the test surface — the dev-deps tree is a
-        # frequent source of silent MSRV bumps and only manifests
-        # when test targets are built.
-        env:
-          RUSTFLAGS: ""
-        run: cargo test --workspace --no-run
+        run: cargo build --workspace --tests
 
       - name: cargo test (MSRV, bedrock crates)
         # Actually execute the bedrock crates' tests on MSRV. These

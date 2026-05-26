@@ -290,6 +290,152 @@ fn example_22_effect_row_parses_clean() {
     );
 }
 
+// ---------------- v0.18: multi row-variable tail ----------------
+//
+// RFC-008 multi-row-var typeck shipped in v0.17 with a parser
+// caveat: the v0.15 surface only emitted a single EFFECT_ROW_VAR
+// per signature. v0.18 extends `effect_row_tail` so users can
+// finally write `!{| E1, E2}` / `!{fs | E1, E2, E3}` and have it
+// parse — each row var becomes its own EFFECT_ROW_VAR child node
+// under the EFFECT_ROW_TAIL, ready for the v0.17 typeck pipeline.
+
+#[test]
+fn parse_two_row_vars_after_pipe() {
+    // `!{| E, F}` — bare two-row-var form, the v0.18 motivating
+    // surface. Two EFFECT_ROW_VAR children must land under one
+    // EFFECT_ROW_TAIL so downstream consumers can iterate them.
+    let src = "fn f() -> () !{| E, F} { }";
+    let errs = errors_of(src);
+    assert!(errs.is_empty(), "expected no parse errors, got {errs:?}");
+    let r = parse(src);
+    let node = SyntaxNode::new_root(r.green);
+    let row_vars: Vec<_> = node
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::EFFECT_ROW_VAR)
+        .collect();
+    assert_eq!(
+        row_vars.len(),
+        2,
+        "expected 2 EFFECT_ROW_VAR nodes for `!{{| E, F}}`, got {row_vars:?}"
+    );
+    // Both row vars are direct children of a single EFFECT_ROW_TAIL
+    // (CST shape contract — keeps the v0.17 HIR lowerer's iterator
+    // pattern straightforward).
+    let tails: Vec<_> = node
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::EFFECT_ROW_TAIL)
+        .collect();
+    assert_eq!(tails.len(), 1, "expected exactly one EFFECT_ROW_TAIL");
+    let nested: Vec<_> = tails[0]
+        .children()
+        .filter(|c| c.kind() == SyntaxKind::EFFECT_ROW_VAR)
+        .collect();
+    assert_eq!(
+        nested.len(),
+        2,
+        "both row vars must be direct children of the single tail"
+    );
+}
+
+#[test]
+fn parse_concrete_plus_two_row_vars() {
+    // `!{fs | E, F}` — the full RFC-008 multi-row-var motivating
+    // example: a row-poly fn with one concrete component + two
+    // row vars (one per fn-typed parameter).
+    let src = "fn cross[E, F](a: fn() -> (), b: fn() -> ()) -> () !{fs | E, F} { }";
+    let errs = errors_of(src);
+    assert!(errs.is_empty(), "expected no parse errors, got {errs:?}");
+    assert!(contains_kind(src, SyntaxKind::EFFECT_SET));
+    assert!(contains_kind(src, SyntaxKind::EFFECT_NAME));
+    assert!(contains_kind(src, SyntaxKind::EFFECT_ROW_TAIL));
+    let r = parse(src);
+    let node = SyntaxNode::new_root(r.green);
+    let row_vars: Vec<_> = node
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::EFFECT_ROW_VAR)
+        .collect();
+    assert_eq!(
+        row_vars.len(),
+        2,
+        "expected 2 EFFECT_ROW_VAR, got {row_vars:?}"
+    );
+}
+
+#[test]
+fn parse_three_row_vars() {
+    // Three-way row-poly: not common in practice but the grammar
+    // must scale beyond two. Pin the CST shape so a future
+    // micro-optimisation can't silently cap the count.
+    let src = "fn f() -> () !{| E, F, G} { }";
+    let errs = errors_of(src);
+    assert!(errs.is_empty(), "expected no parse errors, got {errs:?}");
+    let r = parse(src);
+    let node = SyntaxNode::new_root(r.green);
+    let row_vars: Vec<_> = node
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::EFFECT_ROW_VAR)
+        .collect();
+    assert_eq!(row_vars.len(), 3, "expected 3 EFFECT_ROW_VAR nodes");
+}
+
+#[test]
+fn parse_keyword_form_with_multi_row_tail() {
+    // Legacy keyword form ALSO learns multi-row-var: `effect fs |
+    // E, F` is valid v0.18 surface. Both forms route through
+    // `effect_row_tail`, so the same loop applies.
+    let src = "fn f() -> Page effect net | E, F { }";
+    let errs = errors_of(src);
+    assert!(errs.is_empty(), "expected no parse errors, got {errs:?}");
+    assert!(contains_kind(src, SyntaxKind::EFFECT_ROW_TAIL));
+    let r = parse(src);
+    let node = SyntaxNode::new_root(r.green);
+    let row_vars: Vec<_> = node
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::EFFECT_ROW_VAR)
+        .collect();
+    assert_eq!(
+        row_vars.len(),
+        2,
+        "expected 2 EFFECT_ROW_VAR nodes in keyword form"
+    );
+}
+
+#[test]
+fn parse_trailing_comma_after_row_var_rejected() {
+    // `!{| E,}` — trailing comma with no row var following must be
+    // a parse error. The grammar tightens here to avoid silently
+    // accepting malformed multi-var lists.
+    let src = "fn f() -> () !{| E,} { }";
+    let errs = errors_of(src);
+    assert!(
+        errs.iter().any(|m| m.contains("row variable")),
+        "expected a row-var diagnostic for trailing comma, got {errs:?}"
+    );
+}
+
+#[test]
+fn parse_single_row_var_still_works() {
+    // Regression guard for the v0.15 single-row-var surface — the
+    // v0.18 multi-var loop runs once when there's no comma after
+    // the first identifier, producing exactly the same CST shape
+    // as before (1 row var under 1 tail). Pin this so a future
+    // refactor doesn't accidentally promote single-var to multi.
+    let src = "fn f() -> () !{| E} { }";
+    let errs = errors_of(src);
+    assert!(errs.is_empty(), "expected no parse errors, got {errs:?}");
+    let r = parse(src);
+    let node = SyntaxNode::new_root(r.green);
+    let row_vars: Vec<_> = node
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::EFFECT_ROW_VAR)
+        .collect();
+    assert_eq!(
+        row_vars.len(),
+        1,
+        "single-var form must still produce exactly 1 EFFECT_ROW_VAR"
+    );
+}
+
 #[test]
 fn parse_empty_braced_row_then_body() {
     // `!{} { ... }` — the explicit empty-braces form followed by the

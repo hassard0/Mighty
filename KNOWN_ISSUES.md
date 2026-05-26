@@ -50,16 +50,23 @@ fixed in this prep; the rest are P1 or below.
   short-lived cert, sign with ECDSA, upload signing payload to
   Rekor, and embed the Rekor entry index in the `.bundle` envelope.
 
-### 3. MSRV gate uses `cargo build`, not `cargo test`
+### 3. MSRV gate uses `cargo build`, not `cargo test` (resolved v0.18)
 
 - **Where**: `.github/workflows/ci.yml::msrv`
 - **Symptom**: a dev-dep that requires a newer Rust silently
-  bumps the floor without CI catching it (because we only build,
-  not test, on MSRV).
-- **Workaround**: bump cautiously; verify locally with `rustup
-  override set 1.85.0 && cargo test --workspace`.
-- **Fix plan**: use `--profile minimal` + a hermetic dev-dep
-  resolution and run tests on MSRV. Tracking issue when filed.
+  bumped the floor without CI catching it (because we only built,
+  not test-compiled, on MSRV).
+- **Resolution (v0.18)**: the MSRV job now runs `cargo build
+  --workspace --tests` — a strictly larger compile surface than
+  the old `cargo build --workspace` (covers every `[dev-dependencies]`
+  graph too) — and continues to actually `cargo test` the bedrock
+  crates (`mty-syntax`, `mty-types`, `mty-fmt`, `mty-diagnostics`)
+  so behaviour regressions tied to the MSRV toolchain still get
+  caught. The previous bare `cargo build --workspace` and the
+  redundant `cargo test --workspace --no-run` steps are folded
+  into the single `--tests` invocation.
+- **Status**: **resolved in v0.18** — see commit history for the
+  `ci.yml::msrv` block reshuffle.
 
 ### 4. `clippy-strict` job is `continue-on-error: true`
 

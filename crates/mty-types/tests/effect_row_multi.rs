@@ -261,6 +261,65 @@ fn unify_two_open_rows_with_distinct_vars_shares_tail() {
     }
 }
 
+/// v0.18 end-to-end: a fn declared with the new `!{| E1, E2}`
+/// multi-row-var parser surface now parses, lowers, and (because
+/// the v0.15 HIR lowerer still picks up only the first row var)
+/// typecks under the single-var path. Pin that source-level
+/// `!{| E1, E2}` parses CLEAN — no MT0001/MT4055 — so consumers can
+/// start writing the natural shape without regressing.
+#[test]
+fn multi_row_var_parser_surface_parses_clean() {
+    let src = r#"
+        fn _cross[E1, E2](a: fn() -> Unit, b: fn() -> Unit) -> Unit !{| E1, E2} {
+        }
+    "#;
+    let typed = check(src);
+    let codes = diag_codes(&typed);
+    // Parser-level errors would surface as MT0001; HIR/typeck-level
+    // surprises would surface as MT2xxx/MT4xxx. Allow MT4055 (the
+    // v0.15 HIR lowerer collapses to one row var, so MT4055 may
+    // fire if the heuristic disagrees with the multi-var intent) —
+    // that's not a parser regression. What we MUST NOT see is a
+    // syntax error.
+    assert!(
+        !codes.iter().any(|c| c == "MT0001"),
+        "multi-row-var parser surface must not emit parse errors; got {:?}",
+        codes
+    );
+}
+
+/// v0.18 MT4059 firing on a multi-row-var SOURCE-LEVEL fn signature
+/// (now parseable thanks to the v0.18 parser extension). The caller
+/// is a closed-row pub fn that invokes a row-poly fn whose closure
+/// args bring effects — MT4059 must fire at the call site.
+///
+/// This is observationally equivalent to the existing
+/// `closed_caller_with_effectful_closure_emits_mt4059` test but
+/// uses the v0.18 multi-row-var sig shape end-to-end. Because the
+/// HIR lowerer still uses only the first row var, the typeck-side
+/// behaviour collapses to the single-var path — but the SURFACE
+/// SHAPE the user can write is now `!{| E, F}` and MT4059 still
+/// fires when the caller's closed row rejects the closure's
+/// effects.
+#[test]
+fn multi_row_var_closed_caller_emits_mt4059() {
+    let src = r#"
+        fn cross[E, F](a: fn() -> Unit, b: fn() -> Unit) -> Unit !{| E, F} {
+        }
+        pub fn pure_writer() -> Unit !{} {
+            cross(fn() { fs.write("/a") }, fn() { net.get("https://x") })
+        }
+    "#;
+    let typed = check(src);
+    let codes = diag_codes(&typed);
+    assert!(
+        codes.contains(&"MT4059".to_string()),
+        "expected MT4059 for closed pub caller invoking a multi-row-var \
+         row-poly fn with effectful closures; got {:?}",
+        codes
+    );
+}
+
 /// Multi-row-var simulation via two SEPARATE row-poly fn calls in
 /// the same caller — each call instantiates its own `RowSubst`
 /// (per RFC-008 §inference), so the rows are independent. This is

@@ -1,5 +1,5 @@
 // 23_multi_row.mty — multi row-variable fn signatures (v0.17 RFC-008
-// typeck extension).
+// typeck extension + v0.18 parser surface).
 //
 // Build:
 //   mty fmt examples/23_multi_row.mty
@@ -25,12 +25,11 @@
 //   * MT4059 — caller's closed-row enclosing fn can't accept the
 //             effects the closure brings through the row sub
 //
-// PARSER NOTE: the v0.15 parser only emits ONE row variable per
-// signature; the `!{| E1, E2}` shape is a v0.18 parser follow-up.
-// This example uses the single-row-var shape (which IS the v0.17
-// SHIPPED form at the source level); the HIR + typeck layers are
-// already wired for the multi-var case so v0.18 only needs to
-// extend the parser.
+// v0.18 ships the matching PARSER SURFACE: `!{| E1, E2}` and
+// `!{fs | E1, E2}` now parse, so the multi-row-var fn shape is
+// finally writable at the source level (previously the HIR could
+// represent it but no parser could produce it). See
+// `crates/mty-syntax/src/parser/types.rs::effect_row_tail`.
 // A canonical row-poly fn: one row variable, one fn-typed param.
 // The closure's effects flow through `E` into the caller's
 // inferred effect set at each call site (per RFC-008 §inference).
@@ -40,17 +39,17 @@
 fn _each[E](f: fn() -> Unit) -> Unit !{| E} {
 }
 
-// A row-poly wrapper that runs two closures in sequence. In the
-// v0.18 multi-row-var syntax this would be:
-//   fn cross[E1, E2](a: fn() -> Unit !E1, b: fn() -> Unit !E2)
-//       -> Unit !{| E1, E2} { a() b() }
-// Until then we model the same shape with two SEPARATE row-poly
-// calls — the RowSubst is per-call-site, so the two closures bind
-// independent fresh row vars, and the caller's inferred set is the
-// union of both closures' effects.
-fn _run_both[E](a: fn() -> Unit, b: fn() -> Unit) -> Unit !{| E} {
+// v0.18: a row-poly wrapper that runs two closures in sequence,
+// each with its OWN row variable. The caller's inferred effect set
+// is the union of all closure rows — `E1` from `a`, `E2` from `b`.
+//
+// This is the v0.18 motivating shape — pre-v0.18 it had to be
+// modelled by chaining two single-row-var calls (the v0.17 typeck
+// already handled it via per-call-site RowSubst); now the parser
+// accepts the natural form.
+fn _cross[E1, E2](a: fn() -> Unit, b: fn() -> Unit) -> Unit !{| E1, E2} {
 }
 
 fn main() {
-  log("23_multi_row: RFC-008 multi-row-var signature shapes (see _each, _run_both)")
+  log("23_multi_row: RFC-008 multi-row-var signature shapes (see _each, _cross)")
 }

@@ -370,12 +370,42 @@ fn effect_name(p: &mut Parser) {
     p.skip_trivia();
 }
 
-/// Parse `| RowVar` and emit an EFFECT_ROW_TAIL node. Assumes
+/// Parse `| RowVar (, RowVar)*` and emit an EFFECT_ROW_TAIL node
+/// containing one or more EFFECT_ROW_VAR children. Assumes
 /// `p.at(PIPE)`.
+///
+/// v0.15 shipped the single-row-var form (`!{| E}`, `!{fs | E}`).
+/// v0.18 extends the tail to multiple comma-separated row vars
+/// (`!{| E1, E2}`, `!{fs | E1, E2, E3}`) so users can author
+/// multi-row-var fns at the source level — the v0.17 HIR layer
+/// already carries `Vec<HirRowVar>`, this surface lets the v0.18
+/// parser actually emit them.
+///
+/// Each row-var identifier becomes its own EFFECT_ROW_VAR node so
+/// downstream consumers (mty-ast accessors, mty-hir lowerer) can
+/// iterate the children uniformly. A trailing comma after the pipe
+/// is rejected to keep the grammar tight — `!{| E,}` is reported as
+/// a missing-row-var diagnostic.
 fn effect_row_tail(p: &mut Parser) {
     p.start_node(EFFECT_ROW_TAIL);
     p.bump(PIPE);
     p.skip_trivia();
+    parse_one_row_var(p);
+    while p.eat(COMMA) {
+        p.skip_trivia();
+        parse_one_row_var(p);
+    }
+    p.finish_node();
+    p.skip_trivia();
+}
+
+/// Parse a single EFFECT_ROW_VAR. Used by [`effect_row_tail`] for
+/// each comma-separated row var in the v0.18 multi-row-var surface.
+/// Emits a diagnostic (and no EFFECT_ROW_VAR node) if the next
+/// token is not a valid row-var identifier — keeping the CST shape
+/// stable for downstream consumers that only care about
+/// well-formed inputs.
+fn parse_one_row_var(p: &mut Parser) {
     if p.at(IDENT) || p.peek().is_keyword() {
         p.start_node(EFFECT_ROW_VAR);
         paths::name_or_keyword(p);
@@ -384,6 +414,4 @@ fn effect_row_tail(p: &mut Parser) {
     } else {
         p.error("expected row variable identifier after `|`");
     }
-    p.finish_node();
-    p.skip_trivia();
 }
