@@ -41,7 +41,7 @@ mty build hello.mty --target wasm32-wasi --world my-world
 | `std.http.get()` / `post()` / `send()` | P1 syscall | **direct P2 import** `wasi:http/types@0.2.3` constructor + `wasi:http/outgoing-handler@0.2.3#handle` (wired into emitter v0.16) |
 | `std.time.now()` / `monotonic_now()` / `resolution()` | P1 syscall | **direct P2 import** `wasi:clocks/{wall-clock,monotonic-clock}@0.2.3` (wired into emitter v0.15) |
 | `std.random.bytes()` / `u64()` | P1 syscall | **direct P2 import** `wasi:random/random@0.2.3` (wired into emitter v0.15) |
-| `wasi_snapshot_preview1` adapter | n/a | **opt-in** (default `None` since v0.17). Set via `Preview2Options::with_adapter(Some(AdapterKind::Command))` for builds that link wasi-libc-built C code or otherwise import P1 syscalls directly. The vendored adapter is the wasmtime v32.0.0 command shape (~54 KB). |
+| `wasi_snapshot_preview1` adapter | n/a | **opt-in** (default `None` since v0.17). Set via `Preview2Options::with_adapter(Some(AdapterEmbed::new(AdapterKind::Command, bytes)))` for builds that link wasi-libc-built C code. v0.19 stopped vendoring the adapter binaries in-tree — callers supply their own bytes (download `wasi_snapshot_preview1.command.wasm` from the matching wasmtime release; v32.0.0 targets WASI 0.2.3). |
 | User-WIT `[wit]` section | ignored | merged into world |
 | `--world <name>` | ignored | picks world from user WIT |
 
@@ -54,11 +54,16 @@ Two transport modes coexist in v0.14:
 - **adapter-routed** — the core module imports the legacy
   `wasi_snapshot_preview1` syscall (the wasi-libc convention).
   At wrap time, `wit-component::ComponentEncoder::adapter(...)`
-  embeds the vendored adapter (~54 KB of Wasm shipped under
-  `crates/mty-codegen-wasm/adapter/`) which translates each P1
-  call into the matching versioned P2 interface call at
-  instantiation. From the host's perspective the component
-  imports the same `wasi:*@0.2.3` interfaces either way.
+  embeds a caller-supplied adapter (~54 KB of Wasm per kind)
+  which translates each P1 call into the matching versioned P2
+  interface call at instantiation. v0.13–v0.18 vendored the
+  wasmtime v32.0.0 adapter under `crates/mty-codegen-wasm/adapter/`;
+  v0.19 stopped vendoring (the default path doesn't import P1
+  anymore, so paying the 150 KB cost on every `cargo build` was
+  pure waste) — callers now download the bytes from the matching
+  wasmtime release and pass them via `AdapterEmbed`. From the
+  host's perspective the component imports the same
+  `wasi:*@0.2.3` interfaces either way.
 
 v0.16 flipped `std.fs` + `std.http` to the direct path; v0.17
 finishes the job by flipping `log()` to direct lowering AND
@@ -72,9 +77,13 @@ Component-size impact: a Mighty `log()`-only command component now
 ships ≥ ~50 KB smaller than the v0.16 baseline (the adapter binary
 is ~54 KB; wit-component's tree-shaking previously trimmed it
 toward ~12 KB on adapter-heavy programs, but the floor remains
-non-trivial). The `tests/preview2_log.rs::log_program_no_adapter_runs_smaller`
-test pins the savings at ≥ 1 KiB so the opt-out path stays
-demonstrably leaner.
+non-trivial). The `tests/preview2_log.rs::log_program_compiles_adapter_free_by_default`
+smoke test pins that an adapter-free build validates end-to-end;
+the v0.18-era `log_program_no_adapter_runs_smaller` size-comparison
+test was retired in v0.19 along with the vendored bytes (driving the
+adapter path now requires the caller to supply real wasmtime
+adapter bytes, which are no longer guaranteed to be present in
+CI).
 
 ## How the P2 backend works
 
@@ -92,11 +101,13 @@ explicit `--wasi=p1` legacy path:
    modification. **v0.17 dropped the shim entirely** — `log()` now
    lowers directly to a three-call canonical-ABI sequence on top
    of `wasi:cli/stdout@0.2.3` + `wasi:io/streams@0.2.3`.
-4. The vendored `wasi_snapshot_preview1` adapter (wasmtime v32.0.0
-   build) is *opt-in* since v0.17 — pass
-   `Preview2Options::with_adapter(Some(AdapterKind::Command))` to
-   embed it when a build links wasi-libc-built C code. The adapter
-   is ~54 KB of Wasm and translates any P1-shaped syscall the core
+4. The `wasi_snapshot_preview1` adapter is *opt-in* since v0.17.
+   v0.19 stopped vendoring the bytes — pass
+   `Preview2Options::with_adapter(Some(AdapterEmbed::new(AdapterKind::Command, bytes)))`
+   to embed it when a build links wasi-libc-built C code, where
+   `bytes` is the matching wasmtime release's
+   `wasi_snapshot_preview1.command.wasm` (~54 KB). It translates
+   any P1-shaped syscall the core
    module makes into the matching versioned `wasi:*@0.2.3`
    interface call at instantiation.
 5. The core module's `main` export is aliased as `_start` *only*
@@ -222,8 +233,12 @@ v0.17 status:
 Components that touch ONLY the surfaces above ship adapter-free
 since v0.17 — `Preview2Options::default().embed_adapter` is now
 `None`. To opt the adapter back in (when linking wasi-libc-built
-C code, for instance) pass `with_adapter(Some(AdapterKind::Command))`
-when constructing the options.
+C code, for instance) pass
+`with_adapter(Some(AdapterEmbed::new(AdapterKind::Command, bytes)))`
+when constructing the options. v0.19 stopped vendoring the
+adapter binaries in-tree, so `bytes` is caller-supplied —
+download the matching wasmtime release's
+`wasi_snapshot_preview1.command.wasm` and pass it in.
 
 ### v0.16 lifecycle notes (fs + http)
 
@@ -249,15 +264,17 @@ and conservative on resource-handle lifecycle:
 Mighty v0.15 targets **WASI 0.2.3**. The exact version string is
 exposed as `mty_codegen_wasm::WASI_P2_VERSION`. The vendored P2 WIT
 text lives at `crates/mty-codegen-wasm/wit/wasi-p2/wasi-p2.wit`
-(the full upstream wasi-cli + wasi-http surface, concatenated). The
-vendored P1→P2 adapter modules live alongside in
-`crates/mty-codegen-wasm/adapter/` and are sourced from wasmtime
-v32.0.0 — pinned to the same WASI version as the WIT. To upgrade
-both in lockstep, follow the procedure in
-`crates/mty-codegen-wasm/adapter/README.md`.
+(the full upstream wasi-cli + wasi-http surface, concatenated).
 
-`mty_codegen_wasm::WASI_P1_ADAPTER_VERSION` exposes the wasmtime
-release tag for the vendored adapter (e.g. `"wasmtime-v32.0.0"`).
+The P1→P2 adapter binaries (`wasi_snapshot_preview1.{command,
+reactor,proxy}.wasm`) used to be vendored alongside the WIT at
+`crates/mty-codegen-wasm/adapter/`. **v0.19 deleted them** — the
+default Mighty build does not import `wasi_snapshot_preview1`
+anywhere, so the ~150 KB cost (3 × ~50 KB) was pure dead weight
+on every consumer's `cargo build`. Callers that still need the
+adapter download the bytes from the matching wasmtime release
+(WASI 0.2.3 first stabilized in wasmtime v32.0.0) and pass them
+via `AdapterEmbed`.
 
 ## Roadmap
 
@@ -286,9 +303,14 @@ release tag for the vendored adapter (e.g. `"wasmtime-v32.0.0"`).
 - v0.18: full resource-handle lifecycle for `std.fs` (open +
   close scaffold around read/write/stat); full streaming layer
   for `std.http` (subscribe + poll loop on
-  `future-incoming-response`); drop the vendored adapter
-  binaries from the repo entirely once every Mighty program is
-  adapter-free.
+  `future-incoming-response`).
+- v0.19 (shipped): the vendored
+  `wasi_snapshot_preview1.{command,reactor,proxy}.wasm`
+  binaries are removed from `crates/mty-codegen-wasm/adapter/`.
+  Every Mighty-emitted program is adapter-free; callers that
+  link wasi-libc-built C code now download the matching
+  wasmtime release's adapter and pass the bytes via
+  `AdapterEmbed`. Closes the last v0.17/v0.18 carryover.
 - v1.0 RC4: P1 becomes a tier-2 target (still emitted on request but
   no longer the default; the documentation tree assumes P2).
 

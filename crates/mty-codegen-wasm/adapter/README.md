@@ -1,92 +1,62 @@
-# WASI Preview 1 → Preview 2 adapter modules
+# WASI Preview 1 → Preview 2 adapter modules — REMOVED in v0.19
 
-This directory vendors the official `wasi_snapshot_preview1`
+This directory used to vendor the official `wasi_snapshot_preview1`
 adapter modules built by the [Bytecode Alliance][bca]
-[`wasmtime`][wasmtime] project. They are *core* Wasm modules
-which export the legacy `wasi_snapshot_preview1` interface in
-terms of versioned WASI Preview 2 (0.2.x) interfaces, and are
-passed to `wit_component::ComponentEncoder::adapter()` so a core
-module emitting P1-shaped imports can be wrapped into a P2
-component without rewriting the core.
+[`wasmtime`][wasmtime] project (v32.0.0). The bytes were embedded into
+`mty-codegen-wasm` via `include_bytes!` so any P2 build could ship the
+P1→P2 hop without a network round-trip.
 
-## Files
+The vendored bytes are **gone** as of v0.19. The directory is kept so
+the `include_bytes!` paths in the v0.13–v0.18 history compile against
+checkouts of older tags, but no `.wasm` files live here today.
 
-| File | Use | Approx size |
-|------|-----|-------------|
-| `wasi_snapshot_preview1.command.wasm` | For *command* components (programs with a `main` export — the default for `mty build`) | ~54 KB |
-| `wasi_snapshot_preview1.reactor.wasm` | For *reactor* components (no `main`, e.g. libraries that export functions to be called by the host) | ~54 KB |
-| `wasi_snapshot_preview1.proxy.wasm` | For *proxy* components (`wasi-http` style — input is a request, output is a response) | ~18 KB |
+## Why?
 
-Mighty v0.14 only embeds `command.wasm` (every `mty build` produces
-a command-shaped component). The reactor + proxy variants are
-vendored alongside it so future slices that emit those component
-shapes don't need a second adapter-vendoring pass.
+- v0.15–v0.17 added direct P2 lowerings for every stdlib syscall
+  Mighty emits (`random`, `time`, `fs`, `http`, `log`). The default
+  Mighty build does not import `wasi_snapshot_preview1` at all.
+- v0.17 flipped `Preview2Options::default().embed_adapter` to `None`.
+  The vendored bytes were already opt-in.
+- v0.19 finishes the cleanup by removing the dead 150 KB of bytes
+  from every `cargo build` of the crate (3 files × ~50 KB).
 
-## Provenance
+## Need an adapter?
 
-These bytes were downloaded directly from the wasmtime v32.0.0
-GitHub release on 2026-05-25:
+Callers that link a `wasi-libc`-built C crate (or otherwise import
+`wasi_snapshot_preview1` directly from the core module) can still opt
+in via:
 
-```
-https://github.com/bytecodealliance/wasmtime/releases/download/v32.0.0/wasi_snapshot_preview1.command.wasm
-https://github.com/bytecodealliance/wasmtime/releases/download/v32.0.0/wasi_snapshot_preview1.reactor.wasm
-https://github.com/bytecodealliance/wasmtime/releases/download/v32.0.0/wasi_snapshot_preview1.proxy.wasm
-```
+```rust
+use mty_codegen_wasm::{AdapterEmbed, AdapterKind, Preview2Options};
 
-Wasmtime v32.0.0 is the first stable release whose adapter targets
-WASI **0.2.3** — the version Mighty's vendored P2 WIT slice
-declares (`crates/mty-codegen-wasm/wit/wasi-p2/wasi-p2.wit`).
-Earlier wasmtime releases shipped 0.2.0 / 0.2.2 adapters whose
-imports don't match our WIT contract (the `wit-component`
-encoder rejects a semver-incompatible "upgrade" mid-encoding).
-If we bump the WIT slice to a newer 0.2.x, also bump the adapter
-version here (and update the table above).
-
-## Verification
-
-The adapters are MVP-version Wasm core modules:
-
-```
-$ file wasi_snapshot_preview1.command.wasm
-WebAssembly (wasm) binary module version 0x1 (MVP)
+let bytes = std::fs::read("/path/to/wasi_snapshot_preview1.command.wasm")?;
+let opts = Preview2Options::new("my-pkg")
+    .with_adapter(Some(AdapterEmbed::new(AdapterKind::Command, bytes)));
 ```
 
-You can dump the imports/exports with `wasm-tools`:
+The bytes themselves are an upstream release artifact — download the
+adapter matching the WASI version your build targets from the
+corresponding [wasmtime release][wasmtime-releases]:
 
-```bash
-wasm-tools print wasi_snapshot_preview1.command.wasm | head
+```
+https://github.com/bytecodealliance/wasmtime/releases/download/<TAG>/wasi_snapshot_preview1.command.wasm
+https://github.com/bytecodealliance/wasmtime/releases/download/<TAG>/wasi_snapshot_preview1.reactor.wasm
+https://github.com/bytecodealliance/wasmtime/releases/download/<TAG>/wasi_snapshot_preview1.proxy.wasm
 ```
 
-The exports include the full `wasi_snapshot_preview1` surface
-(`fd_read`, `fd_write`, `path_open`, `clock_time_get`, …). The
-imports are versioned P2 interfaces (`wasi:io/streams@0.2.x`,
-`wasi:filesystem/types@0.2.x`, `wasi:clocks/wall-clock@0.2.x`, …).
+Mighty v0.18 targeted WASI 0.2.3, which first stabilized in
+wasmtime v32.0.0; bump in lockstep with whatever WIT slice
+`crates/mty-codegen-wasm/wit/wasi-p2/wasi-p2.wit` declares.
 
 ## License
 
-Wasmtime — and therefore these adapter bytes — is dual-licensed
-under Apache-2.0 (with LLVM exception) and MIT. See the upstream
+Wasmtime — and the adapter bytes it ships — is dual-licensed under
+Apache-2.0 (with LLVM exception) and MIT. See the upstream
 [`LICENSE`][wasmtime-license] for full text. Both licenses are
-compatible with Mighty's MIT license; vendoring the bytes
-verbatim is permitted under the Apache-2.0 source-redistribution
-clause provided this notice is preserved.
-
-## Why vendor at all?
-
-The alternative is to fetch the adapter at build time (e.g. via
-`build.rs`), but:
-
-- It introduces a network dependency on `cargo build`, which
-  breaks offline + reproducible builds.
-- The adapter is small (~80 KB compressed in-binary), and
-  Cargo's `include_bytes!` macro means it doesn't slow down
-  recompiles.
-- Vendoring lets us pin the exact adapter version against our
-  `wit-component` version with a single PR.
-
-The adapter version we ship is a *Mighty release artifact* — we
-intentionally don't track upstream wasmtime master.
+compatible with Mighty's MIT license; redistribute the bytes verbatim
+when you vendor them in your own tree.
 
 [bca]: https://bytecodealliance.org/
 [wasmtime]: https://github.com/bytecodealliance/wasmtime
+[wasmtime-releases]: https://github.com/bytecodealliance/wasmtime/releases
 [wasmtime-license]: https://github.com/bytecodealliance/wasmtime/blob/main/LICENSE

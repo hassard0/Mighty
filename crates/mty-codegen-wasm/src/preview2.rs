@@ -36,11 +36,14 @@
 //!
 //! `wasi:filesystem@0.2.3` resource methods (descriptor `read-via-stream`
 //! etc.) are declared but not wired through from `std.fs`. Calls to
-//! `std.fs.read` still lower to the P1 import shape; under v0.14 the
-//! component now embeds the official `wasi_snapshot_preview1` adapter
-//! (vendored from wasmtime v32.0.0 — see `crates/mty-codegen-wasm/adapter/`)
-//! so the P1-shaped calls are translated to versioned P2 imports at
-//! instantiation time. The boundary is documented in
+//! `std.fs.read` still lower to the P1 import shape; before v0.17 the
+//! component embedded a vendored `wasi_snapshot_preview1` adapter built
+//! from wasmtime v32.0.0 so the P1-shaped calls could be translated to
+//! versioned P2 imports at instantiation time. v0.17 flipped the default
+//! to `None` (every stdlib call now has a direct P2 lowering) and v0.19
+//! removed the vendored adapter bytes entirely — callers that still need
+//! to link wasi-libc C code can supply their own bytes via
+//! [`Preview2Options::with_adapter`]. The boundary is documented in
 //! `docs/reference/wasi.md` and `WASI_P2_LOWERINGS_V0_14_NOTES.md`.
 //!
 //! ### v0.14 direct-import lowering helpers
@@ -74,45 +77,17 @@ pub const VENDORED_WASI_P2_WIT: &str = include_str!("../wit/wasi-p2/wasi-p2.wit"
 /// The WASI P2 version Mighty v0.13 targets.
 pub const WASI_P2_VERSION: &str = "0.2.3";
 
-/// Upstream `wasmtime` release tag the vendored P1→P2 adapter modules
-/// were built from. Surfaced for tests + docs; bump in lockstep with
-/// the bytes in `crates/mty-codegen-wasm/adapter/`. v32.0.0 is the
-/// first wasmtime release whose adapter targets WASI 0.2.3, matching
-/// Mighty's [`WASI_P2_VERSION`].
-pub const WASI_P1_ADAPTER_VERSION: &str = "wasmtime-v32.0.0";
-
-/// Official `wasi_snapshot_preview1` → P2 adapter for **command**
-/// components (programs with a `main` export — what `mty build`
-/// produces by default). Vendored from wasmtime
-/// [`WASI_P1_ADAPTER_VERSION`].
+/// Which P1→P2 adapter shape a caller is supplying. Driven by the
+/// component "kind" the build produces (command/reactor/proxy).
+/// `mty build` only emits commands today so [`AdapterKind::Command`]
+/// is the most common pick.
 ///
-/// Passed to [`wit_component::ComponentEncoder::adapter`] when a P2
-/// build wraps a core module so the core module's P1-shaped imports
-/// (`wasi_snapshot_preview1#fd_write`, `clock_time_get`, …) are
-/// translated into versioned P2 interface calls at instantiation.
-pub const WASI_P1_ADAPTER_COMMAND: &[u8] =
-    include_bytes!("../adapter/wasi_snapshot_preview1.command.wasm");
-
-/// Official `wasi_snapshot_preview1` → P2 adapter for **reactor**
-/// components (libraries that don't ship a `main`). Vendored from
-/// wasmtime [`WASI_P1_ADAPTER_VERSION`]. Not yet wired into Mighty's
-/// build path (`mty build` only emits command components) but
-/// vendored alongside the command adapter so future slices can opt in
-/// without a second vendoring pass.
-pub const WASI_P1_ADAPTER_REACTOR: &[u8] =
-    include_bytes!("../adapter/wasi_snapshot_preview1.reactor.wasm");
-
-/// Official `wasi_snapshot_preview1` → P2 adapter for **proxy**
-/// (wasi-http) components. Vendored from wasmtime
-/// [`WASI_P1_ADAPTER_VERSION`]. Not yet wired into Mighty's build
-/// path; see [`WASI_P1_ADAPTER_REACTOR`] for the same rationale.
-pub const WASI_P1_ADAPTER_PROXY: &[u8] =
-    include_bytes!("../adapter/wasi_snapshot_preview1.proxy.wasm");
-
-/// Which P1→P2 adapter shape to embed when wrapping a core module
-/// into a P2 component. Driven by the component "kind" the build
-/// produces (command/reactor/proxy). `mty build` only emits
-/// commands today so [`AdapterKind::Command`] is the default.
+/// As of v0.19 Mighty no longer vendors any adapter bytes — the kind
+/// enum is kept so the wrapping path can decide whether to synthesize
+/// the `_start` alias required for command-shape adapters. Callers
+/// that want adapter wrapping supply their own bytes via
+/// [`Preview2Options::with_adapter`] (typically downloaded from the
+/// matching wasmtime release for their target WASI version).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AdapterKind {
     /// `wasi_snapshot_preview1.command.wasm` — programs with `main`.
@@ -125,15 +100,6 @@ pub enum AdapterKind {
 }
 
 impl AdapterKind {
-    /// Borrow the vendored adapter bytes for this kind.
-    pub fn bytes(self) -> &'static [u8] {
-        match self {
-            AdapterKind::Command => WASI_P1_ADAPTER_COMMAND,
-            AdapterKind::Reactor => WASI_P1_ADAPTER_REACTOR,
-            AdapterKind::Proxy => WASI_P1_ADAPTER_PROXY,
-        }
-    }
-
     /// Human-readable name (matches the upstream file stem). Used by
     /// the `wit-component` adapter API — the same string the core
     /// module's imports name (`wasi_snapshot_preview1`).
@@ -142,6 +108,36 @@ impl AdapterKind {
         // name; the difference is in what they import and how they
         // instantiate.
         "wasi_snapshot_preview1"
+    }
+}
+
+/// Caller-supplied P1→P2 adapter bytes plus the kind they correspond
+/// to. v0.19 no longer ships vendored adapter bytes in-tree — programs
+/// that need adapter wrapping (typically because they bundle a
+/// wasi-libc-built C crate) download the matching adapter from the
+/// upstream wasmtime release and pass it here.
+///
+/// The [`AdapterKind`] tag drives the small bit of conditional logic
+/// in [`wrap_p2`] that aliases `main` as `_start` for command-shape
+/// adapters (the wasmtime command adapter's `wasi:cli/run.run`
+/// re-export looks for a `_start` export).
+#[derive(Debug, Clone)]
+pub struct AdapterEmbed {
+    /// Which adapter shape these bytes correspond to. Drives
+    /// `_start`-alias scaffolding in the wrapper.
+    pub kind: AdapterKind,
+    /// The raw `wasi_snapshot_preview1.*.wasm` bytes the caller wants
+    /// `wit-component` to embed.
+    pub bytes: Vec<u8>,
+}
+
+impl AdapterEmbed {
+    /// Convenience constructor — same field order as the struct.
+    pub fn new(kind: AdapterKind, bytes: impl Into<Vec<u8>>) -> Self {
+        Self {
+            kind,
+            bytes: bytes.into(),
+        }
     }
 }
 
@@ -589,16 +585,19 @@ pub struct Preview2Options {
     /// `mty_pkg::wit_resolve`). When `Some`, the user's package is
     /// merged into the component's exported world.
     pub user_wit: Option<UserWit>,
-    /// Embed the vendored P1→P2 adapter when wrapping. v0.14 default:
-    /// `Some(AdapterKind::Command)` — every Mighty build today emits a
-    /// command-shaped component, and the adapter lets the core
-    /// module's existing `wasi_snapshot_preview1`-shaped imports
-    /// translate into versioned P2 interface calls at instantiation.
+    /// Caller-supplied P1→P2 adapter to embed when wrapping. v0.17
+    /// default: `None` — every stdlib call lowers directly to a
+    /// versioned P2 import so no adapter hop is required.
     ///
-    /// Set to `None` for builds that already speak pure P2 (when the
-    /// v0.15 direct-lowering work lands). Set to a different
-    /// [`AdapterKind`] for reactor/proxy components.
-    pub embed_adapter: Option<AdapterKind>,
+    /// Set to `Some(AdapterEmbed { kind, bytes })` when the core
+    /// module bundles a `wasi-libc`-compiled C crate or otherwise
+    /// imports `wasi_snapshot_preview1` directly. The bytes are
+    /// caller-supplied because v0.19 no longer vendors the adapter
+    /// in-tree (the default path doesn't need it and we don't want
+    /// every Mighty consumer paying the ~150 KB cost). Sources:
+    /// the matching wasmtime release's
+    /// `wasi_snapshot_preview1.{command,reactor,proxy}.wasm`.
+    pub embed_adapter: Option<AdapterEmbed>,
 }
 
 /// A user-authored WIT package, pre-loaded by the caller (typically
@@ -643,16 +642,18 @@ impl Preview2Options {
         self
     }
 
-    /// Override the embedded adapter kind.
+    /// Override the embedded adapter.
     ///
     /// `None` (the v0.17 default) skips adapter embedding — safe
     /// when the core module exclusively imports versioned P2
     /// interfaces (true for any all-Mighty program since v0.17).
-    /// `Some(AdapterKind::Command)` matches the v0.13–v0.16
-    /// default and is the right call when the core module bundles
-    /// a wasi-libc-compiled C crate or otherwise imports
-    /// `wasi_snapshot_preview1` directly.
-    pub fn with_adapter(mut self, adapter: Option<AdapterKind>) -> Self {
+    /// `Some(AdapterEmbed::new(AdapterKind::Command, bytes))`
+    /// reattaches a caller-supplied adapter; pre-v0.19 builds got
+    /// the bytes from the in-tree
+    /// `crates/mty-codegen-wasm/adapter/` directory, v0.19+ callers
+    /// download the matching wasmtime release and pass the bytes
+    /// here.
+    pub fn with_adapter(mut self, adapter: Option<AdapterEmbed>) -> Self {
         self.embed_adapter = adapter;
         self
     }
@@ -692,10 +693,10 @@ pub fn emit_wit_p2(_prog: &Program, opts: &Preview2Options) -> CompileResult<Wit
         "// Target: wasm32-wasi, WASI version: {}.\n",
         WASI_P2_VERSION
     ));
-    user_body.push_str(&format!(
-        "// Adapter: {} (wasi_snapshot_preview1 → P2).\n\n",
-        WASI_P1_ADAPTER_VERSION
-    ));
+    user_body.push_str(
+        "// Adapter: caller-supplied (none by default since v0.17; bytes\n\
+         // are no longer vendored in-tree as of v0.19).\n\n",
+    );
 
     // -- 1. The synthesized Mighty package + its primary world. This
     //       must be a *top-level* `package X:Y;` so the resolver
@@ -803,7 +804,12 @@ pub fn compile_program_to_bytes_p2(
 ) -> CompileResult<Vec<u8>> {
     let core = compile_program_to_bytes_with_preview(prog, WasmTarget::Wasi, EmitWasiPreview::P2)?;
     let doc = emit_wit_p2(prog, opts)?;
-    wrap_p2(&core, &doc, opts.embed_adapter, opts.user_wit.as_ref())
+    wrap_p2(
+        &core,
+        &doc,
+        opts.embed_adapter.as_ref(),
+        opts.user_wit.as_ref(),
+    )
 }
 
 /// Compile a program to `out` as a P2 component. Returns the WIT
@@ -815,7 +821,12 @@ pub fn compile_program_to_file_p2(
 ) -> CompileResult<(Vec<u8>, WitDocument)> {
     let core = compile_program_to_bytes_with_preview(prog, WasmTarget::Wasi, EmitWasiPreview::P2)?;
     let doc = emit_wit_p2(prog, opts)?;
-    let bytes = wrap_p2(&core, &doc, opts.embed_adapter, opts.user_wit.as_ref())?;
+    let bytes = wrap_p2(
+        &core,
+        &doc,
+        opts.embed_adapter.as_ref(),
+        opts.user_wit.as_ref(),
+    )?;
     std::fs::write(out, &bytes)
         .map_err(|e| WasmError::Io(format!("write {}: {}", out.display(), e)))?;
     Ok((bytes, doc))
@@ -827,17 +838,17 @@ pub fn compile_program_to_file_p2(
 /// [`crate::component::wrap_as_component`], which assumes the world
 /// lives in the document's primary package.
 ///
-/// When `embed_adapter` is `Some`, the vendored
-/// `wasi_snapshot_preview1` adapter is passed to
+/// When `embed_adapter` is `Some`, the caller-supplied
+/// `wasi_snapshot_preview1` adapter bytes are passed to
 /// [`wit_component::ComponentEncoder::adapter`] so the core module's
 /// P1-shaped imports are translated into versioned P2 calls at
-/// instantiation. The adapter add ~80 KB to the component (mostly
+/// instantiation. The adapter adds ~80 KB to the component (mostly
 /// constant; wasmtime strips unused adapter exports during
 /// `ComponentEncoder::encode`).
 fn wrap_p2(
     core_module: &[u8],
     doc: &WitDocument,
-    embed_adapter: Option<AdapterKind>,
+    embed_adapter: Option<&AdapterEmbed>,
     user_wit: Option<&UserWit>,
 ) -> CompileResult<Vec<u8>> {
     // Re-derive the per-package text the way `emit_wit_p2` did so the
@@ -921,7 +932,7 @@ fn wrap_p2(
     // Only run this when the core module is missing `_start` —
     // if a future emitter path provides it directly we leave the
     // module untouched.
-    if matches!(embed_adapter, Some(AdapterKind::Command))
+    if matches!(embed_adapter.map(|a| a.kind), Some(AdapterKind::Command))
         && !module_exports_func(&module_bytes, "_start")
     {
         module_bytes = alias_main_as_start(&module_bytes)?;
@@ -939,13 +950,13 @@ fn wrap_p2(
         .validate(true)
         .module(&module_bytes)
         .map_err(|e| WasmError::Invalid(format!("p2 component encoder module: {e:#}")))?;
-    if let Some(kind) = embed_adapter {
+    if let Some(adapter) = embed_adapter {
         enc = enc
-            .adapter(kind.import_module_name(), kind.bytes())
+            .adapter(adapter.kind.import_module_name(), &adapter.bytes)
             .map_err(|e| {
                 WasmError::Invalid(format!(
                     "p2 adapter embed ({}): {e:#}",
-                    kind.import_module_name()
+                    adapter.kind.import_module_name()
                 ))
             })?;
     }

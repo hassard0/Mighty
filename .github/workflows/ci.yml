@@ -92,6 +92,13 @@ jobs:
   # `--no-default-features` job catches feature-gated breakage that
   # the default test job hides. Runs on Linux only — features are
   # uniform across OSes.
+  #
+  # v0.19 (KNOWN_ISSUES #7 closure): the example sweep now runs under
+  # `--no-default-features` too. The default-features sweep above
+  # already runs on every push, but a feature-gated regression in
+  # the example corpus (e.g. an `#[cfg(feature = "...")]` reach into
+  # an opt-in stdlib path) would slip past it. Adding the sweep here
+  # closes the last v0.9-era P2 paper-cut.
   # ----------------------------------------------------------------
   test-minimal:
     name: test (minimal features)
@@ -112,6 +119,23 @@ jobs:
       - name: cargo test (no default features)
         run: cargo test --workspace --no-default-features
 
+      - name: example sweep (no-default-features)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Mirror the default-features example sweep (see `test` job)
+          # but with `--no-default-features` on the CLI build. The
+          # `@typeck-pending` skip-list rules are the same — fmt is
+          # checked in the default job so we only re-check syntax /
+          # typeck here.
+          for f in examples/*.mty; do
+            if grep -q '@typeck-pending' "$f"; then
+              echo "skip (typeck-pending): $f"
+            else
+              cargo run -q --no-default-features -p mty-cli -- check "$f"
+            fi
+          done
+
   # ----------------------------------------------------------------
   # Stricter clippy pass — pedantic lints are enabled at the
   # workspace level via `[workspace.lints.clippy]` in the root
@@ -119,7 +143,9 @@ jobs:
   # Tightening the bar is a one-line edit to that table; see
   # `dev/history/notes/CLIPPY_V0_11_NOTES.md` for the rationale.
   #
-  # v0.11: this job is now required (no `continue-on-error`).
+  # v0.11: this job is required (no `continue-on-error`).
+  # v0.19 (KNOWN_ISSUES #4 closure): verified — the job has no
+  # `continue-on-error: true` and a clippy failure blocks merge.
   # ----------------------------------------------------------------
   clippy-strict:
     name: clippy (strict)

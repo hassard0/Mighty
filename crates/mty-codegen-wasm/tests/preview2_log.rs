@@ -32,8 +32,8 @@
 mod common;
 
 use mty_codegen_wasm::{
-    compile_program_to_bytes_p2, compile_program_to_bytes_with_preview, is_component, AdapterKind,
-    EmitWasiPreview, P2DirectImport, Preview2Options, WasmTarget, WASI_P1_ADAPTER_COMMAND,
+    compile_program_to_bytes_p2, compile_program_to_bytes_with_preview, is_component, AdapterEmbed,
+    AdapterKind, EmitWasiPreview, P2DirectImport, Preview2Options, WasmTarget,
 };
 
 /// Build a Program that calls `log(literal_string)` from `main`.
@@ -223,63 +223,46 @@ fn default_adapter_is_none() {
 }
 
 #[test]
-fn explicit_adapter_opt_in_works() {
+fn explicit_adapter_opt_in_roundtrips() {
     // The opt-in path remains supported for back-compat: callers
     // that link wasi-libc-built C code can still ask for the
-    // adapter via `with_adapter(Some(...))`.
-    let opts = Preview2Options::new("opt-in-adapter").with_adapter(Some(AdapterKind::Command));
-    assert_eq!(
-        opts.embed_adapter,
-        Some(AdapterKind::Command),
-        "opt-in adapter must round-trip",
-    );
-
-    // And the resulting component must still validate, with the
-    // adapter physically embedded (we can't introspect "adapter
-    // present" directly, but we can check size > default).
-    let prog = log_call_program("opt-in adapter present");
-    let bytes = compile_program_to_bytes_p2(&prog, &opts).expect("compile + wrap with adapter");
-    let mut v = wasmparser::Validator::new_with_features(wasmparser::WasmFeatures::all());
-    v.validate_all(&bytes)
-        .expect("p2 component with adapter still validates");
+    // adapter via `with_adapter(Some(AdapterEmbed { ... }))`.
+    //
+    // v0.19 no longer vendors the adapter bytes in-tree, so the
+    // caller supplies them; this test pins the API surface
+    // (kind + bytes round-trip into `embed_adapter`) without
+    // attempting to drive a real `wit-component` encode through
+    // the adapter path — that needs *real* wasmtime adapter
+    // bytes which the caller is now responsible for sourcing.
+    let mock_bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+    let opts = Preview2Options::new("opt-in-adapter").with_adapter(Some(AdapterEmbed::new(
+        AdapterKind::Command,
+        mock_bytes.clone(),
+    )));
+    let stored = opts
+        .embed_adapter
+        .as_ref()
+        .expect("embed_adapter must be Some");
+    assert_eq!(stored.kind, AdapterKind::Command);
+    assert_eq!(stored.bytes, mock_bytes);
 }
 
 #[test]
-fn log_program_no_adapter_runs_smaller() {
-    // With the adapter opted out (v0.17 default), a log()-shaped
-    // component ships smaller bytes than the same program built
-    // with the adapter embedded. The exact delta depends on
-    // wit-component's tree-shaking but the adapter contributes
-    // ≥ ~10 KB even after stripping unused exports.
-    let prog = log_call_program("size comparison");
-    let no_adapter = compile_program_to_bytes_p2(&prog, &Preview2Options::new("no-adapter"))
+fn log_program_compiles_adapter_free_by_default() {
+    // Smoke test that a log()-heavy program compiles cleanly under
+    // the v0.17 default (no adapter embedded) and produces a
+    // valid Component-Model component. The previous
+    // `log_program_no_adapter_runs_smaller` size-comparison test
+    // is retired in v0.19 because the comparison required real
+    // vendored adapter bytes that no longer ship in-tree.
+    let prog = log_call_program("adapter-free smoke");
+    let bytes = compile_program_to_bytes_p2(&prog, &Preview2Options::new("adapter-free"))
         .expect("compile no-adapter");
-    let with_adapter = compile_program_to_bytes_p2(
-        &prog,
-        &Preview2Options::new("with-adapter").with_adapter(Some(AdapterKind::Command)),
-    )
-    .expect("compile with-adapter");
 
-    assert!(
-        no_adapter.len() < with_adapter.len(),
-        "no-adapter component ({} bytes) should be smaller than with-adapter ({} bytes)",
-        no_adapter.len(),
-        with_adapter.len(),
-    );
-    // And it should be meaningfully smaller — adapter bytes are
-    // ≥ 10 KB even after the wit-component stripper runs.
-    let savings = with_adapter.len() - no_adapter.len();
-    assert!(
-        savings >= 1024,
-        "expected at least 1 KiB of savings from dropping the adapter, got {savings} bytes",
-    );
-    // Sanity check that the adapter binary itself is what we think
-    // it is — the saving should be on the order of the embedded
-    // adapter's size after stripping.
-    assert!(
-        WASI_P1_ADAPTER_COMMAND.len() > 10_000,
-        "vendored command-adapter should be larger than 10 KiB",
-    );
+    let mut v = wasmparser::Validator::new_with_features(wasmparser::WasmFeatures::all());
+    v.validate_all(&bytes)
+        .expect("p2 log component should validate without adapter");
+    assert!(is_component(&bytes));
 }
 
 // ============================================================

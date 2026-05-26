@@ -84,27 +84,32 @@ fixed in this prep; the rest are P1 or below.
 - **Status**: **resolved in v0.18** — see commit history for the
   `ci.yml::msrv` block reshuffle.
 
-### 4. `clippy-strict` job is `continue-on-error: true`
+### 4. `clippy-strict` job is `continue-on-error: true` (RESOLVED v0.11; re-verified v0.19)
 
 - **Where**: `.github/workflows/ci.yml::clippy-strict`
-- **Symptom**: pedantic lint regressions slip past CI.
-- **Workaround**: run locally before pushing —
-  `cargo clippy --workspace --all-targets -- -D warnings -W clippy::pedantic`.
-- **Fix plan**: shrink the allow-list iteratively until the job can
-  be flipped to `continue-on-error: false` (target v1.0-RC).
+- **Symptom**: pedantic lint regressions slipped past CI.
+- **Status**: **RESOLVED**. v0.11 shrank the workspace allow-list far
+  enough to flip the job to required; v0.19 audited the workflow
+  file and confirmed there is no `continue-on-error: true` on
+  `clippy-strict` (the comment block on the job spells out the gate
+  is now hard-required). A clippy failure blocks merge.
+- **Local repro**: `cargo clippy --workspace --all-targets -- -D
+  warnings` — same command the CI job runs.
 
 ---
 
 ## P2 — quality-of-life
 
-### 5. `mkdocs build` runs without `--strict`
+### 5. `mkdocs build` runs without `--strict` (RESOLVED v0.10; re-verified v0.19)
 
 - **Where**: `.github/workflows/pages.yml`
-- **Symptom**: broken intra-doc links don't fail CI.
-- **Workaround**: build locally with `mkdocs build --strict` before
-  big doc reorgs.
-- **Fix plan (v0.10)**: audit + fix every stale link, then flip
-  `--strict` on.
+- **Symptom**: broken intra-doc links didn't fail CI.
+- **Status**: **RESOLVED**. v0.10 audited + fixed ~55 stale links and
+  flipped the build step to `mkdocs build --strict`. v0.19 re-verified
+  the workflow file still runs in strict mode (the step name is
+  literally `mkdocs build (strict)` with `--strict --site-dir site/`).
+- **Local repro**: `mkdocs build --strict` — same flag the CI job
+  uses.
 
 ### 6. Demo 02 `web/index.html` does not yet exercise the new realloc
 
@@ -119,14 +124,19 @@ fixed in this prep; the rest are P1 or below.
   `instance.exports.cabi_realloc()` for each string return — would
   align fully with the canonical-ABI spec.
 
-### 7. `--no-default-features` test job does not run the example sweep
+### 7. `--no-default-features` test job does not run the example sweep (RESOLVED v0.19)
 
 - **Where**: `.github/workflows/ci.yml::test-minimal`
-- **Symptom**: a feature-gated example regression goes undetected
-  until someone runs the full matrix.
-- **Workaround**: rerun the default test job for any change that
-  touches `[features]` blocks.
-- **Fix plan**: add an `examples-sweep` step under `test-minimal`.
+- **Symptom**: a feature-gated example regression went undetected
+  until someone ran the full matrix.
+- **Status**: **RESOLVED** in v0.19. The `test-minimal` job grew an
+  `example sweep (no-default-features)` step that mirrors the
+  default-features sweep (skipping `@typeck-pending` files) but
+  invokes `cargo run --no-default-features -p mty-cli -- check
+  <file>`. A `#[cfg(feature = "...")]` reach from the example
+  corpus into an opt-in stdlib path now fails CI.
+- **Local repro**: `cargo run --no-default-features -p mty-cli --
+  check examples/<file>.mty` for each example.
 
 ---
 

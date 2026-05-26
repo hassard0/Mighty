@@ -16,9 +16,7 @@ mod common;
 
 use mty_codegen_wasm::{
     build_direct_p2_probe_module, compile_program_to_bytes_p2, compile_program_to_file_p2,
-    emit_wit_p2, is_component, AdapterKind, P2DirectImport, Preview2Options, UserWit,
-    WASI_P1_ADAPTER_COMMAND, WASI_P1_ADAPTER_PROXY, WASI_P1_ADAPTER_REACTOR,
-    WASI_P1_ADAPTER_VERSION,
+    emit_wit_p2, is_component, AdapterEmbed, AdapterKind, P2DirectImport, Preview2Options, UserWit,
 };
 
 #[test]
@@ -247,40 +245,24 @@ fn component_type_section_contains(bytes: &[u8], needle: &str) -> bool {
 
 // ============================================================
 // v0.14 — adapter + direct-import lowering coverage.
+//
+// v0.19 deleted the vendored `wasi_snapshot_preview1.*.wasm`
+// bytes from the crate. The default P2 build path doesn't import
+// `wasi_snapshot_preview1` at all (every stdlib call has a direct
+// P2 lowering since v0.17), so the adapter is now purely opt-in
+// and the bytes are caller-supplied via `AdapterEmbed`. Tests
+// below exercise the default (no-adapter) path end-to-end; the
+// opt-in path is exercised at the API-shape level (constructing
+// an `AdapterEmbed` and confirming it lands in `embed_adapter`)
+// because invoking `wit-component::ComponentEncoder::adapter`
+// requires a *real* adapter, which is no longer in-tree.
 // ============================================================
-
-/// Check that the three vendored adapter binaries are *non-empty*
-/// MVP-version Wasm modules. Cheap smoke test that the
-/// `include_bytes!` macro found the right files at build time.
-#[test]
-fn adapter_bytes_are_present_and_wasm_shaped() {
-    for (label, bytes) in [
-        ("command", WASI_P1_ADAPTER_COMMAND),
-        ("reactor", WASI_P1_ADAPTER_REACTOR),
-        ("proxy", WASI_P1_ADAPTER_PROXY),
-    ] {
-        assert!(
-            bytes.len() > 4,
-            "{label} adapter is empty / too small ({} bytes)",
-            bytes.len()
-        );
-        // Wasm magic + version = `\0asm\x01\x00\x00\x00`.
-        assert_eq!(
-            &bytes[..8],
-            &[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
-            "{label} adapter missing Wasm magic preamble"
-        );
-    }
-    assert!(WASI_P1_ADAPTER_VERSION.starts_with("wasmtime-"));
-}
 
 /// When the P2 build path runs with the v0.17 default
 /// (`embed_adapter = None`) the resulting component must
 /// validate AND its import section must not reference
 /// `wasi_snapshot_preview1` at the component-imports layer
 /// (the adapter is gone entirely; there's nothing to wrap).
-/// Opting back in via `with_adapter(Some(...))` is exercised by
-/// `tests/preview2_log.rs::explicit_adapter_opt_in_works`.
 #[test]
 fn adapter_default_none_for_p2() {
     let prog = common::empty_main();
@@ -305,9 +287,9 @@ fn adapter_default_none_for_p2() {
 }
 
 /// With `embed_adapter = None`, the produced component must still
-/// validate (since the slice-8 core module currently doesn't import
-/// any `wasi_snapshot_preview1` calls). This pins the opt-out path
-/// for the v0.15 direct-only lowering future.
+/// validate (since the slice-8 core module doesn't import any
+/// `wasi_snapshot_preview1` calls under the v0.17 direct-lowering
+/// path). This pins the opt-out path.
 #[test]
 fn adapter_can_be_opted_out() {
     let prog = common::empty_main();
@@ -321,31 +303,32 @@ fn adapter_can_be_opted_out() {
     assert!(is_component(&bytes));
 }
 
-/// Two builds with and without the adapter should differ in size —
-/// the adapter contributes ~tens of KB. Cheap smoke that the
-/// opt-in / opt-out paths actually splice or skip the bytes.
-/// (v0.17 inverted the default — the explicit `with_adapter(Some(...))`
-/// call is now the one that adds bytes.)
+/// API-shape coverage for the opt-in path. `with_adapter(Some(_))`
+/// must round-trip a caller-supplied `AdapterEmbed` into
+/// `embed_adapter` field-for-field. v0.19 no longer vendors the
+/// adapter bytes in-tree, so we don't try to drive
+/// `compile_program_to_bytes_p2` through this path (it requires a
+/// *real* P1→P2 adapter for wit-component to accept).
 #[test]
-fn adapter_changes_component_size() {
-    let prog = common::empty_main();
-    let no_adapter = compile_program_to_bytes_p2(&prog, &Preview2Options::new("smoke"))
-        .expect("emit p2 (default = no adapter, v0.17)");
-    let with_adapter = compile_program_to_bytes_p2(
-        &prog,
-        &Preview2Options::new("smoke").with_adapter(Some(AdapterKind::Command)),
-    )
-    .expect("emit p2 with adapter");
-
-    // The exact delta depends on wit-component's stripping pass, but
-    // the adapter-on path must be at least somewhat larger when the
-    // adapter contributes any code.
-    assert!(
-        with_adapter.len() >= no_adapter.len(),
-        "with-adapter ({} bytes) should be >= no-adapter ({} bytes)",
-        with_adapter.len(),
-        no_adapter.len()
-    );
+fn adapter_opt_in_roundtrips_bytes_and_kind() {
+    // Cheap synthetic bytes — wasm magic + version, nothing else.
+    // We never hand them to wit-component; the test only checks
+    // that the API plumbs them into `embed_adapter`.
+    let mock_bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+    for kind in [
+        AdapterKind::Command,
+        AdapterKind::Reactor,
+        AdapterKind::Proxy,
+    ] {
+        let opts = Preview2Options::new("opt-in")
+            .with_adapter(Some(AdapterEmbed::new(kind, mock_bytes.clone())));
+        let stored = opts.embed_adapter.as_ref().expect("embed_adapter set");
+        assert_eq!(stored.kind, kind);
+        assert_eq!(stored.bytes, mock_bytes);
+        // The kind tag still drives the legacy module name the core
+        // module's P1 imports reference.
+        assert_eq!(kind.import_module_name(), "wasi_snapshot_preview1");
+    }
 }
 
 /// Validate that a probe module declaring a direct
@@ -459,17 +442,18 @@ fn p2_direct_import_names_match_stdlib_constants() {
     );
 }
 
-/// `AdapterKind::bytes()` must point at non-empty Wasm-shaped bytes.
+/// `AdapterKind::import_module_name()` is the only piece of the
+/// enum that survives v0.19 (the `bytes()` accessor is gone with
+/// the vendored adapter modules). Each kind must report the same
+/// legacy module name — that's the name the core module's P1
+/// imports reference and what wit-component matches on.
 #[test]
-fn adapter_kind_bytes_are_wasm_shaped() {
+fn adapter_kind_import_module_name_is_stable() {
     for kind in [
         AdapterKind::Command,
         AdapterKind::Reactor,
         AdapterKind::Proxy,
     ] {
-        let b = kind.bytes();
-        assert!(b.len() > 4);
-        assert_eq!(&b[..4], &[0x00, 0x61, 0x73, 0x6d]);
         assert_eq!(kind.import_module_name(), "wasi_snapshot_preview1");
     }
 }

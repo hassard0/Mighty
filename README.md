@@ -129,13 +129,16 @@ Then:
 - Cranelift JIT + AOT object emission (default)
 - LLVM backend (`--features llvm`)
 - WASI Preview 2 **default for `wasm32-wasi`** (explicit `--wasi=p1`
-  opts back to v0.13/v0.14 behaviour); the embedded preview1-adapter
-  is now **opt-in** via `Preview2Options::with_adapter(Some(...))`
-  rather than always-on. `std.fs.*` / `std.http.*` / `std.random.*`
-  / `std.time.*` / `log()` all emit direct versioned P2 imports
-  (`wasi:filesystem` / `wasi:http` / `wasi:random` / `wasi:clocks` /
-  `wasi:cli/stdout` + `wasi:io/streams`); no surface still flows
-  through the adapter on a default build
+  opts back to v0.13/v0.14 behaviour); the preview1 adapter is
+  **opt-in** via
+  `Preview2Options::with_adapter(Some(AdapterEmbed::new(kind, bytes)))`
+  rather than always-on, and the vendored bytes were dropped from
+  the crate in v0.19 — callers download the matching wasmtime
+  release's adapter when they need it. `std.fs.*` / `std.http.*` /
+  `std.random.*` / `std.time.*` / `log()` all emit direct versioned
+  P2 imports (`wasi:filesystem` / `wasi:http` / `wasi:random` /
+  `wasi:clocks` / `wasi:cli/stdout` + `wasi:io/streams`); no
+  surface still flows through the adapter on a default build
 - **Real free-list `cabi_realloc` (v0.18)** — extracted from
   `emit.rs` into `cabi_realloc.rs`; segregated free-list with 8 size
   classes (8B → 1024B, powers of 2) + a large bump path, with
