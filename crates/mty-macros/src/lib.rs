@@ -30,8 +30,10 @@ pub use diag::{
     PROC_MACRO_RESOURCE_EXCEEDED, PROC_MACRO_UNSUPPORTED_V0_5, RECURSIVE_MACRO_TOO_DEEP,
     UNKNOWN_MACRO,
 };
+#[allow(deprecated)]
+pub use expand::{expand, expand_to_source};
 pub use expand::{
-    expand, expand_scoped, expand_to_source, ExpandError, MacroContext, ScopedExpansion,
+    expand_scoped, expand_scoped_to_source, ExpandError, MacroContext, ScopedExpansion,
 };
 pub use hygiene::{strip_scopes, HygieneEnv, ScopedTok};
 pub use proc::{

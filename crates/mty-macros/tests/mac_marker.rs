@@ -4,6 +4,8 @@
 //! and expands correctly. The args are extracted by splitting the
 //! opaque TOKEN_TREE on commas at depth 0.
 
+#![allow(deprecated)] // exercises legacy `expand_to_source` (removal scheduled for v0.15)
+
 use mty_ast::{AstNode, File};
 use mty_macros::{expand_to_source, MacroRegistry};
 use mty_syntax::{SyntaxKind, SyntaxNode};

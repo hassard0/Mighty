@@ -4,6 +4,8 @@
 //! common pattern shapes so macros can locally bind multi-value `let`
 //! results without capturing caller scope.
 
+#![allow(deprecated)] // exercises legacy `expand_to_source` (removal scheduled for v0.15)
+
 use mty_ast::{AstNode, File};
 use mty_macros::{expand_to_source, MacroRegistry};
 use mty_syntax::SyntaxNode;

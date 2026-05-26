@@ -299,3 +299,127 @@ slice may merge them into the central catalog.
   needs a `$(...)*` repetition syntax similar to Rust macro_rules.
 * **`#[proc_macro]` attribute form** — once attributes support
   functional application.
+
+## v0.13 set-of-scopes hygiene (RFC-009) — infrastructure
+
+v0.13 added the substrate for "Bindings as Sets of Scopes" (Flatt 2016,
+POPL) alongside the existing mangler. Three modules in `mty-macros`:
+
+| Module     | Type                | Purpose                                  |
+|------------|---------------------|------------------------------------------|
+| `scopes`   | `Scopes`, `ScopeId`, `ScopeGen` | Scope-set data type; allocator |
+| `scopes`   | `resolve(name, candidates) -> Result<Option<P>, ResolveAmbiguity>` | Pick the binding whose scope set is the maximal subset of the name's scope set |
+| `hygiene`  | `ScopedTok`, `HygieneEnv` | Token + scope-set pair; per-invocation env |
+| `expand`   | `expand_scoped(...) -> ScopedExpansion` | Scope-aware expansion |
+
+The Flatt rules embedded in `expand_scoped`:
+
+* Every macro invocation mints a *fresh scope* via `ScopeGen::fresh`.
+* Body-introduced tokens carry `def_scopes ∪ {fresh}`.
+* Argument tokens (substituted parameters) keep the caller's scope set
+  unchanged — they were not introduced by *this* macro.
+* Binding occurrences in the body are recorded as `(text, scope_set)`
+  in `ScopedExpansion::bindings` for later resolution.
+
+The v0.13 layer is *redundant* with the legacy mangler — both ran on
+every expansion, but only the mangler influenced the spliced source.
+Twelve integration tests in `crates/mty-macros/tests/sets_of_scopes.rs`
+cover swap macros, recursive macros, macro composition, ambiguity, and
+parameter scope preservation.
+
+## v0.14 wiring through HIR — scoped path is primary
+
+v0.14 promotes `expand_scoped_to_source` (a thin wrapper over
+`expand_scoped` that also returns the textual splice) to the primary
+path used by `mty-hir::lower::macros::preprocess`. The legacy
+`expand` / `expand_to_source` are now `#[deprecated]` and scheduled for
+removal in v0.15.
+
+```
+   source.mty
+      │
+      ▼
+   parse  ──▶ CST
+      │
+      ▼
+   ┌──────────────────────────────────────────────────┐
+   │  mty-hir::lower::macros::preprocess              │
+   │   – per-translation-unit ScopeGen                │
+   │   – per call site: expand_scoped_to_source(…)    │
+   │       └─▶ (source, ScopedExpansion)              │
+   │   – record MacroExpansionRecord into trace       │
+   │   – splice source, re-parse, iterate             │
+   └──────────────────────────────────────────────────┘
+      │
+      ▼
+   Preprocessed { source, diagnostics, macro_trace }
+      │
+      ▼
+   parse  ──▶ CST  (with macro calls inlined)
+      │
+      ▼
+   mty-hir::lower::LoweringCtx::lower_file
+```
+
+### `MacroExpansionRecord` and the trace
+
+```rust
+pub struct MacroExpansionRecord {
+    pub name: String,                       // macro name (single segment)
+    pub intro: ScopeId,                     // fresh scope minted by ScopeGen
+    pub bindings: Vec<(String, Scopes)>,    // bindings the body introduced
+    pub call_start: usize,                  // pre-rewrite byte offset
+    pub call_end: usize,
+    pub pass: u32,                          // 0-based preprocess pass
+}
+
+pub struct Preprocessed {
+    pub source: String,
+    pub diagnostics: Vec<Diagnostic>,
+    pub macro_trace: Vec<MacroExpansionRecord>,   // v0.14
+}
+```
+
+The trace is produced unconditionally for every successful declarative
+expansion. Procedural-macro expansions are not represented (proc
+macros' output is treated as user source — no scope set to attach).
+
+### What still uses the textual mangle
+
+The spliced source still carries the legacy `__mac_<ScopeId>_<name>`
+mangle for every binding introduced by an expansion. That's
+intentional: mty-hir does not yet have a name resolver, and the
+mangled identifiers keep names distinct *at the CST level* without
+needing one. When the resolver lands, it should:
+
+1. Walk the trace, building a `BindingId` table keyed by
+   `(MacroExpansionRecord, name)` per record.
+2. On each reference in the post-expansion CST, derive the active
+   scope set from which macro expansions textually surround the
+   reference (the `call_start`..`call_end` ranges + the wrapping
+   record's `intro`).
+3. Call `mty_macros::resolve(name_scopes, candidate_bindings)` to pick
+   the right binding, mapping its `Err(ResolveAmbiguity)` arm to
+   MT5901.
+
+That work is reserved for the future HIR `resolve` module (currently a
+stub at `crates/mty-hir/src/resolve.rs`). The set-of-scopes data is
+already in place — only the consumer is missing.
+
+### Why the textual round-trip is OK for v0.14
+
+The fact that `expand_scoped` returns a `Vec<ScopedTok>` but we drop
+the scope tags during the source splice (via `strip_scopes`) means we
+lose scope information at the source-text boundary. That's tolerable
+because:
+
+* The mangled binding names guarantee no two same-named bindings ever
+  clash in the post-expansion CST — *something* the borrow checker
+  and type checker can already see at the IDENT level.
+* The trace preserves the full scope set per binding, indexed by
+  `intro` scope ID — a future resolver can rebuild a scope-aware
+  binding graph from the trace + CST without re-running expansion.
+
+The v0.15 follow-up (see `dev/history/notes/MACRO_HYGIENE_WIRING_V0_14_NOTES.md`)
+will remove the legacy `expand` / `expand_to_source` once the resolver
+lands and verifies it doesn't need the textual mangle as a fallback.

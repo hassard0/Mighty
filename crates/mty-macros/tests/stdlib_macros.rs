@@ -4,6 +4,8 @@
 //! `unreachable!()` are loadable, expand cleanly when called inline,
 //! and produce sensible source after expansion.
 
+#![allow(deprecated)] // exercises legacy `expand_to_source` (removal scheduled for v0.15)
+
 use mty_ast::{AstNode, File};
 use mty_macros::{expand_to_source, stdlib, MacroRegistry, PackageMacros};
 use mty_syntax::SyntaxNode;

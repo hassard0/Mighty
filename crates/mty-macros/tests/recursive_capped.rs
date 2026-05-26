@@ -3,6 +3,8 @@
 //! across calls — recursion accounting lives in the caller (HIR
 //! lowering). This test simulates that loop and checks the limit.
 
+#![allow(deprecated)] // exercises legacy `expand_to_source` (removal scheduled for v0.15)
+
 use mty_ast::{AstNode, File};
 use mty_macros::{expand_to_source, MacroRegistry, MAX_EXPANSION_DEPTH};
 use mty_syntax::SyntaxNode;

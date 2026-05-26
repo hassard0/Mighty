@@ -6,6 +6,8 @@
 //! gets it merged via `register_use`. Real package-aware resolution
 //! lands when mty-pkg wires its symbol table into HIR lowering.
 
+#![allow(deprecated)] // exercises legacy `expand_to_source` (removal scheduled for v0.15)
+
 use mty_ast::{AstNode, File};
 use mty_macros::{expand_to_source, MacroKind, PackageMacros};
 use mty_syntax::SyntaxNode;

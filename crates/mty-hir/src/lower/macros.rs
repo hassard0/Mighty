@@ -32,17 +32,47 @@ use mty_diagnostics::{
     diagnostic::{Diagnostic, Label, Severity},
 };
 use mty_macros::{
-    check_proc_macro_purity, expand_proc, expand_to_source, lex_fragment, tokens_to_source,
-    ImpurityReason, MacroContext, MacroDef, MacroKind, MacroRegistry, ProcMacroResult,
-    ResourceBreach, MAX_EXPANSION_DEPTH,
+    check_proc_macro_purity, expand_proc, expand_scoped_to_source, lex_fragment, tokens_to_source,
+    ImpurityReason, MacroDef, MacroKind, MacroRegistry, ProcMacroResult, ResourceBreach, ScopeGen,
+    ScopeId, ScopedExpansion, Scopes, MAX_EXPANSION_DEPTH,
 };
 use mty_syntax::{SyntaxKind, SyntaxNode};
 
-/// Output of [`preprocess`]: the (possibly rewritten) source plus any
-/// diagnostics produced by the expander.
+/// v0.14: record of one set-of-scopes macro expansion, threaded out of
+/// [`preprocess`] for future scope-aware name resolution. Each record
+/// captures the macro name, the scope ID minted for the call, and the
+/// binding occurrences the macro introduced. The HIR resolver does not
+/// yet consume these (see `docs/internals/macros.md` for the wiring
+/// status), but `mty-hir` ships them so downstream stages can opt in
+/// without a follow-up plumbing change.
+#[derive(Debug, Clone)]
+pub struct MacroExpansionRecord {
+    /// The macro's name (single segment in v0.14).
+    pub name: String,
+    /// Fresh scope minted by [`expand_scoped_to_source`].
+    pub intro: ScopeId,
+    /// Binding occurrences introduced by the macro body: `(text, scope_set)`.
+    pub bindings: Vec<(String, Scopes)>,
+    /// Inclusive byte offset of the call site in the *pre-rewrite* source.
+    pub call_start: usize,
+    /// Exclusive byte offset of the call site in the *pre-rewrite* source.
+    pub call_end: usize,
+    /// Pass number in which this expansion fired (0-based). Useful for
+    /// debugging multi-pass expansion chains.
+    pub pass: u32,
+}
+
+/// Output of [`preprocess`]: the (possibly rewritten) source, any
+/// diagnostics produced by the expander, and (v0.14) the set-of-scopes
+/// trace for every successful declarative-macro expansion.
 pub struct Preprocessed {
     pub source: String,
     pub diagnostics: Vec<Diagnostic>,
+    /// v0.14: scope-set trace for downstream consumers. One entry per
+    /// successful `expand_scoped_to_source` call. Procedural-macro
+    /// expansions are not represented — proc macros bypass the
+    /// scope-set machinery (their output is treated as user source).
+    pub macro_trace: Vec<MacroExpansionRecord>,
 }
 
 /// Iterate `source` to a fixed point or until the recursion cap is
@@ -63,7 +93,12 @@ pub struct Preprocessed {
 pub fn preprocess(source: &str) -> Preprocessed {
     let mut current = source.to_string();
     let mut diags: Vec<Diagnostic> = vec![];
-    let mut ctx_counter: MacroContext = 0;
+    // v0.14: one ScopeGen per compilation. Every macro invocation mints
+    // a fresh scope ID off this allocator so set-of-scopes resolution
+    // can tell same-named bindings introduced by distinct expansions
+    // apart. The pre-v0.14 `MacroContext` counter is gone.
+    let mut scope_gen = ScopeGen::new();
+    let mut macro_trace: Vec<MacroExpansionRecord> = vec![];
 
     // MT6005: check every proc-macro decl's purity once, before expansion.
     // This is a static check so we only need to run it on the original
@@ -77,6 +112,7 @@ pub fn preprocess(source: &str) -> Preprocessed {
             return Preprocessed {
                 source: current,
                 diagnostics: diags,
+                macro_trace,
             };
         };
         let registry = MacroRegistry::from_file(&file.0);
@@ -99,6 +135,7 @@ pub fn preprocess(source: &str) -> Preprocessed {
             return Preprocessed {
                 source: current,
                 diagnostics: diags,
+                macro_trace,
             };
         }
         let calls = collect_macro_calls(&file.0, &registry, &current);
@@ -106,6 +143,7 @@ pub fn preprocess(source: &str) -> Preprocessed {
             return Preprocessed {
                 source: current,
                 diagnostics: diags,
+                macro_trace,
             };
         }
         // Stop-on-cap rule: if we've already done MAX iterations *and* there
@@ -120,6 +158,7 @@ pub fn preprocess(source: &str) -> Preprocessed {
             return Preprocessed {
                 source: current,
                 diagnostics: diags,
+                macro_trace,
             };
         }
 
@@ -140,7 +179,6 @@ pub fn preprocess(source: &str) -> Preprocessed {
         }
         let mut rewrites: Vec<Rewrite> = vec![];
         for c in &calls {
-            ctx_counter = ctx_counter.wrapping_add(1);
             // Procedural macro: v0.8 runs the body through the
             // sandboxed interpreter. Per-result diagnostic mapping:
             //   - Ok(toks)             → splice the rewritten source.
@@ -209,8 +247,25 @@ pub fn preprocess(source: &str) -> Preprocessed {
                 continue;
             }
             let arg_refs: Vec<&str> = c.args.iter().map(|s| s.as_str()).collect();
-            match expand_to_source(c.def, &arg_refs, ctx_counter) {
-                Ok(replacement) => {
+            // v0.14: switch to the set-of-scopes expander. Top-level
+            // macro invocations carry empty def_scopes / caller_arg_scopes;
+            // nested invocations are handled by re-running preprocess on
+            // the spliced output (the next outer pass), at which point
+            // the inner call site looks "top-level" again because the
+            // previous expansion was textually flattened. A future
+            // wiring (RFC-009 follow-up; see docs/internals/macros.md)
+            // will thread these scope sets through the re-parse so
+            // composed macros benefit from set-of-scopes resolution
+            // without going through the text round-trip.
+            match expand_scoped_to_source(
+                c.def,
+                &arg_refs,
+                &mut scope_gen,
+                Scopes::empty(),
+                Scopes::empty(),
+            ) {
+                Ok((replacement, scoped)) => {
+                    macro_trace.push(record_from_scoped(c, &scoped, depth));
                     rewrites.push(Rewrite::Replace {
                         start: c.start,
                         end: c.end,
@@ -278,6 +333,7 @@ pub fn preprocess(source: &str) -> Preprocessed {
             return Preprocessed {
                 source: current,
                 diagnostics: diags,
+                macro_trace,
             };
         }
     }
@@ -285,6 +341,25 @@ pub fn preprocess(source: &str) -> Preprocessed {
     Preprocessed {
         source: current,
         diagnostics: diags,
+        macro_trace,
+    }
+}
+
+/// Build a [`MacroExpansionRecord`] from a successful
+/// [`expand_scoped_to_source`] result. Extracted so the call site stays
+/// linear and the field-order convention is in one place.
+fn record_from_scoped(
+    call: &MacroCallSite<'_>,
+    scoped: &ScopedExpansion,
+    pass: u32,
+) -> MacroExpansionRecord {
+    MacroExpansionRecord {
+        name: call.name.clone(),
+        intro: scoped.intro,
+        bindings: scoped.bindings.clone(),
+        call_start: call.start,
+        call_end: call.end,
+        pass,
     }
 }
 

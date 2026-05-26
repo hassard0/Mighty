@@ -1,5 +1,7 @@
 //! Zero-arg macro that returns a literal expands to that literal.
 
+#![allow(deprecated)] // exercises legacy `expand_to_source` (removal scheduled for v0.15)
+
 use mty_ast::{AstNode, File};
 use mty_macros::{expand_to_source, MacroRegistry};
 use mty_syntax::SyntaxNode;

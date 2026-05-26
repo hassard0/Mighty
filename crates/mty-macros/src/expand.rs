@@ -65,6 +65,18 @@ impl std::error::Error for ExpandError {}
 /// `ctx` is the unique tag for this expansion — typically a monotonic
 /// counter maintained by the caller (HIR lowering) so each expansion
 /// gets a fresh identity.
+///
+/// **Deprecated in v0.14.** The legacy single-mark expander only
+/// catches textbook hygiene cases; the set-of-scopes path
+/// ([`expand_scoped`]) also handles macro-in-macro composition,
+/// recursive macros, and swap macros. New callers should consume
+/// [`expand_scoped`] and either lift its scope-set data into name
+/// resolution OR `strip_scopes` the resulting stream when only the
+/// source text is needed. `expand` is scheduled for removal in v0.15.
+#[deprecated(
+    since = "0.14.0",
+    note = "use expand_scoped (set-of-scopes hygiene). expand() will be removed in v0.15."
+)]
 pub fn expand(def: &MacroDef, args: &[&str], ctx: MacroContext) -> Result<Vec<Tok>, ExpandError> {
     if args.len() != def.params.len() {
         return Err(ExpandError::ArityMismatch {
@@ -115,11 +127,20 @@ pub fn expand(def: &MacroDef, args: &[&str], ctx: MacroContext) -> Result<Vec<To
 }
 
 /// Convenience: expand and emit re-parsable source text in one step.
+///
+/// **Deprecated in v0.14.** Use [`expand_scoped_to_source`] to obtain
+/// the same source while also receiving the set-of-scopes hygiene
+/// trace. Scheduled for removal in v0.15.
+#[deprecated(
+    since = "0.14.0",
+    note = "use expand_scoped_to_source (set-of-scopes hygiene). expand_to_source() will be removed in v0.15."
+)]
 pub fn expand_to_source(
     def: &MacroDef,
     args: &[&str],
     ctx: MacroContext,
 ) -> Result<String, ExpandError> {
+    #[allow(deprecated)]
     let toks = expand(def, args, ctx)?;
     Ok(tokens_to_source(&toks))
 }
@@ -481,7 +502,29 @@ pub fn expand_scoped(
     })
 }
 
+/// Convenience over [`expand_scoped`]: returns the expansion's source
+/// text alongside the scope-set trace. The string is what the HIR
+/// preprocessor splices back into the file; the trace is what a
+/// future scope-aware name resolver consults.
+///
+/// `def_scopes` and `caller_arg_scopes` follow the same conventions
+/// as [`expand_scoped`]: pass [`Scopes::empty`] for top-level
+/// invocations.
+pub fn expand_scoped_to_source(
+    def: &MacroDef,
+    args: &[&str],
+    gen: &mut ScopeGen,
+    def_scopes: Scopes,
+    caller_arg_scopes: Scopes,
+) -> Result<(String, ScopedExpansion), ExpandError> {
+    let exp = expand_scoped(def, args, gen, def_scopes, caller_arg_scopes)?;
+    let plain = crate::hygiene::strip_scopes(&exp.tokens);
+    let src = tokens_to_source(&plain);
+    Ok((src, exp))
+}
+
 #[cfg(test)]
+#[allow(deprecated)] // exercises the deprecated `expand` / `expand_to_source` path
 mod tests {
     use super::*;
     use crate::registry::MacroRegistry;

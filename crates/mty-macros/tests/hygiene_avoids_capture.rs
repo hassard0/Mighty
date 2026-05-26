@@ -6,6 +6,8 @@
 //! confirming the set-of-scopes layer (RFC-009) is non-regressive
 //! for the existing simple-capture cases.
 
+#![allow(deprecated)] // exercises legacy `expand` / `expand_to_source` (removal scheduled for v0.15)
+
 use mty_ast::{AstNode, File};
 use mty_macros::{
     expand, expand_scoped, expand_to_source, strip_scopes, tokens_to_source, MacroRegistry,
