@@ -9,16 +9,50 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- v1.0-RC2 work: extend Python 2nd-impl through HIR + sketch typeck
+- v1.0-RC4 work: extend Python 2nd-impl through HIR + sketch typeck
   (~5.5 KLOC, ~8 days); wire 6 remaining Gap-B typeck call-sites
-  (MT2003/MT2009/MT2022/MT2023/MT2024/MT2025); promote operator
-  precedence + missing keywords (`package`, `export`, `requires`)
-  to the normative spec; MT0001 funnel split
+  (MT2003/MT2009/MT2022/MT2023/MT2024/MT2025); fix the v0.12
+  red-shirt `borrow_checking/14_borrow_outlives_owner` by extending
+  the `BinOp::Assign` branch in `record_borrow_for_rhs` to stamp
+  `pending_borrower`; run `go test ./...` on the Go 3rd-impl
+  (`impl-go/`) on a Go-1.22+ host and cross-validate against Rust +
+  Python over the `examples/` sweep; MT0001 funnel split
   (MT0002/MT0003/MT0010/MT0011/MT0012/MT0020/MT0021/MT0030);
   `mty-pkg` cross-file resolution; parametric newtypes for self-host
   arena ids; set-of-scopes hygiene in LSP completion (A111);
   normative conformance suite kit publication; full `TokenStream`
   marshalling.
+
+## [0.12.0] - 2026-05-25
+
+**Spec-and-evidence tier — v1.0-RC3 spec released + 4th showcase
+demo + conformance Gap B/C/E partial closure + Go 3rd-impl source
+landed.** The normative spec advances **v1.0-RC2 → v1.0-RC3**:
+operator precedence is promoted to normative §11.1.1 (was deferred
+to non-normative `docs/internals/parser.md`); the full reserved
+keyword set is enumerated (63 reserved + 4 contextual + 7
+reserved-for-future); the 16 Python-impl spec findings from v0.11
+are codified in prose (+396 spec lines, no behaviour change). A
+fourth runnable showcase lands at [`demos/04_kvstore/`](demos/04_kvstore/)
+— a sharded supervised in-memory key-value store (~400 LOC)
+exercising agents + protocols + supervisors + restart-on-crash +
+`std.http` end-to-end (the first demo whose pitch is the
+supervisor restart story). The conformance corpus gains six new
+fixtures (typeck 17..20, borrow 13..14) and a real MT3007
+`BORROW_OUTLIVES_OWNER` emit-site in `mty-borrow/src/flow.rs`;
+the harness now reports **89 cases / 16 categories / 3 ignored**
+(one new red-shirt: `borrow_checking/14_borrow_outlives_owner`
+needs `pending_borrower` wired through plain assignments —
+deferred to v0.13). A Go 3rd-impl lands at
+[`impl-go/`](impl-go/): 4848 LOC of lexer + parser + CLI + tests,
+built from `docs/spec/v1.0-rc.md` (v1.0-RC3) prose alone, with
+zero peeking at `crates/mty-*`, `selfhost/`, or `impl-py/`. The
+Go toolchain is not installed on the v0.12 build host so
+`go test ./...` has not been run; cross-validation pending v0.13.
+**Closes KNOWN_ISSUES #10 (operator precedence not normative) and
+#12 (`package`/`export`/`requires` keywords not in §3.3).** **977
+Rust + 135 Python + 89 conformance + 40 self-host = 1241 tests
+passing**, 0 failing, 3 ignored. [Release notes](dev/history/releases/RELEASE-v0.12.md).
 
 ## [0.11.0] - 2026-05-25
 

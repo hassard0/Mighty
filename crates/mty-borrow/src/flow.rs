@@ -235,7 +235,8 @@ impl<'a> BorrowCx<'a> {
                     None => false,
                 };
                 if borrower_outer {
-                    self.diag.push(diag::borrow_outlives_owner(&r.place.root, &r.at));
+                    self.diag
+                        .push(diag::borrow_outlives_owner(&r.place.root, &r.at));
                 }
             }
         }

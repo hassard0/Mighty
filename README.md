@@ -1,7 +1,7 @@
 # Mighty
 
 [![Status](https://img.shields.io/badge/status-pre--alpha-orange)](#status)
-[![Spec](https://img.shields.io/badge/spec-v1.0--RC2-blueviolet)](docs/spec/v1.0-rc.md)
+[![Spec](https://img.shields.io/badge/spec-v1.0--RC3-blueviolet)](docs/spec/v1.0-rc.md)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/hassard0/Mighty/ci.yml?branch=main)](https://github.com/hassard0/Mighty/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-online-success)](https://hassard0.github.io/Mighty/)
@@ -16,14 +16,17 @@ default; bare core modules via `--no-component`).
 The compiler, runtime, formatter, package manager, doc generator, LSP
 server, and stdlib are all in one Rust workspace and one `mty` binary.
 
-> **Status:** pre-alpha. The v1.0 language spec is feature-complete at
-> v1.0-RC2 and the toolchain is exercised by 977 Rust tests across 20
-> crates plus a second independent Python front-end at
-> [`impl-py/`](impl-py/) (135 tests). All six CI jobs are now required
-> gates (strict clippy `continue-on-error` cleared in v0.11). A `1.0`
-> GA tag still awaits the completion of the 2nd-impl through type-check,
-> six RFC comment-window closures, and the normative conformance suite
-> (currently 91% FROZEN-code coverage). See [Status](#status) below.
+> **Status:** pre-alpha. The v1.0 language spec is at **v1.0-RC3**
+> (operator precedence promoted to normative §11.1.1; full
+> 63-reserved-keyword set enumerated). The toolchain is exercised by
+> 977 Rust tests across 20 crates plus a second independent Python
+> front-end at [`impl-py/`](impl-py/) (135 tests) and a third
+> source-only Go front-end at [`impl-go/`](impl-go/) (4848 LOC,
+> cross-validation pending Go toolchain). All six CI jobs are
+> required gates. A `1.0` GA tag still awaits the completion of the
+> 2nd-impl through type-check, the 3rd-impl cross-validation, six
+> RFC comment-window closures, and the normative conformance suite
+> (currently 89 cases / 16 categories). See [Status](#status) below.
 
 ## Install
 
@@ -110,6 +113,7 @@ Then:
 
 - Rust reference compiler (this repo, `crates/mty-*`).
 - Python 2nd-impl front-end at [`impl-py/`](impl-py/) — pure-Python lexer + parser built from the v1.0-RC2 spec prose alone. 135 tests, 20/20 examples lex+parse.
+- Go 3rd-impl front-end at [`impl-go/`](impl-go/) — Go 1.22+ lexer + parser + CLI built from the v1.0-RC3 spec prose alone. 4848 LOC; cross-validation (`go test ./...`, example sweep) pending Go toolchain on the build host.
 
 ## Documentation
 
@@ -117,7 +121,7 @@ Live docs site: **<https://hassard0.github.io/Mighty/>**
 
 - [Getting started](docs/getting-started.md)
 - [Tour](docs/tour/README.md) — walk through the canonical examples
-- [Language spec v1.0-RC2](docs/spec/v1.0-rc.md) (frozen for v1.0)
+- [Language spec v1.0-RC3](docs/spec/v1.0-rc.md) (frozen for v1.0)
 - [Spec v0.1 + amendment log](docs/spec/v0.1.md)
 - [Reference](docs/reference/README.md) — CLI, manifest, registry, diagnostics
 - [Internals](docs/internals/README.md) — compiler architecture, crate-by-crate
@@ -182,14 +186,16 @@ see [`CHANGELOG.md`](CHANGELOG.md).
 ## Status
 
 Mighty is **pre-alpha**. Internal milestones have been tagged through
-v0.11. The v1.0 language spec is frozen at v1.0-RC2 — see
+v0.12. The v1.0 language spec is at v1.0-RC3 — see
 `docs/spec/v1.0-rc.md`. There are 977 Rust tests across the workspace
-(plus 135 Python tests in the [`impl-py/`](impl-py/) 2nd-impl =
-**1112 total**), 0 clippy warnings *under the strict `pedantic` gate*
-(now a required CI job, not advisory), and 3/3 demos pass `smoke.sh`.
+(plus 135 Python tests in the [`impl-py/`](impl-py/) 2nd-impl, 89
+normative conformance cases, and 40 self-host tests = **1241
+combined**), 0 clippy warnings *under the strict `pedantic` gate*
+(a required CI job, not advisory), and **4/4 demos** pass `smoke.sh`.
 The cargo-fuzz harness covers four targets (parser / typeck / fmt /
-codegen), and the normative conformance corpus stands at 84 cases
-(**91% FROZEN diagnostic-code coverage**, up from 88% in v0.10).
+codegen), and the normative conformance corpus stands at **89 cases
+across 16 categories** (3 ignored: 2 carried over from v0.11, 1 new
+red-shirt deferred to v0.13).
 
 **There is no released binary yet.** Build from source, treat the
 language as unstable, and please file issues for everything that

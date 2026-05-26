@@ -207,7 +207,8 @@ fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
             // MT2025 for the non-place shapes while keeping the legacy
             // type so the rest of the body still type-checks.
             if !is_place_expr(&cx.pkg.exprs[inner]) {
-                cx.diag.push(diag::cannot_take_ref(&cx.span_of_expr(expr_id)));
+                cx.diag
+                    .push(diag::cannot_take_ref(&cx.span_of_expr(expr_id)));
             }
             let inner_ty = synth_expr(cx, inner);
             cx.arena.ref_to(mutable, inner_ty)
@@ -488,8 +489,7 @@ pub fn check_expr(cx: &mut Cx, expr_id: ExprId, expected: TyId) {
     if let HirExpr::Lambda { params, .. } = &cx.pkg.exprs[expr_id] {
         let exp_resolved = cx.subst.resolve(expected, cx.arena);
         if let TyData::Fn {
-            params: exp_params,
-            ..
+            params: exp_params, ..
         } = cx.arena.get(exp_resolved).clone()
         {
             if params.len() != exp_params.len() {

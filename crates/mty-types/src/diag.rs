@@ -178,7 +178,10 @@ pub fn not_a_struct(name: &str, span: &SourceSpan) -> Diagnostic {
         NOT_A_STRUCT,
         label(
             span,
-            format!("type `{}` is not a struct; struct literal syntax does not apply", name),
+            format!(
+                "type `{}` is not a struct; struct literal syntax does not apply",
+                name
+            ),
         ),
     )
 }
