@@ -22,6 +22,9 @@ pub mod introspect;
 pub mod mailbox;
 #[cfg(feature = "otlp")]
 pub mod otlp;
+// v0.17 Tier 1.4 — deterministic replay (record + step a binary trace).
+// See `replay/mod.rs` for the surface; CLI: `mty replay <trace>`.
+pub mod replay;
 pub mod runtime;
 pub mod scheduler;
 pub mod slab_pool;

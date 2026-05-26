@@ -115,6 +115,25 @@ enum Cmd {
         #[arg(long, value_name = "MS")]
         watch: Option<u64>,
     },
+    /// Load a recorded runtime trace (`mty-trace-*.bin`) and either
+    /// summarize it, dump every event as JSON, or step-replay it.
+    ///
+    /// v0.17 Tier 1.4. Recording is opt-in: set
+    /// `MTY_RECORD_TRACE=<path>` when running the program you want to
+    /// capture. See `docs/reference/cli/mty-replay.md`.
+    Replay {
+        /// Path to the `.bin` trace file (produced via `MTY_RECORD_TRACE`).
+        trace: std::path::PathBuf,
+        /// Dump every event as one JSON line to stdout.
+        #[arg(long)]
+        dump_json: bool,
+        /// Walk the trace through a step handler (in-process replay).
+        #[arg(long)]
+        step: bool,
+        /// Emit the default summary as JSON instead of the table.
+        #[arg(long)]
+        json: bool,
+    },
     /// Render package documentation extracted from `///` doc comments.
     ///
     /// With no flags, prints a Go-style summary of the package's public
@@ -240,6 +259,17 @@ fn main() {
             out,
             check_examples,
         } => cmd::doc::run(&path, item, html, markdown, out, check_examples),
+        Cmd::Replay {
+            trace,
+            dump_json,
+            step,
+            json,
+        } => cmd::replay::run(cmd::replay::ReplayArgs {
+            trace,
+            dump_json,
+            step,
+            json_summary: json,
+        }),
     };
     std::process::exit(code);
 }
