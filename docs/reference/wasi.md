@@ -36,12 +36,12 @@ mty build hello.mty --target wasm32-wasi --world my-world
 
 | Mighty surface | P1 (`--wasi=p1`) | P2 (default since v0.15) |
 |----------------|--------------|------------------|
-| `log()` / `print()` | imports `wasi:cli/log` | imports `wasi:cli/log` (unversioned shim, **deprecated for v0.17** — will route to `wasi:cli/stdout@0.2.3` + `wasi:io/streams@0.2.3#output-stream.blocking-write-and-flush`) |
+| `log()` / `print()` | imports `wasi:cli/log` (back-compat shim) | **direct P2 import** `wasi:cli/stdout@0.2.3#get-stdout` + `wasi:io/streams@0.2.3#[method]output-stream.blocking-write-and-flush` + `[resource-drop]output-stream` (wired into emitter v0.17, this slice) |
 | `std.fs.open()` / `read_file()` / `write_file()` / `stat()` / `close()` | P1 syscall | **direct P2 import** `wasi:filesystem/types@0.2.3` resource methods (wired into emitter v0.16) |
 | `std.http.get()` / `post()` / `send()` | P1 syscall | **direct P2 import** `wasi:http/types@0.2.3` constructor + `wasi:http/outgoing-handler@0.2.3#handle` (wired into emitter v0.16) |
 | `std.time.now()` / `monotonic_now()` / `resolution()` | P1 syscall | **direct P2 import** `wasi:clocks/{wall-clock,monotonic-clock}@0.2.3` (wired into emitter v0.15) |
 | `std.random.bytes()` / `u64()` | P1 syscall | **direct P2 import** `wasi:random/random@0.2.3` (wired into emitter v0.15) |
-| `wasi_snapshot_preview1` adapter | n/a | **embedded** (~54 KB) — wasmtime v32.0.0 command shape; still needed for `log()` until v0.17, but most stdlib calls now bypass it |
+| `wasi_snapshot_preview1` adapter | n/a | **opt-in** (default `None` since v0.17). Set via `Preview2Options::with_adapter(Some(AdapterKind::Command))` for builds that link wasi-libc-built C code or otherwise import P1 syscalls directly. The vendored adapter is the wasmtime v32.0.0 command shape (~54 KB). |
 | User-WIT `[wit]` section | ignored | merged into world |
 | `--world <name>` | ignored | picks world from user WIT |
 
@@ -60,26 +60,21 @@ Two transport modes coexist in v0.14:
   instantiation. From the host's perspective the component
   imports the same `wasi:*@0.2.3` interfaces either way.
 
-v0.16 flips `std.fs` + `std.http` to the direct path, leaving
-only `log()` and a handful of minor utilities (e.g. `exit`,
-`environment.get`) still adapter-routed. The full migration to a
-pure-direct P2 surface — at which point the adapter can be opted
-out via `Preview2Options::with_adapter(None)` for smaller
-components — is the v0.17 follow-up. v0.15 wired direct
-lowerings for `std.random.bytes` and
-`std.time.{now,monotonic_now,resolution}`; v0.16 extends that to
-`std.fs.{open,read_file,write_file,stat,close}` and
-`std.http.{get,post,send}`. Building any program that uses those
-calls under `--wasi=p2` (the default) splices the versioned
-imports directly into the core module's import section.
+v0.16 flipped `std.fs` + `std.http` to the direct path; v0.17
+finishes the job by flipping `log()` to direct lowering AND
+inverting the adapter's default to opt-in. Programs that touch
+only `std.random`, `std.time`, `std.fs`, `std.http`, and `log()`
+now ship adapter-free by default — the `wasi_snapshot_preview1`
+adapter is opted back in only when a build links a wasi-libc-built
+C crate or otherwise reaches for the legacy P1 syscall shape.
 
-Component-size impact: `std.fs` + `std.http` programs no longer
-pull the `wasi_snapshot_preview1#fd_*` / `sock_*` adapter trampolines
-into the linked component. The adapter Wasm itself is still
-embedded (for `log()`), but `wit-component`'s tree-shaking now
-strips the unused fs + http translation paths, reducing the
-adapter contribution from ~54 KB toward ~12 KB on
-fs+http-heavy programs.
+Component-size impact: a Mighty `log()`-only command component now
+ships ≥ ~50 KB smaller than the v0.16 baseline (the adapter binary
+is ~54 KB; wit-component's tree-shaking previously trimmed it
+toward ~12 KB on adapter-heavy programs, but the floor remains
+non-trivial). The `tests/preview2_log.rs::log_program_no_adapter_runs_smaller`
+test pins the savings at ≥ 1 KiB so the opt-out path stays
+demonstrably leaner.
 
 ## How the P2 backend works
 
@@ -91,18 +86,24 @@ explicit `--wasi=p1` legacy path:
    `wasi:filesystem@0.2.3`, `wasi:http@0.2.3`, `wasi:random@0.2.3`.
 2. The component's package id becomes `mighty:<pkg>` (instead of
    `stardust:<pkg>`).
-3. The unversioned `wasi:cli/log` shim is declared so the core
-   module's existing `wasi:cli/log#log` import keeps wiring through
-   `wit-component::ComponentEncoder` without modification.
+3. (v0.13–v0.16) An unversioned `wasi:cli/log` shim used to be
+   declared here so the core module's `wasi:cli/log#log` import
+   resolved through `wit-component::ComponentEncoder` without
+   modification. **v0.17 dropped the shim entirely** — `log()` now
+   lowers directly to a three-call canonical-ABI sequence on top
+   of `wasi:cli/stdout@0.2.3` + `wasi:io/streams@0.2.3`.
 4. The vendored `wasi_snapshot_preview1` adapter (wasmtime v32.0.0
-   build) is embedded into the component via
-   `ComponentEncoder::adapter`. The adapter is ~54 KB of Wasm and
-   translates any P1-shaped syscall the core module makes into the
-   matching versioned `wasi:*@0.2.3` interface call at
-   instantiation.
-5. The core module's `main` export is aliased as `_start` so the
-   wasmtime command-adapter (which expects the wasi-libc / clang
-   `_start` entry-point name) wires up cleanly.
+   build) is *opt-in* since v0.17 — pass
+   `Preview2Options::with_adapter(Some(AdapterKind::Command))` to
+   embed it when a build links wasi-libc-built C code. The adapter
+   is ~54 KB of Wasm and translates any P1-shaped syscall the core
+   module makes into the matching versioned `wasi:*@0.2.3`
+   interface call at instantiation.
+5. The core module's `main` export is aliased as `_start` *only*
+   when the adapter is opted in (the wasmtime command-adapter
+   expects the wasi-libc / clang `_start` entry-point name). Pure
+   Mighty programs that never touch P1 syscalls keep `main` as the
+   single entry point.
 
 ## Authoring a `.wit` file
 
@@ -162,12 +163,13 @@ errors from `wit_parser::Resolve`.
 
 A user-defined world **replaces** the synthesized `<pkg>-world` — it
 does not extend it. So the user world must re-declare every host
-capability the core module relies on. For v0.13 that means:
+capability the core module relies on. For v0.17 that means:
 
-- `import wasi:cli/log;` (the slice-8 emitter still wires `log()`
-  through this interface; v0.14 will move it to `wasi:cli/stdout`)
-- Any P2 imports your program uses directly (e.g.
-  `wasi:cli/stdout@0.2.3`)
+- `import wasi:cli/stdout@0.2.3;` and `import wasi:io/streams@0.2.3;`
+  (the v0.17 emitter's `log()` direct-lowering needs both — the
+  v0.13 `wasi:cli/log` shim is gone).
+- Any other P2 imports your program uses directly (`wasi:random/random@0.2.3`,
+  `wasi:clocks/monotonic-clock@0.2.3`, …).
 
 User worlds may also declare:
 
@@ -190,7 +192,7 @@ When the user package declares more than one world, the build either:
 
 ## Which `std.*` modules lower to P2?
 
-v0.16 status:
+v0.17 status:
 
 - **direct P2 lowering** (wired into the core-module emitter via
   `mty_codegen_wasm::P2DirectImport`):
@@ -200,27 +202,28 @@ v0.16 status:
     `wasi:random/random@0.2.3` (v0.15).
   - `std.fs.open()` / `read_file()` / `write_file()` / `stat()` /
     `close()` → `wasi:filesystem/types@0.2.3.descriptor.*` and
-    `[resource-drop]descriptor` (v0.16, this slice).
+    `[resource-drop]descriptor` (v0.16).
   - `std.http.get()` / `post()` / `send()` →
     `wasi:http/types@0.2.3.[constructor]outgoing-request` +
-    `wasi:http/outgoing-handler@0.2.3#handle` (v0.16, this slice).
+    `wasi:http/outgoing-handler@0.2.3#handle` (v0.16).
+  - `log()` / `print()` →
+    `wasi:cli/stdout@0.2.3#get-stdout` +
+    `wasi:io/streams@0.2.3#[method]output-stream.blocking-write-and-flush`
+    + `[resource-drop]output-stream` (v0.17, this slice — see
+    [`emit_log_call_sequence`] for the helper).
 
   Each of these splices the versioned P2 interface into the
   core module's import section verbatim — no adapter hop needed.
-- **shim-routed P2** (deprecated for v0.17): `log()` / `print()`.
-  Mighty's slice-8 emitter declares `wasi:cli/log#log` as an
-  unversioned import; the P2 wrap path declares a matching
-  unversioned `wasi:cli` package containing only that shim so
-  `wit-component::ComponentEncoder` can resolve it. The shim's
-  WIT carries a `// DEPRECATED:` comment flagging the v0.17
-  migration plan: route to
-  `wasi:cli/stdout@0.2.3#get-stdout` +
-  `wasi:io/streams@0.2.3#output-stream.blocking-write-and-flush`.
+  The v0.17 lowering for `log()` uses the blocking-write variant
+  so the slice-8 `log()` builtin's fire-and-forget semantics
+  carry over to P2 without threading a `wasi:io/poll.pollable`
+  through Mighty's surface.
 
-Both transports produce a P2-compliant component — the host sees
-versioned `wasi:*@0.2.3` imports either way. The adapter is
-still embedded so the `log()` shim resolves; once v0.17 lands the
-final direct lowering, the adapter becomes opt-in.
+Components that touch ONLY the surfaces above ship adapter-free
+since v0.17 — `Preview2Options::default().embed_adapter` is now
+`None`. To opt the adapter back in (when linking wasi-libc-built
+C code, for instance) pass `with_adapter(Some(AdapterKind::Command))`
+when constructing the options.
 
 ### v0.16 lifecycle notes (fs + http)
 
@@ -266,19 +269,26 @@ release tag for the vendored adapter (e.g. `"wasmtime-v32.0.0"`).
   `std.random.bytes` + `std.time.{now,monotonic_now,resolution}`;
   `--wasi=p2` is now the default for `wasm32-wasi`; `--wasi=p1`
   remains supported for back-compat.
-- v0.16 (shipped, this slice): direct lowering for
+- v0.16 (shipped): direct lowering for
   `std.fs.{open,read_file,write_file,stat,close}` and
   `std.http.{get,post,send}`; canonical-ABI helpers
   (`emit_resource_drop_call` / per-variant signatures);
   pre-decl pass in the emitter to keep function indices stable
   when the lazy import-declaration adds a new import mid-body.
-- v0.17: direct lowering for `log()` (replaces the
-  `wasi:cli/log` shim with a real `wasi:cli/stdout@0.2.3` +
-  `wasi:io/streams@0.2.3` lift); full resource-handle lifecycle
-  for `std.fs` (open + close scaffold around read/write/stat);
-  full streaming layer for `std.http` (subscribe + poll loop on
-  `future-incoming-response`); adapter becomes opt-in for builds
-  that avoid all P1 syscalls.
+- v0.17 (shipped, this slice): direct lowering for `log()` (drops
+  the `wasi:cli/log` shim and replaces it with a three-call
+  canonical-ABI sequence on top of `wasi:cli/stdout@0.2.3` +
+  `wasi:io/streams@0.2.3` via the new `emit_log_call_sequence`
+  helper); adapter default flipped from
+  `Some(AdapterKind::Command)` to `None` — opt-in via
+  `with_adapter(Some(...))` for builds that link wasi-libc-built
+  C code.
+- v0.18: full resource-handle lifecycle for `std.fs` (open +
+  close scaffold around read/write/stat); full streaming layer
+  for `std.http` (subscribe + poll loop on
+  `future-incoming-response`); drop the vendored adapter
+  binaries from the repo entirely once every Mighty program is
+  adapter-free.
 - v1.0 RC4: P1 becomes a tier-2 target (still emitted on request but
   no longer the default; the documentation tree assumes P2).
 
@@ -286,6 +296,8 @@ See `dev/history/notes/WASI_P2_V0_13_NOTES.md` for the v0.13
 plan + open decisions,
 `dev/history/notes/WASI_P2_LOWERINGS_V0_14_NOTES.md` for the v0.14
 follow-up, `dev/history/notes/WASI_P2_FINISH_V0_15_NOTES.md` for
-the v0.15 default-flip + emitter-wiring rationale, and
+the v0.15 default-flip + emitter-wiring rationale,
 `dev/history/notes/WASI_P2_FS_HTTP_V0_16_NOTES.md` for the v0.16
-fs + http direct-lowering rationale.
+fs + http direct-lowering rationale, and
+`dev/history/notes/WASI_P2_LOG_V0_17_NOTES.md` for the v0.17
+`log()` direct-lowering + adapter-opt-out rationale.

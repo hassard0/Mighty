@@ -18,6 +18,7 @@
 //! - [`http`]  — async client `get`/`post` + server `serve`
 //! - [`fs`]    — sync filesystem ops gated by an `Fs` cap value
 //! - [`time`]  — monotonic clock + `sleep`
+//! - [`log`]   — `log()` / `print()` host fallback + v0.17 direct-import constants
 //! - [`test`]  — Mighty-native test discovery + reporter
 //! - [`host`]  — single entry point invoked from `mty-runtime`'s
 //!   `host_std` to dispatch `std.*` generic calls.
@@ -27,6 +28,7 @@ pub mod host;
 pub mod http;
 pub mod http_server;
 pub mod json;
+pub mod log;
 pub mod random;
 pub mod test;
 pub mod time;

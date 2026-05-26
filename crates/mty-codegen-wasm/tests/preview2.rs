@@ -57,19 +57,18 @@ fn p2_wit_doc_references_versioned_wasi() {
 }
 
 #[test]
-fn p2_component_imports_include_wasi_log_shim() {
-    // The component declares only those world imports its core module
-    // actually uses; wit-component prunes the rest. For an empty
-    // `fn main() {}` the only retained import is the `wasi:cli/log`
-    // shim (used by Mighty's slice-8 log() lowering). Assert it's
-    // present, and assert NO `wasi_snapshot_preview1` import — that's
-    // our boundary marker between the P2 path and the legacy P1 one.
+fn p2_component_no_wasi_cli_log_shim_in_v017() {
+    // v0.17 dropped the unversioned `wasi:cli/log` shim. The empty
+    // main here doesn't call `log()`, so the component shouldn't
+    // reference any cli/log-shaped import — neither the shim nor
+    // the v0.17 direct-lowering trio (those only land when a
+    // `log()` call is actually emitted).
     let prog = common::empty_main();
     let opts = Preview2Options::new("smoke");
     let bytes = compile_program_to_bytes_p2(&prog, &opts).expect("emit p2");
     assert!(
-        component_has_versioned_wasi_import(&bytes, "wasi:cli/log"),
-        "expected wasi:cli/log import (shim) in the component"
+        !component_has_versioned_wasi_import(&bytes, "wasi:cli/log"),
+        "v0.17: wasi:cli/log shim must be gone from the component",
     );
 }
 
@@ -275,24 +274,30 @@ fn adapter_bytes_are_present_and_wasm_shaped() {
     assert!(WASI_P1_ADAPTER_VERSION.starts_with("wasmtime-"));
 }
 
-/// When the P2 build path runs with `embed_adapter = Some(Command)`
-/// (the default), the resulting component must validate AND its
-/// import section must not reference `wasi_snapshot_preview1` at the
-/// component-imports layer. The adapter is *embedded* into the
-/// component, not re-imported from the outside.
+/// When the P2 build path runs with the v0.17 default
+/// (`embed_adapter = None`) the resulting component must
+/// validate AND its import section must not reference
+/// `wasi_snapshot_preview1` at the component-imports layer
+/// (the adapter is gone entirely; there's nothing to wrap).
+/// Opting back in via `with_adapter(Some(...))` is exercised by
+/// `tests/preview2_log.rs::explicit_adapter_opt_in_works`.
 #[test]
-fn adapter_embedded_for_p2_command() {
+fn adapter_default_none_for_p2() {
     let prog = common::empty_main();
-    let opts = Preview2Options::new("smoke"); // default = Command adapter
+    let opts = Preview2Options::new("smoke"); // v0.17 default = None
+    assert!(
+        opts.embed_adapter.is_none(),
+        "v0.17 default: embed_adapter starts at None"
+    );
     let bytes = compile_program_to_bytes_p2(&prog, &opts).expect("emit p2");
 
     // Component must validate.
     let mut v = wasmparser::Validator::new_with_features(wasmparser::WasmFeatures::all());
     v.validate_all(&bytes)
-        .expect("p2 component validates with adapter embedded");
+        .expect("p2 component validates without adapter");
 
     // No outer-component `wasi_snapshot_preview1` import — the
-    // adapter wraps it internally.
+    // adapter is gone entirely under the v0.17 default.
     assert!(
         !component_has_versioned_wasi_import(&bytes, "wasi_snapshot_preview1"),
         "wasi_snapshot_preview1 must not appear as a component-level import"
@@ -318,24 +323,28 @@ fn adapter_can_be_opted_out() {
 
 /// Two builds with and without the adapter should differ in size —
 /// the adapter contributes ~tens of KB. Cheap smoke that the
-/// `with_adapter(None)` path actually skips the bytes.
+/// opt-in / opt-out paths actually splice or skip the bytes.
+/// (v0.17 inverted the default — the explicit `with_adapter(Some(...))`
+/// call is now the one that adds bytes.)
 #[test]
 fn adapter_changes_component_size() {
     let prog = common::empty_main();
-    let with_adapter = compile_program_to_bytes_p2(&prog, &Preview2Options::new("smoke"))
-        .expect("emit p2 with adapter");
-    let without =
-        compile_program_to_bytes_p2(&prog, &Preview2Options::new("smoke").with_adapter(None))
-            .expect("emit p2 without adapter");
+    let no_adapter = compile_program_to_bytes_p2(&prog, &Preview2Options::new("smoke"))
+        .expect("emit p2 (default = no adapter, v0.17)");
+    let with_adapter = compile_program_to_bytes_p2(
+        &prog,
+        &Preview2Options::new("smoke").with_adapter(Some(AdapterKind::Command)),
+    )
+    .expect("emit p2 with adapter");
 
     // The exact delta depends on wit-component's stripping pass, but
     // the adapter-on path must be at least somewhat larger when the
     // adapter contributes any code.
     assert!(
-        with_adapter.len() >= without.len(),
-        "with-adapter ({} bytes) should be >= without-adapter ({} bytes)",
+        with_adapter.len() >= no_adapter.len(),
+        "with-adapter ({} bytes) should be >= no-adapter ({} bytes)",
         with_adapter.len(),
-        without.len()
+        no_adapter.len()
     );
 }
 
@@ -566,27 +575,28 @@ fn random_bytes_under_p1_skips_direct_import() {
     );
 }
 
-/// The `wasi:cli/log` shim remains wired in v0.15 (the canonical-ABI
-/// translation to `wasi:cli/stdout@0.2.3#print` is deferred to v0.16).
-/// The shim's WIT block lives alongside the synthesized world; pin
-/// that the P2 doc still declares it AND the doc carries a note
-/// flagging the v0.16-removal so future readers don't accidentally
-/// promote the shim to permanent surface.
+/// v0.17 — the `wasi:cli/log` shim has been retired entirely.
+/// The P2 WIT document no longer declares the unversioned
+/// `wasi:cli` package; log() lowers directly to
+/// `wasi:cli/stdout@0.2.3` + `wasi:io/streams@0.2.3`.
 #[test]
-fn log_shim_still_present_with_deprecation_note() {
+fn log_shim_removed_in_v017() {
     let prog = common::empty_main();
     let opts = Preview2Options::new("shim-doc");
     let doc = emit_wit_p2(&prog, &opts).expect("p2 wit");
-    // Shim is still declared so legacy `log()` lowerings keep wiring.
+    // The WIT doc text should NOT contain a "package wasi:cli;"
+    // declaration (the v0.13–v0.16 unversioned shim) anymore.
+    // The versioned `package wasi:cli@0.2.3 {` block is fine —
+    // that's the upstream wasi:cli interface set.
     assert!(
-        doc.text.contains("wasi:cli/log"),
-        "wasi:cli/log shim must still be present in v0.15 P2 WIT"
+        !doc.text.contains("package wasi:cli;"),
+        "v0.17: the unversioned wasi:cli/log shim package must be gone"
     );
-    // Pin the v0.16 deprecation note so the migration plan is visible
-    // to anyone inspecting the emitted WIT.
+    // The migration breadcrumb is left in the WIT comments so
+    // anyone reading the doc sees the rationale.
     assert!(
-        doc.text.contains("v0.16") || doc.text.contains("deprecated"),
-        "expected v0.16 / deprecated note next to the cli/log shim"
+        doc.text.contains("v0.17"),
+        "expected a v0.17 migration breadcrumb in the WIT doc"
     );
 }
 

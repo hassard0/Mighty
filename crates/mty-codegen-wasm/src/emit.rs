@@ -238,6 +238,16 @@ pub const FS_RETURN_AREA_BYTES: u32 = 256;
 pub const HTTP_RETURN_AREA: u32 = 8480; // = FS_RETURN_AREA + FS_RETURN_AREA_BYTES
 pub const HTTP_RETURN_AREA_BYTES: u32 = 64;
 
+/// v0.17 — return-area for the `log()` direct-lowering sequence.
+/// `[method]output-stream.blocking-write-and-flush` returns a
+/// `result<_, stream-error>` (`(tag:i32, err-handle:i32)`); 16
+/// bytes are enough headroom for that plus a future second slot.
+///
+/// Sits immediately after [`HTTP_RETURN_AREA`] so the linear-memory
+/// layout stays sequential.
+pub const LOG_RETURN_AREA: u32 = 8544; // = HTTP_RETURN_AREA + HTTP_RETURN_AREA_BYTES
+pub const LOG_RETURN_AREA_BYTES: u32 = 16;
+
 /// v0.10 cleanup — `cabi_realloc` allocator memory layout.
 ///
 /// Linear memory ranges:
@@ -309,6 +319,12 @@ struct Emitter<'a> {
     /// [`P2DirectImport`] variant to the function index assigned
     /// when its versioned import was added to the import section.
     p2_direct_idx: HashMap<P2DirectImport, u32>,
+    /// v0.17 — scratch i32 local that the P2 `log()` direct-lowering
+    /// uses to stash the `wasi:io/streams.output-stream` handle
+    /// returned by `get-stdout`. Set per-function in
+    /// [`Self::emit_fn`] when the function body contains a `log()`
+    /// call AND the build targets P2-Wasi.
+    log_handle_local: Option<u32>,
     /// String literal pool — appends to data section, returns (ptr, len).
     string_pool: HashMap<String, (u32, u32)>,
     next_data_offset: u32,
@@ -346,9 +362,32 @@ impl<'a> Emitter<'a> {
             dom_on_click_idx: None,
             dom_query_idx: None,
             p2_direct_idx: HashMap::new(),
+            log_handle_local: None,
             string_pool: HashMap::new(),
             next_data_offset: 1024, // reserve first 1KiB for the stack
         })
+    }
+
+    /// True iff the function body contains a `log()` / `print()`
+    /// call AND the build targets P2-Wasi (the dispatch path that
+    /// needs an extra `i32` local for the stream handle).
+    fn fn_needs_log_handle(&self, f: &Function) -> bool {
+        if !matches!(self.wasi_preview, EmitWasiPreview::P2) {
+            return false;
+        }
+        if !matches!(self.target, WasmTarget::Wasi) {
+            return false;
+        }
+        for blk in &f.blocks {
+            for stmt in &blk.stmts {
+                if let Stmt::Assign(_, Rvalue::Call { func, .. }) = stmt {
+                    if matches!(func, FnRef::Builtin(BuiltinId::Log | BuiltinId::Print)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Look up (or lazily declare) the function-table index for a P2
@@ -427,6 +466,26 @@ impl<'a> Emitter<'a> {
             ),
             P2DirectImport::HttpResponseStatus => (vec![ValType::I32], vec![ValType::I32]),
             P2DirectImport::HttpResponseBody => (vec![ValType::I32, ValType::I32], vec![]),
+            // v0.17 — log() direct lowerings.
+            //
+            // `wasi:cli/stdout@0.2.3#get-stdout() -> output-stream`
+            //   → canonical-ABI: `() -> i32` (resource handle).
+            P2DirectImport::LogStdoutGet => (vec![], vec![ValType::I32]),
+            // `wasi:io/streams@0.2.3.[method]output-stream.blocking-write-and-flush(
+            //     self: borrow<output-stream>, contents: list<u8>
+            // ) -> result<_, stream-error>`
+            //   → canonical-ABI: `(self:i32, ptr:i32, len:i32, ret-area:i32) -> ()`.
+            //   The ret-area receives `(tag:i32, err-handle:i32)`;
+            //   log() discards it.
+            P2DirectImport::LogStreamWrite => (
+                vec![ValType::I32, ValType::I32, ValType::I32, ValType::I32],
+                vec![],
+            ),
+            // `[resource-drop]output-stream` is a `(self:i32) -> ()`
+            // intrinsic that the canonical ABI splices into the
+            // import section of any core module that drops one of
+            // its handles.
+            P2DirectImport::LogStreamDrop => (vec![ValType::I32], vec![]),
         };
         let ty = self.intern_sig(TySig { params, results });
         let (mod_name, fn_name) = which.import_pair();
@@ -506,23 +565,43 @@ impl<'a> Emitter<'a> {
         // iterating the program would be fine here, but the explicit
         // collect keeps the helper readable + cheap to test).
         let mut needed: Vec<P2DirectImport> = Vec::new();
+        let mut uses_log = false;
         for f in &self.prog.fns {
             for blk in &f.blocks {
                 for stmt in &blk.stmts {
-                    if let Stmt::Assign(
-                        _,
-                        Rvalue::Call {
-                            func: FnRef::Builtin(BuiltinId::Extern(name)),
-                            ..
-                        },
-                    ) = stmt
-                    {
-                        if let Some(which) = self.p2_direct_for_extern(name) {
-                            if !needed.contains(&which) {
-                                needed.push(which);
+                    if let Stmt::Assign(_, Rvalue::Call { func, .. }) = stmt {
+                        match func {
+                            FnRef::Builtin(BuiltinId::Extern(name)) => {
+                                if let Some(which) = self.p2_direct_for_extern(name) {
+                                    if !needed.contains(&which) {
+                                        needed.push(which);
+                                    }
+                                }
                             }
+                            FnRef::Builtin(BuiltinId::Log | BuiltinId::Print) => {
+                                uses_log = true;
+                            }
+                            _ => {}
                         }
                     }
+                }
+            }
+        }
+        // v0.17 — pre-declare the three log() direct imports as a
+        // group so the call site can splice
+        // [`crate::preview2::emit_log_call_sequence`] without
+        // shifting any function indices mid-body.
+        if uses_log
+            && matches!(self.wasi_preview, EmitWasiPreview::P2)
+            && matches!(self.target, WasmTarget::Wasi)
+        {
+            for which in [
+                P2DirectImport::LogStdoutGet,
+                P2DirectImport::LogStreamWrite,
+                P2DirectImport::LogStreamDrop,
+            ] {
+                if !needed.contains(&which) {
+                    needed.push(which);
                 }
             }
         }
@@ -552,21 +631,36 @@ impl<'a> Emitter<'a> {
         // `wit-component::ComponentEncoder` can wire it up to the
         // WIT world we generated.
         //
-        // - wasm32-wasi: `wasi:cli/log#log`
-        // - wasm32-web : `mty:web/log#log`
-        let log_sig = TySig {
-            params: vec![ValType::I32, ValType::I32],
-            results: vec![],
+        // - wasm32-wasi + P1: `wasi:cli/log#log` (back-compat shim).
+        // - wasm32-wasi + P2: do NOT declare an import here. The
+        //   v0.17 direct-lowering pass routes `log()` through a
+        //   3-call canonical-ABI sequence on top of
+        //   `wasi:cli/stdout@0.2.3` + `wasi:io/streams@0.2.3`
+        //   declared lazily via [`Self::p2_direct_import`].
+        // - wasm32-web : `mty:web/log#log` (unchanged).
+        let declare_legacy_log = match (self.target, self.wasi_preview) {
+            (WasmTarget::Wasi, EmitWasiPreview::P2) => false,
+            (WasmTarget::Wasi, EmitWasiPreview::P1) => true,
+            (WasmTarget::Web, _) => true,
         };
-        let log_ty = self.intern_sig(log_sig);
-        let (mod_name, fn_name) = match self.target {
-            WasmTarget::Wasi => ("wasi:cli/log", "log"),
-            WasmTarget::Web => ("mty:web/log", "log"),
-        };
-        self.import_section
-            .import(mod_name, fn_name, EntityType::Function(log_ty));
-        self.log_idx = Some(self.import_count);
-        self.import_count += 1;
+        if declare_legacy_log {
+            let log_sig = TySig {
+                params: vec![ValType::I32, ValType::I32],
+                results: vec![],
+            };
+            let log_ty = self.intern_sig(log_sig);
+            let (mod_name, fn_name) = match self.target {
+                WasmTarget::Wasi => ("wasi:cli/log", "log"),
+                WasmTarget::Web => ("mty:web/log", "log"),
+            };
+            self.import_section
+                .import(mod_name, fn_name, EntityType::Function(log_ty));
+            self.log_idx = Some(self.import_count);
+            self.import_count += 1;
+        }
+        // `self.log_idx` stays `None` for P2-Wasi — the dispatch
+        // arm in `emit_call` checks for that and routes to the
+        // direct-import sequence instead.
 
         // v0.5 dogfood Gap-2: DOM imports for the Web target. Each
         // string arg is passed as a (ptr, len) pair in linear memory.
@@ -897,6 +991,25 @@ impl<'a> Emitter<'a> {
             local_types.push(vt);
             next_wasm += 1;
         }
+        // v0.17 — when this function uses log() under the P2-Wasi
+        // dispatch path, append one extra `i32` local to hold the
+        // `wasi:io/streams.output-stream` handle for the direct
+        // lowering's `local.tee` + `local.get` pair. The index is
+        // stashed on `self.log_handle_local` for the duration of
+        // the call-site lowering (reset to None after the function
+        // body is emitted).
+        let needs_log_handle = self.fn_needs_log_handle(f);
+        let log_handle_local = if needs_log_handle {
+            let idx = next_wasm;
+            local_types.push(ValType::I32);
+            // next_wasm += 1 would be a no-op — nothing reads it
+            // after this point — but we leave the local index live
+            // for future locals if a slice grows past here.
+            Some(idx)
+        } else {
+            None
+        };
+        self.log_handle_local = log_handle_local;
         // Group by type for the locals section.
         if !local_types.is_empty() {
             let mut iter = local_types.iter().peekable();
@@ -1188,14 +1301,46 @@ impl<'a> Emitter<'a> {
                 if args.len() != 1 {
                     return Err(WasmError::Unsupported("log/print arity".into()));
                 }
-                // Push (ptr, len) — handled by emit_const for Const::Str.
-                if let Operand::Const(Const::Str(s)) = &args[0] {
-                    let (ptr, len) = self.intern_string(s);
-                    wfn.instruction(&I::I32Const(ptr as i32));
-                    wfn.instruction(&I::I32Const(len as i32));
-                } else {
+                let Operand::Const(Const::Str(s)) = &args[0] else {
                     return Err(WasmError::Unsupported("wasm log non-literal string".into()));
+                };
+                let (ptr, len) = self.intern_string(s);
+                // v0.17 — P2-Wasi: lower log() to the direct
+                // canonical-ABI sequence (get-stdout +
+                // blocking-write-and-flush + drop). The three
+                // direct-import indices were already declared by
+                // the pre-decl pass, so we can splice the call
+                // sequence here without shifting any function
+                // indices.
+                if matches!(self.wasi_preview, EmitWasiPreview::P2)
+                    && matches!(self.target, WasmTarget::Wasi)
+                {
+                    let get_idx = self.p2_direct_import(P2DirectImport::LogStdoutGet);
+                    let write_idx = self.p2_direct_import(P2DirectImport::LogStreamWrite);
+                    let drop_idx = self.p2_direct_import(P2DirectImport::LogStreamDrop);
+                    let handle_local = self
+                        .log_handle_local
+                        .expect("log handle local reserved in emit_fn");
+                    crate::preview2::emit_log_call_sequence(
+                        wfn,
+                        get_idx,
+                        write_idx,
+                        drop_idx,
+                        handle_local,
+                        ptr,
+                        len,
+                        LOG_RETURN_AREA,
+                    );
+                    // Push placeholder Unit-as-i32 so the upstream
+                    // assign sink has a typed value to consume.
+                    wfn.instruction(&I::I32Const(0));
+                    return Ok(());
                 }
+                // Legacy P1 / Web path: push (ptr, len) and call
+                // the single `wasi:cli/log#log` / `mty:web/log#log`
+                // import declared in `declare_imports`.
+                wfn.instruction(&I::I32Const(ptr as i32));
+                wfn.instruction(&I::I32Const(len as i32));
                 let idx = self.log_idx.expect("log import");
                 wfn.instruction(&I::Call(idx));
                 // Push placeholder Unit-as-i32 so the assign sink works.
@@ -1426,6 +1571,21 @@ impl<'a> Emitter<'a> {
                             wfn.instruction(&I::I32Const(HTTP_RETURN_AREA as i32));
                             wfn.instruction(&I::Call(idx));
                             wfn.instruction(&I::I32Const(HTTP_RETURN_AREA as i32));
+                        }
+                        // v0.17 — log() direct lowerings are dispatched
+                        // by the `Log | Print` arm above (which calls
+                        // `emit_log_call_sequence`), never via the
+                        // `Extern(name)` path. `p2_direct_for_extern`
+                        // never returns these variants, so any of them
+                        // arriving here means an upstream invariant
+                        // broke — surface it loudly.
+                        P2DirectImport::LogStdoutGet
+                        | P2DirectImport::LogStreamWrite
+                        | P2DirectImport::LogStreamDrop => {
+                            return Err(WasmError::Invalid(format!(
+                                "log direct-import variant {which:?} reached extern-call dispatch \
+                                 — expected to be handled by the Log/Print arm",
+                            )));
                         }
                     }
                     return Ok(());

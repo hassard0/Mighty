@@ -277,6 +277,24 @@ pub enum P2DirectImport {
     /// Hands ownership of the body to the caller. Core-Wasm:
     /// `(self:i32, ret-area:i32) -> ()`.
     HttpResponseBody,
+    /// v0.17 — `wasi:cli/stdout@0.2.3#get-stdout() -> output-stream`.
+    /// Free function (not a method). Returns an owned
+    /// `output-stream` resource handle. Mighty's slice-8 emitter
+    /// calls this at every `log()` site to acquire stdout.
+    /// Core-Wasm: `() -> i32`.
+    LogStdoutGet,
+    /// v0.17 — `wasi:io/streams@0.2.3.[method]output-stream.blocking-write-and-flush(
+    ///     self: borrow<output-stream>, contents: list<u8>
+    /// ) -> result<_, stream-error>`.
+    /// Core-Wasm: `(self:i32, ptr:i32, len:i32, ret-area:i32) -> ()`.
+    /// Mighty discards the result for `log()` — the slice-8 builtin
+    /// has no `Result` return.
+    LogStreamWrite,
+    /// v0.17 — `[resource-drop]wasi:io/streams@0.2.3.output-stream`.
+    /// Required after every `get-stdout` so the host's resource
+    /// table doesn't fill up with one entry per `log()` call.
+    /// Core-Wasm: `(self:i32) -> ()`.
+    LogStreamDrop,
 }
 
 impl P2DirectImport {
@@ -323,6 +341,15 @@ impl P2DirectImport {
             P2DirectImport::HttpResponseBody => {
                 ("wasi:http/types@0.2.3", "[method]incoming-response.consume")
             }
+            // v0.17 — log() direct lowering.
+            P2DirectImport::LogStdoutGet => ("wasi:cli/stdout@0.2.3", "get-stdout"),
+            P2DirectImport::LogStreamWrite => (
+                "wasi:io/streams@0.2.3",
+                "[method]output-stream.blocking-write-and-flush",
+            ),
+            P2DirectImport::LogStreamDrop => {
+                ("wasi:io/streams@0.2.3", "[resource-drop]output-stream")
+            }
         }
     }
 
@@ -343,6 +370,9 @@ impl P2DirectImport {
             P2DirectImport::HttpHandleRequest => "http_handle_request",
             P2DirectImport::HttpResponseStatus => "http_response_status",
             P2DirectImport::HttpResponseBody => "http_response_body",
+            P2DirectImport::LogStdoutGet => "log_stdout_get",
+            P2DirectImport::LogStreamWrite => "log_stream_write",
+            P2DirectImport::LogStreamDrop => "log_stream_drop",
         }
     }
 
@@ -369,6 +399,18 @@ impl P2DirectImport {
                 | P2DirectImport::HttpHandleRequest
                 | P2DirectImport::HttpResponseStatus
                 | P2DirectImport::HttpResponseBody
+        )
+    }
+
+    /// v0.17 — returns `true` iff this variant is one of the
+    /// `log()` direct-lowering imports (the trio that replaces
+    /// the v0.13 `wasi:cli/log` shim).
+    pub fn is_log(self) -> bool {
+        matches!(
+            self,
+            P2DirectImport::LogStdoutGet
+                | P2DirectImport::LogStreamWrite
+                | P2DirectImport::LogStreamDrop
         )
     }
 }
@@ -475,6 +517,68 @@ impl std::fmt::Display for P2DirectImport {
     }
 }
 
+/// v0.17 — emit the canonical-ABI call sequence for a `log()`
+/// call targeting the direct P2 stdout lowering.
+///
+/// The sequence is:
+///
+/// 1. `call $get_stdout`                ;; output-stream handle (i32)
+/// 2. `local.tee $handle_local`         ;; stash handle in a local
+/// 3. `i32.const $msg_ptr`              ;; bytes ptr
+/// 4. `i32.const $msg_len`              ;; bytes len
+/// 5. `i32.const $ret_area`             ;; result return-area
+/// 6. `call $blocking_write_and_flush`  ;; (self, ptr, len, ret) -> ()
+/// 7. `local.get $handle_local`         ;; reload handle
+/// 8. `call $stream_drop`               ;; release stream handle
+///
+/// `blocking-write-and-flush` returns a `result<_, stream-error>`
+/// (canonical-ABI shape `(tag:i32, err-handle:i32)` in the
+/// supplied ret-area). For `log()` we deliberately discard it —
+/// the slice-8 `log()` builtin has no `Result` return and the
+/// historical `wasi:cli/log#log` shim was equally fire-and-forget.
+/// The ret-area memory still has to be supplied so the canonical
+/// ABI doesn't trap on a null pointer.
+///
+/// Callers are responsible for:
+///   * Having declared the three imports
+///     ([`P2DirectImport::LogStdoutGet`],
+///      [`P2DirectImport::LogStreamWrite`],
+///      [`P2DirectImport::LogStreamDrop`]) and passing their
+///     function indices.
+///   * Having reserved an `i32` local slot for the stream handle.
+///   * Having interned the message bytes into linear memory and
+///     passing their `(ptr, len)`.
+///   * Supplying a `ret_area` pointer — Mighty's emitter passes
+///     [`crate::emit::LOG_RETURN_AREA`].
+#[allow(clippy::too_many_arguments)]
+pub fn emit_log_call_sequence(
+    builder: &mut wasm_encoder::Function,
+    stdout_get_idx: u32,
+    write_idx: u32,
+    drop_idx: u32,
+    handle_local: u32,
+    msg_ptr: u32,
+    msg_len: u32,
+    ret_area: u32,
+) {
+    use wasm_encoder::Instruction as I;
+    // 1. get-stdout() -> output-stream handle (i32).
+    builder.instruction(&I::Call(stdout_get_idx));
+    // 2. tee the handle into the dedicated i32 local. local.tee
+    //    leaves the value on the operand stack AND stores it in
+    //    the local, so the handle becomes the first arg for the
+    //    upcoming write call.
+    builder.instruction(&I::LocalTee(handle_local));
+    // 3-6. blocking-write-and-flush(self_handle, ptr, len, ret_area)
+    builder.instruction(&I::I32Const(msg_ptr as i32));
+    builder.instruction(&I::I32Const(msg_len as i32));
+    builder.instruction(&I::I32Const(ret_area as i32));
+    builder.instruction(&I::Call(write_idx));
+    // 7-8. Drop the stream handle on the way out.
+    builder.instruction(&I::LocalGet(handle_local));
+    builder.instruction(&I::Call(drop_idx));
+}
+
 /// Per-build options for the WASI Preview 2 backend.
 #[derive(Debug, Clone)]
 pub struct Preview2Options {
@@ -518,11 +622,19 @@ pub struct UserWit {
 }
 
 impl Preview2Options {
+    /// Construct a new Preview2Options with the v0.17 defaults:
+    /// no embedded P1→P2 adapter (`embed_adapter = None`), no
+    /// user WIT. The default flipped in v0.17 because the codegen
+    /// layer now emits direct P2 lowerings for every stdlib call
+    /// it touches (random + time since v0.15, fs + http since
+    /// v0.16, log since v0.17) — programs that don't reach for
+    /// legacy P1 syscalls ship adapter-free. Opt back in via
+    /// [`Self::with_adapter`] when linking wasi-libc-built C code.
     pub fn new(pkg_name: impl Into<String>) -> Self {
         Self {
             pkg_name: pkg_name.into(),
             user_wit: None,
-            embed_adapter: Some(AdapterKind::Command),
+            embed_adapter: None,
         }
     }
 
@@ -531,10 +643,15 @@ impl Preview2Options {
         self
     }
 
-    /// Override the embedded adapter kind. Pass `None` to skip
-    /// adapter embedding entirely (only safe when the core module
-    /// already exclusively imports versioned P2 interfaces — the
-    /// v0.15 direct-lowering work).
+    /// Override the embedded adapter kind.
+    ///
+    /// `None` (the v0.17 default) skips adapter embedding — safe
+    /// when the core module exclusively imports versioned P2
+    /// interfaces (true for any all-Mighty program since v0.17).
+    /// `Some(AdapterKind::Command)` matches the v0.13–v0.16
+    /// default and is the right call when the core module bundles
+    /// a wasi-libc-compiled C crate or otherwise imports
+    /// `wasi_snapshot_preview1` directly.
     pub fn with_adapter(mut self, adapter: Option<AdapterKind>) -> Self {
         self.embed_adapter = adapter;
         self
@@ -592,40 +709,28 @@ pub fn emit_wit_p2(_prog: &Program, opts: &Preview2Options) -> CompileResult<Wit
         imports = synth_world_imports(),
     );
 
-    // -- 2. The unversioned `wasi:cli` shim. Carries only the `log`
-    //       interface so `wit-component` can resolve the core
-    //       module's literal `wasi:cli/log#log` import (which has no
-    //       `@0.2.3` annotation). Co-exists with the versioned
-    //       wasi:cli@0.2.3 package because they have different
-    //       package versions.
+    // -- 2. (v0.13–v0.16) The unversioned `wasi:cli` shim used to
+    //       sit here, carrying only the `log` interface so
+    //       `wit-component` could resolve the core module's literal
+    //       `wasi:cli/log#log` import. v0.17 drops the shim
+    //       entirely: the emitter now lowers `log()` directly to a
+    //       three-call canonical-ABI sequence on top of
+    //       `wasi:cli/stdout@0.2.3` + `wasi:io/streams@0.2.3` (see
+    //       [`emit_log_call_sequence`]). The core module no longer
+    //       imports `wasi:cli/log`, so the matching WIT package
+    //       isn't synthesized either.
     //
-    //       v0.15 status: shim still wired. The canonical-ABI
-    //       translation of Mighty's `log(ptr: i32, len: i32)` into
-    //       `wasi:cli/stdout@0.2.3#get-stdout` +
-    //       `wasi:io/streams@0.2.3#output-stream.blocking-write-and-flush`
-    //       requires a multi-instruction lift that's deferred to
-    //       v0.16 (tracked in WASI_P2_FINISH_V0_15_NOTES.md). Until
-    //       then the shim is the documented routing point for
-    //       Mighty's `log()` builtin — `#[deprecated]`-style notice
-    //       sits in the WIT comment below so anyone inspecting the
-    //       emitted document sees the migration plan.
-    let cli_shim_text = "package wasi:cli;\n\
-         // DEPRECATED: replaced in v0.16 by a direct lowering to\n\
-         // wasi:cli/stdout@0.2.3 + wasi:io/streams@0.2.3. The shim\n\
-         // is preserved for v0.15 back-compat so existing core\n\
-         // modules built with the slice-8 `log()` import keep\n\
-         // resolving via wit-component.\n\
-         interface log {\n\
-           log: func(msg: string);\n\
-         }\n"
-    .to_string();
+    //       Leaving a breadcrumb here so anyone re-reading the
+    //       v0.13–v0.16 history sees the migration plan inline.
 
     // For display + assertions: the public `WitDocument::text` field
     // concatenates everything so test/console pretty-printing still
     // sees one blob.
     user_body.push_str(&mighty_pkg_text);
     user_body.push('\n');
-    user_body.push_str(&cli_shim_text);
+    user_body.push_str("// NOTE: v0.17 dropped the wasi:cli/log shim — log() now\n");
+    user_body.push_str("// lowers directly to wasi:cli/stdout@0.2.3 +\n");
+    user_body.push_str("// wasi:io/streams@0.2.3#output-stream.blocking-write-and-flush.\n");
     user_body.push('\n');
     user_body.push_str("// ---- Vendored WASI Preview 2 surface (0.2.3) ----\n");
     user_body.push_str(VENDORED_WASI_P2_WIT);
@@ -651,9 +756,9 @@ pub fn emit_wit_p2(_prog: &Program, opts: &Preview2Options) -> CompileResult<Wit
             .push_str(&label, &pkg_text)
             .map_err(|e| WasmError::Invalid(format!("wit p2 round-trip vendored: {e:#}")))?;
     }
-    let _ = resolve
-        .push_str("mighty-cli-shim.wit", &cli_shim_text)
-        .map_err(|e| WasmError::Invalid(format!("wit p2 round-trip cli shim: {e:#}")))?;
+    // v0.17: cli/log shim removed — log() now lowers directly to
+    // wasi:cli/stdout@0.2.3 + wasi:io/streams@0.2.3 (no separate
+    // package to push into the resolve).
     let _ = resolve
         .push_str("mighty-main.wit", &mighty_pkg_text)
         .map_err(|e| WasmError::Invalid(format!("wit p2 round-trip mighty: {e:#}")))?;
@@ -748,14 +853,11 @@ fn wrap_p2(
             .push_str(&label, &pkg_text)
             .map_err(|e| WasmError::Invalid(format!("p2 wrap vendored: {e:#}")))?;
     }
-    // The wasi:cli (unversioned) shim for the slice-8 log import.
-    let cli_shim_text = "package wasi:cli;\n\
-         interface log {\n\
-           log: func(msg: string);\n\
-         }\n";
-    let _ = resolve
-        .push_str("mighty-cli-shim.wit", cli_shim_text)
-        .map_err(|e| WasmError::Invalid(format!("p2 wrap cli shim: {e:#}")))?;
+    // v0.17: the unversioned `wasi:cli` shim package used to be
+    // pushed here so wit-component could resolve the slice-8
+    // emitter's literal `wasi:cli/log#log` import. With v0.17's
+    // direct-lowering pass the core module never imports
+    // `wasi:cli/log` anymore, so the shim package is gone.
     // Re-synthesize the mighty package so we know the package id for
     // its `select_world` call.
     let mighty_pkg_text = format!(
@@ -1063,6 +1165,16 @@ pub fn build_direct_p2_probe_module(which: P2DirectImport) -> Vec<u8> {
         ),
         P2DirectImport::HttpResponseStatus => (&[ValType::I32], &[ValType::I32]),
         P2DirectImport::HttpResponseBody => (&[ValType::I32, ValType::I32], &[]),
+        // v0.17 — log() direct lowerings.
+        //   get-stdout: () -> output-stream   → `() -> i32`.
+        //   blocking-write-and-flush: (self, ptr, len, ret_area) -> ()
+        //   [resource-drop]output-stream: (self) -> ()
+        P2DirectImport::LogStdoutGet => (&[], &[ValType::I32]),
+        P2DirectImport::LogStreamWrite => (
+            &[ValType::I32, ValType::I32, ValType::I32, ValType::I32],
+            &[],
+        ),
+        P2DirectImport::LogStreamDrop => (&[ValType::I32], &[]),
     };
 
     let mut types = TypeSection::new();
@@ -1192,11 +1304,11 @@ fn synth_world_imports() -> String {
         "  import wasi:filesystem/types@0.2.3;",
         "  import wasi:http/types@0.2.3;",
         "  import wasi:http/outgoing-handler@0.2.3;",
-        // v0.14 boundary — `wasi:cli/log` is an unversioned shim
-        // (declared in `mighty-cli-shim.wit`) used by the slice-8
-        // emitter's `log()` lowering. A future slice replaces it
-        // with a real `wasi:cli/stdout#print` lowering.
-        "  import wasi:cli/log;",
+        // v0.17 — the v0.14 `import wasi:cli/log;` shim line was
+        // removed because the emitter now lowers log() directly to
+        // `wasi:cli/stdout@0.2.3` (already imported above) +
+        // `wasi:io/streams@0.2.3#output-stream.blocking-write-and-flush`
+        // (the io/streams package is already imported above too).
     ];
     let mut s = String::new();
     for l in lines {
