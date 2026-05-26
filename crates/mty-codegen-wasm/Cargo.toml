@@ -23,7 +23,7 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
-wasmtime = { version = "25", default-features = false, features = ["cranelift", "runtime"] }
+wasmtime = { version = "36", default-features = false, features = ["cranelift", "runtime"] }
 # v0.14 — preview2 integration tests pin the codegen-side P2 import
 # constants against the stdlib-side ones to catch drift between
 # `mty_codegen_wasm::P2DirectImport` and `mty_stdlib::random/time`.
