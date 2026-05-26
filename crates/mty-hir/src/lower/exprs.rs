@@ -750,6 +750,17 @@ pub fn is_expr_node(k: SyntaxKind) -> bool {
             | LAMBDA_EXPR
             | RUN_EXPR
             | CAST_EXPR
+            // v0.15: bare `{ ... }` blocks in expression position
+            // (e.g. `let mut r = &x; { let inner = ...; r = &inner }`)
+            // were silently lowered to `HirExpr::Error` because BLOCK
+            // wasn't listed here. `lower_expr` has always handled the
+            // BLOCK arm at the top of `match n.kind()`; this predicate
+            // just gates *which* CST children get fed into it.
+            // Restoring BLOCK here unblocks the v0.14 red-shirt
+            // conformance case `borrow_checking/14_borrow_outlives_owner`
+            // (the inner scope's drop now reaches the borrow walker so
+            // MT3007 fires).
+            | BLOCK
     )
 }
 

@@ -64,10 +64,10 @@ const INTENTIONALLY_IGNORED: &[(&str, &str)] = &[
         "supervisor_restart/02_escalate",
         "parser does not yet accept `escalate` action in `on_fail` (only `restart`/`backoff`); tracked for v0.4 supervisor grammar expansion (mty-syntax)",
     ),
-    (
-        "borrow_checking/14_borrow_outlives_owner",
-        "v0.12 added MT3007 emit-site in pop_frame AND pending_borrower wiring through plain assignments (BinOp::Assign branch in walk_expr); both are in place. v0.14 investigation traced the residual failure to mty-hir's lower::exprs::is_expr_node predicate, which omits SyntaxKind::BLOCK — so the inner `{ ... }` parsed as EXPR_STMT > BLOCK is silently lowered to HirExpr::Error and the borrow walker never sees the reassign. One-line fix lives in mty-hir, outside v0.14 swarm scope (see dev/history/notes/CONFORMANCE_GAP_V0_14_NOTES.md). Tracked for v0.15. Fixture preserved as red-shirt.",
-    ),
+    // v0.15: the v0.14 red-shirt for `borrow_checking/14_borrow_outlives_owner`
+    // is now live (the BLOCK fix in mty-hir's `is_expr_node` lets the inner
+    // `{ ... }` lower as an expression and the borrow walker sees the
+    // reassign — MT3007 fires as expected). Removed from this list.
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
