@@ -1,0 +1,14 @@
+// MT2025 positive-fire: `&expr` where `expr` is a non-place (literal,
+// arithmetic, etc.) is not a valid l-value reference. Pre-v0.12 the
+// synth path silently typed these as `&T`; v0.12 (Gap B / MT2025
+// emit-site) emits MT2025 inside `HirExpr::Borrow` when `is_place_expr`
+// returns false.
+//
+// Spec ref: ยง7.2 (references, place expressions) of v1.0-RC2.
+fn use_ref(r: &I32) -> I32 {
+  42
+}
+
+fn main() -> I32 {
+  use_ref(&(1 + 2))
+}

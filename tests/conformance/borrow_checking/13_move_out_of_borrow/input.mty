@@ -1,0 +1,27 @@
+// MT3002 positive-fire: a `move` of a value whose subfield is still
+// borrowed. Pre-v0.12 the root state stayed `Owned` because the borrow
+// lived on a subplace (`p.a`), so `move p` silently succeeded. v0.12
+// (Gap C / MT3002 emit-site) adds a ledger scan in `do_move` that
+// emits MT3002 when any subplace borrow of the same root is still
+// live.
+//
+// Spec ref: ยง7.4 (borrow + move interaction) of v1.0-RC2.
+struct Pair {
+  a: String,
+  b: String,
+}
+
+fn use_ref(r: &String) -> I32 {
+  42
+}
+
+fn take(p: Pair) -> Pair {
+  p
+}
+
+fn main() -> I32 {
+  let p = Pair { a: String("x"), b: String("y") }
+  let r = &p.a
+  let q = take(move p)
+  use_ref(r)
+}

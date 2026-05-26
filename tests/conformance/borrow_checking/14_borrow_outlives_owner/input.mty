@@ -1,0 +1,23 @@
+// MT3007 positive-fire: a borrow whose owner (root local) is declared
+// inside an inner block but whose borrower binding lives in an outer
+// scope. Pre-v0.12 the borrow ledger silently decayed both records on
+// inner-frame pop; v0.12 (Gap C / MT3007 emit-site) detects this
+// "borrow outlives owner" shape in `pop_frame` and fires MT3007 before
+// the dangling owner is dropped. v0.12 also widens
+// `pending_borrower` tracking to plain assignments so `r = &x` (not
+// just `let r = &x`) stamps the borrower for the ledger.
+//
+// Spec ref: ยง7.4 + ยง8 (lifetime regions) of v1.0-RC2.
+fn use_ref(r: &String) -> I32 {
+  42
+}
+
+fn main() -> I32 {
+  let outer = String("base")
+  let mut r_out = &outer
+  {
+    let inner = String("inner")
+    r_out = &inner
+  }
+  use_ref(r_out)
+}

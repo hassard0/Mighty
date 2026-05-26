@@ -169,6 +169,20 @@ pub fn wrong_variant_arity(
     )
 }
 
+/// v0.12 (Gap B / MT2022 emit-site): a value being initialised with a
+/// struct literal resolves to a non-struct ADT (enum or opaque). Pre-v0.12
+/// the synth path silently treated this as opaque; the new check fires
+/// MT2022 with both the ADT's actual kind and its name.
+pub fn not_a_struct(name: &str, span: &SourceSpan) -> Diagnostic {
+    Diagnostic::error(
+        NOT_A_STRUCT,
+        label(
+            span,
+            format!("type `{}` is not a struct; struct literal syntax does not apply", name),
+        ),
+    )
+}
+
 pub fn missing_struct_field(field: &str, struct_name: &str, span: &SourceSpan) -> Diagnostic {
     Diagnostic::error(
         MISSING_STRUCT_FIELD,
@@ -298,6 +312,19 @@ pub fn unresolved_value_strict(name: &str, scope: &str, span: &SourceSpan) -> Di
         scope, name
     ));
     d
+}
+
+/// v0.12 (Gap B / MT2025 emit-site): a borrow expression's inner term is
+/// not a place (l-value), so `&expr` cannot apply. Pre-v0.12 the synth
+/// path silently constructed a `Ref` over the synthesised type.
+pub fn cannot_take_ref(span: &SourceSpan) -> Diagnostic {
+    Diagnostic::error(
+        CANNOT_TAKE_REF,
+        label(
+            span,
+            "cannot take reference of a non-place expression (literal, call result, etc.)",
+        ),
+    )
 }
 
 pub fn lambda_arity_mismatch(expected: usize, got: usize, span: &SourceSpan) -> Diagnostic {

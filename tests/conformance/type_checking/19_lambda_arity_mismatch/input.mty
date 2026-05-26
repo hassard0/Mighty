@@ -1,0 +1,17 @@
+// MT2024 positive-fire: a lambda with the wrong parameter count is
+// passed (or assigned) to a position whose expected type is a fn type
+// of different arity. Pre-v0.12 this surfaced as a generic MT2001
+// type-mismatch; v0.12 (Gap B / MT2024 emit-site) fires the precise
+// MT2024 code first inside `check_expr` when the expected type is a
+// `Fn` and the lambda's param count disagrees.
+//
+// Spec ref: ยง11 (function types) of v1.0-RC2.
+fn apply(f: fn(I32, I32) -> I32, a: I32, b: I32) -> I32 {
+  f(a, b)
+}
+
+fn main() -> I32 {
+  // Lambda has 3 params; expected fn type has 2.
+  let g: fn(I32, I32) -> I32 = fn(x, y, z) -> I32 { x + y + z }
+  apply(g, 1, 2)
+}

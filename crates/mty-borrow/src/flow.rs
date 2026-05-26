@@ -219,12 +219,39 @@ impl<'a> BorrowCx<'a> {
 
     fn pop_frame(&mut self) {
         let frame = self.scopes.pop().expect("scope underflow");
+        // v0.12 (Gap C / MT3007 emit-site): before decaying borrows
+        // held by departing locals, scan the ledger for records whose
+        // *owner* (root local) is bound in this departing frame BUT
+        // whose *borrower* is bound in an outer frame. That shape is
+        // "borrow outlives owner" — the value is going out of scope
+        // while a borrow handle still exists in a wider region.
+        // Pre-v0.12 we silently dropped both the owner and the now-
+        // dangling borrower; v0.12 surfaces MT3007 first.
+        let departing: std::collections::HashSet<&String> = frame.locals.iter().collect();
+        for r in &self.ledger.records {
+            if departing.contains(&r.place.root) {
+                let borrower_outer = match &r.borrower {
+                    Some(b) => !departing.contains(b),
+                    None => false,
+                };
+                if borrower_outer {
+                    self.diag.push(diag::borrow_outlives_owner(&r.place.root, &r.at));
+                }
+            }
+        }
         // End of scope: emit drop intents and decay borrows held by
         // departing locals.
         let removed = self.ledger.decay_borrowers(frame.locals.iter());
         for r in removed {
             self.recompute_root_state(&r.place.root);
         }
+        // Also remove any records rooted at a departing local (the owner
+        // is gone — the record is dangling). This is the v0.12 sweep
+        // counterpart to the MT3007 emit above.
+        let departing_owned: Vec<String> = frame.locals.clone();
+        self.ledger
+            .records
+            .retain(|r| !departing_owned.iter().any(|n| n == &r.place.root));
         for name in &frame.locals {
             if let Some(state) = self.locals.get(name) {
                 if matches!(state.state, Ownership::Owned) && !state.is_copy {
@@ -567,7 +594,7 @@ impl<'a> BorrowCx<'a> {
                 None
             }
             HirExpr::Binary { op, lhs, rhs } => {
-                if matches!(
+                let is_assign = matches!(
                     op,
                     BinOp::Assign
                         | BinOp::AssignAdd
@@ -580,12 +607,31 @@ impl<'a> BorrowCx<'a> {
                         | BinOp::AssignBitXor
                         | BinOp::AssignShl
                         | BinOp::AssignShr
-                ) {
+                );
+                if is_assign {
                     let _ = self.walk_expr(lhs, Position::AssignTarget);
                 } else {
                     let _ = self.walk_expr(lhs, Position::Use);
                 }
-                let _ = self.walk_expr(rhs, Position::Use);
+                // v0.12 (Gap C): for a plain `x = &y` assignment, the
+                // borrower is the LHS path's root local. Set
+                // `pending_borrower` so the borrow record stamps the
+                // ledger with the right owner — this is what enables
+                // MT3007 detection at scope-end for assignments
+                // (previously only `let` bindings set pending_borrower).
+                let bind_name = if matches!(op, BinOp::Assign) {
+                    lhs_root_name(self.pkg, lhs)
+                } else {
+                    None
+                };
+                if bind_name.is_some() {
+                    let prev = self.pending_borrower.take();
+                    self.pending_borrower.clone_from(&bind_name);
+                    let _ = self.walk_expr(rhs, Position::Use);
+                    self.pending_borrower = prev;
+                } else {
+                    let _ = self.walk_expr(rhs, Position::Use);
+                }
                 None
             }
             HirExpr::Unary { op, rhs } => {
@@ -1191,6 +1237,23 @@ impl<'a> BorrowCx<'a> {
     }
 
     fn do_move(&mut self, name: &str, span: &SourceSpan) {
+        // v0.12 (Gap C / MT3002 emit-site): scan the ledger for live
+        // borrows of any subplace of `name` BEFORE inspecting the
+        // root-local state. Field-level borrows (`&x.a`) also update
+        // the root's `Borrowed*` state for legacy reasons, which would
+        // otherwise route this to MT3008. Distinguishing the
+        // subplace-borrow shape (MT3002) from the whole-value-borrow
+        // shape (MT3008) gives users a more precise diagnostic.
+        let has_subplace_borrow = self
+            .ledger
+            .records
+            .iter()
+            .any(|r| r.place.root == name && !r.place.projs.is_empty());
+        let has_root_borrow = self
+            .ledger
+            .records
+            .iter()
+            .any(|r| r.place.root == name && r.place.projs.is_empty());
         let Some(state) = self.locals.get_mut(name) else {
             return;
         };
@@ -1203,9 +1266,20 @@ impl<'a> BorrowCx<'a> {
                 self.diag.push(diag::use_of_uninitialized(name, span));
             }
             Ownership::Borrowed { .. } | Ownership::BorrowedMut => {
-                self.diag.push(diag::cannot_move_borrowed(name, span));
+                // Prefer MT3002 (move out of borrowed value) when the
+                // surviving borrow is on a subplace only; reserve
+                // MT3008 (cannot move a borrowed value) for the root-
+                // level borrow case where the entire value is borrowed.
+                if has_subplace_borrow && !has_root_borrow {
+                    self.diag.push(diag::move_out_of_borrow(name, span));
+                } else {
+                    self.diag.push(diag::cannot_move_borrowed(name, span));
+                }
             }
             Ownership::Owned => {
+                if has_subplace_borrow {
+                    self.diag.push(diag::move_out_of_borrow(name, span));
+                }
                 if !was_copy {
                     state.state = Ownership::Moved { at: span.clone() };
                 }
@@ -1252,6 +1326,18 @@ impl<'a> BorrowCx<'a> {
         }
         // Assignment re-initialises the binding (Uninit→Owned, Moved→Owned).
         state.state = Ownership::Owned;
+    }
+}
+
+/// v0.12 (Gap C / MT3007): if `eid` is a single-segment path expression
+/// (e.g. `x` in `x = &y`), return its root identifier as a `String`.
+/// Used to set `pending_borrower` on plain assignment so that the
+/// resulting borrow record stamps the LHS local as borrower — enabling
+/// scope-end MT3007 detection.
+fn lhs_root_name(pkg: &Package, eid: ExprId) -> Option<String> {
+    match &pkg.exprs[eid] {
+        HirExpr::Path(segs) if segs.len() == 1 => Some(segs[0].clone()),
+        _ => None,
     }
 }
 

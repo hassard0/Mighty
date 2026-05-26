@@ -1,0 +1,16 @@
+// MT2022 positive-fire: a struct literal `EnumName { ... }` is applied to
+// an ADT whose kind is `Enum`, not `Struct`. Pre-v0.12 this was silently
+// treated as opaque (because the legacy permissive path tolerated any
+// non-Struct ADT). v0.12 (Gap B / MT2022 emit-site) restricts the
+// permissive treatment to AdtKind::Opaque (prelude shims like `Page`)
+// so genuine struct-on-enum confusion now surfaces as MT2022.
+//
+// Spec ref: ยง6 type system (struct vs enum literal syntax).
+enum Direction {
+  North,
+  South,
+}
+
+fn make() -> Direction {
+  Direction { x: 1, y: 2 }
+}

@@ -11,10 +11,22 @@ if (-not (Test-Path $mty)) {
 }
 
 $demo = Join-Path $root "demos\04_kvstore\src\main.mty"
-# Use cmd.exe redirection (the panic message goes to stdout via the
-# Mighty agent loop; this stays defensive in case future runtime
-# drops route it through stderr).
-$out = & cmd.exe /c "`"$mty`" run `"$demo`" 2>&1" | Out-String
+# Use the .NET Process API directly so we sidestep PowerShell's
+# `2>&1` -> NativeCommandError wrapping (which mangles native-exe
+# panic-on-stdout output into ErrorRecord objects) and the random
+# CLR-startup line that some PowerShell hosts inject.
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = $mty
+$psi.Arguments = "run `"$demo`""
+$psi.RedirectStandardOutput = $true
+$psi.RedirectStandardError = $true
+$psi.UseShellExecute = $false
+$psi.CreateNoWindow = $true
+$p = [System.Diagnostics.Process]::Start($psi)
+$stdout = $p.StandardOutput.ReadToEnd()
+$stderr = $p.StandardError.ReadToEnd()
+$p.WaitForExit()
+$out = $stdout + $stderr
 
 $expectations = @(
     @{ Label = "boot";                Needle = 'spawned: counter, 3 shards, coordinator, frontend' },

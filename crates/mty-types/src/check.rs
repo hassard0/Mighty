@@ -201,6 +201,14 @@ fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
         HirExpr::Binary { op, lhs, rhs } => synth_binary(cx, op, lhs, rhs, expr_id),
         HirExpr::Unary { op, rhs } => synth_unary(cx, op, rhs),
         HirExpr::Borrow { mutable, inner } => {
+            // v0.12 (Gap B / MT2025 emit-site): `&literal` / `&(a + b)` /
+            // `&fn_call()` are not place expressions. Pre-v0.12 the
+            // synth path silently typed these as `&T`. We now fire
+            // MT2025 for the non-place shapes while keeping the legacy
+            // type so the rest of the body still type-checks.
+            if !is_place_expr(&cx.pkg.exprs[inner]) {
+                cx.diag.push(diag::cannot_take_ref(&cx.span_of_expr(expr_id)));
+            }
             let inner_ty = synth_expr(cx, inner);
             cx.arena.ref_to(mutable, inner_ty)
         }
@@ -431,7 +439,68 @@ fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
     }
 }
 
+/// v0.12 (Gap B / MT2025): true iff `e` is a "place" (l-value) — the only
+/// shape where `&e` / `&mut e` is meaningful. Mirrors the borrow checker's
+/// `expr_as_place` test on the syntactic side. Conservative: when in
+/// doubt we treat as a place to avoid false-positive MT2025 firings.
+fn is_place_expr(e: &HirExpr) -> bool {
+    match e {
+        HirExpr::Path(_)
+        | HirExpr::PathGeneric { .. }
+        | HirExpr::Field { .. }
+        | HirExpr::Index { .. }
+        // `&*r` is fine (reborrow).
+        | HirExpr::Unary { op: UnOp::Deref, .. }
+        // Borrow of a borrow / move is itself a place-ish wrapper.
+        | HirExpr::Borrow { .. }
+        | HirExpr::Move(_) => true,
+        // Block/If/Match/IfLet can produce a place when the tail is a
+        // place; conservatively treat as place to avoid false positives.
+        HirExpr::Block(_)
+        | HirExpr::If { .. }
+        | HirExpr::IfLet { .. }
+        | HirExpr::Match { .. } => true,
+        // Literals / arithmetic / structural ctors / calls produce values,
+        // not places.
+        HirExpr::Literal(_)
+        | HirExpr::Binary { .. }
+        | HirExpr::Call { .. }
+        | HirExpr::MethodCall { .. }
+        | HirExpr::Tuple(_)
+        | HirExpr::Array(_)
+        | HirExpr::Struct { .. }
+        | HirExpr::Map(_)
+        | HirExpr::Lambda { .. }
+        | HirExpr::HtmlTemplate(_)
+        | HirExpr::Cast { .. } => false,
+        // Everything else (Spawn, Send, Ask, Question, Loop, Break, ...)
+        // either yields Unit/never or has non-place semantics; conservatively
+        // treat as place to avoid false positives.
+        _ => true,
+    }
+}
+
 pub fn check_expr(cx: &mut Cx, expr_id: ExprId, expected: TyId) {
+    // v0.12 (Gap B / MT2024 emit-site): if the expression is a lambda
+    // and the expected type is a fn type with a different arity, emit a
+    // precise MT2024 BEFORE falling through to the generic synth/unify
+    // path (which would have surfaced this as MT2001 type-mismatch).
+    if let HirExpr::Lambda { params, .. } = &cx.pkg.exprs[expr_id] {
+        let exp_resolved = cx.subst.resolve(expected, cx.arena);
+        if let TyData::Fn {
+            params: exp_params,
+            ..
+        } = cx.arena.get(exp_resolved).clone()
+        {
+            if params.len() != exp_params.len() {
+                cx.diag.push(diag::lambda_arity_mismatch(
+                    exp_params.len(),
+                    params.len(),
+                    &cx.span_of_expr(expr_id),
+                ));
+            }
+        }
+    }
     let t = synth_expr(cx, expr_id);
     if unify(t, expected, cx.subst, cx.arena).is_err() {
         cx.diag.push(diag::mismatch(
@@ -521,6 +590,21 @@ fn synth_path(cx: &mut Cx, segments: &[String], expr_id: ExprId) -> TyId {
             if let Some(adt) = cx.defs.adt(aid) {
                 if let Some(idx) = adt.variants.iter().position(|v| &v.name == vname) {
                     return synth_variant_constructor(cx, aid, idx);
+                }
+                // v0.12 (Gap B / MT2009 emit-site): the first segment
+                // resolves to a known ADT (Enum kind only) but the
+                // second segment is not one of its declared variants.
+                // We skip Opaque ADTs (prelude shims like `SearchErr`
+                // declared with no variants) because their constructor
+                // surface is intentionally unknown to the type checker.
+                if adt.kind == AdtKind::Enum {
+                    let adt_name = adt.name.clone();
+                    cx.diag.push(diag::unknown_variant(
+                        vname,
+                        &adt_name,
+                        &cx.span_of_expr(expr_id),
+                    ));
+                    return cx.arena.error;
                 }
             }
         }
@@ -1191,7 +1275,16 @@ fn synth_struct(
         None => return cx.arena.error,
     };
     if adt.kind != AdtKind::Struct {
-        // Permissive: type-check field exprs but return opaque.
+        // v0.12 (Gap B / MT2022 emit-site): struct literal applied to a
+        // non-struct ADT. We restrict the fire to **Enum** ADTs — opaque
+        // / prelude shim ADTs (Page, Url, etc.) keep the legacy
+        // permissive treatment so v0.x examples that use `Page {}` as
+        // an empty placeholder still compile. AdtKind::Opaque is the
+        // catch-all bucket for shim types.
+        if adt.kind == AdtKind::Enum {
+            cx.diag
+                .push(diag::not_a_struct(&adt.name, &cx.span_of_expr(expr_id)));
+        }
         for (_, e) in fields {
             let _ = synth_expr(cx, *e);
         }

@@ -1,0 +1,17 @@
+// MT2009 positive-fire: a multi-segment path `Enum.NonExistent` resolves
+// to a known ADT but the variant name is not declared on that enum.
+//
+// Closes Gap B / MT2009 in CONFORMANCE_V0_11_NOTES.md by adding the
+// previously-missing emit-site to `mty-types/src/check.rs::synth_path`
+// (the multi-segment Adt-known/variant-unknown branch).
+//
+// Spec ref: ยง6 type system (enum variant resolution).
+enum Color {
+  Red,
+  Green,
+  Blue,
+}
+
+fn pick() -> Color {
+  Color.Purple
+}
