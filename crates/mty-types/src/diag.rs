@@ -662,20 +662,15 @@ pub fn row_var_unused(fn_name: &str, row_var: &str, span: &SourceSpan) -> Diagno
          concrete closed effect row",
         row_var
     ));
-    d.notes.push(
-        "RFC-008 §inference — see `mty explain MT4055`".into(),
-    );
+    d.notes
+        .push("RFC-008 §inference — see `mty explain MT4055`".into());
     d
 }
 
 /// MT4057 row_var_returned_but_unbound: row var lives on the return
 /// side but the fn has no fn-typed parameter from which it could be
 /// inferred. Specialisation of MT4055 with a clearer fix note.
-pub fn row_var_returned_but_unbound(
-    fn_name: &str,
-    row_var: &str,
-    span: &SourceSpan,
-) -> Diagnostic {
+pub fn row_var_returned_but_unbound(fn_name: &str, row_var: &str, span: &SourceSpan) -> Diagnostic {
     let mut d = Diagnostic::error(
         ROW_VAR_RETURNED_UNBOUND,
         label(
@@ -692,20 +687,15 @@ pub fn row_var_returned_but_unbound(
          variable `{}` can be bound at each call site",
         row_var
     ));
-    d.notes.push(
-        "RFC-008 §inference — see `mty explain MT4057`".into(),
-    );
+    d.notes
+        .push("RFC-008 §inference — see `mty explain MT4057`".into());
     d
 }
 
 /// MT4058 row_var_arity_mismatch: multiple distinct row variables in
 /// the same signature. v0.16 SHIPPED-SUBSET supports one.
 #[allow(dead_code)] // emit-site reserved for v0.17 multi-row-var work
-pub fn row_var_arity_mismatch(
-    fn_name: &str,
-    declared: &[String],
-    span: &SourceSpan,
-) -> Diagnostic {
+pub fn row_var_arity_mismatch(fn_name: &str, declared: &[String], span: &SourceSpan) -> Diagnostic {
     let mut d = Diagnostic::error(
         ROW_VAR_ARITY_MISMATCH,
         label(
@@ -759,9 +749,8 @@ pub fn row_var_subsumption_fail(
             .cloned()
             .unwrap_or_else(|| "<effect>".into())
     ));
-    d.notes.push(
-        "RFC-008 row_var_subsumption_fail — see `mty explain MT4059`".into(),
-    );
+    d.notes
+        .push("RFC-008 row_var_subsumption_fail — see `mty explain MT4059`".into());
     d
 }
 

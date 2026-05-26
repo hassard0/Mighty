@@ -11,49 +11,49 @@
 //
 // Surface forms (RFC-008 §Syntax):
 //
-//   * `!E`               — bare row variable (open row, no concrete)
+//   * `!{| E}`           — bare row variable, braced (parses unambiguously)
 //   * `!{}`              — empty closed row (= today's "pure" fn)
 //   * `!{fs, net}`       — concrete closed row (no tail)
 //   * `!{fs | E}`        — concrete + row-variable tail
 //   * `!{fs, net | E}`   — multiple concrete + row tail
 //   * `effect a, b | E`  — legacy keyword form, NEW row-tail extension
 //
-// The disambiguation rule that keeps `Page!{NetErr, ParseErr}` parsing
-// as the legacy anonymous-error-union sugar lives in
-// `mty-syntax::parser::types::peeks_as_effect_row_clause`:
-//   - first ident inside the braces is UPPERCASE and no `|` present →
-//     error sugar (back-compat)
-//   - first ident is LOWERCASE, or a `|` appears at depth 0 →
-//     effect-row clause
+// PARSER NOTE: the bare `!IDENT` form (no braces) AFTER a path-typed
+// return is committed to the legacy anonymous-error-union sugar
+// (`Result[T, IDENT]`) for back-compat with `!FetchErr`. The braced
+// `!{| E}` form is unambiguous and disambiguates as an effect clause
+// regardless of the preceding return type — see
+// `mty-syntax::parser::types::peeks_as_effect_row_clause`.
+//
+// (`_` prefix on helper fns keeps them out of the WIT export world;
+// the example focus is the SIGNATURE syntax, not exportability —
+// `Str`-returning helpers would otherwise need a runtime-side
+// string-building stub to satisfy the wasm-component sweep.)
 
-// Bare `!E` form: pure container/closure HOF that threads the closure's
-// effect row to the return.
-fn observe[E](f: fn() -> Unit) -> Unit !E {
-  // Body is intentionally trivial — the contract is the SIGNATURE
-  // (closure carries E, return carries E). Real implementations would
-  // call `f()` here; v0.16 typeck flows E from the call site.
+// Braced bare row-var form: open row with no concrete effects.
+fn _observe[E](f: fn() -> Unit) -> Unit !{| E} {
 }
 
 // Concrete + row-tail form: "at least `fs`, plus whatever the closure
-// brings". This is the most common shape for higher-order I/O wrappers
-// (e.g. a logged-fs-read wrapper).
-fn observed_read[E](path: Str, log: fn(Str) -> Unit) -> Str !{fs | E} {
+// brings". This is the most common shape for higher-order I/O
+// wrappers (e.g. a logged-fs-read wrapper).
+fn _observed_read[E](path: Str, log: fn(Str) -> Unit) -> Str !{fs | E} {
   ""
 }
 
 // Plain closed-row form — equivalent to `effect fs` but in the v0.15
 // `!{}` shape.
-fn read_one(path: Str) -> Str !{fs} {
+fn _read_one(path: Str) -> Str !{fs} {
   ""
 }
 
 // Legacy `effect ...` form keeps working unchanged.
-fn read_two(path: Str) -> Str effect fs {
+fn _read_two(path: Str) -> Str effect fs {
   ""
 }
 
 // NEW v0.15: the keyword form gains the same `| E` tail extension.
-fn read_three[E](path: Str, k: fn(Str) -> Unit) -> Str effect fs | E {
+fn _read_three[E](path: Str, k: fn(Str) -> Unit) -> Str effect fs | E {
   ""
 }
 

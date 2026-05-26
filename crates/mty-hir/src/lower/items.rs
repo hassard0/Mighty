@@ -142,7 +142,8 @@ fn lower_effect_clause(
     let effect_row = match row_var_name {
         Some(rv_name) => {
             let row_var = HirRowVar::new(rv_name, 0);
-            let concrete: Vec<HirEffectName> = names.iter().cloned().map(HirEffectName::new).collect();
+            let concrete: Vec<HirEffectName> =
+                names.iter().cloned().map(HirEffectName::new).collect();
             Some(HirEffectRow::Open(concrete, row_var))
         }
         None => {

@@ -80,25 +80,43 @@ fn diag_codes(typed: &mty_types::TypedPackage) -> Vec<String> {
 /// Verify the row-poly user fn `observe` is recognised as row-poly:
 /// HIR lowering sets `effect_row = Some(Open(...))`, and the v0.16
 /// index registers it.
+///
+/// The parser commits a path-typed `Unit` followed by bare `!E` to
+/// the legacy error-sugar form (`Result[Unit, E]`); the braced
+/// `!{| E}` form is unambiguous and disambiguates as an effect
+/// clause regardless of the return type's shape (see
+/// `peeks_as_effect_row_clause`).
 #[test]
 fn user_authored_open_row_lowers_to_effect_row_open() {
-    // Bare `!E` form. The HIR check is indirect — we verify the typeck
-    // index works by checking that closure effects DO propagate at call
-    // sites below.
     let src = r#"
-        fn observe[E](f: fn() -> Unit) -> Unit !E {
+        fn observe[E](f: fn() -> Unit) -> Unit !{| E} {
         }
         fn caller() {
             observe(fn() { fs.read("/x") })
         }
     "#;
+    let parsed = parse_source(src.into(), "x.mty".into());
+    let (pkg, _) = lower(&parsed);
+    // Look up the `observe` fn and assert its `effect_row` is
+    // populated as `Some(Open(_, "E"))`.
+    let observe_row = pkg
+        .fns
+        .iter()
+        .find(|(_, hf)| hf.name == "observe")
+        .and_then(|(_, hf)| hf.effect_row.clone());
+    assert!(
+        matches!(observe_row, Some(mty_hir::HirEffectRow::Open(_, _))),
+        "observe should lower to HirEffectRow::Open, got {:?}",
+        observe_row
+    );
+    // Inference: caller should have `fs` regardless (the closure body
+    // walk catches it). The row-poly machinery validates the SIG is
+    // open (above), which is the v0.16 SHIPPED-SUBSET contract.
     let typed = check(src);
-    // The caller should have the `fs` effect because the closure's
-    // body invokes `fs.read(...)` and the row var E propagates it.
     let caller_effects = effects_of(&typed, "caller");
     assert!(
         caller_effects.contains(&"fs".to_string()),
-        "caller should inherit `fs` via the row var E; got {:?}",
+        "caller should inherit `fs` from closure; got {:?}",
         caller_effects
     );
 }
@@ -109,7 +127,7 @@ fn user_authored_open_row_lowers_to_effect_row_open() {
 #[test]
 fn user_authored_row_var_propagates() {
     let src = r#"
-        fn each[E](f: fn() -> Unit) -> Unit !E {
+        fn each[E](f: fn() -> Unit) -> Unit !{| E} {
         }
         fn writer() {
             each(fn() { fs.write("/path") })
@@ -129,7 +147,7 @@ fn user_authored_row_var_propagates() {
 #[test]
 fn bare_row_var_compatible_with_pure_closure() {
     let src = r#"
-        fn each[E](f: fn() -> Unit) -> Unit !E {
+        fn each[E](f: fn() -> Unit) -> Unit !{| E} {
         }
         fn pure_caller() {
             each(fn() { 42 })
@@ -162,12 +180,14 @@ fn concrete_plus_open_row_carries_callee_declared_concrete() {
     "#;
     let typed = check(src);
     let caller_effects = effects_of(&typed, "caller");
-    // Should contain `fs` from row propagation. (Concrete `net` flow
-    // from declared effects is exercised by closed-set fns; v0.16 row
-    // propagation specifically handles the row-var case.)
+    // Should contain `fs` from closure propagation. (Concrete `net`
+    // flow from the callee's declared set propagates via the existing
+    // fixpoint when the callee's `effects: Vec<String>` includes
+    // `net`; that is exercised by the closed-set fn tests
+    // elsewhere.)
     assert!(
         caller_effects.contains(&"fs".to_string()),
-        "caller should inherit `fs` via row propagation; got {:?}",
+        "caller should inherit `fs` via closure propagation; got {:?}",
         caller_effects
     );
 }
@@ -176,8 +196,12 @@ fn concrete_plus_open_row_carries_callee_declared_concrete() {
 /// (no closure parameter to bind it), MT4057 fires.
 #[test]
 fn row_var_in_return_only_emits_mt4057() {
+    // Bare `!E` on a path-typed return parses as legacy error sugar
+    // (`Result[Str, E]`); use the braced `!{| E}` form which the
+    // parser commits to as an effect clause regardless of the return
+    // type's shape (see `peeks_as_effect_row_clause`).
     let src = r#"
-        fn degenerate[E](path: Str) -> Str !E {
+        fn degenerate[E](path: Str) -> Str !{| E} {
             ""
         }
     "#;
@@ -201,6 +225,30 @@ fn legacy_keyword_row_tail_form_propagates() {
             observed(fn() { fs.read("/k") })
         }
     "#;
+    // First, structural assertion: the HIR effect_row for `observed`
+    // must reflect the row-tail form (Open(Concrete(time), E)).
+    let parsed = parse_source(src.into(), "x.mty".into());
+    let (pkg, _) = lower(&parsed);
+    let observed_row = pkg
+        .fns
+        .iter()
+        .find(|(_, hf)| hf.name == "observed")
+        .and_then(|(_, hf)| hf.effect_row.clone());
+    match &observed_row {
+        Some(mty_hir::HirEffectRow::Open(concrete, rv)) => {
+            assert_eq!(rv.name, "E", "row var name should be E");
+            let names: Vec<&str> = concrete.iter().map(|n| n.as_str()).collect();
+            assert!(
+                names.contains(&"time"),
+                "legacy keyword form should preserve `time` in concrete part; got {:?}",
+                names
+            );
+        }
+        other => panic!(
+            "legacy `effect time | E` should lower to Open; got {:?}",
+            other
+        ),
+    }
     let typed = check(src);
     let caller_effects = effects_of(&typed, "caller");
     assert!(
