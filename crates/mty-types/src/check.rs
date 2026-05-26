@@ -1507,8 +1507,8 @@ fn check_stmt(cx: &mut Cx, stmt: &HirStmt) {
             if declared.is_none() {
                 if let Some(e) = init {
                     if is_cannot_infer_shape(cx, *e, init_ty) {
-                        let pat_name = pattern_first_binding_name(cx, *pat)
-                            .unwrap_or_else(|| "_".into());
+                        let pat_name =
+                            pattern_first_binding_name(cx, *pat).unwrap_or_else(|| "_".into());
                         cx.diag.push(diag::cannot_infer(
                             &cx.span_of_expr(*e),
                             format!("binding `{}`", pat_name),

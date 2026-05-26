@@ -123,7 +123,7 @@ fixed in this prep; the rest are P1 or below.
   internals doc now points at the spec for the authoritative table.
 - **Status**: **resolved in v1.0-RC3** (v0.12, 2026-05-25).
 
-### 11. Six FROZEN typeck codes are constructor-only
+### 11. Six FROZEN typeck codes are constructor-only (resolved v1.0-RC4)
 
 - **Where**: `crates/mty-diagnostics/src/codes.rs` defines MT2003,
   MT2009, MT2022, MT2023, MT2024, MT2025 with full explain text;
@@ -137,22 +137,21 @@ fixed in this prep; the rest are P1 or below.
   general codes). The spec adds a new §33.1 documenting per-code
   current behaviour and the v1.x emit-landing plan. Code-points and
   explain text are stable; implementations MUST NOT recycle them.
-- **Per-code v1.x emit-landing actions**:
+- **Per-code emit-landing actions (closure history)**:
 
-  | Code   | Today's funnel               | v1.x action                      |
-  |--------|------------------------------|----------------------------------|
-  | MT2003 | `{integer}`/`{float}` placeholder | trait-iterator + collect chain |
-  | MT2009 | MT2007 / MT2021              | enum-aware resolver split        |
-  | MT2022 | MT2002                       | struct-init kind check           |
-  | MT2023 | not reachable                | lifetime kind landing            |
-  | MT2024 | MT2005                       | lambda-arity refinement          |
-  | MT2025 | implicit-promotion swallow   | stricter borrow pass             |
-
-  Each row closes individually when the corresponding emit site
-  lands; the parallel conformance-closure swarm agent (v0.12) may
-  close one or more in v0.12 itself.
-- **Status**: **per-code action recorded; gap remains open** until
-  every row closes.
+  | Code   | Today's funnel               | Action shipped                                                       |
+  |--------|------------------------------|----------------------------------------------------------------------|
+  | MT2003 | `{integer}`/`{float}` placeholder | empty-container shape in `check_stmt(HirStmt::Let)` (v0.14, commit `e5fb928`) |
+  | MT2009 | MT2007 / MT2021              | enum-aware resolver split in `synth_path` (v0.12, commit `b05fe8f`)  |
+  | MT2022 | MT2002                       | struct-init kind check in `synth_struct_literal` (v0.12, `b05fe8f`)  |
+  | MT2023 | not reachable                | value-kind in type-arg position in `resolve_def_to_ty` (v0.14, `e5fb928`) — refined from "lifetime kind landing" since Mighty lifetimes are inferred not surface-syntax |
+  | MT2024 | MT2005                       | lambda-arity refinement in `check_expr` (v0.12, `b05fe8f`)           |
+  | MT2025 | implicit-promotion swallow   | stricter borrow pass in `HirExpr::Borrow` (v0.12, `b05fe8f`)         |
+- **Status**: **resolved in v1.0-RC4** (v0.14, 2026-05-25). All six
+  codes now have positive-fire conformance fixtures under
+  `tests/conformance/type_checking/` (17, 18, 19, 20 from v0.12;
+  03 and 21 from v0.14). The spec's §33.1 entry is superseded —
+  these codes are now first-class typeck diagnostics, not deferred.
 
 ### 12. `package`, `export`, `requires` missing from §3.3 keyword set (resolved v1.0-RC3)
 
