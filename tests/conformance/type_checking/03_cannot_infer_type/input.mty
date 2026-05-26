@@ -1,0 +1,15 @@
+// MT2003 positive-fire: a `let` binding without a type annotation whose
+// initializer is an empty array literal `[]`. The element type cannot be
+// inferred from local information. Pre-v0.14 (Gap B / KNOWN_ISSUES #11)
+// the type checker silently kept the element type as a free inference
+// variable, defaulted it to the Error sentinel at the end of the body,
+// and any downstream use surfaced as a less helpful trap. v0.14 (Gap B
+// / MT2003 emit-site) detects the empty-container shape inside
+// `check_stmt(HirStmt::Let)` and fires MT2003 with the binding name.
+//
+// Spec ref: §7.2 (inference) of v1.0-RC2; KNOWN_ISSUES #11 v1.x
+// emit-landing plan (trait-iterator + collect chain row).
+fn main() -> I32 {
+  let xs = []
+  42
+}

@@ -1494,11 +1494,69 @@ fn check_stmt(cx: &mut Cx, stmt: &HirStmt) {
                 (None, Some(e)) => synth_expr(cx, *e),
                 (None, None) => cx.fresh(),
             };
+            // v0.14 (Gap B / MT2003 emit-site): when a let-binding has no
+            // type annotation AND the initializer's synthesised type is an
+            // empty container whose element/payload type is a free
+            // inference variable, fire MT2003 ("cannot infer type").
+            // Pre-v0.14 the type checker silently kept `[T?]` open and
+            // defaulted later to the v0.x error sentinel — which downstream
+            // codegen would surface as a less helpful trap. This catches
+            // the common shape `let xs = []` / `let xs: _ = []` early.
+            //
+            // Spec ref: ยง7.2 (inference) of v1.0-RC2 / KNOWN_ISSUES #11.
+            if declared.is_none() {
+                if let Some(e) = init {
+                    if is_cannot_infer_shape(cx, *e, init_ty) {
+                        let pat_name = pattern_first_binding_name(cx, *pat)
+                            .unwrap_or_else(|| "_".into());
+                        cx.diag.push(diag::cannot_infer(
+                            &cx.span_of_expr(*e),
+                            format!("binding `{}`", pat_name),
+                        ));
+                    }
+                }
+            }
             check_pattern(cx, *pat, init_ty);
         }
         HirStmt::Expr(e) => {
             let _ = synth_expr(cx, *e);
         }
+    }
+}
+
+/// v0.14 (MT2003): walks the init expression to find the well-defined
+/// "can't infer" shapes the type checker should surface immediately:
+///
+/// - `[]` empty array literal — element type is a free `Var`.
+///
+/// Returns `true` when the binding type cannot be inferred from local
+/// information. Further shapes (empty map, `Default()`, generic
+/// constructor with no args) can land later; the v1.x emit-landing plan
+/// in KNOWN_ISSUES #11 calls this "trait-iterator + collect chain".
+fn is_cannot_infer_shape(cx: &Cx, expr_id: ExprId, ty: TyId) -> bool {
+    match &cx.pkg.exprs[expr_id] {
+        HirExpr::Array(xs) if xs.is_empty() => {
+            let resolved = cx.subst.resolve(ty, cx.arena);
+            match cx.arena.get(resolved) {
+                TyData::Array { elem, .. } => {
+                    let elem_r = cx.subst.resolve(*elem, cx.arena);
+                    matches!(cx.arena.get(elem_r), TyData::Var(_))
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
+/// Pull the first binding name out of `pat` for diagnostic phrasing.
+/// Returns `None` for wildcards / literal-only patterns.
+fn pattern_first_binding_name(cx: &Cx, pat_id: PatId) -> Option<String> {
+    match &cx.pkg.pats[pat_id] {
+        HirPat::Binding { name, .. } => Some(name.clone()),
+        HirPat::Tuple(xs) => xs.iter().find_map(|p| pattern_first_binding_name(cx, *p)),
+        HirPat::Ref { inner, .. } => pattern_first_binding_name(cx, *inner),
+        _ => None,
     }
 }
 

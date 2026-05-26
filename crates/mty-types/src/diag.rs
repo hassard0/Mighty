@@ -330,6 +330,40 @@ pub fn cannot_take_ref(span: &SourceSpan) -> Diagnostic {
     )
 }
 
+/// v0.14 (Gap B / MT2023 emit-site): a generic argument resolves to a
+/// value-kind def (function, enum variant constructor) rather than a
+/// type-kind def. Pre-v0.14 this was funnelled through MT2002
+/// ("unresolved type"), which mis-described the actual failure: the
+/// name DOES resolve — it's just the wrong kind for the position.
+/// v0.14 fires MT2023 at the generic-arg site so the user sees the
+/// kind-mismatch explanation from `mty explain MT2023`.
+///
+/// `outer` is the enclosing constructor whose generic slot was filled
+/// (e.g. `Result` in `Result[main, Err]`); `arg_kind` is the rejected
+/// kind ("function", "variant constructor", etc.).
+pub fn generic_arg_kind_mismatch(
+    outer: &str,
+    arg_name: &str,
+    arg_kind: &str,
+    span: &SourceSpan,
+) -> Diagnostic {
+    let mut d = Diagnostic::error(
+        GENERIC_ARG_MISMATCH,
+        label(
+            span,
+            format!(
+                "generic argument `{}` to `{}` is a {}, not a type",
+                arg_name, outer, arg_kind
+            ),
+        ),
+    );
+    d.notes.push(format!(
+        "type-kind expected; `{}` resolves to a value-kind def",
+        arg_name
+    ));
+    d
+}
+
 pub fn lambda_arity_mismatch(expected: usize, got: usize, span: &SourceSpan) -> Diagnostic {
     Diagnostic::error(
         LAMBDA_ARITY_MISMATCH,

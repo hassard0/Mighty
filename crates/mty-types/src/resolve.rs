@@ -798,7 +798,37 @@ fn resolve_def_to_ty(
             } else {
                 generics
                     .iter()
-                    .map(|g| resolve_hir_type(*g, pkg, defs, arena, scope, diag_out))
+                    .map(|g| {
+                        // v0.14 (Gap B / MT2023 emit-site): pre-flight check
+                        // for value-name in type-arg position. If the arg is
+                        // a single-segment path that resolves to a value-kind
+                        // def (Fn / Variant), surface MT2023 here; pre-v0.14
+                        // this funnelled through MT2002 which mis-named the
+                        // failure as "unresolved type". The actual resolve
+                        // below still runs and returns `arena.error`, so the
+                        // rest of the body still type-checks.
+                        if let mty_hir::HirType::Path { segments, .. } = &pkg.types[*g] {
+                            if segments.len() == 1 {
+                                let arg_name = &segments[0];
+                                if let Some(d) = defs.lookup(arg_name) {
+                                    let arg_kind = match d {
+                                        DefRef::Fn(_) => Some("function"),
+                                        DefRef::Variant(_, _) => Some("variant constructor"),
+                                        _ => None,
+                                    };
+                                    if let Some(kind) = arg_kind {
+                                        diag_out.push(diag::generic_arg_kind_mismatch(
+                                            name,
+                                            arg_name,
+                                            kind,
+                                            &SourceSpan { start: 0, end: 0 },
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                        resolve_hir_type(*g, pkg, defs, arena, scope, diag_out)
+                    })
                     .collect()
             };
             // Type-alias expansion: if the ADT is a single-variant opaque whose

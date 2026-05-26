@@ -1,0 +1,20 @@
+// MT2023 positive-fire: a generic type argument resolves to a value-kind
+// def (a function name) rather than a type. Pre-v0.14 this was funnelled
+// through MT2002 ("unresolved type"), which mis-described the failure:
+// the name DOES resolve, it's just the wrong kind for the position.
+// v0.14 (Gap B / MT2023 emit-site) detects the value-name in
+// generic-arg position inside `resolve_def_to_ty` and emits MT2023
+// directly so users see the kind-mismatch explanation from
+// `mty explain MT2023`.
+//
+// Spec ref: §7.3 (type resolution, kinds) of v1.0-RC2; KNOWN_ISSUES #11
+// v1.x emit-landing plan (lifetime kind landing row, refined to
+// value-vs-type kind for v0.14 since lifetimes are inferred not
+// surface-syntax).
+fn helper() -> I32 {
+  0
+}
+
+fn bad() -> Result[helper, I32] {
+  Ok(1)
+}
