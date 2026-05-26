@@ -1473,7 +1473,7 @@ fn check_stmt(cx: &mut Cx, stmt: &HirStmt) {
             pat,
             ty,
             init,
-            mutable: _,
+            mutable,
         } => {
             let declared = ty.map(|t| {
                 crate::resolve::resolve_hir_type(
@@ -1503,8 +1503,14 @@ fn check_stmt(cx: &mut Cx, stmt: &HirStmt) {
             // codegen would surface as a less helpful trap. This catches
             // the common shape `let xs = []` / `let xs: _ = []` early.
             //
-            // Spec ref: ยง7.2 (inference) of v1.0-RC2 / KNOWN_ISSUES #11.
-            if declared.is_none() {
+            // v0.14 integrator carve-out: `let mut xs = []` is a legitimate
+            // idiom — subsequent assignments (`xs = xs.push(v)` etc.) will
+            // unify the element type. Skip the eager emit for `mut`
+            // bindings; the existing late default-to-Error path still
+            // catches truly never-constrained mutable slots.
+            //
+            // Spec ref: §7.2 (inference) of v1.0-RC2 / KNOWN_ISSUES #11.
+            if declared.is_none() && !*mutable {
                 if let Some(e) = init {
                     if is_cannot_infer_shape(cx, *e, init_ty) {
                         let pat_name =

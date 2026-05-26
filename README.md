@@ -19,17 +19,19 @@ server, and stdlib are all in one Rust workspace and one `mty` binary.
 > **Status:** pre-alpha. The v1.0 language spec is at **v1.0-RC3**
 > (operator precedence promoted to normative §11.1.1; full
 > 63-reserved-keyword set enumerated). The toolchain is exercised by
-> 1051 Rust tests across 20 crates plus a second independent Python
+> 1109 Rust tests across 20 crates plus a second independent Python
 > front-end at [`impl-py/`](impl-py/) (137 tests) and a third
 > source-only Go front-end at [`impl-go/`](impl-go/) (4848 LOC,
 > cross-validation pending Go toolchain). All six CI jobs are
-> required gates. **End-to-end self-hosting is now complete** for the
-> slice-1 subset: lexer → parser → HIR → typeck → MtyIR → wasm
-> codegen, all written in Mighty. A `1.0` GA tag still awaits the
+> required gates. **End-to-end self-hosting** is complete for the
+> slice-1 subset (lexer → parser → HIR → typeck → MtyIR → wasm
+> codegen, all in Mighty); v0.14 broadens the codegen with string
+> pool + ADT layout + pattern lowering, and example 03 now passes
+> through the self-host chain. A `1.0` GA tag still awaits the
 > completion of the 2nd-impl through type-check, the 3rd-impl
 > cross-validation, eight RFC comment-window closures (RFC-001..006
 > plus the v0.13 RFC-008 + RFC-009 drafts), and the normative
-> conformance suite (currently 89 cases / 16 categories). See
+> conformance suite (currently 91 cases / 16 categories). See
 > [Status](#status) below.
 
 ## Install
@@ -96,7 +98,12 @@ Then:
 
 - Cranelift JIT + AOT object emission (default)
 - LLVM backend (`--features llvm`)
-- Wasm core module + Component Model (`wit-component`) emission
+- WASI Preview 2 with embedded preview1-adapter (vendored upstream
+  wasmtime v32 adapter; `--wasi=p2`; default stays `p1`). Direct
+  P2 imports for `std.random` / `std.time`; `std.fs` / `std.http`
+  flow through the embedded adapter
+- Wasm Component Model (`wit-component`) emission with user-supplied
+  WIT via `[wit]` in `mighty.toml`
 - DWARF v4 debug info + Wasm source maps + `name` section
 
 **Tooling**
@@ -110,9 +117,9 @@ Then:
 
 **Self-hosting (full pipeline)**
 
-- Lexer (full), parser (~1.9 KLOC subset), HIR lowering, minimal typeck, MtyIR lowering, **and Wasm core-module codegen** are all written in Mighty itself and exercised end-to-end against examples 01-05 and an arithmetic fixture.
-- 46 self-host tests passing (6 codegen + 9 IR + 7 typeck + 7 HIR + 13 parser + 4 lexer; 1 codegen ignored — example 03 generic `Option[T]` is v0.14).
-- v0.13 closed the front-end-through-back-end self-host chain for the slice-1 subset.
+- Lexer (full), parser (~1.9 KLOC subset), HIR lowering, minimal typeck, MtyIR lowering, **and Wasm core-module codegen** are all written in Mighty itself and exercised end-to-end against examples 01-05 plus arithmetic / option / pattern / string fixtures.
+- 53 self-host tests passing (13 codegen + 9 IR + 7 typeck + 7 HIR + 13 parser + 4 lexer; 0 ignored).
+- v0.13 closed the front-end-through-back-end self-host chain for the slice-1 subset; v0.14 broadened the Wasm codegen with string pool emission (`selfhost/codegen/string_pool.mty`), ADT bump-alloc layout (`selfhost/codegen/adt_layout.mty`), and pattern lowering (`selfhost/codegen/pattern.mty`), bringing example 03 through the bootstrap chain.
 
 **Independent implementations**
 
@@ -186,10 +193,10 @@ The v1.0 spec is feature-complete at v1.0-RC2 (`docs/spec/v1.0-rc.md`).
 
 ### Landed pre-v1.0 (formerly post-v1.0)
 
-- WASI Preview 2 + user-supplied WIT — v0.13 (`--wasi=p2`, `--world`, `[wit]` section).
-- Effect-row polymorphism infrastructure — v0.13 (RFC-008, `mty-types::effects::row`).
-- Set-of-scopes macro hygiene infrastructure — v0.13 (RFC-009, `mty-macros::scopes` + `hygiene`).
-- End-to-end self-hosting through Wasm codegen — v0.13.
+- WASI Preview 2 + user-supplied WIT — v0.13 (`--wasi=p2`, `--world`, `[wit]` section). v0.14 embeds the upstream wasmtime preview1→preview2 adapter and ships direct P2 imports for `std.random` / `std.time`.
+- Effect-row polymorphism infrastructure — v0.13 (RFC-008, `mty-types::effects::row`). v0.14 ships 19 more row-polymorphic stdlib signatures in `mty-types::effects::stdlib_sigs`; call-site dispatch lands v0.15.
+- Set-of-scopes macro hygiene — v0.13 (RFC-009, `mty-macros::scopes` + `hygiene`); v0.14 wires `mty-hir::lower::macros` to drive `expand_scoped_to_source` so the hygiene model now powers HIR macro resolution end-to-end (closes the v0.13 LSP-completion gap A111).
+- End-to-end self-hosting through Wasm codegen — v0.13; v0.14 broadens with string pool + ADT layout + pattern lowering so example 03 passes.
 
 For the full per-version history of what shipped on the road to v1.0,
 see [`CHANGELOG.md`](CHANGELOG.md).
@@ -197,20 +204,24 @@ see [`CHANGELOG.md`](CHANGELOG.md).
 ## Status
 
 Mighty is **pre-alpha**. Internal milestones have been tagged through
-v0.13. The v1.0 language spec is at v1.0-RC3 — see
-`docs/spec/v1.0-rc.md`. There are 1051 Rust tests across the workspace
-(plus 137 Python tests in the [`impl-py/`](impl-py/) 2nd-impl, 89
-normative conformance cases, and 46 self-host tests = **1323
+v0.14. The v1.0 language spec is at v1.0-RC3 — see
+`docs/spec/v1.0-rc.md`. There are 1109 Rust tests across the workspace
+(plus 137 Python tests in the [`impl-py/`](impl-py/) 2nd-impl, 91
+normative conformance cases, and 53 self-host tests = **1390
 combined**), 0 clippy warnings *under the strict `pedantic` gate*
 (a required CI job, not advisory), and **4/4 demos** pass `smoke.sh`.
 The cargo-fuzz harness covers four targets (parser / typeck / fmt /
-codegen), and the normative conformance corpus stands at **89 cases
+codegen), and the normative conformance corpus stands at **91 cases
 across 16 categories** (3 ignored: 2 carried over from v0.11, 1
-red-shirt carried over from v0.12). v0.13 reached the
-**end-to-end self-host milestone** (lexer → parser → HIR → typeck →
-MtyIR → wasm codegen, all in Mighty) and added a WASI Preview 2
-backend (`--wasi=p2`) plus two RFC drafts with usable infrastructure
-(RFC-008 effect-row polymorphism, RFC-009 set-of-scopes macro hygiene).
+red-shirt carried over from v0.12 — traced during v0.14 to a one-line
+bug in `mty-hir::lower::exprs::is_expr_node`). v0.14 closes
+KNOWN_ISSUES #11 (six FROZEN typeck codes now all have emit-sites);
+ships **WASI Preview 2 with the vendored upstream wasmtime adapter**
+and direct P2 imports for `std.random` / `std.time`; wires the
+**set-of-scopes hygiene** layer from `mty-macros` into
+`mty-hir::lower::macros` so the new model powers HIR macro
+resolution; and broadens the self-host Wasm codegen so example 03
+passes through the bootstrap chain.
 
 **There is no released binary yet.** Build from source, treat the
 language as unstable, and please file issues for everything that

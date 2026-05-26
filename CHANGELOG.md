@@ -10,23 +10,67 @@ For the full per-release notes, see
 ## [Unreleased]
 
 - v1.0-RC4 work: extend Python 2nd-impl through HIR + sketch typeck
-  (~5.5 KLOC, ~8 days); wire 6 remaining Gap-B typeck call-sites
-  (MT2003/MT2009/MT2022/MT2023/MT2024/MT2025); fix the v0.12
-  red-shirt `borrow_checking/14_borrow_outlives_owner` by extending
-  the `BinOp::Assign` branch in `record_borrow_for_rhs` to stamp
-  `pending_borrower`; run `go test ./...` on the Go 3rd-impl
-  (`impl-go/`) on a Go-1.22+ host and cross-validate against Rust +
-  Python over the `examples/` sweep; MT0001 funnel split
+  (~5.5 KLOC, ~8 days); fix the v0.13 red-shirt
+  `borrow_checking/14_borrow_outlives_owner` by adding the
+  `SyntaxKind::BLOCK` arm to
+  `mty-hir::lower::exprs::is_expr_node` (one-line traced fix from
+  v0.14); run `go test ./...` on the Go 3rd-impl (`impl-go/`) on a
+  Go-1.22+ host and cross-validate against Rust + Python over the
+  `examples/` sweep; MT0001 funnel split
   (MT0002/MT0003/MT0010/MT0011/MT0012/MT0020/MT0021/MT0030);
   `mty-pkg` cross-file resolution; parametric newtypes for self-host
-  arena ids; v0.13 RFC-009 set-of-scopes wiring into mty-hir + LSP
-  completion (A111); WASI P2 stdlib lowerings + preview1-adapter
-  embed + default flip to P2 (closes v0.13 issue #15); effect-row
-  surface-syntax parser + typeck call-site validator + rest of
-  stdlib HOFs + MT4020-25 diagnostics (v0.13 RFC-008 follow-up);
-  self-host codegen broadening (string pool, pattern lowering, ADT
-  layout, for-loop iter); normative conformance suite kit
-  publication; full `TokenStream` marshalling.
+  arena ids; v0.14 stdlib-HOF row-poly call-site dispatch via
+  `mty-types::check.rs::prelude::BuiltinMethod`; v0.14 WASI P2
+  `P2DirectImport` wired into `emit.rs` dispatch + direct lowering
+  for `std.fs` and `std.http` + default flip from `--wasi=p1` to
+  `--wasi=p2`; effect-row surface-syntax parser for `!E` / `!{a |
+  E}` in `mty-syntax` + MT4020-25 diagnostics; self-host codegen
+  broadening (variant-call lowering, SwitchInt cascade, real LEB128
+  in Mighty, arena drops, agent backend); removal of the deprecated
+  `mty_macros::expand` / `expand_to_source` shim; normative
+  conformance suite kit publication; full `TokenStream` marshalling.
+
+## [0.14.0] - 2026-05-25
+
+**Integration-and-finishing tier — WASI Preview 2 with vendored
+wasmtime adapter, self-host codegen reaches example 03, set-of-scopes
+hygiene now powers HIR macro resolution, KNOWN_ISSUES #11 closed.**
+The WASI Preview 2 backend now embeds the upstream wasmtime v32
+preview1→preview2 adapter (command / reactor / proxy under
+[`crates/mty-codegen-wasm/wit/adapter/`](crates/mty-codegen-wasm/wit/adapter/))
+and ships the full upstream WASI 0.2.3 WIT surface; `std.random` /
+`std.time` route through new `P2DirectImport` constants direct to
+preview2 origins (`std.fs` / `std.http` direct lowering is v0.15).
+The v0.13 internal `mighty:cli-adapter` shim is gone — components
+now run unmodified on any preview2 host. The self-host codegen
+([`selfhost/codegen/wasm.mty`](selfhost/codegen/wasm.mty)) grew
+~400 → ~660 LOC with three new modules
+(`string_pool.mty`, `adt_layout.mty`, `pattern.mty`) and the
+driver test reports **13 live / 0 ignored** (example 03 passes,
+was the v0.13 single ignored). `mty-hir::lower::macros` now drives
+`expand_scoped_to_source` (set-of-scopes) rather than the legacy
+mangler; the legacy `expand` / `expand_to_source` API stays
+callable behind a `#[deprecated(since = "0.14.0")]` shim with
+removal scheduled for v0.15. Two FROZEN typeck codes land their
+emit-sites (MT2003 at `check_stmt(HirStmt::Let)`, MT2023 at
+`resolve_generic_args`); the other four in KNOWN_ISSUES #11
+(MT2009 / MT2022 / MT2024 / MT2025) were rediscovered to already
+have emit-sites from v0.12 work — issue #11 closed with a per-code
+closure-history table. The conformance corpus moves **89 → 91
+cases** / 16 categories / 3 ignored (red-shirt
+`14_borrow_outlives_owner` traced to a one-line bug in
+`mty-hir::lower::exprs::is_expr_node` missing the `BLOCK` arm —
+out of v0.14 swarm scope, carried over). Stdlib HOF row-polymorphism
+lands 19 more row-polymorphic signatures in a new `pub mod
+stdlib_sigs` (+207 LOC) as a SHIPPED-SUBSET — the signatures + 24
+tests ship; the call-site dispatch through
+`prelude::BuiltinMethod` is v0.15. Integrator carve-out: MT2003
+exempts `let mut xs = []` (legitimate idiom — downstream assignments
+unify the element type), with a regression test pinning the
+behaviour. The spec stays at v1.0-RC3. **1109 Rust + 137 Python +
+91 conformance + 53 self-host = 1390 tests passing** (+67 vs
+v0.13), 0 failing, 4 ignored.
+[Release notes](dev/history/releases/RELEASE-v0.14.md).
 
 ## [0.13.0] - 2026-05-25
 

@@ -54,3 +54,18 @@ fn non_empty_array_does_not_emit_mt2003() {
         codes
     );
 }
+
+#[test]
+fn mutable_empty_array_does_not_emit_mt2003() {
+    // v0.14 integrator carve-out: `let mut xs = []` followed by a typed
+    // assignment is a legitimate idiom (downstream unification fills the
+    // element type). MT2003 must NOT fire eagerly at the let-statement —
+    // see check.rs::check_stmt(HirStmt::Let) and demos/04_kvstore.
+    let src = "fn main() -> I32 { let mut xs = []; xs = xs.push(1); 42 }";
+    let codes = diag_codes(src);
+    assert!(
+        !codes.contains(&"MT2003".to_string()),
+        "MT2003 should not fire on `let mut xs = []` (mutable carve-out), got {:?}",
+        codes
+    );
+}
