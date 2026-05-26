@@ -9,24 +9,108 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- v0.22-RC1 candidates: per-message work-stealing (Tier 5) — promote
-  the per-worker crossbeam-deque scheduler from agent-affinity hints
-  (v0.10) to true per-message work-stealing with locality-preserving
-  steal ordering (NUMA → socket → anywhere) + new
-  `worker.steals_total{src,dst}` OTel counter; diagnostic-code gap
-  closure of the last 8 uncovered codes (MT0004 / MT0030 / MT2015 /
-  MT2016 / MT2018 / MT2019 / MT3012 / MT3015 — all need crate-source
-  emit-site work or HIR shape gaps closed); PGO / ThinLTO build
-  profile + a `mty-bench`-driven `.profraw` collection; Python
-  2nd-impl borrow + codegen (wasm-only) for cross-validation
-  against the Rust reference; MtyIR `Stmt` real source-span carrier
-  so DWARF v5 dense line-program rows are byte-accurate rather than
-  synthetic-uniform; `mty conform <kit.tar.gz>` implementer-CLI shim;
-  sigstore inclusion-proof crypto verify on `fetch`; `mty-pkg`
-  cross-file resolution; parametric newtypes for self-host arena
-  ids; self-host codegen broadening (real LEB128 in Mighty, arena
-  drops at scope exit, agent backend); Windows named-pipe introspect
-  backend; full `TokenStream` marshalling.
+- v0.23-RC1 candidates: MT3012 DROP_IN_CONST_CONTEXT closure + full
+  `CONST_DECL → HirConst` lowering + const-context flag through HIR
+  walker + borrow-check over const initialisers (closes the last
+  uncovered diagnostic code, drops uncovered 1 → 0); BOLT post-link
+  binary optimisation complementing v0.22's PGO (binary-level basic-
+  block layout, target ~5-10% additional `mty check` wall-clock
+  improvement on top of PGO); multi-socket NUMA-locality
+  benchmark (v0.22 deferred multi-socket empirical numbers because
+  the development fleet is single-socket; v0.23 pulls a 2-socket
+  box into the bench loop and validates the tier-ordering); `mty
+  conform <kit.tar.gz>` implementer-CLI shim that runs the 147 cases
+  against any compiler binary and emits a normative pass/fail
+  table; systematic v1.0-RC validation sweep that walks every
+  spec-prose claim against the now-complete Python 2nd-impl and
+  files inconsistencies in `docs/spec/CHANGELOG.md`. There is **no
+  remaining Post-v1.0 backlog** as of v0.22 — every former
+  post-v1.0 roadmap item has landed pre-v1.0; only RFC comment
+  windows stand between current main and v1.0 GA.
+
+## [0.22.0] - 2026-05-26
+
+**All post-v1.0 roadmap items now landed pre-v1.0 — work-stealing
+(Tier 5) + PGO/ThinLTO + Python full pipeline. Only RFC comment
+windows remain for v1.0 GA.** v0.22 closes the v0.21 "Post-v1.0"
+block end-to-end. **Per-message work-stealing (Tier 5)** lands —
+the v0.10 affinity-hint scheduler is promoted to true crossbeam-
+deque per-worker queues with NUMA-locality steal ordering (own
+NUMA → same socket → anywhere) and a new process-wide
+`worker.steals_total{src,dst}` OTel counter; the `local → siblings
+→ injector` phase reversal alone produces a 61% speed-up on
+pinned-task bursts vs v0.21 (1000 pinned tasks: 12.1 ms → 4.7 ms;
+1000 injector tasks: 5.4 ms → 4.9 ms). New
+`crates/mty-runtime/src/scheduler/work_stealing.rs` (+395 LOC) +
+`scheduler/locality.rs` (+333 LOC) + `telemetry/sink.rs` (+118 LOC)
++ 7 work_stealing integration tests. **PGO + ThinLTO build
+profile** lands — new `[profile.release-pgo]` cargo profile +
+two-stage `scripts/build-pgo.{sh,ps1}` pipeline (instrumented
+build → `mty-bench-pgo` sweep over `examples/*.mty` →
+`llvm-profdata merge` → final build with `-Cprofile-use` +
+`-Clinker-plugin-lto`); new `mty-bench-pgo` binary
+(`crates/mty-bench/src/bin/mty-bench-pgo.rs`, +160 LOC); new
+manual `.github/workflows/pgo-bench.yml` runs the pipeline on
+`workflow_dispatch` and writes baseline-vs-PGO `mty check`
+wall-clock delta to the workflow summary; PGO **not** wired into
+`release.yml` (v0.22 ships measurement, not gating; v0.23's BOLT
+follow-up turns it into the default release artifact pipeline).
+**Python 2nd-impl full pipeline** lands — the impl-py 2nd-impl
+now covers lex → parse → lower → typeck → borrow → wasm end-to-
+end. Borrow checker (`impl-py/mty/borrow.py`, +865 LOC) is an
+NLL-flavoured subset (scope-based loan lifetimes; MT3001 move-
+while-borrowed, MT3002 move-out-of-borrow, MT3003 mut+shared
+conflict, MT3004 use-after-move, MT3005 double `&mut`) with
+branch joining via AND-of-moved-flags. Wasm codegen
+(`impl-py/mty/codegen_wasm.py`, +954 LOC) emits Core 1.0 wasm
+bytes — magic + 5 sections (type, function, memory, export,
+code); i32 arithmetic, comparisons, bitwise, control flow,
+calls, locals; if/else block-type i32; while as block+loop+br_if;
+deduplicated function-type table; structural validation via
+`parse_sections`. Full-pipeline sweep
+(`tests/test_examples_full_pipeline.py`) parametrised over 24
+examples × 4 phases = 96 cases; coverage gate `≥ 15/24 examples
+emit wasm fn body`, **21/24 actual**. Python test count
+**311 → 474** (+163: +28 borrow + +37 codegen + +98 sweep).
+**Diagnostic-code coverage closure** activates 7 of the 8
+v0.21-uncovered codes — MT0004 UNKNOWN_DURATION_UNIT + MT0030
+DEPTH_LIMIT_EXCEEDED via a new `Parser::pre_lex_scan` (INT_LITERAL
++ IDENT zero-gap with duration-unit-like text and DURATION_LITERAL
++ IDENT unconditional emit MT0004; paren/brace/bracket nesting >
+256 emits MT0030) + driver `parse_source` preserving
+`ParseError::code` instead of funneling to UNEXPECTED_TOKEN;
+MT2015 NON_EXHAUSTIVE_MATCH + MT2016 UNREACHABLE_MATCH_ARM via
+`synth_match`; MT2018 IF_BRANCH_MISMATCH via `synth_expr_inner`
+If branch; MT2019 RETURN_TYPE_MISMATCH via custom function-body
+path in `items` (synthesises tail without expected-propagation,
+unifies against ret); MT3015 USE_OF_UNINITIALIZED via
+`mty-borrow::flow::walk_stmt` binding `let x: T;` as
+`Ownership::Uninit`. **MT3012 DROP_IN_CONST_CONTEXT explicitly
+deferred to v0.23** — HIR's `lower_item` punts on `CONST_DECL`
+(`mty-hir/src/lower/items.rs:33`), so emit-site activation
+requires (1) full `CONST_DECL → HirConst` lowering, (2) a
+const-context flag propagated through the HIR walker,
+(3) a borrow-check pass over const initialisers — each a slice's
+worth of work; bundling them into the closure slice would burst
+its scope. +7 conformance fixtures (`parser/02`, `parser/03`,
+`type_checking/28..31`, `borrow_checking/15`). Coverage delta:
+covered 62 → 69 (+7), uncovered 8 → 1 (-7, MT3012), direct % 56
+→ 63, any-harness % 93 → 99. **MtyIR `Stmt` source-span carrier**
+lands — every MtyIR `Stmt` + `Terminator` now carries a real
+`SourceSpan` field (default `SourceSpan::ZERO` for manually-
+constructed programs); HIR spans propagate through
+`lower → MtyIR → cranelift SourceLoc → DWARF v5 line row`, so
+v0.21's synthetic-uniform per-statement byte-offset spread is
+gone and `gdb step-line` is byte-accurate. `mty-ir/src/ir.rs`
+(+74 LOC), `lower/{ctx, exprs, items, stmts, mod}.rs` (+308 LOC
+across), `mty-codegen-cranelift/src/lower.rs` (+29 LOC reads
+`stmt.span.start_byte`), +5 spans tests in `mty-ir/tests/spans.rs`
++ extended `debug_mach_src_loc.rs` (new
+`dwarf5_row_byte_offsets_match_source`). All gates green:
+**1554 Rust tests** (+25 vs v0.21), **474 Python tests**
+(+163 vs v0.21), **147 conformance cases** (+7), **23 self-host
+driver** tests (unchanged), **2198 combined** (+195 vs v0.21's
+2003). KNOWN_ISSUES P1 + P2 stay empty.
 
 ## [0.21.0] - 2026-05-26
 

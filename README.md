@@ -20,45 +20,55 @@ server, and stdlib are all in one Rust workspace and one `mty` binary.
 > (operator precedence promoted to normative §11.1.1; full
 > 63-reserved-keyword set enumerated; effect-row grammar admits the
 > multi-row-variable tail since v0.18). The toolchain is exercised by
-> **1529 Rust tests** across 20 crates plus a second independent
-> Python implementation at [`impl-py/`](impl-py/) (front-end + HIR +
-> typeck through HM closures + generic-constraints, **311 tests**,
-> 23/23 examples typeck clean) and a third source-only Go front-end
-> at [`impl-go/`](impl-go/) (4848 LOC, cross-validation pending Go
-> toolchain). All six CI jobs are required gates. **All KNOWN_ISSUES
-> P1/P2 entries are closed.** **v1.0 freeze blockers are down to RFC
-> comment windows**: blocker #1 (Python 2nd-impl typeck) closed with
-> HM closures + generic-constraints; blocker #3 (normative conformance
-> suite) closed with the 140-case kit + normative
-> `docs/spec/conformance.md` (coverage now **56% direct / 93% any-
-> harness** after the v0.21 audit); blocker #2 (eight RFC comment-
-> window closures) is infrastructure-ready
-> (`docs/spec/rfcs/COMMENT_WINDOWS.md` tracks all 8 windows) and
-> awaits the user-side Discussion-thread openings.
-> **Earliest possible v1.0.0 tag: 2026-07-26** (the day after the
-> longest 60-day windows close). See [Status](#status) below.
+> **1554 Rust tests** across 20 crates plus a second independent
+> Python implementation at [`impl-py/`](impl-py/) (full pipeline:
+> lex → parse → lower → typeck → borrow → wasm; **474 tests**,
+> 23/23 examples typeck clean, 21/24 emit wasm) and a third
+> source-only Go front-end at [`impl-go/`](impl-go/) (4848 LOC,
+> cross-validation pending Go toolchain). All six CI jobs are
+> required gates. **All KNOWN_ISSUES P1/P2 entries are closed.**
+> **v1.0 freeze blockers are down to RFC comment windows**: blocker
+> #1 (Python 2nd-impl) closed with HM closures + generic-constraints
+> + full borrow + wasm codegen pipeline; blocker #3 (normative
+> conformance suite) closed with the 147-case kit + normative
+> `docs/spec/conformance.md` (coverage now **63% direct / 99% any-
+> harness** after the v0.22 audit; only MT3012 DROP_IN_CONST_CONTEXT
+> remains uncovered, deferred to v0.23 pending HIR `CONST_DECL`
+> lowering); blocker #2 (eight RFC comment-window closures) is
+> infrastructure-ready (`docs/spec/rfcs/COMMENT_WINDOWS.md` tracks
+> all 8 windows) and awaits the user-side Discussion-thread
+> openings. **Every former Post-v1.0 roadmap item has now landed
+> pre-v1.0.** **Earliest possible v1.0.0 tag: 2026-07-26** (the day
+> after the longest 60-day windows close). See [Status](#status)
+> below.
 
 ## Release timeline
 
-- **v0.21.0** (this release): Polonius borrows + cap-name resolver
-  + Tier 4.3 lossless live migration + DWARF v5 dense rows.
-  Hot reload (Tier 1.5) completes (wasm-bytes swap + schema
-  migrations + condvar drain + control-socket `op=reload`); Tier
-  4.3 lossless live agent migration (RFC-006) with 3 placement
-  policies + OTel cluster metrics; DWARF v5 MachSrcLoc plumbing
-  (per-instruction line program + `.debug_loclists` per-local; v5
-  binary-size flips from +3.2% to -2.3% vs v4); Polonius behind
-  the `polonius` cargo feature (datalog + fixpoint solver) + cap-
-  name resolver activating MT4060–MT4065; conformance per-backend
-  harnesses (`conformance_native` + `conformance_wasm_component`)
-  + coverage audit (uncovered 17 → 8, direct coverage 56%, any-
-  harness 93%).
-- **v0.22-RC1** (next): per-message work-stealing (Tier 5) with
-  locality-preserving steal ordering; closure of the last 8
-  uncovered diagnostic codes; PGO / ThinLTO build profile; Python
-  2nd-impl borrow + codegen (wasm-only) for cross-validation;
-  MtyIR `Stmt` real source-span carrier so DWARF v5 dense rows are
-  byte-accurate; `mty conform <kit.tar.gz>` implementer-CLI shim.
+- **v0.22.0** (this release): per-message work-stealing (Tier 5) +
+  PGO/ThinLTO build profile + Python full pipeline. **All former
+  Post-v1.0 roadmap items now landed.** Crossbeam-deque per-worker
+  queues with NUMA-locality steal ordering (own NUMA → same socket
+  → anywhere) + process-wide `worker.steals_total{src,dst}` OTel
+  counter (-61% on pinned-burst workload vs v0.21); `release-pgo`
+  cargo profile + two-stage `scripts/build-pgo.{sh,ps1}` pipeline
+  driven by a new `mty-bench-pgo` runner + manual
+  `pgo-bench.yml` workflow (measurement-only; v0.23 BOLT follow-up
+  turns it into the default); Python 2nd-impl extends from typeck
+  to full lex → parse → lower → typeck → borrow → wasm pipeline
+  with 474 tests (+163) and 21/24 examples emitting wasm; coverage
+  closure activates 7 of 8 v0.21-uncovered codes (MT0004 / MT0030
+  / MT2015 / MT2016 / MT2018 / MT2019 / MT3015) — MT3012 deferred
+  to v0.23 pending HIR `CONST_DECL` lowering; MtyIR `Stmt` real
+  `SourceSpan` carrier replacing v0.21's synthetic-uniform spread
+  so `gdb step-line` is byte-accurate.
+- **v0.23-RC1** (next): MT3012 closure (full `CONST_DECL → HirConst`
+  lowering + const-context flag + borrow-check over const
+  initialisers — drops uncovered 1 → 0); BOLT post-link binary
+  optimisation complementing PGO; multi-socket NUMA-locality
+  benchmark (v0.22 deferred multi-socket numbers because the
+  development fleet is single-socket); `mty conform <kit.tar.gz>`
+  implementer-CLI shim; systematic v1.0-RC validation sweep
+  walking every spec-prose claim against the Python 2nd-impl.
 - **v1.0.0 GA**: when all 8 RFC comment windows close.
   **Earliest: 2026-07-26** (the day after RFC-002 / RFC-006's 60-day
   windows close). The integrator collects dispositions →
@@ -130,6 +140,17 @@ Then:
 
 - Tokio-backed concurrent runtime with mailboxes, supervisors, deadline timers
 - Multi-core scheduler — per-worker tokio runtimes + crossbeam-deque work-stealing + affinity hints
+- **Per-message work-stealing (v0.22, Tier 5)** — promotes the v0.10
+  affinity-hint scheduler to true per-worker crossbeam-deque queues
+  with NUMA-locality steal ordering (own NUMA node → same socket →
+  anywhere fallback via Linux `/sys` probe with flat-topology
+  Windows/macOS fallback); `local → siblings → injector` phase
+  reversal (v0.21 had `local → injector → siblings` which let
+  pinned-burst workloads sit on the injector-race winner); new
+  process-wide `worker.steals_total{src,dst}` OTel counter
+  (cardinality-bounded at `(N+1) × N` entries); -61% on the "1000
+  tasks pinned to worker 0" microbenchmark vs v0.21, -9.3% on the
+  "1000 tasks via global injector" workload
 - Cooperative mid-turn cancellation, deterministic-execution mode
 - Per-handler memory budget + tick budget with auto-charge on alloc
 - **Live agent introspection** — `mty inspect` CLI + opt-in
@@ -263,6 +284,18 @@ Then:
 - `mty fmt` — canonical formatter (idempotent under fuzz)
 - Stdlib: `std.json`, `std.tls`, `std.http`, `std.fs`, `std.time`, `std.test`, `std.io` — backed by `rustls` / `hyper` / `serde_json` / `tokio`
 - Diagnostics: `MT0001`–`MT8010`, each with `mty explain`
+- **PGO + ThinLTO build profile (v0.22)** — `release-pgo` cargo
+  profile (inherits `release` with `lto = "thin"` + `codegen-units = 1`
+  + `panic = "abort"` + `debug = "line-tables-only"`); two-stage
+  `scripts/build-pgo.{sh,ps1}` pipeline drives an instrumented
+  build → `mty-bench-pgo` sweep across `examples/*.mty` →
+  `llvm-profdata merge` → final build with `-Cprofile-use` +
+  `-Clinker-plugin-lto` writing to `target/mty-pgo`; manual
+  `.github/workflows/pgo-bench.yml` runs the pipeline on
+  `workflow_dispatch` and writes a baseline-vs-PGO `mty check`
+  wall-clock delta to the workflow summary (v0.22 ships measurement,
+  not gating; v0.23's BOLT follow-up turns it into the default
+  release artifact pipeline)
 
 **Self-hosting (full pipeline)**
 
@@ -273,7 +306,19 @@ Then:
 **Independent implementations**
 
 - Rust reference compiler (this repo, `crates/mty-*`).
-- Python 2nd-impl at [`impl-py/`](impl-py/) — pure-Python front-end + HIR + lowering + Hindley-Milner typeck with **HM closure inference + generics-with-constraints** (v0.19), built from the v1.0-RC spec prose alone. **311 tests**, 23/23 examples typeck clean. Closes v1.0 freeze blocker #1; borrow + codegen layers stay post-v1.0.
+- Python 2nd-impl at [`impl-py/`](impl-py/) — **full pipeline**
+  (lex → parse → lower → typeck → borrow → wasm) in pure Python,
+  built from the v1.0-RC spec prose alone (**v0.22**, extends the
+  v0.19 typeck-only impl with NLL-flavoured borrow checker covering
+  MT3001–MT3005 and Core 1.0 wasm codegen emitting i32 arithmetic /
+  control flow / calls / locals with deduplicated type table and
+  structural validation). **474 tests** (+163 from v0.21), 23/23
+  examples typeck clean, **21/24 examples emit wasm fn bodies**
+  (the 3 zero-fn examples are agent-only files). Closes v1.0
+  freeze blocker #1 + completes the v1.0-RC validation question
+  (the Rust reference is no longer the only impl that exists —
+  every spec-prose claim now has a 2nd impl that round-trips
+  through codegen).
 - Go 3rd-impl front-end at [`impl-go/`](impl-go/) — Go 1.22+ lexer + parser + CLI built from the v1.0-RC spec prose alone. 4848 LOC; cross-validation (`go test ./...`, example sweep) pending Go toolchain on the build host.
 
 ## Documentation
@@ -331,8 +376,9 @@ The v1.0 spec is feature-complete at **v1.0-RC4** (`docs/spec/v1.0-rc.md`).
 **Earliest possible v1.0.0 tag: 2026-07-26.** Remaining blockers:
 
 1. ~~A second independent compiler implementation (RFC-007).~~
-   **CLOSED v0.19** — Python 2nd-impl through HM closures +
-   generic-constraints; 311 tests; 23/23 examples typeck clean.
+   **CLOSED v0.19, extended v0.22** — Python 2nd-impl through HM
+   closures + generic-constraints + full borrow + wasm codegen;
+   474 tests; 23/23 examples typeck clean; 21/24 emit wasm.
 2. The eight RFC comment windows
    (RFC-001..006 + RFC-008 + RFC-009).
    **Infrastructure shipped v0.19** in
@@ -340,19 +386,25 @@ The v1.0 spec is feature-complete at **v1.0-RC4** (`docs/spec/v1.0-rc.md`).
    awaits user-side Discussion-thread openings. Earliest close
    2026-06-09 (RFC-005, 14 days); latest close 2026-07-25 (RFC-002
    / RFC-006, 60 days each).
-3. ~~A published normative conformance suite.~~ **CLOSED v0.19** —
+3. ~~A published normative conformance suite.~~ **CLOSED v0.19,
+   audit updated v0.22** —
    [`scripts/build-conformance-kit.sh`](scripts/build-conformance-kit.sh)
-   packages 122 cases / 24 categories + the new normative
+   packages 147 cases / 24 categories + the normative
    [`docs/spec/conformance.md`](docs/spec/conformance.md) into a
-   ~92 K tarball attached to every tagged release.
+   ~115 K tarball attached to every tagged release. Coverage 63%
+   direct / 99% any-harness (only MT3012 uncovered, deferred to
+   v0.23).
 
 ### Post-v1.0
 
-- Per-message work-stealing (Tier 5).
-- PGO / ThinLTO.
-- Python 2nd-impl borrow + codegen layers
-  (out-of-scope for v1.0; the v1.0 freeze ships through HM typeck
-  only).
+The Post-v1.0 backlog is **empty** as of v0.22 — every former
+post-v1.0 roadmap item (per-message work-stealing, PGO/ThinLTO,
+Python 2nd-impl borrow + codegen) landed pre-v1.0. Beyond v1.0,
+candidate slices are tracked in the `[Unreleased]` block of
+[`CHANGELOG.md`](CHANGELOG.md) (BOLT post-link optimisation,
+multi-socket NUMA benchmark, `mty conform` implementer-CLI shim,
+systematic v1.0-RC validation sweep, MT3012 closure pending HIR
+`CONST_DECL` lowering).
 
 ### Landed pre-v1.0 (formerly post-v1.0)
 
@@ -376,6 +428,11 @@ The v1.0 spec is feature-complete at **v1.0-RC4** (`docs/spec/v1.0-rc.md`).
 - DWARF v5 MachSrcLoc plumbing (v0.21) — cranelift's per-instruction `MachSrcLoc` map flows through `Module::define_function`; v0.20's conservative 2-entry line table replaced with a dense per-statement line program; `.debug_loclists` per-local emitted from cranelift slot offsets; v5 binary-size flips from +3.2% to -2.3% vs v4 on the synthetic benchmark.
 - Polonius-style borrows (v0.21, opt-in `polonius` feature) — datalog fact model + 4 inference rules + fixpoint solver layered on the v0.3-vintage NLL walker; default build (no feature) is byte-identical to v0.20 borrow-check semantics.
 - Cap-name resolver — MT4060–MT4065 active emit (v0.21) — 3-layer scope-frame resolver (current fn signature, enclosing impl/trait, module-level prelude) pinning `Fs` / `Net` / `Clock` / `Dom` / `Model` names against their cap family + narrowing surface; closes the 6 v0.20-uncovered MT4xxx typeck codes.
+- Per-message work-stealing — Tier 5 (v0.22) — promotes the v0.10 affinity-hint scheduler to true crossbeam-deque per-worker queues with NUMA-locality steal ordering (own NUMA → same socket → anywhere via Linux `/sys` probe, flat fallback on Windows/macOS); `local → siblings → injector` phase reversal; process-wide `worker.steals_total{src,dst}` OTel counter; -61% on the pinned-burst microbenchmark vs v0.21. Closes the last roadmap Tier.
+- PGO + ThinLTO build profile (v0.22) — new `release-pgo` cargo profile + two-stage `scripts/build-pgo.{sh,ps1}` pipeline (instrumented build → `mty-bench-pgo` sweep over `examples/*.mty` → `llvm-profdata merge` → final build with `-Cprofile-use` + `-Clinker-plugin-lto`); manual `.github/workflows/pgo-bench.yml` writes baseline-vs-PGO `mty check` wall-clock delta to the workflow summary (measurement-only; v0.23 BOLT follow-up turns it into the default release artifact pipeline).
+- Python 2nd-impl full pipeline (v0.22) — extends the v0.19 typeck-only impl with NLL-flavoured borrow checker (MT3001–MT3005, +865 LOC, +28 tests) + Core 1.0 wasm codegen (+954 LOC, +37 tests) emitting i32 arithmetic, control flow, calls, locals with deduplicated type table and structural validation; 96-case full-pipeline sweep; 21/24 examples emit wasm fn bodies; Python test count 311 → 474 (+163). Completes the v1.0-RC validation question — every spec-prose claim now has a 2nd impl that round-trips through codegen.
+- Diagnostic-code coverage closure (v0.22) — activates 7 of the 8 v0.21-uncovered codes (MT0004 / MT0030 via `Parser::pre_lex_scan` + driver `DiagCode` preservation; MT2015 / MT2016 via `synth_match`; MT2018 via `synth_expr_inner` If branch; MT2019 via `items` custom function-body path; MT3015 via `mty-borrow::flow::walk_stmt` binding `let x: T;` as `Ownership::Uninit`). +7 conformance fixtures. Coverage 62 → 69 direct (56% → 63%), any-harness 93% → 99%, uncovered 8 → 1. MT3012 DROP_IN_CONST_CONTEXT explicitly deferred to v0.23 pending HIR `CONST_DECL` lowering.
+- MtyIR `Stmt` real source-span carrier (v0.22) — every MtyIR `Stmt` + `Terminator` now carries a real `SourceSpan` field (default `SourceSpan::ZERO` for back-compat with manually-constructed programs); HIR spans propagate through `lower → MtyIR → cranelift SourceLoc → DWARF v5 line row`, replacing v0.21's synthetic-uniform per-statement byte-offset spread; `gdb step-line` against v0.22 binaries walks source lines byte-accurately.
 
 For the full per-version history of what shipped on the road to v1.0,
 see [`CHANGELOG.md`](CHANGELOG.md).
@@ -383,19 +440,25 @@ see [`CHANGELOG.md`](CHANGELOG.md).
 ## Status
 
 Mighty is **pre-alpha**. Internal milestones have been tagged through
-**v0.21**. The v1.0 language spec is at v1.0-RC4 — see
-`docs/spec/v1.0-rc.md`. There are **1529 Rust tests** across the
-workspace (plus **311 Python tests** in the [`impl-py/`](impl-py/)
-2nd-impl, **140 normative conformance cases** at **56% direct /
-93% any-harness** coverage, and **23 self-host driver** codegen
-tests = **2003 combined**), 0 clippy warnings *under the strict
-`pedantic` gate* (a required CI job, not advisory), and **4/4
-demos** pass `smoke.sh`. The cargo-fuzz harness covers four targets
-(parser / typeck / fmt / codegen). **All KNOWN_ISSUES P1/P2 items
-are closed**; **v1.0 freeze blockers are down to the RFC comment
-windows only** (infrastructure shipped; awaits user-side Discussion
-thread openings; earliest v1.0.0 tag 2026-07-26 — see
-[Release timeline](#release-timeline) above and
+**v0.22**. The v1.0 language spec is at v1.0-RC4 — see
+`docs/spec/v1.0-rc.md`. There are **1554 Rust tests** across the
+workspace (plus **474 Python tests** in the [`impl-py/`](impl-py/)
+2nd-impl now covering the full pipeline lex → parse → lower → typeck
+→ borrow → wasm, **147 normative conformance cases** at **63%
+direct / 99% any-harness** coverage with only MT3012
+DROP_IN_CONST_CONTEXT remaining uncovered (deferred to v0.23
+pending HIR `CONST_DECL` lowering), and **23 self-host driver**
+codegen tests = **2198 combined**), 0 clippy warnings *under the
+strict `pedantic` gate* (a required CI job, not advisory), and
+**4/4 demos** pass `smoke.sh`. The cargo-fuzz harness covers four
+targets (parser / typeck / fmt / codegen). **All KNOWN_ISSUES P1/P2
+items are closed**; **every former Post-v1.0 roadmap item has now
+landed pre-v1.0** (per-message work-stealing, PGO/ThinLTO, Python
+2nd-impl full pipeline all shipped in v0.22); **v1.0 freeze
+blockers are down to the RFC comment windows only** (infrastructure
+shipped; awaits user-side Discussion thread openings; earliest
+v1.0.0 tag 2026-07-26 — see [Release timeline](#release-timeline)
+above and
 [`docs/spec/rfcs/COMMENT_WINDOWS.md`](docs/spec/rfcs/COMMENT_WINDOWS.md)).
 
 **Pre-built `mty` binaries** for Linux x86_64, macOS arm64, and

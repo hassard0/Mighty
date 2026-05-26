@@ -175,6 +175,7 @@ nav:
     - Self-hosting: internals/self-hosting.md
     - Conformance (internals): internals/conformance.md
     - Benchmarking: internals/benchmarking.md
+    - PGO: internals/pgo.md
     - Agent-features Roadmap: internals/agent-features-roadmap.md
   - RFCs:
     - Comment Windows: spec/rfcs/COMMENT_WINDOWS.md

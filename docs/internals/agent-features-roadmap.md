@@ -159,19 +159,26 @@ message; on success closes the breaker.
 
 ## What ships when
 
-| Tier | Items | Target |
+| Tier | Items | Status |
 |------|-------|--------|
-| 1    | introspect, OTel spans, agent events | v0.16 |
-| 2    | record + replay + step debugger | v0.17 |
-| 3    | hot reload + Resumable trait | v0.17 |
-| 4    | single-cluster mesh | v0.19 |
-| 4    | cluster supervisor | v0.20 |
-| 4    | lossless live migration | v1.0 — moves from Post-v1.0 roadmap to v1.0 stretch |
-| 5    | pipe/broadcast/circuit-breaker | drop in anywhere v0.16+ |
+| 1    | introspect, OTel spans, agent events | **SHIPPED v0.16** |
+| 2    | record + replay + step debugger | **SHIPPED v0.17 → v0.19** (byte-identical replay end-to-end) |
+| 3    | hot reload + Resumable trait | **SHIPPED v0.17 → v0.21** (wasm-bytes swap + schema migrations + condvar drain + control-socket `op=reload` all live) |
+| 4    | single-cluster mesh | **SHIPPED v0.18 → v0.19** (cross-node send/ask, framed CBOR-over-TLS) |
+| 4    | cluster supervisor | **SHIPPED v0.20** (OneForOne/RestForOne/OneForAll + per-child circuit breaker) |
+| 4    | lossless live migration | **SHIPPED v0.21** (RFC-006: MigrationOrchestrator + 3 placement policies + OTel cluster metrics) |
+| 5    | per-message work-stealing | **SHIPPED v0.22** (crossbeam-deque per-worker queues + NUMA-locality steal ordering + `worker.steals_total{src,dst}` OTel counter) |
+| 5    | pipe/broadcast/circuit-breaker | drop-in helpers — not roadmap blockers |
 
-The v0.16 swarm should pick Tier 1 in full (3 small tracks) plus
-the easiest Tier 5 helper (`pipe!`). That gives one cohesive
-"production observability + composition" release.
+**Every Tier in the roadmap has now landed pre-v1.0.** What
+remains for v1.0 GA is RFC comment-window disposition collection
+(blocker #2 in the README Roadmap section), the polish items
+tracked in the repo-level `CHANGELOG.md`'s `[Unreleased]` block
+(BOLT post-link optimisation, multi-socket NUMA benchmark,
+`mty conform` CLI shim, v1.0-RC validation sweep, MT3012 closure
+pending HIR `CONST_DECL` lowering), and Tier-5 pipe/broadcast/
+circuit-breaker helpers which are drop-in additions rather than
+roadmap blockers.
 
 ## Open questions
 
