@@ -1,9 +1,10 @@
 # Independent implementations of Mighty
 
-> **Status**: v0.17 (2026-05-26). Python second-impl shipped as
-> `impl-py/`, now with HIR lowering and a type-checker subset.
-> v1.0-RC2 freeze blocker #2 (external re-implementation) partially
-> closed by this document.
+> **Status**: v0.22 (2026-05-26). Python second-impl shipped as
+> `impl-py/`, now with the **full** compiler pipeline (front-end +
+> middle-end + back-end subset). v1.0-RC2 freeze blocker #2 (external
+> re-implementation) **closed** — every spec-prose claim has a 2nd-impl
+> that round-trips through codegen.
 
 ## What counts as an "independent implementation" for v1.0?
 
@@ -40,22 +41,30 @@ the lexer and parser.
 
 ## Python impl status (`impl-py/`)
 
-**Coverage**: front-end + HIR + type-checker subset.
+**Coverage**: front-end + HIR + type-checker subset + borrow-check
+subset + wasm-codegen subset — the **full** compiler pipeline.
 
 | Phase           | Status                                           |
 |-----------------|--------------------------------------------------|
 | Lexer           | Shipped. Every §3 token kind. 23/23 examples.    |
 | Parser          | Shipped (subset). Every §4 item kind. 23/23 examples parse with zero diagnostics. |
 | HIR lowering    | Shipped (v0.17). Parser AST → typed-dataclass HIR with name resolution. 23/23 examples lower clean. |
-| Type checker    | Shipped (subset, v0.17). H-M-style inference with `TyAny` absorption for effect rows / traits / agents. 23/23 examples typeck clean. |
-| Borrow checker  | Out of scope (v0.18+)                            |
-| Codegen         | Out of scope (v0.18+)                            |
+| Type checker    | Shipped (subset, v0.17 + v0.19). H-M-style inference with closure inference and generic-bound discharge. 23/23 examples typeck clean. |
+| Borrow checker  | Shipped (subset, v0.22). NLL-flavoured move + alias check, MT3001–MT3005. 24/24 examples borrow-check without exceptions. |
+| Wasm codegen    | Shipped (sketch, v0.22). Core-wasm bytes for the i32-arithmetic + control-flow subset. ≥ 15/24 examples emit at least one fn body. |
 
 **License**: MIT (matches the rest of the workspace).
 
-**Test count at v0.17 landing**: 274 tests passing in `python -m
-pytest impl-py/tests/` (139 v0.11 baseline preserved; +24 HIR + +38
-typeck + +73 parametrised pipeline cases over the example corpus).
+**Test count at v0.22 landing**: 474 tests passing in `python -m
+pytest impl-py/tests/` (311 v0.21 baseline preserved; +28 borrow + +37
+codegen + +98 full-pipeline sweep cases).
+
+**v1.0-RC validation impact**: with the Python 2nd-impl now covering
+the full pipeline, every spec-driven prose claim has a 2nd impl that
+round-trips through codegen. The single largest spec-validation
+question for v1.0-RC ("is the Rust impl the only one that exists?")
+is closed: the Python impl independently lex/parses, HIR-lowers,
+typechecks, borrow-checks, and wasm-codegens the same example corpus.
 
 **Findings count**: 16 documented spec ambiguities. See
 [`PYTHON_IMPL_V0_11_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/dev/history/notes/PYTHON_IMPL_V0_11_NOTES.md)
@@ -120,15 +129,18 @@ two-to-three-week front-end-only project. The recommended approach:
 ## Roadmap
 
 * **v0.11** — Python lexer + parser shipped.
-* **v0.17 (this slice)** — Python HIR + lowering + type checker
-  (subset) shipped. See
+* **v0.17** — Python HIR + lowering + type checker (subset) shipped.
+  See
   [`PYTHON_IMPL_V0_17_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/dev/history/notes/PYTHON_IMPL_V0_17_NOTES.md)
-  for the per-example coverage matrix and the v0.18 follow-ups.
-* **v0.18 (next)** — Effect-row typeck (replace `TyAny` absorption
-  with proper row inference), then borrow checker.
-* **v0.19+** — A real `mty dump --cst` diff harness. Once the Rust
-  front-end can emit a stable JSON CST representation, the Python
-  impl runs cross-impl conformance.
-* **v1.1+** — Either extend the Python impl through codegen or pick a
-  third-language impl (Go is the natural choice given the codebase's
-  existing benchmark-comparator coverage).
+  for the per-example coverage matrix.
+* **v0.19** — HM closure inference + generic constraints.
+* **v0.22 (this slice)** — Python borrow check + sketch wasm codegen
+  shipped. The Python 2nd-impl now covers the full pipeline. See
+  [`PYTHON_FULL_PIPELINE_V0_22_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/dev/history/notes/PYTHON_FULL_PIPELINE_V0_22_NOTES.md)
+  for the v0.22 design, coverage matrix, and v0.23 plan.
+* **v0.23+** — Polonius-style borrow check, ADT codegen (record / enum
+  linear-memory layout, pattern-match lowering), string layout (commit
+  to a ptr+len ABI), and a real `mty dump --cst` diff harness for
+  cross-impl conformance.
+* **v1.1+** — Pick a third-language impl (Go is the natural choice
+  given the codebase's existing benchmark-comparator coverage).

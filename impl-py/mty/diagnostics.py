@@ -89,3 +89,18 @@ CODE_TYPECK_OCCURS_CHECK = "MT2010"         # infinite-type
 CODE_TYPECK_CLOSURE_ARITY = "MT2011"        # closure arg count != expected
 CODE_TYPECK_BOUND_UNSATISFIED = "MT2012"    # generic bound unsatisfied
 CODE_TYPECK_UNKNOWN_GENERIC = "MT2013"      # generic name not declared
+
+# v0.22 — borrow-check codes (MT3xxx band per v1.0-RC2 §33). The
+# Python 2nd-impl ships an NLL-flavoured subset; codes are this impl's
+# interpretation and may not match the Rust reference numerically.
+CODE_BORROW_MOVE_OF_BORROWED = "MT3001"     # moving a value while it is borrowed
+CODE_BORROW_MOVE_OUT_OF_BORROW = "MT3002"   # moving out of a (&T) borrow
+CODE_BORROW_MUT_SHARED_CONFLICT = "MT3003"  # mut and shared coexist
+CODE_BORROW_USE_AFTER_MOVE = "MT3004"       # use after the value moved
+CODE_BORROW_DOUBLE_MUT = "MT3005"           # two &mut borrows alive at once
+
+# v0.22 — codegen codes (MT4xxx band). Emitted when a HIR construct
+# cannot be lowered to the supported wasm subset (the codegen sketch
+# defers ADTs/agents/macros).
+CODE_CODEGEN_UNSUPPORTED = "MT4001"         # feature not in the codegen subset
+CODE_CODEGEN_UNRESOLVED = "MT4002"          # unresolved name at codegen time
