@@ -12,11 +12,23 @@ use mty_stdlib::fs::{
     current_default_read_cap, install_default_read_cap, install_default_write_cap, FsCap, IoErr,
 };
 use mty_stdlib::host::dispatch;
+use std::sync::Mutex;
 use tempfile::tempdir;
+
+/// Serialize tests that mutate the process-wide default fs caps. Cargo
+/// runs tests in parallel by default and the `install_default_*_cap`
+/// pair touches a global `RwLock<FsCap>` slot; without this gate, one
+/// test's narrow allowlist install can leak into another test's read
+/// path between the save and restore points (observed as a sporadic
+/// CI failure on `--no-default-features` Linux runs).
+static DEFAULT_CAP_GLOBAL_LOCK: Mutex<()> = Mutex::new(());
 
 /// Save/restore the default read+write cap around a closure so tests
 /// don't leak global state across runs.
 fn with_default_caps<R>(read: FsCap, write: FsCap, body: impl FnOnce() -> R) -> R {
+    let _g = DEFAULT_CAP_GLOBAL_LOCK
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     let prev_r = install_default_read_cap(read);
     let prev_w = install_default_write_cap(write);
     let r = body();
@@ -97,6 +109,9 @@ fn host_dispatch_read_outside_default_cap_returns_err_variant() {
 
 #[test]
 fn install_default_read_cap_returns_previous_for_scoped_overrides() {
+    let _g = DEFAULT_CAP_GLOBAL_LOCK
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     let prev = install_default_read_cap(FsCap::rooted(["/scoped"]));
     // restore
     let _ = install_default_read_cap(prev);
