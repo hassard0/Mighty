@@ -54,13 +54,16 @@ pub fn run(
         .unwrap_or("a")
         .to_string();
 
-    // v0.13: WASI Preview selection. Default = P1 for back-compat
-    // with v0.2..v0.12. `--wasi=p2` opts into the Preview 2 path
-    // (see docs/reference/wasi.md). Invalid values are surfaced
-    // before invoking the codegen so the diagnostic shows the
-    // user's typo rather than a downstream wasm-encoder error.
+    // v0.15: WASI Preview selection. Default = P2 — the codegen
+    // layer now wires direct versioned imports for std.random +
+    // std.time and the vendored adapter handles the remaining
+    // surfaces. Pass `--wasi=p1` to opt back into the legacy
+    // import shape (see docs/reference/wasi.md). Invalid values
+    // are surfaced before invoking the codegen so the diagnostic
+    // shows the user's typo rather than a downstream wasm-encoder
+    // error.
     let wasi_preview = match wasi.as_deref() {
-        None => WasiPreview::P1,
+        None => WasiPreview::default(),
         Some(s) => match WasiPreview::parse(s) {
             Some(v) => v,
             None => {

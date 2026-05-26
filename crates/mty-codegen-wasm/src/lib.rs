@@ -34,8 +34,8 @@ pub mod wit;
 pub use artifact::WasmArtifact;
 pub use component::{is_component, wrap_as_component};
 pub use emit::{
-    compile_program, compile_program_to_bytes, compile_program_to_file,
-    compile_program_to_file_with_options, BuildOptions,
+    compile_program, compile_program_to_bytes, compile_program_to_bytes_with_preview,
+    compile_program_to_file, compile_program_to_file_with_options, BuildOptions, EmitWasiPreview,
 };
 pub use error::{CompileResult, WasmError};
 pub use preview2::{

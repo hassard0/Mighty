@@ -15,7 +15,8 @@ use mty_codegen_cranelift::{
 };
 use mty_codegen_wasm::{
     compile_program_to_file_p2, compile_program_to_file_with_options,
-    BuildOptions as WasmBuildOptions, Preview2Options, UserWit, WasmError, WasmTarget,
+    BuildOptions as WasmBuildOptions, EmitWasiPreview, Preview2Options, UserWit, WasmError,
+    WasmTarget,
 };
 use mty_diagnostics::{render::ariadne::render_all, Severity};
 use mty_runtime::codegen_abi;
@@ -38,10 +39,11 @@ pub struct BuildOptions {
     /// (component output; v0.2 wave-2, closes A47).
     pub no_component: bool,
     /// Wasm targets only: which WASI preview to target. Default
-    /// [`WasiPreview::P1`] (back-compat with v0.2..v0.12). Set to
-    /// [`WasiPreview::P2`] via the `--wasi=p2` CLI flag to emit a
-    /// component that imports `wasi:*@0.2.3` interfaces. See
-    /// `docs/reference/wasi.md`.
+    /// (since v0.15) is [`WasiPreview::P2`] — emits a component
+    /// whose imports are the versioned `wasi:*@0.2.3` interface
+    /// set. Set to [`WasiPreview::P1`] via the `--wasi=p1` CLI
+    /// flag to keep the legacy import shape (the v0.13/v0.14
+    /// default). See `docs/reference/wasi.md`.
     pub wasi_preview: WasiPreview,
     /// Wasm targets only: optional user-supplied WIT package
     /// (loaded by `mty_pkg::wit_resolve`). When `Some`, the user's
@@ -52,15 +54,28 @@ pub struct BuildOptions {
 }
 
 /// Which WASI preview to target for Wasm builds.
+///
+/// v0.13/v0.14 defaulted to [`WasiPreview::P1`] for back-compat with
+/// the slice-8 emitter; v0.15 flips the default to [`WasiPreview::P2`]
+/// now that the codegen layer wires direct versioned imports for
+/// `std.random` + `std.time` and the vendored adapter handles the
+/// remaining surfaces (`std.fs`, `std.http`, `log()`).
+///
+/// Callers that need the legacy P1 import shape can still opt back
+/// in via `--wasi=p1` on the CLI or
+/// [`BuildOptions::wasi_preview`] in code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WasiPreview {
-    /// WASI Preview 1 — the default through v0.13. Routes `log` to
-    /// the legacy `wasi:cli/log` import.
-    #[default]
+    /// WASI Preview 1 — the default through v0.14. Routes `log` to
+    /// the legacy `wasi:cli/log` import. Still supported for
+    /// back-compat (`--wasi=p1`); not the default since v0.15.
     P1,
-    /// WASI Preview 2 (0.2.3) — opt-in via `--wasi=p2`. Emits a
+    /// WASI Preview 2 (0.2.3) — the **default since v0.15**. Emits a
     /// component whose imports are the versioned P2 interface set
-    /// (`wasi:cli@0.2.3`, `wasi:io@0.2.3`, …).
+    /// (`wasi:cli@0.2.3`, `wasi:io@0.2.3`, …) with direct lowerings
+    /// for `std.random.bytes` / `std.time.*` and adapter-routed
+    /// lowerings for `std.fs.*` / `std.http.*`.
+    #[default]
     P2,
 }
 
@@ -82,7 +97,7 @@ impl BuildOptions {
             out_dir,
             binary_name: name.into(),
             no_component: false,
-            wasi_preview: WasiPreview::P1,
+            wasi_preview: WasiPreview::default(),
             user_wit: None,
         }
     }
@@ -93,7 +108,7 @@ impl BuildOptions {
             out_dir,
             binary_name: name.into(),
             no_component: false,
-            wasi_preview: WasiPreview::P1,
+            wasi_preview: WasiPreview::default(),
             user_wit: None,
         }
     }
@@ -193,10 +208,14 @@ pub fn build_wasm(
         };
     }
 
+    let emit_preview = match opts.wasi_preview {
+        WasiPreview::P1 => EmitWasiPreview::P1,
+        WasiPreview::P2 => EmitWasiPreview::P2,
+    };
     let wasm_opts = if opts.no_component {
-        WasmBuildOptions::core_only(&opts.binary_name)
+        WasmBuildOptions::core_only(&opts.binary_name).with_wasi_preview(emit_preview)
     } else {
-        WasmBuildOptions::new(&opts.binary_name)
+        WasmBuildOptions::new(&opts.binary_name).with_wasi_preview(emit_preview)
     };
     match compile_program_to_file_with_options(&prog, target, &out, &wasm_opts) {
         Ok(art) => match art.path.clone() {

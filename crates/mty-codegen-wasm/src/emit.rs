@@ -11,6 +11,7 @@
 use crate::artifact::{WasmArtifact, WasmFormat};
 use crate::component::wrap_as_component;
 use crate::error::{CompileResult, WasmError};
+use crate::preview2::P2DirectImport;
 use crate::target::WasmTarget;
 use crate::wit::emit_wit;
 use mty_ir::ir::{
@@ -26,6 +27,27 @@ use wasm_encoder::{
     Instruction as I, MemoryType, Module, TypeSection, ValType,
 };
 
+/// Which WASI preview the core-module emitter should target when it
+/// has a choice. v0.15 introduces direct P2 imports for a handful of
+/// stdlib calls (`std.random.bytes`, `std.time.now`, …); the emitter
+/// uses this flag to pick between legacy P1 / shim imports and the
+/// versioned P2 interface set.
+///
+/// Mirrored by `mty_driver::build::WasiPreview` (the driver's enum
+/// owns the CLI parsing); this enum is a local copy so the codegen
+/// crate doesn't take a dependency on `mty-driver`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EmitWasiPreview {
+    /// Legacy P1 import shape (`wasi_snapshot_preview1` syscalls + the
+    /// unversioned `wasi:cli/log` shim).
+    P1,
+    /// Versioned P2 imports (`wasi:random/random@0.2.3#get-random-bytes`,
+    /// `wasi:clocks/monotonic-clock@0.2.3#now`, …). Default since
+    /// v0.15 when callers ask for the WASI target.
+    #[default]
+    P2,
+}
+
 /// Per-build options controlling the v0.2 Component Model wrapper.
 #[derive(Debug, Clone)]
 pub struct BuildOptions {
@@ -35,6 +57,11 @@ pub struct BuildOptions {
     /// When `true`, skip Component Model wrapping and emit only the
     /// bare core Wasm module. The CLI flag is `--no-component`.
     pub core_only: bool,
+    /// Which WASI preview the emitter should target for stdlib
+    /// lowerings that have a choice. v0.15 default = P2; the v0.13
+    /// default was P1 and the legacy back-compat path keeps the
+    /// option on the type.
+    pub wasi_preview: EmitWasiPreview,
 }
 
 impl BuildOptions {
@@ -42,6 +69,7 @@ impl BuildOptions {
         Self {
             pkg_name: pkg_name.into(),
             core_only: false,
+            wasi_preview: EmitWasiPreview::default(),
         }
     }
 
@@ -49,15 +77,42 @@ impl BuildOptions {
         Self {
             pkg_name: pkg_name.into(),
             core_only: true,
+            wasi_preview: EmitWasiPreview::default(),
         }
+    }
+
+    /// Override the WASI preview. Returns `self` for builder-style
+    /// chaining: `BuildOptions::new("x").with_wasi_preview(P1)`.
+    pub fn with_wasi_preview(mut self, preview: EmitWasiPreview) -> Self {
+        self.wasi_preview = preview;
+        self
     }
 }
 
 /// Compile a SIR program to a *core* Wasm binary. Component Model
 /// wrapping is performed at a higher level (see
 /// [`compile_program_to_file_with_options`]).
+///
+/// This is the legacy entry point: it forces the **P1** import shape
+/// for the core module's stdlib calls (matches v0.13/v0.14
+/// behaviour). New callers that want the v0.15-default versioned P2
+/// imports should use
+/// [`compile_program_to_bytes_with_preview`].
 pub fn compile_program_to_bytes(prog: &Program, target: WasmTarget) -> CompileResult<Vec<u8>> {
-    let mut emitter = Emitter::new(prog, target)?;
+    compile_program_to_bytes_with_preview(prog, target, EmitWasiPreview::P1)
+}
+
+/// Compile a SIR program to a core Wasm binary, picking the WASI
+/// preview to target for stdlib lowerings. P2 (default for the v0.15
+/// `--wasi=p2` flip) emits versioned `wasi:*@0.2.3` imports for
+/// `std.random.bytes`, `std.time.now`, `std.time.monotonic_now`, and
+/// `std.time.resolution`; P1 preserves the legacy shape.
+pub fn compile_program_to_bytes_with_preview(
+    prog: &Program,
+    target: WasmTarget,
+    preview: EmitWasiPreview,
+) -> CompileResult<Vec<u8>> {
+    let mut emitter = Emitter::new(prog, target, preview)?;
     emitter.emit()
 }
 
@@ -118,7 +173,7 @@ pub fn compile_program_to_file_with_options(
     out: &Path,
     opts: &BuildOptions,
 ) -> CompileResult<WasmArtifact> {
-    let core_bytes = compile_program_to_bytes(prog, target)?;
+    let core_bytes = compile_program_to_bytes_with_preview(prog, target, opts.wasi_preview)?;
     let wit_doc = emit_wit(prog, &opts.pkg_name, target)?;
 
     if opts.core_only {
@@ -204,6 +259,7 @@ pub const CABI_REALLOC_LARGE_THRESHOLD: u32 = 1024;
 struct Emitter<'a> {
     prog: &'a Program,
     target: WasmTarget,
+    wasi_preview: EmitWasiPreview,
     type_section: TypeSection,
     import_section: ImportSection,
     function_section: FunctionSection,
@@ -225,6 +281,11 @@ struct Emitter<'a> {
     dom_get_text_idx: Option<u32>,
     dom_on_click_idx: Option<u32>,
     dom_query_idx: Option<u32>,
+    /// v0.15 P2 direct-import indices, allocated lazily the first
+    /// time a stdlib call needs one. Each entry maps a
+    /// [`P2DirectImport`] variant to the function index assigned
+    /// when its versioned import was added to the import section.
+    p2_direct_idx: HashMap<P2DirectImport, u32>,
     /// String literal pool — appends to data section, returns (ptr, len).
     string_pool: HashMap<String, (u32, u32)>,
     next_data_offset: u32,
@@ -237,10 +298,15 @@ struct TySig {
 }
 
 impl<'a> Emitter<'a> {
-    fn new(prog: &'a Program, target: WasmTarget) -> CompileResult<Self> {
+    fn new(
+        prog: &'a Program,
+        target: WasmTarget,
+        wasi_preview: EmitWasiPreview,
+    ) -> CompileResult<Self> {
         Ok(Self {
             prog,
             target,
+            wasi_preview,
             type_section: TypeSection::new(),
             import_section: ImportSection::new(),
             function_section: FunctionSection::new(),
@@ -256,8 +322,72 @@ impl<'a> Emitter<'a> {
             dom_get_text_idx: None,
             dom_on_click_idx: None,
             dom_query_idx: None,
+            p2_direct_idx: HashMap::new(),
             string_pool: HashMap::new(),
             next_data_offset: 1024, // reserve first 1KiB for the stack
+        })
+    }
+
+    /// Look up (or lazily declare) the function-table index for a P2
+    /// direct import. The first call for a given [`P2DirectImport`]
+    /// variant appends a fresh `(import "<module>" "<name>" func ...)`
+    /// to the import section; subsequent calls reuse the cached
+    /// index.
+    ///
+    /// Only used on the **P2** dispatch path. Callers that hit this
+    /// while `wasi_preview == P1` indicate an upstream dispatch bug;
+    /// it's still safe (the import would be declared but unused).
+    fn p2_direct_import(&mut self, which: P2DirectImport) -> u32 {
+        if let Some(&idx) = self.p2_direct_idx.get(&which) {
+            return idx;
+        }
+        // Pick the canonical-ABI core-Wasm signature for the import.
+        // These match the shapes documented on
+        // [`build_direct_p2_probe_module`] and stay normative for
+        // WASI 0.2.3.
+        let (params, results): (Vec<ValType>, Vec<ValType>) = match which {
+            // get-random-bytes(len: u64) -> list<u8>
+            //   → canonical-ABI lift: `(param i64) (param i32) -> ()`
+            //   where the second i32 is the return-area pointer at
+            //   which the host writes `(ptr: i32, len: i32)`.
+            P2DirectImport::RandomBytes => (vec![ValType::I64, ValType::I32], vec![]),
+            // monotonic-clock.now() / .resolution() → `() -> i64`.
+            P2DirectImport::MonotonicNow | P2DirectImport::MonotonicResolution => {
+                (vec![], vec![ValType::I64])
+            }
+            // wall-clock.now() -> datetime {seconds: u64, nanos: u32}
+            //   → canonical-ABI lift: `(param i32) -> ()` where the
+            //   i32 is the return-area pointer.
+            P2DirectImport::WallClockNow => (vec![ValType::I32], vec![]),
+        };
+        let ty = self.intern_sig(TySig { params, results });
+        let (mod_name, fn_name) = which.import_pair();
+        self.import_section
+            .import(mod_name, fn_name, EntityType::Function(ty));
+        let idx = self.import_count;
+        self.import_count += 1;
+        self.p2_direct_idx.insert(which, idx);
+        idx
+    }
+
+    /// If `extern_name` (an `std.*`-shaped path) names a stdlib call
+    /// we have a direct P2 lowering for AND the build targets the P2
+    /// preview, return the matching [`P2DirectImport`]. Otherwise
+    /// return `None` so the caller can fall back to the legacy
+    /// dispatch (extern stub / WasmError::Unsupported).
+    fn p2_direct_for_extern(&self, extern_name: &str) -> Option<P2DirectImport> {
+        if !matches!(self.wasi_preview, EmitWasiPreview::P2) {
+            return None;
+        }
+        if !matches!(self.target, WasmTarget::Wasi) {
+            return None;
+        }
+        Some(match extern_name {
+            "std.random.bytes" | "random.bytes" => P2DirectImport::RandomBytes,
+            "std.time.now" | "time.now" => P2DirectImport::WallClockNow,
+            "std.time.monotonic_now" | "time.monotonic_now" => P2DirectImport::MonotonicNow,
+            "std.time.resolution" | "time.resolution" => P2DirectImport::MonotonicResolution,
+            _ => return None,
         })
     }
 
@@ -957,6 +1087,65 @@ impl<'a> Emitter<'a> {
                 // emit_dom_call pushes a placeholder for void-returning
                 // ops; nothing more to do.
                 Ok(())
+            }
+            FnRef::Builtin(BuiltinId::Extern(name)) => {
+                // v0.15 P2 direct-import dispatch — when the program
+                // calls one of the stdlib functions we have a
+                // versioned-import lowering for AND the build targets
+                // P2, splice in the import and emit the call.
+                //
+                // The canonical-ABI shapes are documented on
+                // [`Emitter::p2_direct_import`]; here we adapt the
+                // SIR-level args to those shapes:
+                //
+                //   * `random.bytes(n)` → push n as i64 length + the
+                //     return-area pointer (DOM_RETURN_AREA reused).
+                //   * `time.monotonic_now()` / `time.resolution()` →
+                //     no args, leaves i64 on the stack (the call
+                //     result).
+                //   * `time.now()` → push return-area pointer; the
+                //     host writes a `datetime` record there.
+                if let Some(which) = self.p2_direct_for_extern(name) {
+                    let idx = self.p2_direct_import(which);
+                    match which {
+                        P2DirectImport::RandomBytes => {
+                            // Length arg → i64 (we promote whatever
+                            // single i32-ish arg the caller supplied;
+                            // empty arg list falls back to 0).
+                            if let Some(arg0) = args.first() {
+                                self.emit_operand(f, m, arg0, wfn)?;
+                                wfn.instruction(&I::I64ExtendI32U);
+                            } else {
+                                wfn.instruction(&I::I64Const(0));
+                            }
+                            wfn.instruction(&I::I32Const(DOM_RETURN_AREA as i32));
+                            wfn.instruction(&I::Call(idx));
+                            // Push the return-area pointer as the
+                            // "result" so the upstream assign sink
+                            // captures something useful (callers
+                            // typically read (ptr, len) from there).
+                            wfn.instruction(&I::I32Const(DOM_RETURN_AREA as i32));
+                        }
+                        P2DirectImport::MonotonicNow
+                        | P2DirectImport::MonotonicResolution => {
+                            wfn.instruction(&I::Call(idx));
+                            // Leaves i64 on the stack — already a
+                            // valid Mighty `Instant` / `Duration`
+                            // (both lower to i64). Nothing to do.
+                        }
+                        P2DirectImport::WallClockNow => {
+                            wfn.instruction(&I::I32Const(DOM_RETURN_AREA as i32));
+                            wfn.instruction(&I::Call(idx));
+                            // Return-area pointer is the result so
+                            // callers can read seconds+nanos from it.
+                            wfn.instruction(&I::I32Const(DOM_RETURN_AREA as i32));
+                        }
+                    }
+                    return Ok(());
+                }
+                Err(WasmError::Unsupported(format!(
+                    "wasm extern call {name}"
+                )))
             }
             FnRef::Builtin(other) => Err(WasmError::Unsupported(format!("wasm builtin {other:?}"))),
         }

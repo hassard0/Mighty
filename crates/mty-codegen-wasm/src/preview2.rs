@@ -57,7 +57,7 @@
 //! resource-typed surfaces require richer canonical-ABI plumbing
 //! that's tracked for v0.15.
 
-use crate::emit::compile_program_to_bytes;
+use crate::emit::{compile_program_to_bytes_with_preview, EmitWasiPreview};
 use crate::error::{CompileResult, WasmError};
 use crate::target::WasmTarget;
 use crate::wit::WitDocument;
@@ -152,7 +152,7 @@ impl AdapterKind {
 /// Kept as a flat enum rather than free functions so callers can
 /// pattern-match for tests + diagnostics without coupling to the
 /// specific `wasm-encoder` types.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum P2DirectImport {
     /// `wasi:random/random@0.2.3#get-random-bytes(len: u64) -> list<u8>`
     /// — the canonical "secure random bytes" call. Mighty's
@@ -414,7 +414,7 @@ pub fn compile_program_to_bytes_p2(
     prog: &Program,
     opts: &Preview2Options,
 ) -> CompileResult<Vec<u8>> {
-    let core = compile_program_to_bytes(prog, WasmTarget::Wasi)?;
+    let core = compile_program_to_bytes_with_preview(prog, WasmTarget::Wasi, EmitWasiPreview::P2)?;
     let doc = emit_wit_p2(prog, opts)?;
     wrap_p2(&core, &doc, opts.embed_adapter, opts.user_wit.as_ref())
 }
@@ -426,7 +426,7 @@ pub fn compile_program_to_file_p2(
     opts: &Preview2Options,
     out: &std::path::Path,
 ) -> CompileResult<(Vec<u8>, WitDocument)> {
-    let core = compile_program_to_bytes(prog, WasmTarget::Wasi)?;
+    let core = compile_program_to_bytes_with_preview(prog, WasmTarget::Wasi, EmitWasiPreview::P2)?;
     let doc = emit_wit_p2(prog, opts)?;
     let bytes = wrap_p2(&core, &doc, opts.embed_adapter, opts.user_wit.as_ref())?;
     std::fs::write(out, &bytes)

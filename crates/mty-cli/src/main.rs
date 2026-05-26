@@ -66,9 +66,12 @@ enum Cmd {
         #[arg(long)]
         no_component: bool,
         /// Wasm targets only: which WASI preview to target.
-        /// `p1` (default) keeps the v0.2..v0.12 import shape;
-        /// `p2` emits a component that imports `wasi:*@0.2.3`
-        /// interfaces (see `docs/reference/wasi.md`).
+        /// `p2` (default since v0.15) emits a component that
+        /// imports the versioned `wasi:*@0.2.3` interfaces with
+        /// direct lowerings for `std.random` + `std.time`;
+        /// `p1` keeps the legacy v0.2..v0.14 import shape (the
+        /// pre-v0.15 default) for back-compat. See
+        /// `docs/reference/wasi.md`.
         #[arg(long)]
         wasi: Option<String>,
         /// Wasm targets only: pick the component world by name
