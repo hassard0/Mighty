@@ -22,6 +22,10 @@ hyper.workspace = true
 hyper-util.workspace = true
 http-body-util.workspace = true
 thiserror.workspace = true
+# v0.14 — std.random backend (OS entropy). The transitive deps already
+# pull getrandom in (via ring/rustls); pinning 0.2 here keeps us on
+# the same major as what the rest of the workspace links against.
+getrandom = "0.2"
 
 [features]
 # `runner` pulls the full driver/diagnostics stack so `std.test`

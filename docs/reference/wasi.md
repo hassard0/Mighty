@@ -26,32 +26,56 @@ mty build hello.mty --target wasm32-wasi --wasi=p2 --world my-world
 
 | Mighty surface | P1 (default) | P2 (`--wasi=p2`) |
 |----------------|--------------|------------------|
-| `log()` / `print()` | imports `wasi:cli/log` | imports `mighty:cli-adapter/log` (shim) |
-| `std.fs.read()` | adapter shim | declared `wasi:filesystem` import (lowering TODO) |
-| `std.fs.write()` | adapter shim | declared `wasi:filesystem` import (lowering TODO) |
-| `std.http.get()` | adapter shim | declared `wasi:http/outgoing-handler` import (lowering TODO) |
-| `std.time.now()` | not yet wired | `wasi:clocks/monotonic-clock` (lowering TODO) |
-| `std.random.*` | not yet wired | `wasi:random/random` (lowering TODO) |
+| `log()` / `print()` | imports `wasi:cli/log` | imports `wasi:cli/log` (unversioned shim) — v0.15 replaces with `wasi:cli/stdout@0.2.3` |
+| `std.fs.read()` / `write()` | P1 syscall | P1 syscall, **translated to `wasi:filesystem@0.2.3` by the vendored adapter** (v0.15 adds direct lowering) |
+| `std.http.get()` / `post()` | P1 syscall | P1 syscall, **translated to `wasi:http@0.2.3` by the vendored adapter** (v0.15 adds direct lowering) |
+| `std.time.now()` / `monotonic_now()` / `resolution()` | P1 syscall | **direct P2 import** `wasi:clocks/{wall-clock,monotonic-clock}@0.2.3` (v0.14) |
+| `std.random.bytes()` / `u64()` | P1 syscall | **direct P2 import** `wasi:random/random@0.2.3` (v0.14) |
+| `wasi_snapshot_preview1` adapter | n/a | **embedded** (~54 KB) — wasmtime v32.0.0 command shape |
 | User-WIT `[wit]` section | ignored | merged into world |
 | `--world <name>` | ignored | picks world from user WIT |
 
-The "lowering TODO" entries mean the produced component **declares**
-the import in its WIT contract (so a P2-compliant host can wire it),
-but Mighty's codegen doesn't yet emit calls that exercise it. The
-v0.14 roadmap closes those gaps; see `WASI_P2_V0_13_NOTES.md`.
+Two transport modes coexist in v0.14:
+
+- **direct P2** — the core module imports the versioned
+  `wasi:*@0.2.3` interface verbatim. The component-level WIT
+  contract references the same interface; a strict P2 host wires
+  it directly.
+- **adapter-routed** — the core module imports the legacy
+  `wasi_snapshot_preview1` syscall (the wasi-libc convention).
+  At wrap time, `wit-component::ComponentEncoder::adapter(...)`
+  embeds the vendored adapter (~54 KB of Wasm shipped under
+  `crates/mty-codegen-wasm/adapter/`) which translates each P1
+  call into the matching versioned P2 interface call at
+  instantiation. From the host's perspective the component
+  imports the same `wasi:*@0.2.3` interfaces either way.
+
+The v0.15 plan flips `std.fs` + `std.http` + `log()` to the
+direct path, after which the adapter becomes optional and can be
+opted out via `Preview2Options::with_adapter(None)` for smaller
+components.
 
 ## How `--wasi=p2` changes the output
 
-A P2 build does three things differently from the default P1 path:
+A P2 build does five things differently from the default P1 path:
 
 1. The generated WIT document imports versioned P2 interfaces:
    `wasi:cli@0.2.3`, `wasi:io@0.2.3`, `wasi:clocks@0.2.3`,
    `wasi:filesystem@0.2.3`, `wasi:http@0.2.3`, `wasi:random@0.2.3`.
 2. The component's package id becomes `mighty:<pkg>` (instead of
    `stardust:<pkg>`).
-3. The shim package `mighty:cli-adapter` is declared so the core
+3. The unversioned `wasi:cli/log` shim is declared so the core
    module's existing `wasi:cli/log#log` import keeps wiring through
    `wit-component::ComponentEncoder` without modification.
+4. The vendored `wasi_snapshot_preview1` adapter (wasmtime v32.0.0
+   build) is embedded into the component via
+   `ComponentEncoder::adapter`. The adapter is ~54 KB of Wasm and
+   translates any P1-shaped syscall the core module makes into the
+   matching versioned `wasi:*@0.2.3` interface call at
+   instantiation.
+5. The core module's `main` export is aliased as `_start` so the
+   wasmtime command-adapter (which expects the wasi-libc / clang
+   `_start` entry-point name) wires up cleanly.
 
 ## Authoring a `.wit` file
 
@@ -139,34 +163,55 @@ When the user package declares more than one world, the build either:
 
 ## Which `std.*` modules lower to P2?
 
-Today: **none**. Every `std.*` call still lowers to the P1 adapter
-import shape. The P2 path makes the component **declare** the right
-P2 imports so a P2 host accepts instantiation, but the core module
-still emits P1-style calls. We document this gap rather than fail
-silently so users can audit which modules are safe to use under a
-strict P2 host.
+v0.14 status:
 
-The v0.14 plan flips this — `std.fs`, `std.http`, `std.time`,
-`std.random` will lower directly to P2 import calls and the adapter
-shim disappears. At that point P2 becomes the default for new
-projects; P1 stays available behind `--wasi=p1` for the migration
-window.
+- **direct P2 lowering**: `std.time.now()`,
+  `std.time.monotonic_now()`, `std.time.resolution()`,
+  `std.random.bytes()`, `std.random.u64()`. The core module
+  imports the versioned P2 interface (e.g.
+  `wasi:random/random@0.2.3#get-random-bytes`) verbatim — no
+  adapter hop needed.
+- **adapter-routed P2**: `std.fs.*`, `std.http.*`, `log()`. The
+  core module still imports the P1 syscall (e.g.
+  `wasi_snapshot_preview1#fd_write`); the vendored adapter
+  translates that into the matching `wasi:filesystem@0.2.3`
+  call at instantiation.
+
+Both transports produce a P2-compliant component — the host sees
+versioned `wasi:*@0.2.3` imports either way. The difference is the
+~54 KB of adapter Wasm embedded into the component when any
+adapter-routed surface is used.
+
+The v0.15 plan flips the remaining surfaces (`std.fs`, `std.http`,
+`log()`) to direct lowering, at which point the adapter becomes
+opt-in. P2 will become the default for `wasm32-wasi` once all four
+surfaces lower directly.
 
 ## Versioning
 
-Mighty v0.13 targets **WASI 0.2.3**. The exact version string is
+Mighty v0.14 targets **WASI 0.2.3**. The exact version string is
 exposed as `mty_codegen_wasm::WASI_P2_VERSION`. The vendored P2 WIT
-slice lives at `crates/mty-codegen-wasm/wit/wasi-p2/wasi-p2.wit`;
-swap it for an upstream `wit/deps/` tree if you need a newer or
-older P2.
+text lives at `crates/mty-codegen-wasm/wit/wasi-p2/wasi-p2.wit`
+(the full upstream wasi-cli + wasi-http surface, concatenated). The
+vendored P1→P2 adapter modules live alongside in
+`crates/mty-codegen-wasm/adapter/` and are sourced from wasmtime
+v32.0.0 — pinned to the same WASI version as the WIT. To upgrade
+both in lockstep, follow the procedure in
+`crates/mty-codegen-wasm/adapter/README.md`.
+
+`mty_codegen_wasm::WASI_P1_ADAPTER_VERSION` exposes the wasmtime
+release tag for the vendored adapter (e.g. `"wasmtime-v32.0.0"`).
 
 ## Roadmap
 
-- v0.14: flip `std.*` lowering to call P2 imports directly; remove
-  the `mighty:cli-adapter` shim; make `--wasi=p2` the default for
-  `wasm32-wasi`.
+- v0.14 (shipped): vendored P1→P2 adapter embedded by default;
+  `std.random` + `std.time` lower to direct P2 imports.
+- v0.15: direct lowering for `std.fs`, `std.http`, `log()`; adapter
+  becomes opt-in; `--wasi=p2` becomes the default for `wasm32-wasi`.
 - v1.0 RC4: P1 becomes a tier-2 target (still emitted on request but
   no longer the default; the documentation tree assumes P2).
 
-See `dev/history/notes/WASI_P2_V0_13_NOTES.md` for the slice-by-slice
-plan and the open decisions.
+See `dev/history/notes/WASI_P2_V0_13_NOTES.md` for the v0.13
+plan + open decisions and
+`dev/history/notes/WASI_P2_LOWERINGS_V0_14_NOTES.md` for the v0.14
+follow-up.

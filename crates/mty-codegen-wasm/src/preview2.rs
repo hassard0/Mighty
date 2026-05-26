@@ -633,7 +633,7 @@ fn alias_main_as_start(module_bytes: &[u8]) -> CompileResult<Vec<u8>> {
             Payload::Version { .. } => {}
             Payload::ExportSection(reader) => {
                 let mut new_exports = ExportSection::new();
-                for ex in reader.into_iter() {
+                for ex in reader {
                     let ex = ex.map_err(|e| WasmError::Invalid(format!("export iter: {e:#}")))?;
                     let kind = match ex.kind {
                         ExternalKind::Func | ExternalKind::FuncExact => WExportKind::Func,
@@ -730,23 +730,37 @@ pub fn build_direct_p2_probe_module(which: P2DirectImport) -> Vec<u8> {
 
     let mut module = Module::new();
 
-    // Pick a signature that's loose enough to satisfy *any* of the
-    // direct imports we currently emit. For the v0.14 probe the
-    // signature is only used by the import declaration — we don't
-    // actually call into the host, the probe's `_start` just returns.
+    // Pick the *exact* canonical-ABI core-Wasm signature
+    // `wit-component` expects for this import, so its decode-world
+    // pass accepts the probe module as a valid candidate component
+    // input. The WIT shapes below are normative for WASI 0.2.3.
     //
-    //   get-random-bytes: (param i32) (param i32) (result)
-    //     → P2-canonical-ABI lifted shape
-    //   clock now / resolution / wall-clock now: (param i32) (result)
-    //     → return-via-pointer
+    //   wasi:random/random#get-random-bytes(len: u64) -> list<u8>
+    //     → canonical-ABI lift: `(param i64) (param i32)` — first
+    //     arg is the length (u64), second is the return-area
+    //     pointer at which to write `(ptr: i32, len: i32)`.
     //
-    // We pick a uniform `(i32, i32) -> ()` so a single type entry
-    // covers all three. The wit-component encoder is happy as long
-    // as the import's module name matches the WIT interface; the
-    // *signature* gets re-lifted under canonical-ABI translation
-    // anyway.
+    //   wasi:clocks/monotonic-clock#now() -> instant
+    //     → `() -> i64` (instant is a u64 alias).
+    //
+    //   wasi:clocks/monotonic-clock#resolution() -> duration
+    //     → `() -> i64` (duration is a u64 alias).
+    //
+    //   wasi:clocks/wall-clock#now() -> datetime
+    //     → `(param i32)` — the i32 is the return-area pointer
+    //     for the `record datetime { seconds: u64, nanoseconds: u32 }`.
+    let (params, results): (&[ValType], &[ValType]) = match which {
+        P2DirectImport::RandomBytes => (&[ValType::I64, ValType::I32], &[]),
+        P2DirectImport::MonotonicNow | P2DirectImport::MonotonicResolution => {
+            (&[], &[ValType::I64])
+        }
+        P2DirectImport::WallClockNow => (&[ValType::I32], &[]),
+    };
+
     let mut types = TypeSection::new();
-    types.ty().function([ValType::I32, ValType::I32], []);
+    types
+        .ty()
+        .function(params.iter().copied(), results.iter().copied());
     types.ty().function([], []);
     module.section(&types);
 
@@ -775,15 +789,79 @@ pub fn build_direct_p2_probe_module(which: P2DirectImport) -> Vec<u8> {
     exports.export("memory", ExportKind::Memory, 0);
     // `_start` is function index 1 (after the 1 imported fn).
     exports.export("_start", ExportKind::Func, 1);
+    // wit-component's canonical-ABI lifter needs a `cabi_realloc`
+    // export when an import returns an owned `list<u8>` /
+    // `datetime`. Provide a no-op realloc that returns its `old`
+    // pointer unchanged — the probe never *calls* the import, so
+    // realloc is never invoked; the export just has to exist.
+    exports.export("cabi_realloc", ExportKind::Func, 2);
     module.section(&exports);
 
     let mut code = CodeSection::new();
     let mut start = WFn::new([]);
     start.instruction(&I::End);
     code.function(&start);
+    // `cabi_realloc(old: i32, old_size: i32, align: i32, new_size: i32) -> i32`
+    // Simplest body: return 0 (the spec allows returning the
+    // pointer the host wants to interpret as the new heap location;
+    // since the probe never invokes the import, the return is dead).
+    let realloc_ty = 2;
+    let _ = realloc_ty; // for clarity / future expansion
+    let mut realloc = WFn::new([]);
+    realloc.instruction(&I::I32Const(0));
+    realloc.instruction(&I::End);
+    code.function(&realloc);
     module.section(&code);
 
-    module.finish()
+    // Update the type/funcs sections to reflect the realloc.
+    // wasm-encoder builds sections in calls above; we re-build them
+    // with the realloc included to keep indices consistent.
+    let mut module2 = Module::new();
+    let mut types2 = TypeSection::new();
+    types2
+        .ty()
+        .function(params.iter().copied(), results.iter().copied());
+    types2.ty().function([], []);
+    types2.ty().function(
+        [ValType::I32, ValType::I32, ValType::I32, ValType::I32],
+        [ValType::I32],
+    );
+    module2.section(&types2);
+    let mut imports2 = ImportSection::new();
+    imports2.import(mod_name, fn_name, EntityType::Function(0));
+    module2.section(&imports2);
+    let mut funcs2 = FunctionSection::new();
+    funcs2.function(1); // _start type
+    funcs2.function(2); // cabi_realloc type
+    module2.section(&funcs2);
+    let mut mem2 = wasm_encoder::MemorySection::new();
+    mem2.memory(MemoryType {
+        minimum: 1,
+        maximum: None,
+        memory64: false,
+        shared: false,
+        page_size_log2: None,
+    });
+    module2.section(&mem2);
+    let mut exports2 = ExportSection::new();
+    exports2.export("memory", ExportKind::Memory, 0);
+    exports2.export("_start", ExportKind::Func, 1);
+    exports2.export("cabi_realloc", ExportKind::Func, 2);
+    module2.section(&exports2);
+    let mut code2 = CodeSection::new();
+    let mut start_body = WFn::new([]);
+    start_body.instruction(&I::End);
+    code2.function(&start_body);
+    let mut realloc_body = WFn::new([]);
+    realloc_body.instruction(&I::I32Const(0));
+    realloc_body.instruction(&I::End);
+    code2.function(&realloc_body);
+    module2.section(&code2);
+
+    // Throw away the partially-built `module`; module2 is the real
+    // returned bytes.
+    let _ = module;
+    module2.finish()
 }
 
 /// Body lines for the synthesized world's import section. Lifted out
@@ -879,12 +957,9 @@ fn split_nested_into_packages(text: &str, label_prefix: &str) -> Vec<(String, St
         // Parse `package <name> {` -- extract the name and the brace
         // position.
         let pkg_start = &text[start..];
-        let (pkg_name, brace_open) = match parse_package_header(pkg_start) {
-            Some(v) => v,
-            None => {
-                i = start + 1;
-                continue;
-            }
+        let Some((pkg_name, brace_open)) = parse_package_header(pkg_start) else {
+            i = start + 1;
+            continue;
         };
         // Find matching close brace.
         let body_start = start + brace_open + 1;

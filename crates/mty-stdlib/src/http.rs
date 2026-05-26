@@ -5,6 +5,19 @@
 //! compatibility with existing tests; new agent code should use this
 //! one.
 //!
+//! ## Backend dispatch (v0.14 P2 lowering)
+//!
+//! When a program is compiled with `--wasi=p2`, `std.http.*` calls
+//! lower to the legacy `wasi_snapshot_preview1` imports — translated
+//! into `wasi:http@0.2.3` calls by the vendored adapter (see
+//! `mty_codegen_wasm::WASI_P1_ADAPTER_COMMAND`). Unlike `std.random`
+//! and `std.time`, http does **not** have a direct-import lowering
+//! in v0.14: the resource-typed surface (`outgoing-request`,
+//! `future-incoming-response`, …) requires canonical-ABI plumbing
+//! we plan to land in v0.15.
+//!
+//! The native runtime path is unchanged.
+//!
 //! ## Surface
 //!
 //! - [`get`] / [`post`] — async client. Returns a fully-buffered

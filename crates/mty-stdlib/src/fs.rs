@@ -6,6 +6,18 @@
 //! allowed roots; we reuse the runtime's `BudgetTracker::check_*_path`
 //! semantics so policy stays in one place.
 //!
+//! ## Backend dispatch (v0.14 P2 lowering)
+//!
+//! When a program is compiled with `--wasi=p2`, `std.fs.*` calls
+//! lower to the legacy `wasi_snapshot_preview1` imports — translated
+//! into `wasi:filesystem@0.2.3` calls by the vendored adapter (see
+//! `mty_codegen_wasm::WASI_P1_ADAPTER_COMMAND`). Unlike `std.random`
+//! and `std.time`, filesystem does **not** have a direct-import
+//! lowering in v0.14: the descriptor / stream resource types require
+//! canonical-ABI plumbing we plan to land in v0.15.
+//!
+//! The native runtime path is unchanged.
+//!
 //! ## v0.5 dogfood Gap-5 — process-wide default caps
 //!
 //! Mighty source code today calls `std.fs.read("./in")` without

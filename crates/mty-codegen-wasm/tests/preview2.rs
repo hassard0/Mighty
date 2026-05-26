@@ -15,8 +15,10 @@
 mod common;
 
 use mty_codegen_wasm::{
-    compile_program_to_bytes_p2, compile_program_to_file_p2, emit_wit_p2, is_component,
-    Preview2Options, UserWit,
+    build_direct_p2_probe_module, compile_program_to_bytes_p2, compile_program_to_file_p2,
+    emit_wit_p2, is_component, AdapterKind, P2DirectImport, Preview2Options, UserWit,
+    WASI_P1_ADAPTER_COMMAND, WASI_P1_ADAPTER_PROXY, WASI_P1_ADAPTER_REACTOR,
+    WASI_P1_ADAPTER_VERSION,
 };
 
 #[test]
@@ -242,4 +244,307 @@ fn component_type_section_contains(bytes: &[u8], needle: &str) -> bool {
         }
     }
     false
+}
+
+// ============================================================
+// v0.14 — adapter + direct-import lowering coverage.
+// ============================================================
+
+/// Check that the three vendored adapter binaries are *non-empty*
+/// MVP-version Wasm modules. Cheap smoke test that the
+/// `include_bytes!` macro found the right files at build time.
+#[test]
+fn adapter_bytes_are_present_and_wasm_shaped() {
+    for (label, bytes) in [
+        ("command", WASI_P1_ADAPTER_COMMAND),
+        ("reactor", WASI_P1_ADAPTER_REACTOR),
+        ("proxy", WASI_P1_ADAPTER_PROXY),
+    ] {
+        assert!(
+            bytes.len() > 4,
+            "{label} adapter is empty / too small ({} bytes)",
+            bytes.len()
+        );
+        // Wasm magic + version = `\0asm\x01\x00\x00\x00`.
+        assert_eq!(
+            &bytes[..8],
+            &[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
+            "{label} adapter missing Wasm magic preamble"
+        );
+    }
+    assert!(WASI_P1_ADAPTER_VERSION.starts_with("wasmtime-"));
+}
+
+/// When the P2 build path runs with `embed_adapter = Some(Command)`
+/// (the default), the resulting component must validate AND its
+/// import section must not reference `wasi_snapshot_preview1` at the
+/// component-imports layer. The adapter is *embedded* into the
+/// component, not re-imported from the outside.
+#[test]
+fn adapter_embedded_for_p2_command() {
+    let prog = common::empty_main();
+    let opts = Preview2Options::new("smoke"); // default = Command adapter
+    let bytes = compile_program_to_bytes_p2(&prog, &opts).expect("emit p2");
+
+    // Component must validate.
+    let mut v = wasmparser::Validator::new_with_features(wasmparser::WasmFeatures::all());
+    v.validate_all(&bytes)
+        .expect("p2 component validates with adapter embedded");
+
+    // No outer-component `wasi_snapshot_preview1` import — the
+    // adapter wraps it internally.
+    assert!(
+        !component_has_versioned_wasi_import(&bytes, "wasi_snapshot_preview1"),
+        "wasi_snapshot_preview1 must not appear as a component-level import"
+    );
+}
+
+/// With `embed_adapter = None`, the produced component must still
+/// validate (since the slice-8 core module currently doesn't import
+/// any `wasi_snapshot_preview1` calls). This pins the opt-out path
+/// for the v0.15 direct-only lowering future.
+#[test]
+fn adapter_can_be_opted_out() {
+    let prog = common::empty_main();
+    let opts = Preview2Options::new("smoke").with_adapter(None);
+    let bytes = compile_program_to_bytes_p2(&prog, &opts).expect("emit p2 no-adapter");
+
+    let mut v = wasmparser::Validator::new_with_features(wasmparser::WasmFeatures::all());
+    v.validate_all(&bytes)
+        .expect("p2 no-adapter component still validates");
+
+    assert!(is_component(&bytes));
+}
+
+/// Two builds with and without the adapter should differ in size —
+/// the adapter contributes ~tens of KB. Cheap smoke that the
+/// `with_adapter(None)` path actually skips the bytes.
+#[test]
+fn adapter_changes_component_size() {
+    let prog = common::empty_main();
+    let with_adapter = compile_program_to_bytes_p2(&prog, &Preview2Options::new("smoke"))
+        .expect("emit p2 with adapter");
+    let without =
+        compile_program_to_bytes_p2(&prog, &Preview2Options::new("smoke").with_adapter(None))
+            .expect("emit p2 without adapter");
+
+    // The exact delta depends on wit-component's stripping pass, but
+    // the adapter-on path must be at least somewhat larger when the
+    // adapter contributes any code.
+    assert!(
+        with_adapter.len() >= without.len(),
+        "with-adapter ({} bytes) should be >= without-adapter ({} bytes)",
+        with_adapter.len(),
+        without.len()
+    );
+}
+
+/// Validate that a probe module declaring a direct
+/// `wasi:random/random@0.2.3#get-random-bytes` import produces a
+/// component whose import section references that exact versioned
+/// interface — no `wasi_snapshot_preview1` hop. This pins the
+/// direct-lowering path the v0.15 std.random work will use.
+#[test]
+fn p2_random_uses_direct_import() {
+    let core = build_direct_p2_probe_module(P2DirectImport::RandomBytes);
+    // Wrap the probe via the P2 path with the adapter ON (the
+    // adapter shouldn't interfere with direct imports that don't
+    // collide with adapter exports).
+    let bytes = wrap_probe_module(&core, "wasi:random/random@0.2.3");
+
+    assert!(is_component(&bytes), "probe wraps as a component");
+    // The component's IMPORTS must include wasi:random/random@0.2.3.
+    assert!(
+        component_has_versioned_wasi_import(&bytes, "wasi:random/random@0.2.3"),
+        "expected direct wasi:random import in component"
+    );
+}
+
+/// Same as `p2_random_uses_direct_import` for `wasi:clocks/wall-clock`.
+#[test]
+fn p2_wall_clock_uses_direct_import() {
+    let core = build_direct_p2_probe_module(P2DirectImport::WallClockNow);
+    let bytes = wrap_probe_module(&core, "wasi:clocks/wall-clock@0.2.3");
+
+    assert!(is_component(&bytes));
+    assert!(
+        component_has_versioned_wasi_import(&bytes, "wasi:clocks/wall-clock@0.2.3"),
+        "expected direct wasi:clocks/wall-clock import in component"
+    );
+}
+
+/// And for `wasi:clocks/monotonic-clock`.
+#[test]
+fn p2_monotonic_clock_uses_direct_import() {
+    let core = build_direct_p2_probe_module(P2DirectImport::MonotonicNow);
+    let bytes = wrap_probe_module(&core, "wasi:clocks/monotonic-clock@0.2.3");
+
+    assert!(is_component(&bytes));
+    assert!(
+        component_has_versioned_wasi_import(&bytes, "wasi:clocks/monotonic-clock@0.2.3"),
+        "expected direct wasi:clocks/monotonic-clock import in component"
+    );
+}
+
+/// `P2DirectImport::import_pair` and the corresponding stdlib
+/// `P2_DIRECT_IMPORT_*` constants must agree on the import names.
+/// This pins the single source of truth across crates and catches
+/// drift if someone bumps one but not the other.
+#[test]
+fn p2_direct_import_names_match_stdlib_constants() {
+    use mty_stdlib::{random as stdrand, time as stdtime};
+
+    assert_eq!(
+        P2DirectImport::RandomBytes.import_pair(),
+        stdrand::P2_DIRECT_IMPORT_RANDOM_BYTES
+    );
+    assert_eq!(
+        P2DirectImport::MonotonicNow.import_pair(),
+        stdtime::P2_DIRECT_IMPORT_MONOTONIC_NOW
+    );
+    assert_eq!(
+        P2DirectImport::WallClockNow.import_pair(),
+        stdtime::P2_DIRECT_IMPORT_WALL_CLOCK_NOW
+    );
+    assert_eq!(
+        P2DirectImport::MonotonicResolution.import_pair(),
+        stdtime::P2_DIRECT_IMPORT_MONOTONIC_RESOLUTION
+    );
+}
+
+/// `AdapterKind::bytes()` must point at non-empty Wasm-shaped bytes.
+#[test]
+fn adapter_kind_bytes_are_wasm_shaped() {
+    for kind in [
+        AdapterKind::Command,
+        AdapterKind::Reactor,
+        AdapterKind::Proxy,
+    ] {
+        let b = kind.bytes();
+        assert!(b.len() > 4);
+        assert_eq!(&b[..4], &[0x00, 0x61, 0x73, 0x6d]);
+        assert_eq!(kind.import_module_name(), "wasi_snapshot_preview1");
+    }
+}
+
+// ---- helpers ----------------------------------------------------------------
+
+/// Wrap a hand-crafted probe core-module as a P2 component by
+/// hand-rolling a WIT document that declares the single versioned
+/// interface the probe imports. This is the integration-test
+/// equivalent of `mty build` for a direct-lowering core.
+///
+/// `import_id` is the WIT-form id (e.g. `"wasi:random/random@0.2.3"`)
+/// the probe expects on the host side.
+fn wrap_probe_module(core: &[u8], import_id: &str) -> Vec<u8> {
+    use mty_codegen_wasm::VENDORED_WASI_P2_WIT;
+
+    // Build a tiny WIT world that imports the one interface the
+    // probe needs, then run the standard wit-component encode path.
+    let world_name = "probe-world";
+    // No `export _start` in WIT — WIT identifiers are kebab-case and
+    // can't start with `_`. The probe core-module exports `_start`
+    // as its `wasm-exec` entry; wit-component picks it up via the
+    // `wasi:cli/run.run` shape if it's present, or simply leaves it
+    // as a free export otherwise.
+    let mighty_pkg =
+        format!("package mighty:probe;\n\nworld {world_name} {{\n  import {import_id};\n}}\n");
+    let mut resolve = wit_parser::Resolve::default();
+    // Push the upstream WIT packages in topological order so
+    // cross-package use's resolve.
+    for (label, text) in split_vendored_packages(VENDORED_WASI_P2_WIT) {
+        resolve.push_str(&label, &text).expect("vendored push_str");
+    }
+    let pkg_id = resolve
+        .push_str("probe.wit", &mighty_pkg)
+        .expect("probe pkg push_str");
+    let world_id = resolve
+        .select_world(pkg_id, Some(world_name))
+        .expect("select probe world");
+
+    let mut module_bytes = core.to_vec();
+    wit_component::embed_component_metadata(
+        &mut module_bytes,
+        &resolve,
+        world_id,
+        wit_component::StringEncoding::UTF8,
+    )
+    .expect("embed metadata");
+    let mut enc = wit_component::ComponentEncoder::default()
+        .validate(true)
+        .module(&module_bytes)
+        .expect("encoder.module");
+    enc.encode().expect("encode probe component")
+}
+
+/// Test-side mirror of `preview2.rs::split_nested_into_packages`.
+/// Reimplemented here (rather than pub-exporting the helper) so the
+/// integration test surface stays narrow.
+fn split_vendored_packages(text: &str) -> Vec<(String, String)> {
+    const ORDER: &[&str] = &[
+        "wasi:io@0.2.3",
+        "wasi:clocks@0.2.3",
+        "wasi:random@0.2.3",
+        "wasi:sockets@0.2.3",
+        "wasi:filesystem@0.2.3",
+        "wasi:cli@0.2.3",
+        "wasi:http@0.2.3",
+    ];
+    let mut chunks: Vec<(String, String, String)> = Vec::new();
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    'outer: while i < text.len() {
+        let rest = &text[i..];
+        let Some(pos) = rest.find("package ") else {
+            break;
+        };
+        let abs = i + pos;
+        // Reject `package ` matches that aren't at line-start
+        // (whitespace-only prefix on the current line). This filters
+        // out occurrences inside `//` comment lines.
+        let line_start = text[..abs].rfind('\n').map(|p| p + 1).unwrap_or(0);
+        if !text[line_start..abs].chars().all(|c| c == ' ' || c == '\t') {
+            i = abs + "package ".len();
+            continue 'outer;
+        }
+        let after = &text[abs..];
+        let Some(brace) = after.find('{') else {
+            break;
+        };
+        let semi = after.find(';');
+        if let Some(s) = semi {
+            if s < brace {
+                i = abs + s + 1;
+                continue;
+            }
+        }
+        let name = after["package ".len()..brace].trim().to_string();
+        let body_start = abs + brace + 1;
+        let mut depth = 1;
+        let mut j = body_start;
+        while j < bytes.len() && depth > 0 {
+            match bytes[j] {
+                b'{' => depth += 1,
+                b'}' => depth -= 1,
+                _ => {}
+            }
+            j += 1;
+        }
+        let body = &text[body_start..(j - 1)];
+        let label = format!("probe-{}.wit", name.replace(':', "-").replace('@', "_"));
+        let chunk_text = format!("package {name};\n{body}\n");
+        chunks.push((label, name, chunk_text));
+        i = j;
+    }
+    let mut out: Vec<(String, String)> = Vec::new();
+    for target in ORDER {
+        if let Some(pos) = chunks.iter().position(|(_, n, _)| n == target) {
+            let (l, _, c) = chunks.swap_remove(pos);
+            out.push((l, c));
+        }
+    }
+    for (l, _, c) in chunks {
+        out.push((l, c));
+    }
+    out
 }

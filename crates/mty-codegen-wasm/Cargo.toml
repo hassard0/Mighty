@@ -24,6 +24,18 @@ serde_json = { workspace = true }
 [dev-dependencies]
 tempfile = "3"
 wasmtime = { version = "25", default-features = false, features = ["cranelift", "runtime"] }
+# v0.14 — preview2 integration tests pin the codegen-side P2 import
+# constants against the stdlib-side ones to catch drift between
+# `mty_codegen_wasm::P2DirectImport` and `mty_stdlib::random/time`.
+mty-stdlib = { path = "../mty-stdlib", default-features = false }
+
+[features]
+# v0.14 opt-in feature for spinning up a `wasmtime-wasi` host and
+# instantiating the adapter-wrapped component end-to-end. Off by
+# default to keep `cargo test --workspace` fast; turn on with
+# `--features wasmtime_p2_smoke` to exercise the smoke test (which
+# pulls in ~80 transitive deps via wasmtime-wasi).
+wasmtime_p2_smoke = []
 
 [lints]
 workspace = true
