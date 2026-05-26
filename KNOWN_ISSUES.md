@@ -100,6 +100,70 @@ fixed in this prep; the rest are P1 or below.
 
 ## P2 — quality-of-life
 
+### 8. wasm32-web emitter: Unit-returning user-fn calls fail wasm-component validate (SURFACED v0.24)
+
+- **Where**: `crates/mty-codegen-wasm/src/emit.rs` (likely
+  `declare_fns` call-prologue + the emitter's handling of a `Call`
+  whose result type is `()` and whose return value is unused).
+- **Symptom**: a Mighty source containing `fn _h() { log("h") }`
+  + any caller (`main()` or an exported callback like `frame()` /
+  `keydown()` / `keyup()`) builds successfully through the SIR
+  + the embedded core module but fails Component validation with:
+
+  ```
+  build error: wasm: wasm codegen: invalid module: component encode:
+    failed to validate component output: type mismatch: expected i32
+    but nothing on stack (at offset 0x1a5)
+  ```
+
+- **Discovery**: v0.24 Track E (`DEMO06_CANVAS_DIRECT_V0_24_NOTES.md`
+  gap B) was the first slice to write a Mighty program that
+  exercised the shape. v0.24 Track E's commit message
+  mischaracterized it as a v0.24 emitter regression; integrator
+  reproduced it identically against a fresh v0.23.0 worktree build
+  at the same binary offset (0x1a5). It is a **pre-existing latent
+  emitter bug**, not a v0.24 regression — v0.23 couldn't reach
+  the failing code path because exported callbacks didn't reach
+  the core export section yet (v0.24 Track A's
+  `is_web_callback_export` is what exposes it along the new path,
+  but the underlying validate failure existed before).
+- **Workaround**: inline the dispatch logic into the exported
+  callback (`fn keydown(k: U32) { match k { 37 => log("..."),
+  ... } }`) rather than factor it out to a Unit-returning helper.
+  The v0.24 demo 06 does this; the agent's `on Left() { ... }` /
+  `on Right() { ... }` handlers stay as the protocol-of-record
+  but the runtime work lives inline in the exported callback.
+- **Fix plan (v0.25 swarm track #2)**: pin down the stack-balance
+  bug. Likely candidate: `declare_fns` doesn't push the implicit
+  stack-frame i32 for callsites that target Unit-returning user
+  fns when the result isn't consumed. Lock with a regression test
+  under `crates/mty-codegen-wasm/tests/` against the
+  `/tmp/mtyprobe/probe22.mty` shape.
+- **Owner**: codegen team (`crates/mty-codegen-wasm`).
+
+### 9. demo 06_canvas_game headless-smoke phash distance is RAF-frame flaky (SURFACED v0.24)
+
+- **Where**: `tests/web-smoke/smoke-headless.mjs` (canvas capture
+  timing) + `demos/06_canvas_game/web/dom-shim.js` (RAF clear-
+  before-draw window).
+- **Symptom**: `MTY_WEB_SMOKE=1 bash demos/06_canvas_game/smoke.sh`
+  produces phash distance 0–2 on ~4/5 runs and a 63 outlier on
+  ~1/5. The outlier is the RAF "between-frames" capture moment
+  (canvas momentarily mid-clear, so phash is a different shape
+  from the golden). Tolerance is 12.
+- **Discovery**: integrator v0.24 sweep noticed the flake. Predates
+  v0.24 (the demo's RAF rendering shape is v0.23 Track D's
+  shipping shape; v0.24 Track E rewrite kept the RAF cadence).
+- **Workaround**: re-run the smoke (4/5 success rate). The flake
+  doesn't gate any required CI job — `web-smoke.yml` is opt-in
+  via `workflow_dispatch`.
+- **Fix plan (v0.25 polish)**: either pin a deterministic frame in
+  the smoke harness (request frame N, snapshot, validate at
+  exactly that frame), or tighten the golden capture window to
+  the post-draw moment by inserting an in-page `await
+  rAF()` sync between draw + screenshot.
+- **Owner**: web-smoke harness (`tests/web-smoke/`).
+
 ### 5. `mkdocs build` runs without `--strict` (RESOLVED v0.10; re-verified v0.19)
 
 - **Where**: `.github/workflows/pages.yml`

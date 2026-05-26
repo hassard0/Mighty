@@ -9,26 +9,84 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- v0.24-RC1 candidates: `BuiltinId::CanvasOp(...)` lowering arm in
-  `mty-codegen-wasm/src/emit.rs` so source-level
-  `canvas.fill_rect(...)` auto-emits the WIT import (closes Track D
-  gap #1); `format!()` / string interpolation in Mighty (closes
-  Track D gap #2 — today every `format!` emits MT6001 and the agent
-  must fall back to `"score:" + str(s)` concatenation); `export fn`
-  declarations actually reach the embedded core module's export
-  table (closes Track D gap #3 — Track B confirmed the core module
-  IS embedded; today its export section is empty so the JS shim
-  drives the agent via the `log` channel rather than calling exports
-  directly); promote `mty serve --watch`'s in-browser hot-reload
-  websocket from manual-only to test-gated (Track C's
-  websocket-push slice's integration test is `#[ignore]`'d for
-  file-watcher event-timing flake); v1.0 freeze gate prep — RFC
-  monitoring + final spec polish ahead of the 2026-07-25 last-RFC-
-  window close. Plus the v0.23-cycle MT3012 / BOLT / multi-socket
-  NUMA bench / `mty conform <kit.tar.gz>` / spec validation sweep
-  items carried forward from v0.22 if they don't fit into v0.24's
-  swarm budget. There is **no remaining Post-v1.0 backlog** — only
-  RFC comment windows stand between current main and v1.0 GA.
+- v0.25-RC1 candidates (from v0.24 Track E's surfaced gap
+  inventory + Track B deferred items): (1) HIR → IR routing for
+  `canvas.fill_rect(...)` — add `CapFamily::Canvas` +
+  `is_canvas_handle_receiver` predicate in
+  `mty-ir/src/lower/exprs.rs` next to the DOM branch, closing
+  Track E gap A end-to-end so demo 06's JS shim can drop from
+  213 LOC to ~50 LOC; (2) Unit-returning user-fn call stack-
+  balance fix — the latent wasm32-web emitter bug Track E gap B
+  surfaced (reproduces against v0.23.0; not a v0.24 regression;
+  KNOWN_ISSUES #8), likely `declare_fns` not pushing the implicit
+  stack-frame i32 for callsites targeting Unit-returning user fns
+  when the result isn't consumed; (3) agent state across exported
+  callbacks + arrays in agent fields — combined Track E gaps C +
+  D (either top-level `spawn`-once + `send` pattern that the
+  export-fn prologue dispatches into, or module-scope `let mut`
+  wired to a wasm global the callbacks share, plus extending the
+  agent state-field grammar to accept type annotation + array
+  literal `board: [U32; 200] = [0; 200]`); (4) `extern js { fn
+  _foo() }` emits wasm imports — Track E gap E; the wasm32-web
+  emitter needs an `extern js`-block walker analogous to the
+  native `extern c` block path; (5) `format!()` extended specs —
+  width `{:5}`, precision `{:.3}`, alignment `{:>10}` (Track B
+  deferred; Track E gap F). Plus the carry-forward items from
+  v0.23 (MT3012 / BOLT / multi-socket NUMA bench / `mty conform
+  <kit.tar.gz>` / spec validation sweep) if they don't fit into
+  v0.25's swarm budget. There is **no remaining Post-v1.0
+  backlog** — only RFC comment windows stand between current main
+  and v1.0 GA.
+
+## [0.24.0] - 2026-05-26
+
+**wasm32-web emitter completed + `format!()` + v1.0-RC5 spec
+polish + deterministic `mty serve --watch`.** v0.24 closes the v0.23
+Track D #1 / #2 / #3 language gaps at the emitter + macro layer,
+drops a long-standing `#[ignore]` on the watcher integration test,
+walks the spec from RC4 to RC5 (+414 lines normative prose; §12.6
+`Resumable` / §12.7 `MT506x` reload band / §12.8 Tier 4.3
+migration + `PlacementPolicy` / §20.6 cap-name resolver active
+emit / §22.5 per-message work-stealing / §25.8.1-8
+`mty:web/canvas@0.1` + `mty:web/input@0.1`), ships a live RFC
+dashboard with per-window countdowns + per-RFC implementation
+status, declares the v1.0 GA normative/informative conformance
+split (104 normative / 49 informative), and rewrites demo
+06_canvas_game against the new exports + `format!()` (Mighty
+source 195 → 186 LOC; JS shim 235 → 213 LOC). **Track A** ships
+`BuiltinId::CanvasOp(CanvasOpKind)` SIR variant + wasm32-web
+dispatch arm + `is_web_callback_export` wiring (`frame` /
+`keydown` / `keyup` now reach the embedded core module's export
+section; 10 codegen tests). **Track B** ships `format!()` as a
+first-class Mighty macro (`{}` / `{:x}` / `{:X}` / `{:?}` /
+named-arg passthrough / brace escapes + MT6009 + MT6010
+diagnostics; 22 integration + 19 unit tests + 3 conformance
+fixtures). **Track C** drops the v0.23 `#[ignore]` on
+`serve_watch_rebuilds_on_change` via an env-gated test hook
+(`MTY_SERVE_TEST_WATCH_HOOK=1`) that bypasses OS-watcher event-
+timing jitter; 5/5 deterministic; +2 net tests. **Track D** ships
+[`docs/spec/rfcs/RFC_DASHBOARD.md`](docs/spec/rfcs/RFC_DASHBOARD.md),
+annotates all 8 RFC files with `## Implementation Status`, walks
+`docs/spec/v1.0-rc.md` from RC4 to RC5, and declares
+[`tests/conformance/v1.0-NORMATIVE.md`](tests/conformance/v1.0-NORMATIVE.md).
+**Track E** rewrites demo 06_canvas_game and surfaces **6 v0.25
+gaps**: (A) HIR → IR routing for `canvas.fill_rect(...)`, (B)
+Unit-returning user-fn call stack-balance failure at wasm-component
+validate (KNOWN_ISSUES #8; reproduces against v0.23.0, NOT a v0.24
+regression), (C) agent fields don't survive across exported-
+callback invocations, (D) arrays in agent fields don't parse, (E)
+`extern js { fn _foo() }` declarations don't emit wasm imports,
+(F) `format!()` extended specs (width / precision / alignment)
+deferred from Track B. KNOWN_ISSUES picks up entries #8 (gap B
+latent emitter bug) + #9 (demo 06 headless-smoke phash flake on
+RAF-mid-frame capture moments, 4/5 success rate, predates v0.24).
+v1.0 freeze gate: blockers #1 + #3 stay CLOSED; #2 (8 RFC comment
+windows) infra stays live + dashboard added; earliest possible
+v1.0.0 tag remains **2026-07-26**. Rust test count **1604 →
+1675** (+71). Python stays at **474**. Conformance kit grows
+**153 → 156 cases** (+3 from Track B's format!() fixtures).
+Self-host driver still at **23**. Combined: **2328** (+74). See
+[`dev/history/releases/RELEASE-v0.24.md`](dev/history/releases/RELEASE-v0.24.md).
 
 ## [0.23.0] - 2026-05-26
 

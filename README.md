@@ -22,61 +22,79 @@ server, and stdlib are all in one Rust workspace and one `mty` binary.
 > multi-row-variable tail since v0.18; v0.24 RC5 polish absorbed
 > cluster mesh + hot reload + std.web + the v1.0 normative
 > conformance split into prose). The toolchain is exercised by
-> **1604 Rust tests** across 20 crates plus a second independent
+> **1675 Rust tests** across 20 crates plus a second independent
 > Python implementation at [`impl-py/`](impl-py/) (full pipeline:
 > lex → parse → lower → typeck → borrow → wasm; **474 tests**,
 > 23/23 examples typeck clean, 21/24 emit wasm) and a third
 > source-only Go front-end at [`impl-go/`](impl-go/) (4848 LOC,
 > cross-validation pending Go toolchain). All six CI jobs are
-> required gates. **All KNOWN_ISSUES P1/P2 entries are closed.**
-> **v1.0 freeze blockers are down to RFC comment windows**: blocker
-> #1 (Python 2nd-impl) closed with HM closures + generic-constraints
-> + full borrow + wasm codegen pipeline; blocker #3 (normative
-> conformance suite) closed with the **153-case kit** + normative
-> `docs/spec/conformance.md` (coverage stable at 63% direct / 99%
-> any-harness; MT3012 DROP_IN_CONST_CONTEXT remains the only
-> uncovered code, deferred pending HIR `CONST_DECL` lowering);
-> blocker #2 (eight RFC comment-window closures) is
-> infrastructure-ready (`docs/spec/rfcs/COMMENT_WINDOWS.md` tracks
-> all 8 windows; `docs/spec/rfcs/RFC_DASHBOARD.md` gives the live
-> per-window countdown + per-RFC implementation status as of v0.24)
-> and awaits the user-side Discussion-thread openings. **Every former Post-v1.0 roadmap item has now landed
+> required gates. **KNOWN_ISSUES P1 stays empty**; P2 picks up two
+> entries in v0.24 (#8 wasm32-web Unit-returning user-fn call
+> stack-balance — latent bug surfaced by demo 06 rewrite, NOT a
+> v0.24 regression; tracked for v0.25 closure; #9 demo 06
+> headless-smoke RAF-mid-frame phash flake — 4/5 success rate, no
+> required-gate impact). **v1.0 freeze blockers are down to RFC
+> comment windows**: blocker #1 (Python 2nd-impl) closed with HM
+> closures + generic-constraints + full borrow + wasm codegen
+> pipeline; blocker #3 (normative conformance suite) closed with
+> the **156-case kit** + normative `docs/spec/conformance.md`
+> (coverage stable at 63% direct / 99% any-harness; MT3012
+> DROP_IN_CONST_CONTEXT remains the only uncovered code, deferred
+> pending HIR `CONST_DECL` lowering) AND the v0.24-declared v1.0 GA
+> normative/informative split (104 normative / 49 informative); blocker
+> #2 (eight RFC comment-window closures) is infrastructure-ready
+> ([`docs/spec/rfcs/COMMENT_WINDOWS.md`](docs/spec/rfcs/COMMENT_WINDOWS.md)
+> tracks all 8 windows;
+> [`docs/spec/rfcs/RFC_DASHBOARD.md`](docs/spec/rfcs/RFC_DASHBOARD.md)
+> gives the live per-window countdown + per-RFC implementation
+> status as of v0.24) and awaits the user-side Discussion-thread
+> openings. **Every former Post-v1.0 roadmap item has now landed
 > pre-v1.0.** **Earliest possible v1.0.0 tag: 2026-07-26** (the day
 > after the longest 60-day windows close). See [Status](#status)
 > below.
 
 ## Release timeline
 
-- **v0.23.0** (this release): **Mighty can run a web game on
-  localhost.** First-class browser host surface — `mty:web/canvas@0.1`
-  + `mty:web/input@0.1` Component-Model WIT pair lowered through new
-  `std.web.Canvas` + `std.web.Input` Mighty-side bindings (`crates/
-  mty-stdlib/src/web/{canvas,input}.rs`, drift-guarded by
-  `WIT_IMPORT_*` / `WIT_EXPORT_*` consts, 8 codegen tests + 13
-  stdlib unit tests). New `mty serve [--port <n>] [--watch]`
-  subcommand — hand-rolled HTTP/1.1 dev server (no `hyper`/`axum`
-  dep) with RFC 6455 hand-rolled websocket hot-reload over
-  `notify` file watches. New `mty new --template web-game <name>`
-  scaffolds the 5-file agent + canvas + dom-shim project. New
-  6th demo `06_canvas_game` where the Mighty agent drives the
-  canvas directly via the new WIT surface (JS shim **-32%** LOC vs
-  the v0.22 notetris demo). Headless-browser visual smoke at
-  `tests/web-smoke/smoke-headless.mjs` (Playwright + 8x8 average-
-  hash phash + per-demo golden lock-in, gated by `MTY_WEB_SMOKE=1`).
-  `wasm32-web` framing-floor regression harness at `crates/
-  mty-codegen-wasm/tests/embedded_core_module.rs` locks in the
-  embedded-core-module invariant (5 tests, ±32 byte tolerance for
-  wit-component drift). Conformance kit grows 147 → 153 cases.
-  Rust test count **1554 → 1604** (+50). Three v0.24 language gaps
-  documented for closure (`BuiltinId::CanvasOp(...)` lowering arm,
-  `format!()` / interpolation, `export fn` reaching the embedded
-  core module's export table).
-- **v0.24-RC1** (next): close Track D's three language gaps (canvas
-  op lowering + `format!()` interpolation + `export fn` reaching
-  the embedded core module's export table); promote `mty serve
-  --watch`'s in-browser hot-reload from manual-only to test-gated;
-  v1.0 freeze gate prep — RFC monitoring + final spec polish ahead
-  of the 2026-07-25 last-RFC-window close.
+- **v0.24.0** (this release): **wasm32-web emitter completion +
+  `format!()` + v1.0-RC5 spec polish + deterministic `mty serve
+  --watch`.** Closes the v0.23 Track D #1 / #2 / #3 language gaps
+  at the emitter + macro layer: Track A's
+  `BuiltinId::CanvasOp(CanvasOpKind)` SIR variant + wasm32-web
+  dispatch arm lowers `canvas.fill_rect(...)`-style SIR ops to
+  direct `mty:web/canvas@0.1` imports, and `is_web_callback_export`
+  wires `export fn frame/keydown/keyup` into the embedded core
+  module's export section (10 codegen tests). Track B ships
+  `format!()` as a first-class Mighty macro (`{}` / `{:x}` /
+  `{:X}` / `{:?}` / named-arg passthrough / brace escapes, MT6009
+  + MT6010 diagnostics, 22 integration + 19 unit + 3 conformance
+  fixtures). Track C drops the v0.23 `#[ignore]` on
+  `serve_watch_rebuilds_on_change` via an env-gated test hook
+  (`MTY_SERVE_TEST_WATCH_HOOK=1`) — 5/5 deterministic, +2 net
+  tests. Track D walks the spec from RC4 to RC5 (+414 normative
+  lines; §12.6 Resumable / §12.7 MT506x reload band / §12.8 Tier
+  4.3 migration + PlacementPolicy / §20.6 cap-name resolver /
+  §22.5 per-message work-stealing / §25.8.1-8 std.web), ships
+  [`docs/spec/rfcs/RFC_DASHBOARD.md`](docs/spec/rfcs/RFC_DASHBOARD.md)
+  with per-window countdowns + per-RFC implementation status, and
+  declares the v1.0 GA normative/informative conformance split
+  (104 normative / 49 informative). Track E rewrites demo
+  06_canvas_game against the new exports + `format!()` (Mighty
+  source 195 → 186 LOC; JS shim 235 → 213 LOC) and surfaces 6
+  v0.25 gaps (HIR → IR routing for `canvas.fill_rect(...)`; latent
+  wasm32-web Unit-call stack-balance bug — NOT a v0.24 regression,
+  reproduces against v0.23.0; agent fields across exported
+  callbacks; arrays in agent fields; `extern js { fn _foo() }`
+  emits wasm imports; `format!()` extended specs). KNOWN_ISSUES
+  picks up two P2 entries (#8 + #9 per Track E). Conformance kit
+  grows 153 → 156 cases. Rust test count **1604 → 1675** (+71).
+  Combined **2254 → 2328** (+74).
+- **v0.25-RC1** (next): close Track E's 5 surfaced gaps (HIR → IR
+  canvas routing; latent wasm32-web Unit-call stack-balance fix;
+  agent state across exported callbacks + arrays in agent fields;
+  `extern js { fn _foo() }` emits wasm imports; `format!()`
+  extended specs — width / precision / alignment); continue v1.0
+  freeze gate prep — RFC monitoring + last spec polish ahead of
+  the 2026-07-25 last-RFC-window close.
 - **v1.0.0 GA**: when all 8 RFC comment windows close.
   **Earliest: 2026-07-26** (the day after RFC-002 / RFC-006's 60-day
   windows close). The integrator collects dispositions →
@@ -339,11 +357,28 @@ Then:
   `crates/mty-codegen-wasm/tests/embedded_core_module.rs` locks in
   the wasm32-web framing invariant (Component envelope embeds the
   core module at byte offset 189, ±32 byte tolerance for
-  wit-component drift between releases). Three Mighty-source-side
-  language gaps documented for v0.24 closure
-  (`BuiltinId::CanvasOp(...)` lowering arm, `format!()` /
-  interpolation, `export fn` reaching the embedded core module's
-  export table).
+  wit-component drift between releases).
+- **`format!()` string interpolation (v0.24, Track B)** — first-class
+  Mighty builtin macro that expands at compile time into a
+  `("" + ... + (x).to_str() + ...)` chain. Supports `{}` /
+  `{name}` (named-arg passthrough) / `{:x}` / `{:X}` / `{:?}` and
+  brace escapes (`{{` / `}}`). Diagnostics MT6009
+  (MALFORMED_FORMAT_SPEC) + MT6010 (FORMAT_ARG_COUNT_MISMATCH)
+  surface at macro-expansion time against the `format!(...)` call
+  site. End-to-end through the wasm32-web backend (22 integration +
+  19 unit tests + 3 conformance fixtures). Width / precision /
+  alignment specs (`{:5}`, `{:.3}`, `{:>10}`) deferred to v0.25.
+- **wasm32-web emitter completion (v0.24, Track A)** — the
+  `BuiltinId::CanvasOp(CanvasOpKind)` SIR variant lowers
+  `canvas.fill_rect(...)`-style calls to direct `call
+  $imported_canvas_*` against the eight `mty:web/canvas@0.1` WIT
+  imports; `export fn frame/keydown/keyup` reaches the embedded core
+  module's export section under its canonical name (the host shim
+  can `inst.exports.frame(dt)` directly without going through the
+  v0.23 `log("evt:...")` fallback). Closes Track D gaps #1 + #3
+  from v0.23. Track D gap #2 (`format!()`) closed by the macro
+  above. HIR-side routing for `canvas.fill_rect(...)` remains
+  deferred to v0.25 (Track E gap A).
 
 **Self-hosting (full pipeline)**
 
@@ -421,34 +456,28 @@ in Mighty), `tests/conformance/` (cross-crate behavioural specs),
 ### To `v1.0`
 
 The v1.0 spec is feature-complete at **v1.0-RC5** (`docs/spec/v1.0-rc.md`).
-**Earliest possible v1.0.0 tag: 2026-07-26.** Remaining blockers:
+**Earliest possible v1.0.0 tag: 2026-07-26.** Blockers #1 (Python
+2nd-impl) and #3 (normative conformance suite) closed in v0.19 and
+have grown since (Python full-pipeline through wasm codegen at
+v0.22; kit at **156 cases** / 24 categories with the v0.24-declared
+v1.0 GA **104 normative / 49 informative** split at
+[`tests/conformance/v1.0-NORMATIVE.md`](tests/conformance/v1.0-NORMATIVE.md)).
+The single remaining blocker is the eight RFC comment windows:
 
-1. ~~A second independent compiler implementation (RFC-007).~~
-   **CLOSED v0.19, extended v0.22** — Python 2nd-impl through HM
-   closures + generic-constraints + full borrow + wasm codegen;
-   474 tests; 23/23 examples typeck clean; 21/24 emit wasm.
-2. The eight RFC comment windows
-   (RFC-001..006 + RFC-008 + RFC-009).
-   **Infrastructure shipped v0.19, live dashboard added v0.24** in
-   [`docs/spec/rfcs/RFC_DASHBOARD.md`](docs/spec/rfcs/RFC_DASHBOARD.md)
-   (with countdowns + per-RFC implementation status) +
-   [`docs/spec/rfcs/COMMENT_WINDOWS.md`](docs/spec/rfcs/COMMENT_WINDOWS.md)
-   (window policy). All 8 windows opened 2026-05-26; awaits user-side
-   Discussion-thread openings. Earliest close 2026-06-09 (RFC-005,
-   14 days); latest close 2026-07-25 (RFC-002 / RFC-006, 60 days each).
-   Three RFCs (006, 008, 009) are already implemented and await
-   procedural ratification; five (001..005) are substantive
-   forward-looking proposals.
-3. ~~A published normative conformance suite.~~ **CLOSED v0.19,
-   grown v0.20/v0.22/v0.23, normative-split declared v0.24** —
-   [`scripts/build-conformance-kit.sh`](scripts/build-conformance-kit.sh)
-   packages **153 cases** / 24 categories + the normative
-   [`docs/spec/conformance.md`](docs/spec/conformance.md) into a
-   tarball attached to every tagged release. Coverage 63%
-   direct / 99% any-harness (only MT3012 uncovered). The v0.24
-   slice declared the v1.0 GA normative-vs-informative split
-   ([`tests/conformance/v1.0-NORMATIVE.md`](tests/conformance/v1.0-NORMATIVE.md)):
-   **104 normative / 49 informative**.
+- **#2 — The eight RFC comment windows (RFC-001..006 + RFC-008 +
+  RFC-009).** Infrastructure shipped v0.19; **live dashboard added
+  v0.24** at
+  [`docs/spec/rfcs/RFC_DASHBOARD.md`](docs/spec/rfcs/RFC_DASHBOARD.md)
+  (per-window countdowns + per-RFC implementation status +
+  Discussion-thread-opened checkboxes), plus the window-policy
+  master tracker
+  [`docs/spec/rfcs/COMMENT_WINDOWS.md`](docs/spec/rfcs/COMMENT_WINDOWS.md).
+  All 8 windows opened 2026-05-26 and await user-side Discussion-
+  thread openings. Earliest close 2026-06-09 (RFC-005, 14 days);
+  latest close 2026-07-25 (RFC-002 / RFC-006, 60 days each). Three
+  RFCs (006, 008, 009) are already implemented and await procedural
+  ratification; five (001..005) are substantive forward-looking
+  proposals.
 
 ### Post-v1.0
 
@@ -456,13 +485,16 @@ The Post-v1.0 backlog is **empty** as of v0.22 — every former
 post-v1.0 roadmap item (per-message work-stealing, PGO/ThinLTO,
 Python 2nd-impl borrow + codegen) landed pre-v1.0. Beyond v1.0,
 candidate slices are tracked in the `[Unreleased]` block of
-[`CHANGELOG.md`](CHANGELOG.md) (v0.23 Track D language gaps —
-`BuiltinId::CanvasOp(...)` lowering, `format!()` / string
-interpolation, `export fn` reaching the embedded core module's
-export table; `mty serve --watch` hot-reload promoted to test-
-gated; BOLT post-link optimisation; multi-socket NUMA benchmark;
-`mty conform` implementer-CLI shim; systematic v1.0-RC validation
-sweep; MT3012 closure pending HIR `CONST_DECL` lowering).
+[`CHANGELOG.md`](CHANGELOG.md) (v0.24 Track E surfaced gaps — HIR
+→ IR routing for `canvas.fill_rect(...)`; latent wasm32-web
+emitter Unit-returning user-fn call stack-balance fix
+(KNOWN_ISSUES #8); agent fields across exported callbacks + arrays
+in agent fields; `extern js { fn _foo() }` emits wasm imports;
+`format!()` extended specs (width / precision / alignment) —
+plus the carry-forward BOLT post-link optimisation; multi-socket
+NUMA benchmark; `mty conform` implementer-CLI shim; systematic
+v1.0-RC validation sweep; MT3012 closure pending HIR `CONST_DECL`
+lowering).
 
 ### Landed pre-v1.0 (formerly post-v1.0)
 
@@ -499,28 +531,42 @@ see [`CHANGELOG.md`](CHANGELOG.md).
 ## Status
 
 Mighty is **pre-alpha**. Internal milestones have been tagged through
-**v0.23**. The v1.0 language spec is at v1.0-RC5 — see
-`docs/spec/v1.0-rc.md`. There are **1604 Rust tests** across the
-workspace (plus **474 Python tests** in the [`impl-py/`](impl-py/)
-2nd-impl now covering the full pipeline lex → parse → lower → typeck
-→ borrow → wasm, **153 normative conformance cases** at **63%
-direct / 99% any-harness** coverage with only MT3012
-DROP_IN_CONST_CONTEXT remaining uncovered (deferred pending HIR
-`CONST_DECL` lowering), and **23 self-host driver**
-codegen tests = **2254 combined**), 0 clippy warnings *under the
-strict `pedantic` gate* (a required CI job, not advisory), and
-**6/6 demos** pass `smoke.sh` (including the v0.23 canvas-driven
-06_canvas_game demo). The cargo-fuzz harness covers four
-targets (parser / typeck / fmt / codegen). **All KNOWN_ISSUES P1/P2
-items are closed**; **every former Post-v1.0 roadmap item has now
-landed pre-v1.0** (per-message work-stealing, PGO/ThinLTO, Python
-2nd-impl full pipeline all shipped in v0.22); **v1.0 freeze
-blockers are down to the RFC comment windows only** (infrastructure
-shipped; awaits user-side Discussion thread openings; earliest
-v1.0.0 tag 2026-07-26 — see [Release timeline](#release-timeline)
-above,
+**v0.24**. The v1.0 language spec is at **v1.0-RC5** (v0.24 polish
+absorbed §12.6 `Resumable` / §12.7 `MT506x` reload band / §12.8
+Tier 4.3 migration + `PlacementPolicy` / §20.6 cap-name resolver /
+§22.5 per-message work-stealing / §25.8.1-8
+`mty:web/canvas@0.1` + `mty:web/input@0.1` into normative prose) —
+see `docs/spec/v1.0-rc.md`. There are **1675 Rust tests** across
+the workspace (plus **474 Python tests** in the
+[`impl-py/`](impl-py/) 2nd-impl now covering the full pipeline lex
+→ parse → lower → typeck → borrow → wasm, **156 normative
+conformance cases** at **63% direct / 99% any-harness** coverage
+with only MT3012 DROP_IN_CONST_CONTEXT remaining uncovered
+(deferred pending HIR `CONST_DECL` lowering) split **104 normative
+/ 49 informative** by the v0.24-shipped
+[`tests/conformance/v1.0-NORMATIVE.md`](tests/conformance/v1.0-NORMATIVE.md)
+declaration, and **23 self-host driver** codegen tests = **2328
+combined**), 0 clippy warnings *under the strict `pedantic` gate*
+(a required CI job, not advisory), and **6/6 demos** pass
+`smoke.sh` (including the v0.23 canvas-driven 06_canvas_game demo,
+rewritten in v0.24 against the new wasm32-web exports +
+`format!()` — all 6 demos pass headless `MTY_WEB_SMOKE=1` smoke
+where applicable, modulo the v0.24-documented RAF-mid-frame phash
+flake on demo 06 at 4/5 success rate — see KNOWN_ISSUES #9). The
+cargo-fuzz harness covers four targets (parser / typeck / fmt /
+codegen). **KNOWN_ISSUES P1 is empty**; P2 picks up two entries in
+v0.24 (#8 latent wasm32-web Unit-returning user-fn call stack-
+balance — NOT a v0.24 regression; tracked for v0.25 closure; #9
+demo 06 headless-smoke phash flake — no required-gate impact).
+**Every former Post-v1.0 roadmap item has now landed pre-v1.0**
+(per-message work-stealing, PGO/ThinLTO, Python 2nd-impl full
+pipeline all shipped in v0.22); **v1.0 freeze blockers are down
+to the RFC comment windows only** (infrastructure shipped; awaits
+user-side Discussion thread openings; earliest v1.0.0 tag
+2026-07-26 — see [Release timeline](#release-timeline) above,
 [`docs/spec/rfcs/COMMENT_WINDOWS.md`](docs/spec/rfcs/COMMENT_WINDOWS.md),
-and the live [`docs/spec/rfcs/RFC_DASHBOARD.md`](docs/spec/rfcs/RFC_DASHBOARD.md)
+and the live
+[`docs/spec/rfcs/RFC_DASHBOARD.md`](docs/spec/rfcs/RFC_DASHBOARD.md)
 added in v0.24).
 
 **Pre-built `mty` binaries** for Linux x86_64, macOS arm64, and
