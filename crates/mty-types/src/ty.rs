@@ -13,7 +13,7 @@ pub type TyId = Idx<TyData>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TyVarId(pub u32);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct EffectId(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

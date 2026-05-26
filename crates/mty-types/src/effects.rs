@@ -8,12 +8,28 @@
 //! superset of the inferred set. Else `MT4001 effect_undeclared`.
 //!
 //! Strict profile (`profile = "core"`) bans `alloc` — `MT4002 alloc_in_core`.
+//!
+//! v0.13: this module also hosts the **effect-row polymorphism**
+//! infrastructure (RFC-008). The row machinery is additive — none of
+//! the existing call-graph fixpoint or public-fn validation routes go
+//! through it; instead, the row API is a stand-alone module that the
+//! HOF-call site checker (and v0.14 surface-syntax extensions) build
+//! on top of. See [`row`] sub-module.
 
 use crate::defs::*;
 use crate::ty::*;
 use mty_diagnostics::Diagnostic;
 use mty_hir::*;
 use std::collections::{HashMap, HashSet};
+
+// v0.13 — RFC-008 effect-row polymorphism. Defined at the bottom of
+// this file as an inline `mod row { ... }` block (alongside the unit
+// tests) so it sits next to the existing closed-row inference and
+// doesn't perturb the crate's existing module layout.
+pub use self::row::{
+    apply_row_subst, instantiate_row_sig, pretty_row, stdlib_list_map_sig, subsume_closed,
+    unify_rows, EffectRow, RowError, RowPolySig, RowSubst, RowVar,
+};
 
 /// Profile loaded from `mighty.toml` (slice 5). `Host` is permissive; `Core`
 /// is the strict embedded-target profile.
@@ -565,5 +581,583 @@ mod tests {
             "Host profile should still demand effect declaration; got {:?}",
             codes
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// v0.13 — RFC-008 effect-row polymorphism
+// ---------------------------------------------------------------------------
+
+/// Row-polymorphism infrastructure for effect rows.
+///
+/// See `docs/spec/rfcs/RFC-008-effect-rows.md` for the full design.
+///
+/// This module is **additive** to the existing closed-set effect
+/// system: nothing in [`infer_and_validate`] consults it. It is the
+/// substrate that the v0.14 surface-syntax and HOF-call-site checker
+/// will be built on, and ships with one wired example signature
+/// (`stdlib_list_map_sig`) to validate the end-to-end path in v0.13.
+pub mod row {
+    use super::EffectId;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    /// A row variable identifier. Allocated by [`RowSubst::fresh`].
+    ///
+    /// IDs are u32 and densely allocated starting from 0 within a single
+    /// substitution. They are intentionally scoped to one substitution
+    /// table — two `RowVar(0)` from different tables are *unrelated*.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+    pub struct RowVar(pub u32);
+
+    /// An effect row. Either fully closed (a concrete finite set), or
+    /// open with a polymorphic tail.
+    ///
+    /// The set is stored as a `BTreeSet<EffectId>` so that `Debug`
+    /// printing, hashing, and equality are deterministic — important
+    /// because diagnostic messages compare rows by structural equality.
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub enum EffectRow {
+        /// `!{a, b, c}` — exactly these effects.
+        Closed(BTreeSet<EffectId>),
+        /// `!{a, b | E}` — at least these effects, plus whatever the
+        /// row variable resolves to.
+        Open(BTreeSet<EffectId>, RowVar),
+    }
+
+    impl EffectRow {
+        /// Empty closed row `!{}`.
+        pub fn empty() -> Self {
+            EffectRow::Closed(BTreeSet::new())
+        }
+
+        /// Closed row from an iterator of effects.
+        pub fn closed<I: IntoIterator<Item = EffectId>>(eff: I) -> Self {
+            EffectRow::Closed(eff.into_iter().collect())
+        }
+
+        /// Open row `!{eff... | v}`.
+        pub fn open<I: IntoIterator<Item = EffectId>>(eff: I, v: RowVar) -> Self {
+            EffectRow::Open(eff.into_iter().collect(), v)
+        }
+
+        /// The concrete-effects component (the visible part of the
+        /// row, ignoring any tail).
+        pub fn concrete(&self) -> &BTreeSet<EffectId> {
+            match self {
+                EffectRow::Closed(s) | EffectRow::Open(s, _) => s,
+            }
+        }
+
+        /// True iff this row has a polymorphic tail.
+        pub fn is_open(&self) -> bool {
+            matches!(self, EffectRow::Open(_, _))
+        }
+
+        /// The free row variables in this row. (At most one — the tail
+        /// — in v0.13. Reserved for future row-variable-in-set forms.)
+        pub fn free_row_vars(&self) -> Vec<RowVar> {
+            match self {
+                EffectRow::Closed(_) => vec![],
+                EffectRow::Open(_, v) => vec![*v],
+            }
+        }
+    }
+
+    /// Errors raised by row unification / subsumption.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum RowError {
+        /// Two closed rows have different concrete effect sets.
+        /// Carries the two sets for diagnostic rendering.
+        ClosedMismatch(BTreeSet<EffectId>, BTreeSet<EffectId>),
+        /// Subsumption failure: the actual row contains effects the
+        /// expected closed row does not allow.
+        SubsumptionFail(BTreeSet<EffectId>, BTreeSet<EffectId>),
+        /// Occurs-check failure: a row variable would be bound to a
+        /// row containing itself.
+        Occurs(RowVar),
+    }
+
+    /// Substitution table mapping row variables to rows.
+    ///
+    /// `RowSubst::fresh()` allocates a new unbound row variable.
+    /// `bind()` records a binding `v ↦ row`, after the occurs check.
+    /// `resolve()` follows binding chains to canonical form.
+    #[derive(Debug, Default, Clone)]
+    pub struct RowSubst {
+        next: u32,
+        bindings: BTreeMap<RowVar, EffectRow>,
+    }
+
+    impl RowSubst {
+        /// New empty substitution.
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        /// Allocate a fresh, unbound row variable.
+        pub fn fresh(&mut self) -> RowVar {
+            let v = RowVar(self.next);
+            self.next += 1;
+            v
+        }
+
+        /// Whether `v` is currently bound.
+        pub fn is_bound(&self, v: RowVar) -> bool {
+            self.bindings.contains_key(&v)
+        }
+
+        /// Direct lookup (one step, no chain following).
+        pub fn lookup(&self, v: RowVar) -> Option<&EffectRow> {
+            self.bindings.get(&v)
+        }
+
+        /// Bind `v ↦ row`, after an occurs check.
+        ///
+        /// Returns `Err(RowError::Occurs(v))` if `row` mentions `v`
+        /// transitively (under the current substitution).
+        pub fn bind(&mut self, v: RowVar, row: EffectRow) -> Result<(), RowError> {
+            if self.occurs_in(v, &row) {
+                return Err(RowError::Occurs(v));
+            }
+            self.bindings.insert(v, row);
+            Ok(())
+        }
+
+        /// Recursive occurs check: does `v` appear in `row` after
+        /// chasing bindings?
+        fn occurs_in(&self, v: RowVar, row: &EffectRow) -> bool {
+            match row {
+                EffectRow::Closed(_) => false,
+                EffectRow::Open(_, w) => {
+                    if *w == v {
+                        return true;
+                    }
+                    if let Some(next) = self.bindings.get(w) {
+                        return self.occurs_in(v, next);
+                    }
+                    false
+                }
+            }
+        }
+
+        /// Resolve `row` to its canonical form: follow binding chains
+        /// from the row's tail (if any) and merge concrete effects
+        /// along the way.
+        ///
+        /// Example: if `v ↦ Open({fs}, w)` and `w ↦ Closed({net})`,
+        /// then `resolve(Open({alloc}, v))` produces
+        /// `Closed({alloc, fs, net})`.
+        pub fn resolve(&self, row: &EffectRow) -> EffectRow {
+            match row {
+                EffectRow::Closed(_) => row.clone(),
+                EffectRow::Open(s, v) => {
+                    let mut acc = s.clone();
+                    let mut current = *v;
+                    let mut seen: BTreeSet<RowVar> = BTreeSet::new();
+                    loop {
+                        if !seen.insert(current) {
+                            // Cycle — should be prevented by occurs check,
+                            // but be defensive: return the partial row.
+                            return EffectRow::Open(acc, current);
+                        }
+                        match self.bindings.get(&current) {
+                            None => return EffectRow::Open(acc, current),
+                            Some(EffectRow::Closed(t)) => {
+                                acc.extend(t.iter().copied());
+                                return EffectRow::Closed(acc);
+                            }
+                            Some(EffectRow::Open(t, w)) => {
+                                acc.extend(t.iter().copied());
+                                current = *w;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Convenience: apply a substitution and return a fresh row.
+    pub fn apply_row_subst(subst: &RowSubst, row: &EffectRow) -> EffectRow {
+        subst.resolve(row)
+    }
+
+    /// Unify two effect rows. On success, the substitution is extended
+    /// so that `resolve(lhs) == resolve(rhs)`.
+    ///
+    /// Implements the four cases from RFC-008 §"Inference rules":
+    ///
+    /// | LHS         | RHS         | Action                                    |
+    /// |-------------|-------------|-------------------------------------------|
+    /// | `Closed(a)` | `Closed(b)` | succeed iff `a == b`                      |
+    /// | `Closed(a)` | `Open(b,w)` | succeed iff `b ⊆ a`; bind `w ↦ a \ b`     |
+    /// | `Open(a,v)` | `Closed(b)` | succeed iff `a ⊆ b`; bind `v ↦ b \ a`     |
+    /// | `Open(a,v)` | `Open(b,w)` | bind `v ↦ Open(b \ a, fresh)`,            |
+    /// |             |             |       `w ↦ Open(a \ b, same fresh)`       |
+    pub fn unify_rows(
+        subst: &mut RowSubst,
+        lhs: &EffectRow,
+        rhs: &EffectRow,
+    ) -> Result<(), RowError> {
+        let lhs = subst.resolve(lhs);
+        let rhs = subst.resolve(rhs);
+        match (lhs, rhs) {
+            (EffectRow::Closed(a), EffectRow::Closed(b)) => {
+                if a == b {
+                    Ok(())
+                } else {
+                    Err(RowError::ClosedMismatch(a, b))
+                }
+            }
+            (EffectRow::Closed(a), EffectRow::Open(b, w)) => {
+                // The open row's concrete part must be a subset of the
+                // closed row; the tail is bound to the difference.
+                if !b.is_subset(&a) {
+                    return Err(RowError::ClosedMismatch(a, b));
+                }
+                let diff: BTreeSet<EffectId> = a.difference(&b).copied().collect();
+                subst.bind(w, EffectRow::Closed(diff))
+            }
+            (EffectRow::Open(a, v), EffectRow::Closed(b)) => {
+                if !a.is_subset(&b) {
+                    return Err(RowError::ClosedMismatch(a, b));
+                }
+                let diff: BTreeSet<EffectId> = b.difference(&a).copied().collect();
+                subst.bind(v, EffectRow::Closed(diff))
+            }
+            (EffectRow::Open(a, v), EffectRow::Open(b, w)) => {
+                if v == w && a == b {
+                    return Ok(());
+                }
+                // Standard Koka algorithm: one fresh tail, both row
+                // vars are bound to the *other* side's concrete-set
+                // minus this side's concrete-set, plus the same fresh
+                // tail. This preserves the invariant that after
+                // unification both rows resolve to the same set.
+                let fresh = subst.fresh();
+                let b_minus_a: BTreeSet<EffectId> = b.difference(&a).copied().collect();
+                let a_minus_b: BTreeSet<EffectId> = a.difference(&b).copied().collect();
+                subst.bind(v, EffectRow::Open(b_minus_a, fresh))?;
+                // The second bind targets the OTHER row var; if v == w
+                // we'd be double-binding, but the `v == w && a == b`
+                // early-return covers the only well-formed identity
+                // case. If v == w but a != b, the unification is still
+                // inconsistent — fall through to surface an occurs
+                // error on the second bind.
+                subst.bind(w, EffectRow::Open(a_minus_b, fresh))
+            }
+        }
+    }
+
+    /// Subsumption check for closed rows.
+    ///
+    /// Returns Ok(()) iff `actual ⊆ expected` (the actual concrete
+    /// effects are accepted by the expected closed bound).
+    ///
+    /// This is the "narrower-is-OK" rule that lets a `Closed({})`
+    /// closure satisfy a parameter declared `Closed({fs})`. The dual —
+    /// a row with extra effects flowing into a fixed closed parameter
+    /// — is rejected with `SubsumptionFail`.
+    pub fn subsume_closed(
+        actual: &BTreeSet<EffectId>,
+        expected: &BTreeSet<EffectId>,
+    ) -> Result<(), RowError> {
+        if actual.is_subset(expected) {
+            Ok(())
+        } else {
+            Err(RowError::SubsumptionFail(actual.clone(), expected.clone()))
+        }
+    }
+
+    /// A row-polymorphic function signature — the v0.13 representation
+    /// used by stdlib HOF entries.
+    ///
+    /// `param_rows[i]` is the effect row of the i-th parameter (only
+    /// meaningful for parameters of `fn` type; ignore for other params).
+    /// `return_row` is the row attributed to the call's *result effect
+    /// set* (i.e. what gets added to the caller's effect set at this
+    /// call site).
+    /// `row_vars` is the list of row variables quantified in the
+    /// signature — these are *symbolic*: each call site instantiates
+    /// fresh row vars in place of them via [`instantiate_row_sig`].
+    #[derive(Debug, Clone)]
+    pub struct RowPolySig {
+        /// Quantified row variable templates (de-Bruijn-style: each
+        /// appearance in `param_rows`/`return_row` carries an index
+        /// into this list rather than a raw RowVar).
+        ///
+        /// In v0.13 most stdlib signatures have a single row var (e.g.
+        /// `List.map[A, B, E]`), so this is usually 1 element.
+        pub row_var_count: u32,
+        /// One entry per parameter. `RowSpec::Skip` for non-fn
+        /// parameters; `RowSpec::Concrete` for fn-typed parameters
+        /// with a fixed effect set; `RowSpec::Var(i)` for fn-typed
+        /// parameters whose effect set is the i-th quantified row var.
+        pub param_rows: Vec<RowSpec>,
+        /// The result's effect row.
+        pub return_row: RowSpec,
+    }
+
+    /// Parameter-row template. Used inside [`RowPolySig`]; resolved at
+    /// instantiation time to a concrete [`EffectRow`].
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum RowSpec {
+        /// This parameter is not a fn type — no row attached.
+        Skip,
+        /// A fixed effect row, independent of any row variable.
+        Concrete(EffectRow),
+        /// The effect row is the i-th quantified row variable (no
+        /// concrete effects added).
+        Var(u32),
+        /// `Var(i) ∪ Concrete(eff)` — the quantified row var plus
+        /// some fixed effects that this position always carries.
+        /// Example: `Iterator.collect` is `!{alloc | E}`.
+        VarPlus(u32, BTreeSet<EffectId>),
+    }
+
+    /// Instantiate a row-polymorphic signature: allocate one fresh
+    /// row variable per quantified slot, then walk `param_rows` /
+    /// `return_row` substituting the template indices with the fresh
+    /// vars.
+    ///
+    /// Returns `(per_param_rows, return_row, fresh_vars)`. The
+    /// `per_param_rows` parallels `sig.param_rows` 1:1.
+    pub fn instantiate_row_sig(
+        sig: &RowPolySig,
+        subst: &mut RowSubst,
+    ) -> (Vec<Option<EffectRow>>, EffectRow, Vec<RowVar>) {
+        let fresh: Vec<RowVar> = (0..sig.row_var_count).map(|_| subst.fresh()).collect();
+        let mat = |spec: &RowSpec| -> Option<EffectRow> {
+            match spec {
+                RowSpec::Skip => None,
+                RowSpec::Concrete(r) => Some(r.clone()),
+                RowSpec::Var(i) => Some(EffectRow::Open(BTreeSet::new(), fresh[*i as usize])),
+                RowSpec::VarPlus(i, eff) => Some(EffectRow::Open(eff.clone(), fresh[*i as usize])),
+            }
+        };
+        let params: Vec<Option<EffectRow>> = sig.param_rows.iter().map(&mat).collect();
+        let ret = mat(&sig.return_row).unwrap_or_else(EffectRow::empty);
+        (params, ret, fresh)
+    }
+
+    /// The v0.13 wired stdlib signature for `List.map`:
+    /// `fn map[A, B, E](xs: List[A], f: fn(A) -> B!E) -> List[B]!E`.
+    ///
+    /// Row variable layout: one row var (`E`, index 0). The first
+    /// parameter (the list) is `Skip`, the second (the closure) is
+    /// `Var(0)`, the return row is `Var(0)`.
+    pub fn stdlib_list_map_sig() -> RowPolySig {
+        RowPolySig {
+            row_var_count: 1,
+            param_rows: vec![RowSpec::Skip, RowSpec::Var(0)],
+            return_row: RowSpec::Var(0),
+        }
+    }
+
+    /// Pretty-printer for an effect row. Renders concrete effects by
+    /// looking up their names in `effect_name`.
+    ///
+    /// Examples:
+    ///
+    ///   `{}`        — closed empty row
+    ///   `{fs}`      — closed singleton
+    ///   `{fs | E}`  — open row, tail `E`
+    ///   `E`         — bare row variable, no concrete effects
+    pub fn pretty_row(row: &EffectRow, name: impl Fn(EffectId) -> Option<String>) -> String {
+        let render_set = |s: &BTreeSet<EffectId>| -> String {
+            let mut xs: Vec<String> = s
+                .iter()
+                .map(|e| name(*e).unwrap_or_else(|| format!("e{}", e.0)))
+                .collect();
+            xs.sort();
+            xs.join(", ")
+        };
+        match row {
+            EffectRow::Closed(s) => format!("{{{}}}", render_set(s)),
+            EffectRow::Open(s, v) => {
+                if s.is_empty() {
+                    format!("E{}", v.0)
+                } else {
+                    format!("{{{} | E{}}}", render_set(s), v.0)
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod row_tests {
+    use super::row::*;
+    use super::*;
+    use std::collections::BTreeSet;
+
+    fn three_effects() -> (EffectId, EffectId, EffectId) {
+        // Use raw EffectId values — the row machinery is independent of
+        // DefMap interning. (Real call sites get IDs from `DefMap`.)
+        (EffectId(1), EffectId(2), EffectId(3))
+    }
+
+    fn name_for(e: EffectId) -> Option<String> {
+        match e.0 {
+            1 => Some("fs".into()),
+            2 => Some("net".into()),
+            3 => Some("time".into()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn row_arith_01_closed_closed_equal() {
+        let (fs, net, _) = three_effects();
+        let mut s = RowSubst::new();
+        let a = EffectRow::closed([fs, net]);
+        let b = EffectRow::closed([fs, net]);
+        unify_rows(&mut s, &a, &b).expect("equal closed rows unify");
+    }
+
+    #[test]
+    fn row_arith_02_closed_closed_unequal_fails() {
+        let (fs, net, _) = three_effects();
+        let mut s = RowSubst::new();
+        let a = EffectRow::closed([fs]);
+        let b = EffectRow::closed([fs, net]);
+        let err = unify_rows(&mut s, &a, &b).expect_err("unequal closed rows must reject");
+        assert!(matches!(err, RowError::ClosedMismatch(_, _)));
+    }
+
+    #[test]
+    fn row_arith_03_open_unifies_with_closed_binding_tail_to_diff() {
+        let (fs, net, _) = three_effects();
+        let mut s = RowSubst::new();
+        let v = s.fresh();
+        // Open({fs}, v) unifies with Closed({fs, net}): v ↦ {net}.
+        let open = EffectRow::open([fs], v);
+        let closed = EffectRow::closed([fs, net]);
+        unify_rows(&mut s, &open, &closed).expect("subset must succeed");
+        let bound = s.lookup(v).cloned().expect("v should be bound");
+        assert_eq!(bound, EffectRow::closed([net]));
+    }
+
+    #[test]
+    fn row_arith_04_open_with_empty_concrete_unifies_to_full_closed() {
+        let (fs, net, _) = three_effects();
+        let mut s = RowSubst::new();
+        let v = s.fresh();
+        // Empty open row Open({}, v) unifies with any closed row by
+        // binding v to the whole set.
+        let open = EffectRow::open([], v);
+        let closed = EffectRow::closed([fs, net]);
+        unify_rows(&mut s, &open, &closed).expect("empty open absorbs everything");
+        assert_eq!(s.lookup(v).cloned().unwrap(), EffectRow::closed([fs, net]));
+    }
+
+    #[test]
+    fn row_arith_05_closed_with_extra_rejects_subset_open() {
+        let (fs, net, time) = three_effects();
+        let mut s = RowSubst::new();
+        let v = s.fresh();
+        // Open({fs, net}, v) unifies with Closed({fs, time}): {fs,net}
+        // is NOT a subset of {fs,time}, so unification rejects.
+        let open = EffectRow::open([fs, net], v);
+        let closed = EffectRow::closed([fs, time]);
+        let err = unify_rows(&mut s, &open, &closed).expect_err("non-subset must reject");
+        assert!(matches!(err, RowError::ClosedMismatch(_, _)));
+    }
+
+    #[test]
+    fn row_arith_06_open_open_introduces_shared_fresh_tail() {
+        let (fs, net, _) = three_effects();
+        let mut s = RowSubst::new();
+        let v = s.fresh();
+        let w = s.fresh();
+        // Open({fs}, v) unifies with Open({net}, w):
+        //   v ↦ Open({net}, fresh)
+        //   w ↦ Open({fs}, fresh) — same fresh
+        // After unification, both rows resolve to {fs, net | fresh}.
+        let a = EffectRow::open([fs], v);
+        let b = EffectRow::open([net], w);
+        unify_rows(&mut s, &a, &b).expect("two opens unify");
+        let ra = s.resolve(&a);
+        let rb = s.resolve(&b);
+        assert_eq!(ra, rb, "post-unify resolution must agree");
+        match ra {
+            EffectRow::Open(set, _) => {
+                assert!(set.contains(&fs));
+                assert!(set.contains(&net));
+            }
+            EffectRow::Closed(_) => panic!("expected open row, got closed"),
+        }
+    }
+
+    #[test]
+    fn row_arith_07_occurs_check_rejects_direct_cycle() {
+        let mut s = RowSubst::new();
+        let v = s.fresh();
+        // v ↦ Open({}, v) — direct self-reference.
+        let err = s.bind(v, EffectRow::open([], v)).expect_err("occurs check");
+        assert_eq!(err, RowError::Occurs(v));
+    }
+
+    #[test]
+    fn row_arith_08_resolve_walks_chain_of_bindings() {
+        let (fs, net, time) = three_effects();
+        let mut s = RowSubst::new();
+        let v = s.fresh();
+        let w = s.fresh();
+        // v ↦ Open({fs}, w); w ↦ Closed({net, time})
+        // resolve(Open({}, v)) should yield Closed({fs, net, time}).
+        s.bind(v, EffectRow::open([fs], w)).unwrap();
+        s.bind(w, EffectRow::closed([net, time])).unwrap();
+        let row = EffectRow::open([], v);
+        let resolved = s.resolve(&row);
+        assert_eq!(resolved, EffectRow::closed([fs, net, time]));
+    }
+
+    #[test]
+    fn row_arith_09_subsume_closed_subset_ok() {
+        let (fs, net, _) = three_effects();
+        let actual: BTreeSet<EffectId> = [fs].into_iter().collect();
+        let expected: BTreeSet<EffectId> = [fs, net].into_iter().collect();
+        subsume_closed(&actual, &expected).expect("subset must subsume");
+    }
+
+    #[test]
+    fn row_arith_10_subsume_closed_superset_rejects() {
+        let (fs, net, _) = three_effects();
+        let actual: BTreeSet<EffectId> = [fs, net].into_iter().collect();
+        let expected: BTreeSet<EffectId> = [fs].into_iter().collect();
+        let err = subsume_closed(&actual, &expected).expect_err("superset must reject");
+        assert!(matches!(err, RowError::SubsumptionFail(_, _)));
+    }
+
+    #[test]
+    fn row_arith_11_pretty_print_renders_named_effects() {
+        let (fs, net, _) = three_effects();
+        let mut s = RowSubst::new();
+        let v = s.fresh();
+        let row = EffectRow::open([fs, net], v);
+        let txt = pretty_row(&row, name_for);
+        assert_eq!(txt, format!("{{fs, net | E{}}}", v.0));
+        let closed = EffectRow::closed([net]);
+        assert_eq!(pretty_row(&closed, name_for), "{net}");
+        let bare = EffectRow::open([], v);
+        assert_eq!(pretty_row(&bare, name_for), format!("E{}", v.0));
+    }
+
+    #[test]
+    fn row_arith_12_instantiate_list_map_sig_threads_row_var() {
+        // Validates the v0.13-wired stdlib `List.map` signature: one
+        // row var threaded from the closure parameter to the return
+        // effect row. Both should reference the SAME fresh row var.
+        let sig = stdlib_list_map_sig();
+        let mut s = RowSubst::new();
+        let (params, ret, fresh) = instantiate_row_sig(&sig, &mut s);
+        assert_eq!(params.len(), 2);
+        assert!(params[0].is_none(), "list param has no fn row");
+        let closure_row = params[1].as_ref().expect("closure param has a row");
+        // Both rows are Open({}, fresh[0]).
+        let expected = EffectRow::open([], fresh[0]);
+        assert_eq!(closure_row, &expected);
+        assert_eq!(ret, expected);
     }
 }
