@@ -9,6 +9,12 @@ pub mod agent;
 pub mod arena;
 pub mod budget;
 pub mod cancel;
+// v0.18 Tier 4.1 — distributed agents (single-cluster mesh). The
+// module ships the transport layer (`AgentAddr`, framed CBOR/TLS
+// wire, reconnecting peers, mesh) so the runtime can opt-in to
+// distribution via the `ClusterRouter` trait. See
+// `docs/internals/cluster.md` for the architecture.
+pub mod cluster;
 pub mod codegen_abi;
 pub mod control_socket;
 pub mod delay_timers;
@@ -36,6 +42,11 @@ pub mod timer;
 pub use agent::{AgentDescriptor, AgentHandle, AgentId};
 pub use budget::{Budget, BudgetBreach, BudgetTracker};
 pub use cancel::{CancelReason, CancellationToken};
+// v0.18 Tier 4.1 — cluster surface re-exports.
+pub use cluster::{
+    current_node_id, AgentAddr, ClusterConfig, ClusterMesh, ClusterRouter, MeshError, NodeId,
+    PeerEntry, SharedRouter, TlsConfig, WireFrame, WIRE_VERSION,
+};
 pub use control_socket::{
     sock_path_from_env, spawn_control_socket, spawn_control_socket_at, ControlContext,
     ControlSocketHandle, CONTROL_SOCK_ENV,

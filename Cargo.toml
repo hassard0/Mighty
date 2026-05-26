@@ -73,6 +73,10 @@ serde_json = "1"
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
 rustls-pemfile = "2"
 tokio-rustls = "0.26"
+# v0.18 cluster wire (Tier 4.1): framed CBOR over TLS. `ciborium` is the
+# maintained successor to `serde_cbor` and is already pulled in transitively;
+# promoting it to a workspace dep gives the cluster module a direct handle.
+ciborium = "0.2"
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
