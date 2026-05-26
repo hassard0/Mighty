@@ -33,6 +33,10 @@ pub use dwarf::{DwarfBuilder, DwarfSection, DwarfSections, EncodedDwarf};
 pub use dwarf5::Dwarf5Builder;
 pub use sourcemap::{NameSection, SourceMap, SourceMapMapping};
 
+// LineRow / LocalDebugInfo are referenced from downstream callers
+// (mty-codegen-cranelift) that populate the rich line table from
+// cranelift's MachSrcLoc map.
+
 /// Errors raised by the debug-info builders.
 #[derive(Debug, thiserror::Error)]
 pub enum DebugInfoError {
@@ -97,6 +101,52 @@ pub struct VarDebugInfo {
     pub frame_offset: Option<i32>,
 }
 
+/// One row in a DWARF v5 line program (post-v0.21 plumbing).
+///
+/// v0.21 plumbs cranelift's `MachSrcLoc` map through `define_function`
+/// into the line table — each entry becomes one row, with `is_stmt`
+/// set on the first row of each statement and `end_sequence` set on
+/// the last row of each function. See
+/// `docs/internals/debug-info.md` (MachSrcLoc section) for the full
+/// plumbing diagram.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LineRow {
+    /// Address offset within the function. Must be monotonically
+    /// non-decreasing across the rows of one function.
+    pub address_offset: u64,
+    /// 1-based source line.
+    pub line: u32,
+    /// 1-based source column.
+    pub column: u32,
+    /// True when this row begins a statement (gdb/lldb use this to
+    /// pick stop-points for `next`).
+    pub is_stmt: bool,
+    /// True when this is the last row of the function's sequence.
+    /// The DWARF line program calls `end_sequence` after emitting the
+    /// row so the address range closes cleanly.
+    pub end_sequence: bool,
+}
+
+/// Per-local debug info with enough state to emit a
+/// `.debug_loclists` entry. v0.21 introduces this alongside the older
+/// [`VarDebugInfo`] so callers that have cranelift slot offsets can
+/// produce real DW_AT_location attributes; callers that don't keep
+/// using `VarDebugInfo`.
+#[derive(Debug, Clone)]
+pub struct LocalDebugInfo {
+    /// User-visible variable name.
+    pub name: String,
+    /// Cranelift stack slot offset relative to the frame base
+    /// register. On x86_64 this combines with `DW_OP_breg7` (RSP).
+    pub slot: i32,
+    /// (low_pc, high_pc) range over which the local is live. v0.21
+    /// uses the enclosing function's range as a conservative bound;
+    /// finer-grained live ranges follow in v0.22.
+    pub address_range: (u64, u64),
+    /// Human-readable type tag for the DWARF base-type table.
+    pub type_tag: String,
+}
+
 /// Per-function debug info supplied by the codegen layer. The DWARF
 /// builder consumes this; the sourcemap builder consumes a subset
 /// (name + start_pos + length + line_table).
@@ -119,6 +169,44 @@ pub struct FunctionDebugInfo {
     pub line_table: Vec<(u64, SourcePos)>,
     /// Per-local variables.
     pub locals: Vec<VarDebugInfo>,
+    /// v0.21: rich per-instruction line rows derived from cranelift's
+    /// `MachSrcLoc` map. When non-empty, the v5 builder prefers this
+    /// over [`Self::line_table`] so it can carry `is_stmt` and
+    /// `end_sequence` flags through to the emitted `.debug_line`. v4
+    /// builder ignores it (v4 line programs are coarser and the
+    /// existing `line_table` field already serves them).
+    pub rich_line_table: Vec<LineRow>,
+    /// v0.21: per-local debug info with slot offsets for
+    /// `.debug_loclists` emission. When non-empty, the v5 builder
+    /// emits a real `DW_AT_location` loclist ref alongside the
+    /// `DW_TAG_variable` DIE.
+    pub rich_locals: Vec<LocalDebugInfo>,
+}
+
+impl FunctionDebugInfo {
+    /// Construct the v0.2-shape [`FunctionDebugInfo`] (no rich
+    /// per-instruction or loclist data). Convenience used by
+    /// pre-v0.21 callers and tests.
+    pub fn new_basic(
+        name: String,
+        return_type: String,
+        decl_pos: SourcePos,
+        code_range: (u64, u64),
+        line_table: Vec<(u64, SourcePos)>,
+        locals: Vec<VarDebugInfo>,
+    ) -> Self {
+        Self {
+            name,
+            mangled_name: None,
+            return_type,
+            decl_pos,
+            code_range,
+            line_table,
+            locals,
+            rich_line_table: Vec::new(),
+            rich_locals: Vec::new(),
+        }
+    }
 }
 
 #[cfg(test)]

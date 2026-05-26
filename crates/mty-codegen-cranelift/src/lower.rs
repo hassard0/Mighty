@@ -34,7 +34,7 @@ use crate::error::{CodegenError, CompileResult};
 use crate::runtime_imports;
 use cranelift_codegen::ir::types as ct;
 use cranelift_codegen::ir::{
-    AbiParam, Function as ClFunction, InstBuilder, MemFlags, Signature, StackSlotData,
+    AbiParam, Function as ClFunction, InstBuilder, MemFlags, Signature, SourceLoc, StackSlotData,
     StackSlotKind, UserFuncName,
 };
 use cranelift_codegen::settings::{self, Configurable};
@@ -49,6 +49,51 @@ use mty_types::IntKind;
 use std::collections::HashMap;
 use target_lexicon::Triple;
 
+/// Spread (block_idx, stmt_idx_in_block) across the function's source
+/// byte range so each statement gets a unique offset inside the
+/// fn span. Used by [`FnLower::lower_one_block`] when MtyIR statements
+/// don't yet carry their own `SourceSpan`. v0.21.
+fn synthesize_stmt_offset(
+    fn_start: u32,
+    fn_end: u32,
+    block_idx: usize,
+    stmt_idx: usize,
+    stmts_in_block: usize,
+) -> u32 {
+    let span = (fn_end.saturating_sub(fn_start)).max(1);
+    let denom = ((block_idx + 1) as u64) * (stmts_in_block.max(1) as u64);
+    let num = (block_idx as u64) * (stmts_in_block.max(1) as u64) + (stmt_idx as u64);
+    let frac = (num.saturating_mul(span as u64) / denom.max(1)) as u32;
+    fn_start.saturating_add(frac.min(span.saturating_sub(1)))
+}
+
+/// v0.21: per-instruction `MachSrcLoc` plumbing output.
+///
+/// For each fn we lower, we hand cranelift a sequence of synthetic
+/// `SourceLoc` values (one per MtyIR statement / terminator). After
+/// `Module::define_function` finishes, we read back the per-instruction
+/// `MachSrcLoc` map from `compiled_code().buffer.get_srclocs_sorted()`
+/// and store one [`FnSrcLocMap`] per fn here. The DWARF builder then
+/// converts each `(code_offset, src_idx)` into a [`mty_debuginfo::LineRow`]
+/// with `is_stmt = true` on the first row of each statement and
+/// `end_sequence = true` on the last row.
+#[derive(Debug, Clone, Default)]
+pub struct FnSrcLocMap {
+    /// Size of the compiled function in bytes (== high_pc - low_pc).
+    pub code_size: u32,
+    /// Source-byte-offsets we handed to cranelift, indexed by
+    /// `SourceLoc.bits()`. Index 0 is reserved for the fn's own span
+    /// start (used when no per-stmt loc is set).
+    pub stmt_byte_offsets: Vec<u32>,
+    /// `(code_offset_within_fn, byte_offset_in_source)` rows, sorted
+    /// by code_offset, deduped on (code_offset, byte_offset).
+    pub rows: Vec<(u32, u32)>,
+    /// Per-local slot offsets observed during lowering. Indexed by
+    /// the MtyIR `Local` id (== `f.locals` index). `None` for locals
+    /// we didn't materialise into a stack slot.
+    pub local_slot_offsets: HashMap<u32, i32>,
+}
+
 /// Per-module lowering context. Holds the cranelift module + per-fn
 /// FuncId lookup tables. Lifetime tied to the module's lifetime.
 pub struct LowerCtx<'m, M: Module> {
@@ -58,6 +103,13 @@ pub struct LowerCtx<'m, M: Module> {
     pub runtime_ids: HashMap<&'static str, FuncId>,
     pub string_pool: HashMap<String, DataId>,
     pub triple: Triple,
+    /// v0.21: per-fn `MachSrcLoc` debug info captured during
+    /// `define_fn`. Populated only when [`Self::capture_debug_info`]
+    /// is true; the AOT object-debug path enables it.
+    pub fn_debug: HashMap<IrFnId, FnSrcLocMap>,
+    /// v0.21: when true, `define_fn` instruments per-statement
+    /// SourceLoc values and reads back the `MachSrcLoc` map.
+    pub capture_debug_info: bool,
 }
 
 impl<'m, M: Module> LowerCtx<'m, M> {
@@ -73,7 +125,16 @@ impl<'m, M: Module> LowerCtx<'m, M> {
             runtime_ids: HashMap::with_capacity(runtime_imports::RUNTIME_IMPORTS.len()),
             string_pool: HashMap::with_capacity(64),
             triple,
+            fn_debug: HashMap::with_capacity(128),
+            capture_debug_info: false,
         }
+    }
+
+    /// Enable v0.21 `MachSrcLoc` plumbing for subsequent `define_fn`
+    /// calls. The AOT object-debug path flips this on; the JIT path
+    /// leaves it off (no DWARF emitted there).
+    pub fn enable_debug_capture(&mut self) {
+        self.capture_debug_info = true;
     }
 
     /// Declare every fn in `prog`. Pre-declaration lets call sites
@@ -161,7 +222,13 @@ impl<'m, M: Module> LowerCtx<'m, M> {
 
         let mut clf = ClFunction::with_name_signature(UserFuncName::user(0, f.id.0), sig);
         let mut ctx = FunctionBuilderContext::new();
-        lower_one(self, prog, f, &mut clf, &mut ctx)?;
+        let capture_debug = self.capture_debug_info;
+        let mut debug = if capture_debug {
+            Some(FnSrcLocMap::default())
+        } else {
+            None
+        };
+        lower_one(self, prog, f, &mut clf, &mut ctx, debug.as_mut())?;
 
         let mut mctx = self.module.make_context();
         let func_display = format!("{}", clf.display());
@@ -180,6 +247,35 @@ impl<'m, M: Module> LowerCtx<'m, M> {
                 msg: format!("{e:?}\n--- IR ---\n{func_display}"),
             });
         }
+        if let Some(d) = debug.as_mut() {
+            // Pull the per-instruction MachSrcLoc map plus the
+            // compiled code size. cranelift gives us sorted-by-start
+            // `(start, end, SourceLoc)` triples; we collapse to one
+            // entry per unique (code_offset, src_idx) pair.
+            if let Some(cc) = mctx.compiled_code() {
+                d.code_size = cc.buffer.total_size();
+                let srclocs = cc.buffer.get_srclocs_sorted();
+                let mut seen: std::collections::HashSet<(u32, u32)> =
+                    std::collections::HashSet::with_capacity(srclocs.len());
+                for sl in srclocs {
+                    if sl.loc.is_default() {
+                        // cranelift emits default-loc entries for the
+                        // prologue + any instruction without a srcloc
+                        // call. Skip them so the line table stays
+                        // tight against real source positions.
+                        continue;
+                    }
+                    let key = (sl.start, sl.loc.bits());
+                    if seen.insert(key) {
+                        d.rows.push(key);
+                    }
+                }
+                // The buffer is already sorted by start, but defensive
+                // sort costs nothing relative to the rest of compile.
+                d.rows.sort_by_key(|(off, _)| *off);
+            }
+            self.fn_debug.insert(f.id, std::mem::take(d));
+        }
         self.module.clear_context(&mut mctx);
         Ok(())
     }
@@ -193,10 +289,11 @@ fn lower_one<M: Module>(
     f: &Function,
     clf: &mut ClFunction,
     ctx: &mut FunctionBuilderContext,
+    debug: Option<&mut FnSrcLocMap>,
 ) -> CompileResult<()> {
     let mut b = FunctionBuilder::new(clf, ctx);
     {
-        let mut fl = FnLower::new(mod_ctx, prog, f, &mut b)?;
+        let mut fl = FnLower::new(mod_ctx, prog, f, &mut b, debug)?;
         fl.lower_blocks()?;
     }
     b.seal_all_blocks();
@@ -213,7 +310,7 @@ fn lower_one<M: Module>(
 /// reference inside the LowerCtx, and `'p` for the program/function
 /// borrow. Keeping them distinct avoids the "cannot reborrow b" trap
 /// when both `FnLower` and `define_fn`'s caller want to touch `b`.
-pub struct FnLower<'short, 'long, 'a, 'm, 'p, M: Module> {
+pub struct FnLower<'short, 'long, 'a, 'm, 'p, 'd, M: Module> {
     pub mod_ctx: &'a mut LowerCtx<'m, M>,
     pub prog: &'p Program,
     pub f: &'p Function,
@@ -228,14 +325,22 @@ pub struct FnLower<'short, 'long, 'a, 'm, 'p, M: Module> {
     /// For aggregate locals: the StackSlot backing the value. The
     /// `Variable` holds the *address* (i64) of that slot.
     pub agg_slots: HashMap<Local, cranelift_codegen::ir::StackSlot>,
+    /// v0.21: optional debug-info sink. When `Some`, every statement /
+    /// terminator we lower is annotated with a unique `SourceLoc`
+    /// whose `bits()` index into `debug.stmt_byte_offsets` →
+    /// source-byte-offset. Cranelift records these on every emitted
+    /// machine instruction; the `define_fn` post-pass reads them back
+    /// out via `MachBufferFinalized::get_srclocs_sorted()`.
+    pub debug: Option<&'d mut FnSrcLocMap>,
 }
 
-impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M> {
+impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, 'd, M> {
     fn new(
         mod_ctx: &'a mut LowerCtx<'m, M>,
         prog: &'p Program,
         f: &'p Function,
         b: &'short mut FunctionBuilder<'long>,
+        debug: Option<&'d mut FnSrcLocMap>,
     ) -> CompileResult<Self> {
         Ok(Self {
             mod_ctx,
@@ -245,7 +350,23 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
             vars: HashMap::new(),
             blocks: HashMap::new(),
             agg_slots: HashMap::new(),
+            debug,
         })
+    }
+
+    /// v0.21: record `byte_offset` as a fresh `SourceLoc` and tell
+    /// cranelift to attach it to every subsequent emitted instruction
+    /// until the next call. Returns the synthetic loc index.
+    fn note_stmt_loc(&mut self, byte_offset: u32) {
+        let Some(d) = self.debug.as_deref_mut() else {
+            return;
+        };
+        let idx = d.stmt_byte_offsets.len() as u32;
+        if idx == u32::MAX {
+            return;
+        }
+        d.stmt_byte_offsets.push(byte_offset);
+        self.b.set_srcloc(SourceLoc::new(idx));
     }
 
     fn ensure_block(&mut self, id: BlockId) -> cranelift_codegen::ir::Block {
@@ -659,12 +780,26 @@ impl<'short, 'long, 'a, 'm, 'p, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, M>
             .iter()
             .position(|b| b.id == id)
             .ok_or_else(|| CodegenError::Module(format!("missing block {:?}", id)))?;
-        // Lower statements.
+        // v0.21: at the start of each MtyIR statement, register a
+        // fresh `SourceLoc`. Stmt doesn't yet carry its own
+        // `SourceSpan` (HIR→SIR plumbing follow-up), so we synthesize
+        // a byte offset that walks the function's source range so
+        // each statement gets a distinct, monotonic offset.
+        let fn_start = self.f.span.start;
+        let fn_end = self.f.span.end.max(fn_start + 1);
         let stmt_count = self.f.blocks[idx].stmts.len();
+        let stmts_in_block = stmt_count + 1;
         for s in 0..stmt_count {
+            let offset = synthesize_stmt_offset(fn_start, fn_end, idx, s, stmts_in_block);
+            self.note_stmt_loc(offset);
             let stmt = self.f.blocks[idx].stmts[s].clone();
             self.lower_stmt(&stmt)?;
         }
+        // Terminator gets its own loc — important because terminators
+        // are typically branch instructions, and stepping behavior in
+        // gdb/lldb relies on each branch having a source position.
+        let term_offset = synthesize_stmt_offset(fn_start, fn_end, idx, stmt_count, stmts_in_block);
+        self.note_stmt_loc(term_offset);
         let term = self.f.blocks[idx].terminator.clone();
         self.lower_term(&term)?;
         Ok(())

@@ -39,6 +39,8 @@ fn sample_fn_with_per_instr_lines() -> FunctionDebugInfo {
                 frame_offset: Some(-16),
             },
         ],
+        rich_line_table: Vec::new(),
+        rich_locals: Vec::new(),
     }
 }
 

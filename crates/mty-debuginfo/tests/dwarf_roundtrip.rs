@@ -21,6 +21,8 @@ fn sample_main() -> FunctionDebugInfo {
             type_name: "i32".into(),
             frame_offset: Some(-4),
         }],
+        rich_line_table: Vec::new(),
+        rich_locals: Vec::new(),
     }
 }
 

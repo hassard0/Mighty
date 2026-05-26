@@ -1,8 +1,10 @@
-# Debug info (v0.2, with v0.20 DWARF v5 opt-in)
+# Debug info (v0.2, with v0.20 DWARF v5 opt-in, v0.21 MachSrcLoc plumbing)
 
 `mty build --debug` produces artifacts that downstream debuggers can
 load. v0.2 ships two surfaces; v0.20 adds an opt-in DWARF v5 path on
-top of the v4 default for the native backend:
+top of the v4 default for the native backend; v0.21 plumbs cranelift's
+per-instruction `MachSrcLoc` map all the way through into that v5 line
+program:
 
 | Target | Format | Tooling |
 |--------|--------|---------|
@@ -184,6 +186,135 @@ The v5 wins only materialize when:
   `function_debug_info` in `mty-codegen-cranelift/src/debug.rs` still
   produces the conservative 2-entry table. Plumbing the cranelift
   `MachSrcLoc` map all the way through is the next slice.
+
+## MachSrcLoc plumbing (v0.21)
+
+v0.20 shipped the v5 emitter but with a 2-entry line table. v0.21
+plumbs cranelift's per-instruction `MachSrcLoc` map through
+`Module::define_function` so the v5 emitter receives one row per
+machine instruction — turning v5's denser opcode table into a real
+binary-size and stepping-precision win.
+
+### Where the rows come from
+
+```
+MtyIR statement                            DWARF v5 line program
+        │                                            ▲
+        ▼                                            │
+FnLower::lower_one_block                build_dwarf5_for
+   set_srcloc(SourceLoc::new(idx))          (debug.rs in cranelift crate)
+   ───────────────────────────────►              ▲
+        │                                        │
+        ▼                                        │
+cranelift codegen emits machine code             │
+   start_srcloc / end_srcloc per inst            │
+   ───────────────────────────────►              │
+        │                                        │
+        ▼                                        │
+MachBuffer.srclocs: [(start, end, loc)…]         │
+        │                                        │
+        ▼                                        │
+LowerCtx::define_fn post-pass                    │
+   compiled_code().buffer.get_srclocs_sorted()   │
+   ──► FnSrcLocMap::rows: Vec<(code_off,         │
+                              src_idx)>          │
+        │                                        │
+        └────────────────────────────────────────┘
+                       │
+                       ▼
+            FunctionDebugInfo::rich_line_table:
+              Vec<LineRow {address_offset, line,
+                           column, is_stmt,
+                           end_sequence}>
+```
+
+Key code sites:
+
+- `crates/mty-codegen-cranelift/src/lower.rs`:
+  `FnLower::note_stmt_loc` (called at the start of each MtyIR
+  statement / terminator) records a synthetic byte offset + asks
+  cranelift to mark every subsequent instruction with that
+  `SourceLoc`.
+- `crates/mty-codegen-cranelift/src/lower.rs`:
+  `LowerCtx::define_fn` reads `mctx.compiled_code().buffer.get_srclocs_sorted()`
+  after `Module::define_function` returns, then deduplicates onto
+  `FnSrcLocMap::rows` (one `(code_offset, srcloc_idx)` pair per
+  distinct machine-code region).
+- `crates/mty-codegen-cranelift/src/debug.rs`:
+  `rich_line_rows_for` converts `FnSrcLocMap.rows` into
+  `mty_debuginfo::LineRow` entries — marks `is_stmt = true` on the
+  first row of each distinct source statement, synthesizes a final
+  `end_sequence = true` row at `code_size` so the DWARF line program
+  closes cleanly.
+
+### `.debug_loclists` per local
+
+Alongside the rich line program, v0.21 emits one
+`.debug_loclists` entry per user local with a `DW_LLE_offset_pair`
+covering the function's address range plus a
+`DW_OP_breg7 + slot_offset` expression (x86_64 RSP-relative). The
+slot offsets are best-effort placeholders today (`-8 × (local_index +
+1)`) because cranelift doesn't yet expose final stack-slot byte
+offsets via `define_function`; v0.22 wires real offsets via
+`CompiledCode::frame_layout`.
+
+### Statement-span synthesis
+
+MtyIR `Stmt` doesn't yet carry its own `SourceSpan` — only `Function`
+does. v0.21 synthesizes a byte offset per statement by spreading
+`(block_idx, stmt_idx)` across the function's source range
+(`f.span.start..f.span.end`). Stepping in gdb/lldb lands inside the
+user's fn body, but the column granularity is coarser than what a
+HIR-level span would produce. The HIR → SIR span plumbing is tracked
+for v0.22.
+
+### Opting in
+
+`MTY_DWARF5=1` (same env var as v0.20) is the only switch. The
+capture itself is automatic — when the AOT path runs with
+`--debug`, `LowerCtx::enable_debug_capture()` is flipped on before
+`define_fn` so cranelift records all the srclocs.
+
+### Binary size impact (updated)
+
+Synthetic measurement (16 fns × ~8 dense rows per fn × 3 locals,
+single CU) shows v5 now beats v4 once the per-instruction rows
+materialize:
+
+```
+v4 total: ~2200 bytes
+  .debug_abbrev    63
+  .debug_str      146
+  .debug_line     920
+  .debug_info    1071
+
+v5 total: ~2150 bytes  (~-2.3% vs v4)
+  .debug_abbrev    63
+  .debug_str      154
+  .debug_line_str  24
+  .debug_line     830  <- dense rows compress via v5's tighter opcode table
+  .debug_loclists  60  <- new in v0.21
+  .debug_info    1019  <- slightly larger DIEs for DW_AT_location refs
+```
+
+The v5 wins materialize once you cross from the v0.20 coarse 2-row
+shape into the v0.21 dense per-instruction shape: the standard line
+opcodes (`DW_LNS_advance_pc` + small line deltas, `DW_LNS_copy`)
+compress *better* than emitting `DW_LNE_set_address`-equivalent rows
+because the dense rows have small (1–4 byte) deltas between them.
+
+### v0.22 follow-ups
+
+- Real stack-slot offsets from `CompiledCode::frame_layout` so
+  `DW_OP_breg7` carries the actual cranelift-assigned offset, not
+  the placeholder.
+- HIR → SIR `SourceSpan` plumbing so per-statement debug info uses
+  the true span instead of the synthetic spread.
+- aarch64 backend support (today `DW_OP_breg7` hardcodes x86_64
+  RSP).
+- `.debug_str_offsets` multi-CU deduplication.
+- `.debug_aranges` polish (we don't emit it today; gdb sometimes
+  asks for it for fast subprogram lookup).
 
 ## Wasm source maps + `name` section
 

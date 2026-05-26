@@ -73,10 +73,21 @@ fn compile_object_inner(
     let mut module = ObjectModule::new(builder);
 
     let mut ctx = LowerCtx::new(&mut module, triple.clone());
+    // v0.21: when we're emitting DWARF, ask the lowerer to capture
+    // per-instruction MachSrcLoc maps. The capture cost is a few
+    // bytes per statement; only the DWARF path consumes it, but
+    // turning it on at the LowerCtx level means we don't need a
+    // separate compile pass.
+    if dwarf_inputs.is_some() {
+        ctx.enable_debug_capture();
+    }
     ctx.declare_fns(prog)?;
     for f in &prog.fns {
         ctx.define_fn(prog, f)?;
     }
+    // Capture the per-fn debug map before dropping `ctx` (which
+    // releases the `&mut module` borrow).
+    let fn_debug = std::mem::take(&mut ctx.fn_debug);
     drop(ctx);
 
     let mut product = module.finish();
@@ -107,8 +118,11 @@ fn compile_object_inner(
     // Attach DWARF sections if requested. `build_dwarf_dispatch`
     // selects v4 (default) or v5 (`MTY_DWARF5=1`) — the section names
     // and Mach-O segment translation below are identical for both.
+    //
+    // v0.21: the v5 path now consumes `fn_debug` (the per-instruction
+    // MachSrcLoc map we captured during `define_fn`).
     if let Some(inputs) = dwarf_inputs {
-        let encoded = build_dwarf_dispatch(prog, &inputs)
+        let encoded = build_dwarf_dispatch(prog, &inputs, Some(&fn_debug))
             .map_err(|e| CodegenError::Module(format!("dwarf build: {e:?}")))?;
         attach_dwarf_sections(&mut product.object, &encoded);
     }

@@ -343,6 +343,8 @@ mod tests {
                 type_name: "i32".into(),
                 frame_offset: Some(-8),
             }],
+            rich_line_table: Vec::new(),
+            rich_locals: Vec::new(),
         }
     }
 

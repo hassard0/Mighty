@@ -26,11 +26,13 @@
 //! - `.debug_loc` per-local location lists keyed off cranelift slot
 //!   offsets.
 
+use crate::lower::FnSrcLocMap;
 use mty_debuginfo::{
     line_col_for, DebugInfoError, Dwarf5Builder, DwarfBuilder, EncodedDwarf, FunctionDebugInfo,
-    SourcePos, VarDebugInfo,
+    LineRow, LocalDebugInfo, SourcePos, VarDebugInfo,
 };
-use mty_ir::ir::{Function, IrTy, LocalSource, Program};
+use mty_ir::ir::{Function, IrFnId, IrTy, LocalSource, Program};
+use std::collections::HashMap;
 
 /// Per-build inputs used to assemble DWARF.
 pub struct DwarfInputs<'a> {
@@ -74,31 +76,137 @@ pub fn build_dwarf_for(
 /// Same shape as [`build_dwarf_for`] but produces DWARF v5 output via
 /// [`Dwarf5Builder`]. v5 brings the indirect `.debug_line_str` string
 /// table, str-offsets, loclists/rnglists, and a per-instruction line
-/// program (each line_table entry becomes its own row). See
-/// `crates/mty-debuginfo/src/dwarf5.rs` for the section-level shape.
+/// program.
+///
+/// v0.21: when `srcloc_map` is non-empty, this path consumes
+/// cranelift's per-instruction `MachSrcLoc` map for each fn and emits
+/// dense, per-instruction line rows + `.debug_loclists` entries per
+/// local. When `None`, falls back to the v0.20 conservative
+/// placeholder shape.
 pub fn build_dwarf5_for(
     prog: &Program,
     inputs: &DwarfInputs<'_>,
+    srcloc_map: Option<&HashMap<IrFnId, FnSrcLocMap>>,
 ) -> Result<Dwarf5Builder, DebugInfoError> {
     let mut b = Dwarf5Builder::new(inputs.source_path.to_string(), inputs.comp_dir.clone());
     b.init_compile_unit()?;
-    // Same per-fn placeholder layout as the v4 path so the two
-    // builders produce comparable-shape output. The v5 line program
-    // emits one row per `line_table` entry — `function_debug_info`
-    // currently produces a coarse 2-entry table; a follow-up wires
-    // per-MachInst rows from cranelift's `MachSrcLoc` map (see
-    // crate-level docs in mty-debuginfo/src/dwarf5.rs).
     let mut low: u64 = 0;
     let placeholder_size: u64 = 16;
     let mut total: u64 = 0;
     for f in &prog.fns {
-        let info = function_debug_info(f, inputs.source_text, low, placeholder_size);
+        let fn_dbg = srcloc_map.and_then(|m| m.get(&f.id));
+        // Use the real compiled code size when we have it; otherwise
+        // fall back to the v0.20 placeholder layout so callers
+        // without per-fn debug info still produce valid DWARF.
+        let size = match fn_dbg {
+            Some(d) if d.code_size > 0 => d.code_size as u64,
+            _ => placeholder_size,
+        };
+        let mut info = function_debug_info(f, inputs.source_text, low, size);
+        if let Some(d) = fn_dbg {
+            info.rich_line_table = rich_line_rows_for(d, inputs.source_text);
+            info.rich_locals = rich_locals_for(f, d, low, low + size);
+        }
         b.add_function(&info)?;
-        low += placeholder_size;
-        total += placeholder_size;
+        low += size;
+        total += size;
     }
     b.set_total_code_size(total);
     Ok(b)
+}
+
+/// Convert a [`FnSrcLocMap`] into a sequence of [`LineRow`]s usable by
+/// [`Dwarf5Builder`]. Marks the first row of each statement as
+/// `is_stmt = true` and sets `end_sequence = true` on the last row.
+fn rich_line_rows_for(d: &FnSrcLocMap, src: &str) -> Vec<LineRow> {
+    let mut rows = Vec::with_capacity(d.rows.len() + 1);
+    if d.rows.is_empty() {
+        return rows;
+    }
+    let mut last_src_idx: Option<u32> = None;
+    let mut prev_off: u64 = 0;
+    for (code_off, src_idx) in d.rows.iter() {
+        let byte_off = d
+            .stmt_byte_offsets
+            .get(*src_idx as usize)
+            .copied()
+            .unwrap_or(0);
+        let (line, col) = line_col_for(src, byte_off);
+        let cur_off = *code_off as u64;
+        // Defensive monotonicity: cranelift sorts MachSrcLoc by start,
+        // but dedup may have left a stale `prev_off` if two
+        // entries had the same start.
+        if cur_off < prev_off {
+            continue;
+        }
+        prev_off = cur_off;
+        let is_stmt = last_src_idx != Some(*src_idx);
+        last_src_idx = Some(*src_idx);
+        rows.push(LineRow {
+            address_offset: cur_off,
+            line,
+            column: col,
+            is_stmt,
+            // Don't mark end_sequence on intermediate rows; the
+            // builder closes the sequence using `code_range` size by
+            // default. We set end_sequence on the synthesized
+            // terminator row below.
+            end_sequence: false,
+        });
+    }
+    // Synthesize a terminator row at code_size so the line program
+    // closes cleanly. Mark `end_sequence = true` to flush.
+    if let Some(last) = rows.last().copied() {
+        if (d.code_size as u64) > last.address_offset {
+            rows.push(LineRow {
+                address_offset: d.code_size as u64,
+                line: last.line,
+                column: last.column,
+                is_stmt: false,
+                end_sequence: true,
+            });
+        } else {
+            // No room for a synthetic terminator; mark the last row.
+            if let Some(last_mut) = rows.last_mut() {
+                last_mut.end_sequence = true;
+            }
+        }
+    }
+    rows
+}
+
+/// Build a [`LocalDebugInfo`] entry per user local in `f` using the
+/// slot offsets cranelift recorded into `d.local_slot_offsets`.
+fn rich_locals_for(f: &Function, d: &FnSrcLocMap, low: u64, high: u64) -> Vec<LocalDebugInfo> {
+    let mut out = Vec::new();
+    for (idx, decl) in f.locals.iter().enumerate() {
+        if matches!(decl.source, LocalSource::Return | LocalSource::DropFlag) {
+            continue;
+        }
+        // Default slot offset: -8 * (local_index + 1) so each local
+        // gets a distinct synthetic offset even when cranelift hasn't
+        // assigned a real stack slot. This is a conservative
+        // placeholder — the loclist entry's `DW_OP_breg7` form keeps
+        // the DIE structurally valid; v0.22 plumbs real slot
+        // assignments via cranelift's `FrameLayout`.
+        let slot = d
+            .local_slot_offsets
+            .get(&(idx as u32))
+            .copied()
+            .unwrap_or_else(|| -(8 * (idx as i32 + 1)));
+        let name = if decl.name.is_empty() {
+            format!("_{idx}")
+        } else {
+            decl.name.clone()
+        };
+        out.push(LocalDebugInfo {
+            name,
+            slot,
+            address_range: (low, high),
+            type_tag: display_ty(&decl.ty),
+        });
+    }
+    out
 }
 
 /// Returns true when the build should emit DWARF v5 rather than v4.
@@ -114,12 +222,18 @@ pub fn dwarf5_enabled() -> bool {
 /// Dispatch helper: build + finish either a v4 or v5 DWARF blob per the
 /// env-var toggle, returning the encoded section bytes ready to attach
 /// to an object file.
+///
+/// v0.21: the v5 path now consumes the per-fn `MachSrcLoc` map
+/// captured by `LowerCtx::define_fn`. The v4 path stays unchanged
+/// (conservative placeholder line table) so downstream parsers that
+/// haven't moved to v5 keep seeing the v0.20 baseline.
 pub fn build_dwarf_dispatch(
     prog: &Program,
     inputs: &DwarfInputs<'_>,
+    srcloc_map: Option<&HashMap<IrFnId, FnSrcLocMap>>,
 ) -> Result<EncodedDwarf, DebugInfoError> {
     if dwarf5_enabled() {
-        build_dwarf5_for(prog, inputs)?.finish()
+        build_dwarf5_for(prog, inputs, srcloc_map)?.finish()
     } else {
         build_dwarf_for(prog, inputs)?.finish()
     }
@@ -166,6 +280,8 @@ pub fn function_debug_info(f: &Function, src: &str, low_pc: u64, size: u64) -> F
         code_range: (low_pc, low_pc + size),
         line_table,
         locals,
+        rich_line_table: Vec::new(),
+        rich_locals: Vec::new(),
     }
 }
 
@@ -287,7 +403,7 @@ mod tests {
             source_path: "x.mty",
             comp_dir: "/tmp".into(),
         };
-        let b = build_dwarf5_for(&prog, &inputs).unwrap();
+        let b = build_dwarf5_for(&prog, &inputs, None).unwrap();
         let enc = b.finish().unwrap();
         // v5 must produce .debug_line_str when comp_dir/comp_file go
         // through LineString::LineStringRef.

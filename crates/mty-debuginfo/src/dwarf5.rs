@@ -37,9 +37,10 @@
 use crate::dwarf::{DwarfSection, EncodedDwarf};
 use crate::{DebugInfoError, DebugInfoResult, FunctionDebugInfo};
 use gimli::write::{
-    Address, AttributeValue, DwarfUnit, EndianVec, LineProgram, LineString, Sections, UnitEntryId,
+    Address, AttributeValue, DwarfUnit, EndianVec, Expression, LineProgram, LineString, Location,
+    LocationList, Sections, UnitEntryId,
 };
-use gimli::{Encoding, Format, LineEncoding, LittleEndian};
+use gimli::{Encoding, Format, LineEncoding, LittleEndian, Register};
 use std::collections::HashMap;
 
 /// Builder for a single compilation unit's DWARF v5 output.
@@ -62,6 +63,10 @@ pub struct Dwarf5Builder {
     /// Running count of "sequence boundaries" — one per fn. Used to
     /// derive the per-block / per-instruction comparison in tests.
     sequences_emitted: usize,
+    /// v0.21: running count of `DW_AT_location` loclist refs attached
+    /// to local DIEs. Tests use this to verify per-local
+    /// `.debug_loclists` emission scales with the number of locals.
+    loclist_locals_emitted: usize,
 }
 
 impl Dwarf5Builder {
@@ -85,6 +90,7 @@ impl Dwarf5Builder {
             encoding,
             rows_emitted: 0,
             sequences_emitted: 0,
+            loclist_locals_emitted: 0,
         }
     }
 
@@ -221,52 +227,119 @@ impl Dwarf5Builder {
         );
         die.set(gimli::DW_AT_type, AttributeValue::UnitRef(return_type_id));
 
-        // Locals.
-        for var in &fn_info.locals {
-            let ty_id = self.intern_base_type(&var.type_name);
-            let v = self.dwarf.unit.add(sub, gimli::DW_TAG_variable);
-            let n = self.dwarf.strings.add(var.name.clone().into_bytes());
-            let v_die = self.dwarf.unit.get_mut(v);
-            v_die.set(gimli::DW_AT_name, AttributeValue::StringRef(n));
-            v_die.set(gimli::DW_AT_type, AttributeValue::UnitRef(ty_id));
-            // v5 would normally carry a DW_AT_location loclist ref
-            // here; that's a follow-up tied to cranelift slot-offset
-            // plumbing (see crate-level docs on the v4 path).
-            if let Some(off) = var.frame_offset {
-                v_die.set(
-                    gimli::DW_AT_data_member_location,
-                    AttributeValue::Sdata(off as i64),
-                );
+        // Locals. v0.21 path: if `rich_locals` is populated, emit a
+        // real `.debug_loclists` entry per local with
+        // `DW_OP_breg7 + slot_offset` (x86_64 RSP-relative).
+        // Otherwise fall back to the v0.2-style frame-offset attribute
+        // on the legacy `locals` vector.
+        if !fn_info.rich_locals.is_empty() {
+            for local in &fn_info.rich_locals {
+                let ty_id = self.intern_base_type(&local.type_tag);
+                let v = self.dwarf.unit.add(sub, gimli::DW_TAG_variable);
+                let n = self.dwarf.strings.add(local.name.clone().into_bytes());
+                let (lo, hi) = local.address_range;
+                if hi > lo {
+                    let mut expr = Expression::new();
+                    // x86_64 DWARF register numbering: 7 = RSP. v0.21
+                    // hardcodes this — the cranelift backend is x86_64
+                    // host-only today; v0.22 widens this once aarch64
+                    // codegen lands.
+                    expr.op_breg(Register(7), local.slot as i64);
+                    let loclist = LocationList(vec![Location::OffsetPair {
+                        begin: lo,
+                        end: hi,
+                        data: expr,
+                    }]);
+                    let loc_id = self.dwarf.unit.locations.add(loclist);
+                    let v_die = self.dwarf.unit.get_mut(v);
+                    v_die.set(gimli::DW_AT_name, AttributeValue::StringRef(n));
+                    v_die.set(gimli::DW_AT_type, AttributeValue::UnitRef(ty_id));
+                    v_die.set(
+                        gimli::DW_AT_location,
+                        AttributeValue::LocationListRef(loc_id),
+                    );
+                    self.loclist_locals_emitted += 1;
+                } else {
+                    // Empty range — fall back to a constant slot
+                    // attribute. Keeps the DIE structurally valid.
+                    let v_die = self.dwarf.unit.get_mut(v);
+                    v_die.set(gimli::DW_AT_name, AttributeValue::StringRef(n));
+                    v_die.set(gimli::DW_AT_type, AttributeValue::UnitRef(ty_id));
+                    v_die.set(
+                        gimli::DW_AT_data_member_location,
+                        AttributeValue::Sdata(local.slot as i64),
+                    );
+                }
+            }
+        } else {
+            for var in &fn_info.locals {
+                let ty_id = self.intern_base_type(&var.type_name);
+                let v = self.dwarf.unit.add(sub, gimli::DW_TAG_variable);
+                let n = self.dwarf.strings.add(var.name.clone().into_bytes());
+                let v_die = self.dwarf.unit.get_mut(v);
+                v_die.set(gimli::DW_AT_name, AttributeValue::StringRef(n));
+                v_die.set(gimli::DW_AT_type, AttributeValue::UnitRef(ty_id));
+                if let Some(off) = var.frame_offset {
+                    v_die.set(
+                        gimli::DW_AT_data_member_location,
+                        AttributeValue::Sdata(off as i64),
+                    );
+                }
             }
         }
 
-        // Per-instruction line program: one row per entry in line_table.
+        // Per-instruction line program. v0.21: prefer
+        // `rich_line_table` (with `is_stmt`/`end_sequence` flags)
+        // when populated; otherwise fall back to the v0.20 path that
+        // marks every row as is_stmt and synthesizes `end_sequence`
+        // after the loop.
         let file = self.primary_file.expect("primary file initialized");
         let lp = &mut self.dwarf.unit.line_program;
         lp.begin_sequence(Some(Address::Constant(low)));
-        // Track the maximum address_offset we've actually written. The
-        // line program asserts address_offsets are monotonic; if a
-        // caller hands us out-of-order entries we skip them rather than
-        // panic (the v4 path doesn't guard this — v5 is a new chance to
-        // be defensive).
         let mut last_off: u64 = 0;
-        for (addr_off, pos) in &fn_info.line_table {
-            if *addr_off < last_off {
-                continue;
+        let mut explicit_end_sequence = false;
+        if !fn_info.rich_line_table.is_empty() {
+            for r in &fn_info.rich_line_table {
+                if r.address_offset < last_off {
+                    continue;
+                }
+                last_off = r.address_offset;
+                let row = lp.row();
+                row.address_offset = r.address_offset;
+                row.file = file;
+                row.line = r.line as u64;
+                row.column = r.column as u64;
+                row.is_statement = r.is_stmt;
+                lp.generate_row();
+                self.rows_emitted += 1;
+                if r.end_sequence {
+                    explicit_end_sequence = true;
+                    break;
+                }
             }
-            last_off = *addr_off;
-            let row = lp.row();
-            row.address_offset = *addr_off;
-            row.file = file;
-            row.line = pos.line as u64;
-            row.column = pos.column as u64;
-            row.is_statement = true;
-            // v5 carries DW_LNCT_path / DW_LNCT_directory_index etc.
-            // automatically via the file/dir tables we set up above.
-            lp.generate_row();
-            self.rows_emitted += 1;
+        } else {
+            for (addr_off, pos) in &fn_info.line_table {
+                if *addr_off < last_off {
+                    continue;
+                }
+                last_off = *addr_off;
+                let row = lp.row();
+                row.address_offset = *addr_off;
+                row.file = file;
+                row.line = pos.line as u64;
+                row.column = pos.column as u64;
+                row.is_statement = true;
+                lp.generate_row();
+                self.rows_emitted += 1;
+            }
         }
-        lp.end_sequence(size);
+        if explicit_end_sequence {
+            // The last rich row carried end_sequence — use its address
+            // offset as the sequence terminator.
+            lp.end_sequence(last_off);
+        } else {
+            lp.end_sequence(size);
+        }
         self.sequences_emitted += 1;
         Ok(())
     }
@@ -281,6 +354,14 @@ impl Dwarf5Builder {
     /// Number of line-program sequences emitted (= number of functions).
     pub fn sequences_emitted(&self) -> usize {
         self.sequences_emitted
+    }
+
+    /// v0.21: count of locals for which a real `.debug_loclists`
+    /// entry was emitted (i.e. `rich_locals` carried a non-empty
+    /// `address_range`). Tests use this to verify the loclist plumbing
+    /// fires whenever cranelift slot offsets are available.
+    pub fn loclist_locals_emitted(&self) -> usize {
+        self.loclist_locals_emitted
     }
 
     /// Consume the builder and produce encoded section buffers,
@@ -370,6 +451,8 @@ mod tests {
                 type_name: "i32".into(),
                 frame_offset: Some(-8),
             }],
+            rich_line_table: Vec::new(),
+            rich_locals: Vec::new(),
         }
     }
 
