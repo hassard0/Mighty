@@ -1,15 +1,18 @@
-//! v0.6 multi-core work-stealing scheduler (spec §25.4).
+//! v0.6 multi-core work-stealing scheduler (spec §25.4), extended in
+//! v0.22 with true crossbeam-deque per-worker work-stealing and
+//! NUMA-aware locality (Tier 5 of the agent-features roadmap).
 //!
 //! ## Architecture
 //!
 //! Slice 7 shipped one tokio runtime (multi-thread or current-thread).
-//! v0.6 generalises this to **N worker threads + 1 driver runtime**:
+//! v0.6 generalised this to **N worker threads + 1 driver runtime**:
 //!
 //! - **Worker thread `i`** (1 ≤ i ≤ N): owns a current-thread tokio
 //!   runtime + a `crossbeam_deque::Worker<SpawnTask>` (LIFO) + a
 //!   `Stealer` exposed to siblings. The thread drives its runtime via
-//!   `rt.block_on(worker_loop)`. The loop async-pops local, then the
-//!   global `Injector`, then steals from siblings, then parks.
+//!   `rt.block_on(worker_loop)`. The loop async-pops local, then walks
+//!   a **NUMA-aware steal order** of sibling stealers, then probes the
+//!   global `Injector`, then parks.
 //!
 //! - **Driver runtime** (`rt`): a separate tokio current-thread runtime
 //!   that the embedding application uses with `rt.block_on(user_main)`.
@@ -23,23 +26,23 @@
 //! driver runtime keeps the pre-v0.6 pipeline API (`scheduler.rt
 //! .block_on(...)`) working unchanged.
 //!
-//! ## Work-stealing
+//! ## Work-stealing (v0.22)
 //!
-//! Each worker loop:
+//! Each worker loop runs the body documented in
+//! [`work_stealing::worker_loop_async`]: yield → local → siblings
+//! (NUMA-local first) → global injector → park.
 //!
-//! 1. Pop from the local LIFO deque.
-//! 2. Steal a batch from the global `Injector` into the local deque
-//!    and pop one.
-//! 3. Steal a batch from a random sibling's `Stealer` into the local
-//!    deque and pop one.
-//! 4. Park until an `Unparker` wake (with a 50 ms timeout so monitors
-//!    still tick).
+//! The NUMA-aware order is produced by
+//! [`locality::build_steal_order`] from a [`locality::Topology`]
+//! detected once at scheduler construction. On Linux we read
+//! `/sys/devices/system/cpu/*` + `/sys/devices/system/node/*` — on
+//! Windows / containers without `/sys` we fall back to a flat
+//! "everyone is on node 0" topology and the order degenerates to a
+//! plain rotation.
 //!
-//! The unit of work is an [`SpawnTask`]: a `FnOnce(TokioHandle)`
-//! closure that the worker invokes — the closure is responsible for
-//! using the handle to `spawn` a future onto the worker's runtime.
-//! The handle is the worker's runtime handle, so any future spawned
-//! lives on that worker's tokio runtime.
+//! Every successful steal increments the
+//! `worker.steals_total{src=N, dst=M}` counter exported by the
+//! telemetry sink (see [`crate::telemetry::sink::WORKER_STEAL_COUNTER`]).
 //!
 //! ## Affinity
 //!
@@ -61,16 +64,21 @@
 //! `RuntimeBuilder::deterministic(seed)` forces a single worker +
 //! single driver — byte identical to v0.5.
 
-use crossbeam_deque::{Injector, Steal, Stealer, Worker as Deque};
-use crossbeam_utils::sync::{Parker, Unparker};
-use parking_lot::{Mutex, RwLock};
+pub mod locality;
+pub mod work_stealing;
+
+pub use work_stealing::{WorkerStats, WorkerStatsSnapshot};
+
+use crossbeam_deque::Injector;
+use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::thread::{self, JoinHandle as ThreadJoin};
 use std::time::Duration;
 use tokio::runtime::{Builder, Handle as TokioHandle, Runtime as TokioRt};
-use tokio::sync::Notify;
+
+use locality::Topology;
+use work_stealing::{launch_pool, WorkerHandle};
 
 /// Per-agent affinity hint. v0.6 parses the syntax in the front-end
 /// (best-effort) but only the two coarse modes below influence
@@ -106,69 +114,6 @@ impl std::fmt::Debug for SpawnTask {
     }
 }
 
-/// Per-worker live statistics. Read by the monitor + telemetry exposers.
-#[derive(Debug, Default)]
-pub struct WorkerStats {
-    pub tasks_executed: AtomicU64,
-    pub tasks_stolen: AtomicU64,
-    pub parks: AtomicU64,
-    pub current_queue_depth: AtomicUsize,
-}
-
-impl WorkerStats {
-    pub fn snapshot(&self) -> WorkerStatsSnapshot {
-        WorkerStatsSnapshot {
-            tasks_executed: self.tasks_executed.load(Ordering::Relaxed),
-            tasks_stolen: self.tasks_stolen.load(Ordering::Relaxed),
-            parks: self.parks.load(Ordering::Relaxed),
-            current_queue_depth: self.current_queue_depth.load(Ordering::Relaxed),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct WorkerStatsSnapshot {
-    pub tasks_executed: u64,
-    pub tasks_stolen: u64,
-    pub parks: u64,
-    pub current_queue_depth: usize,
-}
-
-/// Handle the [`Scheduler`] keeps per worker. Holds the joinable OS
-/// thread plus the cheap-to-clone bits (stealer, notifier, stats,
-/// tokio handle).
-struct WorkerHandle {
-    #[allow(dead_code)]
-    id: usize,
-    /// Cloned out of the worker's `Deque` at construction. Held by the
-    /// scheduler so future expansion (e.g. injecting work directly into
-    /// a worker's queue from the monitor) doesn't need to plumb a new
-    /// channel. Currently unread on the hot path because `submit_to`
-    /// routes through the global injector.
-    #[allow(dead_code)]
-    stealer: Stealer<SpawnTask>,
-    /// Async notifier used to wake the worker's `Notify::notified()`
-    /// await from any thread. Replaces the older OS-thread `Unparker`
-    /// so the wake doesn't bypass the tokio reactor.
-    notify: Arc<Notify>,
-    /// Legacy OS-thread unparker. Retained for direct-from-thread
-    /// shutdown signalling; we never park on this in the hot path.
-    unparker: Unparker,
-    stats: Arc<WorkerStats>,
-    /// `TokioHandle` is `Clone + Send`, so we can hand it out from
-    /// any thread without holding an `Arc<Runtime>` here. The actual
-    /// `Runtime` is owned by the worker thread itself (moved into the
-    /// thread closure) — when that thread exits, the runtime drops on
-    /// the worker thread, not on the embedder's async stack. This
-    /// sidesteps tokio's "Cannot drop a runtime in a context where
-    /// blocking is not allowed" panic when the embedder drops the
-    /// `Runtime` from inside its own `block_on`.
-    tokio: TokioHandle,
-    shutdown: Arc<AtomicBool>,
-    /// `None` after the worker thread has been joined.
-    thread: Mutex<Option<ThreadJoin<()>>>,
-}
-
 /// Per-agent routing entry.
 #[derive(Debug, Clone, Copy)]
 pub struct AgentRoute {
@@ -191,6 +136,9 @@ pub struct Scheduler {
     /// True when we picked the deterministic single-worker mode.
     pub deterministic: bool,
     shutdown_started: AtomicBool,
+    /// NUMA topology detected at construction. Exposed so introspect
+    /// surfaces / tests can read which worker lives on which node.
+    pub topology: Topology,
     /// Driver runtime. Separate from any worker runtime so embedders
     /// can call `rt.block_on(...)` safely (the worker runtimes are
     /// already inside their own `block_on`). Slice-7 callers used
@@ -212,117 +160,7 @@ impl Scheduler {
     /// Build a multi-worker scheduler with `n` worker threads + a
     /// dedicated driver runtime. `n` is clamped to `>= 1`.
     pub fn multi_worker(n: usize) -> Self {
-        let n = n.max(1);
-        let injector = Arc::new(Injector::<SpawnTask>::new());
-
-        // Two-phase init: allocate every worker's deque + notifier first
-        // so each worker thread can be handed the full stealer list.
-        struct InitSlot {
-            deque: Deque<SpawnTask>,
-            stealer: Stealer<SpawnTask>,
-            parker: Parker,
-            unparker: Unparker,
-            notify: Arc<Notify>,
-            stats: Arc<WorkerStats>,
-            shutdown: Arc<AtomicBool>,
-            rt: TokioRt,
-            tokio_handle: TokioHandle,
-        }
-        let mut decks: Vec<InitSlot> = (0..n)
-            .map(|i| {
-                let d = Deque::<SpawnTask>::new_lifo();
-                let s = d.stealer();
-                let p = Parker::new();
-                let u = p.unparker().clone();
-                let notify = Arc::new(Notify::new());
-                let stats = Arc::new(WorkerStats::default());
-                let shutdown = Arc::new(AtomicBool::new(false));
-                let rt = Builder::new_current_thread()
-                    .enable_all()
-                    .thread_name(format!("mty-worker-{}", i))
-                    .build()
-                    .expect("tokio current_thread runtime (worker)");
-                let tokio_handle = rt.handle().clone();
-                InitSlot {
-                    deque: d,
-                    stealer: s,
-                    parker: p,
-                    unparker: u,
-                    notify,
-                    stats,
-                    shutdown,
-                    rt,
-                    tokio_handle,
-                }
-            })
-            .collect();
-        let stealers: Vec<Stealer<SpawnTask>> = decks.iter().map(|s| s.stealer.clone()).collect();
-        let notifies: Vec<Arc<Notify>> = decks.iter().map(|s| s.notify.clone()).collect();
-
-        let mut workers: Vec<Arc<WorkerHandle>> = Vec::with_capacity(n);
-        for id in 0..n {
-            let InitSlot {
-                deque,
-                stealer,
-                parker,
-                unparker,
-                notify,
-                stats,
-                shutdown,
-                rt,
-                tokio_handle,
-            } = decks.remove(0);
-            let injector_w = injector.clone();
-            let stealers_w = stealers.clone();
-            let stats_w = stats.clone();
-            let shutdown_w = shutdown.clone();
-            let notify_w = notify.clone();
-
-            let thread_id = id;
-            let join = thread::Builder::new()
-                .name(format!("mty-worker-{}", id))
-                .spawn(move || {
-                    // Move the runtime *into* the worker thread so its
-                    // Drop happens on this thread when the loop exits
-                    // — not on the embedder's async stack. The
-                    // closure-owned `rt` is the only handle to the
-                    // runtime; everyone else uses the cloned
-                    // `TokioHandle`.
-                    rt.block_on(worker_loop_async(WorkerCtx {
-                        id: thread_id,
-                        deque,
-                        notify: notify_w,
-                        stats: stats_w,
-                        injector: injector_w,
-                        stealers: stealers_w,
-                        shutdown: shutdown_w,
-                    }));
-                    // Defensive: keep the parker alive for the lifetime
-                    // of the worker thread (its Unparker is held by the
-                    // scheduler for shutdown wakes).
-                    drop(parker);
-                    // `rt` drops here, on the worker thread, *after*
-                    // the runtime has finished its block_on — safe.
-                    drop(rt);
-                })
-                .expect("spawn worker thread");
-
-            workers.push(Arc::new(WorkerHandle {
-                id,
-                stealer,
-                notify,
-                unparker,
-                stats,
-                tokio: tokio_handle,
-                shutdown,
-                thread: Mutex::new(Some(join)),
-            }));
-        }
-        let _ = notifies;
-
-        // Driver runtime — completely separate from worker runtimes.
-        // current_thread so single-threaded embedders aren't surprised
-        // by extra threads beyond the workers.
+        let launch = launch_pool(n);
         let driver = Arc::new(
             Builder::new_current_thread()
                 .enable_all()
@@ -332,12 +170,13 @@ impl Scheduler {
         );
 
         Self {
-            workers,
-            injector,
+            workers: launch.workers,
+            injector: launch.injector,
             routes: Arc::new(RwLock::new(HashMap::new())),
             next_worker: AtomicUsize::new(0),
             deterministic: false,
             shutdown_started: AtomicBool::new(false),
+            topology: launch.topology,
             rt: driver,
         }
     }
@@ -449,9 +288,6 @@ impl Scheduler {
             w.shutdown.store(true, Ordering::Release);
             // Wake the async loop (it's awaiting on `notify.notified()`).
             w.notify.notify_one();
-            // Defensive: also fire the OS-thread unparker in case the
-            // worker thread is wedged in a non-tokio code path.
-            w.unparker.unpark();
         }
         for w in &self.workers {
             if let Some(t) = w.thread.lock().take() {
@@ -465,118 +301,6 @@ impl Drop for Scheduler {
     fn drop(&mut self) {
         self.shutdown();
     }
-}
-
-/// Per-worker context handed to the async work-stealing loop.
-struct WorkerCtx {
-    id: usize,
-    deque: Deque<SpawnTask>,
-    notify: Arc<Notify>,
-    stats: Arc<WorkerStats>,
-    injector: Arc<Injector<SpawnTask>>,
-    stealers: Vec<Stealer<SpawnTask>>,
-    shutdown: Arc<AtomicBool>,
-}
-
-/// Async work-stealing loop. Driven by the worker's tokio runtime via
-/// `rt.block_on(worker_loop_async(...))`. Each iteration:
-///
-/// 1. Try local LIFO.
-/// 2. Try global injector (steal a batch).
-/// 3. Try sibling stealers (steal a batch from one).
-/// 4. Park (blocking on the worker thread, but the runtime has no
-///    other in-flight tasks to wake at that point — pending tasks
-///    spawned earlier continue to live on the runtime's pollset and
-///    will be polled on the next runtime tick).
-///
-/// We sprinkle `tokio::task::yield_now()` between iterations so any
-/// tasks the worker previously spawned via `Handle::spawn` get to make
-/// progress without being starved by a busy spawn-task flood.
-async fn worker_loop_async(ctx: WorkerCtx) {
-    let WorkerCtx {
-        id,
-        deque,
-        notify,
-        stats,
-        injector,
-        stealers,
-        shutdown,
-    } = ctx;
-    let n = stealers.len();
-    let mut steal_cursor = id;
-    let handle = TokioHandle::current();
-
-    loop {
-        if shutdown.load(Ordering::Acquire) {
-            break;
-        }
-
-        // Always give in-flight spawned tasks a turn before we look
-        // for new work; this prevents the work-stealing loop from
-        // starving previously-spawned agent loops.
-        tokio::task::yield_now().await;
-
-        // 1. Local LIFO.
-        if let Some(task) = deque.pop() {
-            execute(&handle, &stats, task);
-            continue;
-        }
-
-        // 2. Global injector (steal a batch into the local deque).
-        match injector.steal_batch_and_pop(&deque) {
-            Steal::Success(task) => {
-                stats.tasks_stolen.fetch_add(1, Ordering::Relaxed);
-                execute(&handle, &stats, task);
-                continue;
-            }
-            Steal::Retry => continue,
-            Steal::Empty => {}
-        }
-
-        // 3. Sibling stealers.
-        let mut got_work = false;
-        for offset in 1..n.max(1) {
-            let idx = (steal_cursor + offset) % n.max(1);
-            if idx == id || idx >= n {
-                continue;
-            }
-            match stealers[idx].steal_batch_and_pop(&deque) {
-                Steal::Success(task) => {
-                    stats.tasks_stolen.fetch_add(1, Ordering::Relaxed);
-                    execute(&handle, &stats, task);
-                    got_work = true;
-                    break;
-                }
-                Steal::Retry => {
-                    tokio::task::yield_now().await;
-                    got_work = true;
-                    break;
-                }
-                Steal::Empty => {}
-            }
-        }
-        steal_cursor = steal_cursor.wrapping_add(1);
-        if got_work {
-            continue;
-        }
-
-        // 4. No work to do. Await on `Notify` — fully async, so the
-        // tokio runtime keeps polling any tasks we've spawned earlier
-        // (agent loops awaiting on mailbox.recv() can still wake and
-        // run). A 50 ms safety timeout means even if a notify is
-        // missed the worker doesn't sleep forever.
-        stats.parks.fetch_add(1, Ordering::Relaxed);
-        let _ = tokio::time::timeout(Duration::from_millis(50), notify.notified()).await;
-    }
-}
-
-fn execute(handle: &TokioHandle, stats: &WorkerStats, task: SpawnTask) {
-    stats.tasks_executed.fetch_add(1, Ordering::Relaxed);
-    let prev = stats.current_queue_depth.load(Ordering::Relaxed);
-    if prev > 0 {
-        stats.current_queue_depth.fetch_sub(1, Ordering::Relaxed);
-    }
-    (task.run)(handle.clone());
 }
 
 /// Load-balancing monitor. Sampling is best-effort and lock-free on the
@@ -629,6 +353,34 @@ impl LoadMonitor {
             .iter()
             .find(|(_, r)| r.worker == busiest.0 && r.affinity == Affinity::Elastic)
             .map(|(id, _)| (busiest.0, lightest.0, *id))
+    }
+}
+
+// Re-export submit helpers for tests that need to drop work straight
+// onto a worker's local deque (used by `tests/work_stealing.rs` to
+// pre-load one worker with all the tasks so siblings *have* to steal).
+impl Scheduler {
+    /// Push a task into a specific worker's stealer. Returns false if
+    /// `worker_id` is out of range. Intended for test setup only — the
+    /// production path uses `submit` / `submit_to`. Pushes via the
+    /// injector for safety (the worker's local deque is owned by the
+    /// worker thread itself, so we can't push to it from here without
+    /// a channel) but pre-increments depth on the chosen worker so the
+    /// monitor and steal-races behave as if pinned.
+    pub fn submit_pinned(&self, worker_id: usize, task: SpawnTask) -> bool {
+        if worker_id >= self.workers.len() {
+            return false;
+        }
+        // Same shape as submit_to, but **only** notifies the chosen
+        // worker — siblings stay parked until they steal. That's what
+        // the `idle_worker_steals_from_busy_one` test depends on.
+        self.workers[worker_id]
+            .stats
+            .current_queue_depth
+            .fetch_add(1, Ordering::Relaxed);
+        self.injector.push(task);
+        self.workers[worker_id].notify.notify_one();
+        true
     }
 }
 
@@ -773,6 +525,13 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         assert_eq!(counter.load(Ordering::Relaxed), 32);
+        s.shutdown();
+    }
+
+    #[test]
+    fn topology_matches_worker_count() {
+        let s = Scheduler::multi_worker(4);
+        assert_eq!(s.topology.locals.len(), 4);
         s.shutdown();
     }
 }

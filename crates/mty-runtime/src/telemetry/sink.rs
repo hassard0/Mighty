@@ -14,8 +14,10 @@
 //! 3. Otherwise `Discard`.
 
 use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::io::Write;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::SystemTime;
 
 #[derive(Debug, Clone)]
@@ -230,6 +232,89 @@ impl TelemetrySink {
     }
 }
 
+// ----------------------------------------------------------------------
+// v0.22 — `worker.steals_total{src,dst}` OTel-shaped counter.
+//
+// The work-stealing loop in `crate::scheduler::work_stealing` calls
+// `record_worker_steal(src, dst)` exactly once per successful steal.
+// `src = SRC_GLOBAL_INJECTOR (usize::MAX)` represents "stolen from the
+// global injector"; any other value is a sibling worker id. We don't
+// allocate per-pair structs; the storage is a plain
+// `HashMap<(usize,usize), AtomicU64>` behind a `Mutex` because:
+//
+// 1. Steals are rare relative to executes (a worker that's fully
+//    busy never enters the steal path), so contention is low.
+// 2. The map cardinality is bounded — `n * n` pairs maximum, and
+//    most production deployments run `n <= 64`. That's 4 KiB worst
+//    case, far cheaper than a per-pair `AtomicU64` allocation.
+// 3. Reading the counter (for tests / introspect / OTel export) is
+//    a snapshot — we clone into a `Vec<(src, dst, value)>` and the
+//    consumer iterates that.
+//
+// The counter is `pub`-accessible via [`steal_counter_snapshot`] so
+// the integration test in `tests/work_stealing.rs` can assert that
+// successful steals were recorded. An OTel-export bridge (out of
+// scope for v0.22) would observe this same counter and forward the
+// labelled values to the global meter provider.
+// ----------------------------------------------------------------------
+
+/// Global process-wide steal counter. Lazy-initialised on first use.
+/// `Mutex<HashMap>` because (a) steals are rare, (b) we don't want a
+/// fixed-size array — worker count is configurable — and (c) a
+/// `DashMap` would add a workspace dep for no real win on this
+/// low-frequency path.
+pub static WORKER_STEAL_COUNTER: OnceLock<Mutex<HashMap<(usize, usize), AtomicU64>>> =
+    OnceLock::new();
+
+fn steal_counter_map() -> &'static Mutex<HashMap<(usize, usize), AtomicU64>> {
+    WORKER_STEAL_COUNTER.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Increment `worker.steals_total{src=<src>, dst=<dst>}` by 1.
+///
+/// `src = usize::MAX` is reserved for "stolen from the global injector"
+/// (see `crate::scheduler::work_stealing::SRC_GLOBAL_INJECTOR`).
+pub fn record_worker_steal(src: usize, dst: usize) {
+    let map = steal_counter_map().lock();
+    if let Some(c) = map.get(&(src, dst)) {
+        c.fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    // Slow path: insert. Drop the borrow first because we need to
+    // re-take the lock with a `&mut` view to insert.
+    drop(map);
+    let mut map = steal_counter_map().lock();
+    map.entry((src, dst))
+        .or_insert_with(|| AtomicU64::new(0))
+        .fetch_add(1, Ordering::Relaxed);
+}
+
+/// Snapshot every recorded `(src, dst, count)` triple. Order is
+/// unspecified. Used by tests + introspect surfaces. Counts that
+/// haven't been touched are absent (no zero rows).
+pub fn steal_counter_snapshot() -> Vec<(usize, usize, u64)> {
+    let map = steal_counter_map().lock();
+    map.iter()
+        .map(|((s, d), c)| (*s, *d, c.load(Ordering::Relaxed)))
+        .collect()
+}
+
+/// Sum across all `(src, dst)` pairs. Cheap helper for tests that
+/// only care that *some* steal happened.
+pub fn steal_counter_total() -> u64 {
+    let map = steal_counter_map().lock();
+    map.values().map(|c| c.load(Ordering::Relaxed)).sum()
+}
+
+/// Reset the counter to zero. **Test-only** — production code should
+/// never call this because it would silently drop counter history
+/// observed by an OTel exporter mid-stream.
+#[doc(hidden)]
+pub fn _reset_steal_counter_for_tests() {
+    let mut map = steal_counter_map().lock();
+    map.clear();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -270,5 +355,36 @@ mod tests {
         let s = ev.to_json_line(0);
         assert!(s.contains(r#""from":"A\"""#));
         assert!(s.contains(r#""msg":"M\\Q""#));
+    }
+
+    #[test]
+    fn steal_counter_increments_and_snapshots() {
+        // Use unique labels so this test doesn't depend on other
+        // tests in the same process clearing the counter first.
+        let src = 8888;
+        let dst = 9999;
+        let before = steal_counter_snapshot()
+            .into_iter()
+            .find(|(s, d, _)| *s == src && *d == dst)
+            .map(|(_, _, c)| c)
+            .unwrap_or(0);
+        record_worker_steal(src, dst);
+        record_worker_steal(src, dst);
+        record_worker_steal(src, dst);
+        let after = steal_counter_snapshot()
+            .into_iter()
+            .find(|(s, d, _)| *s == src && *d == dst)
+            .map(|(_, _, c)| c)
+            .unwrap_or(0);
+        assert_eq!(after - before, 3);
+    }
+
+    #[test]
+    fn steal_counter_total_aggregates() {
+        record_worker_steal(1, 2);
+        record_worker_steal(2, 1);
+        record_worker_steal(3, 1);
+        let total = steal_counter_total();
+        assert!(total >= 3, "expected at least 3 events, got {}", total);
     }
 }

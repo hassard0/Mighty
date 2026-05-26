@@ -113,8 +113,114 @@ single worker runtime. Same external behavior; new internal layout.
 - `RuntimeBuilder::threads(n)` is a slice-7 alias of `.workers(n)`.
 - `Runtime::start_monitor()` spawns the load-monitor OS thread.
 
+## v0.22: per-message work-stealing (Tier 5)
+
+The v0.6 scheduler already used `crossbeam-deque` deques + sibling
+stealers. v0.22 closes the Tier 5 item from
+`docs/internals/agent-features-roadmap.md` by:
+
+1. **Splitting the scheduler into a module** —
+   `crates/mty-runtime/src/scheduler/` now contains:
+   - `mod.rs` — `Scheduler`, `Affinity`, `LoadMonitor`, routing table.
+   - `work_stealing.rs` — `launch_pool`, the `worker_loop_async` body,
+     per-worker stats.
+   - `locality.rs` — `Topology`, `WorkerLocality`, `build_steal_order`.
+   The public re-exports (`mty_runtime::scheduler::{Scheduler, Affinity,
+   LoadMonitor, SpawnTask, WorkerStatsSnapshot}`) are unchanged, so no
+   callers need an update.
+2. **NUMA-aware steal order** — each worker probes siblings in
+   locality order:
+   ```text
+   Tier 1: same NUMA node + same socket
+   Tier 2: same socket,    different node
+   Tier 3: anywhere
+   ```
+   The order is computed once at scheduler construction from a
+   `Topology` detected by parsing
+   `/sys/devices/system/cpu/cpu*/topology/physical_package_id` and
+   `/sys/devices/system/node/node*/cpulist` on Linux. On Windows or
+   any system without `/sys` we fall back to a **flat topology**
+   (every worker on node 0 / socket 0) and the order degenerates to a
+   plain rotation — identical to v0.21 behaviour.
+3. **`worker.steals_total{src,dst}` counter** — every successful
+   steal increments
+   `mty_runtime::telemetry::sink::WORKER_STEAL_COUNTER` for the
+   appropriate `(src, dst)` pair. `src = usize::MAX` is the sentinel
+   for "stolen from the global injector"; any other value is a
+   sibling worker id. Read it via
+   [`telemetry::steal_counter_snapshot`] (returns a
+   `Vec<(usize, usize, u64)>`) or
+   [`telemetry::steal_counter_total`] (sum across all pairs).
+
+### Work-stealing loop (v0.22)
+
+```text
+loop {
+  if shutdown { break }
+  yield_now().await                          // let spawned tasks run
+  if let Some(t) = local.pop() { execute(t); continue }   // (1)
+  for sibling in steal_order {                              // (2)
+    match stealers[sibling].steal_batch_and_pop(&local) {
+      Success(t) => { counter[src=sibling,dst=self]++;
+                      stats.tasks_stolen++; execute(t);
+                      continue }
+      Retry      => retry_needed = true                     // (3)
+      Empty      => {}
+    }
+  }
+  if got_work    { continue }
+  if retry_needed { yield_now().await; continue }
+  match injector.steal_batch_and_pop(&local) {              // (4)
+    Success(t) => { counter[src=GLOBAL_INJECTOR,dst=self]++;
+                    stats.tasks_stolen++; execute(t);
+                    continue }
+    ...
+  }
+  stats.parks++; timeout(50ms, notify.notified()).await    // (5)
+}
+```
+
+The crucial change from v0.21 is that **siblings are probed before
+the global injector**. v0.21 went `local → injector → siblings`,
+which stranded cache-warm sibling work whenever the injector held a
+long stream of incoming tasks. v0.22 reverses the order so
+already-pinned work redistributes first.
+
+### Counter semantics
+
+`worker.steals_total{src=N, dst=M}` is a **monotonically-increasing
+counter** (typed for an OTel `Counter` export). One increment per
+successful steal:
+
+| src                    | dst       | meaning                                      |
+|------------------------|-----------|----------------------------------------------|
+| 0..n_workers           | worker id | stolen from sibling `src`                    |
+| `usize::MAX` (sentinel)| worker id | stolen from the global injector              |
+
+The counter is shared across **all schedulers** in the process
+(static `OnceLock<Mutex<HashMap>>`) because the OTel meter provider
+in real deployments is process-wide. Tests that need isolation can
+read the baseline at start, do their work, and assert on the delta —
+see `tests/work_stealing.rs::counter_increments_on_steal`.
+
+### v0.23 follow-ups
+
+- **Tickless / steady-state mode**: when every worker has been
+  parked for >100 ms, skip the 50 ms wake timeout and rely purely on
+  `notify_one()`. Cuts idle wakeups to ~0 for batch-style workloads
+  that quiesce between phases.
+- **Adaptive steal batch size**: currently `steal_batch_and_pop`
+  uses crossbeam's default (half of `src.len()`). A higher
+  cap would reduce steal-event frequency on bursts; a lower cap
+  would smooth fairness on small queues.
+- **OTel meter integration**: today the counter lives in a static
+  map; a v0.23 patch can install an OTel observable counter callback
+  that snapshots it on every export interval.
+
 ## See also
 
 - `docs/internals/multi-core.md` — deeper notes on the v0.6 layout.
 - `docs/internals/runtime.md`
+- `docs/internals/agent-features-roadmap.md` — Tier 5.
 - `docs/spec/v0.1-amendments.md` — A39, A41, A101-A110
+- `dev/history/notes/WORK_STEALING_V0_22_NOTES.md` — design choices.

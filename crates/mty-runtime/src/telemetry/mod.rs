@@ -45,6 +45,9 @@ pub mod spans;
 
 pub use events::agent_event;
 pub use sink::{TelemetryEvent, TelemetrySink};
+// v0.22 — work-stealing steal counter (recorded by the scheduler's
+// work-stealing loop, observed by tests + introspect surfaces).
+pub use sink::{record_worker_steal, steal_counter_snapshot, steal_counter_total};
 pub use spans::{
     current_handler_context, record_budget_exhausted, record_restart, span_ask, span_handler,
     span_send, span_spawn, HandlerGuard, SpanContext, SpawnGuard,
