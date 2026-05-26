@@ -1,0 +1,30 @@
+# cargo-audit ignore list. Each entry MUST have a rationale comment.
+# Format: see https://docs.rs/cargo-audit/latest/cargo_audit/config/
+#
+# Bump cargo-audit version in `.github/workflows/security.yml` if the
+# format here changes.
+
+[advisories]
+ignore = [
+    # wasmtime advisory bundle — wasmtime is a DEV-DEPENDENCY only,
+    # used inside the `wasmtime_p2_smoke` test feature for end-to-end
+    # WASI P2 host instantiation. mty itself does NOT ship wasmtime
+    # at runtime: the production wasm backend is pure Cranelift +
+    # `wit-component`. The advisories below are bundle-scanned out of
+    # the dev-dep graph and do not affect any user of the `mty`
+    # binary or crates.
+    "RUSTSEC-2025-0118",  # wasmtime: vmctx aliasing in JIT
+    "RUSTSEC-2026-0020",  # wasmtime: WebAssembly ref.* type confusion
+    "RUSTSEC-2026-0021",  # wasmtime: gc heap underflow
+    "RUSTSEC-2026-0085",  # wasmtime: 0085-series component-model bundle
+    "RUSTSEC-2026-0086",
+    "RUSTSEC-2026-0087",
+    "RUSTSEC-2026-0088",
+    "RUSTSEC-2026-0089",
+    "RUSTSEC-2026-0090",
+    "RUSTSEC-2026-0091",
+    "RUSTSEC-2026-0092",
+    "RUSTSEC-2026-0093",
+    "RUSTSEC-2026-0094",
+    "RUSTSEC-2026-0095",
+]
