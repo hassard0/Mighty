@@ -92,6 +92,49 @@ pub const ROW_VAR_UNBOUND: DiagCode = DiagCode::new(4053);
 /// MT4054: closed-row mismatch — two closed rows differ (RFC-008 MT4024 slot).
 pub const ROW_EFFECT_MISMATCH: DiagCode = DiagCode::new(4054);
 
+// v0.16 RFC-008 — user-authored row-poly fn signature validation. The
+// MT4055..MT4059 block houses the v0.16 emit-sites that the
+// surface-syntax wiring drives. The 4050 base reservation note above
+// still applies (RFC-008 numbered them MT4021..MT4025 but those slots
+// were taken by v0.6 trait codes); the v0.16 wiring picks up at 4055
+// to leave MT4051..MT4054 for the reserved future inference work.
+
+/// MT4055: row variable declared but never bound by any parameter
+/// (e.g. `fn read[E](path: String) -> String !E` — no closure param
+/// to carry effects through `E`). The fn's open-row signature is
+/// structurally degenerate. RFC-008 §"v0.16" — corresponds to the
+/// RFC's `row_var_unused` slot, narrowed: v0.16 emits this when the
+/// row var appears in the effect clause but no fn-typed parameter
+/// exists.
+pub const ROW_VAR_UNUSED: DiagCode = DiagCode::new(4055);
+
+/// MT4056: open-row signature where the row var only contributes
+/// concrete effects (`!{a, b | E}` but no closure param). Reserved
+/// for v0.16 — currently superseded by MT4055/MT4057 which fire on
+/// the structural variant.
+pub const ROW_VAR_IN_CONCRETE_ONLY: DiagCode = DiagCode::new(4056);
+
+/// MT4057: row variable mentioned in the return effect row but no
+/// parameter accepts a fn type from which the row could be bound.
+/// RFC-008 §"v0.16" return-position specialisation of MT4055 —
+/// surfaced separately so the diagnostic note can point the author
+/// at the "add a closure parameter" fix rather than the "drop `E`"
+/// alternative.
+pub const ROW_VAR_RETURNED_UNBOUND: DiagCode = DiagCode::new(4057);
+
+/// MT4058: row variable arity mismatch — the fn declares multiple
+/// distinct row variables (e.g. `fn observed[E, F]` with `!E` and
+/// `!F` on different parameters), but v0.16 SHIPPED-SUBSET only
+/// supports a single row variable per signature. Reserved for v0.17
+/// multi-row-var extension.
+pub const ROW_VAR_ARITY_MISMATCH: DiagCode = DiagCode::new(4058);
+
+/// MT4059: row subsumption failure for a user-authored row-poly
+/// fn — the caller's row constraint cannot accept the callee's
+/// instantiated row (analogous to MT4050 but on a user fn). RFC-008
+/// §"v0.16" — caller-side variant of the stdlib MT4050.
+pub const ROW_VAR_SUBSUMPTION_FAIL: DiagCode = DiagCode::new(4059);
+
 // Runtime / interpreter (slice 6): MT5001..MT5099
 pub const RUNTIME_PANIC: DiagCode = DiagCode::new(5001);
 pub const USE_AFTER_DROP: DiagCode = DiagCode::new(5002);
@@ -637,6 +680,53 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  in their concrete effects (neither is a sub-row of the \
                  other). Reserved for the v0.16 closed-row equality \
                  paths. (RFC-008 row_effect_mismatch.)"
+        }
+        4055 => {
+            "MT4055: Row variable declared but never bound. The fn's \
+                 effect clause references a row variable (`!E`, \
+                 `!{... | E}`, or `effect ... | E`) but no parameter \
+                 has a fn type that could carry effects through `E`. \
+                 Without a closure parameter the row variable cannot be \
+                 bound at any call site, so the open-row signature is \
+                 structurally degenerate. Fix: add a `fn(...) -> _` \
+                 parameter, or drop the row variable from the effect \
+                 clause and write a concrete closed row. (RFC-008 \
+                 row_var_unused.)"
+        }
+        4056 => {
+            "MT4056: Row variable in concrete-only position. The fn's \
+                 effect clause is `!{a, b | E}` but the row variable is \
+                 not used by any parameter, so the concrete `{a, b}` \
+                 part is the only effective component. Reserved for \
+                 v0.16 — most cases currently surface as MT4055/MT4057. \
+                 (RFC-008 row_var_in_concrete_only.)"
+        }
+        4057 => {
+            "MT4057: Row variable in return effect row but unbound. \
+                 The fn declares a row variable on the return side but \
+                 has no fn-typed parameter from which the row could be \
+                 inferred at the call site. Add a closure parameter \
+                 (`f: fn(...) -> T`) to give the row var a binding \
+                 site, or convert the return row to a concrete closed \
+                 set. (RFC-008 row_var_returned_but_unbound.)"
+        }
+        4058 => {
+            "MT4058: Row variable arity mismatch. The fn declares \
+                 multiple distinct row variables, but v0.16 supports a \
+                 single row variable per signature. Use one row name \
+                 across all closure parameters, or wait for the v0.17 \
+                 multi-row-var extension. (RFC-008 \
+                 row_var_arity_mismatch.)"
+        }
+        4059 => {
+            "MT4059: Closure effects rejected by user-fn row \
+                 constraint. The closure passed to a user-authored \
+                 row-polymorphic fn carries effects the caller's \
+                 declared effect clause does not allow. This is the \
+                 user-fn analogue of MT4050 (stdlib HOFs). Add the \
+                 missing effect to the enclosing fn's `effect ...` \
+                 clause, or replace the closure with a pure one. \
+                 (RFC-008 row_var_subsumption_fail.)"
         }
         5001 => {
             "MT5001: Runtime panic. The program executed `panic(msg)` \

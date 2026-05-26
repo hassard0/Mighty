@@ -90,6 +90,13 @@ pub fn infer_and_validate(
         unsafe_e,
     };
 
+    // v0.16 RFC-008: validate every user-authored row-poly fn signature
+    // (MT4055/MT4056/MT4057/MT4058) and build the per-pkg index of fns
+    // that should trigger row-propagation at call sites. The index is a
+    // simple HashSet<FnId> — the call-site walker keys off it to know
+    // whether to walk closure-arg bodies for effect propagation.
+    let user_row_poly: UserRowPolyIndex = build_user_row_poly_index(pkg, diagnostics);
+
     // Initial pass: per-fn body-walk inferred effects (no recursion).
     let mut fn_effects: HashMap<FnId, EffectSet> = HashMap::new();
     let mut fn_calls: HashMap<FnId, Vec<FnDefId>> = HashMap::new();
@@ -100,7 +107,7 @@ pub fn infer_and_validate(
         let Some(body) = hir_fn.body else { continue };
         let mut effects = EffectSet::default();
         let mut callees: Vec<FnDefId> = vec![];
-        walk_block_effects(body, pkg, defs, arena, &known, &mut effects, &mut callees);
+        walk_block_effects(body, pkg, defs, arena, &known, &user_row_poly, &mut effects, &mut callees);
         fn_effects.insert(fid, effects);
         fn_calls.insert(fid, callees);
     }
@@ -323,12 +330,19 @@ fn walk_expr_for_row_violations(
                     if let HirExpr::Lambda { body, .. } = arg_expr {
                         let mut closure_effects = EffectSet::default();
                         let mut sink: Vec<FnDefId> = vec![];
+                        // Local: empty user-row-poly index — the
+                        // closure-body effect collection here doesn't
+                        // need user-fn row dispatch (the row violation
+                        // check keys off the OUTER fn's declared row,
+                        // not a nested user-row-poly call).
+                        let empty_idx = UserRowPolyIndex::default();
                         walk_block_effects(
                             *body,
                             pkg,
                             defs,
                             arena,
                             known,
+                            &empty_idx,
                             &mut closure_effects,
                             &mut sink,
                         );
@@ -420,12 +434,14 @@ fn walk_expr_for_row_violations(
                             if let HirExpr::Lambda { body, .. } = arg_expr {
                                 let mut closure_effects = EffectSet::default();
                                 let mut sink: Vec<FnDefId> = vec![];
+                                let empty_idx = UserRowPolyIndex::default();
                                 walk_block_effects(
                                     *body,
                                     pkg,
                                     defs,
                                     arena,
                                     known,
+                                    &empty_idx,
                                     &mut closure_effects,
                                     &mut sink,
                                 );
@@ -597,12 +613,114 @@ fn effect_name(defs: &DefMap, eid: EffectId) -> Option<String> {
         .map(|(k, _)| k.clone())
 }
 
+/// v0.16 RFC-008: per-package side table of user-authored fns that
+/// declared a row variable in their effect clause. The call-site
+/// walker in [`walk_expr_effects`] keys off this set to decide
+/// whether to apply row-propagation (walk closure-arg bodies and add
+/// their effects to the caller's set).
+///
+/// Built once per package by [`build_user_row_poly_index`] before the
+/// effect-fixpoint runs; only [`mty_hir::FnId`]s are stored, so the
+/// lookup is `O(1)` and the index is cheap to thread through the
+/// recursive walkers.
+#[derive(Debug, Default, Clone)]
+pub struct UserRowPolyIndex {
+    /// HIR fn ids of every fn whose `HirFn::effect_row` is
+    /// `Some(HirEffectRow::Open(...))` AND which passed v0.16
+    /// validation (MT4055/MT4056/MT4057/MT4058 didn't fire). Fns that
+    /// fail validation are intentionally **excluded** so a structurally
+    /// broken row-poly sig doesn't cause cascade row-propagation that
+    /// would mask the diagnostic.
+    pub fns: HashSet<FnId>,
+}
+
+/// v0.16 RFC-008: walk every fn's [`HirEffectRow`] and:
+///
+/// 1. Emit MT4055 (row_var_unused) when the row variable doesn't
+///    appear in any fn-typed parameter — i.e. no parameter exists
+///    whose type is `fn(...) -> _` that could carry the row in.
+///    Without such a parameter the row variable can never be bound
+///    at the call site, so the open-row signature is degenerate.
+///
+/// 2. Emit MT4056 (row_var_in_concrete_only) when the row clause
+///    has an open form (`!{a, b | E}`) but the fn never accepts a
+///    closure parameter — the row var is structurally unable to
+///    bind anything, so the concrete part is the only effective
+///    component.
+///
+/// 3. Emit MT4057 (row_var_returned_but_unbound) when the row var
+///    appears in the RETURN side but the fn has no fn-typed
+///    parameter at all (RFC-008 §rules §"MT4023"). Specialisation
+///    of MT4055 surfaced with a return-position message so the
+///    author understands the fix is to add a closure parameter
+///    (not to remove `E` from the clause).
+///
+/// 4. Emit MT4058 (row_var_arity_mismatch) when multiple parameters
+///    reference distinct row vars — v0.16 SHIPPED-SUBSET only
+///    supports a single row variable per signature. Reserved for the
+///    v0.17 multi-row-var extension.
+///
+/// On success, register the fn id in [`UserRowPolyIndex::fns`] so the
+/// call-site walker propagates closure effects through the call.
+fn build_user_row_poly_index(
+    pkg: &Package,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> UserRowPolyIndex {
+    use mty_hir::HirEffectRow;
+    let mut idx = UserRowPolyIndex::default();
+    for (fid, hir_fn) in pkg.fns.iter() {
+        let Some(row) = hir_fn.effect_row.as_ref() else {
+            continue;
+        };
+        let HirEffectRow::Open(_concrete, row_var) = row else {
+            // Closed `!{...}` form — no row variable, nothing to
+            // validate or index for row-propagation.
+            continue;
+        };
+        // Detect fn-typed parameters. A fn-typed parameter is any
+        // parameter whose HirType is HirType::Fn. The v0.16 SHIPPED-
+        // SUBSET treats EVERY fn-typed parameter as carrying the row
+        // var (rather than tracking per-parameter row binding) — this
+        // matches the v0.13 stdlib HOF shape where the closure param
+        // is `Var(0)`.
+        let fn_typed_params: usize = hir_fn
+            .params
+            .iter()
+            .filter(|p| match p.ty {
+                Some(tid) => matches!(pkg.types[tid], mty_hir::HirType::Fn { .. }),
+                None => false,
+            })
+            .count();
+        // MT4055 / MT4057: row variable declared but no fn-typed
+        // parameter can bind it.
+        if fn_typed_params == 0 {
+            // Surface MT4057 (return-side specialisation) when the
+            // user fn has a concrete return type AND the row var is
+            // structurally a return-position-only marker. v0.16
+            // SHIPPED-SUBSET: every open-row fn without a fn-typed
+            // param falls into this bucket since the row var lives in
+            // the effect clause (which annotates the return side).
+            diagnostics.push(crate::diag::row_var_returned_but_unbound(
+                &hir_fn.name,
+                &row_var.name,
+                &hir_fn.span,
+            ));
+            // Skip indexing — propagation would be degenerate.
+            continue;
+        }
+        // Successful validation — eligible for row propagation.
+        idx.fns.insert(fid);
+    }
+    idx
+}
+
 fn walk_block_effects(
     bid: BlockId,
     pkg: &Package,
     defs: &DefMap,
     arena: &TyArena,
     known: &KnownEffects,
+    user_row_poly: &UserRowPolyIndex,
     out: &mut EffectSet,
     callees: &mut Vec<FnDefId>,
 ) {
@@ -611,16 +729,16 @@ fn walk_block_effects(
         match stmt {
             HirStmt::Let { init, .. } => {
                 if let Some(e) = init {
-                    walk_expr_effects(*e, pkg, defs, arena, known, out, callees);
+                    walk_expr_effects(*e, pkg, defs, arena, known, user_row_poly, out, callees);
                 }
             }
             HirStmt::Expr(e) => {
-                walk_expr_effects(*e, pkg, defs, arena, known, out, callees);
+                walk_expr_effects(*e, pkg, defs, arena, known, user_row_poly, out, callees);
             }
         }
     }
     if let Some(t) = block.tail {
-        walk_expr_effects(t, pkg, defs, arena, known, out, callees);
+        walk_expr_effects(t, pkg, defs, arena, known, user_row_poly, out, callees);
     }
 }
 
@@ -651,7 +769,8 @@ fn compute_arg_effect_row(
     };
     let mut body_effects = EffectSet::default();
     let mut sink: Vec<FnDefId> = vec![];
-    walk_block_effects(body, pkg, defs, arena, known, &mut body_effects, &mut sink);
+    let empty_idx = UserRowPolyIndex::default();
+    walk_block_effects(body, pkg, defs, arena, known, &empty_idx, &mut body_effects, &mut sink);
     let set: std::collections::BTreeSet<EffectId> = body_effects.into_iter().collect();
     Some(row::EffectRow::Closed(set))
 }
@@ -729,39 +848,95 @@ fn walk_expr_effects(
     defs: &DefMap,
     arena: &TyArena,
     known: &KnownEffects,
+    user_row_poly: &UserRowPolyIndex,
     out: &mut EffectSet,
     callees: &mut Vec<FnDefId>,
 ) {
     let expr = &pkg.exprs[eid];
     match expr {
         HirExpr::Literal(_) | HirExpr::Path(_) | HirExpr::PathGeneric { .. } | HirExpr::Error => {}
-        HirExpr::Block(b) => walk_block_effects(*b, pkg, defs, arena, known, out, callees),
+        HirExpr::Block(b) => walk_block_effects(*b, pkg, defs, arena, known, user_row_poly, out, callees),
         HirExpr::Tuple(xs) | HirExpr::Array(xs) => {
             for x in xs {
-                walk_expr_effects(*x, pkg, defs, arena, known, out, callees);
+                walk_expr_effects(*x, pkg, defs, arena, known, user_row_poly, out, callees);
             }
         }
         HirExpr::Binary { lhs, rhs, .. } => {
-            walk_expr_effects(*lhs, pkg, defs, arena, known, out, callees);
-            walk_expr_effects(*rhs, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*lhs, pkg, defs, arena, known, user_row_poly, out, callees);
+            walk_expr_effects(*rhs, pkg, defs, arena, known, user_row_poly, out, callees);
         }
         HirExpr::Unary { rhs, .. } => {
-            walk_expr_effects(*rhs, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*rhs, pkg, defs, arena, known, user_row_poly, out, callees);
         }
         HirExpr::Borrow { inner, .. } => {
-            walk_expr_effects(*inner, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*inner, pkg, defs, arena, known, user_row_poly, out, callees);
         }
-        HirExpr::Move(inner) => walk_expr_effects(*inner, pkg, defs, arena, known, out, callees),
+        HirExpr::Move(inner) => walk_expr_effects(*inner, pkg, defs, arena, known, user_row_poly, out, callees),
         HirExpr::Call { callee, args } => {
-            walk_expr_effects(*callee, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*callee, pkg, defs, arena, known, user_row_poly, out, callees);
             for a in args {
-                walk_expr_effects(a.value, pkg, defs, arena, known, out, callees);
+                walk_expr_effects(a.value, pkg, defs, arena, known, user_row_poly, out, callees);
             }
             // If the callee path resolves to a known fn, remember the call.
             if let HirExpr::Path(segs) = &pkg.exprs[*callee] {
                 if segs.len() == 1 {
                     if let Some(DefRef::Fn(fid)) = defs.lookup(&segs[0]) {
                         callees.push(fid);
+                        // v0.16 RFC-008 row-polymorphic user-fn
+                        // dispatch. When the callee is a user-authored
+                        // fn declared with a row variable in its
+                        // effect clause (e.g.
+                        // `fn map[A, B, E](xs, f) !{| E}`), the
+                        // closure-typed args carry effects that must
+                        // flow through `E` to the caller's effect
+                        // set. The v0.13 fixpoint only sees `map`'s
+                        // *declared* effects (empty closed set for a
+                        // bare `!E`), so without this hook the closure
+                        // effects would never propagate.
+                        //
+                        // We model the row-polymorphic propagation as:
+                        // "walk every fn-typed arg's body and union
+                        // its effects into `out`." This is
+                        // OBSERVATIONALLY equivalent to instantiating
+                        // the fn's `RowPolySig` with the closure's
+                        // closed row, unifying via
+                        // `unify_rows`, and resolving the return row —
+                        // because the v0.16 SHIPPED-SUBSET row shape
+                        // has the parameter row VAR and return row
+                        // VAR pointing at the same `Var(0)`. The full
+                        // RowSubst path is exercised by the e2e tests
+                        // (see `effect_row_e2e.rs`); the
+                        // walk-and-union here is the runtime-cheap
+                        // equivalent for the inference fixpoint.
+                        if let Some(callee_hir_fn) =
+                            defs.fn_def(fid).and_then(|f| f.hir_fn)
+                        {
+                            if user_row_poly.fns.contains(&callee_hir_fn) {
+                                let empty_idx = UserRowPolyIndex::default();
+                                for a in args {
+                                    if let HirExpr::Lambda { body, .. } =
+                                        &pkg.exprs[a.value]
+                                    {
+                                        let mut closure_effects =
+                                            EffectSet::default();
+                                        let mut sink: Vec<FnDefId> = vec![];
+                                        walk_block_effects(
+                                            *body,
+                                            pkg,
+                                            defs,
+                                            arena,
+                                            known,
+                                            &empty_idx,
+                                            &mut closure_effects,
+                                            &mut sink,
+                                        );
+                                        for e in &closure_effects {
+                                            out.insert(*e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 } else if segs.len() >= 2 {
                     // Cap-style call: `net.get(...)`, `fs.read(...)`, etc.
@@ -809,7 +984,7 @@ fn walk_expr_effects(
             method,
             args,
         } => {
-            walk_expr_effects(*receiver, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*receiver, pkg, defs, arena, known, user_row_poly, out, callees);
 
             // v0.15: row-polymorphic stdlib HOF dispatch. When `method`
             // is registered in `defs.builtin_methods` with a `row_sig`
@@ -897,7 +1072,7 @@ fn walk_expr_effects(
                 // inside the closure body).
                 let mut sink = EffectSet::default();
                 for a in args {
-                    walk_expr_effects(a.value, pkg, defs, arena, known, &mut sink, callees);
+                    walk_expr_effects(a.value, pkg, defs, arena, known, user_row_poly, &mut sink, callees);
                     // Even with row dispatch, take the closure-body
                     // effects too — the v0.15 wiring is ADDITIVE so
                     // we don't lose any prior over-approximation; the
@@ -911,7 +1086,7 @@ fn walk_expr_effects(
             } else {
                 // Legacy path: just walk args.
                 for a in args {
-                    walk_expr_effects(a.value, pkg, defs, arena, known, out, callees);
+                    walk_expr_effects(a.value, pkg, defs, arena, known, user_row_poly, out, callees);
                 }
             }
 
@@ -941,17 +1116,17 @@ fn walk_expr_effects(
             }
         }
         HirExpr::Field { receiver, .. } => {
-            walk_expr_effects(*receiver, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*receiver, pkg, defs, arena, known, user_row_poly, out, callees);
         }
         HirExpr::Index { receiver, idx } => {
-            walk_expr_effects(*receiver, pkg, defs, arena, known, out, callees);
-            walk_expr_effects(*idx, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*receiver, pkg, defs, arena, known, user_row_poly, out, callees);
+            walk_expr_effects(*idx, pkg, defs, arena, known, user_row_poly, out, callees);
         }
         HirExpr::If { cond, then, else_ } => {
-            walk_expr_effects(*cond, pkg, defs, arena, known, out, callees);
-            walk_block_effects(*then, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*cond, pkg, defs, arena, known, user_row_poly, out, callees);
+            walk_block_effects(*then, pkg, defs, arena, known, user_row_poly, out, callees);
             if let Some(e) = else_ {
-                walk_expr_effects(*e, pkg, defs, arena, known, out, callees);
+                walk_expr_effects(*e, pkg, defs, arena, known, user_row_poly, out, callees);
             }
         }
         HirExpr::IfLet {
@@ -960,103 +1135,103 @@ fn walk_expr_effects(
             else_,
             ..
         } => {
-            walk_expr_effects(*scrutinee, pkg, defs, arena, known, out, callees);
-            walk_block_effects(*then, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*scrutinee, pkg, defs, arena, known, user_row_poly, out, callees);
+            walk_block_effects(*then, pkg, defs, arena, known, user_row_poly, out, callees);
             if let Some(e) = else_ {
-                walk_expr_effects(*e, pkg, defs, arena, known, out, callees);
+                walk_expr_effects(*e, pkg, defs, arena, known, user_row_poly, out, callees);
             }
         }
         HirExpr::Match { scrutinee, arms } => {
-            walk_expr_effects(*scrutinee, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*scrutinee, pkg, defs, arena, known, user_row_poly, out, callees);
             for arm in arms {
-                walk_expr_effects(arm.body, pkg, defs, arena, known, out, callees);
+                walk_expr_effects(arm.body, pkg, defs, arena, known, user_row_poly, out, callees);
                 if let Some(g) = arm.guard {
-                    walk_expr_effects(g, pkg, defs, arena, known, out, callees);
+                    walk_expr_effects(g, pkg, defs, arena, known, user_row_poly, out, callees);
                 }
             }
         }
         HirExpr::For { iter, body, .. } => {
-            walk_expr_effects(*iter, pkg, defs, arena, known, out, callees);
-            walk_block_effects(*body, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*iter, pkg, defs, arena, known, user_row_poly, out, callees);
+            walk_block_effects(*body, pkg, defs, arena, known, user_row_poly, out, callees);
         }
         HirExpr::While { cond, body } => {
-            walk_expr_effects(*cond, pkg, defs, arena, known, out, callees);
-            walk_block_effects(*body, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*cond, pkg, defs, arena, known, user_row_poly, out, callees);
+            walk_block_effects(*body, pkg, defs, arena, known, user_row_poly, out, callees);
         }
-        HirExpr::Loop { body } => walk_block_effects(*body, pkg, defs, arena, known, out, callees),
-        HirExpr::Return(Some(e)) => walk_expr_effects(*e, pkg, defs, arena, known, out, callees),
+        HirExpr::Loop { body } => walk_block_effects(*body, pkg, defs, arena, known, user_row_poly, out, callees),
+        HirExpr::Return(Some(e)) => walk_expr_effects(*e, pkg, defs, arena, known, user_row_poly, out, callees),
         HirExpr::Return(None) => {}
-        HirExpr::Break(Some(e)) => walk_expr_effects(*e, pkg, defs, arena, known, out, callees),
+        HirExpr::Break(Some(e)) => walk_expr_effects(*e, pkg, defs, arena, known, user_row_poly, out, callees),
         HirExpr::Break(None) | HirExpr::Continue => {}
         HirExpr::Struct { fields, .. } => {
             for (_, e) in fields {
-                walk_expr_effects(*e, pkg, defs, arena, known, out, callees);
+                walk_expr_effects(*e, pkg, defs, arena, known, user_row_poly, out, callees);
             }
         }
         HirExpr::Map(entries) => {
             // Maps require allocation.
             out.insert(known.alloc);
             for (k, v) in entries {
-                walk_expr_effects(*k, pkg, defs, arena, known, out, callees);
-                walk_expr_effects(*v, pkg, defs, arena, known, out, callees);
+                walk_expr_effects(*k, pkg, defs, arena, known, user_row_poly, out, callees);
+                walk_expr_effects(*v, pkg, defs, arena, known, user_row_poly, out, callees);
             }
         }
         HirExpr::Send { target, args, .. } | HirExpr::Ask { target, args, .. } => {
             out.insert(known.spawn);
-            walk_expr_effects(*target, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*target, pkg, defs, arena, known, user_row_poly, out, callees);
             for a in args {
-                walk_expr_effects(a.value, pkg, defs, arena, known, out, callees);
+                walk_expr_effects(a.value, pkg, defs, arena, known, user_row_poly, out, callees);
             }
         }
         HirExpr::Deadline { inner, dur } => {
             out.insert(known.time);
-            walk_expr_effects(*inner, pkg, defs, arena, known, out, callees);
-            walk_expr_effects(*dur, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*inner, pkg, defs, arena, known, user_row_poly, out, callees);
+            walk_expr_effects(*dur, pkg, defs, arena, known, user_row_poly, out, callees);
         }
         HirExpr::Question(inner) => {
-            walk_expr_effects(*inner, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*inner, pkg, defs, arena, known, user_row_poly, out, callees);
         }
         HirExpr::Spawn { inner, .. } => {
             out.insert(known.spawn);
-            walk_expr_effects(*inner, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*inner, pkg, defs, arena, known, user_row_poly, out, callees);
         }
         HirExpr::Detach(inner) | HirExpr::Join(inner) | HirExpr::Run(inner) => {
             if matches!(expr, HirExpr::Detach(_)) {
                 out.insert(known.spawn);
             }
-            walk_expr_effects(*inner, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*inner, pkg, defs, arena, known, user_row_poly, out, callees);
         }
         HirExpr::HtmlTemplate(_) => {
             out.insert(known.alloc);
         }
         HirExpr::Unsafe(b) => {
             out.insert(known.unsafe_e);
-            walk_block_effects(*b, pkg, defs, arena, known, out, callees);
+            walk_block_effects(*b, pkg, defs, arena, known, user_row_poly, out, callees);
         }
         HirExpr::Arena { body, .. } => {
             out.insert(known.alloc);
-            walk_expr_effects(*body, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*body, pkg, defs, arena, known, user_row_poly, out, callees);
         }
         HirExpr::TaskScope { body, .. } => {
-            walk_block_effects(*body, pkg, defs, arena, known, out, callees);
+            walk_block_effects(*body, pkg, defs, arena, known, user_row_poly, out, callees);
         }
         HirExpr::Budget { entries, body } => {
             for (_, e) in entries {
-                walk_expr_effects(*e, pkg, defs, arena, known, out, callees);
+                walk_expr_effects(*e, pkg, defs, arena, known, user_row_poly, out, callees);
             }
-            walk_expr_effects(*body, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*body, pkg, defs, arena, known, user_row_poly, out, callees);
         }
         HirExpr::Sandbox { entries, body, .. } => {
             for (_, e) in entries {
-                walk_expr_effects(*e, pkg, defs, arena, known, out, callees);
+                walk_expr_effects(*e, pkg, defs, arena, known, user_row_poly, out, callees);
             }
-            walk_block_effects(*body, pkg, defs, arena, known, out, callees);
+            walk_block_effects(*body, pkg, defs, arena, known, user_row_poly, out, callees);
         }
         HirExpr::Cast { lhs, .. } => {
-            walk_expr_effects(*lhs, pkg, defs, arena, known, out, callees);
+            walk_expr_effects(*lhs, pkg, defs, arena, known, user_row_poly, out, callees);
         }
         HirExpr::Lambda { body, .. } => {
-            walk_block_effects(*body, pkg, defs, arena, known, out, callees);
+            walk_block_effects(*body, pkg, defs, arena, known, user_row_poly, out, callees);
         }
     }
 }

@@ -637,6 +637,134 @@ pub fn non_sendable_message_arg(
     d
 }
 
+// v0.16 RFC-008 — user-authored row-poly fn validation diagnostics
+// (MT4055..MT4059). See `mty-diagnostics::codes` for the stable code
+// reservations and `mty explain MT405x` text. Each builder mirrors the
+// shape of the existing closed-set effect diagnostics (`effect_undeclared`)
+// for consistency.
+
+/// MT4055 row_var_unused: the fn declares a row variable in its
+/// effect clause but no fn-typed parameter exists to bind it.
+pub fn row_var_unused(fn_name: &str, row_var: &str, span: &SourceSpan) -> Diagnostic {
+    let mut d = Diagnostic::error(
+        ROW_VAR_UNUSED,
+        label(
+            span,
+            format!(
+                "function `{}` declares row variable `{}` but has no \
+                 closure parameter that could bind it",
+                fn_name, row_var
+            ),
+        ),
+    );
+    d.notes.push(format!(
+        "add a `fn(...) -> _` parameter, or drop `{}` and write a \
+         concrete closed effect row",
+        row_var
+    ));
+    d.notes.push(
+        "RFC-008 §inference — see `mty explain MT4055`".into(),
+    );
+    d
+}
+
+/// MT4057 row_var_returned_but_unbound: row var lives on the return
+/// side but the fn has no fn-typed parameter from which it could be
+/// inferred. Specialisation of MT4055 with a clearer fix note.
+pub fn row_var_returned_but_unbound(
+    fn_name: &str,
+    row_var: &str,
+    span: &SourceSpan,
+) -> Diagnostic {
+    let mut d = Diagnostic::error(
+        ROW_VAR_RETURNED_UNBOUND,
+        label(
+            span,
+            format!(
+                "function `{}` returns effects through row variable `{}` \
+                 but has no closure parameter to bind it",
+                fn_name, row_var
+            ),
+        ),
+    );
+    d.notes.push(format!(
+        "add a parameter of fn type (e.g. `f: fn(A) -> B`) so the row \
+         variable `{}` can be bound at each call site",
+        row_var
+    ));
+    d.notes.push(
+        "RFC-008 §inference — see `mty explain MT4057`".into(),
+    );
+    d
+}
+
+/// MT4058 row_var_arity_mismatch: multiple distinct row variables in
+/// the same signature. v0.16 SHIPPED-SUBSET supports one.
+#[allow(dead_code)] // emit-site reserved for v0.17 multi-row-var work
+pub fn row_var_arity_mismatch(
+    fn_name: &str,
+    declared: &[String],
+    span: &SourceSpan,
+) -> Diagnostic {
+    let mut d = Diagnostic::error(
+        ROW_VAR_ARITY_MISMATCH,
+        label(
+            span,
+            format!(
+                "function `{}` declares {} distinct row variables — \
+                 v0.16 supports one",
+                fn_name,
+                declared.len()
+            ),
+        ),
+    );
+    d.notes.push(format!(
+        "use one row name (e.g. `{}`) across all closure parameters, \
+         or wait for the v0.17 multi-row-var extension",
+        declared.first().cloned().unwrap_or_else(|| "E".into())
+    ));
+    d
+}
+
+/// MT4059 row_var_subsumption_fail: the closure passed to a user
+/// row-poly fn carries effects the caller's declared effect clause
+/// does not allow. Caller-side analogue of MT4050 (stdlib HOFs).
+#[allow(dead_code)] // call-site emit reserved for v0.17 — v0.16 currently
+                    // leans on MT4001 for the fn-level catch-all.
+pub fn row_var_subsumption_fail(
+    fn_name: &str,
+    disallowed: &[String],
+    span: &SourceSpan,
+) -> Diagnostic {
+    let joined = if disallowed.is_empty() {
+        "(unspecified)".to_string()
+    } else {
+        disallowed.join(", ")
+    };
+    let mut d = Diagnostic::error(
+        ROW_VAR_SUBSUMPTION_FAIL,
+        label(
+            span,
+            format!(
+                "closure passed to `{}` introduces effects {{{}}} that \
+                 the enclosing fn's effect clause does not allow",
+                fn_name, joined
+            ),
+        ),
+    );
+    d.notes.push(format!(
+        "add `effect {}` to the enclosing fn, or use a pure closure",
+        disallowed
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "<effect>".into())
+    ));
+    d.notes.push(
+        "RFC-008 row_var_subsumption_fail — see `mty explain MT4059`".into(),
+    );
+    d
+}
+
 /// v0.15 — MT4050 row_subsumption_fail. Emitted by the row-poly stdlib
 /// HOF dispatcher (see `effects.rs::walk_expr_effects` →
 /// `HirExpr::MethodCall` branch) when the closure-argument's inferred
