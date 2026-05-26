@@ -45,6 +45,12 @@ fi
 # expected_component.txt + world.wit (wasm_component/). Plus the new
 # top-level coverage.json. tar's recursive traversal picks them up
 # automatically; no per-extension allowlist is needed.
+#
+# v0.21: no new fixture files; the slice's contribution is a
+# coverage.json audit (9 codes promoted from uncovered → covered) +
+# a new manifest section in CONFORMANCE_KIT.md + the per-backend
+# harness test files under `crates/*/tests/` (which do NOT ship in
+# the kit tarball — they live with the reference impl, not the kit).
 tar --exclude='.git' \
     --exclude='target' \
     --exclude='__pycache__' \

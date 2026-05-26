@@ -2888,12 +2888,16 @@ dependencies = [
  "cranelift-object",
  "criterion",
  "gimli 0.31.1",
+ "mty-ast",
+ "mty-borrow",
  "mty-debuginfo",
  "mty-diagnostics",
  "mty-hir",
  "mty-ir",
+ "mty-syntax",
  "mty-types",
  "object 0.39.1",
+ "rowan",
  "target-lexicon",
  "tempfile",
  "thiserror 1.0.69",
@@ -2915,12 +2919,16 @@ dependencies = [
 name = "mty-codegen-wasm"
 version = "0.1.0"
 dependencies = [
+ "mty-ast",
+ "mty-borrow",
  "mty-debuginfo",
  "mty-diagnostics",
  "mty-hir",
  "mty-ir",
  "mty-stdlib",
+ "mty-syntax",
  "mty-types",
+ "rowan",
  "serde_json",
  "tempfile",
  "thiserror 1.0.69",
@@ -3106,6 +3114,8 @@ dependencies = [
  "tokio-rustls",
  "tokio-util",
  "toml",
+ "wasm-encoder 0.250.0",
+ "wasmparser 0.250.0",
 ]
 
 [[package]]

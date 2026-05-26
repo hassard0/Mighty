@@ -28,6 +28,13 @@ wasmtime = { version = "36", default-features = false, features = ["cranelift", 
 # constants against the stdlib-side ones to catch drift between
 # `mty_codegen_wasm::P2DirectImport` and `mty_stdlib::random/time`.
 mty-stdlib = { path = "../mty-stdlib", default-features = false }
+# v0.21 — conformance_wasm_component drives the wasm_component/*
+# fixtures through parser → HIR → typeck → SIR → core wasm → component.
+# Pulled in as dev-deps only; the production codegen stays decoupled.
+mty-syntax = { path = "../mty-syntax" }
+mty-ast = { path = "../mty-ast" }
+mty-borrow = { path = "../mty-borrow" }
+rowan = { workspace = true }
 
 [features]
 # v0.14 opt-in feature for spinning up a `wasmtime-wasi` host and

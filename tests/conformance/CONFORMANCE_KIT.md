@@ -63,9 +63,27 @@ mty-conformance-kit-<version>.tar.gz
 | `spec_coverage/`       | 5     | populated |
 | `deterministic_replay/` | 5    | populated (v0.20) |
 | `formatter_idempotence/` | 5   | populated (v0.20) |
-| `native_abi/`          | 4     | populated (v0.20) |
-| `wasm_component/`      | 4     | populated (v0.20) |
+| `native_abi/`          | 4     | populated (v0.20 fixtures, v0.21 per-backend harness) |
+| `wasm_component/`      | 4     | populated (v0.20 fixtures, v0.21 per-backend harness) |
 | **Total**              | **140** | 24 populated / 24 categories |
+
+### v0.21 deltas
+
+* `type_checking/17_unknown_variant`, `18_not_a_struct`,
+  `19_lambda_arity_mismatch`, `20_cannot_take_ref`,
+  `21_generic_arg_kind_mismatch` joined the kit in the v0.12/v0.14
+  emit-site work but the v0.20 coverage report still marked their
+  codes (MT2009, MT2022, MT2023, MT2024, MT2025) as uncovered. The
+  v0.21 audit reconciles `coverage.json` with the actual fixture
+  state: 9 codes (MT2003, MT2009, MT2014, MT2022, MT2023, MT2024,
+  MT2025, MT3002, MT3007) move from `uncovered` to `covered`,
+  dropping the true-gap count from **17 to 8**.
+* Per-backend link-and-run + component-shape harnesses landed in
+  `crates/mty-codegen-cranelift/tests/conformance_native.rs` and
+  `crates/mty-codegen-wasm/tests/conformance_wasm_component.rs`.
+  Each fixture under `native_abi/` and `wasm_component/` is now
+  driven by a real backend test (not just the v0.20 conformance_full
+  parse-and-typecheck smoke). See `dev/history/notes/CONFORMANCE_V0_21_NOTES.md`.
 
 All 24 categories are now populated. The four v0.20 categories use a
 split-harness shape: the conformance_full check validates that the

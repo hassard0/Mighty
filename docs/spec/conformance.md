@@ -205,6 +205,33 @@ scorecard tracking known conformance claims; submission is voluntary.
 
 ## 10. Changelog
 
+* **v0.21** (2026-05-26) — per-backend assertion harnesses for the
+  `native_abi/` and `wasm_component/` categories. The v0.20 fixtures
+  were validated only by the conformance_full parse-and-typecheck
+  smoke; v0.21 adds:
+  - `crates/mty-codegen-cranelift/tests/conformance_native.rs` — per
+    case: compile the fixture's `.mty` to a host-format object,
+    re-parse via `object::read::File`, pin the `main` symbol's
+    presence, and (on Unix hosts with a system `cc`) attempt the
+    full link-and-run cycle against `harness.c`, diffing the exit
+    code against `expected_harness_exit.txt`. The link step is
+    best-effort: cases that reference `export c` symbols the codegen
+    still lowers as `Linkage::Local` are *expected* to fail at link
+    time in v0.21, so the test logs the diagnostic and continues —
+    no regression on the v0.21 baseline.
+  - `crates/mty-codegen-wasm/tests/conformance_wasm_component.rs` —
+    per case: emit core wasm under `EmitWasiPreview::P2`, wrap as a
+    Component Model component, validate, and diff the top-level
+    import + export shape against the case's `expected_component.txt`.
+    The match is a subset-and-substring contract: every listed
+    interface MUST appear in the encoded component (substring) but
+    extras are tolerated so the test survives encoder churn.
+  - `tests/conformance/coverage.json` v0.21 audit: 9 codes
+    (MT2003, MT2009, MT2014, MT2022, MT2023, MT2024, MT2025, MT3002,
+    MT3007) were already covered by fixtures that landed in v0.12
+    /v0.14 but the v0.20 report missed them. v0.21 promotes them
+    from `uncovered` to `covered`, dropping the true-gap count from
+    17 to **8**.
 * **v0.20** (2026-05-26) — populated all four placeholder categories
   (`deterministic_replay/`, `formatter_idempotence/`, `native_abi/`,
   `wasm_component/`) with 18 seed cases. Bumped total to **140 cases

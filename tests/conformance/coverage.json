@@ -1,30 +1,40 @@
 {
   "version": "1",
-  "generated_for": "v0.20",
+  "generated_for": "v0.21",
   "description": "Diagnostic-code coverage report for the Mighty conformance kit. Per-code: 'covered' means at least one populated case in tests/conformance/ asserts the code; 'auxiliary' means it's witnessed by a unit test in crates/* but not by a conformance_full fixture; 'gap' means no harness anywhere exercises it.",
+  "v0_21_audit_note": "v0.21 audit reconciled coverage.json with the existing fixture corpus. The v0.20 report listed 17 codes as 'uncovered' but 9 of those already had populated conformance_full fixtures whose codes the v0.11/v0.12 emit-site work activated (MT2003, MT2009, MT2014, MT2022, MT2023, MT2024, MT2025, MT3002, MT3007). v0.21 promotes those 9 from uncovered → covered without writing new fixtures (the existing ones already do the job). True gap drops from 17 to 8.",
   "diagnostic_codes": {
     "covered": [
       "MT0001",
       "MT2001",
       "MT2002",
+      "MT2003",
       "MT2004",
       "MT2005",
       "MT2006",
       "MT2007",
       "MT2008",
+      "MT2009",
       "MT2010",
       "MT2011",
       "MT2012",
       "MT2013",
+      "MT2014",
       "MT2017",
       "MT2020",
       "MT2021",
+      "MT2022",
+      "MT2023",
+      "MT2024",
+      "MT2025",
       "MT2026",
       "MT3001",
+      "MT3002",
       "MT3003",
       "MT3004",
       "MT3005",
       "MT3006",
+      "MT3007",
       "MT3008",
       "MT3009",
       "MT3010",
@@ -105,19 +115,10 @@
     "uncovered": [
       "MT0004",
       "MT0030",
-      "MT2003",
-      "MT2009",
-      "MT2014",
       "MT2015",
       "MT2016",
       "MT2018",
       "MT2019",
-      "MT2022",
-      "MT2023",
-      "MT2024",
-      "MT2025",
-      "MT3002",
-      "MT3007",
       "MT3012",
       "MT3015"
     ]
@@ -136,18 +137,25 @@
       "diagnostic_codes": [
         "MT2001",
         "MT2002",
+        "MT2003",
         "MT2004",
         "MT2005",
         "MT2006",
         "MT2007",
         "MT2008",
+        "MT2009",
         "MT2010",
         "MT2011",
         "MT2012",
         "MT2013",
+        "MT2014",
         "MT2017",
         "MT2020",
-        "MT2021"
+        "MT2021",
+        "MT2022",
+        "MT2023",
+        "MT2024",
+        "MT2025"
       ]
     },
     "type_inference": {
@@ -158,10 +166,12 @@
       "case_count": 13,
       "diagnostic_codes": [
         "MT3001",
+        "MT3002",
         "MT3003",
         "MT3004",
         "MT3005",
         "MT3006",
+        "MT3007",
         "MT3008",
         "MT3009",
         "MT3010",
@@ -262,12 +272,12 @@
     "native_abi": {
       "case_count": 4,
       "diagnostic_codes": [],
-      "note": "v0.20 — placeholder filled; link-and-run asserted by crates/mty-codegen-cranelift tests"
+      "note": "v0.20 — placeholder filled; link-and-run asserted by crates/mty-codegen-cranelift/tests/conformance_native.rs (v0.21 wiring: object-shape MUST checks + best-effort cc link-and-run stretch on unix hosts)"
     },
     "wasm_component": {
       "case_count": 4,
       "diagnostic_codes": [],
-      "note": "v0.20 — placeholder filled; component-shape asserted by crates/mty-codegen-wasm tests"
+      "note": "v0.20 — placeholder filled; component-shape asserted by crates/mty-codegen-wasm/tests/conformance_wasm_component.rs (v0.21 wiring: import/export-subset MUST checks against expected_component.txt)"
     }
   },
   "totals": {
@@ -275,11 +285,40 @@
     "populated_categories": 24,
     "cases": 140,
     "diagnostic_codes": 110,
-    "covered": 53,
+    "covered": 62,
     "auxiliary": 42,
-    "uncovered": 17,
-    "coverage_pct_direct": 48,
-    "coverage_pct_any_harness": 86
+    "uncovered": 8,
+    "coverage_pct_direct": 56,
+    "coverage_pct_any_harness": 93
+  },
+  "v0_21_delta": {
+    "new_cases": 0,
+    "audit_promoted": 9,
+    "audit_promoted_codes": [
+      "MT2003",
+      "MT2009",
+      "MT2014",
+      "MT2022",
+      "MT2023",
+      "MT2024",
+      "MT2025",
+      "MT3002",
+      "MT3007"
+    ],
+    "newly_wired_harnesses": [
+      "crates/mty-codegen-cranelift/tests/conformance_native.rs",
+      "crates/mty-codegen-wasm/tests/conformance_wasm_component.rs"
+    ],
+    "true_gap_remaining": [
+      "MT0004 (UNKNOWN_DURATION_UNIT — no caller; funnels to MT0001 via parse_source)",
+      "MT0030 (DEPTH_LIMIT_EXCEEDED — no caller; parser uses a different depth budget)",
+      "MT2015 (NON_EXHAUSTIVE_MATCH — constructor only, no synth-path caller)",
+      "MT2016 (UNREACHABLE_MATCH_ARM — constructor only)",
+      "MT2018 (IF_BRANCH_MISMATCH — funnels to MT2001 mismatch today)",
+      "MT2019 (RETURN_TYPE_MISMATCH — funnels to MT2001 today)",
+      "MT3012 (DROP_IN_CONST_CONTEXT — no const-context support in HIR yet)",
+      "MT3015 (USE_OF_UNINITIALIZED — emit-site exists but no `let x: T;` declared-uninitialised form parses)"
+    ]
   },
   "v0_20_delta": {
     "new_cases": 18,

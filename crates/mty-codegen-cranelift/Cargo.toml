@@ -31,6 +31,14 @@ object = { version = "0.39", default-features = false, features = ["write", "std
 gimli = { workspace = true, features = ["read", "std"] }
 tempfile = "3"
 criterion.workspace = true
+# v0.21 — conformance_native test wires the parser → HIR → typeck → SIR
+# pipeline so it can drive native_abi/*/input.mty straight through to
+# an object file. The runtime crate is NOT pulled in (the conformance
+# tests don't exercise tokio); we only need the static-analysis path.
+mty-syntax = { path = "../mty-syntax" }
+mty-ast = { path = "../mty-ast" }
+mty-borrow = { path = "../mty-borrow" }
+rowan = { workspace = true }
 
 [[bench]]
 name = "typeck_parallel"
