@@ -131,10 +131,110 @@ but human-readable, enough for trace inspection. The fast path
 short-circuits when no recorder is installed (one `RwLock::read`), so
 the encode cost is only paid during recording.
 
-**Full byte-identical payload encoding** (where replay can re-construct
-the `Value` tree exactly to feed back into `send`/`ask`) is a v0.19
-follow-up; today's step-replayer drives a `StepHandler` over the
-recorded events rather than driving a fresh `Runtime` from the seed.
+### Byte-identical re-execution (v0.19, wire version 2)
+
+v0.19 promotes the payload field on `TraceEvent::MessageSent` from a
+flat `Vec<u8>` to a structured `ReplayPayload` enum:
+
+```rust
+pub enum ReplayPayload {
+    Opaque(Vec<u8>),        // v0.18 hot path — Debug-formatted bytes
+    Values(Vec<ReplayValue>) // v0.19 structural — byte-identical
+}
+```
+
+`ReplayValue` is a structural mirror of the SIR interpreter's `Value`
+enum (`Unit`/`Bool`/`Int`/`Float`/`Str`/`Char`/`Duration`/`Size`/
+`Tuple`/`Array`/`Record`/`Variant`/`Opaque`). Variants holding live
+host references (`Ref`/`Fn`/`Agent`/`Cap`) fold into
+`ReplayValue::Opaque(String)` carrying the Debug rendering — they
+can't round-trip across processes, but their *shape* survives.
+
+The `from_runtime_value` / `to_runtime_value` codec lives at
+`crates/mty-runtime/src/replay/mod.rs`; pure-data variants are
+lossless. `mty_types::IntKind` / `FloatKind` are serialised by name
+(`"I64"`, `"F64"`, …) so the wire stays independent of any single
+type-system version.
+
+#### Wire version 2 — backwards-compat read
+
+`TRACE_WIRE_VERSION = 2`. The `decode()` helper peeks at the
+on-disk `version` field via a tiny `VersionProbe` deserializer:
+
+* **v1** — the legacy `MessageSent.payload: Vec<u8>` shape. The
+  decoder deserializes into `V1TraceFile` and lifts each payload
+  into `ReplayPayload::Opaque(bytes)`. The in-memory `TraceFile`
+  preserves the source-disk `version = 1` so tools can branch on
+  "this was a legacy trace".
+* **v2** — direct decode. New traces always write version 2.
+* **`version > 2`** — `RecorderError::UnsupportedVersion`. The
+  one-way-stable contract means upgrades land on the latest
+  consumer first.
+
+#### `ReplayDriver` — full re-execution
+
+`crates/mty-runtime/src/replay/replay_driver.rs` ships the v0.19 full
+re-execution surface:
+
+```text
+record-time trace
+       │
+       ▼
+  ReplayDriver::from_trace(trace)
+   .with_program(prog)            ◀── caller supplies the SIR program
+   .mock_io(true)                 ◀── default; IO is replayed from trace
+   .replay_all()                  ◀── spins fresh Runtime, drives events
+       │
+       ▼
+  ReplayReport { events_replayed, mismatches, success }
+```
+
+The driver:
+
+1. Builds a fresh `Runtime` seeded from `trace.runtime_seed`,
+   `workers(1)` (mandatory for determinism).
+2. Installs a local `Recorder` so re-emitted events accumulate into a
+   parallel stream.
+3. For each `Spawn` in the recorded trace, calls
+   `Runtime::spawn_agent(agent_type, vec![])` and remembers the
+   recorded-id → live-handle mapping.
+4. For each `MessageSent` from the synthetic `extern` (id=0),
+   reconstructs the args from the payload and calls `Runtime::ask`.
+5. After `Runtime::shutdown`, compares the recorded vs replayed
+   stream event-by-event via `compare_streams`. `MessageHandled`'s
+   `elapsed_us` is intentionally **not** compared (it's a wall-clock
+   measurement). `Exit` / `BudgetExhausted` are **soft** events —
+   their absence in the replay is not a divergence (the recorded
+   trailer is timing-dependent on shutdown).
+
+The byte-identical contract:
+
+* `Values == Values` — strict, every nested `ReplayValue` matches.
+* `Opaque == Opaque` — accepted as **approximate** equality. The
+  Debug rendering is non-injective, so v0.18 hot-path traces can't
+  be strictly byte-identical without upgrading the recording side
+  too. Approximate equality keeps v0.18 traces flowing through the
+  driver while v0.19+ structural recordings unlock strict equality.
+* `Opaque vs Values` — accept if the structural side, re-rendered
+  through `format!("{:?}", reconstructed_runtime_values)`, byte-
+  matches the opaque side.
+
+```text
+            record                                replay
+              │                                     │
+              ▼                                     ▼
+       MTYTRACE | JSON                       fresh Runtime
+       (Spawn, MessageSent, …) ────────▶    spawns + asks + IO
+                                                     │
+                                                     ▼
+                                            in-memory Recorder
+                                                     │
+                                                     ▼
+                                       compare_streams (byte-diff)
+                                                     │
+                                                     ▼
+                                              ReplayReport
+```
 
 ## Budget-exhaust vs Exit duplication
 
@@ -171,7 +271,10 @@ dying agent.
 | `global_recorder` (returns `Option<Arc<...>>`)| `replay::recorder::*`                     |
 | `TraceFile`, `TraceEvent`, `TraceSummary`     | `replay::wire::*`                         |
 | `Replayer`, `StepHandler`, `CountingStepHandler` | `replay::*`                            |
-| `MTYTRACE` magic + `TRACE_WIRE_VERSION` (1)   | `replay::wire::*`                         |
+| `ReplayDriver`, `ReplayReport`, `EventMismatch` | `replay::replay_driver::*` (v0.19)      |
+| `ReplayPayload`, `ReplayValue`, `RuntimeValueLike` | `replay::wire::*` (v0.19)            |
+| `from_runtime_value`, `to_runtime_value`      | `replay::*` (v0.19 codec)                 |
+| `MTYTRACE` magic + `TRACE_WIRE_VERSION` (2)   | `replay::wire::*`                         |
 
 Re-exported at crate root for downstream callers:
 `mty_runtime::{with_recorder, recording_enabled, global_recorder}`.
@@ -190,19 +293,27 @@ Re-exported at crate root for downstream callers:
   distinct-agent-id capture, trap recovery, fire-and-forget capture,
   monotonic `msg_idx`, empty-path-env-treated-as-unset,
   recorder-uninstalled-after-shutdown.
-* `crates/mty-cli/src/cmd/replay.rs` (5 CLI unit tests): summary
+* `crates/mty-runtime/tests/replay_byte_identical.rs` (9 v0.19 end-
+  to-end byte-identical tests): record-then-replay-2-agents,
+  diverged-handler detection, IO-uses-recorded-bytes, v1-backwards-
+  compat-read, clock-returns-recorded-time, structural-payload-
+  round-trip, driver-requires-program, empty-trace, opaque-survives-
+  disk.
+* `crates/mty-cli/src/cmd/replay.rs` (6 CLI unit tests): summary
   rendering, invalid-path failure, step-summary formatting, ordered
-  event visitation.
+  event visitation, byte-identical-without-program error path.
 
-## v0.19 follow-ups
+## v0.20 / v1.0 follow-ups
 
 1. **Step-debugger REPL** — `mty debug <trace.bin>` REPL on top of
-   `Replayer::step`: `step` / `peek <agent>` / `print msg` /
-   `break <handler>`.
-2. **Full byte-identical replay** — serialize `Value` payloads
-   structurally (not via `Debug`), then re-construct on replay to
-   feed `Runtime::send`/`ask` exactly the same args. Closes the
-   "byte-identical handler outputs" roadmap goal.
+   `ReplayDriver::replay_all`: `step` / `peek <agent>` / `print msg`
+   / `break <handler>`. Stop point per-event with structured payload
+   inspection.
+2. **Strict byte-identical for Opaque traces** — upgrade the v0.18
+   hot path to emit structural `ReplayPayload::Values` (with the same
+   "skip when no recorder" fast path). Lets pre-v0.19 traces re-
+   record losslessly so the `Opaque == Opaque` approximate-equality
+   arm disappears.
 3. **Postcard codec** — add a `replay-postcard` cargo feature; switch
    `TraceCodec::default` to postcard for `MTY_RECORD_TRACE` writers.
    JSON stays as the `--dump-json` emitter for human-readable
@@ -210,7 +321,10 @@ Re-exported at crate root for downstream callers:
 4. **Per-runtime recording** — replace the process-wide `OnceLock`
    with a per-`Runtime` slot so multiple Runtimes (e.g. in a
    multi-tenant host) can record independently.
-5. **Sampling** — `MTY_RECORD_SAMPLE=0.01` env opt-in for long-running
+5. **Recording compression** — postcard + zstd framing for long-
+   running production traces. The codec layer already abstracts the
+   payload, so this is additive.
+6. **Sampling** — `MTY_RECORD_SAMPLE=0.01` env opt-in for long-running
    production traces.
 
 ## See also
@@ -220,3 +334,4 @@ Re-exported at crate root for downstream callers:
 * `docs/internals/cluster.md` — sibling wire-format design
 * `dev/history/notes/REPLAY_V0_17_NOTES.md` — v0.17 ship notes
 * `dev/history/notes/REPLAY_HOTPATH_V0_18_NOTES.md` — v0.18 wire-up
+* `dev/history/notes/REPLAY_BYTE_IDENTICAL_V0_19_NOTES.md` — v0.19 driver + wire v2

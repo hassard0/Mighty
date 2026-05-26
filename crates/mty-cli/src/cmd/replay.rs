@@ -2,19 +2,39 @@
 //! dump every event as JSON, or step-replay it. v0.17 Tier 1.4
 //! (see `docs/internals/agent-features-roadmap.md`).
 //!
+//! v0.19 adds byte-identical full re-execution via [`ReplayDriver`]
+//! (gated behind `--byte-identical`, opt-in to avoid breaking the
+//! v0.17 counting-handler step path; a future minor bump will flip
+//! the default). When byte-identical is on, the CLI re-runs the
+//! recorded program against the trace and reports per-event
+//! divergences.
+//!
 //! See `docs/reference/cli/mty-replay.md` for the user-facing docs.
 
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use mty_runtime::replay::{CountingStepHandler, Replayer, TraceSummary};
+use mty_runtime::replay::{CountingStepHandler, ReplayDriver, Replayer, TraceSummary};
 
 #[derive(Debug)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct ReplayArgs {
     pub trace: PathBuf,
     pub dump_json: bool,
     pub step: bool,
     pub json_summary: bool,
+    /// v0.19: drive a fresh Runtime from the trace + assert each
+    /// emitted event matches the recorded one. Implies `--step`.
+    pub byte_identical: bool,
+    /// v0.19: IO/Clock/Random reads return recorded bytes instead of
+    /// touching the live host. Default `true` for byte-identical so
+    /// replay is portable across machines.
+    pub mock_io: bool,
+    /// v0.19: path to the `.mty` source the trace was recorded
+    /// against. Required for `--byte-identical` (the trace itself
+    /// doesn't carry the program).
+    pub program: Option<PathBuf>,
 }
 
 /// CLI entry point. Returns a Unix-style process exit code.
@@ -48,6 +68,20 @@ pub fn run(args: ReplayArgs) -> i32 {
                 1
             }
         }
+    } else if args.byte_identical {
+        // v0.19: drive a fresh Runtime from the trace + assert each
+        // emitted event matches the recorded one.
+        let prog_path = match &args.program {
+            Some(p) => p.clone(),
+            None => {
+                eprintln!(
+                    "mty replay: --byte-identical requires --program <path-to.mty> \
+(the trace alone doesn't carry the program source)"
+                );
+                return 2;
+            }
+        };
+        run_byte_identical(&args.trace, replayer, &prog_path, args.mock_io)
     } else if args.step {
         let mut handler = CountingStepHandler::new();
         match replayer.step(&mut handler) {
@@ -116,10 +150,80 @@ fn render_summary(s: &TraceSummary, path: &std::path::Path) -> String {
         s.total_handler_elapsed_us
     ));
     out.push_str("\nFlags:\n");
-    out.push_str("  --dump-json  emit every event as one JSON line\n");
-    out.push_str("  --step       walk the trace through a step handler\n");
-    out.push_str("  --json       emit this summary as JSON\n");
+    out.push_str("  --dump-json        emit every event as one JSON line\n");
+    out.push_str("  --step             walk the trace through a step handler\n");
+    out.push_str("  --json             emit this summary as JSON\n");
+    out.push_str(
+        "  --byte-identical   re-execute the program + assert each event matches (v0.19)\n",
+    );
+    out.push_str("  --mock-io          IO reads return recorded bytes instead of touching disk\n");
+    out.push_str("  --program <path>   .mty source file (required with --byte-identical)\n");
     out
+}
+
+/// v0.19: drive a fresh Runtime from the trace via [`ReplayDriver`],
+/// report the byte-identical diff, and exit non-zero if any mismatch
+/// was detected.
+fn run_byte_identical(
+    trace_path: &std::path::Path,
+    replayer: Replayer,
+    program_path: &std::path::Path,
+    mock_io: bool,
+) -> i32 {
+    let src = match std::fs::read_to_string(program_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!(
+                "mty replay: failed to read program {}: {e}",
+                program_path.display()
+            );
+            return 1;
+        }
+    };
+    let prog = match compile_program(&src, program_path) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!(
+                "mty replay: failed to compile {}: {e}",
+                program_path.display()
+            );
+            return 1;
+        }
+    };
+    let trace = replayer.trace().clone();
+    let mut driver = ReplayDriver::from_trace(trace)
+        .with_program(prog)
+        .mock_io(mock_io);
+    let report = match driver.replay_all() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("mty replay: byte-identical replay failed: {e}");
+            return 1;
+        }
+    };
+    println!("=== Byte-identical replay ({}) ===", trace_path.display());
+    println!("  events recorded: {}", driver.trace().events.len());
+    println!("  events replayed: {}", report.events_replayed);
+    println!("  mismatches     : {}", report.mismatch_count());
+    println!();
+    println!("{}", report.render());
+    if report.success {
+        0
+    } else {
+        1
+    }
+}
+
+/// Compile a `.mty` source file into a SIR `Program`. Mirrors the
+/// `compile()` helper in `crates/mty-runtime/tests/replay_e2e.rs`;
+/// kept local to avoid widening the public surface of `mty-driver`.
+fn compile_program(src: &str, path: &std::path::Path) -> Result<Arc<mty_ir::ir::Program>, String> {
+    use mty_driver::pipeline::{lower, lower_to_sir, parse_source, type_and_borrow_check};
+    let parsed = parse_source(src.to_string(), path.display().to_string());
+    let (pkg, _diags) = lower(&parsed);
+    let _ = type_and_borrow_check(&pkg);
+    let (prog, _diags) = lower_to_sir(&pkg);
+    Ok(Arc::new(prog))
 }
 
 fn render_step_summary(n: usize, h: &CountingStepHandler) -> String {
@@ -209,14 +313,21 @@ mod tests {
         assert!(out.contains("12345"));
     }
 
-    #[test]
-    fn run_with_invalid_path_returns_1() {
-        let code = run(ReplayArgs {
-            trace: PathBuf::from("/does/not/exist-replay.bin"),
+    fn default_args(trace: PathBuf) -> ReplayArgs {
+        ReplayArgs {
+            trace,
             dump_json: false,
             step: false,
             json_summary: false,
-        });
+            byte_identical: false,
+            mock_io: true,
+            program: None,
+        }
+    }
+
+    #[test]
+    fn run_with_invalid_path_returns_1() {
+        let code = run(default_args(PathBuf::from("/does/not/exist-replay.bin")));
         assert_eq!(code, 1);
     }
 
@@ -230,13 +341,24 @@ mod tests {
         r.record_exit(1, "normal");
         r.flush_to_disk().unwrap();
 
-        let code = run(ReplayArgs {
-            trace: path.clone(),
-            dump_json: false,
-            step: false,
-            json_summary: false,
-        });
+        let code = run(default_args(path.clone()));
         assert_eq!(code, 0);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn byte_identical_without_program_returns_2() {
+        // The CLI rejects --byte-identical without --program.
+        let path = tmp_path("bi_no_prog");
+        let r = Recorder::new(&path, 0, 1);
+        r.record_spawn(1, "Echoer", None);
+        r.flush_to_disk().unwrap();
+
+        let mut args = default_args(path.clone());
+        args.byte_identical = true;
+        args.program = None;
+        let code = run(args);
+        assert_eq!(code, 2, "expected exit code 2 for missing --program");
         let _ = std::fs::remove_file(&path);
     }
 

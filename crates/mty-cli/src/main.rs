@@ -133,6 +133,19 @@ enum Cmd {
         /// Emit the default summary as JSON instead of the table.
         #[arg(long)]
         json: bool,
+        /// v0.19: drive a fresh `Runtime` from the trace + assert each
+        /// emitted event matches the recorded one. Requires `--program`.
+        #[arg(long)]
+        byte_identical: bool,
+        /// v0.19: IO/Clock/Random reads return recorded bytes instead
+        /// of touching the live host. Defaults to true so replay is
+        /// deterministic across machines.
+        #[arg(long, default_value_t = true)]
+        mock_io: bool,
+        /// v0.19: path to the `.mty` source file the trace was
+        /// recorded against. Required with `--byte-identical`.
+        #[arg(long)]
+        program: Option<std::path::PathBuf>,
     },
     /// Render package documentation extracted from `///` doc comments.
     ///
@@ -264,11 +277,17 @@ fn main() {
             dump_json,
             step,
             json,
+            byte_identical,
+            mock_io,
+            program,
         } => cmd::replay::run(cmd::replay::ReplayArgs {
             trace,
             dump_json,
             step,
             json_summary: json,
+            byte_identical,
+            mock_io,
+            program,
         }),
     };
     std::process::exit(code);

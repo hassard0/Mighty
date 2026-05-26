@@ -26,7 +26,9 @@
 //! See `dev/history/notes/REPLAY_V0_17_NOTES.md` for the wire-shape
 //! rationale and the v0.18 step-debugger follow-up.
 
-use super::wire::{TraceEvent, TraceFile, TRACE_MAGIC, TRACE_WIRE_VERSION};
+use super::wire::{
+    ReplayPayload, ReplayValue, TraceEvent, TraceFile, V1TraceFile, TRACE_MAGIC, TRACE_WIRE_VERSION,
+};
 use parking_lot::{Mutex, RwLock};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -131,7 +133,49 @@ impl Recorder {
         });
     }
 
+    /// Record a message-send with an *opaque* byte payload. The
+    /// v0.18 runtime hot path uses this (with the `format!("{:?}",
+    /// args)` byte rendering) because it doesn't pay the structural
+    /// `Value` walk when no recorder is installed.
     pub fn record_message_sent(&self, from: u64, to: u64, msg: &str, payload: Vec<u8>) {
+        self.record(TraceEvent::MessageSent {
+            from,
+            to,
+            msg: msg.to_string(),
+            payload: ReplayPayload::Opaque(payload),
+        });
+    }
+
+    /// v0.19: record a message-send with a *structural* payload — the
+    /// args have been encoded into [`ReplayValue`]s so the replayer
+    /// can reconstruct them and feed a fresh `Runtime` with the same
+    /// shape. Use this from the [`super::replay_driver`] re-execution
+    /// path.
+    pub fn record_message_sent_structural(
+        &self,
+        from: u64,
+        to: u64,
+        msg: &str,
+        values: Vec<ReplayValue>,
+    ) {
+        self.record(TraceEvent::MessageSent {
+            from,
+            to,
+            msg: msg.to_string(),
+            payload: ReplayPayload::Values(values),
+        });
+    }
+
+    /// v0.19: record a message-send with an already-constructed
+    /// [`ReplayPayload`]. Useful for tests + callers that want to
+    /// hand-craft the recorded shape.
+    pub fn record_message_sent_payload(
+        &self,
+        from: u64,
+        to: u64,
+        msg: &str,
+        payload: ReplayPayload,
+    ) {
         self.record(TraceEvent::MessageSent {
             from,
             to,
@@ -230,6 +274,13 @@ pub fn encode(trace: &TraceFile, codec: TraceCodec) -> Result<Vec<u8>, RecorderE
 }
 
 /// Decode bytes produced by [`encode`]. Strips + verifies the magic.
+///
+/// v0.19: detects the on-disk wire version up-front. **v1** traces
+/// (where `MessageSent.payload` was a flat `Vec<u8>`) are decoded via
+/// [`V1TraceFile`] and lifted into the current shape by wrapping each
+/// payload in a [`ReplayPayload::Opaque`]. **v2** traces decode
+/// directly. Traces with a `version` newer than this binary supports
+/// are rejected with [`RecorderError::UnsupportedVersion`].
 pub fn decode(bytes: &[u8]) -> Result<TraceFile, RecorderError> {
     if bytes.len() < TRACE_MAGIC.len() {
         return Err(RecorderError::BadMagic);
@@ -238,13 +289,31 @@ pub fn decode(bytes: &[u8]) -> Result<TraceFile, RecorderError> {
     if prefix != TRACE_MAGIC {
         return Err(RecorderError::BadMagic);
     }
-    let trace: TraceFile = serde_json::from_slice(rest).map_err(RecorderError::Serde)?;
-    if trace.version > TRACE_WIRE_VERSION {
+
+    // Peek at the wire version without committing to either shape.
+    // The header is tiny (`{"version":N,...`), so a partial-parse
+    // probe is plenty fast and avoids backtracking on full decode.
+    #[derive(serde::Deserialize)]
+    struct VersionProbe {
+        version: u32,
+    }
+    let probe: VersionProbe = serde_json::from_slice(rest).map_err(RecorderError::Serde)?;
+
+    if probe.version > TRACE_WIRE_VERSION {
         return Err(RecorderError::UnsupportedVersion {
-            found: trace.version,
+            found: probe.version,
             supported: TRACE_WIRE_VERSION,
         });
     }
+
+    if probe.version == 1 {
+        // v1 backwards-read: lift the flat-`Vec<u8>` payloads.
+        let v1: V1TraceFile = serde_json::from_slice(rest).map_err(RecorderError::Serde)?;
+        return Ok(v1.into_v2());
+    }
+
+    // v2 (or any future version <= TRACE_WIRE_VERSION).
+    let trace: TraceFile = serde_json::from_slice(rest).map_err(RecorderError::Serde)?;
     Ok(trace)
 }
 

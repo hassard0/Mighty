@@ -27,16 +27,217 @@
 //! v0.18 stretch. See `dev/history/notes/REPLAY_V0_17_NOTES.md`.
 
 pub mod recorder;
+// v0.19 Tier 1.4 follow-up — byte-identical full replay re-execution.
+// The driver spins up a fresh `Runtime` from a recorded trace and
+// asserts each re-emitted event matches the recorded one. See
+// `dev/history/notes/REPLAY_BYTE_IDENTICAL_V0_19_NOTES.md`.
+pub mod replay_driver;
 pub mod wire;
 
 pub use recorder::{
     decode, encode, global_recorder, install, install_from_env, recording_enabled, uninstall,
     with_recorder, Recorder, RecorderError, TraceCodec, RECORD_ENV,
 };
-pub use wire::{TraceEvent, TraceFile, TraceSummary, TRACE_MAGIC, TRACE_WIRE_VERSION};
+pub use replay_driver::{EventMismatch, ReplayDriver, ReplayReport};
+pub use wire::{
+    ReplayPayload, ReplayValue, RuntimeValueLike, TraceEvent, TraceFile, TraceSummary, TRACE_MAGIC,
+    TRACE_WIRE_VERSION,
+};
 
+use mty_ir::interp::value::Value as RuntimeValue;
+use mty_types::{FloatKind, IntKind};
 use std::io::Write;
 use std::path::Path;
+
+// -----------------------------------------------------------------------------
+// v0.19 — structural Value <-> ReplayValue codec
+// -----------------------------------------------------------------------------
+//
+// The runtime's `Value` enum carries Host-side references (`Ref`, `Fn`,
+// `Agent`, `Cap`) which aren't portable across processes. The codec
+// folds those into `ReplayValue::Opaque` so the on-disk shape remains
+// stable. Round-trip is lossless for the pure-data variants
+// (`Unit`/`Bool`/`Int`/`Float`/`Str`/`Char`/`Duration`/`Size`/`Tuple`/
+// `Array`/`Struct`/`Enum`).
+
+fn int_kind_name(k: IntKind) -> &'static str {
+    use IntKind::*;
+    match k {
+        I8 => "I8",
+        I16 => "I16",
+        I32 => "I32",
+        I64 => "I64",
+        I128 => "I128",
+        U8 => "U8",
+        U16 => "U16",
+        U32 => "U32",
+        U64 => "U64",
+        U128 => "U128",
+        ISize => "ISize",
+        USize => "USize",
+        IntInfer => "IntInfer",
+    }
+}
+
+fn int_kind_from_name(name: &str) -> IntKind {
+    use IntKind::*;
+    match name {
+        "I8" => I8,
+        "I16" => I16,
+        "I32" => I32,
+        "I64" => I64,
+        "I128" => I128,
+        "U8" => U8,
+        "U16" => U16,
+        "U32" => U32,
+        "U64" => U64,
+        "U128" => U128,
+        "ISize" => ISize,
+        "USize" => USize,
+        "IntInfer" => IntInfer,
+        // Default-safe fall-back: I64 is the interpreter's "natural"
+        // width and matches every numeric literal that fits.
+        _ => I64,
+    }
+}
+
+fn float_kind_name(k: FloatKind) -> &'static str {
+    use FloatKind::*;
+    match k {
+        F32 => "F32",
+        F64 => "F64",
+        FloatInfer => "FloatInfer",
+    }
+}
+
+fn float_kind_from_name(name: &str) -> FloatKind {
+    use FloatKind::*;
+    match name {
+        "F32" => F32,
+        "FloatInfer" => FloatInfer,
+        _ => F64,
+    }
+}
+
+/// Encode a runtime [`Value`](RuntimeValue) into the structural wire
+/// form. Variants the codec can't represent verbatim (live `Ref`, `Fn`,
+/// `Agent`, `Cap`, `Void`) are folded to [`ReplayValue::Opaque`] with
+/// their `Debug` rendering. Pure-data values round-trip losslessly.
+pub fn from_runtime_value(v: &RuntimeValue) -> ReplayValue {
+    match v {
+        RuntimeValue::Unit => ReplayValue::Unit,
+        RuntimeValue::Bool(b) => ReplayValue::Bool(*b),
+        RuntimeValue::Int(n, k) => ReplayValue::Int {
+            value: *n,
+            kind: int_kind_name(*k).to_string(),
+        },
+        RuntimeValue::Float(f, k) => ReplayValue::Float {
+            bits: f.to_bits(),
+            kind: float_kind_name(*k).to_string(),
+        },
+        RuntimeValue::Str(s) => ReplayValue::Str(s.clone()),
+        RuntimeValue::Char(c) => ReplayValue::Char(*c),
+        RuntimeValue::Duration(n) => ReplayValue::Duration(*n),
+        RuntimeValue::Size(n) => ReplayValue::Size(*n),
+        RuntimeValue::Tuple(xs) => ReplayValue::Tuple(xs.iter().map(from_runtime_value).collect()),
+        RuntimeValue::Array(xs) => ReplayValue::Array(xs.iter().map(from_runtime_value).collect()),
+        RuntimeValue::Struct { adt, fields } => ReplayValue::Record {
+            adt: adt.0 as u64,
+            fields: fields.iter().map(from_runtime_value).collect(),
+        },
+        RuntimeValue::Enum {
+            adt,
+            variant,
+            payload,
+        } => ReplayValue::Variant {
+            adt: adt.0 as u64,
+            variant: *variant,
+            payload: payload.iter().map(from_runtime_value).collect(),
+        },
+        // Non-portable: render to Debug so the byte-identical
+        // comparison still works (both sides will reproduce the same
+        // Debug rendering for the same shape).
+        other => ReplayValue::Opaque(format!("{:?}", other)),
+    }
+}
+
+/// Decode a structural [`ReplayValue`] back into an interpreter
+/// [`Value`](RuntimeValue). The lossy `Opaque` arm becomes
+/// [`RuntimeValue::Str`] — the v0.19 contract is that replay re-feeds
+/// the recorded shape, not that the original Host-side reference is
+/// reconstructed (which is impossible across processes).
+pub fn to_runtime_value(v: &ReplayValue) -> Result<RuntimeValue, String> {
+    Ok(match v {
+        ReplayValue::Unit => RuntimeValue::Unit,
+        ReplayValue::Bool(b) => RuntimeValue::Bool(*b),
+        ReplayValue::Int { value, kind } => RuntimeValue::Int(*value, int_kind_from_name(kind)),
+        ReplayValue::Float { bits, kind } => {
+            RuntimeValue::Float(f64::from_bits(*bits), float_kind_from_name(kind))
+        }
+        ReplayValue::Str(s) => RuntimeValue::Str(s.clone()),
+        ReplayValue::Char(c) => RuntimeValue::Char(*c),
+        ReplayValue::Duration(n) => RuntimeValue::Duration(*n),
+        ReplayValue::Size(n) => RuntimeValue::Size(*n),
+        ReplayValue::Tuple(xs) => RuntimeValue::Tuple(
+            xs.iter()
+                .map(to_runtime_value)
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        ReplayValue::Array(xs) => RuntimeValue::Array(
+            xs.iter()
+                .map(to_runtime_value)
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        ReplayValue::Record { adt, fields } => RuntimeValue::Struct {
+            adt: mty_types::AdtId(*adt as u32),
+            fields: fields
+                .iter()
+                .map(to_runtime_value)
+                .collect::<Result<Vec<_>, _>>()?,
+        },
+        ReplayValue::Variant {
+            adt,
+            variant,
+            payload,
+        } => RuntimeValue::Enum {
+            adt: mty_types::AdtId(*adt as u32),
+            variant: *variant,
+            payload: payload
+                .iter()
+                .map(to_runtime_value)
+                .collect::<Result<Vec<_>, _>>()?,
+        },
+        // Opaque doesn't round-trip the original Host-side reference;
+        // we lift it into a string so the replay driver still has a
+        // serialised value to feed into `Runtime::send`.
+        ReplayValue::Opaque(s) => RuntimeValue::Str(s.clone()),
+    })
+}
+
+impl RuntimeValueLike for RuntimeValue {
+    fn to_replay_value(&self) -> ReplayValue {
+        from_runtime_value(self)
+    }
+}
+
+/// Encode a slice of runtime values into a [`ReplayPayload::Values`].
+/// Used by the [`replay_driver`] when driving a fresh `Runtime` so
+/// every `record_message_sent` on the replay side has a structural
+/// payload to compare against.
+pub fn encode_values_payload(args: &[RuntimeValue]) -> ReplayPayload {
+    ReplayPayload::Values(args.iter().map(from_runtime_value).collect())
+}
+
+/// Best-effort conversion of an opaque byte payload into a
+/// [`ReplayPayload::Values`]. Recordings from the v0.18 hot path
+/// (which always emit `Opaque`) can be folded into a single-element
+/// `Values([Opaque(Debug(args))])` for comparison against a recorder
+/// that opted into structural recording. Currently returns the input
+/// unchanged — the driver's byte-identical assertion treats `Opaque ==
+/// Opaque` and `Values == Values` as equal cases.
+pub fn align_payloads(a: &ReplayPayload, b: &ReplayPayload) -> bool {
+    a == b
+}
 
 /// Errors surfaced by the replayer.
 #[derive(Debug, thiserror::Error)]
@@ -254,7 +455,7 @@ mod tests {
             from: 0,
             to: 1,
             msg: "Ping".into(),
-            payload: vec![],
+            payload: ReplayPayload::default(),
         });
         t.events.push(TraceEvent::MessageHandled {
             agent: 1,
@@ -368,9 +569,86 @@ mod tests {
             from: 0,
             to: 99,
             msg: "Ping".into(),
-            payload: vec![],
+            payload: ReplayPayload::default(),
         });
         let r = Replayer::new(t);
         assert!(r.verify_self_consistent().is_err());
+    }
+
+    // -------------------------------------------------------------------------
+    // v0.19 structural-codec tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn from_runtime_value_round_trips_scalar_values() {
+        // The pure-data variants must round-trip exactly.
+        let cases: Vec<RuntimeValue> = vec![
+            RuntimeValue::Unit,
+            RuntimeValue::Bool(true),
+            RuntimeValue::Int(-42, IntKind::I64),
+            RuntimeValue::Float(1.5, FloatKind::F64),
+            RuntimeValue::Str("hello".into()),
+            RuntimeValue::Char('z'),
+            RuntimeValue::Duration(120),
+            RuntimeValue::Size(8_192),
+            RuntimeValue::Tuple(vec![
+                RuntimeValue::Bool(false),
+                RuntimeValue::Int(7, IntKind::I32),
+            ]),
+            RuntimeValue::Array(vec![
+                RuntimeValue::Str("a".into()),
+                RuntimeValue::Str("b".into()),
+            ]),
+        ];
+        for case in cases {
+            let r = from_runtime_value(&case);
+            let back = to_runtime_value(&r).unwrap();
+            // We can't compare RuntimeValue directly (no PartialEq) so
+            // re-encode and compare ReplayValue forms.
+            let re_r = from_runtime_value(&back);
+            assert_eq!(r, re_r, "round-trip mismatch for {case:?}");
+        }
+    }
+
+    #[test]
+    fn encode_values_payload_yields_values_arm() {
+        let args = vec![
+            RuntimeValue::Str("hi".into()),
+            RuntimeValue::Int(99, IntKind::U16),
+        ];
+        let p = encode_values_payload(&args);
+        match &p {
+            ReplayPayload::Values(vs) => {
+                assert_eq!(vs.len(), 2);
+                assert!(matches!(&vs[0], ReplayValue::Str(s) if s == "hi"));
+                assert!(matches!(&vs[1], ReplayValue::Int { value: 99, .. }));
+            }
+            other => panic!("expected Values, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn opaque_values_byte_identical_for_equal_inputs() {
+        // Two recordings of the same args must compare equal — this is
+        // the byte-identical contract on the comparison side.
+        let p1 = ReplayPayload::Opaque(b"abc".to_vec());
+        let p2 = ReplayPayload::Opaque(b"abc".to_vec());
+        assert!(align_payloads(&p1, &p2));
+        let p3 = ReplayPayload::Opaque(b"xyz".to_vec());
+        assert!(!align_payloads(&p1, &p3));
+    }
+
+    #[test]
+    fn float_round_trip_preserves_nan_bits() {
+        // The bit-pattern encoding survives signaling-NaN payloads.
+        let snan_bits: u64 = 0x7FF1_2345_6789_ABCD;
+        let r = from_runtime_value(&RuntimeValue::Float(
+            f64::from_bits(snan_bits),
+            FloatKind::F64,
+        ));
+        match r {
+            ReplayValue::Float { bits, .. } => assert_eq!(bits, snan_bits),
+            other => panic!("expected Float, got {other:?}"),
+        }
     }
 }
