@@ -10,25 +10,61 @@ For the full per-release notes, see
 ## [Unreleased]
 
 - v1.0-RC4 work: extend Python 2nd-impl through HIR + sketch typeck
-  (~5.5 KLOC, ~8 days); fix the v0.13 red-shirt
-  `borrow_checking/14_borrow_outlives_owner` by adding the
-  `SyntaxKind::BLOCK` arm to
-  `mty-hir::lower::exprs::is_expr_node` (one-line traced fix from
-  v0.14); run `go test ./...` on the Go 3rd-impl (`impl-go/`) on a
-  Go-1.22+ host and cross-validate against Rust + Python over the
-  `examples/` sweep; MT0001 funnel split
+  (~5.5 KLOC, ~8 days); run `go test ./...` on the Go 3rd-impl
+  (`impl-go/`) on a Go-1.22+ host and cross-validate against Rust +
+  Python over the `examples/` sweep; MT0001 funnel split
   (MT0002/MT0003/MT0010/MT0011/MT0012/MT0020/MT0021/MT0030);
   `mty-pkg` cross-file resolution; parametric newtypes for self-host
-  arena ids; v0.14 stdlib-HOF row-poly call-site dispatch via
-  `mty-types::check.rs::prelude::BuiltinMethod`; v0.14 WASI P2
-  `P2DirectImport` wired into `emit.rs` dispatch + direct lowering
-  for `std.fs` and `std.http` + default flip from `--wasi=p1` to
-  `--wasi=p2`; effect-row surface-syntax parser for `!E` / `!{a |
-  E}` in `mty-syntax` + MT4020-25 diagnostics; self-host codegen
-  broadening (variant-call lowering, SwitchInt cascade, real LEB128
-  in Mighty, arena drops, agent backend); removal of the deprecated
-  `mty_macros::expand` / `expand_to_source` shim; normative
+  arena ids; v0.15 effect-row HIR/typeck wiring (pickup of
+  EFFECT_SET / EFFECT_NAME / EFFECT_ROW_TAIL / EFFECT_ROW_VAR;
+  unification against user-authored row variables;
+  `examples/22_effect_row.mty` end-to-end) + MT4020-25 diagnostics;
+  WASI P2 finish (canonical-ABI rewrite for the log shim; direct
+  lowering for `std.fs` + `std.http`); self-host codegen broadening
+  (real LEB128 in Mighty, arena drops at scope exit, agent backend);
+  v0.16 agent-features tier-1 (`mty agent inspect` / `mty agent
+  dump` per `docs/internals/agent-features-roadmap.md`); normative
   conformance suite kit publication; full `TokenStream` marshalling.
+
+## [0.15.0] - 2026-05-25
+
+**Dispatch-finishing tier — HOF dispatch end-to-end, RFC-008
+surface syntax, WASI P2 default, self-host 17 codegen tests,
+cross-platform release binaries.** The 19 row-polymorphic stdlib
+signatures that v0.14 landed as a SHIPPED-SUBSET are now wired
+through call-site dispatch: a new `BuiltinMethod.row_sig` field
+threads 21 sigs across 12 method names into
+`walk_expr_effects`, which instantiates fresh row variables per
+call and propagates closure effects into the caller (MT4050 fires
+on closed-row rejection; +10 dispatch tests). RFC-008 surface
+syntax `!E` / `!{a | E}` / `!{fs, net | E}` / `effect a | E`
+parses through `mty-syntax` with 4 new SyntaxKind variants
+(EFFECT_SET, EFFECT_NAME, EFFECT_ROW_TAIL, EFFECT_ROW_VAR), spec
+§9.2.1, +16 parser tests, and `examples/22_effect_row.mty`
+(parser-only; HIR/typeck wiring is v0.16). WASI Preview 2 is now
+the default for `wasm32-wasi` (explicit `--wasi=p1` retains
+back-compat) and four stdlib fns (`std.random.bytes`,
+`std.time.now` / `monotonic_now` / `resolution`) emit direct P2
+imports through `emit.rs`; the log shim + `std.fs` / `std.http`
+still route through the embedded adapter (canonical-ABI rewrite
+deferred to v0.16). The self-host Wasm codegen reaches **17 live /
+0 ignored** (was 13) with variant-call lowering in
+`mty-ir::lower::exprs::resolve_callee` (Some/Ok/MyEnum.Variant →
+`Rvalue::AdtInit`), a SwitchInt cascade for dense integer matches,
+and `for i in 0..n` desugar. The deprecated
+`mty_macros::expand` / `expand_to_source` API is removed (9
+integration test files migrated; `mty-macros` 111 → 101 tests, 10
+redundant pruned + coverage preserved). The v0.13 red-shirt
+`conformance/borrow_checking/14_borrow_outlives_owner` is closed
+by the one-line `SyntaxKind::BLOCK` arm in
+`mty-hir::lower::exprs::is_expr_node`; conformance corpus moves
+**91 → 92 cases / 16 categories / 3 → 2 ignored**. A new
+`.github/workflows/release.yml` produces `mty` binaries for Linux /
+macOS×2 / Windows on `v*` tag push — first run on this tag. The
+spec stays at v1.0-RC3 (RFC-008 + RFC-009 remain roadmap RFCs).
+**1140 Rust + 139 Python + 92 conformance + 57 self-host = 1428
+tests passing** (+38 vs v0.14), 0 failing, 3 ignored.
+[Release notes](dev/history/releases/RELEASE-v0.15.md).
 
 ## [0.14.0] - 2026-05-25
 

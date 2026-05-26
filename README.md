@@ -19,24 +19,32 @@ server, and stdlib are all in one Rust workspace and one `mty` binary.
 > **Status:** pre-alpha. The v1.0 language spec is at **v1.0-RC3**
 > (operator precedence promoted to normative §11.1.1; full
 > 63-reserved-keyword set enumerated). The toolchain is exercised by
-> 1109 Rust tests across 20 crates plus a second independent Python
-> front-end at [`impl-py/`](impl-py/) (137 tests) and a third
+> 1140 Rust tests across 20 crates plus a second independent Python
+> front-end at [`impl-py/`](impl-py/) (139 tests) and a third
 > source-only Go front-end at [`impl-go/`](impl-go/) (4848 LOC,
 > cross-validation pending Go toolchain). All six CI jobs are
 > required gates. **End-to-end self-hosting** is complete for the
 > slice-1 subset (lexer → parser → HIR → typeck → MtyIR → wasm
-> codegen, all in Mighty); v0.14 broadens the codegen with string
-> pool + ADT layout + pattern lowering, and example 03 now passes
+> codegen, all in Mighty); v0.15 broadens the codegen with
+> variant-call lowering (Some/Ok/MyEnum.Variant), the SwitchInt
+> cascade for dense integer matches, and `for i in 0..n` desugar
+> (17 live codegen tests, was 13), and examples 01-03 all bootstrap
 > through the self-host chain. A `1.0` GA tag still awaits the
 > completion of the 2nd-impl through type-check, the 3rd-impl
 > cross-validation, eight RFC comment-window closures (RFC-001..006
 > plus the v0.13 RFC-008 + RFC-009 drafts), and the normative
-> conformance suite (currently 91 cases / 16 categories). See
+> conformance suite (currently 92 cases / 16 categories). See
 > [Status](#status) below.
 
 ## Install
 
-A versioned release is not yet published. Build the toolchain from source:
+Pre-built `mty` binaries for Linux x86_64, macOS x86_64 + arm64,
+and Windows x86_64 are attached to each tagged release on the
+[GitHub Releases page](https://github.com/hassard0/Mighty/releases)
+(produced automatically by `.github/workflows/release.yml` on
+`v*` tag push, starting with v0.15.0).
+
+To build the toolchain from source instead:
 
 ```bash
 git clone https://github.com/hassard0/Mighty
@@ -99,9 +107,12 @@ Then:
 - Cranelift JIT + AOT object emission (default)
 - LLVM backend (`--features llvm`)
 - WASI Preview 2 with embedded preview1-adapter (vendored upstream
-  wasmtime v32 adapter; `--wasi=p2`; default stays `p1`). Direct
-  P2 imports for `std.random` / `std.time`; `std.fs` / `std.http`
-  flow through the embedded adapter
+  wasmtime v32 adapter; **now the default for `wasm32-wasi`** —
+  explicit `--wasi=p1` opts back to v0.13/v0.14 behaviour). Direct
+  P2 imports for `std.random.bytes` + `std.time.now` /
+  `monotonic_now` / `resolution` via `emit.rs` dispatch (v0.15);
+  the log shim + `std.fs` / `std.http` flow through the embedded
+  adapter (canonical-ABI rewrite is v0.16)
 - Wasm Component Model (`wit-component`) emission with user-supplied
   WIT via `[wit]` in `mighty.toml`
 - DWARF v4 debug info + Wasm source maps + `name` section
@@ -118,13 +129,13 @@ Then:
 **Self-hosting (full pipeline)**
 
 - Lexer (full), parser (~1.9 KLOC subset), HIR lowering, minimal typeck, MtyIR lowering, **and Wasm core-module codegen** are all written in Mighty itself and exercised end-to-end against examples 01-05 plus arithmetic / option / pattern / string fixtures.
-- 53 self-host tests passing (13 codegen + 9 IR + 7 typeck + 7 HIR + 13 parser + 4 lexer; 0 ignored).
-- v0.13 closed the front-end-through-back-end self-host chain for the slice-1 subset; v0.14 broadened the Wasm codegen with string pool emission (`selfhost/codegen/string_pool.mty`), ADT bump-alloc layout (`selfhost/codegen/adt_layout.mty`), and pattern lowering (`selfhost/codegen/pattern.mty`), bringing example 03 through the bootstrap chain.
+- 57 self-host tests passing (17 codegen + 9 IR + 7 typeck + 7 HIR + 13 parser + 4 lexer; 0 ignored).
+- v0.13 closed the front-end-through-back-end self-host chain for the slice-1 subset; v0.14 broadened the Wasm codegen with string pool emission, ADT bump-alloc layout, and pattern lowering, bringing example 03 through the bootstrap chain. v0.15 adds variant-call lowering in `mty-ir::lower::exprs::resolve_callee` (Some/Ok/MyEnum.Variant lower to `Rvalue::AdtInit`), a SwitchInt cascade for dense integer matches, and a `for i in 0..n` desugar.
 
 **Independent implementations**
 
 - Rust reference compiler (this repo, `crates/mty-*`).
-- Python 2nd-impl front-end at [`impl-py/`](impl-py/) — pure-Python lexer + parser built from the v1.0-RC2 spec prose alone. 137 tests, 21/21 examples lex+parse (v0.13 picked up the new `21_wasi_preview2.mty` cleanly with no impl changes).
+- Python 2nd-impl front-end at [`impl-py/`](impl-py/) — pure-Python lexer + parser built from the v1.0-RC2 spec prose alone. 139 tests, 22/22 examples lex+parse.
 - Go 3rd-impl front-end at [`impl-go/`](impl-go/) — Go 1.22+ lexer + parser + CLI built from the v1.0-RC3 spec prose alone. 4848 LOC; cross-validation (`go test ./...`, example sweep) pending Go toolchain on the build host.
 
 ## Documentation
@@ -193,10 +204,10 @@ The v1.0 spec is feature-complete at v1.0-RC2 (`docs/spec/v1.0-rc.md`).
 
 ### Landed pre-v1.0 (formerly post-v1.0)
 
-- WASI Preview 2 + user-supplied WIT — v0.13 (`--wasi=p2`, `--world`, `[wit]` section). v0.14 embeds the upstream wasmtime preview1→preview2 adapter and ships direct P2 imports for `std.random` / `std.time`.
-- Effect-row polymorphism infrastructure — v0.13 (RFC-008, `mty-types::effects::row`). v0.14 ships 19 more row-polymorphic stdlib signatures in `mty-types::effects::stdlib_sigs`; call-site dispatch lands v0.15.
-- Set-of-scopes macro hygiene — v0.13 (RFC-009, `mty-macros::scopes` + `hygiene`); v0.14 wires `mty-hir::lower::macros` to drive `expand_scoped_to_source` so the hygiene model now powers HIR macro resolution end-to-end (closes the v0.13 LSP-completion gap A111).
-- End-to-end self-hosting through Wasm codegen — v0.13; v0.14 broadens with string pool + ADT layout + pattern lowering so example 03 passes.
+- WASI Preview 2 + user-supplied WIT — v0.13 (`--wasi=p2`, `--world`, `[wit]` section). v0.14 embeds the upstream wasmtime preview1→preview2 adapter and ships direct P2 imports for `std.random` / `std.time`. v0.15 wires `P2DirectImport` into `emit.rs` dispatch (`std.random.bytes`, `std.time.now` / `monotonic_now` / `resolution`) and **flips the toolchain default to P2 for `wasm32-wasi`** (explicit `--wasi=p1` opts back).
+- Effect-row polymorphism infrastructure — v0.13 (RFC-008, `mty-types::effects::row`). v0.14 ships 19 more row-polymorphic stdlib signatures in `mty-types::effects::stdlib_sigs`. v0.15 wires call-site dispatch end-to-end (21 sigs across 12 method names propagate closure effects via `BuiltinMethod.row_sig` + `walk_expr_effects` row unification; MT4050 on closed-row rejection) and lands the RFC-008 surface syntax (`!E` / `!{a | E}` / `effect a | E`) in `mty-syntax` with 4 new SyntaxKind variants and spec §9.2.1.
+- Set-of-scopes macro hygiene — v0.13 (RFC-009, `mty-macros::scopes` + `hygiene`); v0.14 wires `mty-hir::lower::macros` to drive `expand_scoped_to_source` so the hygiene model now powers HIR macro resolution end-to-end (closes the v0.13 LSP-completion gap A111); v0.15 removes the deprecated `mty_macros::expand` / `expand_to_source` API per the v0.14 schedule.
+- End-to-end self-hosting through Wasm codegen — v0.13; v0.14 broadens with string pool + ADT layout + pattern lowering so example 03 passes; v0.15 adds variant-call lowering, SwitchInt cascade, and for-range desugar (17 codegen tests, 0 ignored).
 
 For the full per-version history of what shipped on the road to v1.0,
 see [`CHANGELOG.md`](CHANGELOG.md).
@@ -204,28 +215,38 @@ see [`CHANGELOG.md`](CHANGELOG.md).
 ## Status
 
 Mighty is **pre-alpha**. Internal milestones have been tagged through
-v0.14. The v1.0 language spec is at v1.0-RC3 — see
-`docs/spec/v1.0-rc.md`. There are 1109 Rust tests across the workspace
-(plus 137 Python tests in the [`impl-py/`](impl-py/) 2nd-impl, 91
-normative conformance cases, and 53 self-host tests = **1390
+v0.15. The v1.0 language spec is at v1.0-RC3 — see
+`docs/spec/v1.0-rc.md`. There are 1140 Rust tests across the workspace
+(plus 139 Python tests in the [`impl-py/`](impl-py/) 2nd-impl, 92
+normative conformance cases, and 57 self-host tests = **1428
 combined**), 0 clippy warnings *under the strict `pedantic` gate*
 (a required CI job, not advisory), and **4/4 demos** pass `smoke.sh`.
 The cargo-fuzz harness covers four targets (parser / typeck / fmt /
-codegen), and the normative conformance corpus stands at **91 cases
-across 16 categories** (3 ignored: 2 carried over from v0.11, 1
-red-shirt carried over from v0.12 — traced during v0.14 to a one-line
-bug in `mty-hir::lower::exprs::is_expr_node`). v0.14 closes
-KNOWN_ISSUES #11 (six FROZEN typeck codes now all have emit-sites);
-ships **WASI Preview 2 with the vendored upstream wasmtime adapter**
-and direct P2 imports for `std.random` / `std.time`; wires the
-**set-of-scopes hygiene** layer from `mty-macros` into
-`mty-hir::lower::macros` so the new model powers HIR macro
-resolution; and broadens the self-host Wasm codegen so example 03
-passes through the bootstrap chain.
+codegen), and the normative conformance corpus stands at **92 cases
+across 16 categories** (2 ignored: long-standing
+`capability_checking/03_narrow_to_ro` and
+`supervisor_restart/02_escalate`; the v0.12 red-shirt
+`borrow_checking/14_borrow_outlives_owner` is closed in v0.15 by the
+one-line `SyntaxKind::BLOCK` arm in `mty-hir::lower::exprs::is_expr_node`).
+v0.15 wires the v0.14 row-polymorphism infrastructure through call-site
+dispatch end-to-end (HOF closure-effect propagation, MT4050 on
+closed-row rejection); lands the **RFC-008 effect-row surface syntax**
+(`!E` / `!{a | E}`) in `mty-syntax`; flips the WASI default to
+**Preview 2 for `wasm32-wasi`** with direct P2 imports for
+`std.random.bytes` + `std.time`; broadens the self-host Wasm codegen
+to 17 codegen tests with variant-call lowering + SwitchInt cascade +
+for-range desugar; and removes the deprecated
+`mty_macros::expand` / `expand_to_source` API per the v0.14
+schedule. The v0.16 roadmap is captured in
+[`docs/internals/agent-features-roadmap.md`](docs/internals/agent-features-roadmap.md)
+(5-tier agent features plan: introspect / OTel / replay /
+hot-reload / distributed).
 
-**There is no released binary yet.** Build from source, treat the
-language as unstable, and please file issues for everything that
-surprises you.
+**Pre-built `mty` binaries** for Linux x86_64, macOS x86_64 + arm64,
+and Windows x86_64 are now produced automatically on every `v*` tag
+push (see [Releases](https://github.com/hassard0/Mighty/releases)).
+Building from source is still supported. Treat the language as
+unstable and please file issues for everything that surprises you.
 
 ## Contributing
 
