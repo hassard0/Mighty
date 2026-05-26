@@ -1,8 +1,16 @@
 //! Macro-introduced `let` bindings are renamed (`__mac_<ctx>_<orig>`)
 //! so they cannot capture or be captured by the caller's bindings.
+//!
+//! v0.13 additionally checks that the scope-aware expander
+//! (`expand_scoped`) emits equivalent output to the legacy mangler,
+//! confirming the set-of-scopes layer (RFC-009) is non-regressive
+//! for the existing simple-capture cases.
 
 use mty_ast::{AstNode, File};
-use mty_macros::{expand, expand_to_source, MacroRegistry};
+use mty_macros::{
+    expand, expand_scoped, expand_to_source, strip_scopes, tokens_to_source, MacroRegistry,
+    ScopeGen, Scopes,
+};
 use mty_syntax::SyntaxNode;
 
 fn registry(src: &str) -> MacroRegistry {
@@ -53,6 +61,42 @@ fn nested_expansions_get_different_contexts() {
     assert!(s_a.contains("__mac_1_y"));
     assert!(s_b.contains("__mac_2_y"));
     assert_ne!(s_a, s_b);
+}
+
+// ---------------------------------------------------------------------------
+// v0.13 set-of-scopes parity checks (RFC-009).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn scoped_expansion_emits_same_source_as_legacy() {
+    // The set-of-scopes expander must produce the same source text
+    // as the legacy mangler — the scope set is *additional*
+    // information, not a behavior change for current programs.
+    let reg = registry("macro twice(x) => { let y = x; y + y }\n");
+    let def = reg.get("twice").unwrap();
+
+    // Legacy: expand_to_source with explicit ctx=1.
+    let legacy = expand_to_source(def, &["3"], 1).unwrap();
+
+    // Scoped: drive a ScopeGen so the first fresh scope is 1,
+    // matching the legacy ctx exactly.
+    let mut gen = ScopeGen::new();
+    let exp = expand_scoped(def, &["3"], &mut gen, Scopes::empty(), Scopes::empty()).unwrap();
+    let scoped_source = tokens_to_source(&strip_scopes(&exp.tokens));
+
+    assert_eq!(legacy, scoped_source);
+    assert_eq!(exp.intro, 1);
+}
+
+#[test]
+fn scoped_expansion_records_binding_for_let() {
+    let reg = registry("macro twice(x) => { let y = x; y + y }\n");
+    let def = reg.get("twice").unwrap();
+    let mut gen = ScopeGen::new();
+    let exp = expand_scoped(def, &["3"], &mut gen, Scopes::empty(), Scopes::empty()).unwrap();
+    assert_eq!(exp.bindings.len(), 1);
+    assert_eq!(exp.bindings[0].0, "y");
+    assert!(exp.bindings[0].1.iter().any(|s| s == exp.intro));
 }
 
 /// True iff `needle` appears as a standalone identifier (not as a

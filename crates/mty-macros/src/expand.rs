@@ -23,7 +23,9 @@
 //! (HIR lowering) so the right parser entrypoint can be picked
 //! (`parse_expr` vs the full file parser).
 
+use crate::hygiene::{HygieneEnv, ScopedTok};
 use crate::registry::MacroDef;
+use crate::scopes::{ScopeGen, ScopeId, Scopes};
 use crate::token::{lex_fragment, tokens_to_source, Tok};
 use mty_syntax::SyntaxKind;
 
@@ -353,6 +355,130 @@ fn add_binding(name: &str, params: &[String], bound: &mut Vec<String>) {
     if !bound.iter().any(|b| b == name) {
         bound.push(name.to_string());
     }
+}
+
+// ============================================================================
+// Set-of-scopes expansion (RFC-009)
+// ============================================================================
+
+/// Result of a scope-aware expansion: every output token carries the
+/// scope set that should be consulted at name-resolution time, plus
+/// a separate index of the *binding occurrences* introduced by the
+/// macro body (each binding's scope set is what later references must
+/// be matched against — see [`crate::scopes::resolve`]).
+///
+/// The expander emits this alongside the legacy `Vec<Tok>` so the
+/// existing mangling-based pipeline keeps working unchanged; the
+/// front-end can opt into scope-aware resolution by consuming the
+/// scoped variant.
+#[derive(Debug, Clone)]
+pub struct ScopedExpansion {
+    /// The expanded token stream, each token tagged with its scope set.
+    pub tokens: Vec<ScopedTok>,
+    /// Binding occurrences introduced by the macro body: `(text, scope_set)`.
+    /// References whose scope set is a superset of one of these will
+    /// resolve to that binding (see [`crate::scopes::resolve`]).
+    pub bindings: Vec<(String, Scopes)>,
+    /// The fresh scope ID minted for this invocation. Returned for
+    /// callers that want to record/inspect the macro's identity.
+    pub intro: ScopeId,
+}
+
+/// Expand `def` with `args` and a scope-set hygiene environment.
+///
+/// Differences from [`expand`]:
+///   * Each output token carries a [`Scopes`] set.
+///   * The caller supplies a [`ScopeGen`] so each invocation gets a
+///     fresh scope ID minted off the same allocator.
+///   * `def_scopes` is the scope set inherited from the macro's
+///     *definition* site. Pass [`Scopes::empty`] for top-level macros;
+///     pass the outer macro's body scope for macros defined inside
+///     another macro's expansion.
+///   * `caller_arg_scopes` is the scope set the call-site arguments
+///     already carry. Typically `Scopes::empty()` for top-level user
+///     source; for macro-in-macro composition the outer expansion
+///     supplies its own scope set here.
+///
+/// The set-of-scopes rules applied:
+///   * Body tokens receive `def_scopes ∪ {fresh}`.
+///   * Argument tokens receive the caller's scope set unchanged (they
+///     were not introduced by *this* macro, per Flatt 2016 §3).
+///   * The mangling pass from [`expand`] is also applied so the
+///     emitted source remains parseable by the existing front-end;
+///     bindings are recorded with their scope sets for the resolver.
+pub fn expand_scoped(
+    def: &MacroDef,
+    args: &[&str],
+    gen: &mut ScopeGen,
+    def_scopes: Scopes,
+    caller_arg_scopes: Scopes,
+) -> Result<ScopedExpansion, ExpandError> {
+    if args.len() != def.params.len() {
+        return Err(ExpandError::ArityMismatch {
+            expected: def.params.len(),
+            actual: args.len(),
+        });
+    }
+
+    let intro = gen.fresh();
+    let env = HygieneEnv::for_invocation(intro, def_scopes.clone());
+    let body_scopes = env.body_scopes();
+
+    // Pre-lex each argument source slice so substitution preserves
+    // token kinds; tag each lexed argument with the caller's scopes.
+    let mut arg_scoped: Vec<Vec<ScopedTok>> = Vec::with_capacity(args.len());
+    for (i, arg) in args.iter().enumerate() {
+        match lex_fragment(arg) {
+            Some(toks) => {
+                arg_scoped.push(env.apply_to_argument(&toks, &caller_arg_scopes));
+            }
+            None => return Err(ExpandError::BadArgumentTokens { index: i }),
+        }
+    }
+
+    // Recompute the legacy "bound idents" list so we can both mangle
+    // (preserving the existing parseable output shape) AND record
+    // each binding's scope set for the resolver.
+    let bound_names = collect_bound_idents(&def.body, &def.params);
+    let mut bindings: Vec<(String, Scopes)> = Vec::with_capacity(bound_names.len());
+    for name in &bound_names {
+        bindings.push((name.clone(), body_scopes.clone()));
+    }
+
+    // Walk the body. For each token decide:
+    //   - Parameter? splice argument tokens (with their caller-side scopes).
+    //   - Bound IDENT introduced by this macro? mangle (legacy) + body scopes.
+    //   - Otherwise: a body token; assign body scopes.
+    //
+    // The mangling keeps the legacy expander's output shape stable
+    // even before downstream consumers wire up scope-aware resolution
+    // — both layers point at the same binding.
+    let mut tokens: Vec<ScopedTok> = Vec::with_capacity(def.body.len() + args.len() * 4);
+    for tok in &def.body {
+        if tok.kind == SyntaxKind::IDENT {
+            // Parameter substitution: emit `(` argument-tokens `)`.
+            if let Some(idx) = def.params.iter().position(|p| p == &tok.text) {
+                tokens.push(env.scope_body_token(Tok::new(SyntaxKind::L_PAREN, "(")));
+                tokens.extend(arg_scoped[idx].iter().cloned());
+                tokens.push(env.scope_body_token(Tok::new(SyntaxKind::R_PAREN, ")")));
+                continue;
+            }
+            // Macro-introduced binding: mangle (legacy) and tag with body scopes.
+            if bound_names.iter().any(|b| b == &tok.text) {
+                let mangled = Tok::new(SyntaxKind::IDENT, format!("__mac_{intro}_{}", tok.text));
+                tokens.push(env.scope_body_token(mangled));
+                continue;
+            }
+        }
+        // Plain body token: keep verbatim, attach body scopes.
+        tokens.push(env.scope_body_token(tok.clone()));
+    }
+
+    Ok(ScopedExpansion {
+        tokens,
+        bindings,
+        intro,
+    })
 }
 
 #[cfg(test)]

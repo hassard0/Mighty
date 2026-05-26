@@ -18,8 +18,10 @@
 
 pub mod diag;
 pub mod expand;
+pub mod hygiene;
 pub mod proc;
 pub mod registry;
+pub mod scopes;
 pub mod stdlib;
 pub mod token;
 
@@ -28,12 +30,16 @@ pub use diag::{
     PROC_MACRO_RESOURCE_EXCEEDED, PROC_MACRO_UNSUPPORTED_V0_5, RECURSIVE_MACRO_TOO_DEEP,
     UNKNOWN_MACRO,
 };
-pub use expand::{expand, expand_to_source, ExpandError, MacroContext};
+pub use expand::{
+    expand, expand_scoped, expand_to_source, ExpandError, MacroContext, ScopedExpansion,
+};
+pub use hygiene::{strip_scopes, HygieneEnv, ScopedTok};
 pub use proc::{
     check_proc_macro_purity, expand_proc, ImpurityReason, ProcMacroResult, ResourceBreach, Sandbox,
     SandboxObservation, PROC_MACRO_MEM_BYTES, PROC_MACRO_STEPS, PROC_MACRO_WALL_MS,
 };
 pub use registry::{MacroDef, MacroKind, MacroRegistry, PackageMacros};
+pub use scopes::{resolve, ResolveAmbiguity, ScopeGen, ScopeId, Scopes};
 pub use token::{lex_fragment, tokens_from_body_node, tokens_to_source, Tok};
 
 /// v0.5 macro-expansion depth limit. Recursive macro definitions are
