@@ -143,7 +143,12 @@ fn build_snapshot(prog: &Program) -> IrSnapshot {
     // `ir_adt_variant_count(adt_id)` and `ir_adt_variant_field_count(adt_id, v)`.
     // Indexed by `AdtId.0` so the snapshot Vec's positions match the
     // values the Rust pipeline stamps into Rvalue::AdtInit { adt: AdtId(_) }.
-    let max_adt = prog.adts.iter().map(|a| a.adt.0 as usize).max().unwrap_or(0);
+    let max_adt = prog
+        .adts
+        .iter()
+        .map(|a| a.adt.0 as usize)
+        .max()
+        .unwrap_or(0);
     snap.adts = vec![vec![]; max_adt + 1];
     for adt in &prog.adts {
         let variants: Vec<usize> = adt.variants.iter().map(|v| v.fields.len()).collect();
@@ -1751,9 +1756,9 @@ fn emit_event_byte(
             // v0.14 — memory + global ops.
             WasmEvent::I32Load(off) => {
                 out.push(0x28); // i32.load
-                // align: byte 0 (natural alignment exponent = 2 for i32
-                // means 1<<2 = 4 byte alignment). Writing alignment 2 is
-                // the natural choice; 0 is also legal (less aligned).
+                                // align: byte 0 (natural alignment exponent = 2 for i32
+                                // means 1<<2 = 4 byte alignment). Writing alignment 2 is
+                                // the natural choice; 0 is also legal (less aligned).
                 out.push(0x02);
                 write_leb128_u32(out, *off);
                 opcodes.push("i32.load".into());
@@ -1894,6 +1899,67 @@ fn selfhost_codegen_lib_compiles() {
         .filter(|d| matches!(d.severity, mty_diagnostics::Severity::Error))
         .collect();
     assert!(errors.is_empty(), "lower errors: {:?}", errors);
+}
+
+#[test]
+fn selfhost_codegen_string_pool_compiles() {
+    // v0.14 — smoke-check the dedicated helper file. The runnable
+    // emitter inlines these helpers (single-file-compile constraint),
+    // but the standalone file documents the intended modular layout
+    // and must `mty check` clean.
+    let path = workspace_root().join("selfhost/codegen/string_pool.mty");
+    let src = std::fs::read_to_string(&path).expect("read string_pool.mty");
+    let parsed = parse_source(src, "selfhost/codegen/string_pool.mty".into());
+    let (pkg, diags) = lower(&parsed);
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| matches!(d.severity, mty_diagnostics::Severity::Error))
+        .collect();
+    assert!(errors.is_empty(), "lower errors: {:?}", errors);
+    let tbc = type_and_borrow_check(&pkg);
+    let tbc_errors: Vec<_> = tbc
+        .iter()
+        .filter(|d| matches!(d.severity, mty_diagnostics::Severity::Error))
+        .collect();
+    assert!(tbc_errors.is_empty(), "type errors: {:?}", tbc_errors);
+}
+
+#[test]
+fn selfhost_codegen_adt_layout_compiles() {
+    let path = workspace_root().join("selfhost/codegen/adt_layout.mty");
+    let src = std::fs::read_to_string(&path).expect("read adt_layout.mty");
+    let parsed = parse_source(src, "selfhost/codegen/adt_layout.mty".into());
+    let (pkg, diags) = lower(&parsed);
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| matches!(d.severity, mty_diagnostics::Severity::Error))
+        .collect();
+    assert!(errors.is_empty(), "lower errors: {:?}", errors);
+    let tbc = type_and_borrow_check(&pkg);
+    let tbc_errors: Vec<_> = tbc
+        .iter()
+        .filter(|d| matches!(d.severity, mty_diagnostics::Severity::Error))
+        .collect();
+    assert!(tbc_errors.is_empty(), "type errors: {:?}", tbc_errors);
+}
+
+#[test]
+fn selfhost_codegen_pattern_compiles() {
+    let path = workspace_root().join("selfhost/codegen/pattern.mty");
+    let src = std::fs::read_to_string(&path).expect("read pattern.mty");
+    let parsed = parse_source(src, "selfhost/codegen/pattern.mty".into());
+    let (pkg, diags) = lower(&parsed);
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| matches!(d.severity, mty_diagnostics::Severity::Error))
+        .collect();
+    assert!(errors.is_empty(), "lower errors: {:?}", errors);
+    let tbc = type_and_borrow_check(&pkg);
+    let tbc_errors: Vec<_> = tbc
+        .iter()
+        .filter(|d| matches!(d.severity, mty_diagnostics::Severity::Error))
+        .collect();
+    assert!(tbc_errors.is_empty(), "type errors: {:?}", tbc_errors);
 }
 
 fn run_and_validate(input: &str) -> WasmRebuild {

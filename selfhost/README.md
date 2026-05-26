@@ -14,7 +14,7 @@ for the full architectural story.
 | HIR lowering | `hir/` | v0.10: SHIPPED-SUBSET — 7 bootstrap tests pass (examples 01-05) | `crates/mty-driver/tests/selfhost_hir.rs` |
 | Typeck (minimal) | `typeck/` | v0.10: SHIPPED-SUBSET — 7 bootstrap tests pass (examples 01-05) | `crates/mty-driver/tests/selfhost_typeck.rs` |
 | MtyIR lowering | `ir/` | v0.10: SHIPPED-SUBSET — 9 bootstrap tests pass (examples 01-05) | `crates/mty-driver/tests/selfhost_ir.rs` |
-| Codegen (Wasm core) | `codegen/` | **v0.13: SHIPPED-SUBSET — 6 bootstrap tests pass; Mighty-emitted bytes validate via `wasmparser` for examples 01-02 + arith fixture** | `crates/mty-driver/tests/selfhost_codegen.rs` |
+| Codegen (Wasm core) | `codegen/` | **v0.14: SHIPPED-SUBSET — 13 bootstrap tests pass; Mighty-emitted bytes validate via `wasmparser` for examples 01-03 + arith + pattern-match + string-pool fixtures** | `crates/mty-driver/tests/selfhost_codegen.rs` |
 | Codegen (Cranelift / LLVM) | — | future (post-1.0) | — |
 
 ## What "SUBSET" means in v0.4
@@ -300,3 +300,58 @@ See [`../dev/history/notes/SELFHOST_CODEGEN_V0_13_NOTES.md`](../dev/history/note
 for the per-feature coverage matrix, the v0.13 language-gap catalog,
 and the v0.14 roadmap (full match-arm pattern lowering, ADT init
 with linear-memory layout, real LEB128 encoder in Mighty source).
+
+## v0.14 — Wasm codegen extended: string pool + ADT layout + patterns
+
+```bash
+mty check selfhost/codegen/lib.mty
+mty check selfhost/codegen/wasm.mty
+mty check selfhost/codegen/string_pool.mty
+mty check selfhost/codegen/adt_layout.mty
+mty check selfhost/codegen/pattern.mty
+cargo test -p mty-driver --test selfhost_codegen
+```
+
+Thirteen live tests pass (example 03 is no longer ignored):
+
+```
+test selfhost_codegen_compiles .............................. ok
+test selfhost_codegen_lib_compiles .......................... ok
+test selfhost_codegen_string_pool_compiles .................. ok
+test selfhost_codegen_adt_layout_compiles ................... ok
+test selfhost_codegen_pattern_compiles ...................... ok
+test selfhost_codegen_hello_world ........................... ok
+test selfhost_codegen_example_01 ............................ ok
+test selfhost_codegen_example_02 ............................ ok
+test selfhost_codegen_example_03 ............................ ok
+test selfhost_codegen_example_03_option ..................... ok
+test selfhost_codegen_arith_fixture ......................... ok
+test selfhost_codegen_pattern_match_full .................... ok
+test selfhost_codegen_string_const .......................... ok
+```
+
+v0.14 closes three v0.13 deferral items:
+
+- **String pool**: every `Const::Str` is now interned into a single
+  active data segment exported as `__strings`. The IR const rewrites
+  to `i32.const <offset>` (the canonical-ABI ptr; len is resolved at
+  use sites via the bridge).
+- **ADT linear-memory layout**: tag at offset 0, payload at offset 4+.
+  `Rvalue::AdtInit { adt, variant, fields }` now emits a real
+  bump-allocated layout via a mutable `$heap_ptr` global instead of
+  `unreachable`. Variants compute size = 4 (tag) + max_field_count * 4.
+- **Pattern lowering**: `Term::SwitchVariant` now emits the nested
+  `block`/`br_if` tag-test cascade so each arm body is reachable real
+  code. Variant-field projections lower to `i32.load offset=…`.
+
+The new helper files (`string_pool.mty`, `adt_layout.mty`,
+`pattern.mty`) document the intended modular layout. The runnable
+emitter inlines them into `wasm.mty` because the v0.12 driver still
+compiles one `.mty` file at a time (single-file-compile constraint —
+see `selfhost/codegen/lib.mty` for the multi-file design intent).
+
+See [`../dev/history/notes/SELFHOST_CODEGEN_V0_14_NOTES.md`](../dev/history/notes/SELFHOST_CODEGEN_V0_14_NOTES.md)
+for the per-feature coverage matrix, the v0.14 language-gap catalog,
+and the v0.15 roadmap (variant-call lowering, for-loop iter desugar,
+SwitchInt multi-arm support, real LEB128 encoder in Mighty source,
+allocator-side arena drop integration).

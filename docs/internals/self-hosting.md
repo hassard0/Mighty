@@ -28,6 +28,7 @@ post-1.0 as 3rd-party-dep-heavy alternative back-ends.
 | v0.9 | MtyIR lowering | SHIPPED-SUBSET — 7 bootstrap tests pass against Rust IR pipeline (examples 01-03) | `crates/mty-ir/src/lower/*` |
 | v0.10 | HIR / typeck / MtyIR — examples 04 + 05 | **SHIPPED — 7/7/9 bootstrap tests pass on examples 01-05 (no more `#[ignore]`s)** | (same as above) |
 | v0.13 | Codegen (Wasm core module) | **SHIPPED-SUBSET — 6 bootstrap tests pass; Mighty-emitted bytes round-trip through `wasmparser::Validator` for examples 01-02 + a synthetic arithmetic fixture** | `crates/mty-codegen-wasm/src/emit.rs` |
+| v0.14 | Codegen extended (string pool, ADT layout, pattern lowering) | **SHIPPED-SUBSET — 13 bootstrap tests pass; example 03 un-ignored; Mighty-emitted bytes now include `i32.store` + `i32.load` for real ADT + match lowering** | `crates/mty-codegen-wasm/src/emit.rs` |
 | post-1.0 | Codegen (Cranelift + LLVM) | future | `crates/mty-codegen-cranelift/*`, `crates/mty-codegen-llvm/*` |
 
 "SUBSET" means the Mighty source `mty check`s clean and exercises
@@ -51,6 +52,17 @@ their HIR/IR shape isn't yet self-hosted either. The bootstrap test
 gates on `wasmparser::Validator` accepting the Mighty-emitted bytes:
 **Mighty can now describe the algorithm that produces a valid Wasm
 module from its own MtyIR for the slice-1 subset, end-to-end.**
+
+**v0.14** closes three of the v0.13 deferral items (string pool, ADT
+linear-memory layout, pattern lowering). The bootstrap test now
+includes nine live live + four `mty check` smoke-tests for the new
+helper files. Example 03's `None` arm exercises the real ADT bump-
+allocator path; a dedicated pattern-match fixture exercises the
+nested `block`/`br_if` cascade for `SwitchVariant` lowering. See
+`SELFHOST_CODEGEN_V0_14_NOTES.md` for the per-feature matrix and
+v0.15 gaps (variant-call lowering, for-loop iter desugar, SwitchInt
+multi-arm support, real LEB128 in Mighty source, arena-drop
+integration for the allocator).
 
 **Cranelift + LLVM** are 3rd-party-dep-heavy alternative back-ends
 that stay in Rust until post-1.0 — they would each require porting
