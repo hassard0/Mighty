@@ -1,0 +1,90 @@
+name: web-smoke
+
+# Headless-browser visual smoke for the wasm/web demos (Mighty v0.23, Track E).
+# Catches regressions where a wasm artifact passes magic-bytes but fails to
+# instantiate in a real browser (the trap demo 02 hid for many releases).
+#
+# MANUAL trigger only. The headless browser stack is flakier than the rest
+# of CI and we don't want it to block regular merges, so this workflow is
+# never run on push/pr — only via the Actions UI or `gh workflow run`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      demo:
+        description: "Which demo(s) to smoke (02, 05, or all)"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - "02"
+          - "05"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  web-smoke:
+    name: headless-browser smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+
+      - name: Cargo registry cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: web-smoke-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: tests/web-smoke/package.json
+
+      - name: Install web-smoke deps
+        working-directory: tests/web-smoke
+        run: |
+          npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Build mty
+        run: cargo build -p mty-cli --locked
+
+      - name: Self-test smoke-headless.mjs
+        run: node tests/web-smoke/smoke-headless.mjs --self-test
+
+      - name: Demo 02 (counter_web) headless smoke
+        if: ${{ github.event.inputs.demo == 'all' || github.event.inputs.demo == '02' }}
+        env:
+          MTY_WEB_SMOKE: "1"
+          MTY_WEB_SMOKE_PORT: "8764"
+        run: bash demos/02_counter_web/smoke.sh
+
+      - name: Demo 05 (notetris_web) headless smoke
+        if: ${{ github.event.inputs.demo == 'all' || github.event.inputs.demo == '05' }}
+        env:
+          MTY_WEB_SMOKE: "1"
+          MTY_WEB_SMOKE_PORT: "8765"
+        run: bash demos/05_notetris_web/smoke.sh
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-smoke-screenshots
+          path: tests/web-smoke/screenshots/
+          if-no-files-found: ignore
+          retention-days: 14

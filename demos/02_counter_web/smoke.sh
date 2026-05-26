@@ -55,3 +55,47 @@ grep -F -q "counter_web: built" <<<"$host_out" || {
 }
 
 echo "02_counter_web: PASS (component size = ${sz} bytes)"
+
+# 6) OPTIONAL headless-browser smoke (v0.23, Track E).
+# Opt in with MTY_WEB_SMOKE=1. Validates that the page actually renders +
+# JS runs + the canvas-or-equivalent surface drew something — catches
+# regressions like the long-standing "magic-bytes pass but browser
+# instantiate-fail" trap. Requires: Node + tests/web-smoke/ npm install.
+if [[ "${MTY_WEB_SMOKE:-0}" == "1" ]]; then
+  echo "smoke: MTY_WEB_SMOKE=1 — running headless-browser stage"
+  WEB_PORT="${MTY_WEB_SMOKE_PORT:-8764}"
+  WEB_URL="http://localhost:${WEB_PORT}"
+  SMOKE_SCRIPT="$ROOT/tests/web-smoke/smoke-headless.mjs"
+  if ! command -v node >/dev/null 2>&1; then
+    echo "smoke: (headless smoke skipped: node not on PATH)"
+  elif [[ ! -f "$SMOKE_SCRIPT" ]]; then
+    echo "smoke: (headless smoke skipped: $SMOKE_SCRIPT missing)" >&2
+  else
+    # Boot serve.sh in background, capture its PID, ensure cleanup.
+    PORT="$WEB_PORT" bash "$ROOT/demos/02_counter_web/web/serve.sh" \
+        >"$OUT/serve.log" 2>&1 &
+    SERVE_PID=$!
+    cleanup() { kill "$SERVE_PID" 2>/dev/null || true; wait "$SERVE_PID" 2>/dev/null || true; }
+    trap cleanup EXIT
+
+    # Wait for the server to come up (max ~10s).
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+      if curl -fsS -o /dev/null "$WEB_URL/" 2>/dev/null; then break; fi
+      sleep 1
+    done
+
+    if ! curl -fsS -o /dev/null "$WEB_URL/" 2>/dev/null; then
+      echo "smoke FAIL: serve.sh did not come up on $WEB_URL" >&2
+      echo "--- serve.log ---" >&2
+      cat "$OUT/serve.log" >&2 || true
+      exit 1
+    fi
+
+    if ! node "$SMOKE_SCRIPT" "$WEB_URL" counter-web; then
+      echo "smoke FAIL: headless-browser smoke failed for counter-web" >&2
+      exit 1
+    fi
+
+    echo "02_counter_web: PASS (headless-browser smoke + magic bytes)"
+  fi
+fi

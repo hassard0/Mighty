@@ -1,0 +1,13 @@
+{
+  "name": "mty-web-smoke",
+  "version": "0.23.0",
+  "private": true,
+  "description": "Headless-browser visual smoke for Mighty web demos. See README.md.",
+  "type": "module",
+  "scripts": {
+    "self-test": "node smoke-headless.mjs --self-test"
+  },
+  "dependencies": {
+    "playwright": "1.45.3"
+  }
+}
