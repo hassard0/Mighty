@@ -43,7 +43,8 @@ pub mod signing;
 pub mod wit_resolve;
 
 pub use mty_driver::manifest::{
-    BuildConfig, Dep, DepSourceKind, DetailedDep, Manifest, ManifestError, Package,
+    BuildConfig, ClusterManifest, ClusterPeerManifest, ClusterTlsManifest, Dep, DepSourceKind,
+    DetailedDep, Manifest, ManifestError, Package,
 };
 
 pub use lockfile::{LockedPackage, Lockfile, LockfileError, DEFAULT_REGISTRY};

@@ -1,9 +1,10 @@
-# Cluster — distributed agents (Tier 4.1, v0.18)
+# Cluster — distributed agents (Tier 4.1, v0.18 + v0.19)
 
-> Status: **transport layer landed in v0.18**; opt-in via
-> `ClusterRouter`. Runtime-side wiring (`Runtime::send` consults the
-> router) lands in v0.19. Cluster-aware supervisors + lossless live
-> migration are Tier 4.2 / 4.3.
+> Status: **transport layer landed in v0.18; runtime integration landed
+> in v0.19** (`Runtime::send_addr` / `Runtime::ask_addr` consult an
+> optional [`ClusterRouter`](#runtime-integration), `[cluster]`
+> manifest section parses). Cluster-aware supervisors + lossless live
+> migration are Tier 4.2 / 4.3, scheduled for v0.20+.
 
 Mighty's first three tiers (v0.10–v0.17) deliver an in-process
 agent runtime. Tier 4.1 lifts that out of one process:
@@ -149,11 +150,16 @@ peer faster, not so the application has to.
 
 ## Configuration (`mighty.toml`)
 
-> Forward-looking; the config parser lands with the runtime
-> integration in v0.19. v0.18 ships the in-memory `ClusterConfig`
-> struct that the parser will populate.
+v0.19 parses the `[cluster]` block. The shape mirrors the in-memory
+`ClusterConfig`: node id, listen address, static peer list, and an
+optional `[cluster.tls]` table for cert paths.
 
 ```toml
+[package]
+name = "demo"
+version = "0.1.0"
+edition = "2026"
+
 [cluster]
 node_id    = "node-a"
 listen     = "0.0.0.0:9700"
@@ -174,6 +180,134 @@ addr        = "10.0.0.8:9700"
 ```
 
 `MTY_NODE_ID` overrides `cluster.node_id` for ad-hoc local runs.
+
+The parser lives in `mty_driver::manifest::ClusterManifest`. It only
+records the shape — translating `cert_pem` / `key_pem` paths into a
+live `rustls::ServerConfig` is the runtime's job at startup, so the
+`mty-driver` and `mty-pkg` crates stay TLS-free.
+
+## Runtime integration
+
+v0.19 wires the mesh into the runtime via two opt-in entry points:
+
+```rust
+use mty_runtime::{Runtime, RuntimeBuilder, AgentAddr};
+use mty_runtime::cluster::{ClusterMesh, ClusterConfig};
+
+let mesh = ClusterMesh::from_config(cluster_cfg).await?;
+let rt = RuntimeBuilder::new()
+    .build(prog)
+    .with_cluster(mesh);  // takes a SharedRouter = Arc<dyn ClusterRouter>
+
+// Local — no router involvement, zero overhead vs single-node:
+rt.send(&handle, "ping", vec![]).await?;
+
+// Addressed — checks the router on every call:
+let to = AgentAddr::remote("node-b", "Greeter", 42);
+rt.send_addr(AgentAddr::local("Caller", 1), to.clone(), "ping", vec![])
+    .await?;
+let reply = rt
+    .ask_addr(AgentAddr::local("Caller", 1), to, "ask", vec![], Some(deadline))
+    .await?;
+```
+
+The handle-taking `send` / `ask` keep their v0.17 signatures
+unchanged — they're the in-process fast path and never consult the
+router. Callers who want distributed routing opt in to `send_addr` /
+`ask_addr`.
+
+### Dispatch table
+
+| `to.is_local()` | router installed | result |
+| --- | --- | --- |
+| yes | any | in-process mailbox path (same as legacy `send`/`ask`) |
+| no | yes | `router.route_send(...)` or `router.route_ask(...)` |
+| no | no | `Trap { code: "MT5030" }` — clear "no cluster configured" error |
+
+Diag codes:
+
+- `MT5030` — addressed message to a remote node but no cluster router
+  is installed on this runtime.
+- `MT5031` — cluster send / ask transport failure (peer disconnected
+  mid-flight, peer not configured, frame too large, …).
+- `MT5032` — remote replier returned a structured `Error` frame
+  (e.g. handler panicked on the far side).
+
+### Ask + Reply correlation
+
+`Runtime::ask_addr` reserves a fresh correlation id via
+[`CorrelationTable::register`](#correlation-table), sends the
+`WireFrame::Ask`, and awaits the matching reply on a `oneshot`. The
+mesh's reply-demultiplexer task drains the central inbox, peels
+`Reply` / `Error` frames into the table by correlation id, and
+forwards everything else (`Send`, `Ask`) to the user-facing inbox.
+
+```text
+   Runtime A                                       Runtime B
+   ----------                                      ----------
+   ask_addr(to, msg, deadline)
+       │
+       ▼
+   router.route_ask
+       │ register(id) → oneshot::Receiver
+       ▼
+   write WireFrame::Ask { correlation: id, … }    ─────► reader task
+                                                          │
+                                                          ▼
+                                                  inbox → handler runs
+                                                          │
+                                                          ▼
+                                                  writes Reply { id, … } ◄─┐
+                                                                            │
+   read WireFrame::Reply { correlation: id }     ◄───── socket ────────────┘
+       │
+       ▼
+   demux → table.complete(id, Reply)
+       │
+       ▼
+   oneshot resolves → return Value to user
+```
+
+If the peer disconnects mid-ask, the dialer task notices the
+`is_connected() == false` transition and calls
+`CorrelationTable::fail_targeting_node(node)`, which resolves every
+pending ask aimed at that node to a synthetic `peer_disconnected`
+Error frame. The caller sees `Trap { code: "MT5032" }`.
+
+### Zero-cost when cluster is None
+
+The `Runtime` struct gains exactly one field: `cluster:
+Option<SharedRouter>`. The legacy `send` / `ask` methods never read
+it. `send_addr` / `ask_addr` are new methods — code that doesn't call
+them pays nothing. When `cluster.is_none()` and the caller passes a
+remote address, they get an immediate `Trap` with code `MT5030` (no
+hidden retry / fallback).
+
+## Correlation table
+
+`crates/mty-runtime/src/cluster/correlation.rs`:
+
+```rust
+pub struct CorrelationTable {
+    next_id: AtomicU64,
+    pending: DashMap<u64, oneshot::Sender<WireFrame>>,
+    targets: DashMap<u64, String>, // for peer-disconnect fan-out
+}
+```
+
+- `register() -> (u64, oneshot::Receiver<WireFrame>)` — hands out the
+  next correlation id (monotonic, starts at 1) and the receiver to
+  await.
+- `register_for_node(node)` — same plus side-records the target so
+  `fail_targeting_node` can wake every pending ask aimed at a peer
+  that just disconnected.
+- `complete(id, frame)` — resolves a pending oneshot. Late /
+  duplicate replies are dropped silently.
+- `cleanup(id)` — purges a slot without delivering (used by the
+  ask future's RAII guard when the caller times out).
+- `fail_all_with(frame_for)` — used by `ClusterMesh::shutdown` to
+  resolve every pending ask with a synthetic `mesh_shutdown` error
+  so callers don't hang.
 
 ## Security
 
@@ -219,7 +353,7 @@ post-v0.20 item.
 
 ## Tests
 
-`crates/mty-runtime/tests/cluster.rs`:
+`crates/mty-runtime/tests/cluster.rs` (v0.18 baseline, 7 tests):
 
 - `addr_parse_local_remote_distinguishes` — `AgentAddr` semantics.
 - `wire_frame_roundtrip` — every variant survives encode/decode.
@@ -230,16 +364,34 @@ post-v0.20 item.
 - `mesh_returns_error_on_local_loop` — clear error on self-target.
 - `peer_reconnects_after_disconnect` — kill peer, dialer reconnects.
 
+`crates/mty-runtime/tests/cluster_routing.rs` (v0.19, 8 tests):
+
+- `runtime_with_cluster_routes_remote_send` — A → B Send through the
+  router trait.
+- `runtime_with_cluster_routes_remote_ask` — A → B Ask + synthesised
+  Reply correlate end-to-end.
+- `runtime_without_cluster_documents_trap_code` — pins the `MT5030 /
+  MT5031 / MT5032` diag codes so refactors can't quietly change them.
+- `manifest_cluster_section_parses` — full `[cluster]` + `[[cluster.peers]]`
+  + `[cluster.tls]` round-trip.
+- `manifest_without_cluster_section_still_parses` — regression guard
+  for manifests that never opt in.
+- `correlation_table_completes_replies` — basic register + complete.
+- `correlation_table_handles_concurrent_asks` — 100 in-flight asks
+  resolve in arbitrary order.
+- `runtime_send_addr_local_routes_to_mailbox` — local addresses
+  bypass the router entirely.
+- `peer_disconnect_fails_pending_asks` — pending asks for a dropped
+  peer resolve cleanly instead of hanging.
+
 Self-signed certs minted per-test via `rcgen`; no on-disk fixtures.
 
 ## What's deferred
 
 | Item | Slice |
 | --- | --- |
-| `Runtime::send` consults `ClusterRouter` | v0.19 |
-| `[cluster]` parsing in `mighty.toml` | v0.19 |
-| Mutual TLS (client certs) | v0.19 |
-| Per-frame ACK / retransmit | v0.19+ |
+| Mutual TLS (client certs) | v0.20 |
+| Per-frame ACK / retransmit | v0.20+ |
 | Cluster-aware supervisors (Tier 4.2) | v0.20+ |
 | Lossless live migration (Tier 4.3) | v0.20+ |
 | Discovery / gossip | post-v0.20 |

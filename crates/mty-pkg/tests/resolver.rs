@@ -21,6 +21,7 @@ fn happy_path_single_registry_dep() {
         package: pkg("app", "0.1.0"),
         deps,
         build: None,
+        cluster: None,
     };
     let dir = tempfile::tempdir().unwrap();
     let lock = Resolver::new(dir.path()).resolve(&m).unwrap();
@@ -77,6 +78,7 @@ subsub = { path = "../subsub" }
         package: pkg("app", "0.1.0"),
         deps,
         build: None,
+        cluster: None,
     };
 
     let lock = Resolver::new(root.path()).resolve(&m).unwrap();
@@ -162,6 +164,7 @@ leaf = { path = "../leaf_b" }
         package: pkg("app", "0.1.0"),
         deps,
         build: None,
+        cluster: None,
     };
     let err = Resolver::new(root.path()).resolve(&m).unwrap_err();
     let msg = err.to_string();

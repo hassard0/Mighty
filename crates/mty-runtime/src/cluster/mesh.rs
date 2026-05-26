@@ -30,11 +30,13 @@
 //!   list says "these are my friends," not "they MUST be up." A peer
 //!   that's down at start-up gets a background reconnect loop.
 
-use crate::cluster::address::NodeId;
+use crate::cluster::address::{AgentAddr, NodeId};
+use crate::cluster::correlation::CorrelationTable;
 use crate::cluster::peer::{
     reconnect_backoff, InboundFrame, Peer, PeerError, RECONNECT_MAX_ATTEMPTS,
 };
 use crate::cluster::wire::{WireError, WireFrame};
+use crate::cluster::RouteReply;
 use dashmap::DashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -103,6 +105,12 @@ pub struct ClusterMesh {
     inbox_rx: parking_lot::Mutex<Option<mpsc::Receiver<InboundFrame>>>,
     listener_task: parking_lot::Mutex<Option<JoinHandle<()>>>,
     dialer_tasks: parking_lot::Mutex<Vec<JoinHandle<()>>>,
+    demux_task: parking_lot::Mutex<Option<JoinHandle<()>>>,
+    /// v0.19: ask/reply correlation table. The reply demultiplexer
+    /// task drains the central inbox, peels `Reply` / `Error` frames
+    /// off into this table, and forwards the rest onto the
+    /// caller-facing `inbox_rx`.
+    correlations: Arc<CorrelationTable>,
     shutdown: Arc<tokio::sync::Notify>,
 }
 
@@ -121,17 +129,59 @@ impl ClusterMesh {
     /// peer. None of these block the call site — peers that are down
     /// keep retrying in the background.
     pub async fn from_config(cfg: ClusterConfig) -> Result<Arc<Self>, MeshError> {
+        // Two-stage inbox plumbing:
+        //   peer reader tasks ─► `raw_tx` (capacity MESH_INBOX_CAPACITY)
+        //                       │
+        //                       │ demux task pops, splits Reply/Error
+        //                       │ frames into the correlation table,
+        //                       │ forwards everything else onto:
+        //                       ▼
+        //   runtime/take_inbox() ◄─ `inbox_rx`
+        //
+        // The raw channel is what every `Peer` is handed. The
+        // user-facing `inbox_rx` keeps the same shape as v0.18 (callers
+        // see Send/Ask frames only), so the v0.18 cluster integration
+        // tests are unaffected.
+        let (raw_tx, mut raw_rx) = mpsc::channel::<InboundFrame>(MESH_INBOX_CAPACITY);
         let (inbox_tx, inbox_rx) = mpsc::channel::<InboundFrame>(MESH_INBOX_CAPACITY);
+        let correlations = Arc::new(CorrelationTable::new());
+
         let mesh = Arc::new(Self {
             self_node: cfg.node_id.clone(),
             peers: DashMap::new(),
-            inbox_tx: inbox_tx.clone(),
+            inbox_tx: raw_tx.clone(),
             inbox_rx: parking_lot::Mutex::new(Some(inbox_rx)),
             listener_task: parking_lot::Mutex::new(None),
             dialer_tasks: parking_lot::Mutex::new(Vec::new()),
+            demux_task: parking_lot::Mutex::new(None),
+            correlations: correlations.clone(),
             shutdown: Arc::new(tokio::sync::Notify::new()),
             config: cfg.clone(),
         });
+
+        // Demux task: split replies into the correlation table,
+        // forward everything else to the user-facing inbox.
+        let demux = {
+            let correlations = correlations.clone();
+            tokio::spawn(async move {
+                while let Some(env) = raw_rx.recv().await {
+                    match &env.frame {
+                        WireFrame::Reply { correlation, .. }
+                        | WireFrame::Error { correlation, .. } => {
+                            // Late or unknown replies are dropped
+                            // silently — see CorrelationTable::complete.
+                            correlations.complete(*correlation, env.frame);
+                        }
+                        _ => {
+                            if inbox_tx.send(env).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            })
+        };
+        *mesh.demux_task.lock() = Some(demux);
 
         // Spawn listener if configured.
         if let Some(addr) = cfg.listen_addr {
@@ -147,6 +197,65 @@ impl ClusterMesh {
         }
 
         Ok(mesh)
+    }
+
+    /// Borrow the shared correlation table. Mostly for tests + the
+    /// `ClusterRouter` impl; the runtime never touches it directly.
+    pub fn correlations(&self) -> &Arc<CorrelationTable> {
+        &self.correlations
+    }
+
+    /// Higher-level `Ask` routing used by the
+    /// [`crate::cluster::ClusterRouter`] impl. Reserves a fresh
+    /// correlation id, builds the `WireFrame::Ask`, hands it to the
+    /// peer writer, and awaits the matching `Reply` / `Error` on a
+    /// oneshot wired through the correlation table.
+    ///
+    /// Cancel-safety: if the caller's future is dropped before the
+    /// reply arrives (e.g. an outer `timeout` fired), the slot is
+    /// cleaned up here via the `_guard` RAII helper so the table
+    /// doesn't leak entries.
+    pub async fn route_ask_impl(
+        &self,
+        from: AgentAddr,
+        to: AgentAddr,
+        msg: String,
+        msg_bytes: Vec<u8>,
+    ) -> Result<RouteReply, MeshError> {
+        if to.node == self.self_node {
+            return Err(MeshError::WouldLoopLocal(to.node));
+        }
+        let target_node = to.node.as_str().to_string();
+        let (correlation, rx) = self.correlations.register_for_node(&target_node);
+        let _guard = AskGuard {
+            correlations: self.correlations.clone(),
+            correlation,
+            armed: true,
+        };
+        let frame = WireFrame::Ask {
+            from,
+            to,
+            msg,
+            msg_bytes,
+            correlation,
+        };
+        self.route_async(frame).await?;
+        let reply = rx.await.map_err(|_| {
+            MeshError::Wire(WireError::Decode("ask correlation oneshot closed".into()))
+        })?;
+        // The guard's job is to clean up the slot on drop (timeout
+        // path). The happy path completed the slot via the demux
+        // task, so disarm it here to skip the extra remove().
+        std::mem::forget(_guard);
+        match reply {
+            WireFrame::Reply { msg_bytes, .. } => Ok(RouteReply::Ok { msg_bytes }),
+            WireFrame::Error { kind, message, .. } => Ok(RouteReply::Err { kind, message }),
+            // The demux task only routes Reply/Error here, so anything
+            // else is a programming error in the mesh.
+            other => Err(MeshError::Wire(WireError::Decode(format!(
+                "unexpected reply frame: {other:?}"
+            )))),
+        }
     }
 
     /// Borrow the local node id.
@@ -183,6 +292,14 @@ impl ClusterMesh {
     /// and by tests.
     pub fn install_peer(&self, peer: Arc<Peer>) {
         self.peers.insert(peer.node_id.clone(), peer);
+    }
+
+    /// Test-only accessor for the peer map. v0.19 integration tests
+    /// need this to grab an inbound peer (accepted by the listener)
+    /// and inject a reply frame on its writer half. Production code
+    /// goes through [`Self::route`] / [`Self::route_async`].
+    pub fn peers_for_test(&self) -> &DashMap<NodeId, Arc<Peer>> {
+        &self.peers
     }
 
     /// Route a frame to its `to` node. Returns:
@@ -241,12 +358,42 @@ impl ClusterMesh {
         for t in self.dialer_tasks.lock().drain(..) {
             t.abort();
         }
+        if let Some(t) = self.demux_task.lock().take() {
+            t.abort();
+        }
+        // Resolve any in-flight asks so they don't hang forever.
+        self.correlations.fail_all_with(|cid| WireFrame::Error {
+            correlation: cid,
+            kind: "mesh_shutdown".into(),
+            message: "cluster mesh shutting down".into(),
+        });
         // Drain peers — taking them out of the map drops the Arc,
         // which on the last clone triggers Peer::drop and aborts the
         // worker tasks.
         let peers: Vec<_> = self.peers.iter().map(|e| e.key().clone()).collect();
         for k in peers {
             self.peers.remove(&k);
+        }
+    }
+}
+
+/// RAII cleanup helper for [`ClusterMesh::route_ask_impl`]. When the
+/// ask future is dropped before the reply lands (cancellation /
+/// timeout), this guard purges the correlation slot so the table
+/// doesn't leak entries.
+///
+/// The happy path `mem::forget`s the guard after the reply arrives —
+/// the demux task already removed the slot via `complete()`.
+struct AskGuard {
+    correlations: Arc<CorrelationTable>,
+    correlation: u64,
+    armed: bool,
+}
+
+impl Drop for AskGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            self.correlations.cleanup(self.correlation);
         }
     }
 }
@@ -299,10 +446,12 @@ fn spawn_dialer_task(mesh: Arc<ClusterMesh>, entry: PeerEntry) -> JoinHandle<()>
     let shutdown = mesh.shutdown.clone();
     tokio::spawn(async move {
         let mut attempt: u32 = 0;
+        let mut was_connected = false;
         loop {
             // If we're already connected, sleep + supervise.
             if let Some(p) = mesh.peers.get(&entry.node_id) {
                 if p.is_connected() {
+                    was_connected = true;
                     drop(p);
                     tokio::select! {
                         _ = shutdown.notified() => break,
@@ -310,6 +459,14 @@ fn spawn_dialer_task(mesh: Arc<ClusterMesh>, entry: PeerEntry) -> JoinHandle<()>
                     }
                     continue;
                 }
+            }
+            // We just transitioned from "connected" to "not connected" —
+            // wake every in-flight ask targeting this node so they
+            // resolve cleanly instead of hanging.
+            if was_connected {
+                mesh.correlations
+                    .fail_targeting_node(entry.node_id.as_str());
+                was_connected = false;
             }
             attempt = attempt.saturating_add(1);
             if RECONNECT_MAX_ATTEMPTS != 0 && attempt > RECONNECT_MAX_ATTEMPTS {

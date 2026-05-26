@@ -31,6 +31,77 @@ pub struct Manifest {
     /// load.
     #[serde(default)]
     pub build: Option<BuildConfig>,
+    /// v0.19 Tier 4.1 (continued): cluster mesh configuration.
+    ///
+    /// Optional `[cluster]` block carrying the local node id, the TLS
+    /// listen address, and the static peer list. See the runtime's
+    /// `ClusterConfig` for the runtime-side shape.
+    ///
+    /// Example:
+    ///
+    /// ```toml
+    /// [cluster]
+    /// node_id = "node-a"
+    /// listen  = "0.0.0.0:9700"
+    ///
+    /// [[cluster.peers]]
+    /// node_id = "node-b"
+    /// addr    = "10.0.0.7:9700"
+    /// server_name = "node-b.cluster.local"   # optional
+    /// ```
+    #[serde(default)]
+    pub cluster: Option<ClusterManifest>,
+}
+
+/// `[cluster]` manifest block. Parser-only — the runtime translates
+/// this into a fully-formed `ClusterConfig` (with TLS bits) at boot
+/// time. We deliberately do NOT put `rustls` types here so that
+/// `mty-driver` and `mty-pkg` stay TLS-free.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ClusterManifest {
+    /// Local node id. Falls back to `MTY_NODE_ID` if unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node_id: Option<String>,
+    /// `host:port` to listen on for inbound mesh connections.
+    /// Optional — leave unset for client-only nodes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub listen: Option<String>,
+    /// Static peer list. Empty by default.
+    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "peers")]
+    pub peers: Vec<ClusterPeerManifest>,
+    /// TLS configuration. Currently parsed-and-recorded only; the
+    /// runtime can build a `rustls::ServerConfig` from the named
+    /// PEM files at startup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tls: Option<ClusterTlsManifest>,
+}
+
+/// A single `[[cluster.peers]]` entry.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ClusterPeerManifest {
+    pub node_id: String,
+    /// Peer's `host:port` for the outbound TLS dial.
+    pub addr: String,
+    /// Optional SNI / server-name to validate. Defaults to `node_id`
+    /// when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_name: Option<String>,
+}
+
+/// `[cluster.tls]` block. Paths are filesystem-relative; the runtime
+/// resolves them against the manifest's directory.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ClusterTlsManifest {
+    /// Server cert chain (PEM).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cert_pem: Option<String>,
+    /// Server private key (PEM).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_pem: Option<String>,
+    /// Roots the client side will trust when dialing peers. PEM, one
+    /// or more.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trusted_roots: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

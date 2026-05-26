@@ -12,11 +12,13 @@
 //! for the design rationale.
 
 pub mod address;
+pub mod correlation;
 pub mod mesh;
 pub mod peer;
 pub mod wire;
 
 pub use address::{current_node_id, AgentAddr, NodeId};
+pub use correlation::CorrelationTable;
 pub use mesh::{ClusterConfig, ClusterMesh, MeshError, PeerEntry, TlsConfig, MESH_INBOX_CAPACITY};
 pub use peer::{InboundFrame, Peer, PeerError};
 pub use wire::{
@@ -24,7 +26,19 @@ pub use wire::{
     MAX_FRAME_BYTES, WIRE_VERSION,
 };
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
+
+/// Reply shape returned by [`ClusterRouter::route_ask`]: either a
+/// raw payload (success — corresponds to `WireFrame::Reply`) or a
+/// structured error (corresponds to `WireFrame::Error` or a
+/// transport-level failure).
+#[derive(Debug, Clone)]
+pub enum RouteReply {
+    Ok { msg_bytes: Vec<u8> },
+    Err { kind: String, message: String },
+}
 
 /// Routing handle the runtime consults when sending to a non-local
 /// address. Implemented by [`ClusterMesh`]; the runtime never sees
@@ -39,6 +53,31 @@ pub trait ClusterRouter: Send + Sync + 'static {
     /// frame can't be encoded.
     fn route(&self, frame: WireFrame) -> Result<(), MeshError>;
 
+    /// Fire-and-forget a `Send` to a remote agent. Higher-level than
+    /// [`Self::route`] — constructs the wire frame from the caller's
+    /// `from` / `to` + opaque message envelope and routes it.
+    fn route_send(
+        &self,
+        from: AgentAddr,
+        to: AgentAddr,
+        msg: String,
+        msg_bytes: Vec<u8>,
+    ) -> Result<(), MeshError>;
+
+    /// Request-reply `Ask` to a remote agent. Reserves a fresh
+    /// correlation id internally, sends the frame, and resolves the
+    /// returned future when the matching `Reply` or `Error` arrives
+    /// (or the peer drops mid-flight). The future is `Send` so it can
+    /// cross await points on multi-threaded runtimes.
+    #[allow(clippy::type_complexity)]
+    fn route_ask(
+        &self,
+        from: AgentAddr,
+        to: AgentAddr,
+        msg: String,
+        msg_bytes: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Result<RouteReply, MeshError>> + Send + '_>>;
+
     /// True iff `node` is the local node.
     fn is_local(&self, node: &NodeId) -> bool {
         node == self.local_node()
@@ -52,17 +91,44 @@ impl ClusterRouter for ClusterMesh {
     fn route(&self, frame: WireFrame) -> Result<(), MeshError> {
         ClusterMesh::route(self, frame)
     }
+    fn route_send(
+        &self,
+        from: AgentAddr,
+        to: AgentAddr,
+        msg: String,
+        msg_bytes: Vec<u8>,
+    ) -> Result<(), MeshError> {
+        ClusterMesh::route(
+            self,
+            WireFrame::Send {
+                from,
+                to,
+                msg,
+                msg_bytes,
+            },
+        )
+    }
+    fn route_ask(
+        &self,
+        from: AgentAddr,
+        to: AgentAddr,
+        msg: String,
+        msg_bytes: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Result<RouteReply, MeshError>> + Send + '_>> {
+        Box::pin(ClusterMesh::route_ask_impl(self, from, to, msg, msg_bytes))
+    }
 }
 
 /// Boxed router for type erasure at the `Runtime` integration
-/// boundary. The integration in `runtime.rs` (v0.19) will be:
+/// boundary. The integration in `runtime.rs` consults this on every
+/// `send`/`ask`:
 ///
 /// ```ignore
-/// pub fn install_cluster_router(&mut self, router: SharedRouter) { ... }
-/// // in `send`:
+/// pub fn with_cluster(mut self, router: SharedRouter) -> Self { ... }
+/// // in `send_addr`:
 /// if let Some(router) = &self.cluster {
-///     if !router.is_local(&target.addr().node) {
-///         return router.route(WireFrame::Send { ... });
+///     if !router.is_local(&to.node) {
+///         return router.route_send(from, to, msg, bytes);
 ///     }
 /// }
 /// ```

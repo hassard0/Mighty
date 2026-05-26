@@ -28,6 +28,7 @@
 use crate::agent::{run_one_turn_async, AgentDescriptor, AgentHandle, AgentRegistry, TurnOutcome};
 use crate::budget::{Budget, BudgetTracker};
 use crate::cancel::{CancelReason, CancellationToken};
+use crate::cluster::{AgentAddr, RouteReply, SharedRouter};
 use crate::control_socket::{spawn_control_socket, ControlContext, ControlSocketHandle};
 use crate::error::{RuntimeError, RuntimeResult};
 use crate::host_std::StdHost;
@@ -164,6 +165,7 @@ impl RuntimeBuilder {
             monitor_stop: Arc::new(AtomicBool::new(false)),
             control_socket: Mutex::new(control_socket),
             recorder,
+            cluster: None,
         }
     }
 }
@@ -196,6 +198,14 @@ pub struct Runtime {
     /// `MTY_RECORD_TRACE=<path>` is set in the environment. Flushed
     /// to disk on `Runtime::shutdown` and on `Drop`.
     pub(crate) recorder: Option<Arc<Recorder>>,
+    /// v0.19 Tier 4.1 (continued): optional cluster router. When set,
+    /// [`Runtime::send_addr`] / [`Runtime::ask_addr`] consult this on
+    /// every call and forward non-local addresses to a peer over the
+    /// cluster mesh. `None` is the zero-overhead single-node path —
+    /// the existing handle-based [`Runtime::send`] / [`Runtime::ask`]
+    /// never touch this field at all, so callers that never opt into
+    /// addressed messaging pay zero cost.
+    pub(crate) cluster: Option<SharedRouter>,
 }
 
 impl std::fmt::Debug for Runtime {
@@ -244,6 +254,34 @@ impl Runtime {
             })
             .expect("spawn monitor thread");
         *slot = Some(thread);
+    }
+
+    /// v0.19: install a cluster router so [`Runtime::send_addr`] and
+    /// [`Runtime::ask_addr`] can route to remote nodes. Builder shape:
+    ///
+    /// ```ignore
+    /// let mesh = ClusterMesh::from_config(cfg).await?;
+    /// let rt = RuntimeBuilder::new().build(prog).with_cluster(mesh);
+    /// ```
+    ///
+    /// Idempotent — replacing the router is fine; in-flight asks
+    /// against the previous router resolve via that router's own
+    /// shutdown path, not the new one.
+    pub fn with_cluster(mut self, router: SharedRouter) -> Self {
+        self.cluster = Some(router);
+        self
+    }
+
+    /// Borrow the installed cluster router, if any. Tests + the
+    /// inbound demultiplexer use this; production code calls
+    /// [`Runtime::send_addr`] / [`Runtime::ask_addr`] instead.
+    pub fn cluster_router(&self) -> Option<&SharedRouter> {
+        self.cluster.as_ref()
+    }
+
+    /// True iff a cluster router is installed.
+    pub fn has_cluster(&self) -> bool {
+        self.cluster.is_some()
     }
 
     pub async fn spawn_agent(&self, name: &str, args: Vec<Value>) -> RuntimeResult<AgentHandle> {
@@ -374,6 +412,139 @@ impl Runtime {
                 message: "reply channel closed".into(),
             }),
         }
+    }
+
+    /// v0.19: fire-and-forget send to an [`AgentAddr`].
+    ///
+    /// Dispatch table:
+    /// - `to.is_local()` AND a local agent with this `(name, id)`
+    ///   exists in the registry → in-process mailbox path (same shape
+    ///   as [`Runtime::send`]). Zero overhead vs single-node path
+    ///   when no cluster is installed.
+    /// - `to.is_local()` but no matching local agent →
+    ///   [`RuntimeError::AgentNotFound`].
+    /// - `to` is remote AND a cluster router is installed →
+    ///   `router.route_send(...)`.
+    /// - `to` is remote AND no cluster router → [`RuntimeError::Trap`]
+    ///   with code `MT5030` (no cluster configured).
+    ///
+    /// The `from` address is recorded for telemetry / replay; pass
+    /// [`AgentAddr::local`] from an agent's `self` if you don't have
+    /// something more specific.
+    pub async fn send_addr(
+        &self,
+        from: AgentAddr,
+        to: AgentAddr,
+        msg: &str,
+        args: Vec<Value>,
+    ) -> RuntimeResult<()> {
+        if to.is_local() {
+            // Local path: find the handle by (name, id) and use the
+            // existing mailbox send.
+            let handle = self
+                .find_local_handle(&to)
+                .ok_or_else(|| RuntimeError::AgentNotFound(to.to_string()))?;
+            return self.send(&handle, msg, args).await;
+        }
+        // Remote: must have a cluster router installed.
+        let router = self.cluster.as_ref().ok_or_else(|| RuntimeError::Trap {
+            code: "MT5030",
+            message: format!(
+                "cluster routing requested for remote address {to} but no router is installed"
+            ),
+        })?;
+        let msg_bytes = encode_payload_for_trace(&args);
+        router
+            .route_send(from, to.clone(), msg.to_string(), msg_bytes)
+            .map_err(|e| RuntimeError::Trap {
+                code: "MT5031",
+                message: format!("cluster send to {to} failed: {e}"),
+            })
+    }
+
+    /// v0.19: request-reply ask to an [`AgentAddr`]. See
+    /// [`Runtime::send_addr`] for the local/remote dispatch table.
+    ///
+    /// Remote asks block until the reply arrives on the cluster mesh
+    /// or `deadline` elapses. The reply is decoded back from opaque
+    /// `msg_bytes` into a [`Value::Bytes`] — the runtime + cluster
+    /// preserve the v0.18 wire contract where payload bytes are
+    /// opaque. Callers that need typed remote replies should layer
+    /// their own decoder above this.
+    pub async fn ask_addr(
+        &self,
+        from: AgentAddr,
+        to: AgentAddr,
+        msg: &str,
+        args: Vec<Value>,
+        deadline: Option<Duration>,
+    ) -> RuntimeResult<Value> {
+        if to.is_local() {
+            let handle = self
+                .find_local_handle(&to)
+                .ok_or_else(|| RuntimeError::AgentNotFound(to.to_string()))?;
+            return self.ask(&handle, msg, args, deadline).await;
+        }
+        let router = self.cluster.as_ref().ok_or_else(|| RuntimeError::Trap {
+            code: "MT5030",
+            message: format!(
+                "cluster routing requested for remote address {to} but no router is installed"
+            ),
+        })?;
+        let msg_bytes = encode_payload_for_trace(&args);
+        let to_display = to.to_string();
+        let fut = router.route_ask(from, to, msg.to_string(), msg_bytes);
+        let reply = match deadline {
+            Some(d) => {
+                let raw = tokio::time::timeout(d, fut)
+                    .await
+                    .map_err(|_| RuntimeError::DeadlineExceeded(d))?;
+                raw.map_err(|e| RuntimeError::Trap {
+                    code: "MT5031",
+                    message: format!("cluster ask to {to_display} failed: {e}"),
+                })?
+            }
+            None => fut.await.map_err(|e| RuntimeError::Trap {
+                code: "MT5031",
+                message: format!("cluster ask to {to_display} failed: {e}"),
+            })?,
+        };
+        match reply {
+            // The cluster transport speaks opaque bytes; surface them
+            // as a `Value::Str` (lossy UTF-8 decode) so callers don't
+            // need a Bytes variant. Round-tripping rich values is the
+            // job of the layer above (which encoded the args into the
+            // opaque `msg_bytes` in the first place).
+            RouteReply::Ok { msg_bytes } => Ok(Value::Str(
+                String::from_utf8(msg_bytes.clone())
+                    .unwrap_or_else(|_| format!("<{}-byte opaque payload>", msg_bytes.len())),
+            )),
+            RouteReply::Err { kind, message } => Err(RuntimeError::Trap {
+                // Remote-side error: propagate as a trap with the
+                // structured kind/message so the caller can match
+                // on `kind` to distinguish e.g. peer_disconnected
+                // from a user-level reply error.
+                code: "MT5032",
+                message: format!("remote ask returned error [{kind}]: {message}"),
+            }),
+        }
+    }
+
+    /// Locate a local agent by [`AgentAddr`]. Returns the live
+    /// [`AgentHandle`] if the descriptor is still registered.
+    /// Internal helper for [`Self::send_addr`] / [`Self::ask_addr`].
+    fn find_local_handle(&self, addr: &AgentAddr) -> Option<AgentHandle> {
+        let desc = self.registry.get(crate::agent::AgentId(addr.agent_id))?;
+        // Verify the name matches — addressing the right pid but
+        // wrong type would silently target the wrong agent otherwise.
+        if desc.name != addr.agent_type {
+            return None;
+        }
+        Some(AgentHandle {
+            id: desc.id,
+            name: desc.name.clone(),
+            mailbox: desc.mailbox.clone(),
+        })
     }
 
     pub async fn shutdown(self) -> RunOutcome {

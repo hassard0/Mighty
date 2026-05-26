@@ -40,6 +40,9 @@ otlp = ["dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk"]
 mty-driver = { path = "../mty-driver" }
 mty-stdlib = { path = "../mty-stdlib", default-features = false }
 tokio = { workspace = true, features = ["test-util"] }
+# v0.19 cluster routing tests: parse a synthetic `mighty.toml` with a
+# `[cluster]` block via the manifest re-export in `mty-driver`.
+toml.workspace = true
 criterion.workspace = true
 # v0.18 cluster tests: synthesize a self-signed TLS cert per-test so the
 # multi-node mesh can handshake without any on-disk fixtures.

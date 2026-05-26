@@ -52,6 +52,7 @@ fn package_in_second_registry_resolves() {
         package: pkg("app"),
         deps,
         build: None,
+        cluster: None,
     };
     let lock = r.resolve(&m).unwrap();
     assert_eq!(lock.packages.len(), 1);
@@ -84,6 +85,7 @@ fn first_registry_wins_on_duplicate_name_version() {
         package: pkg("app"),
         deps,
         build: None,
+        cluster: None,
     };
     let lock = r.resolve(&m).unwrap();
     assert_eq!(lock.packages[0].source, "registry+gh://primary/idx");
@@ -110,6 +112,7 @@ fn unknown_package_falls_back_to_requirement_floor() {
         package: pkg("app"),
         deps,
         build: None,
+        cluster: None,
     };
     let lock = r.resolve(&m).unwrap();
     assert_eq!(lock.packages[0].version, "0.3.2");
