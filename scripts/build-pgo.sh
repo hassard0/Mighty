@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+# scripts/build-pgo.sh — v0.22 Profile-Guided Optimization (PGO)
+# build pipeline for the `mty` binary.
+#
+# Two-stage build:
+#
+#   1. Instrumented build:  RUSTFLAGS="-Cprofile-generate=$PROFDIR"
+#      cargo +<tc> build --profile release-pgo -p mty-cli
+#   2. Profile collection:  drive the instrumented binary against the
+#      bundled examples (check sweep + one wasm32-wasi build) and let
+#      it emit .profraw shards into $PROFDIR.
+#   3. Merge:               llvm-profdata merge $PROFDIR/*.profraw …
+#   4. Optimised rebuild:   RUSTFLAGS="-Cprofile-use=$PROFDIR/merged.profdata
+#                                       -Clinker-plugin-lto"
+#      cargo +<tc> build --profile release-pgo -p mty-cli
+#   5. Artifact copy:       target/release-pgo/mty  →  target/mty-pgo
+#
+# Environment:
+#   PROFDIR    Where to put .profraw shards. Default: target/pgo-profiles
+#   TOOLCHAIN  Rust toolchain (must have llvm-tools-preview). Default: 1.95.0
+#
+# Platform support: Linux + macOS. Windows is best-driven through
+# `scripts/build-pgo.ps1` (which has the same shape but uses the
+# llvm-profdata that ships with the rustup `llvm-tools-preview`
+# component).
+#
+# Reference: docs/internals/pgo.md, dev/history/notes/PGO_V0_22_NOTES.md
+
+set -euo pipefail
+
+PROFDIR="${PROFDIR:-target/pgo-profiles}"
+TOOLCHAIN="${TOOLCHAIN:-1.95.0}"
+
+# ----------------------------------------------------------------
+# Sanity: locate llvm-profdata. We try, in order:
+#   1. `llvm-profdata` on PATH (system LLVM).
+#   2. The rustup-managed one inside the active toolchain's sysroot
+#      under `lib/rustlib/<host>/bin/llvm-profdata`.
+# We need *one* of them — fail loudly otherwise.
+# ----------------------------------------------------------------
+locate_llvm_profdata() {
+  if command -v llvm-profdata >/dev/null 2>&1; then
+    echo "llvm-profdata"
+    return 0
+  fi
+  local sysroot
+  sysroot="$(rustc +"$TOOLCHAIN" --print sysroot 2>/dev/null || true)"
+  if [[ -n "$sysroot" ]]; then
+    # rustup paths are <sysroot>/lib/rustlib/<host>/bin/llvm-profdata
+    local host
+    host="$(rustc +"$TOOLCHAIN" -vV | awk '/^host:/ { print $2 }')"
+    local candidate="$sysroot/lib/rustlib/$host/bin/llvm-profdata"
+    if [[ -x "$candidate" ]]; then
+      echo "$candidate"
+      return 0
+    fi
+  fi
+  echo ""
+  return 1
+}
+
+LLVM_PROFDATA="$(locate_llvm_profdata || true)"
+if [[ -z "$LLVM_PROFDATA" ]]; then
+  echo "ERROR: llvm-profdata not found." >&2
+  echo "  Install with: rustup component add llvm-tools-preview --toolchain $TOOLCHAIN" >&2
+  exit 1
+fi
+echo "Using llvm-profdata: $LLVM_PROFDATA"
+
+# ----------------------------------------------------------------
+# Phase 0: clean the profile directory so we don't merge stale data
+# from an older instrumented build. We keep `target/` intact — the
+# cargo cache is still useful between PGO runs.
+# ----------------------------------------------------------------
+echo "=== Phase 0: prepare profile dir ==="
+rm -rf "$PROFDIR"
+mkdir -p "$PROFDIR"
+
+# ----------------------------------------------------------------
+# Phase 1: instrumented build. `release-pgo` already pins fat LTO +
+# single codegen unit; the only thing we add here is the profile-
+# generate flag, which makes rustc insert counters around branches
+# and function entries.
+# ----------------------------------------------------------------
+echo "=== Phase 1: instrumented build (profile-generate) ==="
+RUSTFLAGS="-Cprofile-generate=$PROFDIR" \
+  cargo +"$TOOLCHAIN" build --profile release-pgo -p mty-cli
+
+MTY_BIN="target/release-pgo/mty"
+if [[ ! -x "$MTY_BIN" ]]; then
+  # Windows under git-bash drops the binary as `mty.exe`.
+  if [[ -x "${MTY_BIN}.exe" ]]; then
+    MTY_BIN="${MTY_BIN}.exe"
+  else
+    echo "ERROR: instrumented mty binary not found at $MTY_BIN" >&2
+    exit 1
+  fi
+fi
+
+# ----------------------------------------------------------------
+# Phase 2: profile collection. We sweep `mty check` over every
+# example that isn't gated on incomplete typeck (the `@typeck-pending`
+# marker pattern is preserved for forward-compat — v0.21's examples
+# are all clean) and then drive one `mty build` against the canonical
+# hello-world example for wasm32-wasi to exercise the codegen path
+# the instrumented binary needs to learn.
+# ----------------------------------------------------------------
+echo "=== Phase 2: profile collection ==="
+shopt -s nullglob
+EXAMPLES=(examples/*.mty)
+shopt -u nullglob
+if [[ ${#EXAMPLES[@]} -eq 0 ]]; then
+  echo "WARN: no .mty examples found under examples/ — profile will be thin" >&2
+fi
+for f in "${EXAMPLES[@]}"; do
+  if grep -q '@typeck-pending' "$f" 2>/dev/null; then
+    echo "  skip (typeck-pending): $f"
+    continue
+  fi
+  echo "  check: $f"
+  # `mty check` is the fast path; failures are tolerated (the
+  # instrumented binary may legitimately reject a syntax-only file).
+  "$MTY_BIN" check "$f" >/dev/null 2>&1 || true
+done
+
+if [[ -f examples/01_hello.mty ]]; then
+  echo "  build wasm32-wasi: examples/01_hello.mty"
+  "$MTY_BIN" build examples/01_hello.mty --target wasm32-wasi >/dev/null 2>&1 || true
+fi
+
+# Optional: route through mty-bench-pgo if it's been built and
+# available alongside the runner. This widens the profile to include
+# the in-process bench paths.
+BENCH_PGO_BIN="target/release-pgo/mty-bench-pgo"
+if [[ -x "$BENCH_PGO_BIN" ]] || [[ -x "${BENCH_PGO_BIN}.exe" ]]; then
+  [[ -x "${BENCH_PGO_BIN}.exe" ]] && BENCH_PGO_BIN="${BENCH_PGO_BIN}.exe"
+  echo "  mty-bench-pgo workloads"
+  "$BENCH_PGO_BIN" --quick >/dev/null 2>&1 || true
+fi
+
+# ----------------------------------------------------------------
+# Phase 3: merge .profraw shards into a single .profdata. The merge
+# step is what `cargo +nightly rustc -Cprofile-use=` actually consumes.
+# ----------------------------------------------------------------
+echo "=== Phase 3: merge profiles ==="
+RAW_COUNT="$(find "$PROFDIR" -maxdepth 1 -name '*.profraw' | wc -l | tr -d ' ')"
+if [[ "$RAW_COUNT" -eq 0 ]]; then
+  echo "ERROR: no .profraw files were produced — check Phase 1+2" >&2
+  exit 1
+fi
+echo "  merging $RAW_COUNT .profraw shards"
+"$LLVM_PROFDATA" merge -o "$PROFDIR/merged.profdata" "$PROFDIR"/*.profraw
+
+# ----------------------------------------------------------------
+# Phase 4: optimised rebuild. -Clinker-plugin-lto lets the linker
+# (lld / ld64) cross-LTO between rustc-generated bitcode and any
+# LLVM-built static libs in the dep graph; combined with the
+# release-pgo profile's `lto = "fat"` it's the heaviest layout
+# rustc supports.
+# ----------------------------------------------------------------
+echo "=== Phase 4: optimised rebuild (profile-use) ==="
+RUSTFLAGS="-Cprofile-use=$PROFDIR/merged.profdata -Clinker-plugin-lto" \
+  cargo +"$TOOLCHAIN" build --profile release-pgo -p mty-cli
+
+# ----------------------------------------------------------------
+# Phase 5: stable artifact path. CI + measurement scripts look for
+# `target/mty-pgo`; we copy rather than move so the next PGO run
+# doesn't have to rebuild from scratch.
+# ----------------------------------------------------------------
+echo "=== Phase 5: copy artifact ==="
+SRC="target/release-pgo/mty"
+DST="target/mty-pgo"
+if [[ ! -x "$SRC" ]] && [[ -x "$SRC.exe" ]]; then
+  SRC="$SRC.exe"
+  DST="$DST.exe"
+fi
+cp "$SRC" "$DST"
+echo "Built $DST"
+echo "Done."

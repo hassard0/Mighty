@@ -103,6 +103,36 @@ lto = "thin"
 codegen-units = 1
 
 # ----------------------------------------------------------------
+# v0.22 PGO + ThinLTO build profile.
+#
+# `release-pgo` is the profile used by the two-stage profile-guided
+# optimisation pipeline driven by `scripts/build-pgo.{sh,ps1}`. The
+# pipeline:
+#
+#   1. Builds with `RUSTFLAGS="-Cprofile-generate=$PROFDIR"`
+#      (instrumented binary writes .profraw on each run).
+#   2. Runs `mty-bench-pgo` to exercise representative compile +
+#      check workloads against the bundled examples.
+#   3. Merges the .profraw shards into a single .profdata using
+#      `llvm-profdata merge`.
+#   4. Rebuilds with `RUSTFLAGS="-Cprofile-use=… -Clinker-plugin-lto"`
+#      which is what eventually ships as the optimised `mty` binary.
+#
+# The profile inherits from `release` and turns up the dials that are
+# only worth paying for in a release+PGO build (fat LTO, single
+# codegen unit, debuginfo stripped). It is **not** wired into
+# `release.yml` yet — v0.22 ships the manual `pgo-bench.yml` workflow
+# for measurement only. See `docs/internals/pgo.md` and
+# `dev/history/notes/PGO_V0_22_NOTES.md`.
+# ----------------------------------------------------------------
+[profile.release-pgo]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+debug = false
+strip = true
+
+# ----------------------------------------------------------------
 # Workspace-wide clippy lint policy. v0.11 makes the `clippy
 # (strict)` CI job required by allow-listing the pedantic lints
 # that are style preferences (not bugs) and keeping the rest at

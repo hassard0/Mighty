@@ -17,6 +17,13 @@ path = "src/lib.rs"
 name = "mty-bench-runner"
 path = "src/bin/mty-bench-runner.rs"
 
+# v0.22 PGO profile-collection driver. Used by
+# `scripts/build-pgo.{sh,ps1}` between the instrumented build and the
+# llvm-profdata merge step. See `docs/internals/pgo.md`.
+[[bin]]
+name = "mty-bench-pgo"
+path = "src/bin/mty-bench-pgo.rs"
+
 [dependencies]
 mty-syntax    = { path = "../mty-syntax" }
 mty-driver    = { path = "../mty-driver" }

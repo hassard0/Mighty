@@ -1,0 +1,145 @@
+name: pgo-bench
+
+# v0.22 PGO + ThinLTO measurement workflow. Manual only — a PGO
+# build does a full instrumented build, a profile collection pass,
+# and then a fat-LTO rebuild, so it's ~3-4× the wall-clock of a
+# normal `cargo build --release`. We don't run it on every push.
+#
+# Outputs:
+#   1. The optimised `mty-pgo` binary as a workflow artifact.
+#   2. A workflow-summary block with the baseline vs PGO timings of
+#      `mty check` on a fixed example payload.
+#
+# Not wired into `release.yml` yet — PGO ships as a hand-driven
+# measurement tool in v0.22. See `docs/internals/pgo.md` and
+# `dev/history/notes/PGO_V0_22_NOTES.md`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag, branch, or SHA to PGO-build"
+        default: "main"
+        required: false
+      iters:
+        description: "Iterations for the baseline-vs-PGO compare step"
+        default: "10"
+        required: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  pgo-build:
+    name: PGO build + measure (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || 'main' }}
+
+      - name: Install Rust toolchain (1.95.0) with llvm-tools-preview
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+          components: "llvm-tools-preview"
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: pgo-ubuntu
+
+      - name: Show llvm-profdata location
+        run: |
+          set -e
+          SYS="$(rustc +1.95.0 --print sysroot)"
+          HOST="$(rustc +1.95.0 -vV | awk '/^host:/ { print $2 }')"
+          echo "sysroot: $SYS"
+          echo "host:    $HOST"
+          ls -l "$SYS/lib/rustlib/$HOST/bin/llvm-profdata" || true
+
+      - name: Build baseline (release)
+        run: |
+          cargo +1.95.0 build --release -p mty-cli
+          cp target/release/mty target/mty-baseline
+
+      - name: Run PGO pipeline
+        run: |
+          chmod +x scripts/build-pgo.sh
+          ./scripts/build-pgo.sh
+        env:
+          # Make sure the script picks up the toolchain's bundled
+          # llvm-profdata even if /usr/bin doesn't have one.
+          TOOLCHAIN: "1.95.0"
+
+      - name: Measure baseline vs PGO (mty check)
+        id: measure
+        run: |
+          set -e
+          ITERS="${{ github.event.inputs.iters || '10' }}"
+          PAYLOAD=examples/01_hello.mty
+          if [[ ! -f "$PAYLOAD" ]]; then
+            echo "No payload at $PAYLOAD — skipping measure"
+            echo "skipped=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          measure() {
+            local bin="$1"
+            local total_ns=0
+            for ((i=0;i<ITERS;i++)); do
+              local t0 t1
+              t0=$(date +%s%N)
+              "$bin" check "$PAYLOAD" >/dev/null 2>&1 || true
+              t1=$(date +%s%N)
+              total_ns=$((total_ns + t1 - t0))
+            done
+            echo $((total_ns / ITERS))
+          }
+
+          BASE_NS=$(measure target/mty-baseline)
+          PGO_NS=$(measure target/mty-pgo)
+
+          # Avoid division-by-zero (extremely fast / mis-measured runs).
+          if [[ "$BASE_NS" -eq 0 ]]; then BASE_NS=1; fi
+          DELTA_PCT=$(awk -v b="$BASE_NS" -v p="$PGO_NS" 'BEGIN { printf "%.2f", (b - p) * 100.0 / b }')
+
+          echo "BASE_NS=$BASE_NS"  >> "$GITHUB_OUTPUT"
+          echo "PGO_NS=$PGO_NS"    >> "$GITHUB_OUTPUT"
+          echo "DELTA_PCT=$DELTA_PCT" >> "$GITHUB_OUTPUT"
+          echo "ITERS=$ITERS"      >> "$GITHUB_OUTPUT"
+
+      - name: Workflow summary
+        if: always()
+        run: |
+          {
+            echo "## PGO build summary"
+            echo ""
+            echo "- ref: \`${{ github.event.inputs.ref || 'main' }}\`"
+            echo "- toolchain: 1.95.0 + llvm-tools-preview"
+            echo "- iters: \`${{ steps.measure.outputs.ITERS || 'n/a' }}\`"
+            echo ""
+            if [[ -n "${{ steps.measure.outputs.BASE_NS }}" ]]; then
+              echo "| binary | mean \`mty check\` (ns) |"
+              echo "|---|---|"
+              echo "| baseline (release) | ${{ steps.measure.outputs.BASE_NS }} |"
+              echo "| PGO (release-pgo)  | ${{ steps.measure.outputs.PGO_NS }} |"
+              echo ""
+              echo "Speedup: **${{ steps.measure.outputs.DELTA_PCT }}%** (positive = PGO faster)"
+            else
+              echo "Measurement step did not produce numbers (skipped or failed)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload PGO artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mty-pgo-${{ github.run_id }}
+          path: |
+            target/mty-pgo
+            target/mty-baseline
+            target/pgo-profiles/merged.profdata
+          retention-days: 30
+          if-no-files-found: warn
