@@ -649,8 +649,7 @@ fn lower_call(ctx: &mut LowerCtx, fb: &mut FnBuilder, callee: ExprId, args: &[Hi
     //      the variant short name. Variants are registered by short
     //      name only, so we look up the variant inside the Adt.
     if let Some((adt, variant)) = variant_for_call_callee(ctx, callee) {
-        let arg_ops: Vec<Operand> =
-            args.iter().map(|a| lower_expr(ctx, fb, a.value)).collect();
+        let arg_ops: Vec<Operand> = args.iter().map(|a| lower_expr(ctx, fb, a.value)).collect();
         let temp = fb.fresh_temp(IrTy::Adt(adt, vec![]));
         fb.push_stmt(Stmt::Assign(
             Place::local(temp),

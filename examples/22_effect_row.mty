@@ -32,7 +32,6 @@
 //     error sugar (back-compat)
 //   - first ident is LOWERCASE, or a `|` appears at depth 0 →
 //     effect-row clause
-
 // @typeck-pending: the row var `E` requires v0.16 HIR/typeck wiring
 // to flow from the closure parameter's effect set through to the
 // return type. v0.15 only PARSES the shape.

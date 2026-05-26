@@ -25,12 +25,12 @@
 //! signature exercises shapes the v0.13 emitter doesn't model.
 
 use mty_driver::{lower, lower_to_sir, parse_source, type_and_borrow_check};
+use mty_hir::SourceSpan;
 use mty_ir::interp::{run_fn_by_name, Host, RunResult, Value};
 use mty_ir::ir::{
     BinOp, Block, BlockId, BuiltinId, Const, FnRef, Function, IrFnId, IrTy, Local, LocalDecl,
     LocalSource, Operand, Place, Program, Projection, Rvalue, Stmt, Term, UnOp,
 };
-use mty_hir::SourceSpan;
 use mty_ir::lower_package;
 use mty_types::{check_package_typed, EffectId, IntKind};
 use std::path::PathBuf;
@@ -438,7 +438,10 @@ fn term_to_entry(t: &Term) -> TermEntry {
             // codegen's int-cascade lowering.
             e.kind = "SwitchInt".into();
             e.switchint_discr_local = operand_to_local(discr);
-            e.switchint_arms = arms.iter().map(|(v, b)| (*v as i64, b.0 as usize)).collect();
+            e.switchint_arms = arms
+                .iter()
+                .map(|(v, b)| (*v as i64, b.0 as usize))
+                .collect();
             e.switchint_default = default.0 as usize;
         }
         Term::SwitchVariant {
@@ -853,14 +856,24 @@ impl SelfhostCodegenHost {
             ),
             "ir_block_term_switchint_arm_value" => Value::Int(
                 self.lookup_block(args)
-                    .and_then(|b| b.term.switchint_arms.get(arg_usize(args, 2)).map(|(v, _)| *v))
+                    .and_then(|b| {
+                        b.term
+                            .switchint_arms
+                            .get(arg_usize(args, 2))
+                            .map(|(v, _)| *v)
+                    })
                     .map(|v| v as i128)
                     .unwrap_or(0),
                 IntKind::I64,
             ),
             "ir_block_term_switchint_arm_target" => Value::Int(
                 self.lookup_block(args)
-                    .and_then(|b| b.term.switchint_arms.get(arg_usize(args, 2)).map(|(_, t)| *t))
+                    .and_then(|b| {
+                        b.term
+                            .switchint_arms
+                            .get(arg_usize(args, 2))
+                            .map(|(_, t)| *t)
+                    })
                     .map(|t| t as i128)
                     .unwrap_or(0),
                 IntKind::USize,
@@ -1170,9 +1183,7 @@ fn run_selfhost_codegen(input: &str) -> Result<SelfhostCodegenRun, String> {
 /// Used by synthetic fixtures that exercise IR shapes the Rust HIR-to-IR
 /// lowerer doesn't produce (e.g. SwitchInt, which the lowerer currently
 /// expands as a chained-If on Eq instead).
-fn run_selfhost_codegen_with_program(
-    input_prog: &Program,
-) -> Result<SelfhostCodegenRun, String> {
+fn run_selfhost_codegen_with_program(input_prog: &Program) -> Result<SelfhostCodegenRun, String> {
     let wasm_path = workspace_root().join("selfhost/codegen/wasm.mty");
     let wasm_src = std::fs::read_to_string(&wasm_path)
         .map_err(|e| format!("read {}: {}", wasm_path.display(), e))?;

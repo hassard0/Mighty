@@ -209,7 +209,16 @@ fn monomorphization_compiles_wasm() {
     v.validate_all(&bytes).expect("validate");
 }
 
-/// Sweep all 20 ship examples through the cranelift JIT path. Each
+/// Examples carrying `// @typeck-pending` in the source body are
+/// skipped by the codegen sweeps — the marker indicates the example
+/// demonstrates a parser-level surface form whose typeck wiring lands
+/// in a later version (RFC-008 effect-row syntax from v0.15 is the
+/// first user).
+fn is_typeck_pending(src: &str) -> bool {
+    src.contains("@typeck-pending")
+}
+
+/// Sweep all ship examples through the cranelift JIT path. Each
 /// example should produce a valid object — failures here surface as
 /// codegen regressions. (Linker-availability is not required.)
 #[test]
@@ -226,6 +235,9 @@ fn all_examples_compile_native() {
         }
         let name = p.file_stem().unwrap().to_string_lossy().to_string();
         let src = std::fs::read_to_string(&p).unwrap();
+        if is_typeck_pending(&src) {
+            continue;
+        }
         let prog = lower_strict(src);
         let st = codegen_abi::symbol_table();
         let syms = symbols_from(&st.iter().map(|(n, p)| (n.as_str(), *p)).collect::<Vec<_>>());
@@ -333,6 +345,9 @@ fn all_examples_compile_wasm_component() {
         }
         let name = p.file_stem().unwrap().to_string_lossy().to_string();
         let src = std::fs::read_to_string(&p).unwrap();
+        if is_typeck_pending(&src) {
+            continue;
+        }
         let prog = lower_strict(src);
         let core = match compile_program_to_bytes(&prog, WasmTarget::Wasi) {
             Ok(b) => b,
@@ -388,6 +403,9 @@ fn all_examples_compile_wasm() {
         }
         let name = p.file_stem().unwrap().to_string_lossy().to_string();
         let src = std::fs::read_to_string(&p).unwrap();
+        if is_typeck_pending(&src) {
+            continue;
+        }
         let prog = lower_strict(src);
         match compile_program_to_bytes(&prog, WasmTarget::Wasi) {
             Ok(bytes) => {

@@ -18,7 +18,6 @@
 //   files = ["wit/example/hello-world.wit"]
 //
 // See `docs/reference/wasi.md` for the full reference.
-
 fn main() {
   log("21_wasi_preview2: hello from a P2-targeted Mighty component")
 }
