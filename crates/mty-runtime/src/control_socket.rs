@@ -86,7 +86,7 @@ impl ControlContext {
             Request::List => {
                 let mut agents: Vec<AgentListEntry> = self
                     .registry
-                    .iter()
+                    .snapshot_descriptors()
                     .into_iter()
                     .map(|d| AgentListEntry {
                         agent_id: d.id.0,
@@ -123,7 +123,7 @@ pub fn sock_path_from_env() -> Option<String> {
 /// best-effort observability surface, never a correctness gate.
 pub fn spawn_control_socket(
     ctx: ControlContext,
-    handle: &TokioHandle,
+    handle: TokioHandle,
 ) -> Option<ControlSocketHandle> {
     let path = sock_path_from_env()?;
     spawn_control_socket_at(ctx, handle, &path)
@@ -133,12 +133,12 @@ pub fn spawn_control_socket(
 /// for tests that need to set the path programmatically.
 pub fn spawn_control_socket_at(
     ctx: ControlContext,
-    handle: &TokioHandle,
+    handle: TokioHandle,
     path: &str,
 ) -> Option<ControlSocketHandle> {
     #[cfg(unix)]
     {
-        unix_impl::spawn(ctx, handle, path)
+        unix_impl::spawn(ctx, &handle, path)
     }
     #[cfg(windows)]
     {
@@ -239,6 +239,17 @@ mod unix_impl {
     }
 }
 
+impl std::fmt::Debug for Response {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Response::Snapshot(_) => write!(f, "Response::Snapshot"),
+            Response::Agent(_) => write!(f, "Response::Agent"),
+            Response::List { agents } => write!(f, "Response::List(n={})", agents.len()),
+            Response::Error { error } => write!(f, "Response::Error({})", error),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,16 +332,5 @@ mod tests {
     fn env_unset_returns_none() {
         std::env::remove_var(CONTROL_SOCK_ENV);
         assert!(sock_path_from_env().is_none());
-    }
-}
-
-impl std::fmt::Debug for Response {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Response::Snapshot(_) => write!(f, "Response::Snapshot"),
-            Response::Agent(_) => write!(f, "Response::Agent"),
-            Response::List { agents } => write!(f, "Response::List(n={})", agents.len()),
-            Response::Error { error } => write!(f, "Response::Error({})", error),
-        }
     }
 }

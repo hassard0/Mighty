@@ -139,7 +139,7 @@ impl RuntimeBuilder {
                 introspect: introspect.clone(),
                 worker_count: scheduler.worker_count(),
             };
-            spawn_control_socket(ctx, &scheduler.rt.handle())
+            spawn_control_socket(ctx, scheduler.rt.handle().clone())
         };
 
         Runtime {

@@ -4,7 +4,6 @@
 //! socket. Compiled programs come through `mty_driver::pipeline` like
 //! every other runtime integration test in this crate.
 
-use mty_ir::interp::value::Value;
 use mty_runtime::control_socket::{ControlContext, Request, Response};
 use mty_runtime::introspect::{snapshot_runtime, AgentIntrospectState, SNAPSHOT_WIRE_VERSION};
 use mty_runtime::{AgentId, IntrospectMap, RuntimeBuilder};
@@ -158,7 +157,7 @@ fn control_socket_responds_to_snapshot_op() {
             introspect: rt.introspect.clone(),
             worker_count: rt.scheduler.worker_count(),
         };
-        let handle = spawn_control_socket_at(ctx, &tokio::runtime::Handle::current(), &path)
+        let handle = spawn_control_socket_at(ctx, tokio::runtime::Handle::current(), &path)
             .expect("control socket spawn");
         // Give the listener a tick to bind. The accept loop is
         // immediately ready once bound, so a 50 ms wait is generous.

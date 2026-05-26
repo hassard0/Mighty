@@ -228,7 +228,7 @@ fn render_runtime(s: &RuntimeSnapshot) -> String {
 
 fn render_single(a: &AgentSnapshot) -> String {
     let mut out = String::new();
-    out.push_str(&format!("agent #{} {}\n", a.agent_id, a.agent_type,));
+    out.push_str(&format!("agent #{} {}\n", a.agent_id, a.agent_type));
     if let Some(parent) = a.supervisor_parent {
         out.push_str(&format!("  supervisor parent: #{}\n", parent));
     }
@@ -387,8 +387,10 @@ mod tests {
 
     #[test]
     fn unix_ts_renders_as_iso8601() {
-        // 2026-05-26T00:00:00Z = 1779580800
-        let s = format_unix_ms(1779580800 * 1000);
+        // 2026-05-26T00:00:00Z = 1779753600 (verified via `date -d`)
+        let s = format_unix_ms(1779753600 * 1000);
         assert_eq!(s, "2026-05-26T00:00:00Z");
+        // Spot-check the epoch itself.
+        assert_eq!(format_unix_ms(0), "1970-01-01T00:00:00Z");
     }
 }

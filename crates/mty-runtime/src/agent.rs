@@ -87,7 +87,7 @@ impl AgentRegistry {
     /// v0.16 introspection: snapshot of all live descriptors. Returns
     /// owned `Arc`s so the caller can drop the registry lock before
     /// computing per-agent snapshots.
-    pub fn iter(&self) -> Vec<Arc<AgentDescriptor>> {
+    pub fn snapshot_descriptors(&self) -> Vec<Arc<AgentDescriptor>> {
         self.by_id.iter().map(|r| r.value().clone()).collect()
     }
 }

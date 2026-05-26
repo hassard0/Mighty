@@ -277,7 +277,7 @@ pub fn snapshot_runtime(
     worker_count: usize,
 ) -> RuntimeSnapshot {
     let mut agents: Vec<AgentSnapshot> = registry
-        .iter()
+        .snapshot_descriptors()
         .into_iter()
         .map(|desc| {
             let intr = introspect.get(desc.id.0);
