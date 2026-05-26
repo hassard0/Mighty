@@ -95,12 +95,37 @@ nav:
     - Macros v0.4: spec/macros-v0.4.md
     - Macros v0.5: spec/macros-v0.5.md
     - v1.0-RC: spec/v1.0-rc.md
+    - Conformance (normative): spec/conformance.md
+    - Conformance Coverage: spec/conformance-coverage.md
+    - Independent Implementations: spec/independent-impls.md
     - Spec Changelog: spec/CHANGELOG.md
   - Reference:
     - Overview: reference/README.md
+    - CLI (mty): reference/cli/mty.md
+    - CLI (mty new): reference/cli/mty-new.md
+    - CLI (mty check): reference/cli/mty-check.md
+    - CLI (mty run): reference/cli/mty-run.md
+    - CLI (mty build): reference/cli/mty-build.md
+    - CLI (mty fmt): reference/cli/mty-fmt.md
+    - CLI (mty dump): reference/cli/mty-dump.md
+    - CLI (mty explain): reference/cli/mty-explain.md
+    - CLI (mty doc): reference/cli/mty-doc.md
+    - CLI (mty lsp): reference/cli/mty-lsp.md
+    - CLI (mty pkg): reference/cli/mty-pkg.md
+    - CLI (mty inspect): reference/cli/mty-inspect.md
+    - CLI (mty replay): reference/cli/mty-replay.md
     - Manifest: reference/manifest.md
     - Registry: reference/registry.md
     - Diagnostics: reference/diagnostics.md
+    - WASI Compatibility: reference/wasi.md
+    - Telemetry: reference/telemetry.md
+    - Stdlib (std.fs): reference/stdlib/fs.md
+    - Stdlib (std.http): reference/stdlib/http.md
+    - Stdlib (std.json): reference/stdlib/json.md
+    - Stdlib (std.test): reference/stdlib/test.md
+    - Stdlib (std.time): reference/stdlib/time.md
+    - Stdlib (std.tls): reference/stdlib/tls.md
+    - WIT Template: reference/wit/template.wit.md
   - Internals:
     - Overview: internals/README.md
     - Architecture: internals/architecture.md
@@ -146,8 +171,19 @@ nav:
     - Package Manager: internals/package-manager.md
     - Package Signing: internals/package-signing.md
     - Self-hosting: internals/self-hosting.md
+    - Conformance (internals): internals/conformance.md
     - Benchmarking: internals/benchmarking.md
     - Agent-features Roadmap: internals/agent-features-roadmap.md
+  - RFCs:
+    - Comment Windows: spec/rfcs/COMMENT_WINDOWS.md
+    - RFC-001 First-class union ADTs: spec/rfcs/RFC-001-first-class-union-adts.md
+    - RFC-002 WASM Component Model wrapper: spec/rfcs/RFC-002-wasm-component-model-wrapper.md
+    - RFC-003 Sandboxed proc-macro: spec/rfcs/RFC-003-sandboxed-proc-macro-execution.md
+    - RFC-004 Per-call fscap manifest: spec/rfcs/RFC-004-per-call-fscap-manifest.md
+    - RFC-005 Affinity frontend syntax: spec/rfcs/RFC-005-affinity-frontend-syntax.md
+    - RFC-006 Lossless live agent migration: spec/rfcs/RFC-006-lossless-live-agent-migration.md
+    - RFC-008 Effect rows: spec/rfcs/RFC-008-effect-rows.md
+    - RFC-009 Set-of-scopes: spec/rfcs/RFC-009-set-of-scopes.md
   - Demos: demos/index.md
   # v0.10: `superpowers/` contains plans/ + specs/ subdirs but no
   # top-level index.md. mkdocs auto-discovers the markdown files

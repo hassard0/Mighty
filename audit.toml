@@ -15,4 +15,13 @@ ignore = [
     # The unsound API (Buf deref) is not invoked by mty-pkg; tracked
     # for git2 bump in v0.17.
     "RUSTSEC-2026-0008",
+
+    # Marvin Attack timing sidechannel in rsa 0.9.10 (no upstream fix
+    # available as of v0.19). Reachability: rsa is a transitive dep
+    # via openidconnect → sigstore → mty-pkg. mty-pkg uses sigstore
+    # only for cosign signature verification (Ed25519 / ECDSA paths);
+    # the RSA code paths in openidconnect/sigstore are not exercised
+    # by the Mighty CLI. Tracked for re-evaluation when a fixed
+    # version of `rsa` ships; do not promote to warning until then.
+    "RUSTSEC-2023-0071",
 ]

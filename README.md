@@ -20,34 +20,48 @@ server, and stdlib are all in one Rust workspace and one `mty` binary.
 > (operator precedence promoted to normative §11.1.1; full
 > 63-reserved-keyword set enumerated; effect-row grammar admits the
 > multi-row-variable tail since v0.18). The toolchain is exercised by
-> **1324 Rust tests** across 20 crates plus a second independent
+> **1378 Rust tests** across 20 crates plus a second independent
 > Python implementation at [`impl-py/`](impl-py/) (front-end + HIR +
-> typeck, 274 tests, 23/23 examples typeck clean) and a third
-> source-only Go front-end at [`impl-go/`](impl-go/) (4848 LOC,
-> cross-validation pending Go toolchain). All six CI jobs are required
-> gates. **End-to-end self-hosting** is complete for the slice-1
-> subset (lexer → parser → HIR → typeck → MtyIR → wasm codegen, all
-> in Mighty); the codegen lowers `Rvalue::MethodCall` through a
-> host-bridged dispatch and desugars `for x in custom_iter` into the
-> iter-protocol shape (23 live driver tests), and examples 01-03 all
-> bootstrap through the self-host chain. **KNOWN_ISSUES P1 list now
-> cleared** (`cabi_realloc` real free-list allocator, real Sigstore
-> keyless signing under `sigstore-real`, replay end-to-end through
-> the Runtime hot path, MSRV gate hardened, distributed-agents
-> single-cluster mesh landed). A `1.0` GA tag still awaits the
-> completion of 2nd-impl typeck polish (HM closure inference +
-> generics-with-constraints), the 3rd-impl cross-validation, eight
-> RFC comment-window closures (RFC-001..006 plus RFC-008 + RFC-009),
-> and the normative conformance suite (currently 92 cases / 16
-> categories). See [Status](#status) below.
+> typeck through HM closures + generic-constraints, **311 tests**,
+> 23/23 examples typeck clean) and a third source-only Go front-end
+> at [`impl-go/`](impl-go/) (4848 LOC, cross-validation pending Go
+> toolchain). All six CI jobs are required gates. **All KNOWN_ISSUES
+> P1/P2 entries are now closed** as of v0.19. **v1.0 freeze blockers
+> are down to RFC comment windows**: blocker #1 (Python 2nd-impl
+> typeck) closed with HM closures + generic-constraints; blocker #3
+> (normative conformance suite) closed with the 122-case kit + new
+> normative `docs/spec/conformance.md`; blocker #2 (eight RFC
+> comment-window closures) is infrastructure-ready
+> (`docs/spec/rfcs/COMMENT_WINDOWS.md` tracks all 8 windows) and now
+> awaits the user-side Discussion-thread openings.
+> **Earliest possible v1.0.0 tag: 2026-07-26** (the day after the
+> longest 60-day windows close). See [Status](#status) below.
+
+## Release timeline
+
+- **v0.19.0** (this release): all KNOWN_ISSUES P1/P2 closed; v1.0
+  freeze blockers #1 + #3 closed; byte-identical replay re-execution +
+  cluster Runtime routing land; HIR multi-row-var lowering complete.
+- **v0.20-RC1** (next): cross-RFC spec wording normalisation, RFC
+  comment-window monitoring, strict-equality replay payloads
+  (migrate v0.18 hot-path sites from Opaque to Values), cluster
+  security hardening, conformance corpus expansion to the four
+  placeholder categories.
+- **v1.0.0 GA**: when all 8 RFC comment windows close.
+  **Earliest: 2026-07-26** (the day after RFC-002 / RFC-006's 60-day
+  windows close). The integrator collects dispositions →
+  `dev/history/notes/RFC_DISPOSITION_<RFC>.md`, builds
+  `mty-conformance-kit-v1.0.0.tar.gz` from
+  `scripts/build-conformance-kit.sh`, tags `v1.0.0`.
 
 ## Install
 
-Pre-built `mty` binaries for Linux x86_64, macOS x86_64 + arm64,
-and Windows x86_64 are attached to each tagged release on the
+Pre-built `mty` binaries for Linux x86_64, macOS arm64, and Windows
+x86_64 are attached to each tagged release on the
 [GitHub Releases page](https://github.com/hassard0/Mighty/releases)
-(produced automatically by `.github/workflows/release.yml` on
-`v*` tag push, starting with v0.15.0).
+(produced automatically by `.github/workflows/release.yml` on `v*`
+tag push, starting with v0.15.0; Intel macOS dropped from the matrix
+in v0.18 after Apple's runner retirement).
 
 To build the toolchain from source instead:
 
@@ -112,17 +126,24 @@ Then:
 - **OpenTelemetry agent spans** — spawn / send / ask / handler /
   restart / budget-exhausted spans, plus `agent.event(name, &[(k, v)])`
   helper; lazy init from `MTY_OTLP_ENDPOINT`, cost-zero when disabled
-- **Deterministic replay (end-to-end since v0.18)** — `Recorder` +
-  8 typed `TraceEvent` variants on a `MTYTRACE`-magic wire format
-  v1, wired into the Runtime hot path (13 instrumentation sites
-  covering spawn / send / ask / handle / IO / clock / random /
-  budget / exit); `mty replay <trace>` CLI with `--dump-json` and
-  `--step` modes; opt-in via `MTY_RECORD_TRACE=/path/to/trace`
-- **Distributed agents — single-cluster mesh (v0.18, Tier 4.1)** —
-  `AgentAddr = node:type:pid` + framed CBOR-over-TLS transport
-  + `ClusterRouter` trait, multi-peer mesh with reconnect +
-  heartbeat; `Runtime::send` consults the router in v0.19, the
-  transport layer is feature-complete today
+- **Deterministic replay — byte-identical re-execution (v0.19, wire v2)** —
+  `Recorder` + 8 typed `TraceEvent` variants wired into the Runtime
+  hot path across 13 instrumentation sites (spawn / send / ask /
+  handle / IO / clock / random / budget / exit); structural
+  `ReplayPayload::Values` codec mirrors the 13 `Value` variants;
+  `ReplayDriver` re-runs the program against the trace and diffs
+  events byte-for-byte; `mty replay --byte-identical --program <src>`
+  CLI; v1 traces decode transparently via `V1TraceFile` back-compat
+  shim; opt-in via `MTY_RECORD_TRACE=/path/to/trace`
+- **Distributed agents — cross-node send + ask (v0.19, Tier 4.1)** —
+  `AgentAddr = node:type:pid` + framed CBOR-over-TLS transport;
+  `Runtime::with_cluster(SharedRouter)` +
+  `Runtime::send_addr(AgentAddr, …)` +
+  `Runtime::ask_addr(AgentAddr, …)` consult the router; node-wide
+  `CorrelationTable` demuxes inbound `Reply` / `Error` frames into
+  oneshot receivers; peer-disconnect fan-out fails every in-flight
+  ask to that node (`MT5032`); `[cluster]` / `[[cluster.peers]]` /
+  `[cluster.tls]` manifest section
 
 **Codegen**
 
@@ -167,8 +188,8 @@ Then:
 **Independent implementations**
 
 - Rust reference compiler (this repo, `crates/mty-*`).
-- Python 2nd-impl at [`impl-py/`](impl-py/) — pure-Python front-end + HIR + lowering + Hindley-Milner typeck built from the v1.0-RC3 spec prose alone. 274 tests, 23/23 examples typeck clean (lex + parse + lower + typeck).
-- Go 3rd-impl front-end at [`impl-go/`](impl-go/) — Go 1.22+ lexer + parser + CLI built from the v1.0-RC3 spec prose alone. 4848 LOC; cross-validation (`go test ./...`, example sweep) pending Go toolchain on the build host.
+- Python 2nd-impl at [`impl-py/`](impl-py/) — pure-Python front-end + HIR + lowering + Hindley-Milner typeck with **HM closure inference + generics-with-constraints** (v0.19), built from the v1.0-RC spec prose alone. **311 tests**, 23/23 examples typeck clean. Closes v1.0 freeze blocker #1; borrow + codegen layers stay post-v1.0.
+- Go 3rd-impl front-end at [`impl-go/`](impl-go/) — Go 1.22+ lexer + parser + CLI built from the v1.0-RC spec prose alone. 4848 LOC; cross-validation (`go test ./...`, example sweep) pending Go toolchain on the build host.
 
 ## Documentation
 
@@ -176,7 +197,8 @@ Live docs site: **<https://hassard0.github.io/Mighty/>**
 
 - [Getting started](docs/getting-started.md)
 - [Tour](docs/tour/README.md) — walk through the canonical examples
-- [Language spec v1.0-RC3](docs/spec/v1.0-rc.md) (frozen for v1.0)
+- [Language spec v1.0-RC4](docs/spec/v1.0-rc.md) (frozen for v1.0)
+- [Normative conformance doc](docs/spec/conformance.md) (v0.19)
 - [Spec v0.1 + amendment log](docs/spec/v0.1.md)
 - [Reference](docs/reference/README.md) — CLI, manifest, registry, diagnostics
 - [Internals](docs/internals/README.md) — compiler architecture, crate-by-crate
@@ -220,34 +242,51 @@ in Mighty), `tests/conformance/` (cross-crate behavioural specs),
 
 ### To `v1.0`
 
-The v1.0 spec is feature-complete at v1.0-RC2 (`docs/spec/v1.0-rc.md`).
-**Proposed freeze date: 2026-09-01.** Blockers:
+The v1.0 spec is feature-complete at **v1.0-RC4** (`docs/spec/v1.0-rc.md`).
+**Earliest possible v1.0.0 tag: 2026-07-26.** Remaining blockers:
 
-1. A second independent compiler implementation (RFC-007).
-2. The six RFC 30-day comment windows (RFC-001 .. RFC-006).
-3. A published normative conformance suite.
+1. ~~A second independent compiler implementation (RFC-007).~~
+   **CLOSED v0.19** — Python 2nd-impl through HM closures +
+   generic-constraints; 311 tests; 23/23 examples typeck clean.
+2. The eight RFC comment windows
+   (RFC-001..006 + RFC-008 + RFC-009).
+   **Infrastructure shipped v0.19** in
+   [`docs/spec/rfcs/COMMENT_WINDOWS.md`](docs/spec/rfcs/COMMENT_WINDOWS.md);
+   awaits user-side Discussion-thread openings. Earliest close
+   2026-06-09 (RFC-005, 14 days); latest close 2026-07-25 (RFC-002
+   / RFC-006, 60 days each).
+3. ~~A published normative conformance suite.~~ **CLOSED v0.19** —
+   [`scripts/build-conformance-kit.sh`](scripts/build-conformance-kit.sh)
+   packages 122 cases / 24 categories + the new normative
+   [`docs/spec/conformance.md`](docs/spec/conformance.md) into a
+   ~92 K tarball attached to every tagged release.
 
 ### Post-v1.0
 
 - Lossless live agent migration (Tier 4.3); per-message work-stealing
   (Tier 5).
-- Cluster-aware supervisors (Tier 4.2).
+- Cluster-aware supervisors (Tier 4.2); mutual-TLS client-cert
+  verification by node id.
 - Polonius-style borrows; real cap-name resolution wiring.
 - DWARF v5 + per-instruction line program.
 - PGO / ThinLTO.
+- Python 2nd-impl borrow + codegen layers
+  (out-of-scope for v1.0; the v1.0 freeze ships through HM typeck
+  only).
 
 ### Landed pre-v1.0 (formerly post-v1.0)
 
-- WASI Preview 2 + user-supplied WIT — v0.13 (`--wasi=p2`, `--world`, `[wit]` section). v0.14 embeds the upstream wasmtime preview1→preview2 adapter and ships direct P2 imports for `std.random` / `std.time`. v0.15 wires `P2DirectImport` into `emit.rs` dispatch and **flips the toolchain default to P2 for `wasm32-wasi`** (explicit `--wasi=p1` opts back). v0.16 takes nine more lowerings direct (full `std.fs.*` + `std.http.*`). v0.17 finishes the adapter-free hot path: `log()` / `print()` lower directly to `wasi:cli/stdout@0.2.3` + `wasi:io/streams@0.2.3`, the embedded adapter flips from always-on to opt-in (`Preview2Options::with_adapter`), and no surface still flows through the adapter on a default build.
-- Effect-row polymorphism end-to-end — v0.13 (RFC-008). v0.14 ships 19 row-polymorphic stdlib signatures; v0.15 wires call-site dispatch and lands the surface syntax (`!E` / `!{a | E}` / `effect a | E`). v0.16 wires the surface syntax through typed AST → `HirEffectRow` → `UserRowPolyIndex` typeck with five new diagnostic codes (MT4055–MT4059, MT4057 actively emits). v0.17 broadens `HirEffectRow::Open` to `Vec<HirRowVar>` (multi-row-var representation) and flips MT4055 / MT4056 / MT4058 to active emit. **v0.18 ships the multi-row-var parser surface (`!{| E1, E2}` / `effect a, b | E1, E2`), flipping MT4059 to active emit and closing the RFC-008 end-to-end surface area.**
-- Set-of-scopes macro hygiene — v0.13 (RFC-009); v0.14 wires HIR macro resolution to `expand_scoped_to_source`; v0.15 removes the deprecated `mty_macros::expand` / `expand_to_source` API.
-- End-to-end self-hosting through Wasm codegen — v0.13; v0.14 broadens with string pool + ADT layout + pattern lowering so example 03 passes; v0.15 adds variant-call lowering, SwitchInt cascade, and for-range desugar; v0.16 lowers `Rvalue::MethodCall` through the host bridge and desugars `for x in custom_iter` into the iter-protocol shape (23 codegen driver tests, 0 ignored).
-- Live agent introspection + OpenTelemetry — v0.16. `mty inspect` CLI + opt-in `MTY_RUNTIME_CONTROL_SOCK` runtime control socket exposing agent snapshots (mailbox depth, in-flight handler, budgets, last-N messages); OTel spans at every agent boundary plus `agent.event(name, &[(k, v)])` helper, lazy init from `MTY_OTLP_ENDPOINT` (cost-zero when disabled). Tiers 1.1–1.3 of `docs/internals/agent-features-roadmap.md`.
-- Deterministic replay end-to-end — v0.17 (recorder + wire format + CLI) → **v0.18 (Runtime hot-path wire-up)**. `mty-runtime::replay::*` records 8 typed `TraceEvent` variants on a `MTYTRACE`-magic wire format v1 from 13 instrumentation sites (spawn / send / ask / handle / IO / clock / random / budget / exit); `mty replay <trace>` CLI with `--dump-json` + `--step` + `--json` modes; opt-in via `MTY_RECORD_TRACE`. Tier 1.4 of the agent-features roadmap.
-- Independent implementation through typeck — v0.17. `impl-py/` Python 2nd-impl extends from front-end-only (139 tests, parse-only) to front-end + HIR + lowering + Hindley-Milner typeck (274 tests, 23/23 examples typeck clean). Substantially closes v1.0 freeze blocker #2; HM closure inference + generics-with-constraints polish queued for v0.19.
-- Real `cabi_realloc` free-list allocator — **v0.18.** Closes KNOWN_ISSUES #1. Extracted from `emit.rs` into its own `cabi_realloc.rs` module; segregated free-list with 8 size classes (8B → 1024B, powers of 2) + a large bump path. 17 dedicated coverage tests.
-- Real Sigstore keyless signing — **v0.18.** Closes KNOWN_ISSUES #2. The `sigstore-real` cargo feature drives the real keyless flow (Fulcio short-lived ECDSA-P256 cert + Rekor `hashedrekord` transparency-log entry); the full standard Sigstore Bundle JSON is embedded under `verificationMaterial.sigstoreBundle` in the `.bundle` envelope so external tooling (`cosign verify-blob`, `rekor-cli`) consumes it directly.
-- Distributed agents — single-cluster mesh — **v0.18 (Tier 4.1).** `AgentAddr = node:type:pid` + framed CBOR-over-TLS transport (length-prefixed frames, ciborium codec) + `ClusterRouter` trait, `ClusterMesh` with multi-peer dialer + listener + reconnect + heartbeat absorption; 7 integration tests against real TLS sockets. `Runtime::send` consults the router in v0.19; the transport layer is feature-complete today.
+- WASI Preview 2 + user-supplied WIT (v0.13 → v0.19) — `[wit]` section, default for `wasm32-wasi`, every `std.*` lowering goes through versioned P2 imports, the preview1 adapter is opt-in via `AdapterEmbed::new(kind, bytes)` and the vendored bytes were removed in v0.19.
+- Effect-row polymorphism end-to-end (v0.13 → v0.19, RFC-008) — surface syntax (`!E` / `!{a | E}` / `effect a | E` / `!{| E1, E2}` / `effect a, b | E1, E2`); typeck `HirEffectRow::Open(Vec<HirRowVar>)`; HIR multi-row lowering complete in v0.19 (every `EFFECT_ROW_VAR` child read); MT4055–MT4059 all active emit.
+- Set-of-scopes macro hygiene (RFC-009, v0.13 → v0.15).
+- End-to-end self-hosting through Wasm codegen (v0.13 → v0.16) — 23 codegen driver tests, 0 ignored; examples 01-03 bootstrap through the self-host chain.
+- Live agent introspection + OpenTelemetry (v0.16) — `mty inspect` CLI + `MTY_RUNTIME_CONTROL_SOCK`; OTel spans at every agent boundary + `agent.event(name, …)` helper; cost-zero when disabled.
+- Deterministic replay — byte-identical re-execution (v0.17 → v0.19) — Recorder wired into the Runtime hot path across 13 instrumentation sites; wire format v2 + structural `ReplayPayload::Values` codec; `ReplayDriver` re-runs the program against the trace and diffs events byte-for-byte; `mty replay --byte-identical --program <src>`; v1 traces decode transparently.
+- Independent second implementation (v0.17 → v0.19) — Python 2nd-impl through HM closures + generic-constraints; 311 tests; 23/23 examples typeck clean. **Closes v1.0 freeze blocker #1.**
+- Real `cabi_realloc` free-list allocator (v0.18) — closes KNOWN_ISSUES #1. 8 size classes (8B → 1024B) + large bump path; ~190 wasm instructions; 17 dedicated tests.
+- Real Sigstore keyless signing (v0.18, `sigstore-real` feature) — closes KNOWN_ISSUES #2. Fulcio short-lived ECDSA-P256 cert + Rekor `hashedrekord` entry; Sigstore Bundle JSON embedded for direct `cosign verify-blob` / `rekor-cli` consumption.
+- Distributed agents — cross-node send + ask (v0.18 transport → v0.19 routing) — `AgentAddr = node:type:pid` + framed CBOR-over-TLS mesh; `Runtime::with_cluster(SharedRouter)` + `send_addr` / `ask_addr` consult the router; node-wide `CorrelationTable` demuxes inbound `Reply` / `Error`; peer-disconnect fan-out fails in-flight asks with `MT5032`.
+- Normative conformance kit (v0.19) — `scripts/build-conformance-kit.sh` packages 122 cases / 24 categories + spec docs into a ~92 K versioned tarball attached to every tagged release. **Closes v1.0 freeze blocker #3.**
 
 For the full per-version history of what shipped on the road to v1.0,
 see [`CHANGELOG.md`](CHANGELOG.md).
@@ -255,41 +294,37 @@ see [`CHANGELOG.md`](CHANGELOG.md).
 ## Status
 
 Mighty is **pre-alpha**. Internal milestones have been tagged through
-**v0.18**. The v1.0 language spec is at v1.0-RC4 — see
-`docs/spec/v1.0-rc.md`. There are **1324 Rust tests** across the
-workspace (plus 274 Python tests in the [`impl-py/`](impl-py/)
-2nd-impl, 92 normative conformance cases, and 23 self-host driver
-codegen tests = **1713 combined**), 0 clippy warnings *under the
-strict `pedantic` gate* (a required CI job, not advisory), and
+**v0.19**. The v1.0 language spec is at v1.0-RC4 — see
+`docs/spec/v1.0-rc.md`. There are **1378 Rust tests** across the
+workspace (plus **311 Python tests** in the [`impl-py/`](impl-py/)
+2nd-impl, **122 normative conformance cases**, and **23 self-host
+driver** codegen tests = **1834 combined**), 0 clippy warnings *under
+the strict `pedantic` gate* (a required CI job, not advisory), and
 **4/4 demos** pass `smoke.sh`. The cargo-fuzz harness covers four
-targets (parser / typeck / fmt / codegen), and the normative
-conformance corpus stands at **92 cases across 16 categories**
-(2 ignored: long-standing `capability_checking/03_narrow_to_ro` and
-`supervisor_restart/02_escalate`). **v0.18 clears the KNOWN_ISSUES
-P1 list** in one slice: the `cabi_realloc` real free-list allocator
-graduates from inline-in-emit to its own module (8 size classes,
-~190 emitted wasm instructions; 17 dedicated tests); package signing
-under the new `sigstore-real` cargo feature drives the real keyless
-flow (Fulcio short-lived cert + Rekor `hashedrekord` upload with the
-full standard Sigstore Bundle JSON embedded for direct `cosign
-verify-blob` / `rekor-cli` consumption); deterministic-replay
-recording wires into the Runtime hot path across 13 instrumentation
-sites (spawn / send / ask / handle / IO / clock / random / budget /
-exit) with 8 new end-to-end tests; the MSRV gate hardens to
-`cargo build --workspace --tests`; the RFC-008 multi-row-variable
-parser surface ships (`!{| E1, E2}` / `effect a, b | E1, E2`),
-flipping MT4059 to active emit. **Distributed agents land as Tier
-4.1** of the [agent-features
-roadmap](docs/internals/agent-features-roadmap.md) — `AgentAddr =
-node:type:pid` + framed CBOR-over-TLS mesh with multi-peer reconnect
-+ heartbeat; the transport layer is opt-in and feature-complete
-today, `Runtime::send` consults the router in v0.19.
+targets (parser / typeck / fmt / codegen). **All KNOWN_ISSUES P1/P2
+items are now closed**; v1.0 freeze blockers are down to the RFC
+comment windows (infrastructure shipped; awaits user-side Discussion
+thread openings; earliest v1.0.0 tag 2026-07-26 — see
+[Release timeline](#release-timeline) above and
+[`docs/spec/rfcs/COMMENT_WINDOWS.md`](docs/spec/rfcs/COMMENT_WINDOWS.md)).
+v0.19's swarm closed Blockers #1 (Python 2nd-impl through HM
+closures + generic-constraints) and #3 (normative conformance kit +
+spec doc), shipped byte-identical replay re-execution (wire v2 +
+`ReplayDriver` + `mty replay --byte-identical`), wired cluster
+routing into the Runtime hot path (`Runtime::with_cluster` +
+`send_addr` / `ask_addr` + `CorrelationTable` + peer-disconnect
+fan-out), broadened HIR multi-row-var lowering to read every
+`EFFECT_ROW_VAR` child, and cleared the last three P2 paper-cuts
+(KNOWN_ISSUES #4 / #5 / #7) including deletion of the vendored
+~125 KB preview1-adapter bytes.
 
-**Pre-built `mty` binaries** for Linux x86_64, macOS x86_64 + arm64,
-and Windows x86_64 are now produced automatically on every `v*` tag
-push (see [Releases](https://github.com/hassard0/Mighty/releases)).
-Building from source is still supported. Treat the language as
-unstable and please file issues for everything that surprises you.
+**Pre-built `mty` binaries** for Linux x86_64, macOS arm64, and
+Windows x86_64 are produced automatically on every `v*` tag push
+(see [Releases](https://github.com/hassard0/Mighty/releases)). Intel
+macOS was dropped from the matrix in v0.18 after Apple's runner
+retirement. Building from source is still supported. Treat the
+language as unstable and please file issues for everything that
+surprises you.
 
 ## Contributing
 

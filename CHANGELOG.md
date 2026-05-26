@@ -9,29 +9,78 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- v1.0-RC5 / v0.19 candidates: replay byte-identical full
-  re-execution (structural `Value` serialisation so the replayer can
-  drive a fresh `Runtime` from the seed and assert byte-identical
-  handler outputs); HIR multi-row-var lowerer broadening (read every
-  `EFFECT_ROW_VAR` child of `EFFECT_ROW_TAIL`); cluster `Runtime::send`
-  routing (`Runtime::cluster: Option<SharedRouter>` + `[cluster.peers]`
-  manifest parser); cluster correlation table for `Ask` (match
-  incoming `Reply` / `Error` by correlation id); sigstore
-  inclusion-proof crypto verify on `fetch`; mutual-TLS client-cert
-  verification by node id in the cluster mesh; delete the vendored
-  preview1-adapter bytes from `crates/mty-codegen-wasm/src/embedded/`
-  once a back-compat sweep confirms no downstream relies on the
-  always-on default; Python 2nd-impl typeck polish (HM closure
-  inference, generics-with-constraints, full trait dispatch;
-  cross-validation against the Rust reference); MT0001 funnel split
-  (MT0002/MT0003/MT0010/MT0011/MT0012/MT0020/MT0021/MT0030);
-  `mty-pkg` cross-file resolution; parametric newtypes for self-host
-  arena ids; self-host codegen broadening (real LEB128 in Mighty,
-  arena drops at scope exit, agent backend); Windows named-pipe
-  introspect backend; open RFC-001..006 + RFC-008 + RFC-009 30-day
-  comment windows; normative conformance suite kit publication;
-  full `TokenStream` marshalling; flip the `clippy-strict` job from
-  `continue-on-error: true` to `false` (KNOWN_ISSUES #4).
+- v0.20-RC1 candidates: cross-RFC spec wording normalisation;
+  RFC comment-window monitoring (8 open windows; earliest close
+  2026-06-09 RFC-005, latest 2026-07-25 RFC-002 / RFC-006); strict-equality
+  replay payloads (migrate v0.18 hot-path recording sites from
+  `Opaque(format!("{:?}", args))` to
+  `Values(args.iter().map(RuntimeValueLike::to_replay_value).collect())`);
+  cluster security hardening (mutual-TLS client-cert verification by
+  node id; cluster supervisors Tier 4.2 deferred from v0.19);
+  populate the four placeholder conformance categories
+  (`deterministic_replay/`, `formatter_idempotence/`, `native_abi/`,
+  `wasm_component/`); diagnostic-code coverage report
+  (`tests/conformance/coverage.json`); `mty conform <kit.tar.gz>`
+  implementer-CLI shim; sigstore inclusion-proof crypto verify on
+  `fetch`; MT0001 funnel split (MT0002/MT0003/MT0010/MT0011/MT0012/
+  MT0020/MT0021/MT0030); `mty-pkg` cross-file resolution; parametric
+  newtypes for self-host arena ids; self-host codegen broadening
+  (real LEB128 in Mighty, arena drops at scope exit, agent backend);
+  Windows named-pipe introspect backend; full `TokenStream` marshalling.
+
+## [0.19.0] - 2026-05-26
+
+**The last minor before v1.0-RC — Blockers #1 + #3 closed, every
+KNOWN_ISSUES P1/P2 cleared, full cluster routing + byte-identical
+replay land.** v0.19 closes two of the three v1.0-freeze blockers
+(#1 Python 2nd-impl through HM + closures + generic-constraints with
++37 new tests; #3 normative conformance kit + spec doc +
+`scripts/build-conformance-kit.sh`) and ships the tracking
+infrastructure for the third (#2 RFC comment-window tracking via
+`docs/spec/rfcs/COMMENT_WINDOWS.md`; the actual window-opening is a
+user-driven admin action). The replay subsystem grows a **byte-identical
+re-execution** mode on wire-format v2: `ReplayPayload::Values` carries
+a structural mirror of the IR `Value` type (13 variants), `ReplayDriver`
+re-runs the original program against the trace and diffs each event
+byte-for-byte, `mty replay --byte-identical --program <path>` is the
+CLI seam, v0.18 (`version=1`) traces decode transparently via the
+`V1TraceFile` back-compat shim, +24 tests in
+`crates/mty-runtime/tests/replay_byte_identical.rs` + unit-test files.
+**Cluster routing wires into the Runtime hot path** (Tier 4.1
+follow-up): `Runtime::with_cluster(SharedRouter)` +
+`send_addr(AgentAddr, …)` + `ask_addr(AgentAddr, …)` consult the
+router; a new `CorrelationTable` (`cluster/correlation.rs`) demuxes
+inbound `Reply` / `Error` frames into oneshot receivers; a reply-demux
+task peels reply frames off the mesh inbox before the runtime sees
+them; peer-disconnect fan-out cleanly fails every in-flight ask to
+that node (`MT5032`); a `[cluster]` / `[[cluster.peers]]` /
+`[cluster.tls]` manifest parser lands in `mty-driver/src/manifest.rs`;
++8 integration tests in `tests/cluster_routing.rs`. **HIR lowerer
+reads every row var**: `EffectClause::row_var_names()` (new AST
+iterator) chains the three source positions in order;
+`lower_effect_clause` collects every var into a fully-populated
+`Vec<HirRowVar>`; the v0.15 first-only `row_var_name()` accessor is
+`#[deprecated(since = "0.19.0", …)]`; +14 tests; `examples/24_multi_row_full.mty`
+typechecks. **Paper-cuts cleared**: KNOWN_ISSUES #4 (`clippy-strict`
+required) re-verified, KNOWN_ISSUES #5 (`mkdocs --strict`) re-verified,
+KNOWN_ISSUES #7 (`--no-default-features` example sweep) added to the
+`test-minimal` job; the vendored `wasi_snapshot_preview1.*.wasm`
+bytes are deleted (~125 KB removed) in favour of caller-supplied
+bytes via `AdapterEmbed::new(AdapterKind, Vec<u8>)`. **All
+KNOWN_ISSUES P1/P2 entries are now closed.** The release workflow
+that first fired on v0.15.0 continues to ship `mty` binaries for
+Linux / macOS arm64 / Windows on every `v*` tag push (Intel macOS
+dropped in v0.18). **1378 Rust + 311 Python + 122 conformance + 23
+selfhost-driver = 1834 tests passing** (+121 vs v0.18), 0 failing,
+2 ignored (`capability_checking/03_narrow_to_ro`,
+`supervisor_restart/02_escalate` — both pending the cap-name
+resolver wiring + escalation-chain serialisation rework, both post-v1.0
+backlog). One new internals doc page lands
+(`docs/internals/conformance.md`); `docs/reference/README.md` rewrites
+from stub to full landing page; `mkdocs.yml` nav extended with the
+new pages + a top-level **RFCs** section; `mkdocs build --strict`
+passes locally. **Earliest possible v1.0.0 tag: 2026-07-26.**
+[Release notes](dev/history/releases/RELEASE-v0.19.md).
 
 ## [0.18.0] - 2026-05-26
 
