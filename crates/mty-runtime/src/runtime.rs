@@ -34,7 +34,7 @@ use crate::error::{RuntimeError, RuntimeResult};
 use crate::host_std::StdHost;
 use crate::introspect::{AgentIntrospectState, IntrospectMap};
 use crate::mailbox::{Mailbox, MessageFrame, SendPolicy, SmallPayload};
-use crate::replay::{install_from_env, with_recorder, Recorder};
+use crate::replay::{encode_values_payload, install_from_env, with_recorder, Recorder};
 use crate::scheduler::{Affinity, LoadMonitor, Scheduler};
 use crate::slab_pool::DEFAULT_POOL_SIZE;
 use crate::supervisor::SupervisorRegistry;
@@ -366,11 +366,17 @@ impl Runtime {
         // v0.18 replay: capture the message-send. Sender is the
         // synthetic "extern" id (0) — this matches the v0.17 wire
         // contract where `0` is the well-known external caller.
+        //
+        // v0.20: emit a *structural* `ReplayPayload::Values` here so
+        // `Values == Values` strict equality is the default replay
+        // semantic. The recorder is gated on `recording_enabled` so
+        // the structural walk is only paid when a trace is being
+        // captured.
         {
             let to_id = target.id.0;
             let msg_owned = msg.to_string();
-            let payload = encode_payload_for_trace(&args);
-            with_recorder(|r| r.record_message_sent(0, to_id, &msg_owned, payload));
+            let payload = encode_payload_for_trace_structural(&args);
+            with_recorder(|r| r.record_message_sent_payload(0, to_id, &msg_owned, payload));
         }
         let frame = MessageFrame::fire_and_forget(msg, SmallPayload::inline(args));
         target.mailbox.send(frame).await
@@ -396,11 +402,17 @@ impl Runtime {
         // v0.18 replay: capture the ask as a MessageSent event from
         // the synthetic external sender (0). The MessageHandled event
         // is recorded by the agent loop when it dispatches.
+        //
+        // v0.20: emit a *structural* `ReplayPayload::Values` so the
+        // [`ReplayDriver`] can drive byte-identical re-execution
+        // without falling back to the lossy `Opaque ≈ Opaque`
+        // approximate-equality arm. See
+        // `dev/history/notes/REPLAY_STRICT_V0_20_NOTES.md`.
         {
             let to_id = target.id.0;
             let msg_owned = msg.to_string();
-            let payload = encode_payload_for_trace(&args);
-            with_recorder(|r| r.record_message_sent(0, to_id, &msg_owned, payload));
+            let payload = encode_payload_for_trace_structural(&args);
+            with_recorder(|r| r.record_message_sent_payload(0, to_id, &msg_owned, payload));
         }
         let (frame, rx) = MessageFrame::ask(msg, SmallPayload::inline(args), deadline);
         target.mailbox.send(frame).await?;
@@ -729,8 +741,13 @@ fn spawn_agent_loop(rt: &Runtime, desc: Arc<AgentDescriptor>, worker: usize) -> 
 /// the trace event. The interpreter `Value` doesn't derive Serialize
 /// (it carries Host-side references), so we render via `Debug` — the
 /// shape is opaque-but-human-readable, which is enough for v0.18
-/// trace inspection. v0.19 stretch: structured payload encoding for
-/// byte-identical replay. Best-effort: failures fall back to empty.
+/// trace inspection. Still used by the cluster routing path where
+/// remote transport speaks opaque bytes by contract.
+///
+/// **In-process callers** should prefer
+/// [`encode_payload_for_trace_structural`] (added v0.20) — it emits a
+/// [`ReplayPayload::Values`] so the [`ReplayDriver`] can drive
+/// byte-identical re-execution with strict structural equality.
 fn encode_payload_for_trace(args: &[Value]) -> Vec<u8> {
     if !crate::replay::recording_enabled() {
         // Cheap fast-path: skip the format walk when no recorder is
@@ -740,4 +757,23 @@ fn encode_payload_for_trace(args: &[Value]) -> Vec<u8> {
         return Vec::new();
     }
     format!("{:?}", args).into_bytes()
+}
+
+/// v0.20 replay helper: serialize a payload slice into the structural
+/// [`ReplayPayload::Values`] wire arm. This is the hot-path encoder
+/// for in-process `send`/`ask` — the recorded trace round-trips
+/// byte-identically through [`ReplayDriver`] without falling back to
+/// the lossy `Opaque ≈ Opaque` approximation.
+///
+/// Cost: one `Vec`-allocation + a single structural walk over the
+/// `Value` tree. Gated on `recording_enabled` so the walk is only
+/// paid when a trace is being captured; otherwise we emit an empty
+/// `Opaque` payload and return immediately.
+fn encode_payload_for_trace_structural(args: &[Value]) -> crate::replay::ReplayPayload {
+    if !crate::replay::recording_enabled() {
+        // Cheap fast-path — match `encode_payload_for_trace`'s
+        // empty-bytes return shape so the wire stays consistent.
+        return crate::replay::ReplayPayload::Opaque(Vec::new());
+    }
+    encode_values_payload(args)
 }
