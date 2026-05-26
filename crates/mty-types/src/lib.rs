@@ -10,6 +10,8 @@
 //! holding the DefMap, TyArena, and per-expression / per-local resolved
 //! types alongside the diagnostic list.
 
+pub mod cap_check;
+pub mod cap_resolver;
 pub mod check;
 pub mod defs;
 pub mod diag;

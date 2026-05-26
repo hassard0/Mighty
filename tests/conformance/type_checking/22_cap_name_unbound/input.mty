@@ -1,0 +1,6 @@
+// MT4060 positive-fire: using a capability family name as a value
+// without a binding. `Fs` here is the family type itself, not a
+// receiver — the v0.21 cap-resolver flags this as unbound.
+fn main() -> Unit {
+  Fs.read("/data")
+}

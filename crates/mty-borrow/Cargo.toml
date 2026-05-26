@@ -17,5 +17,13 @@ mty-syntax = { path = "../mty-syntax" }
 mty-ast = { path = "../mty-ast" }
 mty-driver = { path = "../mty-driver" }
 
+[features]
+# v0.21: opt-in Polonius-style second-pass borrow checker. NLL is the
+# default; enabling this feature runs an additional datalog-flavoured
+# pass that catches some borrow patterns the lexical NLL accepts but
+# Polonius rejects. See `crates/mty-borrow/src/polonius.rs` for the
+# fact/rule model and `docs/internals/borrowck.md` §"Polonius".
+polonius = []
+
 [lints]
 workspace = true

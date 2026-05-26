@@ -135,6 +135,41 @@ pub const ROW_VAR_ARITY_MISMATCH: DiagCode = DiagCode::new(4058);
 /// §"v0.16" — caller-side variant of the stdlib MT4050.
 pub const ROW_VAR_SUBSUMPTION_FAIL: DiagCode = DiagCode::new(4059);
 
+// v0.21 — capability name resolution (CapResolver). Six emit-sites
+// activated by the post-typeck cap-name resolver pass. See
+// `mty-types::cap_resolver` and `docs/internals/capabilities.md`
+// §"Cap name resolution" for the model. Reserved range MT4060..MT4065.
+
+/// MT4060: a capability name is referenced but not declared (or no
+/// longer in scope). The cap-resolver walks declared cap items and
+/// the per-scope binding stack; a reference outside both fires this.
+pub const CAP_NAME_UNBOUND: DiagCode = DiagCode::new(4060);
+
+/// MT4061: a capability name resolves to a cap declared in a
+/// different family than the use-site expects (e.g. used as Fs but
+/// declared as Net).
+pub const CAP_FAMILY_MISMATCH: DiagCode = DiagCode::new(4061);
+
+/// MT4062: a capability reference escapes the scope frame in which
+/// the binding was declared. Sandbox-with bodies push a fresh frame,
+/// and a cap bound inside that body cannot survive past `pop_scope`.
+pub const CAP_SCOPE_VIOLATION: DiagCode = DiagCode::new(4062);
+
+/// MT4063: the same capability name was declared twice in the same
+/// scope frame (shadowing across frames is fine; redeclaration in
+/// one frame is an error).
+pub const CAP_REDECLARATION: DiagCode = DiagCode::new(4063);
+
+/// MT4064: a method call on a capability handle names a method the
+/// family's built-in surface does not expose. Each family has a small
+/// fixed set of narrowing constructors and operational methods.
+pub const CAP_METHOD_UNKNOWN: DiagCode = DiagCode::new(4064);
+
+/// MT4065: a narrowing constructor was given a constraint argument
+/// the family does not accept (e.g. passing `ReadOnly` to `Net.host`,
+/// or an empty host list).
+pub const CAP_CONSTRAINT_INVALID: DiagCode = DiagCode::new(4065);
+
 // Runtime / interpreter (slice 6): MT5001..MT5099
 pub const RUNTIME_PANIC: DiagCode = DiagCode::new(5001);
 pub const USE_AFTER_DROP: DiagCode = DiagCode::new(5002);
@@ -727,6 +762,50 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  missing effect to the enclosing fn's `effect ...` \
                  clause, or replace the closure with a pure one. \
                  (RFC-008 row_var_subsumption_fail.)"
+        }
+        4060 => {
+            "MT4060: Capability name unbound. The use-site references \
+                 a capability by name, but no `cap <Name>` declaration \
+                 exists and no enclosing scope frame has bound that \
+                 name. Declare the cap (`cap Fs ; ...`), or pass it as \
+                 a handler parameter so the resolver sees the binding. \
+                 v0.21 cap-resolver — see `crates/mty-types/src/cap_resolver.rs`."
+        }
+        4061 => {
+            "MT4061: Capability family mismatch. The named cap was \
+                 declared with one family (e.g. `Net`) but is used in \
+                 a position that requires a different family (e.g. an \
+                 `Fs.read` call). Rebind the use-site or rename the \
+                 cap declaration to the correct family."
+        }
+        4062 => {
+            "MT4062: Capability reference escapes its declaring \
+                 scope. A cap bound inside a `with cap(...)` or \
+                 sandbox block cannot survive past the corresponding \
+                 `pop_scope`; the resolver detected a reference to a \
+                 popped binding. Sequence the use inside the body, or \
+                 rebind at the outer scope."
+        }
+        4063 => {
+            "MT4063: Capability redeclaration in the same scope \
+                 frame. Two `cap <Name>` declarations (or a re-bind \
+                 via `with cap(name) ...` while the outer name is \
+                 still active) collided. Shadow via a fresh scope or \
+                 rename the inner cap."
+        }
+        4064 => {
+            "MT4064: Unknown capability method. The receiver is a \
+                 capability of a known family, but the method name is \
+                 not in the family's built-in surface. Each family \
+                 exposes a small fixed set of narrowing constructors \
+                 (`ro`, `path`, `host`) and operational methods."
+        }
+        4065 => {
+            "MT4065: Invalid capability narrowing constraint. The \
+                 narrowing constructor was supplied a constraint the \
+                 family does not accept — for example `ReadOnly` on \
+                 `Net`, an empty host allowlist, or a path \
+                 constraint on `Clock`."
         }
         5001 => {
             "MT5001: Runtime panic. The program executed `panic(msg)` \

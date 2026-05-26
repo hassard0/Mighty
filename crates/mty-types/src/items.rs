@@ -371,9 +371,38 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
     // Slice 5: strict protocol coverage / extra-handler checks.
     check_protocols_strict(pkg, &defs, &mut diagnostics);
 
-    TypedPackage {
+    // v0.21: cap-name resolver pass — emits MT4060..MT4065 over
+    // capability-typed method calls. Operates on the partially-built
+    // TypedPackage; we assemble it once for the resolver pass to walk.
+    let typed_for_resolver = TypedPackage {
         def_map: defs,
         ty_arena: arena,
+        expr_ty,
+        fn_params,
+        fn_ret,
+        fn_effects,
+        diagnostics: vec![],
+    };
+    let mut cap_diags = vec![];
+    crate::cap_check::run(&typed_for_resolver, pkg, &mut cap_diags);
+    diagnostics.extend(cap_diags);
+
+    // Unpack — Rust moves are not partial, so we destructure the
+    // shim back out into the final TypedPackage. (No effective cost:
+    // the inner arena / def_map / hash maps are not cloned.)
+    let TypedPackage {
+        def_map,
+        ty_arena,
+        expr_ty,
+        fn_params,
+        fn_ret,
+        fn_effects,
+        diagnostics: _,
+    } = typed_for_resolver;
+
+    TypedPackage {
+        def_map,
+        ty_arena,
         expr_ty,
         fn_params,
         fn_ret,

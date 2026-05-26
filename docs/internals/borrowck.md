@@ -404,3 +404,65 @@ no-op for the walker — its only role is to truncate the body's
 remaining statements at the MtyIR level, which the borrow check doesn't
 need to see because the join already covers every possible post-body
 state.
+
+## 21. v0.21 — Polonius-flavoured second-pass borrow checker
+
+`crates/mty-borrow/src/polonius.rs` ships a small Datalog-style
+borrow checker that runs as an **opt-in second pass** behind the
+`polonius` cargo feature:
+
+```sh
+cargo build  -p mty-borrow --features polonius
+cargo test   -p mty-borrow --features polonius --test polonius
+```
+
+With the feature OFF, `check_package` is identical to v0.20 (NLL
+only). With the feature ON, the union of NLL findings AND any
+Polonius-only rejections (code MT3020) are returned.
+
+### Fact model
+
+Each loan `L` (call site, let-binding) produces a fact set. The
+solver iterates rules over the fact relations to fixpoint:
+
+| Relation                  | Meaning                                  |
+|---------------------------|------------------------------------------|
+| `BorrowAt(L, P)`          | loan `L` is live at point `P`            |
+| `LoanInvalidated(L, P)`   | loan `L` is killed by an event at `P`    |
+| `Subset(L1, L2, P)`       | `L1` outlives `L2` at `P`                |
+| `Conflict(L1, L2, P)`     | two borrows of `L1`/`L2` collide at `P`  |
+| `Error(L, P)`             | terminal: `L` invalidated while in use   |
+
+Rules applied to fixpoint (bounded at 32 iterations):
+
+1. **Subset transitivity.**
+   `Subset(A, B, P) ∧ Subset(B, C, P) ⇒ Subset(A, C, P)`
+2. **Invalidation while live.**
+   `BorrowAt(L, Pb) ∧ LoanInvalidated(L, Pi) ∧ Pi ≥ Pb ⇒ Error(L, Pi)`
+3. **(disabled in v0.21)** forward-flow. `BorrowAt(L, P) ∧ ¬Killed(L,P+1) ⇒ BorrowAt(L, P+1)`.
+   The forward-flow rule would catch the canonical "live until killed" Polonius pattern but also regress the NLL last-use refinement. v0.21 ships the datalog scaffolding without it; v0.22 will gate it behind a `polonius-strict` cargo flag.
+4. **Concurrent incompatible borrows.**
+   `BorrowAt(L1, P) ∧ BorrowAt(L2, P) ∧ incompatible(L1, L2) ⇒ Conflict ∧ Error(L1, P)`.
+
+### Loan compatibility
+
+| L1            | L2            | Conflict? |
+|---------------|---------------|-----------|
+| Shared        | Shared        | no        |
+| TwoPhaseMut   | Shared        | **no**    |
+| Mut           | anything      | yes       |
+| TwoPhaseMut   | TwoPhaseMut   | yes       |
+
+`TwoPhaseMut + Shared` is the canonical two-phase accept pattern
+(`vec.push(vec.len())`).
+
+### When to enable
+
+Enable `--features polonius` when:
+
+- You want stricter borrow checking that catches a few classes of
+  patterns NLL accepts incorrectly (nested conflict, conditional
+  control-flow with invalidating moves).
+- You're writing safety-critical code and want defence-in-depth.
+
+The feature is OFF by default so v0.20 builds stay unchanged.

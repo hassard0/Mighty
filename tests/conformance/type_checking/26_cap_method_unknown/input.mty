@@ -1,0 +1,7 @@
+// MT4064 positive-fire: a method that's not in the Fs family's
+// built-in surface. The cap-resolver pass checks every cap method
+// call against the family table (`ro`, `path`, `read`, `write`,
+// `list`) and emits MT4064 for the miss.
+fn driver(fs: Fs) -> Unit {
+  fs.bogus_method("/data")
+}

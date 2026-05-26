@@ -1,0 +1,5 @@
+// MT4061 positive-fire: same parameter name appears with two
+// different capability families across fns. The cap-resolver pass
+// detects the cross-fn collision.
+fn use_fs(handle: Fs) -> Unit { handle.ro("/data") }
+fn use_net(handle: Net) -> Unit { handle.host("example.com") }

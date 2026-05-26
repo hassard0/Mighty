@@ -1,0 +1,8 @@
+// MT4065 positive-fire: a narrowing constructor (`fs.path(...)`)
+// supplied without the required string-literal argument. The cap-
+// resolver pass checks the args of each narrowing method against
+// the family's constraint surface and emits MT4065 when the
+// shape doesn't match.
+fn driver(fs: Fs) -> Unit {
+  fs.path()
+}

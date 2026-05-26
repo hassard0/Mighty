@@ -55,6 +55,12 @@
       "MT4057",
       "MT4058",
       "MT4059",
+      "MT4060",
+      "MT4061",
+      "MT4062",
+      "MT4063",
+      "MT4064",
+      "MT4065",
       "MT5001",
       "MT5003",
       "MT5009",
@@ -133,7 +139,7 @@
       "diagnostic_codes": ["MT0001"]
     },
     "type_checking": {
-      "case_count": 20,
+      "case_count": 26,
       "diagnostic_codes": [
         "MT2001",
         "MT2002",
@@ -155,7 +161,13 @@
         "MT2022",
         "MT2023",
         "MT2024",
-        "MT2025"
+        "MT2025",
+        "MT4060",
+        "MT4061",
+        "MT4062",
+        "MT4063",
+        "MT4064",
+        "MT4065"
       ]
     },
     "type_inference": {

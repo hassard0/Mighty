@@ -22,6 +22,8 @@ pub mod drop_plan;
 pub mod flow;
 pub mod nll;
 pub mod place;
+#[cfg(feature = "polonius")]
+pub mod polonius;
 pub mod sendable;
 pub mod state;
 
@@ -32,8 +34,21 @@ use mty_types::TypedPackage;
 /// Run the slice-4 borrow checker over a typed package + its source HIR.
 /// Returns a vector of diagnostics (errors only — borrow checking has no
 /// warnings of its own; MT2026 from typeck is the lone warning code).
+///
+/// v0.21 dispatch: when the `polonius` cargo feature is enabled the
+/// returned diagnostics include the union of NLL findings AND any
+/// Polonius-only rejections (code MT3020) detected by the second-pass
+/// datalog solver in [`polonius`]. When the feature is off only the
+/// NLL pass runs (zero overhead — `cfg(feature = "polonius")` guards
+/// both the module and the dispatch call below).
 pub fn check_package(typed: &TypedPackage, pkg: &Package) -> Vec<Diagnostic> {
-    flow::run(typed, pkg)
+    #[allow(unused_mut)]
+    let mut diags = flow::run(typed, pkg);
+    #[cfg(feature = "polonius")]
+    {
+        diags.extend(polonius::run_polonius_pass(typed, pkg));
+    }
+    diags
 }
 
 /// Convenience helper: type-check `pkg` then borrow-check it. Returns the

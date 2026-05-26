@@ -1,0 +1,7 @@
+// MT4063 positive-fire: a single fn declares the same cap-typed
+// parameter name twice in its signature. The cap-resolver flags
+// the redeclaration before the surface-syntax duplicate-binding
+// error has a chance to mask it.
+fn dup(handle: Fs, handle: Fs) -> Unit {
+  handle.ro("/data")
+}

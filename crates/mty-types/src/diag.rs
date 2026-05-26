@@ -846,3 +846,202 @@ pub fn hof_closure_effects_rejected(
     );
     d
 }
+
+// ----------------------------------------------------------------------
+// v0.21 — Cap-name resolver diagnostics (MT4060..MT4065).
+//
+// Each builder converts a `cap_resolver::CapResolutionError` (or its
+// raw fields, when the caller has more context than the resolver) into
+// a `Diagnostic` with the correct stable code. The builders are also
+// callable directly from unit tests in
+// `crates/mty-types/tests/cap_resolution.rs`.
+// ----------------------------------------------------------------------
+
+use crate::cap_resolver::CapResolutionError;
+use crate::ty::CapFamily;
+
+fn pretty_family(family: &CapFamily) -> String {
+    match family {
+        CapFamily::Fs => "Fs".into(),
+        CapFamily::Net => "Net".into(),
+        CapFamily::Clock => "Clock".into(),
+        CapFamily::Dom => "Dom".into(),
+        CapFamily::Model => "Model".into(),
+        CapFamily::Custom(s) => s.clone(),
+    }
+}
+
+/// MT4060 cap_name_unbound: a capability name reference has no
+/// declaration nor any active scope binding.
+pub fn cap_name_unbound(name: &str, span: &SourceSpan) -> Diagnostic {
+    let mut d = Diagnostic::error(
+        CAP_NAME_UNBOUND,
+        label(
+            span,
+            format!("capability `{}` is not declared and not in scope", name),
+        ),
+    );
+    d.notes.push(
+        "declare it at module level (`cap <Name>: <Family>`), or accept it as a handler/fn parameter"
+            .into(),
+    );
+    d.notes
+        .push("v0.21 cap-resolver — see `mty explain MT4060`".into());
+    d
+}
+
+/// MT4061 cap_family_mismatch: the named cap resolves but its
+/// declared family differs from the use-site's expected family.
+pub fn cap_family_mismatch(
+    name: &str,
+    declared: &CapFamily,
+    expected: &CapFamily,
+    span: &SourceSpan,
+) -> Diagnostic {
+    let mut d = Diagnostic::error(
+        CAP_FAMILY_MISMATCH,
+        label(
+            span,
+            format!(
+                "capability `{}` is declared as `{}` but used as `{}`",
+                name,
+                pretty_family(declared),
+                pretty_family(expected),
+            ),
+        ),
+    );
+    d.notes.push(format!(
+        "rename the cap or wrap the use-site in a `{}`-typed handle",
+        pretty_family(expected)
+    ));
+    d.notes
+        .push("v0.21 cap-resolver — see `mty explain MT4061`".into());
+    d
+}
+
+/// MT4062 cap_scope_violation: a reference to a cap whose binding
+/// frame has already been popped.
+pub fn cap_scope_violation(name: &str, popped_at_depth: usize, span: &SourceSpan) -> Diagnostic {
+    let mut d = Diagnostic::error(
+        CAP_SCOPE_VIOLATION,
+        label(
+            span,
+            format!(
+                "capability `{}` is no longer in scope (popped at depth {})",
+                name, popped_at_depth
+            ),
+        ),
+    );
+    d.notes.push(
+        "move the use-site inside the `with cap(...) { ... }` body, or rebind the cap at the outer scope"
+            .into(),
+    );
+    d.notes
+        .push("v0.21 cap-resolver — see `mty explain MT4062`".into());
+    d
+}
+
+/// MT4063 cap_redeclaration: same name declared twice in the same
+/// scope frame.
+pub fn cap_redeclaration(name: &str, frame_depth: usize, span: &SourceSpan) -> Diagnostic {
+    let mut d = Diagnostic::error(
+        CAP_REDECLARATION,
+        label(
+            span,
+            format!(
+                "capability `{}` is already declared in scope frame {}",
+                name, frame_depth
+            ),
+        ),
+    );
+    d.notes.push(
+        "rename one of the declarations, or scope the inner binding via `with cap(<other>) ...`"
+            .into(),
+    );
+    d.notes
+        .push("v0.21 cap-resolver — see `mty explain MT4063`".into());
+    d
+}
+
+/// MT4064 cap_method_unknown: method not in the family's surface.
+pub fn cap_method_unknown(
+    family: &CapFamily,
+    method: &str,
+    available: &[String],
+    span: &SourceSpan,
+) -> Diagnostic {
+    let mut d = Diagnostic::error(
+        CAP_METHOD_UNKNOWN,
+        label(
+            span,
+            format!(
+                "no method `{}` on capability family `{}`",
+                method,
+                pretty_family(family)
+            ),
+        ),
+    );
+    if !available.is_empty() {
+        d.notes
+            .push(format!("available methods: {}", available.join(", ")));
+    }
+    d.notes
+        .push("v0.21 cap-resolver — see `mty explain MT4064`".into());
+    d
+}
+
+/// MT4065 cap_constraint_invalid: narrowing constraint not accepted
+/// by family.
+pub fn cap_constraint_invalid(
+    family: &CapFamily,
+    method: &str,
+    reason: &str,
+    span: &SourceSpan,
+) -> Diagnostic {
+    let mut d = Diagnostic::error(
+        CAP_CONSTRAINT_INVALID,
+        label(
+            span,
+            format!(
+                "invalid narrowing constraint for `{}.{}`: {}",
+                pretty_family(family),
+                method,
+                reason
+            ),
+        ),
+    );
+    d.notes
+        .push("v0.21 cap-resolver — see `mty explain MT4065`".into());
+    d
+}
+
+/// Convenience: convert a [`CapResolutionError`] into the
+/// corresponding diagnostic. Used by the type checker's cap-resolver
+/// pass to keep call-sites compact.
+pub fn cap_resolution_error(err: &CapResolutionError, span: &SourceSpan) -> Diagnostic {
+    match err {
+        CapResolutionError::Unbound { name } => cap_name_unbound(name, span),
+        CapResolutionError::FamilyMismatch {
+            name,
+            declared,
+            expected,
+        } => cap_family_mismatch(name, declared, expected, span),
+        CapResolutionError::ScopeViolation {
+            name,
+            popped_at_depth,
+        } => cap_scope_violation(name, *popped_at_depth, span),
+        CapResolutionError::Redeclaration { name, frame_depth } => {
+            cap_redeclaration(name, *frame_depth, span)
+        }
+        CapResolutionError::UnknownMethod {
+            family,
+            method,
+            available,
+        } => cap_method_unknown(family, method, available, span),
+        CapResolutionError::InvalidConstraint {
+            family,
+            method,
+            reason,
+        } => cap_constraint_invalid(family, method, reason, span),
+    }
+}

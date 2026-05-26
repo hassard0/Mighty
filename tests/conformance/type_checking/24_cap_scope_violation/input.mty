@@ -1,0 +1,10 @@
+// MT4062 positive-fire: a cap-typed identifier from one fn's scope
+// is referenced inside another fn that does not declare it. The
+// v0.21 cap-resolver flags the cross-scope reference as a scope
+// violation.
+fn outer(fs_cap: Fs) -> Unit {
+  fs_cap.ro("/data")
+}
+fn inner() -> Unit {
+  fs_cap.ro("/etc")
+}
