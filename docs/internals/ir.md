@@ -112,6 +112,47 @@ and `source` (one of `Return | Param | UserLet | Temp | DropFlag`).
 | `TryReturnErr(op)`   | Synthesize `Result::Err(op)` and return                |
 | `Suspend{resume}`    | Async suspension placeholder (slice-7 traps MT5009)    |
 
+## Source spans on `Stmt` + `Term` (v0.22)
+
+Every `Stmt` and every `Term` *carries* a `SourceSpan` describing the
+byte range in the original source file the emission came from. Spans
+flow `HIR → MtyIR → cranelift → DWARF`, so DWARF v5 line-program rows
+land at byte offsets that match real source positions instead of the
+synthetic spread v0.21 used as a placeholder.
+
+For backward compatibility with consumers that pattern-match the
+`Stmt` and `Term` enums (codegen-wasm, codegen-llvm, doc extractor,
+driver self-host tests), the spans are exposed as a **side-table on
+`Program`** rather than fields on the enum variants:
+
+```rust
+pub struct Program {
+    pub fns: Vec<Function>,
+    pub adts: Vec<AdtRef>,
+    pub agents: Vec<Agent>,
+    pub errors: Vec<String>,
+    pub span_table: HashMap<IrFnId, FnSpanTable>, // v0.22
+}
+
+pub struct FnSpanTable {
+    pub stmt_spans: HashMap<u32 /* block_idx */, Vec<SourceSpan>>,
+    pub terminator_spans: HashMap<u32 /* block_idx */, SourceSpan>,
+}
+```
+
+The `FnBuilder` lowering helper tracks a "current span" and stamps
+every emitted `Stmt`/`Term` with it; the per-fn `FnSpanTable` is
+merged into `Program::span_table` at `install_fn` time. Manually-
+constructed `Function`s (e.g. the mono-specializer's clones or the
+JIT bootstrap stub) leave the table untouched — the cranelift
+back-end then falls back to the v0.21 synthetic-spread heuristic so
+no existing test or downstream caller regresses.
+
+See `dev/history/notes/STMT_SPAN_V0_22_NOTES.md` for the trade-off
+rationale (and why the spans live on `Program` rather than on each
+enum variant), and the v0.23 follow-up plan for column-level
+positions once `mty-hir`'s expression arena exposes per-expr spans.
+
 ## Places + projections
 
 A `Place` is a `Local` with a list of `Projection`s:

@@ -8,6 +8,7 @@
 
 use mty_hir::{FnId, SourceSpan};
 use mty_types::{AdtId, CapConstraint, CapFamily, EffectId, FloatKind, IntKind};
+use std::collections::HashMap;
 
 // ----- ID newtypes ---------------------------------------------------------
 
@@ -480,6 +481,74 @@ pub struct Agent {
     pub span: SourceSpan,
 }
 
+// ----- Stmt + Terminator span side-table (v0.22) ---------------------------
+
+/// Per-function, per-block source spans for every `Stmt` and the block's
+/// terminator. v0.22 introduces *real* spans threaded from the HIR through
+/// IR lowering, replacing the synthetic byte-offset spread that v0.21's
+/// cranelift backend used when statements didn't yet carry positions.
+///
+/// Design note (2026-05-26):
+/// the scope for this slice originally read "add `span: SourceSpan` to
+/// `Stmt` / `Terminator`". The MtyIR `Stmt` / `Term` enums are pattern-
+/// matched across five backends and twenty-plus test files outside the
+/// `mty-ir` crate (codegen-wasm, codegen-llvm, doc-extractor, driver
+/// selfhost suites). Adding a field to every variant would break each of
+/// those crates simultaneously, and the v0.22 swarm guidelines explicitly
+/// forbid touching them.
+///
+/// We therefore expose spans as a **logical equivalent**: a side-table
+/// owned by `Program` and keyed by `(IrFnId, block_idx, stmt_idx)` for
+/// statements and `(IrFnId, block_idx)` for terminators. The IR-lowering
+/// pipeline populates the table; the cranelift backend reads it through
+/// `Program::stmt_span` / `Program::terminator_span`; manually-built
+/// `Program`s simply leave the table empty (cranelift falls back to the
+/// v0.21 synthetic spread for back-compat).
+///
+/// See `dev/history/notes/STMT_SPAN_V0_22_NOTES.md` for the full design
+/// trade-off and the v0.23 follow-up (column-level positions).
+#[derive(Debug, Default, Clone)]
+pub struct FnSpanTable {
+    /// `block_idx -> stmt_spans`; the inner Vec is parallel to
+    /// `Function::block(BlockId(block_idx)).stmts`. Sparse: blocks with
+    /// no recorded spans are omitted entirely (lookup falls back to
+    /// `SourceSpan { start: 0, end: 0 }`).
+    pub stmt_spans: HashMap<u32, Vec<SourceSpan>>,
+    /// `block_idx -> terminator span`. Mirrors `stmt_spans` for the
+    /// block's `Term`.
+    pub terminator_spans: HashMap<u32, SourceSpan>,
+}
+
+impl FnSpanTable {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// Record the span of `stmts[stmt_idx]` in block `block_idx`.
+    pub fn set_stmt_span(&mut self, block_idx: u32, stmt_idx: usize, span: SourceSpan) {
+        let v = self.stmt_spans.entry(block_idx).or_default();
+        if v.len() <= stmt_idx {
+            v.resize(stmt_idx + 1, SourceSpan { start: 0, end: 0 });
+        }
+        v[stmt_idx] = span;
+    }
+    /// Record the span of the terminator of block `block_idx`.
+    pub fn set_terminator_span(&mut self, block_idx: u32, span: SourceSpan) {
+        self.terminator_spans.insert(block_idx, span);
+    }
+    /// Read the recorded span for `stmts[stmt_idx]` in `block_idx`,
+    /// or `None` if no span was set.
+    pub fn stmt_span(&self, block_idx: u32, stmt_idx: usize) -> Option<&SourceSpan> {
+        self.stmt_spans
+            .get(&block_idx)
+            .and_then(|v| v.get(stmt_idx))
+    }
+    /// Read the recorded span for the terminator of `block_idx`, or
+    /// `None` if no span was set.
+    pub fn terminator_span(&self, block_idx: u32) -> Option<&SourceSpan> {
+        self.terminator_spans.get(&block_idx)
+    }
+}
+
 // ----- Program -------------------------------------------------------------
 
 #[derive(Debug, Default, Clone)]
@@ -492,6 +561,11 @@ pub struct Program {
     /// expressions) it records a note and substitutes a const Unit.
     /// Run-only pipelines refuse to execute a program with errors.
     pub errors: Vec<String>,
+    /// v0.22: per-fn `Stmt` + `Terminator` source spans. Sparse — only
+    /// fns lowered from real HIR populate an entry; manually-constructed
+    /// `Function`s leave their slot empty and the cranelift DWARF
+    /// emitter falls back to the v0.21 synthetic-spread offsets.
+    pub span_table: HashMap<IrFnId, FnSpanTable>,
 }
 
 impl Program {

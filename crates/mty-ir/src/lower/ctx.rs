@@ -107,6 +107,15 @@ pub struct FnBuilder {
     /// no-op (the borrow checker / type checker have already reported
     /// the misuse).
     pub loop_stack: Vec<LoopFrame>,
+    /// v0.22: source span attached to every `Stmt` and `Term` emitted
+    /// while this is set. Updated by lowering helpers before they call
+    /// `push_stmt` / `set_term`. Persisted into the per-fn `FnSpanTable`
+    /// at `finish()` time and merged into `Program::span_table`.
+    pub cur_span: SourceSpan,
+    /// v0.22: collected stmt + terminator spans, parallel to
+    /// `blocks[block_idx].stmts` and `blocks[block_idx].terminator`.
+    /// Populated lazily as `push_stmt` / `set_term` are called.
+    pub spans: FnSpanTable,
 }
 
 #[derive(Clone, Copy)]
@@ -137,9 +146,41 @@ impl FnBuilder {
             locals_by_name: HashMap::new(),
             next_arena: 0,
             loop_stack: Vec::new(),
+            cur_span: SourceSpan { start: 0, end: 0 },
+            spans: FnSpanTable::new(),
         };
         s.cur = entry;
         s
+    }
+
+    /// v0.22: set the "current span" used for subsequent `push_stmt`
+    /// / `set_term` calls. Lowering helpers call this immediately
+    /// before lowering an HIR expression or stmt so the span flows
+    /// transparently into the emitted MtyIR.
+    pub fn set_cur_span(&mut self, span: SourceSpan) {
+        self.cur_span = span;
+    }
+
+    /// v0.22: borrow + restore helper. Use when lowering a child
+    /// expression whose span should temporarily override the current
+    /// span, but the parent's span must be restored when we resume
+    /// emitting after the child returns.
+    pub fn with_span<R>(&mut self, span: SourceSpan, f: impl FnOnce(&mut Self) -> R) -> R {
+        let prev = self.cur_span.clone();
+        self.cur_span = span;
+        let r = f(self);
+        self.cur_span = prev;
+        r
+    }
+
+    /// v0.22: lookup an HIR expression's span via the package and
+    /// install it as the current span. Returns the previous span so
+    /// callers can restore.
+    pub fn enter_expr_span(&mut self, pkg: &Package, eid: ExprId) -> SourceSpan {
+        let prev = self.cur_span.clone();
+        let sp = expr_span(pkg, eid);
+        self.cur_span = sp;
+        prev
     }
 
     pub fn push_loop(&mut self, frame: LoopFrame) {
@@ -169,11 +210,21 @@ impl FnBuilder {
     pub fn push_stmt(&mut self, s: Stmt) {
         let blk = self.cur.0 as usize;
         self.blocks[blk].stmts.push(s);
+        // v0.22: record the current span at the position of the
+        // just-pushed stmt. Manually-built Programs that bypass the
+        // builder never see this side-table, so the cranelift backend's
+        // fallback synthetic-spread keeps working for them.
+        let stmt_idx = self.blocks[blk].stmts.len() - 1;
+        self.spans
+            .set_stmt_span(self.cur.0, stmt_idx, self.cur_span.clone());
     }
 
     pub fn set_term(&mut self, t: Term) {
         let blk = self.cur.0 as usize;
         self.blocks[blk].terminator = t;
+        // v0.22: record the current span as the terminator's span.
+        self.spans
+            .set_terminator_span(self.cur.0, self.cur_span.clone());
     }
 
     pub fn new_local(
@@ -225,4 +276,43 @@ impl FnBuilder {
             span,
         }
     }
+
+    /// v0.22: finish + return the collected span table separately. Used
+    /// by the IR lowerer so it can merge the table into `Program::span_table`
+    /// alongside installing the Function.
+    pub fn finish_with_spans(
+        self,
+        hir_fn: Option<FnId>,
+        span: SourceSpan,
+    ) -> (Function, FnSpanTable) {
+        let fn_id = self.fn_id;
+        let params = self.params;
+        let locals = self.locals;
+        let blocks = self.blocks;
+        let spans = self.spans;
+        let func = Function {
+            id: fn_id,
+            name: String::new(),
+            params,
+            locals,
+            blocks,
+            entry: BlockId(0),
+            ret_ty: IrTy::Unit,
+            effects: vec![],
+            hir_fn,
+            span,
+        };
+        (func, spans)
+    }
+}
+
+/// v0.22 Coverage Closure (workspace-build unblock): minimal stub for
+/// the span-table work-in-progress in this file. HIR does not yet
+/// expose per-expression spans (only HirFn/HirAgent etc. carry one);
+/// returning a zero span keeps the type-checker / borrow-checker
+/// coverage closure unblocked while the broader span-table effort
+/// completes. Replace with a real lookup once `mty_hir::Package`
+/// surfaces an `exprs_spans` arena.
+fn expr_span(_pkg: &Package, _eid: ExprId) -> SourceSpan {
+    SourceSpan { start: 0, end: 0 }
 }

@@ -11,6 +11,7 @@ mod ctx;
 mod exprs;
 mod items;
 mod pats;
+mod stmts;
 mod ty;
 
 pub use ctx::*;

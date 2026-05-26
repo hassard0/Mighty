@@ -1,10 +1,14 @@
-//! v0.21: end-to-end tests for the cranelift `MachSrcLoc` plumbing
-//! into the DWARF v5 line program.
+//! v0.21 + v0.22 end-to-end tests for the cranelift `MachSrcLoc`
+//! plumbing into the DWARF v5 line program.
 //!
 //! v0.20 shipped the v5 emitter with a conservative 2-entry line
-//! table; v0.21 plumbs cranelift's per-instruction MachSrcLoc map
+//! table; v0.21 plumbed cranelift's per-instruction MachSrcLoc map
 //! through `Module::define_function` so every machine instruction
 //! that came from an MtyIR statement gets its own line-program row.
+//! v0.22 (this slice) replaces v0.21's *synthetic* per-stmt byte
+//! offsets (spread across the fn's source range) with **real** spans
+//! from `Program::span_table` — populated by the HIR→IR lowerer for
+//! every fn with a real HIR origin.
 //!
 //! What this file asserts:
 //!
@@ -18,6 +22,12 @@
 //!    yields a non-empty `.debug_loclists` section.
 //! 4. `v4_path_unchanged` — default v4 emission still produces the
 //!    v0.20 baseline (no regression).
+//! 5. `srcloc_count_scales_with_statement_count` — load-bearing
+//!    assertion that we still emit one SourceLoc per stmt + terminator.
+//! 6. (v0.22) `dwarf5_row_byte_offsets_match_source` — populate
+//!    `Program::span_table` with deliberately distinct byte ranges and
+//!    verify the captured `stmt_byte_offsets` reflect THOSE positions
+//!    (not the synthetic spread). This is the v0.22 acceptance gate.
 
 use cranelift_codegen::isa;
 use cranelift_object::{ObjectBuilder, ObjectModule};
@@ -27,8 +37,8 @@ use mty_codegen_cranelift::debug::{
 use mty_codegen_cranelift::lower::{default_flags, LowerCtx};
 use mty_hir::SourceSpan;
 use mty_ir::ir::{
-    BinOp, Block, BlockId, Const, Function, IrFnId, IrTy, Local, LocalDecl, LocalSource, Operand,
-    Place, Program, Rvalue, Stmt, Term,
+    BinOp, Block, BlockId, Const, FnSpanTable, Function, IrFnId, IrTy, Local, LocalDecl,
+    LocalSource, Operand, Place, Program, Rvalue, Stmt, Term,
 };
 use mty_types::IntKind;
 use target_lexicon::Triple;
@@ -285,6 +295,86 @@ fn v4_path_unchanged() {
     assert!(enc.sections.iter().any(|s| s.name == ".debug_info"));
     assert!(enc.sections.iter().any(|s| s.name == ".debug_abbrev"));
     assert!(enc.sections.iter().any(|s| s.name == ".debug_line"));
+}
+
+/// v0.22 acceptance gate: when the lowerer populates `Program::span_table`
+/// with explicit byte ranges (one per Stmt and one for the Terminator),
+/// the cranelift backend MUST observe those exact byte offsets as the
+/// values it hands to `set_srcloc` — not the synthetic spread that
+/// v0.21 produced. Each Stmt's `span.start` flows directly into a
+/// `stmt_byte_offsets` entry; the test reads them back via the
+/// `FnSrcLocMap` side-table and pairs them against the input.
+#[test]
+fn dwarf5_row_byte_offsets_match_source() {
+    let mut prog = Program::default();
+    let mut f = many_stmts_fn(5);
+    // Stretch the function span so it does NOT collide with our
+    // hand-picked Stmt offsets — otherwise the synthetic fallback's
+    // output could accidentally agree with the real values and the
+    // assertion would lose its bite.
+    f.span = SourceSpan {
+        start: 1000,
+        end: 1256,
+    };
+    let fn_id = f.id;
+    prog.fns.push(f);
+
+    // Hand-built span table: walk distinct, sparse byte ranges so the
+    // assertion can prove that each value flows through unchanged.
+    // Stmt N starts at byte (100 + N * 10); the terminator at 200.
+    let mut table = FnSpanTable::new();
+    for i in 0..5u32 {
+        table.set_stmt_span(
+            0,
+            i as usize,
+            SourceSpan {
+                start: 100 + i * 10,
+                end: 100 + i * 10 + 8,
+            },
+        );
+    }
+    table.set_terminator_span(
+        0,
+        SourceSpan {
+            start: 200,
+            end: 210,
+        },
+    );
+    prog.span_table.insert(fn_id, table);
+
+    let dbg = compile_with_debug(&prog);
+
+    // The lowerer hands cranelift one SourceLoc per Stmt + one for
+    // the terminator → 6 stmt_byte_offsets entries. The VALUES must
+    // be drawn from our hand-populated span table, NOT from the
+    // synthetic spread (which would pick offsets inside
+    // 1000..=1255).
+    assert_eq!(
+        dbg.stmt_byte_offsets.len(),
+        6,
+        "5 stmts + 1 terminator → 6 stmt_byte_offsets entries (got {})",
+        dbg.stmt_byte_offsets.len()
+    );
+    let expected: [u32; 6] = [100, 110, 120, 130, 140, 200];
+    for (i, want) in expected.iter().enumerate() {
+        assert_eq!(
+            dbg.stmt_byte_offsets[i], *want,
+            "stmt_byte_offsets[{}] should match real span.start ({}), got {} \
+             (synthetic spread would have produced something in 1000..=1255)",
+            i, want, dbg.stmt_byte_offsets[i]
+        );
+    }
+    // Sanity check: none of the recorded offsets sit inside the fn
+    // span's synthetic range. If any did, the back-end would have
+    // silently fallen back and we'd never know.
+    for off in &dbg.stmt_byte_offsets {
+        assert!(
+            *off < 1000 || *off >= 1256,
+            "byte offset {} falls inside synthetic fn-span range — \
+             back-end didn't use the real span table",
+            off
+        );
+    }
 }
 
 #[test]

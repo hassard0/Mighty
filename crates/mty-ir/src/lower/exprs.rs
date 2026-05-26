@@ -4,104 +4,21 @@
 
 use super::ctx::{FnBuilder, LoopFrame, LowerCtx};
 use super::pats;
+use super::stmts;
 use crate::ir::*;
-use mty_hir::{
-    BinOp as HirBinOp, ExprId, HirArg, HirBlock, HirExpr, HirLiteral, HirStmt, UnOp as HirUnOp,
-};
+use mty_hir::{BinOp as HirBinOp, ExprId, HirArg, HirBlock, HirExpr, HirLiteral, UnOp as HirUnOp};
 use mty_types::{AdtId, CapFamily, DefRef, IntKind, TyData};
 
 /// Lower a block expression. Returns the operand carrying the block's
 /// tail value (or `Const::Unit` if no tail).
 pub fn lower_block(ctx: &mut LowerCtx, fb: &mut FnBuilder, b: &HirBlock) -> Operand {
     for s in &b.stmts {
-        lower_stmt(ctx, fb, s);
+        stmts::lower_stmt(ctx, fb, s);
     }
     if let Some(tail) = b.tail {
         lower_expr(ctx, fb, tail)
     } else {
         Operand::Const(Const::Unit)
-    }
-}
-
-fn lower_stmt(ctx: &mut LowerCtx, fb: &mut FnBuilder, s: &HirStmt) {
-    match s {
-        HirStmt::Let {
-            pat,
-            ty,
-            init,
-            mutable,
-        } => {
-            let init_op = match init {
-                Some(e) => lower_expr(ctx, fb, *e),
-                None => Operand::Const(Const::Unit),
-            };
-            // Bind via the pattern. For the common case `let x = expr`,
-            // pat is `Binding{ name: "x", sub: None }`.
-            bind_pat_assign(ctx, fb, *pat, init_op, *mutable, ty.is_some());
-        }
-        HirStmt::Expr(e) => {
-            let _ = lower_expr(ctx, fb, *e);
-        }
-    }
-}
-
-fn bind_pat_assign(
-    ctx: &mut LowerCtx,
-    fb: &mut FnBuilder,
-    pat_id: mty_hir::PatId,
-    rhs: Operand,
-    mutable: bool,
-    _annotated: bool,
-) {
-    use mty_hir::HirPat;
-    let p = ctx.pkg.pats[pat_id].clone();
-    match p {
-        HirPat::Binding { name, sub } => {
-            // Pick a slice-6 default type — we look up the rhs's type
-            // through the typed table when available. For statements we
-            // don't have an ExprId for the rhs after lowering, so use
-            // IrTy::Error and trust the interpreter's permissive
-            // Value enum.
-            let ty = IrTy::Error;
-            let l = fb.new_local(name, ty, mutable, LocalSource::UserLet);
-            fb.push_stmt(Stmt::Assign(Place::local(l), Rvalue::Use(rhs)));
-            if let Some(sp) = sub {
-                bind_pat_assign(ctx, fb, sp, Operand::Copy(Place::local(l)), mutable, false);
-            }
-        }
-        HirPat::Wildcard => {
-            // Discard.
-        }
-        HirPat::Tuple(parts) => {
-            // Stash rhs in a temp; project each element into its own local.
-            let temp = fb.fresh_temp(IrTy::Error);
-            fb.push_stmt(Stmt::Assign(Place::local(temp), Rvalue::Use(rhs)));
-            for (i, sp) in parts.into_iter().enumerate() {
-                let elt_temp = fb.fresh_temp(IrTy::Error);
-                fb.push_stmt(Stmt::Assign(
-                    Place::local(elt_temp),
-                    Rvalue::TupleRead {
-                        receiver: Place::local(temp),
-                        idx: i,
-                    },
-                ));
-                bind_pat_assign(
-                    ctx,
-                    fb,
-                    sp,
-                    Operand::Move(Place::local(elt_temp)),
-                    mutable,
-                    false,
-                );
-            }
-        }
-        _ => {
-            // Other patterns at let-position are rare in the canonical
-            // examples. Slice 6 falls back to stashing the rhs in an
-            // anonymous local.
-            let l = fb.new_local("", IrTy::Error, mutable, LocalSource::UserLet);
-            fb.push_stmt(Stmt::Assign(Place::local(l), Rvalue::Use(rhs)));
-        }
     }
 }
 

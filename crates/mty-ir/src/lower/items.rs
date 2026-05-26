@@ -243,6 +243,14 @@ fn lower_one_fn(ctx: &mut LowerCtx, hir_id: mty_hir::FnId, sir_id: IrFnId) {
         .map(|t| lower_ty(t, ctx.ty_arena()))
         .unwrap_or(IrTy::Unit);
     let mut fb = FnBuilder::new(sir_id, ret_ty.clone());
+    // v0.22: prime the builder's current span with the fn's HIR span,
+    // so every Stmt/Term emitted from this fn's body picks up a real
+    // (non-zero) span. HIR does not yet expose per-expression spans
+    // (`HirExpr` arms are not span-tagged in `mty-hir/src/nodes.rs`),
+    // so the fn's span is the best fallback the lowerer can produce
+    // today; v0.23 will replace this with a real per-expr span lookup
+    // once mty-hir grows an `exprs_spans` table.
+    fb.set_cur_span(f.span.clone());
 
     // Params: allocate one local per param. Param types live in
     // typed.fn_params.
@@ -308,11 +316,16 @@ fn install_fn(
     span: SourceSpan,
     hir_fn: Option<mty_hir::FnId>,
 ) {
-    let mut func = fb.finish(hir_fn, span);
+    // v0.22: split the function out + capture its span table so we can
+    // register both in the program in one pass.
+    let (mut func, spans) = fb.finish_with_spans(hir_fn, span);
     func.id = id;
     func.name = name.to_string();
     func.ret_ty = ret_ty;
     ctx.prog.fns[id.0 as usize] = func;
+    if !spans.stmt_spans.is_empty() || !spans.terminator_spans.is_empty() {
+        ctx.prog.span_table.insert(id, spans);
+    }
 }
 
 fn lower_agent_bodies(ctx: &mut LowerCtx) {
@@ -355,6 +368,9 @@ fn lower_one_agent(ctx: &mut LowerCtx, hir_aid: mty_hir::AgentId, sirid: AgentIr
     {
         let state_ty = IrTy::Adt(ag.state_adt, vec![]);
         let mut fb = FnBuilder::new(ag.ctor, state_ty.clone());
+        // v0.22: prime span with agent's HIR span (best fallback until
+        // HIR exposes per-init-expr spans).
+        fb.set_cur_span(a.span.clone());
         // No params for slice 6 ctor.
         let mut init_ops: Vec<Operand> = vec![];
         for st in &a.state {
@@ -401,6 +417,8 @@ fn lower_one_agent(ctx: &mut LowerCtx, hir_aid: mty_hir::AgentId, sirid: AgentIr
             .unwrap_or_else(|| panic!("missing handler sir id for {}", h.message));
         let ret_ty = IrTy::Unit;
         let mut fb = FnBuilder::new(h_sir_id, ret_ty.clone());
+        // v0.22: prime span with the handler's HIR span.
+        fb.set_cur_span(h.span.clone());
         // Param 0: &mut state.
         let state_ref_ty = IrTy::Ref {
             mutable: true,

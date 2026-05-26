@@ -51,8 +51,11 @@ use target_lexicon::Triple;
 
 /// Spread (block_idx, stmt_idx_in_block) across the function's source
 /// byte range so each statement gets a unique offset inside the
-/// fn span. Used by [`FnLower::lower_one_block`] when MtyIR statements
-/// don't yet carry their own `SourceSpan`. v0.21.
+/// fn span. v0.21 used this exclusively because MtyIR statements
+/// didn't yet carry their own `SourceSpan`; v0.22 (`lower_one_block`)
+/// now prefers real spans from `Program::span_table` and falls back to
+/// this synthetic spread only for manually-constructed Functions
+/// (mono-specialized fns, the JIT bootstrap stub, hand-built tests).
 fn synthesize_stmt_offset(
     fn_start: u32,
     fn_end: u32,
@@ -780,17 +783,22 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
             .iter()
             .position(|b| b.id == id)
             .ok_or_else(|| CodegenError::Module(format!("missing block {:?}", id)))?;
-        // v0.21: at the start of each MtyIR statement, register a
-        // fresh `SourceLoc`. Stmt doesn't yet carry its own
-        // `SourceSpan` (HIR→SIR plumbing follow-up), so we synthesize
-        // a byte offset that walks the function's source range so
-        // each statement gets a distinct, monotonic offset.
+        // v0.22: prefer the real per-Stmt / per-Term `SourceSpan` from
+        // `Program::span_table` when populated (HIR-lowered Functions).
+        // Manually-constructed Functions (mono, tests, synthesised
+        // wrappers) leave the side-table empty; for those we fall back
+        // to the v0.21 synthetic-spread that walks the fn's source
+        // range so each stmt still gets a distinct, monotonic offset.
         let fn_start = self.f.span.start;
         let fn_end = self.f.span.end.max(fn_start + 1);
         let stmt_count = self.f.blocks[idx].stmts.len();
         let stmts_in_block = stmt_count + 1;
+        let fn_table = self.prog.span_table.get(&self.f.id);
         for s in 0..stmt_count {
-            let offset = synthesize_stmt_offset(fn_start, fn_end, idx, s, stmts_in_block);
+            let offset = match fn_table.and_then(|t| t.stmt_span(idx as u32, s)) {
+                Some(span) if span.start != 0 || span.end != 0 => span.start,
+                _ => synthesize_stmt_offset(fn_start, fn_end, idx, s, stmts_in_block),
+            };
             self.note_stmt_loc(offset);
             let stmt = self.f.blocks[idx].stmts[s].clone();
             self.lower_stmt(&stmt)?;
@@ -798,7 +806,10 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         // Terminator gets its own loc — important because terminators
         // are typically branch instructions, and stepping behavior in
         // gdb/lldb relies on each branch having a source position.
-        let term_offset = synthesize_stmt_offset(fn_start, fn_end, idx, stmt_count, stmts_in_block);
+        let term_offset = match fn_table.and_then(|t| t.terminator_span(idx as u32)) {
+            Some(span) if span.start != 0 || span.end != 0 => span.start,
+            _ => synthesize_stmt_offset(fn_start, fn_end, idx, stmt_count, stmts_in_block),
+        };
         self.note_stmt_loc(term_offset);
         let term = self.f.blocks[idx].terminator.clone();
         self.lower_term(&term)?;
