@@ -1,8 +1,9 @@
 # Independent implementations of Mighty
 
-> **Status**: v0.11 (2026-05-25). Python second-impl shipped as
-> `impl-py/`. v1.0-RC2 freeze blocker #2 (external re-implementation)
-> partially closed by this document.
+> **Status**: v0.17 (2026-05-26). Python second-impl shipped as
+> `impl-py/`, now with HIR lowering and a type-checker subset.
+> v1.0-RC2 freeze blocker #2 (external re-implementation) partially
+> closed by this document.
 
 ## What counts as an "independent implementation" for v1.0?
 
@@ -39,21 +40,22 @@ the lexer and parser.
 
 ## Python impl status (`impl-py/`)
 
-**Coverage**: front-end only — lexer + parser.
+**Coverage**: front-end + HIR + type-checker subset.
 
 | Phase           | Status                                           |
 |-----------------|--------------------------------------------------|
-| Lexer           | Shipped. Every §3 token kind. 20/20 examples.    |
-| Parser          | Shipped (subset). Every §4 item kind. 20/20 examples parse with zero diagnostics. |
-| HIR lowering    | Out of scope (v0.12+)                            |
-| Type checker    | Out of scope (v0.12+)                            |
-| Borrow checker  | Out of scope (v0.12+)                            |
-| Codegen         | Out of scope (v0.12+)                            |
+| Lexer           | Shipped. Every §3 token kind. 23/23 examples.    |
+| Parser          | Shipped (subset). Every §4 item kind. 23/23 examples parse with zero diagnostics. |
+| HIR lowering    | Shipped (v0.17). Parser AST → typed-dataclass HIR with name resolution. 23/23 examples lower clean. |
+| Type checker    | Shipped (subset, v0.17). H-M-style inference with `TyAny` absorption for effect rows / traits / agents. 23/23 examples typeck clean. |
+| Borrow checker  | Out of scope (v0.18+)                            |
+| Codegen         | Out of scope (v0.18+)                            |
 
 **License**: MIT (matches the rest of the workspace).
 
-**Test count at landing**: 135 tests passing in `python -m pytest
-impl-py/tests/`.
+**Test count at v0.17 landing**: 274 tests passing in `python -m
+pytest impl-py/tests/` (139 v0.11 baseline preserved; +24 HIR + +38
+typeck + +73 parametrised pipeline cases over the example corpus).
 
 **Findings count**: 16 documented spec ambiguities. See
 [`PYTHON_IMPL_V0_11_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/dev/history/notes/PYTHON_IMPL_V0_11_NOTES.md)
@@ -117,13 +119,16 @@ two-to-three-week front-end-only project. The recommended approach:
 
 ## Roadmap
 
-* **v0.11 (this slice)** — Python lexer + parser shipped.
-* **v0.12 (next)** — Python agent/protocol/supervisor structural
-  parse (close the deferred items in
-  [`PYTHON_IMPL_V0_11_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/dev/history/notes/PYTHON_IMPL_V0_11_NOTES.md)).
-* **v0.13+** — A real `mty dump --cst` diff harness. Once the
-  Rust front-end can emit a stable JSON CST representation, the
-  Python impl runs cross-impl conformance.
-* **v1.1+** — Either extend the Python impl through HIR/typeck/
-  borrow or pick a third-language impl (Go is the natural choice
-  given the codebase's existing benchmark-comparator coverage).
+* **v0.11** — Python lexer + parser shipped.
+* **v0.17 (this slice)** — Python HIR + lowering + type checker
+  (subset) shipped. See
+  [`PYTHON_IMPL_V0_17_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/dev/history/notes/PYTHON_IMPL_V0_17_NOTES.md)
+  for the per-example coverage matrix and the v0.18 follow-ups.
+* **v0.18 (next)** — Effect-row typeck (replace `TyAny` absorption
+  with proper row inference), then borrow checker.
+* **v0.19+** — A real `mty dump --cst` diff harness. Once the Rust
+  front-end can emit a stable JSON CST representation, the Python
+  impl runs cross-impl conformance.
+* **v1.1+** — Either extend the Python impl through codegen or pick a
+  third-language impl (Go is the natural choice given the codebase's
+  existing benchmark-comparator coverage).

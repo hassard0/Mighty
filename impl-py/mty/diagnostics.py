@@ -63,3 +63,25 @@ CODE_PARSE_EXPECTED = "MT1001"          # generic "expected X, got Y"
 CODE_PARSE_UNEXPECTED_EOF = "MT1002"
 CODE_PARSE_BAD_ITEM = "MT1003"
 CODE_PARSE_BAD_EXPR = "MT1004"
+
+# Lowering (HIR) codes -- MT15xx band (between parser and typeck).
+# Emitted by mty.lower; they cover the small set of name-resolution and
+# duplicate-item conditions the v0.17 lowerer actually checks.
+CODE_LOWER_UNRESOLVED_NAME = "MT1501"
+CODE_LOWER_UNSUPPORTED_SHAPE = "MT1502"
+CODE_LOWER_DUPLICATE_ITEM = "MT1503"
+
+# Type-check codes -- MT2xxx band (per v1.0-RC2 §33 type errors).
+# The exact numeric assignments here are this implementation's
+# interpretation; the Rust reference may pick different numbers within
+# the same band. See dev/history/notes/PYTHON_IMPL_V0_17_NOTES.md.
+CODE_TYPECK_MISMATCH = "MT2001"             # generic "expected T, got U"
+CODE_TYPECK_UNKNOWN_NAME = "MT2002"
+CODE_TYPECK_ARITY_MISMATCH = "MT2003"       # wrong number of fn args
+CODE_TYPECK_FIELD_MISMATCH = "MT2004"       # struct lit field mismatch
+CODE_TYPECK_NOT_CALLABLE = "MT2005"
+CODE_TYPECK_NOT_INDEXABLE = "MT2006"
+CODE_TYPECK_BRANCH_MISMATCH = "MT2007"      # if/match branches disagree
+CODE_TYPECK_RETURN_MISMATCH = "MT2008"
+CODE_TYPECK_OPERATOR_TYPE = "MT2009"        # binop operand type bad
+CODE_TYPECK_OCCURS_CHECK = "MT2010"         # infinite-type
