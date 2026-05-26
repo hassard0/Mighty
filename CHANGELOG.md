@@ -9,24 +9,126 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- v0.20-RC1 candidates: cross-RFC spec wording normalisation;
-  RFC comment-window monitoring (8 open windows; earliest close
-  2026-06-09 RFC-005, latest 2026-07-25 RFC-002 / RFC-006); strict-equality
-  replay payloads (migrate v0.18 hot-path recording sites from
-  `Opaque(format!("{:?}", args))` to
-  `Values(args.iter().map(RuntimeValueLike::to_replay_value).collect())`);
-  cluster security hardening (mutual-TLS client-cert verification by
-  node id; cluster supervisors Tier 4.2 deferred from v0.19);
-  populate the four placeholder conformance categories
-  (`deterministic_replay/`, `formatter_idempotence/`, `native_abi/`,
-  `wasm_component/`); diagnostic-code coverage report
-  (`tests/conformance/coverage.json`); `mty conform <kit.tar.gz>`
-  implementer-CLI shim; sigstore inclusion-proof crypto verify on
-  `fetch`; MT0001 funnel split (MT0002/MT0003/MT0010/MT0011/MT0012/
-  MT0020/MT0021/MT0030); `mty-pkg` cross-file resolution; parametric
-  newtypes for self-host arena ids; self-host codegen broadening
-  (real LEB128 in Mighty, arena drops at scope exit, agent backend);
-  Windows named-pipe introspect backend; full `TokenStream` marshalling.
+- v0.21-RC1 candidates: wasm hot reload + `Resumable::migrate_from`
+  schema-evolution hooks + control-socket `op=reload` handler +
+  condvar drain wake-up (replacing the 1 ms busy-poll); cluster
+  `PlacementPolicy` trait + Tier 4.3 lossless live migration +
+  `[cluster.tls].require_client_cert` manifest plumbing + supervisor
+  OpenTelemetry metrics (restart_total / circuit_breaker_tripped_total
+  / node_disconnect_total); DWARF v5 per-instruction line program
+  enablement (cranelift `MachSrcLoc` through `define_function`) +
+  `.debug_loclists` per-local from cranelift slot offsets; strict-
+  equality replay recording-on benchmark + per-payload size cap
+  that elides the structural walk above ~64 KiB; conformance kit
+  per-backend link-and-run + component-shape assertions for the
+  v0.20 `native_abi/` and `wasm_component/` fixtures; closure of
+  the 17 uncovered diagnostic codes (highest-leverage targets: 6
+  `MT4xxx` typeck codes blocked on the cap-name resolver wiring);
+  `mty conform <kit.tar.gz>` implementer-CLI shim; sigstore inclusion-
+  proof crypto verify on `fetch`; MT0001 funnel split (MT0002/MT0003/
+  MT0010/MT0011/MT0012/MT0020/MT0021/MT0030); `mty-pkg` cross-file
+  resolution; parametric newtypes for self-host arena ids; self-
+  host codegen broadening (real LEB128 in Mighty, arena drops at
+  scope exit, agent backend); Windows named-pipe introspect
+  backend; full `TokenStream` marshalling.
+
+## [0.20.0] - 2026-05-26
+
+**The full post-v1.0 roadmap is now live pre-v1.0 — hot reload,
+cluster mTLS+supervisor, DWARF v5, byte-identical replay all
+landed.** v0.20 collapses the entire `### Post-v1.0` block from
+the v0.19 README roadmap into shipping code. **Hot reload (Tier
+1.5)** ships: new `Resumable` trait (FNV-1a `SCHEMA_HASH` const +
+default ciborium-backed `to_snapshot`/`from_snapshot`), the swap
+pipeline (`reload::swap` — pause → drain → snapshot → schema
+check → restore → resume via `ReloadGate`), `ModuleSource::SameProgram`
+wired end-to-end (`ModuleSource::WasmBytes` rejected with `MT5064`
+until v0.21), the `mty reload <agent-type> --from new.wasm` CLI
+with `--dry-run`/`--deadline-ms`/`--sock`/`--json` flags, the new
+diagnostic band `MT5060–MT5069` (IncompatibleSchema / AgentNotFound
+/ DrainDeadline / Snapshot / WasmReloadNotImplemented / Internal),
+and +24 tests across `crates/mty-runtime/tests/reload.rs` (9) +
+inline `resumable.rs` (7) + `swap.rs` (5) + `cmd/reload.rs` (3).
+**Cluster mTLS + Tier 4.2 supervisor** ships: new `cluster/tls.rs`
+builds rustls accept/connect configs and pins
+`verify_peer_identity(node_id, cert_der)` as a custom
+`ServerCertVerifier`-driven post-handshake check; a hand-rolled
+~50-LOC `extract_cn_from_der` TLV walker pulls the cert CN
+(no extra dep — `x509-cert` was already transitively present via
+sigstore but a single function isn't worth dep promotion); mTLS is
+opt-in via the new `ClusterMesh::from_config_mtls(cfg)` constructor
+(`ClusterConfig` shape unchanged so v0.18/v0.19 struct-literal
+callers compile clean); new `cluster/supervisor.rs` lands
+`ClusterSupervisor` with per-child state machine + 3 restart
+strategies (`OneForOne`/`RestForOne`/`OneForAll`) + per-child
+circuit breaker (sliding-window failure count, half-open/closed
+recovery); restart decisions emit on a bounded
+`SUPERVISOR_EVENT_CAPACITY = 256` channel rather than invoking
+synchronously (caller picks placement; v0.21 lands `PlacementPolicy`);
+mesh `notify_node_disconnect` hook marks affected children
+`:noproc`; +13 tests across `cluster_mtls` (5) + `cluster_supervisor`
+(6) + inline cert-walker tests (4). **DWARF v5** ships as opt-in
+via `MTY_DWARF5=1` (env var, not Cargo feature — feature
+unification would invalidate caches for v4 path on every test):
+new `crates/mty-debuginfo/src/dwarf5.rs` (~330 LOC) emits the v5
+`.debug_info` + `.debug_line` + `.debug_str` + `.debug_line_str` +
+`.debug_abbrev` quintuple via `gimli::write::Dwarf::new_5()`;
+`mty-codegen-cranelift/src/debug.rs` gains `build_dwarf_dispatch`;
+v5 *capacity* for per-instruction line rows + cross-CU
+`.debug_line_str` sharing is wired (defensive monotonic-address
+skip on `gimli::write::LineProgram::generate_row`; `FileId(0)`
+re-add trick because the v5 `LineProgram::new` auto-inserts
+comp_file at index 0 but doesn't return its id); the *enablement*
+of those wins waits on cranelift `MachSrcLoc` plumbing
+(v0.21 follow-up); +5 integration tests in
+`crates/mty-debuginfo/tests/dwarf5.rs` (header magic, indirect
+string table, round-trip, monotonic drop, file-id-zero re-add).
+**Strict-equality replay payloads** finishes the v0.18 hot-path
+migration the v0.19 capability work parked: the two in-process
+send callsites (`Runtime::send`, `Runtime::ask`) now call a new
+`encode_payload_for_trace_structural(&[Value]) -> ReplayPayload`
+helper instead of `encode_payload_for_trace`, so fresh recordings
+carry `ReplayPayload::Values` payloads by default and the
+`ReplayDriver`'s strict structural equality arm is the live replay
+semantic (the `Opaque ≈ Opaque` loose-equality arm stays as a
+backwards-compat fallback that never fires for fresh recordings;
+cluster routing paths still use the byte envelope by transport
+contract — the receiver structurally decodes on the other side of
+the mesh); +5 strict-equality tests in
+`crates/mty-runtime/tests/replay_strict_equality.rs`. **Spec
+cross-reference polish** lands: 7 broken internal anchor refs in
+`docs/spec/v1.0-rc.md` fixed (python-markdown `toc.slugify` collapses
+non-word runs to single hyphens, so em-dash and inline-code
+headings never produced double-hyphen slugs; audited via a Python
+script that round-trips every heading through `slugify` and diffs
+against every `](#...)` reference); one stale RFC-009 cross-ref
+in `docs/spec/rfcs/RFC-008-effect-rows.md` replaced with "deferred
+to a future RFC." **Conformance corpus expansion**: the four
+placeholder categories from v0.19 are populated (`deterministic_replay/`
++5, `formatter_idempotence/` +5, `native_abi/` +4, `wasm_component/`
++4 = +18 cases / 122 → 140); new machine-readable
+`tests/conformance/coverage.json` (53 covered / 42 auxiliary / 17
+uncovered, the uncovered set unchanged from v0.11);
+`.github/workflows/release.yml` gains a `conformance-kit` job that
+runs in parallel with `build`, shell-execs
+`scripts/build-conformance-kit.sh <tag>`, and includes the
+resulting `mty-conformance-kit-<version>.tar.gz` (~108 K) in the
+release's `files:` list. **KNOWN_ISSUES P1+P2 lists stay empty.**
+**v1.0 freeze blockers unchanged from v0.19**: #1 + #3 CLOSED, #2
+infrastructure live, awaits user-side Discussion-thread openings.
+**1433 Rust + 311 Python + 140 conformance + 23 selfhost-driver =
+1907 tests passing** (+73 vs v0.19), 0 failing, 2 ignored
+(`capability_checking/03_narrow_to_ro`, `supervisor_restart/02_escalate`
+— both pending the cap-name resolver wiring + escalation-chain
+serialisation rework, both post-v1.0 backlog). Two new docs pages
+land (`docs/internals/hot-reload.md`,
+`docs/reference/cli/mty-reload.md`); `docs/internals/cluster.md`
+and `docs/internals/debug-info.md` extended with mTLS / supervisor
+and DWARF v5 sections; `mkdocs.yml` nav extended with both new
+pages; `mkdocs build --strict` passes locally. **Earliest
+possible v1.0.0 tag: 2026-07-26** (unchanged from v0.19; gated on
+RFC-002 / RFC-006 comment windows closing).
+[Release notes](dev/history/releases/RELEASE-v0.20.md).
 
 ## [0.19.0] - 2026-05-26
 

@@ -129,12 +129,14 @@ fn count_opaque_payloads_nonempty(trace: &TraceFile) -> usize {
     trace
         .events
         .iter()
-        .filter(|e| match e {
-            TraceEvent::MessageSent { payload, .. } => match payload {
-                ReplayPayload::Opaque(b) => !b.is_empty(),
-                _ => false,
-            },
-            _ => false,
+        .filter(|e| {
+            matches!(
+                e,
+                TraceEvent::MessageSent {
+                    payload: ReplayPayload::Opaque(b),
+                    ..
+                } if !b.is_empty()
+            )
         })
         .count()
 }

@@ -183,7 +183,7 @@ mod tests {
         // Schema hash is computed once at trait-impl time. In v0.21
         // a derive macro will emit this constant from the struct
         // shape automatically.
-        const SCHEMA_HASH: u64 = 0xa1b2c3d4e5f6_0001;
+        const SCHEMA_HASH: u64 = 0xa1b2_c3d4_e5f6_0001;
     }
 
     #[test]

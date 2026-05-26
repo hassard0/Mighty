@@ -114,6 +114,7 @@ nav:
     - CLI (mty pkg): reference/cli/mty-pkg.md
     - CLI (mty inspect): reference/cli/mty-inspect.md
     - CLI (mty replay): reference/cli/mty-replay.md
+    - CLI (mty reload): reference/cli/mty-reload.md
     - Manifest: reference/manifest.md
     - Registry: reference/registry.md
     - Diagnostics: reference/diagnostics.md
@@ -147,6 +148,7 @@ nav:
     - Supervisors: internals/supervisors.md
     - Cluster: internals/cluster.md
     - Introspect: internals/introspect.md
+    - Hot Reload: internals/hot-reload.md
     - Replay: internals/replay.md
     - Interpreter: internals/interpreter.md
     - Macros: internals/macros.md
