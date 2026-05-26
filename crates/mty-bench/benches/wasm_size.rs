@@ -29,6 +29,8 @@ fn bench_wasm_size(c: &mut Criterion) {
                 out_dir: tmp.path().to_path_buf(),
                 binary_name: format!("s{counter}"),
                 no_component: true,
+                wasi_preview: mty_driver::build::WasiPreview::P1,
+                user_wit: None,
             };
             let outcome = build_wasm(src.clone(), "size.mty".into(), &opts, WasmTarget::Wasi);
             let bytes = match outcome {

@@ -30,6 +30,8 @@ fn bench_compile(c: &mut Criterion) {
                 out_dir: tmp.path().to_path_buf(),
                 binary_name: format!("c{counter}"),
                 no_component: true,
+                wasi_preview: mty_driver::build::WasiPreview::P1,
+                user_wit: None,
             };
             let outcome = build_wasm(src.clone(), "compile.mty".into(), &opts, WasmTarget::Wasi);
             black_box(outcome);

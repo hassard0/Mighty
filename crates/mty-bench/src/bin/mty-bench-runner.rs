@@ -239,6 +239,8 @@ fn run_compile(iters: usize) -> Sample {
             out_dir: tmp.path().to_path_buf(),
             binary_name: format!("bench_{i}"),
             no_component: true,
+            wasi_preview: mty_driver::build::WasiPreview::P1,
+            user_wit: None,
         };
         let t0 = Instant::now();
         let _ = build_wasm(
@@ -271,6 +273,8 @@ fn run_wasm_size() -> Sample {
         out_dir: tmp.path().to_path_buf(),
         binary_name: "wasm_size_bench".into(),
         no_component: true,
+        wasi_preview: mty_driver::build::WasiPreview::P1,
+        user_wit: None,
     };
     let outcome = build_wasm(src, "wasm_size.mty".into(), &opts, WasmTarget::Wasi);
     let bytes = match outcome {
