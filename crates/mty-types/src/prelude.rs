@@ -97,6 +97,12 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         // Real impls live in `mty_stdlib::mcp`. See
         // `docs/reference/stdlib/mcp.md`.
         "std.mcp",
+        // v0.27 Track D — multi-LLM consensus primitive. Built on
+        // std.llm providers + DollarBudget. Mighty source uses it
+        // like `swarm(prompt, panel, budget, strategy).await`. Real
+        // impl lives in `mty_stdlib::swarm`. See
+        // `docs/reference/stdlib/swarm.md`.
+        "std.swarm",
     ];
     for m in std_mods {
         let id = defs.alloc_module(m);
@@ -545,6 +551,23 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         "generate_content",
         "converse",
         "tool_uses",
+        // v0.27 Track D — std.swarm surface. Rust impls live in
+        // `mty_stdlib::swarm::{member,consensus,budget,vote}`. The
+        // call site `swarm(prompt, panel, budget, strategy).await`
+        // routes through the host dispatch; constructors like
+        // `Member.anthropic("claude-opus-4-7")`,
+        // `ConsensusStrategy.Majority`, and `Member.openai(...)`
+        // resolve via the permissive table.
+        "anthropic",
+        "openai",
+        "gemini",
+        "bedrock",
+        "majority",
+        "unanimous",
+        "weighted_vote",
+        "first_agreed",
+        "dissents",
+        "ask",
     ];
     for m in permissive_methods {
         defs.builtin_methods.insert(

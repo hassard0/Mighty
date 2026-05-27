@@ -28,6 +28,10 @@
 //! - [`mcp`]   — v0.26 Track B: Model Context Protocol server + client +
 //!   `@tool` registry + capability-enforced sandbox. See
 //!   `docs/reference/stdlib/mcp.md`.
+//! - [`swarm`] — v0.27 Track D: multi-LLM consensus primitive. One
+//!   prompt → N panel members → consensus (Majority/Unanimous/
+//!   WeightedVote/FirstAgreed) with shared dollar budget. See
+//!   `docs/reference/stdlib/swarm.md`.
 //! - [`test`]  — Mighty-native test discovery + reporter
 //! - [`host`]  — single entry point invoked from `mty-runtime`'s
 //!   `host_std` to dispatch `std.*` generic calls.
@@ -44,6 +48,7 @@ pub mod mcp;
 pub mod memory;
 pub mod random;
 pub mod string;
+pub mod swarm;
 pub mod test;
 pub mod time;
 pub mod tls;
