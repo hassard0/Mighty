@@ -1,0 +1,27 @@
+[package]
+name = "distributed_swarm"
+version = "0.1.0"
+edition = "2026"
+profile = "host"
+
+[deps]
+
+# ---------------------------------------------------------------------
+# v0.29 demo 09 — cluster fan-out across two nodes.
+#
+# The transport, TLS, and mesh routing landed in v0.18-v0.20 (see
+# `docs/internals/cluster.md`). This demo wires two nodes via the
+# manifest's `[cluster]` block. The smoke-test default ONLY exercises
+# the parse/check/fmt pipeline — actual cross-node TCP wiring is
+# behind `MTY_CLUSTER_SMOKE=1` because CI doesn't always have a TLS
+# trust root + the second process can't bind 0.0.0.0:* on Windows
+# sandboxes.
+# ---------------------------------------------------------------------
+
+[cluster]
+node_id = "node-a"
+listen = "127.0.0.1:18181"
+
+[[cluster.peers]]
+node_id = "node-b"
+addr = "127.0.0.1:18182"

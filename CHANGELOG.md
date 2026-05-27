@@ -9,45 +9,49 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- v0.29 candidates (carry-forward from v0.28 — the five in-tree
-  tracks dispatched alongside Track G were abandoned mid-build
-  under shared-`target/` contention; they re-dispatch under
-  isolated-worktree discipline):
-  (1) **`BuiltinId::Swarm` interpreter arm + permissive method
-  registration** so `mty run` exercises the real swarm against
-  the runtime interpreter (not just the lib tests). v0.27
-  Track F follow-up #1.
-  (2) **Handler-safe carve-out additions** to the v0.27 Track B
-  12-ADT table: `ConsensusStrategy`, `Member`, `DollarBudget`,
-  `Consensus`. v0.27 Track F follow-up #2.
-  (3) **Typed bang-send return-type lowering** — `Review(s: Str)
-  -> Str` should reach call sites as `Str`, not `Unit`. v0.27
-  Track F follow-up #3.
-  (4) **`while let` parser surface** + finish v0.27 Track E's
-  partial source-level streaming surface (`for chunk in stream
-  { ... }` desugaring).
-  (5) **`budget` demoted from reserved keyword to soft keyword**
-  + per-provider `*_BASE_URL` env vars consulted by Track C's
-  `from_env` (lets demo 08 point all four providers at a single
-  local mock-LLM sidecar). v0.27 Track F follow-ups #4 + #5.
-- v0.29 replay-runtime hooks Track G surfaced for `std.eval`
-  (kept in `mty_stdlib::eval::replay_glue::V029_BACKLOG` so the
-  source + docs stay in sync):
-  (6) `Replay::with_provider(member)` constructor on
-  `ReplayDriver` that swaps the recorded `LlmProvider`
-  mid-replay so `std.eval` can byte-replay a multi-turn trace +
-  only divert the LLM calls.
-  (7) `RecordedTrace::iter_llm_calls()` accessor so `std.eval`
-  can fast-path "just rerun the LLM turns" without spinning a
-  fresh `Runtime`.
-  (8) Trace wire **v3** capturing LLM request+response shapes
-  structurally (prompt + system + tools + reply text +
-  tool_uses).
-  (9) `std.eval` divergence reporter integration with `mty
-  replay --diff` so eval failures point back at the exact
-  recorded turn.
+- v0.30 candidates (Track F follow-ups + demo 09 deferred polish):
+  - `Member::ask` returns structured `tool_uses` so `swarm(...)`
+    consumers can see which tools each panel member invoked.
+  - `ReplayDriver::replay_all` interleaved with `with_provider`
+    so a single recorded trace fans across the panel simultaneously
+    (needed for the "replay the cluster hop" pattern documented in
+    demo 09's README).
+  - Recorder integration into `Member::ask` via the `LlmProvider`
+    trait — captures per-member calls at the trait boundary rather
+    than at the runtime boundary.
+  - Explicit `AgentAddr` source-side surface (peer node + agent
+    type + agent id) so demos can shape-test routing failures.
+  - Live cross-node migration (Tier 4.3 from the cluster roadmap).
   There is **no remaining Post-v1.0 backlog** — only RFC comment
   windows stand between current main and v1.0 GA.
+
+## [0.29.0] - 2026-05-27
+
+**Mighty closes every v0.27/v0.28 surface gap — typed bang-send
+returns reach call sites, `while let` finishes the streaming
+surface, `budget` is a soft keyword, std.eval rides native replay,
+and demo 09 spans 2 nodes.** Six tracks land in parallel under
+isolated-worktree discipline (v0.28's deferred Tracks A–E plus a
+sixth Track F that wires `std.eval` to the real replay seam).
+Rust test count grows **2187 → 2289** (+102). Nine demos all green;
+demo 08 drops every v0.27 workaround and demo 09 is the new
+distributed-swarm forcing function. No source-level breaking
+changes.
+
+### Added
+- Track A — `BuiltinId::Swarm` interpreter arm
+- Track B — 4 swarm ADTs added to handler-safe allowlist
+- Track C — typed bang-send return-type lowering
+- Track D — `while let` parser + finished streaming surface
+- Track E — `budget` soft keyword + per-provider `*_BASE_URL` env vars
+- Track F — `std.eval` native replay hooks (`Replay::with_provider`,
+  `iter_llm_calls`, trace wire v3 backward-compat, `mty replay --diff`)
+- Demo 09 — distributed 2-node swarm code review
+
+### Unreleased (v0.30 candidates)
+- `Member::ask` structured tool_uses return (Track F follow-up)
+- `ReplayDriver::replay_all` interleaved with `with_provider` (Track F follow-up)
+- Recorder integration into `Member::ask` via `LlmProvider` trait (Track F follow-up)
 
 ## [0.28.0] - 2026-05-27
 

@@ -1,0 +1,72 @@
+// demo 09_distributed_swarm — node-B sibling.
+//
+// Runs in a second `mty run` process with `MTY_NODE_ID=node-b`. The
+// cluster mesh (configured in `mighty.toml`) accepts incoming
+// frames on 127.0.0.1:18182 and routes `Review(snippet)` calls into
+// this agent's mailbox; the reply travels back across the same TLS
+// channel to the node-A `Reviewer`.
+//
+// This file is deliberately small — it runs its own 2-Member panel
+// against a Majority strategy and returns the rendered verdict. The
+// surface exercises the same v0.29 carve-outs the node-A reviewer
+// does: handler-internal panel + budget (Track B), soft `budget`
+// keyword (Track E), interpreter-arm `swarm(...)` (Track A), typed
+// bang-send (Track C) at the runtime's wire boundary.
+package distributed_swarm
+
+use std.llm
+use std.swarm
+
+protocol ReviewerInput {
+  Review(snippet: Str) -> Str
+}
+
+agent Sibling: ReviewerInput {
+  on Review(snippet) {
+    log("evt:sibling:review")
+
+    // Track B + Track E: panel + budget inside the handler, natural
+    // `budget` identifier (soft keyword).
+    let panel = Vec.new()
+    panel.push(Member.openai("gpt-5"))
+    panel.push(Member.gemini("gemini-2.5-pro"))
+
+    let budget = DollarBudget.from_dollars(0.25)
+
+    let prompt = format!(
+      "You are a careful security reviewer. Code:\n\n{}\n\nReply SAFE, UNSAFE, or UNCLEAR + one paragraph.",
+      snippet
+    )
+
+    // Track A interpreter arm: `swarm(...)` fires the typed builtin
+    // path under `mty run`, so the field accesses below resolve to
+    // real `Consensus` field values rather than `Value::Unit`.
+    let consensus = swarm(
+      prompt,
+      panel,
+      budget,
+      ConsensusStrategy.Majority,
+    )
+
+    let verdict = consensus.majority.unwrap_or("(no verdict)")
+    let cost_cents = consensus.total_cost_cents
+
+    let mut out = String.new()
+    out.push_str(format!("verdict: {} (cost cents: {})", verdict, cost_cents))
+    out
+  }
+}
+
+// `main` — boot the sibling agent + idle. The cluster mesh listener
+// (configured via `mighty.toml`) routes incoming `Review(snippet)`
+// frames into `Sibling`'s mailbox; the agent reply travels back over
+// the same TLS channel.
+fn main() {
+  let _sibling = spawn Sibling()
+  log("sibling: listening on node-b")
+  // Idle — the cluster mesh listener keeps the process alive until
+  // SIGINT. Pre-v0.29 demos used a 60s `sleep(60_000)` stand-in
+  // because there was no source-level "park" primitive; the v0.29
+  // cluster runtime keeps the tokio reactor alive as long as the
+  // mesh listener task hasn't been cancelled.
+}

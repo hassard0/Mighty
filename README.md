@@ -103,6 +103,8 @@ mty run   src/main.mty
   dollar budget; `Majority` / `Plurality` / `Unanimous` / `Weighted`
 - `std.eval` — typed `Suite` / `Case` / `Member` / `Compare` regression
   harness on top of byte-identical replay; cosine + tool-call-set comparators
+- `mty replay --diff` — divergence reporter for `std.eval` traces;
+  walks two traces and points at the first divergent recorded turn
 
 **Web** *(canvas + keyboard agents)*
 - `std.web.Canvas` + `std.web.Input` WIT interfaces
@@ -173,8 +175,8 @@ Live docs site: <https://hassard0.github.io/Mighty/>
 | `mty-macros` | declarative macros + `format!` + `@tool` builtin attributes |
 | `mty-cli` | the `mty` binary |
 
-Adjacent trees: `examples/` (31 canonical programs), `demos/`
-(8 end-to-end runnable apps with `smoke.sh`), `benches/` (criterion),
+Adjacent trees: `examples/` (32 canonical programs), `demos/`
+(9 end-to-end runnable apps with `smoke.sh`), `benches/` (criterion),
 `selfhost/` (the bootstrap compiler written in Mighty),
 `tests/conformance/` (159-case normative kit), `tests/web-smoke/`
 (headless-browser visual smoke).
@@ -213,14 +215,14 @@ current state of the language, not its history.
 
 ## Status
 
-Mighty is **pre-alpha**. Internal milestones tagged through v0.28.
-The toolchain is exercised by **2187 Rust tests** across 20 crates
+Mighty is **pre-alpha**. Internal milestones tagged through v0.29.
+The toolchain is exercised by **2289 Rust tests** across 20 crates
 plus **490 Python 2nd-impl tests** plus **159 normative conformance
 cases** plus **23 self-host driver codegen tests** — combined
-**2859 tests, 0 failing**. All four LLM providers are full;
+**2961 tests, 0 failing**. All four LLM providers are full;
 `std.swarm` votes consensus across them under a shared dollar
 budget; `std.eval` regression-tests agents against provider panels
-under byte-identical replay. All 8 demos pass `smoke.sh`; 3 web
+under byte-identical replay. All 9 demos pass `smoke.sh`; 3 web
 demos opt-in to a headless-browser visual smoke; 2 agent demos
 opt-in to a mock-LLM end-to-end smoke. All KNOWN_ISSUES P1 are closed; P2 holds one open
 entry (#9 — demo 06 RAF-mid-frame phash flake; 4-of-5 success, no

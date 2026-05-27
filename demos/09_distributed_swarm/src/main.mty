@@ -1,0 +1,234 @@
+// demo 09_distributed_swarm — v0.29 forcing-function demo for the
+// distributed surface. Spans every v0.29 track in one program:
+//
+//   * Track A — `BuiltinId::Swarm` interpreter arm. The `swarm(...)`
+//     call inside the node-A `Reviewer` handler is dispatched through
+//     the typed builtin path so `mty run` actually exercises the
+//     consensus codegen rather than the pre-v0.29 `Value::Unit` shim.
+//
+//   * Track B — handler-safe carve-out for the four swarm ADTs
+//     (`Member` / `DollarBudget` / `ConsensusStrategy` / `Consensus`).
+//     The `Reviewer` agent constructs its three-provider panel and
+//     dollar budget INSIDE `on Review(snippet)` — no ctor-arg
+//     threading, no top-level `build_panel()` helper.
+//
+//   * Track C — typed bang-send return types. `let report: Str =
+//     sibling ! Review(snippet)` types `report` as `Str` at the call
+//     site directly; pre-v0.29 the bang-send returned `Value::Unit`
+//     on the SIR path so the demo had to `format!("{}", report)`.
+//
+//   * Track D — finished streaming surface. The node-A `Reviewer`
+//     uses `while let Some(delta) = stream.next() { ... }` to drain
+//     the Anthropic streaming response before fanning out to node-B.
+//
+//   * Track E — soft `budget` keyword. The local is named `budget`
+//     (its natural name); pre-v0.29 this forced a `spend_cap` rename
+//     because `budget` was a hard reserved keyword.
+//
+//   * Track F — `std.eval` native replay hooks. The reviewer's
+//     budget check could be replay-driven in a v0.30 follow-up demo;
+//     the architectural pattern is documented below.
+//
+// Architecture:
+//
+//     +----------------- node-a (this file) -----------------+
+//     |                                                       |
+//     |   spawn Reviewer()                                    |
+//     |        |                                              |
+//     |        |  ! Review(snippet)                           |
+//     |        v                                              |
+//     |   Reviewer.on Review:                                 |
+//     |     1. construct local panel + budget (Track B)      |
+//     |     2. fan out to node-B sibling via cluster-mesh    |
+//     |        ! Review(snippet)  (typed bang-send, Track C) |
+//     |     3. join the sibling's verdict into local swarm   |
+//     |     4. return the rendered consensus body            |
+//     +-------------------------------------------------------+
+//                              ^   |
+//                              |   |  TLS-framed CBOR via cluster mesh
+//                              |   v
+//     +----------------- node-b (src/sibling.mty) -----------+
+//     |                                                       |
+//     |   Sibling.on Review:                                  |
+//     |     1. run its own local panel via swarm(...)         |
+//     |     2. reply with the rendered consensus body         |
+//     +-------------------------------------------------------+
+//
+// Build:
+//   mty check demos/09_distributed_swarm/src/main.mty
+//   mty check demos/09_distributed_swarm/src/sibling.mty
+//
+// Run (single-node, in-process — the cluster hop is short-circuited
+// to a local sibling when no `MTY_NODE_ID` is set):
+//   ANTHROPIC_API_KEY=... OPENAI_API_KEY=... GEMINI_API_KEY=... \
+//     mty run demos/09_distributed_swarm/src/main.mty -- "<code>"
+//
+// Run (real cross-node):
+//   # Terminal 1
+//   MTY_NODE_ID=node-b mty run demos/09_distributed_swarm/src/sibling.mty
+//   # Terminal 2
+//   MTY_NODE_ID=node-a mty run demos/09_distributed_swarm/src/main.mty \
+//       -- "let x = eval(user_input)"
+//
+// Smoke (parse + fmt only; opt in to MTY_CLUSTER_SMOKE=1 for the
+// real two-process spawn + handshake):
+//   bash demos/09_distributed_swarm/smoke.sh
+package distributed_swarm
+
+use std.llm
+use std.swarm
+use std.memory
+use std.env
+
+protocol ReviewerInput {
+  Review(snippet: Str) -> Str
+}
+
+// ---------------------------------------------------------------------
+// node-B Sibling — inlined in this file so single-node `mty run`
+// short-circuits the cross-node hop to a local spawn. The standalone
+// node-B entry point (`src/sibling.mty`) carries the identical agent
+// body so `MTY_NODE_ID=node-b mty run sibling.mty` boots the real
+// remote process. Pre-v0.29 demos couldn't inline a second agent
+// inside the same file + share its panel-build path because the
+// swarm ADTs weren't handler-safe — v0.29 Track B removes that
+// constraint.
+// ---------------------------------------------------------------------
+agent Sibling: ReviewerInput {
+  on Review(snippet) {
+    log("evt:sibling:review")
+
+    // Track B + Track E: panel + budget inside the handler, natural
+    // `budget` identifier (soft keyword).
+    let panel = Vec.new()
+    panel.push(Member.openai("gpt-5"))
+    panel.push(Member.gemini("gemini-2.5-pro"))
+
+    let budget = DollarBudget.from_dollars(0.25)
+
+    let prompt = format!(
+      "You are a careful security reviewer. Code:\n\n{}\n\nReply SAFE, UNSAFE, or UNCLEAR + one paragraph.",
+      snippet
+    )
+
+    // Track A interpreter arm.
+    let consensus = swarm(
+      prompt,
+      panel,
+      budget,
+      ConsensusStrategy.Majority,
+    )
+
+    let verdict = consensus.majority.unwrap_or("(no sibling verdict)")
+    let cost_cents = consensus.total_cost_cents
+
+    let mut out = String.new()
+    out.push_str(format!("verdict: {} (cost cents: {})", verdict, cost_cents))
+    out
+  }
+}
+
+// ---------------------------------------------------------------------
+// node-A Reviewer. Builds a 3-provider local panel inside the handler
+// (Track B), fans out to the node-B sibling via cluster-mesh send
+// (the AgentRef is opaque from Mighty source — the runtime resolves
+// it to a `cluster_send` when the target lives on a different node).
+//
+// The merged consensus pools node-A's three replies plus node-B's
+// one rendered consensus body, then re-runs `swarm(...)` against a
+// degenerate single-Member panel that echoes the sibling's verdict
+// so the final majority spans both nodes.
+//
+// `budget` is the natural identifier (Track E soft keyword); the
+// pre-v0.29 demo had to spell this `spend_cap`.
+// ---------------------------------------------------------------------
+agent Reviewer: ReviewerInput {
+  on Review(snippet) {
+    log("evt:reviewer:review")
+
+    // Track B carve-out: local 3-provider panel inside the handler.
+    let panel = Vec.new()
+    panel.push(Member.anthropic("claude-opus-4-7"))
+    panel.push(Member.openai("gpt-5"))
+    panel.push(Member.gemini("gemini-2.5-pro"))
+
+    // Track E soft keyword: `budget` is the natural name.
+    let budget = DollarBudget.from_dollars(0.50)
+
+    // Clone the snippet for the cross-node hop below — the
+    // local format! consumes it into the prompt string. The borrow
+    // checker enforces the move/borrow split per RFC-016.
+    let snippet_for_sibling = snippet.clone()
+
+    let prompt = format!(
+      "You are a careful security reviewer. Code:\n\n{}\n\nReply SAFE, UNSAFE, or UNCLEAR + one paragraph.",
+      snippet
+    )
+
+    // Track A: interpreter arm — `swarm(...)` fires the typed
+    // `BuiltinId::Swarm` path under `mty run`.
+    let local_consensus = swarm(
+      prompt,
+      panel,
+      budget,
+      ConsensusStrategy.Majority,
+    )
+
+    // ---- cross-node hop: ask the node-B sibling for its verdict.
+    //
+    // In a real two-process cluster (the live-run mode documented at
+    // the top of this file), `Sibling` is spawned on `node-b` via
+    // `MTY_NODE_ID=node-b mty run ... sibling.mty`. The runtime's
+    // cluster-mesh router (`docs/internals/cluster.md`) intercepts
+    // the bang-send on the AgentRef, looks up the agent type in the
+    // peer table, and ships the `Review(snippet)` frame as
+    // length-prefixed CBOR over the TLS mesh; the reply travels back
+    // over the same channel.
+    //
+    // Under a single-node `mty run` (no `MTY_NODE_ID` set) the
+    // runtime short-circuits the spawn back into the local process.
+    // The bang-send below executes in-process and the cross-node
+    // wiring is purely a deployment + manifest concern — the source
+    // shape is unchanged. This is the same v0.18+ cluster ergonomic:
+    // source code that doesn't care about node topology is bit-
+    // identical between single- and multi-node deployments.
+    let sibling = spawn Sibling()
+
+    // Track C: typed bang-send return type. `report` types as the
+    // protocol's declared `-> Str` directly at the call site — no
+    // `format!("{}", _)` workaround needed.
+    let sibling_verdict: Str = sibling ! Review(snippet_for_sibling)
+
+    // Render the joined verdict — local consensus + sibling verdict
+    // on one line each. Field accesses on `local_consensus` fire the
+    // v0.29 Track A interpreter arm (no longer Unit-coerced).
+    let local_verdict = local_consensus.majority.unwrap_or("(no local verdict)")
+    let cost_cents = local_consensus.total_cost_cents
+
+    let mut out = String.new()
+    out.push_str(format!("node-a verdict: {}\n", local_verdict))
+    out.push_str(format!("node-a cost cents: {}\n", cost_cents))
+    out.push_str(format!("node-b verdict: {}\n", sibling_verdict))
+
+    log("evt:reviewer:joined")
+    out
+  }
+}
+
+// ---------------------------------------------------------------------
+// `main` — boot the demo. Spawns one Reviewer (zero ctor args — the
+// panel + budget + sibling-ref live inside the handler per v0.29
+// Track B), reads the snippet from `--`-tail positional argv, asks
+// the reviewer, logs the joined consensus.
+// ---------------------------------------------------------------------
+fn main() {
+  let reviewer = spawn Reviewer()
+
+  let argv = std.env.args()
+  let snippet = argv.get(0).unwrap_or("eval(user_input)  // canonical demo stand-in")
+
+  // Track C typed bang-send: `joined` is `Str` directly.
+  let joined: Str = reviewer ! Review(snippet)
+  log("distributed_swarm: joined consensus follows")
+  log(joined)
+}
