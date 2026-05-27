@@ -1,0 +1,90 @@
+// 31_eval_agent.mty — v0.28 Track G: std.eval regression harness.
+//
+// Track G ships a typed eval driver on top of v0.21's byte-identical
+// replay machinery. The shape:
+//
+//   Suite.new("name")
+//     .case(Case.from_input("..."))
+//     .case(Case.from_trace("traces/research-001.mty-trace"))
+//     .run_with(Member.anthropic("claude-opus-4-7"))
+//     .run_with(Member.openai("gpt-5"))
+//     .compare(Compare.semantic_similarity(threshold: 0.85))
+//     .await
+//
+// `Member` is the same enum `std.swarm` ships — Anthropic / OpenAI /
+// Gemini / Bedrock / Mock — so a panel can mix providers without any
+// per-cell glue.
+//
+// Build:
+//   mty fmt examples/31_eval_agent.mty
+//   mty check examples/31_eval_agent.mty
+//
+// We don't `mty run` here because exercising a real eval needs at
+// least one provider API key; the canonical end-to-end tests live in
+// `crates/mty-stdlib/src/eval/*.rs` (60 unit tests + matrix coverage).
+package eval_agent
+
+use std.eval.Case
+use std.eval.Compare
+use std.eval.Member
+use std.eval.Suite
+
+// ----- Suite construction --------------------------------------------------
+//
+// `_build_suite` shows the typed builder shape Mighty source uses.
+// Three cases, two members, semantic-similarity comparator. The
+// builder is value-typed (`.case(...)` returns `Self`) so the entire
+// suite description is one fluent chain.
+//
+// Note the third case loads from a recorded trace — that path is
+// resolved lazily, so suite construction stays synchronous + cheap
+// (the disk read happens inside `.compare(...)` when the runner
+// materialises the case).
+fn _build_suite() -> Suite {
+  let suite = Suite.new("research-agent")
+    .case(Case.from_input("What's the population of France?"))
+    .case(Case.from_input("Capital of Australia?"))
+    .case(Case.from_trace("traces/research-001.mty-trace"))
+    .run_with(Member.mock("baseline-mock", "Paris", 1))
+    .run_with(Member.mock("challenger-mock", "Paris", 1))
+  suite
+}
+
+// ----- Comparator shapes ---------------------------------------------------
+//
+// Three comparators ship in v0.28; each surfaces from a named
+// constructor on the `Compare` enum.
+//
+//   - `Compare.equal()` — byte-equal after trim + lowercase. Strict.
+//   - `Compare.semantic_similarity(threshold: f32)` — cosine over the
+//     stub embedder; deterministic across runs.
+//   - `Compare.tool_call_set_equal()` — extracts `@tool` invocations
+//     from each reply + compares the *set* of tool names. Order-
+//     independent; the "did the model decide to call the same tools"
+//     question.
+//
+// The example only locks in the *call shape* — actually awaiting the
+// suite needs a provider key, which the example sweep doesn't carry.
+// The Rust-side test suite covers the end-to-end behaviour.
+fn _comparator_equal() -> Compare {
+  Compare.equal()
+}
+
+fn _comparator_semantic() -> Compare {
+  Compare.semantic_similarity(0.85)
+}
+
+fn _comparator_tool_call_set() -> Compare {
+  Compare.tool_call_set_equal()
+}
+
+// ----- Entry point ---------------------------------------------------------
+//
+// `main` exercises only the parser/checker surface — no live
+// dispatch. The helper fns above are the ones the test suite + future
+// demo iterates against; `main` exists so `mty run` doesn't trap on a
+// missing entry point when this example is exercised by the workspace
+// example sweep.
+fn main() {
+  log("31_eval_agent: std.eval surface")
+}

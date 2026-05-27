@@ -32,11 +32,16 @@
 //!   prompt → N panel members → consensus (Majority/Unanimous/
 //!   WeightedVote/FirstAgreed) with shared dollar budget. See
 //!   `docs/reference/stdlib/swarm.md`.
+//! - [`eval`]  — v0.28 Track G: replay-driven LLM eval harness.
+//!   Suite + Case + Member + Compare; runs a recorded trace (or raw
+//!   prompt) against multiple model variants and stamps a verdict
+//!   per (case, member) cell. See `docs/internals/std-eval.md`.
 //! - [`test`]  — Mighty-native test discovery + reporter
 //! - [`host`]  — single entry point invoked from `mty-runtime`'s
 //!   `host_std` to dispatch `std.*` generic calls.
 
 pub mod env;
+pub mod eval;
 pub mod fmt;
 pub mod fs;
 pub mod host;

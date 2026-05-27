@@ -169,6 +169,7 @@ message; on success closes the breaker.
 | 4    | lossless live migration | **SHIPPED v0.21** (RFC-006: MigrationOrchestrator + 3 placement policies + OTel cluster metrics) |
 | 5    | per-message work-stealing | **SHIPPED v0.22** (crossbeam-deque per-worker queues + NUMA-locality steal ordering + `worker.steals_total{src,dst}` OTel counter) |
 | 5    | pipe/broadcast/circuit-breaker | drop-in helpers — not roadmap blockers |
+| post-v1.0 | `std.eval` replay-driven LLM eval harness | **SHIPPED v0.28 Track G** (`Suite`/`Case`/`Member`/`Compare` builder on top of the v0.21 replay machinery; three comparators — `Equal`, `SemanticSimilarity`, `ToolCallSetEqual` — with per-cell verdicts + divergence reporting. See `docs/internals/std-eval.md`.) |
 
 **Every Tier in the roadmap has now landed pre-v1.0.** What
 remains for v1.0 GA is RFC comment-window disposition collection
