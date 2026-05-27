@@ -124,6 +124,15 @@ pub fn emit_wit(prog: &Program, pkg_name: &str, target: WasmTarget) -> CompileRe
         // `crates/mty-codegen-wasm/wit/mty-web/{canvas,input,world}.wit`.
         writeln!(user_body, "  import mty:web/canvas;").unwrap();
         writeln!(user_body, "  import mty:web/input;").unwrap();
+        // v0.25 Track B — `extern js { fn ... }` bindings. Each
+        // declared fn becomes one entry in the `mty:web/js` interface
+        // (generated as a host-stub package below) and the world
+        // imports the whole interface so `wit-component` can resolve
+        // the core module's `(import "mty:web/js" "<fn>" ...)`
+        // entries emitted by `predeclare_extern_js_imports`.
+        if !collect_extern_js_fns(prog).is_empty() {
+            writeln!(user_body, "  import mty:web/js;").unwrap();
+        }
     }
     for cap in &caps {
         writeln!(user_body, "  import mty:caps/{};", cap).unwrap();
@@ -145,7 +154,7 @@ pub fn emit_wit(prog: &Program, pkg_name: &str, target: WasmTarget) -> CompileRe
 
     // Append host stubs (nested-package syntax — they're not the
     // main package, just satisfy import resolution).
-    append_host_stubs(&mut user_body, target);
+    append_host_stubs(&mut user_body, target, prog)?;
 
     // Round-trip validation.
     let with_stubs = user_body;
@@ -162,10 +171,81 @@ pub fn emit_wit(prog: &Program, pkg_name: &str, target: WasmTarget) -> CompileRe
     })
 }
 
+/// v0.25 Track B — collect the (name, params, ret-type) triple for
+/// every `extern js` fn the program declared. Used by `emit_wit` to
+/// emit the `import mty:web/js;` line + the matching stub interface,
+/// and by [`emit_extern_js_interface`] to render the per-fn member
+/// list.
+fn collect_extern_js_fns(prog: &Program) -> Vec<&Function> {
+    prog.fns
+        .iter()
+        .filter(|f| {
+            prog.extern_bindings
+                .get(&f.id)
+                .map(|b| b.abi == "js")
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+/// v0.25 Track B — render the `mty:web/js` interface body, listing one
+/// `func` per declared extern-js fn. The shape mirrors the canonical
+/// ABI used by the rest of the `mty:web/*` interfaces: string params
+/// are kept as WIT `string` (the canonical-ABI lifter expands them
+/// into ptr+len pairs at the core-module boundary). Param names are
+/// kebab-cased so the WIT round-trip parser accepts them.
+fn emit_extern_js_interface(out: &mut String, prog: &Program) -> CompileResult<()> {
+    let fns = collect_extern_js_fns(prog);
+    if fns.is_empty() {
+        return Ok(());
+    }
+    out.push_str("  interface js {\n");
+    for f in fns {
+        let name = kebab(&f.name);
+        write!(out, "    {}: func(", name).unwrap();
+        let mut first = true;
+        for p in &f.params {
+            let decl = &f.locals[p.0 as usize];
+            if matches!(decl.ty, IrTy::Unit | IrTy::Never) {
+                continue;
+            }
+            // Use a permissive type lowering: WIT-typeable types pass
+            // through, anything else falls back to `u32` (a scalar
+            // handle) so the stub still parses. The wasm-emitter side
+            // pushes raw i32s for unknown types via `emit_operand`'s
+            // fallback path, so a `u32` stub keeps the canonical-ABI
+            // call shape coherent.
+            let wty = wit_ty(&decl.ty).unwrap_or_else(|| "u32".to_string());
+            if !first {
+                write!(out, ", ").unwrap();
+            }
+            first = false;
+            let param_name = kebab(&decl.name);
+            let safe_name = if param_name.is_empty() {
+                "x".to_string()
+            } else {
+                param_name
+            };
+            write!(out, "{}: {}", safe_name, wty).unwrap();
+        }
+        write!(out, ")").unwrap();
+        if !matches!(f.ret_ty, IrTy::Unit | IrTy::Never) {
+            let rt = wit_ty(&f.ret_ty).unwrap_or_else(|| "u32".to_string());
+            write!(out, " -> {}", rt).unwrap();
+        }
+        writeln!(out, ";").unwrap();
+    }
+    out.push_str("  }\n");
+    Ok(())
+}
+
 /// Append host-package stubs (in nested-package syntax) so
 /// `wit_parser::Resolve` is satisfied without needing the actual
 /// `wasi:cli` / `mty:web` packages on disk.
-fn append_host_stubs(out: &mut String, target: WasmTarget) {
+///
+/// v0.25 Track B — takes the program so it can emit a per-program
+/// `mty:web/js` stub interface listing every declared extern-js fn.
+fn append_host_stubs(out: &mut String, target: WasmTarget, prog: &Program) -> CompileResult<()> {
     // mty:caps stub — covers every capability family the
     // backend currently knows about.
     out.push_str("package mty:caps {\n");
@@ -237,9 +317,17 @@ fn append_host_stubs(out: &mut String, target: WasmTarget) {
             out.push_str("    subscribe-keydown: func();\n");
             out.push_str("    subscribe-keyup: func();\n");
             out.push_str("  }\n");
+            // v0.25 Track B — emit the `mty:web/js` interface inside
+            // the `mty:web` package only when the program declared at
+            // least one `extern js { ... }` fn. Generating an empty
+            // interface would still parse, but keeping the stub
+            // scoped to programs that actually need it minimizes WIT
+            // surface drift for unrelated demos.
+            emit_extern_js_interface(out, prog)?;
             out.push_str("}\n");
         }
     }
+    Ok(())
 }
 
 fn sanitize_pkg_id(name: &str) -> String {

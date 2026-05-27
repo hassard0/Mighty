@@ -652,6 +652,34 @@ pub struct Program {
     /// `Function`s leave their slot empty and the cranelift DWARF
     /// emitter falls back to the v0.21 synthetic-spread offsets.
     pub span_table: HashMap<IrFnId, FnSpanTable>,
+    /// v0.25 Track B — side-table marking each `IrFnId` that originated
+    /// from an `extern <abi> { fn ... }` block. The wasm32-web emitter
+    /// reads this table during `predeclare_extern_js_imports` to turn
+    /// `extern js { fn _foo() }` declarations into real
+    /// `(import "mty:web/js" "_foo" ...)` entries in the core module's
+    /// import section; without the table the emitter would treat them
+    /// as ordinary user fns and silently emit empty bodies (the v0.24
+    /// Track E "extern js is documentation" gap).
+    ///
+    /// Sparse — only fns that came from an extern block populate an
+    /// entry. Manually-constructed test fixtures leave their slot
+    /// empty and the emitter falls back to the legacy user-fn path.
+    pub extern_bindings: HashMap<IrFnId, ExternBinding>,
+}
+
+/// v0.25 Track B — declarative shape of an `extern <abi> { fn ... }`
+/// binding, attached to `Program::extern_bindings` for each
+/// extern-declared `IrFnId`. Carries enough metadata for the wasm
+/// emitter to splice an `(import ...)` with the right module + name
+/// without re-walking the HIR.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExternBinding {
+    /// ABI tag from the extern block (e.g. `"js"`, `"c"`). Mighty's
+    /// canonical convention is `js` for browser-side bindings.
+    pub abi: String,
+    /// Original (un-mangled) function name as the user typed it. For
+    /// `extern js { fn _alert(msg: Str) }` this stays `_alert`.
+    pub name: String,
 }
 
 impl Program {

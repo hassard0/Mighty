@@ -270,7 +270,10 @@ struct Emitter<'a> {
     export_section: ExportSection,
     code_section: CodeSection,
     data_section: DataSection,
-    /// SIR fn id → wasm function index (after imports).
+    /// SIR fn id → wasm function index (after imports). For extern-js
+    /// fns this maps to the *import* slot (still in the same fn-index
+    /// space — wasm core counts imports + module-local funcs together);
+    /// see [`Self::predeclare_extern_js_imports`].
     fn_index: HashMap<IrFnId, u32>,
     /// SIR fn id → wasm type index.
     fn_type_index: HashMap<IrFnId, u32>,
@@ -278,6 +281,12 @@ struct Emitter<'a> {
     sigs: HashMap<TySig, u32>,
     /// Imports added so far (each takes one fn-index slot before user fns).
     import_count: u32,
+    /// v0.25 Track B — set of `IrFnId`s lowered as `mty:web/js`
+    /// imports (i.e. came from `extern js { ... }`). `declare_fns`
+    /// skips these when reserving function/code-section slots so the
+    /// `fn_index` entry recorded in `predeclare_extern_js_imports`
+    /// stays valid.
+    extern_js_fns: std::collections::HashSet<IrFnId>,
     /// `log(ptr, len)` import index (Some after we add it).
     log_idx: Option<u32>,
     /// v0.5 dogfood Gap-2 — DOM import indices (Web target only).
@@ -361,6 +370,7 @@ impl<'a> Emitter<'a> {
             log_handle_local: None,
             string_pool: HashMap::new(),
             next_data_offset: 1024, // reserve first 1KiB for the stack
+            extern_js_fns: std::collections::HashSet::new(),
         })
     }
 
@@ -565,6 +575,131 @@ impl<'a> Emitter<'a> {
         for kind in needed {
             let _ = self.canvas_import(kind);
         }
+    }
+
+    /// v0.25 Track B — walk the SIR program and pre-declare a real
+    /// `(import "mty:web/js" "<name>" (func ...))` for every fn that
+    /// came from an `extern js { ... }` block. Each declared fn's
+    /// `IrFnId` is mapped to the import's function index in
+    /// `self.fn_index` so call-site dispatch (`FnRef::User(callee)`)
+    /// naturally lands on the import — no separate dispatch arm needed.
+    ///
+    /// Before v0.25 the wasm emitter treated extern-js fns as ordinary
+    /// user fns: they got an empty body and never appeared in the
+    /// import section. User code that called `_alert("hi")` ran the
+    /// stub fn instead of crossing the JS boundary (the v0.24 Track E
+    /// "extern js is documentation" gap).
+    ///
+    /// Import module convention: `mty:web/js` — matches the kebab-case
+    /// shape of the other web imports (`mty:web/dom`, `mty:web/canvas`,
+    /// `mty:web/input`, `mty:web/log`). Function names are passed
+    /// through verbatim (leading `_` preserved); the WIT-export filter
+    /// (`is_exportable_fn`) keeps `_`-prefixed names out of the world
+    /// export list, so the existing convention that "extern js bindings
+    /// stay private" still holds.
+    ///
+    /// Only emits on the **Web** target. On wasi the wasm-component
+    /// model has no `mty:web/js` host, so extern-js fns fall back to
+    /// the legacy empty-body behaviour (which is a no-op for non-web
+    /// builds).
+    fn predeclare_extern_js_imports(&mut self) {
+        if !matches!(self.target, WasmTarget::Web) {
+            return;
+        }
+        // Walk in fn-declaration order so import indices are stable
+        // across re-compiles.
+        let entries: Vec<(IrFnId, String)> = self
+            .prog
+            .fns
+            .iter()
+            .filter_map(|f| {
+                let binding = self.prog.extern_bindings.get(&f.id)?;
+                if binding.abi != "js" {
+                    return None;
+                }
+                Some((f.id, binding.name.clone()))
+            })
+            .collect();
+        for (fn_id, name) in entries {
+            // Look up the fn so we can build the wasm signature from
+            // its params + ret type. Failure here would mean the
+            // extern_bindings table referenced a nonexistent fn —
+            // treat that as a no-op rather than panicking; the IR
+            // lowerer's contract is that any id in the table maps to
+            // a real `prog.fns` entry.
+            let Some(f) = self.prog.fns.iter().find(|f| f.id == fn_id) else {
+                continue;
+            };
+            let sig = match Self::fn_sig_for_extern_js(f) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let ty = self.intern_sig(sig);
+            self.import_section
+                .import("mty:web/js", &name, EntityType::Function(ty));
+            let idx = self.import_count;
+            self.import_count += 1;
+            self.fn_index.insert(fn_id, idx);
+            self.extern_js_fns.insert(fn_id);
+        }
+    }
+
+    /// v0.25 Track B — wasm signature builder for `extern js` fns.
+    ///
+    /// Differs from [`Self::fn_sig_for`] in one key way: string-shaped
+    /// params (`Str`, `String`, `Bytes`) lower to TWO `i32`s (ptr +
+    /// len) rather than one. This matches the canonical-ABI flat
+    /// layout the existing `mty:web/dom` imports use, and — more
+    /// importantly — it matches what `emit_const` actually pushes
+    /// when the call-site evaluates a `Const::Str(...)` operand
+    /// (`(I32Const ptr) (I32Const len)`). Without the pair-expansion
+    /// the call would push 2 i32s but the import would expect 1, and
+    /// `wasmparser::Validator::validate_all` would reject the module.
+    ///
+    /// Return-type lowering is unchanged from `fn_sig_for` — extern-js
+    /// returns are scalar-only today (string-return support is a
+    /// follow-up that needs a return-area pointer per the canonical
+    /// ABI, mirroring `mty:web/dom.get-text`).
+    fn fn_sig_for_extern_js(f: &Function) -> CompileResult<TySig> {
+        let mut params = Vec::with_capacity(f.params.len());
+        for p in &f.params {
+            let ty = &f.locals[p.0 as usize].ty;
+            match ty {
+                IrTy::Str | IrTy::String | IrTy::Bytes => {
+                    // (ptr: i32, len: i32) — canonical-ABI flat shape.
+                    params.push(ValType::I32);
+                    params.push(ValType::I32);
+                }
+                IrTy::Unit | IrTy::Never => {
+                    // Skip unit-typed params; they carry no runtime
+                    // value (matches `fn_sig_for`).
+                }
+                other => {
+                    if let Some(v) = Self::lower_ty(other) {
+                        params.push(v);
+                    } else {
+                        return Err(WasmError::Unsupported(format!(
+                            "wasm extern-js param type {ty:?}"
+                        )));
+                    }
+                }
+            }
+        }
+        let mut results = Vec::new();
+        match &f.ret_ty {
+            IrTy::Unit | IrTy::Never => {}
+            other => {
+                if let Some(v) = Self::lower_ty(other) {
+                    results.push(v);
+                } else {
+                    return Err(WasmError::Unsupported(format!(
+                        "wasm extern-js ret type {:?}",
+                        f.ret_ty
+                    )));
+                }
+            }
+        }
+        Ok(TySig { params, results })
     }
 
     /// If `extern_name` (an `std.*`-shaped path) names a stdlib call
@@ -915,6 +1050,14 @@ impl<'a> Emitter<'a> {
 
     fn declare_fns(&mut self) -> CompileResult<()> {
         for f in &self.prog.fns {
+            // v0.25 Track B — extern-js fns were already mapped to
+            // import indices by `predeclare_extern_js_imports`; do NOT
+            // give them a module-local fn slot (otherwise `fn_index`
+            // would get overwritten and the call-site dispatch would
+            // skip the import).
+            if self.extern_js_fns.contains(&f.id) {
+                continue;
+            }
             let sig = Self::fn_sig_for(f)?;
             let ty_idx = self.intern_sig(sig);
             self.fn_type_index.insert(f.id, ty_idx);
@@ -985,9 +1128,19 @@ impl<'a> Emitter<'a> {
         // imports. Reserving the slot before `declare_fns` keeps the
         // function-index space stable.
         self.predeclare_canvas_imports();
+        // v0.25 Track B — same protocol for `mty:web/js` extern-js
+        // imports. Must run BEFORE `declare_fns` so the import slot
+        // is reserved and the recorded fn_index points at the import
+        // (not at a later module-local slot).
+        self.predeclare_extern_js_imports();
         self.declare_fns()?;
-        // Define each fn body.
+        // Define each fn body. Skip extern-js fns — their `fn_index`
+        // entry already points at an import (no module-local body to
+        // emit).
         for f in &self.prog.fns.clone() {
+            if self.extern_js_fns.contains(&f.id) {
+                continue;
+            }
             let body = self.emit_fn(f)?;
             self.code_section.function(&body);
         }
@@ -1449,6 +1602,49 @@ impl<'a> Emitter<'a> {
                     WasmError::Invalid(format!("call to undeclared fn {callee:?}"))
                 })?;
                 wfn.instruction(&I::Call(*idx));
+                // v0.25 — stack-balance fix for Unit-returning user fns.
+                //
+                // `emit_assign` always emits either `LocalSet` (when
+                // the assignment's place maps to a wasm local) or
+                // `Drop` (when the place was a Unit/Error-typed local
+                // skipped by the locals-decl pass). Both expect
+                // exactly one value on the wasm stack. But a user fn
+                // declared `fn ... -> ()` lowers to a
+                // `(func (param ...) (result))` wasm signature via
+                // `fn_sig_for`, so the `call` instruction above
+                // leaves ZERO values on the stack. Without this
+                // placeholder the wasm validator rejects the module
+                // with "type mismatch: expected i32 but nothing on
+                // stack" at the next `local.set` / `drop` site —
+                // exactly the v0.24 Track E probe22.mty regression
+                // that blocked calling Unit-returning helpers from
+                // inside `keydown` / `frame` / `keyup` exported
+                // callbacks (see
+                // `dev/history/notes/DEMO06_CANVAS_DIRECT_V0_24_NOTES.md`
+                // §B).
+                //
+                // Every other arm of this match (`Log`, `DomOp`,
+                // `CanvasOp` for void ops, the P2 direct-imports)
+                // already pushes a placeholder `i32.const 0` after a
+                // void call for the same reason; the User arm was
+                // missing it because v0.22-era tests only exercised
+                // non-Unit user fns whose results were always
+                // consumed by the caller's binding sink. v0.24
+                // Track A widened the export surface
+                // (`frame`/`keydown`/`keyup` now reach the core
+                // export table), which is the first time Unit-
+                // returning helpers got called from inside an
+                // exported callback.
+                let callee_returns_value = self
+                    .prog
+                    .fns
+                    .iter()
+                    .find(|f| f.id == *callee)
+                    .map(|f| !matches!(f.ret_ty, IrTy::Unit | IrTy::Never))
+                    .unwrap_or(true);
+                if !callee_returns_value {
+                    wfn.instruction(&I::I32Const(0));
+                }
                 Ok(())
             }
             FnRef::Builtin(BuiltinId::DomOp(op)) => {

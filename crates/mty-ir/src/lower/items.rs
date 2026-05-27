@@ -130,6 +130,38 @@ fn register_fn_shells(ctx: &mut LowerCtx) {
             ctx.fn_def_to_sir.insert(def_id.0, sid);
         }
     }
+    // v0.25 Track B — populate `prog.extern_bindings` for every fn
+    // that came from an `extern <abi> { fn ... }` block. The wasm
+    // emitter's `predeclare_extern_js_imports` reads this table to
+    // turn each entry into a real `(import "mty:web/js" ...)` in the
+    // core module instead of an empty user fn (the v0.24 Track E
+    // "extern js is documentation" gap).
+    record_extern_bindings(ctx);
+}
+
+fn record_extern_bindings(ctx: &mut LowerCtx) {
+    // Collect (hir_fn_id, abi, name) triples first so we don't hold a
+    // borrow on `ctx.pkg` while mutating `ctx.prog`.
+    let mut bindings: Vec<(mty_hir::FnId, String, String)> = Vec::new();
+    for (_, item) in ctx.pkg.items.iter() {
+        if let Item::ExternBlock(eb) = item {
+            // Default ABI is "c" when the user wrote a bare `extern { }`;
+            // the wasm emitter currently treats anything except "js" as
+            // a no-op (the legacy stub-fn behaviour).
+            let abi = eb.abi.clone().unwrap_or_else(|| "c".to_string());
+            for fid in &eb.fns {
+                let hf = &ctx.pkg.fns[*fid];
+                bindings.push((*fid, abi.clone(), hf.name.clone()));
+            }
+        }
+    }
+    for (hir_id, abi, name) in bindings {
+        if let Some(sirid) = ctx.fn_map.get(&hir_id).copied() {
+            ctx.prog
+                .extern_bindings
+                .insert(sirid, crate::ir::ExternBinding { abi, name });
+        }
+    }
 }
 
 fn collect_fn_ids(item: &Item, _ctx: &LowerCtx, out: &mut Vec<mty_hir::FnId>) {
