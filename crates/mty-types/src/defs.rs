@@ -144,6 +144,18 @@ pub struct DefMap {
     /// Slice-5 protocol message names per protocol (declaration order),
     /// used for arity / missing-handler / extra-handler checks.
     pub protocol_msg_names: HashMap<String, Vec<String>>,
+    /// v0.29 Track C: protocol message reply (return) types keyed by
+    /// `(protocol_name, msg_name)`. Missing entry / `None` entry =
+    /// the message has no `-> ReturnTy` annotation (defaults to Unit).
+    /// `Some(TyId)` is the resolved reply type, used by the `Send` /
+    /// `Ask` type checker to lower `agent ! Msg(args)` to its declared
+    /// `Str` (or whatever) result instead of dropping it as Unit.
+    pub protocol_msg_reply: HashMap<(String, String), TyId>,
+    /// v0.29 Track C: agent ADT → list of protocol names declared by
+    /// the agent (`agent Foo(...): Reviewer + Web { ... }`). Looked up
+    /// from the `Send` / `Ask` check sites to resolve the bang-send
+    /// target's protocol set without re-walking `HirItem::Agent`.
+    pub agent_protocols: HashMap<AdtId, Vec<String>>,
     /// Slice-5 set of user ADTs marked Copy via `#[derive(Copy)]`.
     pub user_copy: HashSet<AdtId>,
     /// v0.3 (A65) set of user ADTs marked Sendable via

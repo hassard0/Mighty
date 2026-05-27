@@ -206,11 +206,11 @@ fn main() {
   let argv = std.env.args()
   let snippet = argv.get(0).unwrap_or("eval(user_input)  // canonical demo stand-in")
 
-  let report = reviewer!Review(snippet)
+  // v0.29 Track C: the typed bang-send result now reaches the call
+  // site as the protocol's declared `-> Str`, so we no longer need the
+  // v0.27 `format!("{}", report)` workaround that papered over the
+  // pre-v0.29 Unit fallback.
+  let report: Str = reviewer!Review(snippet)
   log("swarm_review: report follows")
-  // `report` types as `Str` at the protocol surface but the v0.27 SIR
-  // interpreter resolves the bang-send as `Unit` (the per-handler
-  // return-shape lowering is a v0.28 follow-up). Wrap in `format!` so
-  // `log(...)` sees a concrete `Str` and the file type-checks.
-  log(format!("{}", report))
+  log(report)
 }

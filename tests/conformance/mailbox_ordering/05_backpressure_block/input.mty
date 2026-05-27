@@ -18,10 +18,15 @@ agent Pusher: P {
 
 fn main() {
   let h = spawn Pusher()
+  // v0.29 Track C: the typed `?Msg(args)` ask now resolves to the
+  // protocol's declared `-> I32` reply at the call site (pre-v0.29
+  // this was a fresh inference var, so `log(a)` slid through unify).
+  // We render the I32 reply to Str explicitly so `log` sees its
+  // declared Str argument.
   let a = h?Push(0)
   let b = h?Push(1)
   let c = h?Push(2)
-  log(a)
-  log(b)
-  log(c)
+  log(a.to_str())
+  log(b.to_str())
+  log(c.to_str())
 }
