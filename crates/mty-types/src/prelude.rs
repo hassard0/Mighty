@@ -84,6 +84,14 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         "std.time",
         // v0.26 Track C — vector / episodic / working memory primitives.
         "std.memory",
+        // v0.26 Track A — typed LLM provider abstraction. Registered
+        // as one opaque module so Mighty source can `use std.llm` and
+        // then call `anthropic.messages(...)` / `openai.responses(...)`
+        // through the permissive-method table. Real client impls live
+        // in `mty_stdlib::llm`. The companion `model` effect (already
+        // interned alongside `net`/`dom`/`spawn` below) is what
+        // `effect {net, model}` parses against.
+        "std.llm",
         // v0.26 Track B — Model Context Protocol surface (server +
         // client + @tool registry + capability-enforced sandbox).
         // Real impls live in `mty_stdlib::mcp`. See
@@ -524,6 +532,19 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         "as_slice",
         "as_mut_slice",
         "capacity",
+        // v0.26 Track A — std.llm surface. Rust impls live in
+        // `mty_stdlib::llm::{anthropic,openai,gemini,bedrock}`; these
+        // entries make `anthropic.messages(...)`, `client.complete(...)`,
+        // `client.complete_stream(...)` etc. typecheck against any
+        // receiver under the permissive table. See
+        // `dev/history/notes/STD_LLM_V0_26_NOTES.md`.
+        "messages",
+        "responses",
+        "complete",
+        "complete_stream",
+        "generate_content",
+        "converse",
+        "tool_uses",
     ];
     for m in permissive_methods {
         defs.builtin_methods.insert(

@@ -35,6 +35,26 @@ getrandom = "0.2"
 # and the in-memory episodic ring buffer are always available.
 serde = { workspace = true }
 rusqlite = { version = "0.31", features = ["bundled"], optional = true }
+# v0.26 Track A — std.llm backends.
+#
+# `bytes` + `futures-core`/`futures-util` + `async-stream` are the
+# only hard deps for the typed shape layer + streaming primitive. The
+# provider implementations sit on top of the workspace's existing
+# `hyper` + `tokio-rustls` stack (we build a small HTTPS connector
+# locally rather than pulling `hyper-rustls` in for one function).
+# `async-trait` is what `LlmProvider`'s async fns desugar against,
+# and `webpki-roots` ships the Mozilla CA bundle so production
+# callers actually hitting api.anthropic.com can complete the
+# handshake (tests target wiremock over plain HTTP and never touch
+# this path). Anthropic gets the only "real" client today; OpenAI/
+# Gemini/Bedrock ship as auth-only skeletons (v0.27 fleshes them
+# out).
+bytes = "1"
+futures-core = "0.3"
+futures-util = "0.3"
+async-trait = "0.1"
+async-stream = "0.3"
+webpki-roots = "1"
 
 [features]
 # `runner` pulls the full driver/diagnostics stack so `std.test`
@@ -51,6 +71,12 @@ memory-qdrant = []
 [dev-dependencies]
 tempfile = "3"
 rcgen = { version = "0.13", default-features = false, features = ["pem", "ring"] }
+# v0.26 Track A — std.llm tests. `wiremock` spins a local HTTP mock
+# server for the Anthropic client round-trip / tool-use / 429 /
+# budget-exhaustion / streaming tests. Plain HTTP is fine because
+# we exercise the request shaping + response parser layers (TLS
+# handshake coverage lives in `tls_handshake.rs`).
+wiremock = "0.6"
 
 [[bin]]
 name = "mty-test"

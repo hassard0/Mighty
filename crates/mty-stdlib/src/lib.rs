@@ -22,6 +22,9 @@
 //! - [`fmt`]   — v0.24: runtime contract for `format!` conversion methods
 //! - [`string`] — v0.25 Track E: owned UTF-8 `String` (host-side Rust impl)
 //! - [`vec`]   — v0.25 Track E: generic `Vec[T]` (host-side Rust impl)
+//! - [`llm`]   — v0.26 Track A: typed LLM provider abstraction
+//!   (Anthropic Messages full impl + OpenAI/Gemini/Bedrock skeletons,
+//!   streaming, tools, typed budgets). See `docs/reference/stdlib/llm.md`.
 //! - [`mcp`]   — v0.26 Track B: Model Context Protocol server + client +
 //!   `@tool` registry + capability-enforced sandbox. See
 //!   `docs/reference/stdlib/mcp.md`.
@@ -35,6 +38,7 @@ pub mod host;
 pub mod http;
 pub mod http_server;
 pub mod json;
+pub mod llm;
 pub mod log;
 pub mod mcp;
 pub mod memory;
