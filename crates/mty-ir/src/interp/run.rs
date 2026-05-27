@@ -2146,7 +2146,7 @@ fn pad_str(s: &str, width: usize, fill: char, align: &str) -> String {
 fn looks_numeric(s: &str) -> bool {
     let bytes = s.as_bytes();
     let mut i = 0usize;
-    if matches!(bytes.first(), Some(b'+') | Some(b'-')) {
+    if matches!(bytes.first(), Some(b'+' | b'-')) {
         i = 1;
     }
     if bytes.len() >= i + 2 && bytes[i] == b'0' {
@@ -2169,7 +2169,7 @@ fn looks_numeric(s: &str) -> bool {
 fn split_numeric_prefix(s: &str) -> (&str, &str) {
     let bytes = s.as_bytes();
     let mut end = 0usize;
-    if matches!(bytes.first(), Some(b'+') | Some(b'-')) {
+    if matches!(bytes.first(), Some(b'+' | b'-')) {
         end = 1;
     }
     if bytes.len() >= end + 2 && bytes[end] == b'0' {
