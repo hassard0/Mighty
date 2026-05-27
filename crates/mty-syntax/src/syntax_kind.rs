@@ -54,7 +54,12 @@ pub enum SyntaxKind {
     ASYNC_KW,
     #[token("await")]
     AWAIT_KW,
-    #[token("budget")]
+    // v0.29 Track E: `budget` is a SOFT (contextual) keyword. The lexer
+    // does NOT emit BUDGET_KW; an IDENT with text "budget" is recognised
+    // by the parser in expression position followed by `{ ident expr ... }`
+    // and the IDENT is re-tagged as BUDGET_KW in the green tree. Everywhere
+    // else `budget` is a plain identifier (let-binding, fn param, field
+    // name, method name, etc.). See dev/history/notes for the rationale.
     BUDGET_KW,
     #[token("cap")]
     CAP_KW,

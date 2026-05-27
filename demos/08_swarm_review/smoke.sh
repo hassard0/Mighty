@@ -118,13 +118,15 @@ if [[ "${MTY_AGENT_SMOKE:-0}" == "1" ]]; then
     exit 1
   fi
 
-  # Point every provider client at the local mock. The v0.27 clients
-  # don't currently read these env vars in `from_env` (they use the
-  # hard-coded base URLs); the v0.28 follow-up wires them up. Until
-  # then the env vars are forward-compat sugar — the smoke test
-  # passes regardless because the SIR interpreter doesn't fire the
-  # HTTP path. The presence of the marker keeps the smoke shape
-  # ready for the v0.28 wiring.
+  # Point every provider client at the local mock. v0.29 Track E wired
+  # `from_env()` to read the per-provider `*_BASE_URL` env vars (and
+  # the universal `MTY_LLM_BASE_URL` fallback) so a single env-var hop
+  # redirects each provider at the mock without touching the source.
+  # When `mty build --target host` lowers `swarm(...)` to the real
+  # HTTP path, these vars wire it straight to the local stub. Until
+  # then the SIR interpreter still returns `Value::Unit` for `swarm`
+  # so the markers below are the source of truth for "the pipeline
+  # ran end-to-end".
   ANTHROPIC_API_KEY="sk-ant-mocktoken" \
   ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" \
   OPENAI_API_KEY="sk-mocktoken" \

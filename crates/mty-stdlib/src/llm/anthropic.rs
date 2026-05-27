@@ -68,10 +68,18 @@ impl AnthropicClient {
     /// New client that pulls `ANTHROPIC_API_KEY` from the process env.
     /// Returns an error if the env var is missing — callers who want
     /// to set the key explicitly should use [`with_api_key`] instead.
+    ///
+    /// v0.29 Track E: also consults `ANTHROPIC_BASE_URL` (or the
+    /// universal `MTY_LLM_BASE_URL` fallback) for the API base URL.
+    /// Production callers leave both unset and the client targets
+    /// `https://api.anthropic.com`; mock-LLM tests can redirect at
+    /// process-launch time without touching the code path.
     pub fn from_env() -> Result<Self, LlmError> {
         let key = std::env::var("ANTHROPIC_API_KEY")
             .map_err(|_| LlmError::Auth("ANTHROPIC_API_KEY not set".into()))?;
-        Ok(Self::with_api_key(key))
+        let base_url =
+            crate::llm::resolve_base_url("ANTHROPIC_BASE_URL", "https://api.anthropic.com");
+        Ok(Self::with_api_key(key).with_base_url(base_url))
     }
 
     pub fn with_api_key(api_key: impl Into<String>) -> Self {
@@ -89,6 +97,13 @@ impl AnthropicClient {
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url = base_url.into();
         self
+    }
+
+    /// Current base URL — defaults to `https://api.anthropic.com`,
+    /// overridden by [`with_base_url`] or by the `ANTHROPIC_BASE_URL` /
+    /// `MTY_LLM_BASE_URL` env vars when constructed via [`from_env`].
+    pub fn base_url(&self) -> &str {
+        &self.base_url
     }
 
     #[must_use]

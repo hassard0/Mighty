@@ -68,9 +68,17 @@ pub fn task_scope_or_call(p: &mut Parser) -> bool {
 }
 
 /// budget '{' (Name Expr)+ '}' 'run' (Block | Expr)
+///
+/// v0.29 Track E: `budget` is a SOFT keyword. The lexer emits IDENT; this
+/// production is only called by `primary` when it has already confirmed
+/// `IDENT "budget" { ident expr ...`. We re-tag the IDENT as BUDGET_KW in
+/// the green tree so HIR + snapshots see a stable kind.
 pub fn budget_block(p: &mut Parser) -> bool {
     p.start_node(BUDGET_BLOCK);
-    p.bump(BUDGET_KW);
+    // Caller guarantees `p.peek() == IDENT` with text "budget".
+    debug_assert_eq!(p.peek(), IDENT);
+    debug_assert_eq!(p.tokens[p.pos].text, "budget");
+    p.bump_remap(BUDGET_KW);
     p.skip_trivia();
     p.expect(L_BRACE);
     p.skip_trivia();

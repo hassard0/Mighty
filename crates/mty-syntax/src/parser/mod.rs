@@ -233,6 +233,18 @@ impl<'src> Parser<'src> {
         assert_eq!(self.peek(), kind);
         self.bump_any();
     }
+    /// Consume the current token but emit it under a *different* SyntaxKind
+    /// in the green tree. Used for contextual / "soft" keywords like
+    /// `budget` (v0.29 Track E): the lexer produces IDENT; the parser
+    /// recognises it positionally and tags the token as BUDGET_KW so HIR
+    /// / formatter / snapshots see a stable kind.
+    pub(crate) fn bump_remap(&mut self, kind: SyntaxKind) {
+        let t = &self.tokens[self.pos];
+        if t.kind != SyntaxKind::EOF {
+            self.builder.token(kind.into(), t.text);
+            self.pos += 1;
+        }
+    }
     pub(crate) fn eat(&mut self, kind: SyntaxKind) -> bool {
         if self.at(kind) {
             self.bump_any();
