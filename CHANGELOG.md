@@ -9,26 +9,85 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- v0.28 candidates (from v0.27 Track F's 5 follow-ups + Track E's
-  partial):
+- v0.29 candidates (carry-forward from v0.28 — the five in-tree
+  tracks dispatched alongside Track G were abandoned mid-build
+  under shared-`target/` contention; they re-dispatch under
+  isolated-worktree discipline):
   (1) **`BuiltinId::Swarm` interpreter arm + permissive method
   registration** so `mty run` exercises the real swarm against
-  the runtime interpreter (not just the lib tests).
+  the runtime interpreter (not just the lib tests). v0.27
+  Track F follow-up #1.
   (2) **Handler-safe carve-out additions** to the v0.27 Track B
   12-ADT table: `ConsensusStrategy`, `Member`, `DollarBudget`,
-  `Consensus`.
+  `Consensus`. v0.27 Track F follow-up #2.
   (3) **Typed bang-send return-type lowering** — `Review(s: Str)
-  -> Str` should reach call sites as `Str`, not `Unit`. The
-  bang-send currently drops protocol return types.
+  -> Str` should reach call sites as `Str`, not `Unit`. v0.27
+  Track F follow-up #3.
   (4) **`while let` parser surface** + finish v0.27 Track E's
   partial source-level streaming surface (`for chunk in stream
   { ... }` desugaring).
   (5) **`budget` demoted from reserved keyword to soft keyword**
   + per-provider `*_BASE_URL` env vars consulted by Track C's
   `from_env` (lets demo 08 point all four providers at a single
-  local mock-LLM sidecar).
+  local mock-LLM sidecar). v0.27 Track F follow-ups #4 + #5.
+- v0.29 replay-runtime hooks Track G surfaced for `std.eval`
+  (kept in `mty_stdlib::eval::replay_glue::V029_BACKLOG` so the
+  source + docs stay in sync):
+  (6) `Replay::with_provider(member)` constructor on
+  `ReplayDriver` that swaps the recorded `LlmProvider`
+  mid-replay so `std.eval` can byte-replay a multi-turn trace +
+  only divert the LLM calls.
+  (7) `RecordedTrace::iter_llm_calls()` accessor so `std.eval`
+  can fast-path "just rerun the LLM turns" without spinning a
+  fresh `Runtime`.
+  (8) Trace wire **v3** capturing LLM request+response shapes
+  structurally (prompt + system + tools + reply text +
+  tool_uses).
+  (9) `std.eval` divergence reporter integration with `mty
+  replay --diff` so eval failures point back at the exact
+  recorded turn.
   There is **no remaining Post-v1.0 backlog** — only RFC comment
   windows stand between current main and v1.0 GA.
+
+## [0.28.0] - 2026-05-27
+
+**Mighty ships `std.eval`: byte-identical-replay-based LLM evals
+as a typed stdlib surface — the "regression-test agents like any
+other code" capability the README's Why-Mighty section promises
+is now real.** A Mighty program can now declare a
+`Suite::new("research-agent")`, attach `Case`s (from raw input,
+from a recorded `.mty-trace`, or from a saved transcript), fan
+the suite across a panel of `Member`s (Anthropic / OpenAI /
+Gemini / Bedrock — any subset of the four v0.27 typed providers,
+mixed freely), pick a `Compare` strategy (byte-equal-after-
+trim-lower, semantic-cosine over `std.memory::Embedder`, or
+order-independent tool-call-set equality), and read back a
+per-(case, member) verdict matrix plus per-divergence rows. The
+runner shares a `SharedDollarBudget` across members within a
+case so the whole suite stays under one cost cap. **Track G** is
+the only track that shipped this slice. The five in-tree tracks
+dispatched alongside it (A–E, all v0.27 Track F follow-ups) hit
+shared-`target/` contention mid-build and were discarded
+unverified — they re-dispatch as v0.29 candidates under
+isolated-worktree discipline. The `std.eval` module lives at
+`crates/mty-stdlib/src/eval/` (6 files, ~1700 LOC, 60 new unit
+tests + 2 doctests); `examples/31_eval_agent.mty` and
+`docs/internals/std-eval.md` cover the source-level surface.
+Three comparators (`Compare::equal()` / `semantic_similarity` /
+`tool_call_set_equal`); five verdict variants
+(`Match` / `Diverge` / `Error` / `SingleMember`, plus
+suite-level `EmptySuite` / `NoMembers` / `AllCellsFailed`). The
+`Member` enum is re-exported from `std.swarm` so eval panels and
+`swarm(...)` consensus calls share the same provider
+abstraction. Working around four v0.29 replay-runtime hooks for
+now by reading a lightweight JSON-lines trace shape
+(`replay_glue::decode_trace_baseline`); the hooks are queued in
+`[Unreleased]` above. Rust test count grows **2125 → 2187**
+(+62). Eight demos all green; demo 08 still uses v0.27
+workarounds for the 5 deferred tracks; KNOWN_ISSUES net zero.
+v1.0 freeze gate status unchanged structurally (blocker #2's
+8 RFC comment windows still the only standing item; earliest
+possible v1.0 tag remains 2026-07-26).
 
 ## [0.27.1] - 2026-05-27
 
