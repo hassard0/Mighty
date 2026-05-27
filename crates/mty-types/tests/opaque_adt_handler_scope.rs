@@ -147,6 +147,128 @@ fn all_four_demo07_ctors_constructible_in_one_handler() {
     );
 }
 
+// ---------------------------------------------------------------------
+// v0.29 Track B — std.swarm ADTs added to the handler-safe carve-out.
+//
+// Demo 08 (v0.27 Track F) lifted `Member.anthropic(...)`,
+// `DollarBudget.from_dollars(...)`, and the `ConsensusStrategy.Majority`
+// reference out of the handler body (into `main()`) because the four
+// swarm ADTs weren't on the v0.27 allowlist. v0.29 Track B adds them.
+// Each test below pins that the ctor lands cleanly in a handler scope
+// without firing MT2021.
+// ---------------------------------------------------------------------
+
+#[test]
+fn std_swarm_member_anthropic_constructible_in_handler() {
+    // `Member.anthropic("...")` — the demo 08 ctor that headlined the
+    // v0.27 Track F note's "v0.28 follow-up §A".
+    let src = r#"
+        protocol Reviewer { Review(snippet: Str) -> Str }
+        agent R: Reviewer {
+          on Review(snippet) -> {
+            let m = Member.anthropic("claude-opus-4-7")
+            snippet
+          }
+        }
+    "#;
+    let codes = diag_codes(src);
+    assert!(
+        !codes.contains(&"MT2021".to_string()),
+        "Member.anthropic(...) should be handler-safe, got {:?}",
+        codes
+    );
+}
+
+#[test]
+fn std_swarm_dollar_budget_constructible_in_handler() {
+    // `DollarBudget.from_dollars(0.50)` — the demo 08 budget ctor.
+    let src = "
+        protocol Reviewer { Review(snippet: Str) -> Str }
+        agent R: Reviewer {
+          on Review(snippet) -> {
+            let cap = DollarBudget.from_dollars(0.50)
+            snippet
+          }
+        }
+    ";
+    let codes = diag_codes(src);
+    assert!(
+        !codes.contains(&"MT2021".to_string()),
+        "DollarBudget.from_dollars(...) should be handler-safe, got {:?}",
+        codes
+    );
+}
+
+#[test]
+fn std_swarm_consensus_strategy_majority_in_handler() {
+    // `ConsensusStrategy.Majority` — the strategy variant reference
+    // demo 08 had to lift out of the handler.
+    let src = "
+        protocol Reviewer { Review(snippet: Str) -> Str }
+        agent R: Reviewer {
+          on Review(snippet) -> {
+            let strategy = ConsensusStrategy.Majority
+            snippet
+          }
+        }
+    ";
+    let codes = diag_codes(src);
+    assert!(
+        !codes.contains(&"MT2021".to_string()),
+        "ConsensusStrategy.Majority should be handler-safe, got {:?}",
+        codes
+    );
+}
+
+#[test]
+fn std_swarm_consensus_type_usable_in_handler() {
+    // `Consensus` referenced as a value-position name (e.g. via a
+    // synthetic helper). The opaque-ADT carve-out applies symmetrically
+    // to the `Consensus` result shape, not just the inputs.
+    let src = "
+        protocol Reviewer { Review(snippet: Str) -> Str }
+        agent R: Reviewer {
+          on Review(snippet) -> {
+            let _typename = Consensus
+            snippet
+          }
+        }
+    ";
+    let codes = diag_codes(src);
+    assert!(
+        !codes.contains(&"MT2021".to_string()),
+        "Consensus should be handler-safe, got {:?}",
+        codes
+    );
+}
+
+#[test]
+fn all_four_swarm_ctors_constructible_in_one_handler() {
+    // The actual demo 08 panel-build pattern, lifted INTO the handler.
+    // Every swarm ctor that the demo had to keep in `main()` now
+    // constructs cleanly inside `on Review()`.
+    let src = r#"
+        protocol Reviewer { Review(snippet: Str) -> Str }
+        agent R: Reviewer {
+          on Review(snippet) -> {
+            let panel = Vec.new()
+            panel.push(Member.anthropic("claude-opus-4-7"))
+            panel.push(Member.openai("gpt-5"))
+            panel.push(Member.gemini("gemini-2.5-pro"))
+            let cap = DollarBudget.from_dollars(0.50)
+            let strategy = ConsensusStrategy.Majority
+            snippet
+          }
+        }
+    "#;
+    let codes = diag_codes(src);
+    assert!(
+        !codes.contains(&"MT2021".to_string()),
+        "all four std.swarm ctors should be handler-safe in one body, got {:?}",
+        codes
+    );
+}
+
 #[test]
 fn user_defined_adt_without_effects_still_blocked_in_handler() {
     // Back-compat: a name that is NOT a registered std.* opaque ADT

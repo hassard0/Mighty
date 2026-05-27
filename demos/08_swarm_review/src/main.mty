@@ -12,17 +12,21 @@
 //     agent's `on Review` handler constructs `Working.new()` inline;
 //     v0.26 would have hit MT2021 because `Working` wasn't a prelude
 //     opaque ADT. See `dev/history/notes/OPAQUE_ADT_WASM_V0_27_NOTES.md`.
+//     v0.29 Track B extends the same carve-out to the swarm ADTs
+//     (`Member` / `DollarBudget` / `ConsensusStrategy` / `Consensus`)
+//     so the agent also builds its own panel + budget + strategy
+//     inside the handler — no more ctor-arg threading.
 //
 //   * Track C — full OpenAI / Gemini / Bedrock provider implementations.
 //     The panel mixes Anthropic + OpenAI + Gemini so the swarm exercises
 //     all three Track C providers in one call. See
 //     `dev/history/notes/LLM_PROVIDERS_FULL_V0_27_NOTES.md`.
 //
-//   * Track D — `std.swarm` consensus primitive. `run_panel_review`
-//     calls `swarm(prompt, panel, spend_cap, strategy)` to dispatch one
-//     prompt to every panel member in parallel, then resolves the
-//     replies through `ConsensusStrategy.Majority` into a `Consensus`.
-//     See `dev/history/notes/STD_SWARM_V0_27_NOTES.md`.
+//   * Track D — `std.swarm` consensus primitive. The CodeReviewer
+//     handler calls `swarm(prompt, panel, budget, strategy)` to
+//     dispatch one prompt to every panel member in parallel, then
+//     resolves the replies through `ConsensusStrategy.Majority` into
+//     a `Consensus`. See `dev/history/notes/STD_SWARM_V0_27_NOTES.md`.
 //
 //   * Track E — `std.env.args()` reads the `--`-tail positional argv,
 //     so the demo accepts the code snippet on the command line:
@@ -73,65 +77,6 @@ fn read_snippet(path: Str) -> Str {
 }
 
 // ---------------------------------------------------------------------
-// `render_consensus` — the swarm-side rendering helper. Lives at the
-// top-level (permissive scope) so it can reference `ConsensusStrategy`
-// + `Member` + `DollarBudget` without tripping the strict-handler-scope
-// MT2021 rule (only the std.memory + std.llm ADTs are in the v0.27
-// handler-safe carve-out — `ConsensusStrategy` / `Member` /
-// `DollarBudget` are v0.28 follow-ups, see notes file §A).
-//
-// The full panel + budget + strategy flow stays Mighty-source: only the
-// agent's handler delegates to this fn so the swarm code is reachable
-// from a real `on Ask(...)`.
-// ---------------------------------------------------------------------
-fn run_panel_review(panel, spend_cap, snippet: Str) -> Str {
-  let prompt = format!(
-    "You are a careful security reviewer. Code:\n\n{}\n\nIs this code safe? Reply with: SAFE, UNSAFE, or UNCLEAR. Then one paragraph of reasoning.",
-    snippet
-  )
-
-  // Track D entry point. `swarm(...)` dispatches `prompt` to every
-  // panel member in parallel via `tokio::spawn`, charges each call
-  // against the shared `spend_cap`, and resolves the replies through
-  // `ConsensusStrategy.Majority` into a `Consensus` result.
-  //
-  // v0.29 Track A: the SIR interpreter now dispatches `swarm` through
-  // `BuiltinId::Swarm`, so `mty run` exercises the typed handle
-  // directly (deterministic synth replies for the real-provider
-  // Member variants; the live HTTP path still fires when
-  // `mty build --target host` lowers the call through to
-  // `mty_stdlib::swarm::swarm`).
-  let consensus = swarm(
-    prompt,
-    panel,
-    spend_cap,
-    ConsensusStrategy.Majority,
-  )
-
-  // Render the consensus — verdict + cost line + every dissent.
-  // `consensus.majority` is `Option[Str]` on the typed surface; the
-  // SIR path returns `Unit` so the unwrap_or fallback keeps the body
-  // non-empty for the smoke test.
-  let verdict = consensus.majority.unwrap_or("(no verdict)")
-  let cost_cents = consensus.total_cost_cents
-  let dissents = consensus.dissents
-
-  let mut out = String.new()
-  out.push_str(format!("verdict: {}\n", verdict))
-  out.push_str(format!("cost cents: {}\n", cost_cents))
-  out.push_str(format!("dissents: {}\n", dissents.len()))
-
-  // Walk the dissent list. The SIR path returns `Value::Unit` for
-  // `consensus.dissents` which the iter-protocol path materialises
-  // as an empty array — so the loop is a no-op on `mty run` but
-  // pins the call-site shape for the lowered host-target build.
-  for d in dissents {
-    out.push_str(format!("  - dissent: {}\n", d))
-  }
-  out
-}
-
-// ---------------------------------------------------------------------
 // Review protocol — the one message the CodeReviewer agent answers.
 //
 // Reply shape is the rendered consensus body (verdict + cost + dissent
@@ -145,61 +90,115 @@ protocol ReviewerInput {
 }
 
 // ---------------------------------------------------------------------
-// Track D — the CodeReviewer agent. Builds a per-review scratchpad,
-// delegates to `run_panel_review`, returns the rendered consensus body.
+// Track D — the CodeReviewer agent. Builds the panel, budget, and
+// strategy INSIDE the handler, delegates to `swarm(...)`, renders the
+// consensus body, and returns it.
 //
-// Track B carve-out: `Working.new()` is constructed INSIDE the handler.
-// Pre-v0.27 this tripped MT2021 because `Working` wasn't a prelude
-// opaque ADT in handler scope; the v0.27 `handler_safe_adts` set
-// in `crate::prelude` puts it (plus `VectorStore` / `Episodic` /
-// `AnthropicClient` / ...) under the carve-out.
+// v0.29 Track B carve-out: `Member.anthropic(...)`,
+// `DollarBudget.from_dollars(...)`, and `ConsensusStrategy.Majority`
+// are constructed directly inside `on Review(...)`. Pre-v0.29 the four
+// swarm ADTs (`Member` / `DollarBudget` / `ConsensusStrategy` /
+// `Consensus`) weren't in the v0.27 handler-safe set, so this demo
+// had to lift the whole panel + budget + strategy build out into a
+// `build_panel()`-style top-level helper threaded through ctor args.
+// v0.29 Track B adds them to `crate::prelude::handler_safe_opaque_names`
+// and this demo deletes the workaround.
+//
+// `Working.new()` (v0.27 Track B carve-out) still gets constructed in
+// the same handler as a scratchpad for the per-review state.
 // ---------------------------------------------------------------------
-agent CodeReviewer(panel, spend_cap): ReviewerInput {
+agent CodeReviewer: ReviewerInput {
   on Review(snippet) {
-    // v0.27 Track B carve-out: Working.new() inside strict handler scope.
+    // v0.27 Track B carve-out: per-review scratchpad.
     let working = Working.new()
     working.push("snippet", snippet)
     working.push("strategy", "majority")
 
     log("evt:reviewer:review")
-    run_panel_review(panel, spend_cap, snippet)
+
+    // v0.29 Track B carve-out: three-provider panel constructed
+    // INSIDE the handler. Each Member ctor reads the canonical env
+    // var (ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY); the
+    // Rust-side `Member::<provider>` panics on a missing key —
+    // swarms are an explicit choice and the silent fallback would
+    // be worse than the loud panic.
+    let panel = Vec.new()
+    panel.push(Member.anthropic("claude-opus-4-7"))
+    panel.push(Member.openai("gpt-5"))
+    panel.push(Member.gemini("gemini-2.5-pro"))
+
+    // v0.29 Track B + Track E carve-out: 50-cent shared spending cap
+    // across the whole panel. `DollarBudget` resolves to the
+    // Rust-side `SharedDollarBudget`; `from_dollars(0.50)` rounds to
+    // 50 cents under the hood. The local is named `budget` per v0.29
+    // Track E — `budget` is a soft keyword now, so the natural name
+    // is finally available in every binding position (let, fn param,
+    // struct field). Pre-v0.29 this had to be spelled `spend_cap`
+    // because `budget` was a hard reserved keyword.
+    let budget = DollarBudget.from_dollars(0.50)
+
+    let prompt = format!(
+      "You are a careful security reviewer. Code:\n\n{}\n\nIs this code safe? Reply with: SAFE, UNSAFE, or UNCLEAR. Then one paragraph of reasoning.",
+      snippet
+    )
+
+    // Track D entry point. `swarm(...)` dispatches `prompt` to every
+    // panel member in parallel via `tokio::spawn`, charges each call
+    // against the shared `budget`, and resolves the replies through
+    // `ConsensusStrategy.Majority` into a `Consensus` result.
+    //
+    // v0.29 Track A: the SIR interpreter now dispatches `swarm`
+    // through `BuiltinId::Swarm`, so `mty run` exercises the typed
+    // handle directly (deterministic synth replies for the
+    // real-provider Member variants; the live HTTP path still fires
+    // when `mty build --target host` lowers the call through to
+    // `mty_stdlib::swarm::swarm`).
+    let consensus = swarm(
+      prompt,
+      panel,
+      budget,
+      ConsensusStrategy.Majority,
+    )
+
+    // Render the consensus — verdict + cost line + every dissent.
+    // `consensus.majority` is `Option[Str]` on the typed surface; the
+    // v0.29 Track A interpreter arm wires the field accesses on the
+    // synth-built `Consensus` value, so this code path actually fires
+    // under `mty run` rather than no-op'ing on `Value::Unit`.
+    let verdict = consensus.majority.unwrap_or("(no verdict)")
+    let cost_cents = consensus.total_cost_cents
+    let dissents = consensus.dissents
+
+    let mut out = String.new()
+    out.push_str(format!("verdict: {}\n", verdict))
+    out.push_str(format!("cost cents: {}\n", cost_cents))
+    out.push_str(format!("dissents: {}\n", dissents.len()))
+
+    // Walk the dissent list.
+    for d in dissents {
+      out.push_str(format!("  - dissent: {}\n", d))
+    }
+    out
   }
 }
 
 // ---------------------------------------------------------------------
-// `main` — boot the demo. Builds the three-provider panel + dollar
-// budget, spawns one CodeReviewer, asks it to review the snippet
-// passed on the command line (or a canonical default if no argv).
+// `main` — boot the demo. Spawns one CodeReviewer (zero ctor args
+// now — the panel + budget live inside the handler per v0.29 Track B),
+// reads the snippet from the `--`-tail positional argv, asks the
+// reviewer, logs the rendered consensus.
 //
 // Track E (QoL #3) — `std.env.args()` returns the `--`-tail positional
 // argv. The leading positional lands at index 0; with no positional we
 // fall back to a tiny `eval(user_input)` stand-in that any reviewer
 // should flag UNSAFE.
-//
-// Track C — three Member ctors exercise all three of v0.27's promoted
-// providers (Anthropic / OpenAI / Gemini). Each ctor reads the
-// canonical env var; the Rust-side `Member::<provider>` panics on a
-// missing key — swarms are an explicit choice and the silent fallback
-// would be worse than the loud panic.
 // ---------------------------------------------------------------------
 fn main() {
-  // Three-provider panel.
-  let panel = Vec.new()
-  panel.push(Member.anthropic("claude-opus-4-7"))
-  panel.push(Member.openai("gpt-5"))
-  panel.push(Member.gemini("gemini-2.5-pro"))
-
-  // 50-cent shared spending cap across the whole panel. `DollarBudget`
-  // here resolves to the Rust-side `SharedDollarBudget`;
-  // `from_dollars(0.50)` rounds to 50 cents under the hood. We name the
-  // local `spend_cap` rather than `budget` because `budget` is a
-  // reserved keyword in the v0.3 grammar (used by the cap-narrow
-  // `with budget(...)` clause).
-  let spend_cap = DollarBudget.from_dollars(0.50)
-
-  // Spawn the reviewer. Slice-7 runtime gives it its own mailbox +
-  // tokio task; `!Review(s)` hands off through the protocol.
-  let reviewer = spawn CodeReviewer(panel, spend_cap)
+  // Spawn the reviewer with zero ctor args. v0.29 Track B carve-out
+  // means the agent builds its own panel + budget inside the handler;
+  // pre-v0.29 we had to thread `panel` + `spend_cap` through
+  // `spawn CodeReviewer(panel, spend_cap)`.
+  let reviewer = spawn CodeReviewer()
 
   // Track E: pick up the snippet from the `--`-tail positional argv.
   // No argv → use the canonical eval(user_input) stand-in so reviewers
@@ -207,11 +206,11 @@ fn main() {
   let argv = std.env.args()
   let snippet = argv.get(0).unwrap_or("eval(user_input)  // canonical demo stand-in")
 
-  let report = reviewer!Review(snippet)
+  // v0.29 Track C: the typed bang-send result reaches the call site as
+  // the protocol's declared `-> Str`, so `report` is a concrete `Str`
+  // and we no longer need the v0.27 `format!("{}", report)` workaround
+  // that papered over the pre-v0.29 Unit fallback.
+  let report: Str = reviewer!Review(snippet)
   log("swarm_review: report follows")
-  // `report` types as `Str` at the protocol surface but the v0.27 SIR
-  // interpreter resolves the bang-send as `Unit` (the per-handler
-  // return-shape lowering is a v0.28 follow-up). Wrap in `format!` so
-  // `log(...)` sees a concrete `Str` and the file type-checks.
-  log(format!("{}", report))
+  log(report)
 }
