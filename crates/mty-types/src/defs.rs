@@ -150,6 +150,15 @@ pub struct DefMap {
     /// `#[derive(Sendable)]`. Sendable cross-agent messaging gate; see
     /// `crate::sendable` for the rules.
     pub user_sendable: HashSet<AdtId>,
+    /// v0.27 Track B set of opaque ADTs declared by the prelude (i.e.
+    /// from `std.*`) that are explicitly handler-safe — they bypass the
+    /// MT2021 strict-handler-scope check in `check::synth_path`. The
+    /// rationale: `std.*` opaque ADTs are effect-bearing, but the
+    /// effect surface is already tracked through the fn's `!{...}`
+    /// clause, so allowing their constructors inside `on Ask(...)` is
+    /// safe and avoids the v0.26 demo 07 ctor-in-main workaround. See
+    /// `dev/history/notes/OPAQUE_ADT_WASM_V0_27_NOTES.md`.
+    pub handler_safe_adts: HashSet<AdtId>,
     /// Slice-5 trait coherence + dispatch table.
     pub traits: TraitTable,
 }
@@ -245,6 +254,22 @@ impl DefMap {
 
     pub fn lookup(&self, name: &str) -> Option<DefRef> {
         self.by_name.get(name).copied()
+    }
+
+    /// v0.27 Track B — returns `true` iff `name` resolves to a prelude
+    /// `std.*` opaque ADT that has been marked handler-safe (e.g.
+    /// `Working`, `VectorStore`, `AnthropicClient`). Strict-scope
+    /// MT2021 (`check::synth_path`) consults this so the v0.26 demo 07
+    /// pattern — constructing a `std.memory.Working` value inside an
+    /// `on Ask()` handler — type-checks. User-defined opaque ADTs that
+    /// haven't been registered here continue to hit MT2021 (back-compat
+    /// with v0.3 A65). See
+    /// `dev/history/notes/OPAQUE_ADT_WASM_V0_27_NOTES.md`.
+    pub fn is_handler_safe_name(&self, name: &str) -> bool {
+        match self.lookup(name) {
+            Some(DefRef::Adt(aid)) => self.handler_safe_adts.contains(&aid),
+            _ => false,
+        }
     }
 
     /// Multi-segment path lookup. For `std.http`, walks `std → http`. Slice

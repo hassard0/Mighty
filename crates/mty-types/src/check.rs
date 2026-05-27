@@ -575,6 +575,16 @@ fn synth_path(cx: &mut Cx, segments: &[String], expr_id: ExprId) -> TyId {
         if cx.tolerance_open || cx.tolerance.contains(name) {
             return cx.fresh();
         }
+        // v0.27 Track B (carve-out d): the name resolves to a handler-safe
+        // std.* opaque ADT (e.g. `Working`, `VectorStore`, `AnthropicClient`).
+        // Strict scope accepts the use, since the underlying ADT is
+        // effect-bearing but those effects are already tracked through the
+        // fn's `!{...}` clause. User-defined opaque ADTs are NOT in this
+        // set and continue to hit MT2021. See
+        // `dev/history/notes/OPAQUE_ADT_WASM_V0_27_NOTES.md`.
+        if cx.defs.is_handler_safe_name(name) {
+            return cx.fresh();
+        }
         if !cx.scope_kind.is_strict() {
             // Permissive scope: keep slice-3 A21 fresh-var policy.
             return cx.fresh();
@@ -634,6 +644,13 @@ fn synth_path(cx: &mut Cx, segments: &[String], expr_id: ExprId) -> TyId {
     // First segment is a tolerated identifier (capability, state, etc.):
     // treat the chain as opaque.
     if cx.tolerance_open || cx.tolerance.contains(first) {
+        return cx.fresh();
+    }
+    // v0.27 Track B: handler-safe std.* opaque ADT chain (e.g.
+    // `std.memory.Working.new()` — when the IDE / fmt drops `std.memory`
+    // and leaves the chain rooted at `Working`). Same carve-out as the
+    // single-segment case above.
+    if cx.defs.is_handler_safe_name(first) {
         return cx.fresh();
     }
     // v0.3 (A65): permissive scope keeps slice-3 fresh-var fallback.

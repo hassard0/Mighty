@@ -82,6 +82,11 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         "std.fs",
         "std.net",
         "std.time",
+        // v0.27 Track E (QoL #3) — process-environment surface:
+        // `std.env.args()` returns the CLI's `--`-tail positional argv.
+        // Real impl lives in `mty_stdlib::env`; the host dispatcher
+        // routes `("std.env", "args")` through that channel.
+        "std.env",
         // v0.26 Track C — vector / episodic / working memory primitives.
         "std.memory",
         // v0.26 Track A — typed LLM provider abstraction. Registered
@@ -287,6 +292,63 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
             variants: vec![],
         });
         defs.by_name.insert(name.into(), DefRef::Adt(adt));
+    }
+
+    // ---- v0.27 Track B — handler-safe std.* opaque ADTs ----
+    //
+    // Each name here lands as an `AdtKind::Opaque` registration AND is
+    // appended to `defs.handler_safe_adts`. The strict-scope MT2021
+    // check in `check::synth_path` consults that set before firing, so
+    // constructing a `Working` / `VectorStore` / `AnthropicClient`
+    // inside an `on Ask(...)` handler no longer trips A65.
+    //
+    // The carve-out is keyed strictly to these prelude registrations —
+    // user-defined opaque ADTs continue to hit MT2021. See
+    // `dev/history/notes/OPAQUE_ADT_WASM_V0_27_NOTES.md` for the
+    // rationale, and the v0.26 demo 07 source for the original
+    // forcing-function ctor pattern.
+    let handler_safe_opaque_names = [
+        // std.memory (Track C v0.26)
+        "VectorStore",
+        "Episodic",
+        "Working",
+        "Snapshot",
+        // std.llm (Track A v0.26) — provider clients + the message type
+        // they return.
+        "AnthropicClient",
+        "OpenAIClient",
+        "GeminiClient",
+        "BedrockClient",
+        "Message",
+        // std.llm (Track A v0.26 streaming + Track E v0.27 QoL #2) —
+        // `MessageStream` is the iterator returned by
+        // `client.messages_stream(req)`. Mighty source consumes it via
+        // `while let Some(d) = stream.next() { ... }` or `for d in stream`.
+        "MessageStream",
+        // std.mcp (Track B v0.26) — server + client + tool registry.
+        "McpServer",
+        "McpClient",
+        "ToolRegistry",
+    ];
+    for name in handler_safe_opaque_names {
+        // If already defined (e.g. via the `opaque_names` block above
+        // or a user pre-declaration), still mark the existing ADT as
+        // handler-safe so the carve-out applies uniformly.
+        let aid = match defs.by_name.get(name).copied() {
+            Some(DefRef::Adt(aid)) => aid,
+            _ => {
+                let aid = defs.alloc_adt(AdtDef {
+                    name: name.to_string(),
+                    kind: AdtKind::Opaque,
+                    generics: vec![],
+                    param_ids: vec![],
+                    variants: vec![],
+                });
+                defs.by_name.insert(name.to_string(), DefRef::Adt(aid));
+                aid
+            }
+        };
+        defs.handler_safe_adts.insert(aid);
     }
 
     // ---- builtin fns ----
@@ -545,12 +607,24 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         // receiver under the permissive table. See
         // `dev/history/notes/STD_LLM_V0_26_NOTES.md`.
         "messages",
+        "messages_stream",
         "responses",
         "complete",
         "complete_stream",
         "generate_content",
         "converse",
         "tool_uses",
+        // v0.27 Track E (QoL gap #2) — source-level streaming surface.
+        // `MessageStream::next()` lets Mighty source iterate deltas via
+        // `while let Some(d) = stream.next() { ... }` or via the
+        // `for d in stream { ... }` lowering. Real impl in
+        // `mty_stdlib::llm::streaming::MessageStream::next_blocking`;
+        // the interp dispatch lives in `mty-ir::interp::run::eval_method`.
+        "next",
+        // v0.27 Track E (QoL gap #3) — `std.env.args()` returns the
+        // `--`-tail positional argv as `List[Str]`. Real impl is in
+        // `mty_stdlib::env`; host dispatch in `mty_stdlib::host::dispatch`.
+        "args",
         // v0.27 Track D — std.swarm surface. Rust impls live in
         // `mty_stdlib::swarm::{member,consensus,budget,vote}`. The
         // call site `swarm(prompt, panel, budget, strategy).await`

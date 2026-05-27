@@ -1,0 +1,70 @@
+// v0.27 Track B — opaque-ADT constructors INSIDE handler scope.
+//
+// v0.26 demo 07 (Track E) had to construct `AnthropicClient.from_env()`,
+// `VectorStore.local(...)`, `Episodic.in_memory(...)`, `Working.new()`
+// in `main()` (TopLevelFn — permissive scope) and pass them through
+// the Researcher ctor params, because strict handler scope (v0.3 A65)
+// refused the unresolved names (`Working`, `VectorStore`, ...) with
+// MT2021. ← fixed by the prelude carve-out in `crate::prelude` plus
+// the `is_handler_safe_name` consult site in
+// `crate::check::synth_path`.
+//
+// See `dev/history/notes/OPAQUE_ADT_WASM_V0_27_NOTES.md` for the
+// design rationale.
+
+package agent_with_llm_field
+
+use std.llm
+use std.memory
+use std.fs
+
+protocol ResearcherInput {
+  Ask(question: Str) -> Str
+}
+
+// The original v0.26 demo 07 ctor-arg pattern, with one v0.27 twist:
+// the handler body ALSO constructs `Working.new()` inline, instead of
+// receiving it from main() as a ctor arg.
+agent Researcher(client, vector, episodic): ResearcherInput {
+  on Ask(question) {
+    // v0.27 Track B carve-out: `Working.new()` is now constructible
+    // inside a strict handler scope. Pre-v0.27 this tripped MT2021
+    // because `Working` wasn't a prelude opaque ADT, and HandlerBody
+    // strict-scope hard-errors on unknown names.
+    let working = Working.new()
+    working.push("question", question)
+
+    let hits = vector.search(question, 3)
+    let history = episodic.recent(3)
+
+    let prompt = format!(
+      "Question: {}\n\nRecalled context:\n{}",
+      question,
+      working.render()
+    )
+
+    let reply = client.messages(
+      "claude-opus-4-7",
+      "You are a careful researcher. Use the recalled context when relevant.",
+      prompt,
+      10000
+    )
+
+    episodic.record("query", question)
+    episodic.record("answer", reply)
+    reply
+  }
+}
+
+fn main() {
+  let client = AnthropicClient.from_env()
+  let vector = VectorStore.local("./demos/07_research_agent/tools/vector.json")
+  let episodic = Episodic.in_memory(100)
+
+  let researcher = spawn Researcher(client, vector, episodic)
+  let answer = researcher!Ask("What does v0.27 Track B fix?")
+  // Native AOT requires literal log/print strings — use a static
+  // marker. The full answer is captured in `answer` for the SIR
+  // interpreter path.
+  log("agent_with_llm_field: ok")
+}

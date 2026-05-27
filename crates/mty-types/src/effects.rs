@@ -2008,6 +2008,7 @@ mod tests {
             effect_row: None,
             generics: vec![],
             body: Some(block),
+            tool_attr: None,
             span: SourceSpan { start: 0, end: 0 },
         });
         let iid = pkg.items.alloc(Item::Fn(fid));
@@ -2064,6 +2065,7 @@ mod tests {
             effect_row: None,
             generics: vec![],
             body: Some(block),
+            tool_attr: None,
             span: SourceSpan { start: 0, end: 0 },
         });
         let iid = pkg.items.alloc(Item::Fn(fid));

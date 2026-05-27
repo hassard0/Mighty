@@ -49,6 +49,34 @@ use crate::emit::TySigPub;
 /// at the right shape.
 pub const CANVAS_MODULE: &str = "mty:web/canvas";
 
+/// v0.27 Track B — canonical module name for the **opaque-handle
+/// resource table** the JS shim manages. Opaque ADT fields (like
+/// `agent X { client: AnthropicClient }`) lower as 4-byte `i32`
+/// handle slots in the agent's linear-memory region; the JS shim
+/// uses those handles to index into a host-side resource table that
+/// owns the underlying Rust values.
+///
+/// The handle round-trip itself doesn't need an import (it's an
+/// `I32Load`/`I32Store` against the agent region). The module name
+/// here is reserved for the v0.28 follow-up that wires WIT-resource
+/// types: `mty:web/opaque-handles` will expose `lookup` /
+/// `release` / `transfer` functions for proper component-side
+/// typing of the table. v0.27 ships handle slots only — no actual
+/// import is declared against this module name.
+///
+/// See `dev/history/notes/OPAQUE_ADT_WASM_V0_27_NOTES.md` for the
+/// resource-table convention and the v0.28 roadmap.
+pub const OPAQUE_HANDLE_TABLE_MODULE: &str = "mty:web/opaque-handles";
+
+/// v0.27 Track B — returns `true` iff `name` is the canonical
+/// resource-table module name. Tests can use this to assert that
+/// the JS shim's `lookup_table_name()` agrees with the emitter's
+/// expected module. (No production caller invokes it directly —
+/// v0.27 doesn't declare any imports against this module yet.)
+pub fn is_opaque_handle_table_module(name: &str) -> bool {
+    name == OPAQUE_HANDLE_TABLE_MODULE
+}
+
 /// Per-`Emitter` state for the eight canvas imports. Lazily allocates
 /// a core-wasm import slot the first time a function body references a
 /// given op; subsequent calls reuse the cached index.
