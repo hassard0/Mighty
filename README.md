@@ -90,16 +90,17 @@ mty run   src/main.mty
 - Deterministic replay end-to-end (byte-identical)
 - Live introspection via `mty inspect` + OTel span integration
 
-**LLM agent stdlib** *(new in v0.26)*
+**LLM agent stdlib**
 - `std.llm` — typed Anthropic / OpenAI / Gemini / Bedrock providers
   with streaming, tool use, structured outputs, `TokenBudget` short-circuit
-- `@tool` decorator — auto-generates JSON schema for every provider;
-  `cap:` annotation enforced by the runtime (not the prompt)
+- `@tool` decorator — `@tool(description, cap)` generates JSON
+  schema for every provider; `cap:` enforced by the runtime
 - `std.mcp` — server (stdio + http) auto-exposes annotated tools;
   client connects to other MCP servers
-- `std.memory` — `VectorStore` (local + qdrant), `Episodic`
-  (in-memory + sqlite), `Working` (token-budgeted scratchpad);
+- `std.memory` — `VectorStore`, `Episodic`, `Working`;
   deterministic snapshots fold into the replay machinery
+- `std.swarm` — votes consensus across providers under a shared
+  dollar budget; `Majority` / `Plurality` / `Unanimous` / `Weighted`
 
 **Web** *(canvas + keyboard agents)*
 - `std.web.Canvas` + `std.web.Input` WIT interfaces
@@ -171,7 +172,7 @@ Live docs site: <https://hassard0.github.io/Mighty/>
 | `mty-cli` | the `mty` binary |
 
 Adjacent trees: `examples/` (26 canonical programs), `demos/`
-(7 end-to-end runnable apps with `smoke.sh`), `benches/` (criterion),
+(8 end-to-end runnable apps with `smoke.sh`), `benches/` (criterion),
 `selfhost/` (the bootstrap compiler written in Mighty),
 `tests/conformance/` (159-case normative kit), `tests/web-smoke/`
 (headless-browser visual smoke).
@@ -210,14 +211,17 @@ current state of the language, not its history.
 
 ## Status
 
-Mighty is **pre-alpha**. Internal milestones tagged through v0.26.
-The toolchain is exercised by **1989 Rust tests** across 20 crates
+Mighty is **pre-alpha**. Internal milestones tagged through v0.27.
+The toolchain is exercised by **2125 Rust tests** across 20 crates
 plus **490 Python 2nd-impl tests** plus **159 normative conformance
 cases** plus **23 self-host driver codegen tests** — combined
-**2661 tests, 0 failing**. All 7 demos pass `smoke.sh`; 3 web demos
-opt-in to a headless-browser visual smoke. All KNOWN_ISSUES P1 are
-closed; P2 holds one open entry (#9 — demo 06 RAF-mid-frame phash
-flake; 4-of-5 success, no required-gate impact). Six CI jobs are
+**2797 tests, 0 failing**. All four LLM providers are full +
+`std.swarm` votes consensus across them under a shared dollar
+budget. All 8 demos pass `smoke.sh`; 3 web demos opt-in to a
+headless-browser visual smoke; 2 agent demos opt-in to a mock-LLM
+end-to-end smoke. All KNOWN_ISSUES P1 are closed; P2 holds one open
+entry (#9 — demo 06 RAF-mid-frame phash flake; 4-of-5 success, no
+required-gate impact). Six CI jobs are
 required gates: `test` (cross-OS matrix), `test-minimal`, `msrv`,
 `clippy-strict` (pedantic + `-D warnings`), `bench`, `security`
 (`cargo audit --deny warnings`). Coverage at 63% direct / 99%

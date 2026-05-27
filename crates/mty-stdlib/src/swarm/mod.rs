@@ -68,9 +68,9 @@ pub mod member;
 pub mod vote;
 
 pub use budget::{BudgetTripped, SharedDollarBudget};
-pub use consensus::{Consensus, ConsensusStrategy, resolve};
+pub use consensus::{resolve, Consensus, ConsensusStrategy};
 pub use member::{Member, MemberReply, MockMember};
-pub use vote::{Cluster, SimilarityMode, cluster_replies, similarity};
+pub use vote::{cluster_replies, similarity, Cluster, SimilarityMode};
 
 use crate::llm::error::LlmError;
 use thiserror::Error;

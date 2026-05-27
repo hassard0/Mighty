@@ -9,7 +9,7 @@
 //!    and the consensus surfaces with `budget_exhausted: true`. The
 //!    members that already ran still resolve through the strategy.
 
-use mty_stdlib::swarm::{ConsensusStrategy, Member, SharedDollarBudget, swarm};
+use mty_stdlib::swarm::{swarm, ConsensusStrategy, Member, SharedDollarBudget};
 
 #[tokio::test]
 async fn swarm_under_budget_completes_all_members() {

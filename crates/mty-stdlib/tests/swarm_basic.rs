@@ -5,7 +5,7 @@
 //! touching any real provider. Every test exercises the full
 //! `swarm()` entry point + the per-strategy resolution path.
 
-use mty_stdlib::swarm::{ConsensusStrategy, Member, SharedDollarBudget, SwarmError, swarm};
+use mty_stdlib::swarm::{swarm, ConsensusStrategy, Member, SharedDollarBudget, SwarmError};
 
 #[tokio::test]
 async fn swarm_with_three_members_all_agree_yields_unanimous() {

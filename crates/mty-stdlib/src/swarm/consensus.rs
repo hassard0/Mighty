@@ -19,7 +19,7 @@
 //!   short-circuits dispatch when this strategy is set.
 
 use crate::swarm::member::MemberReply;
-use crate::swarm::vote::{Cluster, SimilarityMode, cluster_replies};
+use crate::swarm::vote::{cluster_replies, Cluster, SimilarityMode};
 
 /// How the swarm decides which answer wins.
 #[derive(Debug, Clone, Default)]

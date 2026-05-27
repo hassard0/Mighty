@@ -9,36 +9,114 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- v0.27 candidates (from v0.26 Track E's 6 follow-ups + v0.25
-  carry-forward QoL):
-  (1) **`@tool` source-level parser surface.** The v0.26 Track B
-  macro is registered through the existing `mty_macros` registry,
-  but the source-level `@tool(...)` form is not yet parser-wired.
-  Track E demo had to fall back to doc-comment spec. Parser
-  extension + attribute-macro typed expansion.
-  (2) **Opaque-ADT ctor scope + agent ADT fields → wasm32-web.**
-  The `std.llm` / `std.memory` handles can't be agent fields on
-  wasm yet; must pass through ctor args. Two related typeck +
-  emitter changes that together let Mighty agents own
-  `LlmClient` + `MemoryStore` handles directly.
-  (3) **Real OpenAI / Gemini / Bedrock provider bodies.** Track
-  A's skeletons ship auth + endpoint + body shape correctly but
-  stub `complete()`; v0.27 wires the response-parsing + streaming
-  bodies for each, promoting to SHIPPED-FULL across the matrix.
-  (4) **`Vector.is_empty()` + source-level `stream!` macro + `mty
-  run` argv forwarding (QoL gaps).** Small ergonomic gaps Track E
-  surfaced. Bundle with v0.25 carry-forward `const`-in-match-
-  patterns + `format!("{n}", n=value)` shorthand.
-  (5) **Multi-agent swarm + cost consensus.** The v0.27 forcing-
-  function demo: `swarm!(claude, gpt, gemini, q)` macro fires the
-  same prompt at multiple providers under a shared
-  `DollarBudget`, votes the consensus answer (or hands back the
-  cheapest one if the answers disagree, with the typed diff).
-  Plus the carry-forward items from v0.23 / v0.24 (MT3012 / BOLT
-  / multi-socket NUMA bench / `mty conform <kit.tar.gz>` / spec
-  validation sweep) if they don't fit into v0.27's swarm budget.
+- v0.28 candidates (from v0.27 Track F's 5 follow-ups + Track E's
+  partial):
+  (1) **`BuiltinId::Swarm` interpreter arm + permissive method
+  registration** so `mty run` exercises the real swarm against
+  the runtime interpreter (not just the lib tests).
+  (2) **Handler-safe carve-out additions** to the v0.27 Track B
+  12-ADT table: `ConsensusStrategy`, `Member`, `DollarBudget`,
+  `Consensus`.
+  (3) **Typed bang-send return-type lowering** — `Review(s: Str)
+  -> Str` should reach call sites as `Str`, not `Unit`. The
+  bang-send currently drops protocol return types.
+  (4) **`while let` parser surface** + finish v0.27 Track E's
+  partial source-level streaming surface (`for chunk in stream
+  { ... }` desugaring).
+  (5) **`budget` demoted from reserved keyword to soft keyword**
+  + per-provider `*_BASE_URL` env vars consulted by Track C's
+  `from_env` (lets demo 08 point all four providers at a single
+  local mock-LLM sidecar).
   There is **no remaining Post-v1.0 backlog** — only RFC comment
   windows stand between current main and v1.0 GA.
+
+## [0.27.0] - 2026-05-27
+
+**Mighty is now feature-complete as an LLM-agent language: all
+four providers full, `@tool` source-level decorator parses,
+`std.swarm` multi-LLM consensus + a shared dollar budget across
+the swarm, twelve `std.*` ADTs handler-safe, and eight demos
+cover the agent loop end-to-end.** v0.27 is the "fill in every
+gap v0.26 surfaced" release. **Track A** wires the source-level
+`@tool(description: Str, cap: CapabilitySet)` decorator through
+lexer → parser → HIR lowering → companion-fn synthesis + the
+existing `mty_macros::tool` registry registration call (the
+v0.26 macro was registered at Rust level only — demo 07 had to
+fall back to doc-comment spec); 13 new tests. **Track B** widens
+the v0.26 Strict-Agent scope so 12 `std.*` ADTs are recognised
+as handler-safe (`LlmClient`, `LlmProvider`, `Message`,
+`ContentBlock`, `TokenBudget`, `MemoryStore`, `VectorStore`,
+`Episodic`, `Working`, `ToolHandle`, `McpClient`, `McpServer`)
+plus lifts the `wasm32-web` agent-ADT-field restriction by
+growing opaque-ADT slot tracking in the per-agent 64KB linear-
+memory region (each opaque-ADT field reserves an 8-byte slot
+holding a host-side resource-table handle index; reload + replay
+both preserve the index); 11 new tests. **Track C** promotes the
+v0.26 OpenAI / Gemini / Bedrock skeletons to SHIPPED-FULL with
+real response decoding + streaming + tool-use + budget short-
+circuit + typed error coverage — OpenAI `chat/completions` +
+`tool_calls` + SSE, Gemini `generateContent` +
+`streamGenerateContent` + `functionCall`, Bedrock Anthropic-on-
+AWS body + **inline SigV4 signing** (deliberately did not add
+`aws-sdk-rust` — too heavy; ~140 LOC builder, exercised by the
+v0.26 `tls_handshake` infra) + AWS event-stream binary framing
+for streaming; 29 integration + 53 lib tests (per-provider
+response decode + streaming + tool-use + budget; SigV4 canonical-
+request / canonical-headers / string-to-sign / signing-key /
+authorization-header golden vectors). **Track D** ships
+`std.swarm` — `swarm(prompt, members, strategy, budget).await`
+async fn fans the prompt to every `Member` (thin wrapper around
+any `Arc<dyn LlmProvider>` + name + optional weight) under a
+shared `SharedDollarBudget` (`Arc<Mutex<...>>`) and votes the
+consensus reply with one of four `ConsensusStrategy` variants
+(`Majority`, `Plurality`, `Unanimous`, `Weighted`); members that
+go over budget short-circuit with `SwarmError::BudgetExhausted`,
+the consensus surfaces with `budget_exhausted: bool` + the per-
+member transcript; `MockMember` is the test fixture; 37 new tests
+across `swarm_basic`, `swarm_budget`, `swarm_consensus`.
+**Track E** closes 2 of 3 v0.26 demo 07 QoL gaps: `Vector.is_empty()`
+single-line method on `std.memory.VectorStore`, and `mty run path
+-- a b c` argv forwarding via a process-wide `OnceLock<RwLock<
+Vec<String>>>` cell installed by `Run` dispatch before runtime
+startup (`std.env.args()` reads the snapshot — three unit tests
+serialised by a `TEST_SERIAL` mutex to dodge the parallel-test
+race the integrator caught on Windows). The source-level
+streaming surface (`for chunk in stream { ... }`) shipped partial
+— the runtime-side `MessageStream::next()` exists but surfacing
+it as `for` needs `while let` pattern desugaring in the parser,
+which rolls to v0.28; 15 new tests. **Track F** ships demo 08
+swarm-driven code-reviewer — 216-LOC `.mty` that exercises every
+other track end-to-end (source-level `@tool` decorator on the
+snippet-loading fn, agent field of type `Swarm`, all three real
+non-Anthropic providers, swarm consensus + budget surface,
+`vector.is_empty()`, `mty run -- <snippet-id>`); `mty check` +
+`mty fmt --check` clean and the mock-LLM smoke under
+`MTY_AGENT_SMOKE=1` passes; **SHIPPED-PARTIAL** because 5 narrow
+`mty run` interpreter gaps surfaced (documented as the v0.28
+backlog above). **Integrator fixes (this tag commit):**
+`crates/mty-codegen-wasm/tests/agent_handle_fields.rs` —
+Track A's reported `assertions_on_constants` clippy lint
+resolved via scoped `#[allow]` (the constant is intentional —
+the assertion is a regression-detection guard).
+`crates/mty-stdlib/src/env.rs` — three `env::tests` race
+serialised behind a `Mutex<()>` `TEST_SERIAL` static. Plus a
+`cargo fmt` sweep across the three new Track D test files +
+the `mty-stdlib` swarm module re-exports (the formatter wanted
+the variant names sorted after the `swarm` re-export). **KNOWN_ISSUES
+net: 0.** No new entries. P2 #9 (demo 06 RAF-mid-frame phash
+flake, 4-of-5 success, no required-gate impact) stays open. P1
+stays empty. **v1.0 freeze gate status: unchanged structurally.**
+Blockers #1 + #3 stay CLOSED; #2 (8 RFC comment windows)
+infrastructure stays live; earliest possible v1.0.0 tag remains
+**2026-07-26**. Conformance kit stable at **159 cases** (the
+v0.27 surfaces are stdlib, not normative). Rust test count grows
+**1989 → 2125** (+136; A +13, B +12, C +82 = 29 integration +
+53 lib, D +37, E +15, F +0, scaffolding −23). Python stable
+at **490**. Self-host driver stable at **23**. Combined (with
+159 conformance cases): **2797** (+136 vs v0.26). Eight demos
+(was 7); demo 08 adds `MTY_AGENT_SMOKE=1` to the mock-LLM
+end-to-end stage. See
+[`dev/history/releases/RELEASE-v0.27.md`](dev/history/releases/RELEASE-v0.27.md).
 
 ## [0.26.1] - 2026-05-27
 

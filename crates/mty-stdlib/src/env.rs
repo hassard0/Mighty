@@ -62,15 +62,26 @@ pub fn reset_for_tests() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// These tests all poke the same process-wide `ARGS` cell. cargo
+    /// test runs `#[test]`s on a thread-pool in parallel, so without
+    /// serialization one test's `set_args` can race another's
+    /// `reset_for_tests` / `args()` and produce intermittent failures
+    /// (Track E reported this flake on Windows runners). The mutex
+    /// makes them strictly sequential.
+    static TEST_SERIAL: Mutex<()> = Mutex::new(());
 
     #[test]
     fn args_starts_empty() {
+        let _g = TEST_SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset_for_tests();
         assert!(args().is_empty());
     }
 
     #[test]
     fn set_args_round_trips() {
+        let _g = TEST_SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset_for_tests();
         set_args(vec!["hello".into(), "world".into()]);
         let got = args();
@@ -79,6 +90,7 @@ mod tests {
 
     #[test]
     fn set_args_overwrites() {
+        let _g = TEST_SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset_for_tests();
         set_args(vec!["a".into()]);
         set_args(vec!["b".into(), "c".into()]);

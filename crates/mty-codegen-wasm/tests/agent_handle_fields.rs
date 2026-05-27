@@ -416,7 +416,10 @@ fn agent_handle_field_persists_across_callbacks() {
 // -----------------------------------------------------------------
 #[test]
 fn handle_field_region_layout_constants_well_formed() {
-    assert!(AGENT_REGION_PER_AGENT_BYTES >= 1024, "per-agent < 1 KiB");
+    #[allow(clippy::assertions_on_constants)]
+    {
+        assert!(AGENT_REGION_PER_AGENT_BYTES >= 1024, "per-agent < 1 KiB");
+    }
     assert_eq!(
         AGENT_REGION_PER_AGENT_BYTES % 65536,
         0,

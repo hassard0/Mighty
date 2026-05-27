@@ -4,8 +4,8 @@
 //! ordering of dissents, weighted-vote-with-default-weights).
 
 use mty_stdlib::swarm::{
-    ConsensusStrategy, Member, SharedDollarBudget, SimilarityMode, cluster_replies, similarity,
-    swarm,
+    cluster_replies, similarity, swarm, ConsensusStrategy, Member, SharedDollarBudget,
+    SimilarityMode,
 };
 
 #[tokio::test]
