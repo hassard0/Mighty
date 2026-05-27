@@ -1,0 +1,156 @@
+// 26_string_vec.mty — v0.25 Track E: foundational `std.String` + `std.Vec[T]`.
+//
+// Earlier slices treated Mighty's `String` as a thin opaque alias for `Str`
+// (the SIR interpreter happened to model both as `Value::Str` so chained
+// `s.push_str(...)` etc. already worked end-to-end via the permissive
+// built-in method table), and `Vec[T]` simply didn't exist beyond `&[T]`
+// borrowed slices.
+//
+// v0.25 ships the real impls in `crates/mty-stdlib/src/{string,vec}.rs`
+// plus the receiver-less constructor hooks (`String.new()`,
+// `Vec.with_capacity(n)`) so the canvas-game agent the Mighty-source layer
+// wants can finally declare a `Vec[U32]` board + a `String` for entity
+// names. This example pins down the SHAPE of those calls so any future
+// refactor that breaks them gets caught by `mty check`.
+//
+// Build:
+//   mty fmt examples/26_string_vec.mty
+//   mty check examples/26_string_vec.mty
+//
+// (`_` prefix on helper fns keeps them out of the WIT export world; the
+// example focus is the API surface, not exportability.)
+
+// ----- String surface ---------------------------------------------------
+
+// Empty owned UTF-8 buffer, growable via push/push_str.
+fn _make_empty_string() -> String {
+  String.new()
+}
+
+// Pre-allocate capacity, then append.
+fn _make_message(n: U32) -> String {
+  let mut s = String.with_capacity(32)
+  s.push_str("score: ")
+  s.push_str(format!("{}", n))
+  s.push(' ')
+  s.push_str("pts")
+  s
+}
+
+// `len()` is the byte count, NOT the char count.
+// "a©" → 3 bytes (1 + 2).
+fn _utf8_byte_length() -> USize {
+  let s = String.from_str("a©")
+  s.len()
+}
+
+// Build, then clear, then re-use the buffer. The runtime preserves the
+// underlying capacity across `clear()` so build-and-clear loops avoid
+// reallocations.
+fn _scratchpad(rounds: U32) {
+  let mut s = String.with_capacity(64)
+  let mut i: U32 = 0
+  while i < rounds {
+    s.push_str("round ")
+    s.push_str(format!("{}", i))
+    log(s.as_str())
+    s.clear()
+    i = i + 1
+  }
+}
+
+// ----- Vec[T] surface ---------------------------------------------------
+
+// Tetris-shape board: a flat row*10 + col array of 200 U32 cells.
+fn _make_board() -> Vec[U32] {
+  let mut board = Vec.with_capacity(200)
+  let mut i: U32 = 0
+  while i < 200 {
+    board.push(0_u32)
+    i = i + 1
+  }
+  board
+}
+
+// Index-write through the IndexMut trait. Mighty parameters are
+// immutable in name only — to demonstrate the IndexMut shape we go
+// through a local rebind. The interpreter's permissive value model
+// treats `board[i] = v` as a Stmt::Assign on the indexed place.
+fn _set_cell(board: Vec[U32], idx: USize, value: U32) -> Vec[U32] {
+  let mut local = board
+  local[idx] = value
+  local
+}
+
+// Byte buffer shape — the canvas-game agent's sprite-data path.
+// Mighty's numeric-literal grammar accepts decimal-with-suffix
+// (`222_u8`) but not hex-with-suffix yet, so the bytes are spelled
+// in decimal here.
+fn _make_byte_buffer() -> Vec[U8] {
+  let mut bytes = Vec.new()
+  bytes.push(222_u8)
+  bytes.push(173_u8)
+  bytes.push(190_u8)
+  bytes.push(239_u8)
+  bytes
+}
+
+// Collections of owned strings — entity names, log lines, etc.
+fn _make_name_list() -> Vec[String] {
+  let mut names = Vec.new()
+  names.push(String.from_str("alpha"))
+  names.push(String.from_str("beta"))
+  names.push(String.from_str("gamma"))
+  names
+}
+
+// Length, emptiness, and the `clear()` / `pop()` lifecycle.
+fn _vec_lifecycle() -> USize {
+  let mut v = Vec.with_capacity(8)
+  v.push(1_u32)
+  v.push(2_u32)
+  v.push(3_u32)
+  let n = v.len()
+  let _last = v.pop()
+  v.clear()
+  // `clear()` resets len to 0 without dropping capacity. After the
+  // pop+clear, n still reflects the pre-pop length (snapshot).
+  n
+}
+
+// `get(idx)` returns `Option[T]`. Tested below in the entry point as a
+// shape pin — the interpreter dispatches both `get` and `get_mut`
+// through `mty-ir::interp::run::eval_method`.
+fn _vec_get_oob(v: Vec[U32]) -> Bool {
+  match v.get(999) {
+    Some(_) => false
+    None => true
+  }
+}
+
+fn main() {
+  let _empty = _make_empty_string()
+  let msg = _make_message(7_u32)
+  log(msg.as_str())
+
+  let bytes = _utf8_byte_length()
+  log(format!("'a©' is {} bytes", bytes))
+
+  _scratchpad(3_u32)
+
+  let board = _make_board()
+  log(format!("board cells: {}", board.len()))
+
+  let buf = _make_byte_buffer()
+  log(format!("buf len: {}", buf.len()))
+
+  let names = _make_name_list()
+  log(format!("names: {}", names.len()))
+
+  let n = _vec_lifecycle()
+  log(format!("lifecycle len snapshot: {}", n))
+
+  let empty: Vec[U32] = Vec.new()
+  let oob = _vec_get_oob(empty)
+  log(format!("oob is None? {}", oob))
+}

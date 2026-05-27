@@ -57,6 +57,34 @@ pub fn lower_expr(ctx: &mut LowerCtx, fb: &mut FnBuilder, eid: ExprId) -> Operan
                 let _ = recv; // receiver value is dropped — DOM is host-side
                 return Operand::Move(Place::local(temp));
             }
+            // v0.25 — Canvas-handle receiver -> first-class
+            // `BuiltinId::CanvasOp(kind)`. The wasm32-web emitter
+            // (already wired by v0.24 Track A) routes these through
+            // `emit_canvas_call` to the eight `mty:web/canvas@0.1`
+            // imports. We detect the receiver by per-fn
+            // `canvas_locals` tracking (populated when a let-binding
+            // is initialized from `std.web.Canvas.new(...)` or moves
+            // a previously-marked canvas local) AND the method name
+            // is one of the canonical canvas methods. Mirrors the
+            // DomOp branch above; receiver value is dropped because
+            // canvas dispatch is host-side via the WIT import. Closes
+            // the v0.23 unfinished business documented in
+            // `dev/history/notes/DEMO06_CANVAS_DIRECT_V0_24_NOTES.md`
+            // §A.
+            if let Some(kind) = canvas_op_for_method(&method) {
+                if is_canvas_handle_receiver(ctx, fb, receiver) {
+                    let temp = fb.fresh_temp(IrTy::Error);
+                    fb.push_stmt(Stmt::Assign(
+                        Place::local(temp),
+                        Rvalue::Call {
+                            func: FnRef::Builtin(BuiltinId::CanvasOp(kind)),
+                            args: arg_ops,
+                        },
+                    ));
+                    let _ = recv; // receiver dropped — canvas is host-side
+                    return Operand::Move(Place::local(temp));
+                }
+            }
             // Module receiver -> effect call (heuristic: receiver is a
             // path that resolves to a module).
             if let Some(path) = receiver_module_path(ctx, receiver) {
@@ -626,6 +654,26 @@ fn lower_call(ctx: &mut LowerCtx, fb: &mut FnBuilder, callee: ExprId, args: &[Hi
                     ));
                     return Operand::Move(Place::local(temp));
                 }
+                // v0.25 — parallel canvas-handle dispatch for the
+                // `local.method(args)` parse shape (mirrors the
+                // canvas branch in the MethodCall arm of
+                // `lower_expr`). Same predicate: the local was
+                // previously marked as a canvas handle AND the
+                // method name matches one of the eight canonical
+                // `mty:web/canvas@0.1` ops.
+                if segments.len() == 2 && fb.is_canvas_local(recv_local) {
+                    if let Some(kind) = canvas_op_for_method(&method) {
+                        let temp = fb.fresh_temp(IrTy::Error);
+                        fb.push_stmt(Stmt::Assign(
+                            Place::local(temp),
+                            Rvalue::Call {
+                                func: FnRef::Builtin(BuiltinId::CanvasOp(kind)),
+                                args: arg_ops,
+                            },
+                        ));
+                        return Operand::Move(Place::local(temp));
+                    }
+                }
                 let temp = fb.fresh_temp(IrTy::Error);
                 fb.push_stmt(Stmt::Assign(
                     Place::local(temp),
@@ -651,7 +699,17 @@ fn lower_call(ctx: &mut LowerCtx, fb: &mut FnBuilder, callee: ExprId, args: &[Hi
                     .get(&effect_name)
                     .copied()
                     .unwrap_or(mty_types::EffectId(0));
+                // v0.25 — detect the canvas constructor by full
+                // path. `std.web.Canvas.new(W, H)` returns the
+                // canvas handle; we mark the temp so subsequent
+                // `canvas.fill_rect(...)` calls route to
+                // `BuiltinId::CanvasOp(...)` via
+                // `is_canvas_handle_receiver`.
+                let full_path = format!("{}.{}", path.join("."), method);
                 let temp = fb.fresh_temp(IrTy::Error);
+                if full_path == CANVAS_CONSTRUCTOR_PATH {
+                    fb.mark_canvas_local(temp);
+                }
                 fb.push_stmt(Stmt::EffectInvoke {
                     effect,
                     op: EffectOp::GenericCall { path, method },
@@ -1276,6 +1334,63 @@ fn is_dom_cap_receiver(ctx: &LowerCtx, receiver: ExprId) -> bool {
         }
     )
 }
+
+/// v0.25 — map a method name (snake_case as it appears in Mighty
+/// source) onto the matching [`CanvasOpKind`]. Pinned against the
+/// eight WIT methods declared in
+/// `crates/mty-codegen-wasm/wit/mty-web/canvas.wit` and mirrored by
+/// `mty_stdlib::web::canvas`. Returns `None` for unknown names so
+/// the caller falls back to the generic `Rvalue::MethodCall`
+/// dispatch (and the type-checker / interpreter surface the right
+/// "method not found" diagnostic for typos).
+///
+/// Centralised here so the MethodCall arm in `lower_expr` and the
+/// `local.method(args)` arm in `lower_call` share a single source
+/// of truth — keeps the routing table from drifting between the
+/// two parse shapes.
+pub(crate) fn canvas_op_for_method(name: &str) -> Option<CanvasOpKind> {
+    Some(match name {
+        "clear" => CanvasOpKind::Clear,
+        "fill_rect" => CanvasOpKind::FillRect,
+        "stroke_rect" => CanvasOpKind::StrokeRect,
+        "fill_text" => CanvasOpKind::FillText,
+        "set_fill_style" => CanvasOpKind::SetFillStyle,
+        "width" => CanvasOpKind::Width,
+        "height" => CanvasOpKind::Height,
+        "request_animation_frame" => CanvasOpKind::RequestAnimationFrame,
+        _ => return None,
+    })
+}
+
+/// v0.25 — return `true` if `receiver` resolves to a value previously
+/// marked as a `std.web.Canvas` handle (via
+/// [`FnBuilder::mark_canvas_local`]).
+///
+/// Detection: when the receiver expression is a single-segment path
+/// that names a local, consult the per-fn `canvas_locals` set. We
+/// don't trust the typed receiver type here because v0.23-era
+/// `std.web.Canvas.new(...)` lowers to an `effect_invoke` and the
+/// type-checker stamps the result as `TyData::Error` (the `std.web`
+/// module + `Canvas` ADT aren't modeled in the prelude). The
+/// local-tagging hand-off keeps the pipeline working without forcing
+/// a prelude shape change in the same slice as the routing fix.
+fn is_canvas_handle_receiver(ctx: &LowerCtx, fb: &FnBuilder, receiver: ExprId) -> bool {
+    match &ctx.pkg.exprs[receiver] {
+        HirExpr::Path(segs) if segs.len() == 1 => fb
+            .locals_by_name
+            .get(&segs[0])
+            .map(|l| fb.is_canvas_local(*l))
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+/// v0.25 — canonical canvas-constructor path. The `lower_call`
+/// module-receiver arm compares against this string before marking
+/// the result temp as a canvas handle. Kept as a `pub(crate) const`
+/// so the IR test suite can pin the source-side surface contract
+/// without re-spelling it.
+pub(crate) const CANVAS_CONSTRUCTOR_PATH: &str = "std.web.Canvas.new";
 
 fn infer_effect(path: &[String]) -> String {
     if path.is_empty() {

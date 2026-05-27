@@ -2052,7 +2052,11 @@ fn format_radix_u128(mut n: u128, radix: u32, upper: bool) -> String {
     }
     let alphabet_lower: &[u8] = b"0123456789abcdef";
     let alphabet_upper: &[u8] = b"0123456789ABCDEF";
-    let alph = if upper { alphabet_upper } else { alphabet_lower };
+    let alph = if upper {
+        alphabet_upper
+    } else {
+        alphabet_lower
+    };
     let mut digits = Vec::with_capacity(32);
     let r = radix as u128;
     while n > 0 {

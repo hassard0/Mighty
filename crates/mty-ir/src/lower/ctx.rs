@@ -4,7 +4,7 @@
 use crate::ir::*;
 use mty_hir::{ExprId, FnId, Package, SourceSpan};
 use mty_types::{TyArena, TyData, TyId, TypedPackage};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct LowerCtx<'a> {
     pub pkg: &'a Package,
@@ -116,6 +116,22 @@ pub struct FnBuilder {
     /// `blocks[block_idx].stmts` and `blocks[block_idx].terminator`.
     /// Populated lazily as `push_stmt` / `set_term` are called.
     pub spans: FnSpanTable,
+    /// v0.25 — set of [`Local`]s known to hold a `std.web.Canvas`
+    /// handle. Populated when a let-binding or temp is initialized
+    /// from `std.web.Canvas.new(...)` (or moves a previously-marked
+    /// canvas local). The MethodCall lowerer consults this set to
+    /// decide whether `canvas.fill_rect(...)` should route to the
+    /// first-class `BuiltinId::CanvasOp(...)` builtin (which the
+    /// wasm32-web emitter lowers to a `mty:web/canvas@0.1` import
+    /// call) or to the generic `Rvalue::MethodCall` fallback. Closes
+    /// the v0.23 → v0.24 unfinished business documented in
+    /// `dev/history/notes/DEMO06_CANVAS_DIRECT_V0_24_NOTES.md` §A.
+    ///
+    /// Tracked as a per-fn set because canvas handles are scoped to a
+    /// single function body (lets don't escape, and v0.24 doesn't yet
+    /// model agent fields with non-primitive types). Per-fn keeps the
+    /// detection cheap and avoids cross-fn aliasing footguns.
+    pub canvas_locals: HashSet<Local>,
 }
 
 #[derive(Clone, Copy)]
@@ -148,6 +164,7 @@ impl FnBuilder {
             loop_stack: Vec::new(),
             cur_span: SourceSpan { start: 0, end: 0 },
             spans: FnSpanTable::new(),
+            canvas_locals: HashSet::new(),
         };
         s.cur = entry;
         s
@@ -250,6 +267,22 @@ impl FnBuilder {
 
     pub fn fresh_temp(&mut self, ty: IrTy) -> Local {
         self.new_local("", ty, true, LocalSource::Temp)
+    }
+
+    /// v0.25 — mark a [`Local`] as holding a `std.web.Canvas` handle.
+    /// Idempotent; safe to call on already-marked locals (e.g. when a
+    /// canvas local is re-bound to itself).
+    pub fn mark_canvas_local(&mut self, l: Local) {
+        self.canvas_locals.insert(l);
+    }
+
+    /// v0.25 — true iff `l` was previously marked via
+    /// [`Self::mark_canvas_local`]. Used by the MethodCall lowerer
+    /// (`crates/mty-ir/src/lower/exprs.rs`) to decide whether
+    /// `canvas.fill_rect(...)` routes to `BuiltinId::CanvasOp` or
+    /// to the generic `Rvalue::MethodCall` fallback.
+    pub fn is_canvas_local(&self, l: Local) -> bool {
+        self.canvas_locals.contains(&l)
     }
 
     pub fn fresh_arena(&mut self) -> ArenaId {

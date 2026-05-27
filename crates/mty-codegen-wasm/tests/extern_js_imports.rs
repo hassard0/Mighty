@@ -245,10 +245,7 @@ fn type_section_sigs(wasm: &[u8]) -> Vec<(Vec<wasmparser::ValType>, Vec<wasmpars
                 let rec_group = ty.expect("type");
                 for sub in rec_group.types() {
                     if let wasmparser::CompositeInnerType::Func(ft) = &sub.composite_type.inner {
-                        out.push((
-                            ft.params().to_vec(),
-                            ft.results().to_vec(),
-                        ));
+                        out.push((ft.params().to_vec(), ft.results().to_vec()));
                     }
                 }
             }
@@ -333,7 +330,9 @@ fn extern_js_fn_emits_import() {
 
     let imports = imported_funcs(&wasm);
     assert!(
-        imports.iter().any(|(m, n)| m == "mty:web/js" && n == "_foo"),
+        imports
+            .iter()
+            .any(|(m, n)| m == "mty:web/js" && n == "_foo"),
         "expected `mty:web/js#_foo` import; got {imports:?}",
     );
 }
@@ -372,8 +371,7 @@ fn extern_js_fn_with_return() {
     // `extern js { fn _len(s: Str) -> U32 }`. The Str param expands to
     // (ptr: i32, len: i32) per the canonical-ABI flat layout. The
     // U32 return lowers to `i32`.
-    let prog =
-        program_with_extern_js("_len", &[IrTy::Str], IrTy::Int(IntKind::U32), false);
+    let prog = program_with_extern_js("_len", &[IrTy::Str], IrTy::Int(IntKind::U32), false);
     let wasm = compile_program_to_bytes(&prog, WasmTarget::Web).expect("compile");
     wasmparser::Validator::new()
         .validate_all(&wasm)
@@ -417,8 +415,7 @@ fn extern_js_call_routes_to_import() {
     let foo_idx = imports
         .iter()
         .position(|(m, n)| m == "mty:web/js" && n == "_foo")
-        .unwrap_or_else(|| panic!("missing _foo import; got {imports:?}"))
-        as u32;
+        .unwrap_or_else(|| panic!("missing _foo import; got {imports:?}")) as u32;
 
     let calls = all_call_targets(&wasm);
     assert!(
@@ -476,7 +473,9 @@ fn extern_js_underscore_prefix_works() {
 
     let imports = imported_funcs(&wasm);
     assert!(
-        imports.iter().any(|(m, n)| m == "mty:web/js" && n == "_alert"),
+        imports
+            .iter()
+            .any(|(m, n)| m == "mty:web/js" && n == "_alert"),
         "leading underscore must be preserved in import name; got {imports:?}",
     );
     // And the world should NOT export `_alert` (would re-introduce
@@ -527,8 +526,8 @@ fn example_15_extern_js_compiles_with_imports() {
         "parse errors on example 15: {:?}",
         parsed.errors.iter().map(|e| &e.message).collect::<Vec<_>>(),
     );
-    let file = mty_ast::File::cast(mty_syntax::SyntaxNode::new_root(parsed.green))
-        .expect("FILE root");
+    let file =
+        mty_ast::File::cast(mty_syntax::SyntaxNode::new_root(parsed.green)).expect("FILE root");
     let (pkg, _lower_diags) = mty_hir::lower::LoweringCtx::new().lower_file(file);
     let typed = mty_types::check_package_typed(&pkg);
     let prog = mty_ir::lower_package(&pkg, &typed);
@@ -558,7 +557,9 @@ fn example_15_extern_js_compiles_with_imports() {
 
     let imports = imported_funcs(&wasm);
     assert!(
-        imports.iter().any(|(m, n)| m == "mty:web/js" && n == "_alert"),
+        imports
+            .iter()
+            .any(|(m, n)| m == "mty:web/js" && n == "_alert"),
         "example 15's wasm must import `mty:web/js#_alert`; got {imports:?}",
     );
 }

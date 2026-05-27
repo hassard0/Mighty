@@ -65,7 +65,26 @@ pub(crate) fn bind_pat_assign(
             // IrTy::Error and trust the interpreter's permissive
             // Value enum.
             let ty = IrTy::Error;
+            // v0.25 — propagate the per-fn `canvas_locals` taint across
+            // let-binding. `let canvas = std.web.Canvas.new(W, H)`
+            // lowers the rhs to a `Move(temp)` whose temp is already
+            // in `canvas_locals` (the `lower_call` arm tagged it on
+            // the way out); we propagate that tag onto the user's
+            // visible binding so subsequent `canvas.fill_rect(...)`
+            // calls — which resolve the receiver through this
+            // name-bound local — still route to
+            // `BuiltinId::CanvasOp(...)`. Without this hand-off the
+            // tag would die in the anonymous temp.
+            let rhs_is_canvas = match &rhs {
+                Operand::Move(p) | Operand::Copy(p) => {
+                    p.proj.is_empty() && fb.is_canvas_local(p.local)
+                }
+                Operand::Const(_) => false,
+            };
             let l = fb.new_local(name, ty, mutable, LocalSource::UserLet);
+            if rhs_is_canvas {
+                fb.mark_canvas_local(l);
+            }
             fb.push_stmt(Stmt::Assign(Place::local(l), Rvalue::Use(rhs)));
             if let Some(sp) = sub {
                 bind_pat_assign(ctx, fb, sp, Operand::Copy(Place::local(l)), mutable, false);

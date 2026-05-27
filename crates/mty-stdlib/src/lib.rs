@@ -20,6 +20,8 @@
 //! - [`time`]  — monotonic clock + `sleep`
 //! - [`log`]   — `log()` / `print()` host fallback + v0.17 direct-import constants
 //! - [`fmt`]   — v0.24: runtime contract for `format!` conversion methods
+//! - [`string`] — v0.25 Track E: owned UTF-8 `String` (host-side Rust impl)
+//! - [`vec`]   — v0.25 Track E: generic `Vec[T]` (host-side Rust impl)
 //! - [`test`]  — Mighty-native test discovery + reporter
 //! - [`host`]  — single entry point invoked from `mty-runtime`'s
 //!   `host_std` to dispatch `std.*` generic calls.
@@ -32,7 +34,9 @@ pub mod http_server;
 pub mod json;
 pub mod log;
 pub mod random;
+pub mod string;
 pub mod test;
 pub mod time;
 pub mod tls;
+pub mod vec;
 pub mod web;

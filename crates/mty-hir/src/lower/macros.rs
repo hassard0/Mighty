@@ -1010,6 +1010,25 @@ fn diag_format_error(
             vec![],
             vec!["example: `format!(\"hello\")` or `format!(\"x={{}}\", x)`".to_string()],
         ),
+        // v0.25 (Track D in-flight): width/precision specs now parse but
+        // are still rejected pending the runtime helpers. Surface the
+        // dedicated diagnostic shape so the call site reports cleanly.
+        E::BadWidth { spec, .. } => (
+            DiagCode::new(mty_macros::MACRO_FORMAT_UNSUPPORTED_SPEC),
+            format!(
+                "format spec `{{:{spec}}}` has a malformed width (must be a positive integer that fits in u32)"
+            ),
+            vec!["width support lands with Track D in v0.25; bad widths are rejected at expand time".to_string()],
+            vec![],
+        ),
+        E::BadPrecision { spec, .. } => (
+            DiagCode::new(mty_macros::MACRO_FORMAT_UNSUPPORTED_SPEC),
+            format!(
+                "format spec `{{:{spec}}}` has a malformed precision (must be a positive integer that fits in u32)"
+            ),
+            vec!["precision support lands with Track D in v0.25; bad precision values are rejected at expand time".to_string()],
+            vec![],
+        ),
     };
     Diagnostic {
         code,
