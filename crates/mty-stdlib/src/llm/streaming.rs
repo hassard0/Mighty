@@ -98,13 +98,21 @@ impl Stream for MessageStream {
 /// drive it against captured fixtures without async/network.
 pub fn parse_anthropic_sse(input: &str) -> (Vec<MessageDelta>, String) {
     let mut deltas = Vec::new();
-    // SSE events are separated by `\n\n`. Anything after the last
-    // separator is an incomplete tail; hand it back so the caller
-    // can re-feed it.
-    let (complete, tail) = match input.rsplit_once("\n\n") {
-        Some((c, t)) => (c, t.to_string()),
-        None => return (deltas, input.to_string()),
+    // SSE events are separated by `\n\n` per the spec. Anything after
+    // the last separator is an incomplete tail; hand it back so the
+    // caller can re-feed it. We normalise CRLF → LF first so that
+    // captured fixtures checked out on Windows (core.autocrlf=true)
+    // and any upstream proxy that rewrites line endings still parse.
+    let normalised: String = if input.contains("\r\n") {
+        input.replace("\r\n", "\n")
+    } else {
+        input.to_string()
     };
+    let (complete_owned, tail) = match normalised.rsplit_once("\n\n") {
+        Some((c, t)) => (c.to_string(), t.to_string()),
+        None => return (deltas, normalised),
+    };
+    let complete = complete_owned.as_str();
 
     // Track per-content-block accumulator state for tool_use blocks.
     // We don't need to track text blocks because they're emitted
