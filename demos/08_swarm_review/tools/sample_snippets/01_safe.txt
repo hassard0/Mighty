@@ -1,0 +1,10 @@
+// A pure arithmetic helper. No I/O, no user-controlled input,
+// no external effects. Three reviewers should land on SAFE.
+fn double(x: i32) -> i32 {
+    x * 2
+}
+
+fn main() {
+    let n = double(21);
+    println!("{}", n);
+}

@@ -1,0 +1,7 @@
+# Forwards every line of untrusted stdin straight into a shell.
+# Classic command-injection: an attacker who types `; rm -rf /`
+# gets root-equivalent execution. Three reviewers should land on UNSAFE.
+import sys, os
+
+for line in sys.stdin:
+    os.system(line)        # NEVER do this with untrusted input.

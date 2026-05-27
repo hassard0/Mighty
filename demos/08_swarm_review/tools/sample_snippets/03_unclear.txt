@@ -1,0 +1,8 @@
+// A file read with a user-controlled path. Safe IF the caller
+// has already validated `requested_path` against an allowlist
+// (e.g. constrained to ./uploads/**), unsafe otherwise. The
+// snippet alone doesn't show the validation step, so reviewers
+// may split between UNSAFE and UNCLEAR.
+fn read_user_file(requested_path: &str) -> std::io::Result<String> {
+    std::fs::read_to_string(requested_path)
+}
