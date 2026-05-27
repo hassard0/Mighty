@@ -68,7 +68,17 @@ pub fn lower_type(ctx: &mut LoweringCtx, n: SyntaxNode) -> TypeId {
                 .next()
                 .map(|tn| lower_type(ctx, tn))
                 .unwrap_or_else(|| ctx.alloc_type(HirType::Unknown));
-            HirType::Array { elem, len: None }
+            // v0.25 Track C: capture the fixed-size length expression
+            // (`[T; N]`). Previously dropped, which made downstream typeck
+            // unable to compute static storage size for agent fields like
+            // `board: [U32; 200]`. The length expression sits as the first
+            // expression-shaped child of TYPE_ARRAY (parser shape:
+            // `L_BRACK type_expr SEMI expr R_BRACK`).
+            let len = n
+                .children()
+                .find(|c| super::exprs::is_expr_node(c.kind()))
+                .map(|c| super::exprs::lower_expr(ctx, c));
+            HirType::Array { elem, len }
         }
         SyntaxKind::TYPE_FN => {
             let mut tys: Vec<_> = n

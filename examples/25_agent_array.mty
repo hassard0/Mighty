@@ -1,0 +1,41 @@
+// v0.25 Track C — agent fields with fixed-size array types.
+//
+// v0.24 Track E found that the Notetris 10x20 board couldn't live on
+// the agent because `agent X { board: [U32; N] }` was rejected
+// downstream — the HIR lowerer dropped the array length, so the
+// resolver saw a slice instead of a fixed array and downstream
+// storage-layout was incomplete.
+//
+// v0.25 Track C closes that gap: arrays now round-trip
+// parse -> HIR (with length captured) -> typeck (TyData::Array { len:
+// Some(N) }) -> SIR. This demo is the smallest exerciser — a 4x4 grid
+// of I32 cells living on the agent, plus a handler that updates one
+// cell on a Set message. The companion persistence story is covered
+// by crates/mty-runtime/tests/agent_callback_persistence.rs: the SIR
+// runtime path threads the same AgentDescriptor.state across every
+// dispatched message, so the cells written by one Set survive into
+// the next ask/handler invocation.
+//
+// See dev/history/notes/AGENT_FIELDS_V0_25_NOTES.md for the design
+// notes and the v0.26 plan for the wasm32-web export-callback
+// dispatch path (single-agent-instance pattern living in linear
+// memory).
+
+protocol GridOps {
+  Get(i: U32) -> I32
+  Tick() -> Unit
+}
+
+agent Grid: GridOps {
+  // The Track C win: this fixed-size-array field type parses, lowers
+  // through HIR with `len = Some(16)`, and typechecks as
+  // `TyData::Array { elem: I32, len: Some(16) }`.
+  cells: [I32; 16]
+  ticks = 0
+
+  on Get(i) -> cells[i]
+
+  on Tick() -> {
+    ticks += 1
+  }
+}
