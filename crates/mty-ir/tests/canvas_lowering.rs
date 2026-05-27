@@ -1,24 +1,23 @@
 //! v0.25 Track A — IR-side routing for `std.web.Canvas` method calls.
-//!
 //! Closes the v0.23 → v0.24 unfinished business documented in
 //! `dev/history/notes/DEMO06_CANVAS_DIRECT_V0_24_NOTES.md` §A.
 //!
 //! v0.24 Track A landed `BuiltinId::CanvasOp(CanvasOpKind)` in the IR
-//! + matching emitter dispatch. This file pins the *lowerer-side*
-//! piece that connects them: when a Mighty source method call
-//! resolves to a `std.web.Canvas` receiver and a canonical canvas
-//! method name, the IR lowerer must emit `Rvalue::Call { func:
+//! plus matching emitter dispatch. This file pins the lowerer-side
+//! piece that connects them: when a Mighty source method call resolves
+//! to a `std.web.Canvas` receiver and a canonical canvas method name,
+//! the IR lowerer emits `Rvalue::Call { func:
 //! FnRef::Builtin(BuiltinId::CanvasOp(kind)) }` (not a generic
-//! `Rvalue::MethodCall`). Without this routing the wasm32-web
-//! emitter never sees the canvas op and the `mty:web/canvas@0.1`
-//! import never lands in the core module — the regression that
-//! blocked `demos/06_canvas_game` from owning its pixels Mighty-side.
+//! `Rvalue::MethodCall`). Without this routing the wasm32-web emitter
+//! never sees the canvas op and the `mty:web/canvas@0.1` import never
+//! lands in the core module — the regression that blocked
+//! `demos/06_canvas_game` from owning its pixels Mighty-side.
 //!
 //! Detection key (per the v0.25 design): per-fn `canvas_locals` taint
 //! propagated from `std.web.Canvas.new(...)` callsites through
 //! let-binding hand-offs. We don't trust the typed receiver type
-//! because the type-checker stamps `Error` on the canvas handle
-//! today (no `std.web` module + `Canvas` ADT in the prelude). The
+//! because the type-checker stamps `Error` on the canvas handle today
+//! (no `std.web` module or `Canvas` ADT in the prelude). The
 //! local-tagging approach keeps the routing fix self-contained.
 
 mod common;
