@@ -15,7 +15,9 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mty_runtime::replay::{CountingStepHandler, ReplayDriver, Replayer, TraceSummary};
+use mty_runtime::replay::{
+    CountingStepHandler, LlmCallRef, ProvidedTurn, ReplayDriver, Replayer, TraceSummary,
+};
 
 #[derive(Debug)]
 #[allow(clippy::struct_excessive_bools)]
@@ -35,6 +37,16 @@ pub struct ReplayArgs {
     /// against. Required for `--byte-identical` (the trace itself
     /// doesn't carry the program).
     pub program: Option<PathBuf>,
+    /// v0.29 Track F: render an LLM-turn diff for one recorded turn.
+    /// Pair with `--turn <id>` to address a specific turn; when
+    /// `--turn` is omitted, the CLI lists every recorded LLM turn.
+    /// The "live" side reuses the recorded reply — `--diff` is the
+    /// inspection surface, eval drivers wire a real provider in.
+    pub diff: bool,
+    /// v0.29 Track F: address one specific `LlmCall.turn_id` for the
+    /// `--diff` renderer. When set without `--diff`, the flag implies
+    /// `--diff` so power users can type `mty replay <trace> --turn 7`.
+    pub turn: Option<u64>,
 }
 
 /// CLI entry point. Returns a Unix-style process exit code.
@@ -52,6 +64,13 @@ pub fn run(args: ReplayArgs) -> i32 {
     if let Err(e) = replayer.verify_self_consistent() {
         eprintln!("mty replay: trace is not self-consistent: {e}");
         return 1;
+    }
+
+    // v0.29 Track F: --diff takes precedence over the other inspection
+    // flags so the user can ask for one turn's diff without first
+    // disabling --step etc. `--turn <id>` without `--diff` implies it.
+    if args.diff || args.turn.is_some() {
+        return run_diff(&args.trace, replayer, args.turn);
     }
 
     if args.dump_json {
@@ -158,7 +177,92 @@ fn render_summary(s: &TraceSummary, path: &std::path::Path) -> String {
     );
     out.push_str("  --mock-io          IO reads return recorded bytes instead of touching disk\n");
     out.push_str("  --program <path>   .mty source file (required with --byte-identical)\n");
+    out.push_str(
+        "  --diff             render LLM-turn diffs (v0.29; pair with --turn for one turn)\n",
+    );
+    out.push_str(
+        "  --turn <id>        focus the diff on a single recorded LlmCall.turn_id (v0.29)\n",
+    );
     out
+}
+
+/// v0.29 Track F: render the LLM-call diff for one (or every)
+/// recorded turn in the trace.
+///
+/// The "live" side reuses the recorded reply byte-for-byte — this
+/// CLI surface is the *inspection* path that the eval driver's
+/// divergence reporter points at (`std.eval` plugs in a real
+/// `MemberTurnProvider` when it wants live dispatch). Rendered as a
+/// MATCH so the user can confirm the recorded shape; eval drivers
+/// override the provider to surface real DIVERGE rows.
+fn run_diff(trace_path: &std::path::Path, replayer: Replayer, turn: Option<u64>) -> i32 {
+    let trace = replayer.trace().clone();
+    let llm_count = trace.iter_llm_calls().count();
+    if llm_count == 0 {
+        eprintln!(
+            "mty replay --diff: trace at {} contains no LlmCall events; \
+             only v3 (v0.29+) traces produced via `MTY_RECORD_TRACE` carry structural LLM turns",
+            trace_path.display()
+        );
+        return 2;
+    }
+    // The "live" provider replays the recorded reply verbatim, so the
+    // CLI surface defaults to MATCH on every turn. Eval drivers swap
+    // this provider for a real `MemberTurnProvider`.
+    let driver = ReplayDriver::from_trace(trace).with_provider(
+        |t: LlmCallRef<'_>| -> Result<ProvidedTurn, String> {
+            Ok(ProvidedTurn {
+                reply: t.reply.to_string(),
+                tool_uses: t.tool_uses.to_vec(),
+                cost_cents: t.cost_cents,
+            })
+        },
+    );
+
+    match turn {
+        Some(id) => match driver.diff_llm_turn(id) {
+            Ok(diff) => {
+                print!("{}", diff.render());
+                if diff.identical {
+                    0
+                } else {
+                    1
+                }
+            }
+            Err(e) => {
+                eprintln!("mty replay --diff: {e}");
+                1
+            }
+        },
+        None => match driver.replay_llm_turns() {
+            Ok(turns) => {
+                println!(
+                    "=== LLM-turn diff sweep ({}) — {} turn(s) ===",
+                    trace_path.display(),
+                    turns.len()
+                );
+                let mut any_diverge = false;
+                for t in &turns {
+                    let verdict = if t.replies_match() {
+                        "MATCH"
+                    } else {
+                        any_diverge = true;
+                        "DIVERGE"
+                    };
+                    println!("  turn #{:<4} : {}", t.turn_id, verdict);
+                }
+                if any_diverge {
+                    1
+                } else {
+                    0
+                }
+            }
+            Err(e) => {
+                eprintln!("mty replay --diff: {e}");
+                1
+            }
+        },
+    }
 }
 
 /// v0.19: drive a fresh Runtime from the trace via [`ReplayDriver`],
@@ -304,6 +408,7 @@ mod tests {
             budget_exhausted_count: 1,
             exit_count: 1,
             total_handler_elapsed_us: 12345,
+            llm_call_count: 0,
         };
         let out = render_summary(&s, std::path::Path::new("/tmp/x.bin"));
         assert!(out.contains("wire version : 1"));
@@ -322,6 +427,8 @@ mod tests {
             byte_identical: false,
             mock_io: true,
             program: None,
+            diff: false,
+            turn: None,
         }
     }
 
@@ -371,6 +478,80 @@ mod tests {
         assert!(s.contains("4 event(s)"));
         assert!(s.contains("spawns           1"));
         assert!(s.contains("messages handled 3"));
+    }
+
+    // -------------------------------------------------------------------------
+    // v0.29 Track F: --diff + --turn CLI tests
+    // -------------------------------------------------------------------------
+
+    fn make_trace_with_llm_calls(path: &std::path::Path) {
+        let r = Recorder::new(path, 0, 1);
+        r.record_llm_call(0, None, "q1", Some("sys"), vec![], "a1", vec![], 1);
+        r.record_llm_call(0, None, "q2", None, vec!["search".into()], "a2", vec![], 2);
+        r.record_llm_call(0, None, "q3", None, vec![], "a3", vec![], 1);
+        r.flush_to_disk().unwrap();
+    }
+
+    #[test]
+    fn diff_sweep_renders_all_turns_when_no_turn_id() {
+        let path = tmp_path("diff_sweep");
+        make_trace_with_llm_calls(&path);
+        let mut args = default_args(path.clone());
+        args.diff = true;
+        let code = run(args);
+        // Default provider mirrors recorded reply → every turn MATCH → exit 0.
+        assert_eq!(code, 0);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn diff_turn_addresses_one_recorded_turn() {
+        let path = tmp_path("diff_turn");
+        make_trace_with_llm_calls(&path);
+        let mut args = default_args(path.clone());
+        args.diff = true;
+        args.turn = Some(1);
+        let code = run(args);
+        assert_eq!(code, 0, "exit 0 on MATCH");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn turn_implies_diff() {
+        // Setting --turn without --diff should still route to the diff
+        // renderer (power-user shortcut).
+        let path = tmp_path("turn_implies_diff");
+        make_trace_with_llm_calls(&path);
+        let mut args = default_args(path.clone());
+        args.diff = false;
+        args.turn = Some(2);
+        let code = run(args);
+        assert_eq!(code, 0);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn diff_with_no_llm_events_returns_2() {
+        let path = tmp_path("diff_no_llm");
+        let r = Recorder::new(&path, 0, 1);
+        r.record_spawn(1, "Echo", None);
+        r.flush_to_disk().unwrap();
+        let mut args = default_args(path.clone());
+        args.diff = true;
+        let code = run(args);
+        assert_eq!(code, 2);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn diff_unknown_turn_id_returns_1() {
+        let path = tmp_path("diff_bad_turn");
+        make_trace_with_llm_calls(&path);
+        let mut args = default_args(path.clone());
+        args.turn = Some(9_999);
+        let code = run(args);
+        assert_eq!(code, 1, "unknown turn id should exit 1");
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

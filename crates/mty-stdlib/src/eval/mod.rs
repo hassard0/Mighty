@@ -92,7 +92,10 @@ pub mod suite;
 
 pub use case::{Case, CaseKind, CaseRun};
 pub use compare::{Compare, Divergence, Report, Verdict};
-pub use replay_glue::{ReplayGlueError, V029_BACKLOG};
+pub use replay_glue::{
+    decode_baseline_auto, decode_trace_baseline, decode_trace_baseline_native, read_binary_trace,
+    MemberTurnProvider, ReplayGlueError, TraceBaseline, V029_BACKLOG,
+};
 pub use runner::{Runner, RunnerCell};
 pub use suite::Suite;
 

@@ -1,0 +1,93 @@
+// 32_eval_native.mty — v0.29 Track F: std.eval native replay backend.
+//
+// Where 31_eval_agent.mty exercised the v0.28 JSON-lines shim
+// (`{"type":"user"|"assistant"}` line per turn), this example
+// demonstrates the v0.29 native path: `Case.from_trace(path)` now
+// reads the same binary `.mty-trace` files the runtime writes when
+// `MTY_RECORD_TRACE=<path>` is set, decoding them via the new wire-v3
+// `TraceEvent::LlmCall` events through `TraceFile::iter_llm_calls()`.
+//
+// The four v0.29 backlog items Track F landed:
+//
+//   1. `ReplayDriver::with_provider(member)` swaps the recorded LLM
+//      provider mid-replay so eval can byte-replay a multi-turn trace
+//      and only divert the LLM calls.
+//   2. `TraceFile::iter_llm_calls()` borrowed iterator over every
+//      recorded LLM turn — std.eval uses this to fast-path "just
+//      rerun the LLM turns" without a full Runtime.
+//   3. Wire-v3 structural `TraceEvent::LlmCall` (prompt + system +
+//      tools + reply + tool_uses). Backward-compatible: v2 traces
+//      still decode, just with no LLM events.
+//   4. `mty replay --diff <trace>` / `mty replay --diff <trace>
+//      --turn <id>` — eval divergences point back at the exact
+//      recorded turn.
+//
+// Build:
+//   mty fmt examples/32_eval_native.mty
+//   mty check examples/32_eval_native.mty
+//
+// The native-replay path is exercised end-to-end in the Rust test
+// suite (`mty-stdlib::eval::replay_glue::tests::*`); this example
+// pins the *Mighty* call shape so the parser + checker keep the
+// surface stable.
+package eval_native
+
+use std.eval.Case
+use std.eval.Compare
+use std.eval.Member
+use std.eval.Suite
+
+// ----- Native replay suite -------------------------------------------------
+//
+// `Case.from_trace` now auto-routes between the v0.28 JSON-lines
+// shim and the v0.29 binary `.mty-trace` based on the file's magic
+// prefix. Existing fixtures keep working unchanged; new recordings
+// captured via `MTY_RECORD_TRACE` flow through the native path
+// without any per-call-site change.
+fn _build_native_suite() -> Suite {
+  // The trace path here is the binary `.mty-trace` shape produced by
+  // `MTY_RECORD_TRACE=traces/research-001.mty-trace mty run agent.mty`.
+  // The eval driver reads the first recorded LlmCall event as the
+  // baseline + dispatches the prompt against every panel member.
+  let suite = Suite.new("research-agent-native")
+    .case(Case.from_trace("traces/research-001.mty-trace"))
+    .case(Case.from_trace("traces/research-002.mty-trace"))
+    .run_with(Member.mock("baseline-mock", "Paris", 1))
+    .run_with(Member.mock("challenger-mock", "Paris", 1))
+  suite
+}
+
+// ----- Hybrid suite (legacy + native) --------------------------------------
+//
+// Both trace shapes can coexist in one suite. The auto-routing
+// decoder picks the right path per case.
+fn _build_hybrid_suite() -> Suite {
+  let suite = Suite.new("hybrid")
+    // Legacy v0.28 JSON-lines fixture (hand-written).
+    .case(Case.from_trace("fixtures/legacy.jsonl"))
+    // v0.29 native binary trace from MTY_RECORD_TRACE.
+    .case(Case.from_trace("traces/research-001.mty-trace"))
+    .run_with(Member.mock("a", "x", 1))
+  suite
+}
+
+// ----- Divergence-to-diff link ---------------------------------------------
+//
+// When `Suite.compare()` reports a Divergence on a from_trace case,
+// the per-divergence record carries the source trace path. The user
+// can then run:
+//
+//   mty replay --diff traces/research-001.mty-trace --turn 0
+//
+// to see the exact recorded turn + the divergent live reply rendered
+// side-by-side. The `mty replay --diff` CLI renders the same
+// `LlmTurnDiff` shape `std.eval`'s reporter uses internally, so the
+// "click through to the recorded turn" loop is one shell command.
+fn _comparator_with_diff_hint() -> Compare {
+  Compare.semantic_similarity(0.85)
+}
+
+// ----- Entry point ---------------------------------------------------------
+fn main() {
+  log("32_eval_native: std.eval native replay backend (v0.29)")
+}
