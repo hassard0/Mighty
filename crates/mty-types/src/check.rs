@@ -332,22 +332,31 @@ fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
             cx.fresh()
         }
         HirExpr::Send { target, msg, args } => {
-            let _ = synth_expr(cx, target);
+            let target_ty = synth_expr(cx, target);
             for (i, a) in args.iter().enumerate() {
                 let ty = synth_expr(cx, a.value);
                 check_sendable_arg(cx, i, ty, expr_id);
             }
-            let _ = msg;
-            cx.arena.unit
+            // v0.29 Track C: lower the bang-send result type to the
+            // protocol message's declared reply (or Unit if undeclared).
+            // Pre-v0.29 this returned `cx.arena.unit` unconditionally,
+            // forcing call sites like `let r: Str = agent ! Review(s)`
+            // to either force a type error or thread the reply through
+            // a `format!` stand-in (see v0.27 demo 08 workaround).
+            resolve_message_reply_ty(cx, target_ty, &msg, &args, expr_id)
         }
         HirExpr::Ask { target, msg, args } => {
-            let _ = synth_expr(cx, target);
+            let target_ty = synth_expr(cx, target);
             for (i, a) in args.iter().enumerate() {
                 let ty = synth_expr(cx, a.value);
                 check_sendable_arg(cx, i, ty, expr_id);
             }
-            let _ = msg;
-            cx.fresh()
+            // v0.29 Track C: same lowering as `Send` — `?Msg(args)` and
+            // `!Msg(args)` both surface the protocol's declared reply.
+            // Pre-v0.29 `Ask` synthesised a fresh inference var, which
+            // unified with anything but never pinned to the declared
+            // reply at the call site.
+            resolve_message_reply_ty(cx, target_ty, &msg, &args, expr_id)
         }
         HirExpr::Deadline { inner, dur } => {
             let _ = synth_expr(cx, dur);
@@ -355,8 +364,37 @@ fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
         }
         HirExpr::Question(inner) => synth_question(cx, inner, expr_id),
         HirExpr::Spawn { inner, .. } => {
+            // v0.29 Track C: when the spawned expression is a direct
+            // call to an agent constructor (`spawn Foo(...)`), pin the
+            // AgentRef's parameter to the agent's ADT so downstream
+            // bang-send / ask sites can resolve the message reply type
+            // via `agent_protocols`. Pre-v0.29 the call returned a
+            // fresh inference var, leaving `AgentRef[?N]` opaque.
+            let inner_expr = cx.pkg.exprs[inner].clone();
+            let agent_adt: Option<AdtId> = match &inner_expr {
+                HirExpr::Call { callee, args: _ } => match &cx.pkg.exprs[*callee] {
+                    HirExpr::Path(segs) if segs.len() == 1 => match cx.defs.lookup(&segs[0]) {
+                        Some(DefRef::Adt(aid)) if cx.defs.agent_protocols.contains_key(&aid) => {
+                            Some(aid)
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                },
+                HirExpr::Path(segs) if segs.len() == 1 => match cx.defs.lookup(&segs[0]) {
+                    Some(DefRef::Adt(aid)) if cx.defs.agent_protocols.contains_key(&aid) => {
+                        Some(aid)
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
             let t = synth_expr(cx, inner);
-            cx.arena.adt(cx.agent_ref_id, vec![t])
+            let inner_ty = match agent_adt {
+                Some(aid) => cx.arena.adt(aid, vec![]),
+                None => t,
+            };
+            cx.arena.adt(cx.agent_ref_id, vec![inner_ty])
         }
         HirExpr::Detach(inner) | HirExpr::Join(inner) => synth_expr(cx, inner),
         HirExpr::HtmlTemplate(_) => cx.arena.string,
@@ -1081,6 +1119,86 @@ fn synth_method_call(
 /// call sites. The argument type is resolved through the substitution
 /// then handed to `crate::sendable::sendable_reason`; a non-None reason
 /// triggers MT3011.
+/// v0.29 Track C: resolve the return type of a typed bang-send / ask
+/// call (`agent ! Msg(args)` / `agent ? Msg(args)`).
+///
+/// Walks: `target_ty` → resolve through the substitution → if it's the
+/// prelude `AgentRef[Adt(agent, _)]`, look up the agent's declared
+/// protocols and the per-`(proto, msg)` reply type.
+///
+/// Resolution table (first match wins):
+/// 1. Target resolves to `AgentRef[Adt(agent_adt, _)]`, agent has a
+///    protocol that declares `msg` with `-> ReturnTy` → that TyId.
+/// 2. Target resolves to `AgentRef[...]`, agent declares `msg` but
+///    with no `-> ReturnTy` → `Unit` (declared default).
+/// 3. Target resolves to `Adt(agent_adt, _)` directly (no AgentRef
+///    wrap — happens inside the agent's own handler body where `self`
+///    is the agent type) → same lookup as (1) / (2).
+/// 4. No agent / protocol info available (external protocol, fresh var
+///    target, error type, arity mismatch) → fresh inference var so
+///    call sites that bind the result keep type-checking without a
+///    hard mismatch.
+///
+/// Arity-mismatched calls (declared params vs supplied args differ in
+/// count) still resolve to the declared reply — the arity check itself
+/// is a v0.30+ follow-up; the v0.29 mandate is **return-type** lowering.
+fn resolve_message_reply_ty(
+    cx: &mut Cx,
+    target_ty: TyId,
+    msg: &str,
+    _args: &[HirArg],
+    _expr_id: ExprId,
+) -> TyId {
+    let resolved = cx.subst.resolve(target_ty, cx.arena);
+    let agent_adt = agent_adt_from_target(cx, resolved);
+    let Some(agent_adt) = agent_adt else {
+        return cx.fresh();
+    };
+    let Some(proto_names) = cx.defs.agent_protocols.get(&agent_adt).cloned() else {
+        return cx.fresh();
+    };
+    for pname in &proto_names {
+        let key = (pname.clone(), msg.to_string());
+        if let Some(reply_ty) = cx.defs.protocol_msg_reply.get(&key).copied() {
+            return reply_ty;
+        }
+        // Protocol declares the message but with no `-> ReturnTy`
+        // — the surface default is Unit.
+        if let Some(names) = cx.defs.protocol_msg_names.get(pname) {
+            if names.iter().any(|n| n == msg) {
+                return cx.arena.unit;
+            }
+        }
+    }
+    // The protocol set is known, but no protocol declares `msg`.
+    // Diagnostic (MT2026) already fires from the handler-side check;
+    // for the call site we fall back to a fresh var so the rest of
+    // the expression still type-checks.
+    cx.fresh()
+}
+
+/// v0.29 Track C: pull the agent ADT id out of a resolved `Send`/`Ask`
+/// target type. Handles both the `AgentRef[Adt(agent, _)]` wrap (the
+/// usual case — `spawn Agent(...)` synthesises that shape) and the
+/// bare `Adt(agent, _)` case (e.g. `self ! Msg(...)` inside an agent
+/// method, where `self` is already the agent type).
+fn agent_adt_from_target(cx: &Cx, target: TyId) -> Option<AdtId> {
+    match cx.arena.get(target).clone() {
+        TyData::Adt(adt_id, args) if adt_id == cx.agent_ref_id => {
+            // Drill one level into AgentRef[T]. Resolve the inner arg
+            // through the substitution so we see past inference vars.
+            let inner = *args.first()?;
+            let inner_resolved = cx.subst.resolve(inner, cx.arena);
+            match cx.arena.get(inner_resolved) {
+                TyData::Adt(inner_adt, _) => Some(*inner_adt),
+                _ => None,
+            }
+        }
+        TyData::Adt(adt_id, _) => Some(adt_id),
+        _ => None,
+    }
+}
+
 fn check_sendable_arg(cx: &mut Cx, arg_idx: usize, arg_ty: TyId, span_expr: ExprId) {
     let resolved = cx.subst.resolve(arg_ty, cx.arena);
     if let Some(reason) = crate::sendable::sendable_reason(resolved, cx.arena, cx.defs) {

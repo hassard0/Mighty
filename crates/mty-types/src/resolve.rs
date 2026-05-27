@@ -432,6 +432,11 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
     // Protocol message index (slice 4, Task 12). For each protocol's
     // declared message, store the parameter types so agent handlers can
     // look them up.
+    //
+    // v0.29 Track C: also store the resolved reply type when the message
+    // declares `-> ReturnTy`. Used by the bang-send / ask type checker
+    // so `agent ! Review(s)` lowers to its declared `Str` result instead
+    // of the v0.28 stand-in Unit.
     for item_id in &pkg.top_level {
         let item = &pkg.items[*item_id];
         if let HirItem::Protocol(pid) = item {
@@ -454,10 +459,50 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
                     .collect();
                 defs.protocol_msgs
                     .insert((proto.name.clone(), msg.name.clone()), ptys);
+                // v0.29 Track C: resolve the optional reply type and stash
+                // it. Missing annotation → no entry, which the check site
+                // treats as Unit (matching the surface-level default).
+                if let Some(reply_tid) = msg.reply {
+                    let reply_ty = resolve_hir_type(
+                        reply_tid,
+                        pkg,
+                        &defs,
+                        arena,
+                        &ParamScope::default(),
+                        &mut diagnostics,
+                    );
+                    defs.protocol_msg_reply
+                        .insert((proto.name.clone(), msg.name.clone()), reply_ty);
+                }
             }
             // Slice 5: also save the message-name list per protocol.
             let names: Vec<String> = proto.messages.iter().map(|m| m.name.clone()).collect();
             defs.protocol_msg_names.insert(proto.name.clone(), names);
+        }
+    }
+
+    // v0.29 Track C: agent → protocol-name list. The agent's declared
+    // protocols come from `agent Foo: A + B { ... }`; we collect the
+    // single-segment path name from each TypeId so the bang-send check
+    // site can drill from `AgentRef[Foo]` → "Foo" → protocols → reply.
+    for item_id in &pkg.top_level {
+        let item = &pkg.items[*item_id];
+        if let HirItem::Agent(aid) = item {
+            let hir_agent = &pkg.agents[*aid];
+            let adt_id = match defs.lookup(&hir_agent.name) {
+                Some(DefRef::Adt(id)) => Some(id),
+                _ => None,
+            };
+            if let Some(adt_id) = adt_id {
+                let mut proto_names: Vec<String> = Vec::new();
+                for ptid in &hir_agent.protocols {
+                    let ty = &pkg.types[*ptid];
+                    collect_protocol_names_into(ty, &mut proto_names);
+                }
+                if !proto_names.is_empty() {
+                    defs.agent_protocols.insert(adt_id, proto_names);
+                }
+            }
         }
     }
     let _ = agent_method_ids;
@@ -482,6 +527,22 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
 
 fn variants_len(defs: &DefMap, aid: AdtId) -> usize {
     defs.adt(aid).map(|a| a.variants.len()).unwrap_or(0)
+}
+
+/// v0.29 Track C: walk a `HirType` and collect any single-segment path
+/// names (the "protocol name" position used by `agent Foo: A + B`).
+/// Composition `protocol Web = A + B` lands here as repeated entries —
+/// duplicates are fine, callers iterate the full list.
+fn collect_protocol_names_into(ty: &HirType, out: &mut Vec<String>) {
+    // `A + B` composition isn't a distinct HirType variant in the
+    // current AST — composition is unrolled at parse time into
+    // multiple protocol TypeIds — so the single-segment path is the
+    // only shape we need to cover here.
+    if let HirType::Path { segments, .. } = ty {
+        if let Some(last) = segments.last() {
+            out.push(last.clone());
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
