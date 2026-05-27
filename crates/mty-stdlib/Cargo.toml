@@ -26,14 +26,27 @@ thiserror.workspace = true
 # pull getrandom in (via ring/rustls); pinning 0.2 here keeps us on
 # the same major as what the rest of the workspace links against.
 getrandom = "0.2"
+# v0.26 Track C — std.memory backends.
+# `rusqlite` is OPTIONAL behind the `memory-sqlite` feature so default
+# builds don't add a libsqlite dep (and to keep wasm/no-libc targets
+# compiling). Same story for OpenAI embeddings — the network egress is
+# gated behind `memory-openai` so the default test harness is offline
+# and deterministic. The local in-memory + JSON-on-disk vector backend
+# and the in-memory episodic ring buffer are always available.
+serde = { workspace = true }
+rusqlite = { version = "0.31", features = ["bundled"], optional = true }
 
 [features]
 # `runner` pulls the full driver/diagnostics stack so `std.test`
 # can lower + run Mighty source files. Default-on; downstream
 # crates that only need json/tls/http/fs/time can disable it via
 # `default-features = false` to keep their build small.
-default = ["runner"]
+default = ["runner", "memory-sqlite"]
 runner = ["dep:mty-driver", "dep:mty-diagnostics"]
+# v0.26 Track C feature flags.
+memory-sqlite = ["dep:rusqlite"]
+memory-openai = []
+memory-qdrant = []
 
 [dev-dependencies]
 tempfile = "3"

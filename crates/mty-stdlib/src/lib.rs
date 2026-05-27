@@ -33,6 +33,7 @@ pub mod http;
 pub mod http_server;
 pub mod json;
 pub mod log;
+pub mod memory;
 pub mod random;
 pub mod string;
 pub mod test;

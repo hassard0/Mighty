@@ -82,6 +82,8 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         "std.fs",
         "std.net",
         "std.time",
+        // v0.26 Track C — vector / episodic / working memory primitives.
+        "std.memory",
     ];
     for m in std_mods {
         let id = defs.alloc_module(m);
