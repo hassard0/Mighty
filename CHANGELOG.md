@@ -30,6 +30,21 @@ For the full per-release notes, see
   There is **no remaining Post-v1.0 backlog** — only RFC comment
   windows stand between current main and v1.0 GA.
 
+## [0.27.1] - 2026-05-27
+
+**Hotfix: two example files had a leading blank line the formatter
+collapses.** `examples/28_agent_with_llm_field.mty` (added in Track
+B) and `examples/29_streaming.mty` (added in Track E) each had a
+spurious blank line between their leading doc-comment block and the
+`package` decl; the formatter collapses these to a single blank, so
+the in-tree CI `fmt --check` sweep against every example failed on
+ubuntu-latest at v0.27.0 (windows-latest passed because the
+v0.26.1 CRLF-normalisation in `cmd_fmt` happens to mask the
+single-blank vs no-blank difference when the file is checked out
+with `core.autocrlf=true`). v0.27.1 reformats both files; CI green
+across all three OSes. No source-level surface change; the fmt
+canon stays the same as it has been since v0.13.
+
 ## [0.27.0] - 2026-05-27
 
 **Mighty is now feature-complete as an LLM-agent language: all

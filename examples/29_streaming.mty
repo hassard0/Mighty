@@ -21,7 +21,6 @@
 // We don't `mty run` here because exercising the live stream needs an
 // `ANTHROPIC_API_KEY`; the canonical end-to-end test lives in
 // `crates/mty-stdlib/tests/llm_streaming_source.rs`.
-
 // ----- Source-level streaming surface -----------------------------------
 //
 // `_drain_stream` takes an already-built `MessageStream` (the call

@@ -11,7 +11,6 @@
 //
 // See `dev/history/notes/OPAQUE_ADT_WASM_V0_27_NOTES.md` for the
 // design rationale.
-
 package agent_with_llm_field
 
 use std.llm
