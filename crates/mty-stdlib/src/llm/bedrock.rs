@@ -81,8 +81,26 @@ pub struct BedrockClient {
 }
 
 impl BedrockClient {
+    /// v0.29 Track E: also consults `BEDROCK_BASE_URL` (or the universal
+    /// `MTY_LLM_BASE_URL` fallback) — when set, the override replaces
+    /// the region-derived `bedrock-runtime.<REGION>.amazonaws.com` URL.
+    /// Useful for redirecting at a mock or a corporate gateway without
+    /// touching the call sites. See [`crate::llm::resolve_base_url`].
     pub fn from_env() -> Result<Self, LlmError> {
         let region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".into());
+        // v0.29 Track E: optional base-URL override. We pass an empty
+        // sentinel default so we can detect "no override set" vs. "set
+        // to an empty string" — `resolve_base_url` treats empty as
+        // unset, and we keep the override `None` so the region-derived
+        // URL stays in effect.
+        let base_override = {
+            let resolved = crate::llm::resolve_base_url("BEDROCK_BASE_URL", "");
+            if resolved.is_empty() {
+                None
+            } else {
+                Some(resolved)
+            }
+        };
         // Prefer IAM creds; fall back to bearer token.
         if let (Ok(akid), Ok(secret)) = (
             std::env::var("AWS_ACCESS_KEY_ID"),
@@ -96,14 +114,14 @@ impl BedrockClient {
                     session_token: session,
                 }),
                 region,
-                base_url_override: None,
+                base_url_override: base_override,
             });
         }
         if let Ok(token) = std::env::var("AWS_BEDROCK_API_TOKEN") {
             return Ok(Self {
                 auth: BedrockAuth::BearerToken(token),
                 region,
-                base_url_override: None,
+                base_url_override: base_override,
             });
         }
         Err(LlmError::Auth(
@@ -150,7 +168,11 @@ impl BedrockClient {
         matches!(self.auth, BedrockAuth::Sigv4(_))
     }
 
-    fn base_url(&self) -> String {
+    /// v0.29 Track E: the active base URL — either the
+    /// `BEDROCK_BASE_URL` / `MTY_LLM_BASE_URL` override (when
+    /// constructed via [`from_env`] or [`with_base_url`]), or the
+    /// region-derived `bedrock-runtime.<REGION>.amazonaws.com`.
+    pub fn base_url(&self) -> String {
         self.base_url_override
             .clone()
             .unwrap_or_else(|| format!("https://bedrock-runtime.{}.amazonaws.com", self.region))

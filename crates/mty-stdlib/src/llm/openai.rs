@@ -66,10 +66,14 @@ pub struct OpenAiClient {
 }
 
 impl OpenAiClient {
+    /// v0.29 Track E: also consults `OPENAI_BASE_URL` (or the universal
+    /// `MTY_LLM_BASE_URL` fallback) for the API base URL — see
+    /// [`crate::llm::resolve_base_url`].
     pub fn from_env() -> Result<Self, LlmError> {
         let key = std::env::var("OPENAI_API_KEY")
             .map_err(|_| LlmError::Auth("OPENAI_API_KEY not set".into()))?;
-        Ok(Self::with_api_key(key))
+        let base_url = crate::llm::resolve_base_url("OPENAI_BASE_URL", "https://api.openai.com");
+        Ok(Self::with_api_key(key).with_base_url(base_url))
     }
 
     pub fn with_api_key(api_key: impl Into<String>) -> Self {
@@ -83,6 +87,13 @@ impl OpenAiClient {
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url = base_url.into();
         self
+    }
+
+    /// Current base URL — defaults to `https://api.openai.com`,
+    /// overridden by [`with_base_url`] or by the `OPENAI_BASE_URL` /
+    /// `MTY_LLM_BASE_URL` env vars when constructed via [`from_env`].
+    pub fn base_url(&self) -> &str {
+        &self.base_url
     }
 
     /// Map a model name to its endpoint sub-path. v0.27 ships one

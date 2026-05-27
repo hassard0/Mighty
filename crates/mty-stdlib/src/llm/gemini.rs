@@ -66,11 +66,18 @@ pub struct GeminiClient {
 }
 
 impl GeminiClient {
+    /// v0.29 Track E: also consults `GEMINI_BASE_URL` (or the universal
+    /// `MTY_LLM_BASE_URL` fallback) for the API base URL — see
+    /// [`crate::llm::resolve_base_url`].
     pub fn from_env() -> Result<Self, LlmError> {
         let key = std::env::var("GEMINI_API_KEY")
             .or_else(|_| std::env::var("GOOGLE_API_KEY"))
             .map_err(|_| LlmError::Auth("GEMINI_API_KEY / GOOGLE_API_KEY not set".into()))?;
-        Ok(Self::with_api_key(key))
+        let base_url = crate::llm::resolve_base_url(
+            "GEMINI_BASE_URL",
+            "https://generativelanguage.googleapis.com",
+        );
+        Ok(Self::with_api_key(key).with_base_url(base_url))
     }
 
     pub fn with_api_key(api_key: impl Into<String>) -> Self {
@@ -85,6 +92,13 @@ impl GeminiClient {
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url = base_url.into();
         self
+    }
+
+    /// Current base URL — defaults to `https://generativelanguage.googleapis.com`,
+    /// overridden by [`with_base_url`] or by the `GEMINI_BASE_URL` /
+    /// `MTY_LLM_BASE_URL` env vars when constructed via [`from_env`].
+    pub fn base_url(&self) -> &str {
+        &self.base_url
     }
 
     /// Override the safety-settings array. Pass a JSON array of

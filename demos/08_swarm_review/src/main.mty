@@ -28,6 +28,11 @@
 //     resolves the replies through `ConsensusStrategy.Majority` into
 //     a `Consensus`. See `dev/history/notes/STD_SWARM_V0_27_NOTES.md`.
 //
+//     v0.29 Track E: the local is named `budget` now — it was forced
+//     to `spend_cap` in v0.27 because `budget` was a hard reserved
+//     keyword. The v0.29 soft-keyword change frees the identifier in
+//     every binding position (let, fn param, struct field, method name).
+//
 //   * Track E — `std.env.args()` reads the `--`-tail positional argv,
 //     so the demo accepts the code snippet on the command line:
 //     `mty run demos/08_swarm_review/src/main.mty -- "<snippet>"`.

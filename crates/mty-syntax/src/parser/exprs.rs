@@ -215,7 +215,6 @@ fn primary(p: &mut Parser) -> bool {
         UNSAFE_KW => super::unsafe_::unsafe_block(p),
         ARENA_KW => super::concurrency::arena_block(p),
         TASK_KW => super::concurrency::task_scope_or_call(p),
-        BUDGET_KW => super::concurrency::budget_block(p),
         SANDBOX_KW => super::concurrency::sandbox_block(p),
         DETACH_KW => {
             p.start_node(DETACH_EXPR);
@@ -235,7 +234,18 @@ fn primary(p: &mut Parser) -> bool {
         }
         FN_KW => lambda_expr(p),
         RUN_KW => run_expr(p),
-        IDENT => path_expr_or_call(p),
+        IDENT => {
+            // v0.29 Track E: soft keyword `budget`. When we see
+            // `budget { ident expr ...`, dispatch to the budget-block
+            // production (which re-tags the IDENT as BUDGET_KW). The
+            // lookahead is conservative enough that struct literals like
+            // `Foo { x: 1 }` and plain identifiers `let budget = 5` keep
+            // the regular IDENT path.
+            if p.tokens[p.pos].text == "budget" && lookahead_is_budget_block(p) {
+                return super::concurrency::budget_block(p);
+            }
+            path_expr_or_call(p)
+        }
         SELF_KW => {
             // `self` parses as a single-segment path expression so postfix `.field`,
             // method calls, etc. work uniformly.
@@ -387,6 +397,55 @@ fn path_expr_or_call(p: &mut Parser) -> bool {
         p.finish_node();
     }
     true
+}
+
+/// v0.29 Track E: lookahead for the soft-keyword `budget` block.
+///
+/// Precondition: `p.peek()` is an IDENT with text `"budget"`.
+///
+/// We are in expression position. The shapes we must accept as a budget
+/// block:
+///   `budget { cpu 150ms wall 2s } run job(input)`
+///   `budget {} run job()`              (empty body)
+/// The shapes we must REJECT (so `budget` keeps working as a plain ident):
+///   `budget`                            (bare ident — let, fn param, ...)
+///   `budget = 5.0`                      (assignment / let-init RHS)
+///   `budget()`                          (function call)
+///   `budget.field`                      (field access)
+///   `budget + 1`                        (arithmetic)
+///   `Foo { budget: 5 }`                 (struct literal where `budget` is a field name — different path)
+///   `budget { x: 1 }`                   (no struct literal because `budget` is not capitalised, but a hypothetical struct named `budget` would surface as struct-literal NOT budget-block; we resolve by requiring `IDENT EXPR` shape inside the braces, not `IDENT COLON ...`)
+///
+/// Decision rule: an IDENT "budget" starts a budget block iff the next
+/// non-trivia token is `{` AND either
+///   (a) the brace body is empty (`{}`), OR
+///   (b) the first interior token is an IDENT NOT followed by `:`, `,`,
+///       or `}` (the struct-literal shape). A `budget` block entry is
+///       `IDENT EXPR`, so any token starting an expression (numeric /
+///       string / duration / size literal, IDENT path, `(`, `[`, ...)
+///       qualifies. We approximate via "second token is not COLON / COMMA
+///       / R_BRACE".
+fn lookahead_is_budget_block(p: &Parser) -> bool {
+    let after_budget = next_nontrivia_index(p, p.pos + 1);
+    if p.tokens.get(after_budget).map(|t| t.kind) != Some(L_BRACE) {
+        return false;
+    }
+    let after_brace = next_nontrivia_index(p, after_budget + 1);
+    let first = p.tokens.get(after_brace).map(|t| t.kind).unwrap_or(EOF);
+    // Empty `budget {}` — accept (matches the existing grammar; even
+    // though the runtime rejects it, the parser shape is unambiguous).
+    if first == R_BRACE {
+        return true;
+    }
+    // `budget { ident EXPR ... }` — entry is IDENT followed by an
+    // expression token, NOT colon/comma/r_brace (those are struct-literal
+    // shapes and route to `path_expr_or_call`).
+    if first != IDENT {
+        return false;
+    }
+    let second_idx = next_nontrivia_index(p, after_brace + 1);
+    let second = p.tokens.get(second_idx).map(|t| t.kind).unwrap_or(EOF);
+    !matches!(second, COLON | COMMA | R_BRACE)
 }
 
 fn lookahead_is_struct_literal(p: &Parser) -> bool {
@@ -580,7 +639,6 @@ pub fn can_start_expr(k: SyntaxKind) -> bool {
             | UNSAFE_KW
             | ARENA_KW
             | TASK_KW
-            | BUDGET_KW
             | SANDBOX_KW
             | DETACH_KW
             | JOIN_KW

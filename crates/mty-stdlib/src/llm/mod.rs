@@ -77,6 +77,39 @@ pub mod provider;
 pub mod streaming;
 pub mod tools;
 
+/// v0.29 Track E: resolve a provider base URL from the environment.
+///
+/// Resolution order:
+///   1. `<provider_var>` (e.g. `ANTHROPIC_BASE_URL`) — exact override
+///      for one provider. Used by tests that mock a single provider.
+///   2. `MTY_LLM_BASE_URL` — universal fallback for all providers.
+///      Useful for redirecting *every* LLM call at a single mock or
+///      observability proxy during integration tests.
+///   3. `default_url` — the hard-coded production endpoint, applied as
+///      the last-resort fallback.
+///
+/// Returned URLs are passed through verbatim — no trailing-slash
+/// normalisation or scheme validation. The provider clients trim
+/// trailing slashes when composing endpoints, so callers MAY include
+/// or omit the trailing `/`.
+///
+/// Empty strings count as unset (typically the result of `EnvVar=` with
+/// nothing on the right). This keeps a stray empty env var from
+/// silently redirecting traffic to `""/v1/messages`.
+pub(crate) fn resolve_base_url(provider_var: &str, default_url: &str) -> String {
+    if let Ok(v) = std::env::var(provider_var) {
+        if !v.is_empty() {
+            return v;
+        }
+    }
+    if let Ok(v) = std::env::var("MTY_LLM_BASE_URL") {
+        if !v.is_empty() {
+            return v;
+        }
+    }
+    default_url.to_string()
+}
+
 // Re-exports the most-used surface at the top level so call sites
 // can write `mty_stdlib::llm::Message` instead of digging through
 // submodules.
