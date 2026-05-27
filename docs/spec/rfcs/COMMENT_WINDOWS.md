@@ -74,14 +74,14 @@ SHOULD land there so the conversation is publicly archived.
 
 Discussion link format (one per RFC):
 
-* RFC-001: <https://github.com/hassard0/Mighty/discussions/categories/rfcs?discussions_q=RFC-001>
-* RFC-002: <https://github.com/hassard0/Mighty/discussions/categories/rfcs?discussions_q=RFC-002>
-* RFC-003: <https://github.com/hassard0/Mighty/discussions/categories/rfcs?discussions_q=RFC-003>
-* RFC-004: <https://github.com/hassard0/Mighty/discussions/categories/rfcs?discussions_q=RFC-004>
-* RFC-005: <https://github.com/hassard0/Mighty/discussions/categories/rfcs?discussions_q=RFC-005>
-* RFC-006: <https://github.com/hassard0/Mighty/discussions/categories/rfcs?discussions_q=RFC-006>
-* RFC-008: <https://github.com/hassard0/Mighty/discussions/categories/rfcs?discussions_q=RFC-008>
-* RFC-009: <https://github.com/hassard0/Mighty/discussions/categories/rfcs?discussions_q=RFC-009>
+* RFC-001: <https://github.com/hassard0/Mighty/discussions/2>
+* RFC-002: <https://github.com/hassard0/Mighty/discussions/3>
+* RFC-003: <https://github.com/hassard0/Mighty/discussions/4>
+* RFC-004: <https://github.com/hassard0/Mighty/discussions/5>
+* RFC-005: <https://github.com/hassard0/Mighty/discussions/6>
+* RFC-006: <https://github.com/hassard0/Mighty/discussions/7>
+* RFC-008: <https://github.com/hassard0/Mighty/discussions/8>
+* RFC-009: <https://github.com/hassard0/Mighty/discussions/9>
 
 ### 2. Inbound-notes files (asynchronous)
 
