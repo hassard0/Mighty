@@ -47,6 +47,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use futures_core::Stream;
+use futures_util::StreamExt;
 
 use crate::llm::error::LlmError;
 use crate::llm::message::MessageDelta;
@@ -76,6 +77,66 @@ impl MessageStream {
     pub fn from_vec(deltas: Vec<Result<MessageDelta, LlmError>>) -> Self {
         Self::new(futures_util::stream::iter(deltas))
     }
+
+    /// v0.27 Track E (QoL #2) — source-level iteration entry point.
+    ///
+    /// Pull the next `MessageDelta` from the stream, awaiting the
+    /// underlying poll. Returns `None` once the upstream stream is
+    /// exhausted, matching the standard `Iterator::next` shape so
+    /// Mighty source can write either
+    ///
+    /// ```ignore
+    /// while let Some(delta) = stream.next().await {
+    ///   match delta { ... }
+    /// }
+    /// ```
+    ///
+    /// or — once the `for delta in stream` lowering is in place — the
+    /// `for`-loop sugar. Errors collapse to a `Done` terminal with the
+    /// error text in the stop-reason; consumers that need richer error
+    /// handling should drop down to the `Stream` impl directly.
+    pub async fn next(&mut self) -> Option<MessageDelta> {
+        match self.inner.next().await {
+            Some(Ok(d)) => Some(d),
+            Some(Err(e)) => Some(MessageDelta::Done {
+                stop_reason: format!("stream_error: {e}"),
+            }),
+            None => None,
+        }
+    }
+
+    /// v0.27 Track E (QoL #2) — synchronous adapter used by the
+    /// SIR interpreter's `eval_method` dispatch.
+    ///
+    /// Block on `next()` so a Mighty `while let Some(d) = stream.next() { ... }`
+    /// loop compiles cleanly when the interpreter runs outside an
+    /// `await` context. When the caller is already inside a tokio
+    /// runtime (which the slice-7 driver always is), we use
+    /// `tokio::task::block_in_place` + `Handle::block_on`; otherwise
+    /// we spin up a minimal `current_thread` runtime just for the poll.
+    pub fn next_blocking(&mut self) -> Option<MessageDelta> {
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            // We're inside a tokio runtime. `block_in_place` is only
+            // available on multi-thread runtimes; fall back to a
+            // dedicated single-threaded runtime when it isn't.
+            match handle.runtime_flavor() {
+                tokio::runtime::RuntimeFlavor::MultiThread => {
+                    tokio::task::block_in_place(|| handle.block_on(self.next()))
+                }
+                _ => fresh_runtime_block(self),
+            }
+        } else {
+            fresh_runtime_block(self)
+        }
+    }
+}
+
+fn fresh_runtime_block(s: &mut MessageStream) -> Option<MessageDelta> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()?;
+    rt.block_on(s.next())
 }
 
 impl Stream for MessageStream {
@@ -286,6 +347,65 @@ data: {\"type\":\"message_stop\"}\n\
         let (deltas, tail) = parse_anthropic_sse(body);
         assert!(deltas.is_empty());
         assert_eq!(tail, body);
+    }
+
+    /// v0.27 Track E (QoL #2): the source-level `next()` surface
+    /// yields the same deltas as the underlying `Stream` impl, and
+    /// returns `None` after the stream is exhausted.
+    #[tokio::test]
+    async fn next_yields_deltas_then_none() {
+        let deltas = vec![
+            Ok(MessageDelta::TextDelta { text: "hi".into() }),
+            Ok(MessageDelta::TextDelta {
+                text: "there".into(),
+            }),
+            Ok(MessageDelta::Done {
+                stop_reason: "end_turn".into(),
+            }),
+        ];
+        let mut s = MessageStream::from_vec(deltas);
+        assert!(matches!(s.next().await, Some(MessageDelta::TextDelta { text }) if text == "hi"));
+        assert!(
+            matches!(s.next().await, Some(MessageDelta::TextDelta { text }) if text == "there")
+        );
+        assert!(matches!(
+            s.next().await,
+            Some(MessageDelta::Done { stop_reason }) if stop_reason == "end_turn"
+        ));
+        assert!(s.next().await.is_none());
+    }
+
+    /// `next_blocking` exposes the same iteration shape from a
+    /// non-async caller (the SIR interpreter's eval_method).
+    #[test]
+    fn next_blocking_yields_deltas_then_none() {
+        let deltas = vec![
+            Ok(MessageDelta::TextDelta {
+                text: "alpha".into(),
+            }),
+            Ok(MessageDelta::Done {
+                stop_reason: "end_turn".into(),
+            }),
+        ];
+        let mut s = MessageStream::from_vec(deltas);
+        assert!(
+            matches!(s.next_blocking(), Some(MessageDelta::TextDelta { text }) if text == "alpha")
+        );
+        assert!(matches!(s.next_blocking(), Some(MessageDelta::Done { .. })));
+        assert!(s.next_blocking().is_none());
+    }
+
+    /// Stream errors collapse to a `Done` with `stream_error:` so the
+    /// `next()` API never panics or wedges its caller.
+    #[tokio::test]
+    async fn next_collapses_stream_errors_to_done() {
+        let deltas = vec![Err(crate::llm::error::LlmError::Transport("boom".into()))];
+        let mut s = MessageStream::from_vec(deltas);
+        let got = s.next().await;
+        assert!(matches!(
+            got,
+            Some(MessageDelta::Done { stop_reason }) if stop_reason.starts_with("stream_error:")
+        ));
     }
 
     #[test]

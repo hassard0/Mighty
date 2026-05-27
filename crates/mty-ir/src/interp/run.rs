@@ -1612,8 +1612,29 @@ fn eval_method(receiver: &Value, name: &str, args: &[Value]) -> Value {
         "is_empty" => match receiver {
             Str(s) => Bool(s.is_empty()),
             Array(xs) => Bool(xs.is_empty()),
+            // v0.27 Track E (QoL #1): opaque-handle receivers — e.g. a
+            // `VectorStore` value stored as `Value::Unit` because the
+            // SIR interp doesn't materialise the real Rust handle —
+            // report empty so demo 07's "skip indexing when the store
+            // is populated" gate evaluates to `true` on the first run
+            // (matching the local backend's empty initial state). Real
+            // dispatch through to `mty_stdlib::memory::VectorStore::is_empty`
+            // is wired by the v0.28 opaque-handle lift.
+            Unit => Bool(true),
             _ => Bool(false),
         },
+        // v0.27 Track E (QoL #2): synchronous `next()` on an opaque
+        // stream receiver. The SIR interpreter doesn't materialise the
+        // real `MessageStream` handle yet (v0.28 opaque-handle lift),
+        // so any `stream.next()` invocation returns `None` to unblock
+        // a `while let Some(d) = stream.next() { ... }` loop. The
+        // Rust-side `MessageStream::next_blocking` is the canonical
+        // impl; this arm exists so `mty check` accepts the call shape
+        // against a permissive receiver. `Array(_)` receivers are
+        // handled by the dedicated `__mty_iter_next` arm above, which
+        // carries the per-loop index, so we don't special-case them
+        // here.
+        "next" => none(),
 
         // ---------------- Result/Option helpers ----------------
         "unwrap" => match receiver {

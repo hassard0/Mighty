@@ -1,0 +1,73 @@
+// 29_streaming.mty — v0.27 Track E (QoL gap #2): source-level streaming.
+//
+// `AnthropicClient.complete_stream()` worked at the Rust API since
+// v0.26 but a Mighty `.mty` program couldn't iterate the resulting
+// `MessageStream` cleanly — the iterator shape wasn't surfaced
+// through the SIR interpreter or the prelude.
+//
+// v0.27 lands two surfaces on the Rust side:
+//
+//   * `MessageStream::next() -> Option[MessageDelta]` (async)
+//   * `MessageStream::next_blocking() -> Option[MessageDelta]`
+//
+// Plus a `MessageStream` opaque ADT + a `next` entry in the prelude's
+// permissive method table, so Mighty source can pull deltas from the
+// stream through the typed handle.
+//
+// Build:
+//   mty fmt examples/29_streaming.mty
+//   mty check examples/29_streaming.mty
+//
+// We don't `mty run` here because exercising the live stream needs an
+// `ANTHROPIC_API_KEY`; the canonical end-to-end test lives in
+// `crates/mty-stdlib/tests/llm_streaming_source.rs`.
+
+// ----- Source-level streaming surface -----------------------------------
+//
+// `_drain_stream` takes an already-built `MessageStream` (the call
+// site would be `client.messages_stream(req)`) and pulls a fixed
+// number of deltas via the `next()` method. The permissive method
+// table routes `next` through the SIR interpreter (which returns
+// `None` for opaque receivers — the real iteration lives in
+// `mty_stdlib::llm::streaming::MessageStream::next_blocking`).
+//
+// The bounded `for _i in 0..k` shape keeps the example deterministic
+// at the parser level: `while let Some(d) = stream.next()` would be
+// the canonical loop once the parser ships pattern bindings in `while`
+// (v0.28). Until then this example demonstrates the call shape; the
+// Rust-side test covers the full iteration semantics.
+fn _drain_stream(stream: MessageStream, max_deltas: USize) -> USize {
+  let mut count: USize = 0
+  let mut i: USize = 0
+  while i < max_deltas {
+    let _delta = stream.next()
+    count = count + 1
+    i = i + 1
+  }
+  count
+}
+
+// `for delta in stream` would desugar onto `__mty_iter_next` for the
+// arrays-and-ranges path. The typed `MessageStream` iteration goes
+// through the explicit `next()` form above. This stub locks in the
+// `for`-loop shape for arrays of deltas so the v0.28 iterator-protocol
+// unification (where `MessageStream` impls the same iter trait the
+// array path uses) has a regression hook.
+fn _consume_via_for(deltas: &[I32]) -> USize {
+  let mut count: USize = 0
+  for _delta in deltas {
+    count = count + 1
+  }
+  count
+}
+
+// ----- Entry point ------------------------------------------------------
+//
+// `main` exercises only the parser/checker surface — no LLM call. The
+// helper fns above are the ones the test suite + future demo iterates
+// against; `main` exists so `mty run` doesn't trap on a missing entry
+// point when this example is exercised by the workspace's example
+// sweep.
+fn main() {
+  log("29_streaming: source-level streaming surface")
+}

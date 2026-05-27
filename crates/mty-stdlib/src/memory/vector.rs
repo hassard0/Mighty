@@ -155,6 +155,33 @@ impl VectorStore {
         self.len() == 0
     }
 
+    /// v0.27 Track E (QoL #1): drop every record + persist the empty
+    /// state. Local backend writes a `[]` JSON to disk so subsequent
+    /// `VectorStore::local(path)` constructions see the empty store
+    /// rather than re-loading stale entries. Qdrant backend clears the
+    /// cached records; the live-HTTP path is wired in v0.27 follow-up.
+    pub fn clear(&mut self) -> Result<(), VectorErr> {
+        match &mut self.backend {
+            Backend::Local(b) => {
+                b.records.clear();
+                b.persist()?;
+            }
+            Backend::Qdrant(b) => {
+                b.cached_records.clear();
+            }
+        }
+        record_memory_delta(
+            0,
+            &MemoryDelta::Patch {
+                handle_kind: self.kind().to_string(),
+                handle_id: self.handle_id.clone(),
+                op: "clear".into(),
+                bytes: Vec::new(),
+            },
+        );
+        Ok(())
+    }
+
     /// Insert / overwrite a record. Synchronous; embeds via the
     /// configured embedder and persists to disk (local backend only).
     /// Records a [`MemoryDelta::Patch`] into the replay trace.

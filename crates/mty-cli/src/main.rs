@@ -73,10 +73,19 @@ enum Cmd {
     /// Run a Mighty source file. Default: slice-7 runtime (tokio
     /// executor + agents). With `--legacy-interp`, use the slice-6
     /// synchronous interpreter (useful for diagnostic comparison).
+    ///
+    /// v0.27 Track E (QoL #3): trailing positionals after `--` are
+    /// forwarded to Mighty source as `std.env.args()`. Example:
+    /// `mty run demo.mty -- alpha "beta gamma"` makes `args` resolve
+    /// to `["alpha", "beta gamma"]` inside the program.
     Run {
         path: std::path::PathBuf,
         #[arg(long)]
         legacy_interp: bool,
+        /// Positional argv forwarded to the Mighty program as
+        /// `std.env.args()`. Everything after `--` lands here.
+        #[arg(last = true)]
+        argv: Vec<String>,
     },
     /// Build a Mighty source file to a runnable artifact (slice 8).
     ///
@@ -290,7 +299,8 @@ fn main() {
         Cmd::Run {
             path,
             legacy_interp,
-        } => cmd::run::run(&path, legacy_interp),
+            argv,
+        } => cmd::run::run(&path, legacy_interp, argv),
         Cmd::Build {
             path,
             debug,

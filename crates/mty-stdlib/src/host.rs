@@ -46,8 +46,21 @@ pub fn dispatch(path: &[String], method: &str, args: &[Value]) -> Value {
         // v0.5 dogfood Gap-1: real socket-binding server.
         ("std.http", "serve") => http_serve(args),
         ("std.http", "shutdown") => http_shutdown(args),
+        // -------- env (v0.27 Track E QoL #3) --------
+        ("std.env", "args") => env_args(),
         _ => Value::Unit,
     }
+}
+
+// --- env ---
+
+/// v0.27 Track E (QoL #3): expose the CLI's `mty run <path> -- <argv>`
+/// trailing args to Mighty source. Returns a `Value::Array` of
+/// `Value::Str`; empty when nothing was installed (library callers,
+/// JIT path, wasm32-wasi). Indexing is "Mighty user args" — the leading
+/// element is what came right after `--`, not the binary name.
+fn env_args() -> Value {
+    Value::Array(crate::env::args().into_iter().map(Value::Str).collect())
 }
 
 // --- json ---
