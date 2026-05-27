@@ -296,15 +296,58 @@ pub fn lower_expr(ctx: &mut LoweringCtx, n: SyntaxNode) -> ExprId {
             HirExpr::For { pat, iter, body }
         }
         SyntaxKind::WHILE_EXPR => {
-            let cond = n
-                .children()
-                .find(|c| is_expr_node(c.kind()))
-                .map(|e| lower_expr(ctx, e))
+            // WHILE_EXPR has two shapes (v0.29 Track D):
+            //   while cond { body }
+            //   while let pat = scrutinee { body }
+            // The distinguishing token is LET_KW; this mirrors the
+            // dual-shape lowering used for IF_EXPR in slice 2.
+            let has_let = n
+                .children_with_tokens()
+                .filter_map(|e| e.into_token())
+                .any(|t| t.kind() == SyntaxKind::LET_KW);
+            let mut kids: Vec<SyntaxNode> = n.children().collect();
+
+            if has_let {
+                let pat_idx = kids
+                    .iter()
+                    .position(|c| super::patterns::is_pat_node(c.kind()));
+                let pat = if let Some(i) = pat_idx {
+                    super::patterns::lower_pat(ctx, kids.remove(i))
+                } else {
+                    ctx.alloc_pat(HirPat::Wildcard)
+                };
+                let scrut_idx = kids.iter().position(|c| is_expr_node(c.kind()));
+                let scrutinee = if let Some(i) = scrut_idx {
+                    lower_expr(ctx, kids.remove(i))
+                } else {
+                    ctx.alloc_expr(HirExpr::Error)
+                };
+                let body = kids
+                    .iter()
+                    .position(|c| c.kind() == SyntaxKind::BLOCK)
+                    .map(|i| lower_block_node(ctx, kids.remove(i)))
+                    .unwrap_or_else(|| {
+                        ctx.alloc_block(HirBlock {
+                            stmts: vec![],
+                            tail: None,
+                        })
+                    });
+                return ctx.alloc_expr(HirExpr::WhileLet {
+                    pat,
+                    scrutinee,
+                    body,
+                });
+            }
+
+            let cond = kids
+                .iter()
+                .position(|c| is_expr_node(c.kind()))
+                .map(|i| lower_expr(ctx, kids.remove(i)))
                 .unwrap_or_else(|| ctx.alloc_expr(HirExpr::Error));
-            let body = n
-                .children()
-                .find(|c| c.kind() == SyntaxKind::BLOCK)
-                .map(|b| lower_block_node(ctx, b))
+            let body = kids
+                .iter()
+                .position(|c| c.kind() == SyntaxKind::BLOCK)
+                .map(|i| lower_block_node(ctx, kids.remove(i)))
                 .unwrap_or_else(|| {
                     ctx.alloc_block(HirBlock {
                         stmts: vec![],

@@ -164,6 +164,11 @@ pub fn lower_expr(ctx: &mut LowerCtx, fb: &mut FnBuilder, eid: ExprId) -> Operan
         HirExpr::Match { scrutinee, arms } => lower_match(ctx, fb, scrutinee, &arms),
         HirExpr::For { pat, iter, body } => lower_for(ctx, fb, pat, iter, body),
         HirExpr::While { cond, body } => lower_while(ctx, fb, cond, body),
+        HirExpr::WhileLet {
+            pat,
+            scrutinee,
+            body,
+        } => lower_while_let(ctx, fb, pat, scrutinee, body),
         HirExpr::Loop { body } => lower_loop(ctx, fb, body),
         HirExpr::Return(opt) => {
             let v = match opt {
@@ -1134,6 +1139,62 @@ fn lower_while(
         then: body_block,
         else_: exit,
     });
+
+    fb.switch_to(body_block);
+    fb.push_loop(LoopFrame {
+        continue_target: continue_tgt,
+        exit_target: exit,
+        result_local,
+    });
+    let block = ctx.pkg.blocks[body].clone();
+    let _ = lower_block(ctx, fb, &block);
+    fb.pop_loop();
+    fb.set_term(Term::Goto(continue_tgt));
+
+    fb.switch_to(continue_tgt);
+    fb.set_term(Term::Goto(header));
+
+    fb.switch_to(exit);
+    Operand::Move(Place::local(result_local))
+}
+
+fn lower_while_let(
+    ctx: &mut LowerCtx,
+    fb: &mut FnBuilder,
+    pat: mty_hir::PatId,
+    scrutinee: ExprId,
+    body: mty_hir::BlockId,
+) -> Operand {
+    // v0.29 Track D: `while let pat = scrutinee { body }`.
+    //
+    //   header:
+    //     scr := <scrutinee>
+    //     pat-match scr {
+    //       succ -> body_block
+    //       fail -> exit
+    //     }
+    //   body_block:
+    //     <body>; goto continue_tgt
+    //   continue_tgt:
+    //     goto header
+    //   exit:
+    //     result_local
+    //
+    // The scrutinee is re-evaluated on every iteration, just like a
+    // plain `while`'s condition. Bindings introduced by the pattern
+    // live only inside the body block. `break`/`continue` route
+    // through the loop frame so they keep their usual semantics.
+    let header = fb.new_block();
+    let body_block = fb.new_block();
+    let continue_tgt = fb.new_block();
+    let exit = fb.new_block();
+    let result_local = fb.fresh_temp(IrTy::Unit);
+    fb.set_term(Term::Goto(header));
+
+    fb.switch_to(header);
+    let scr = lower_expr(ctx, fb, scrutinee);
+    let scr_place = operand_to_place(fb, scr);
+    pats::lower_pat_match(ctx, fb, scr_place, pat, body_block, exit);
 
     fb.switch_to(body_block);
     fb.push_loop(LoopFrame {

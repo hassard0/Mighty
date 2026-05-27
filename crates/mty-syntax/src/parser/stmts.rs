@@ -141,6 +141,17 @@ pub fn while_expr(p: &mut Parser) -> bool {
     p.start_node(WHILE_EXPR);
     p.bump(WHILE_KW);
     p.skip_trivia();
+    // `while let Pattern = scrutinee { ... }` — optional leading
+    // let-binding, mirroring the `if let` shape from slice 2. The CST
+    // node remains WHILE_EXPR; HIR lowering branches on whether a
+    // LET_KW token is present.
+    if p.at(LET_KW) {
+        p.bump(LET_KW);
+        p.skip_trivia();
+        patterns::pattern(p);
+        p.expect(EQ);
+        p.skip_trivia();
+    }
     p.with_no_struct_literal(|p| {
         exprs::expr(p);
     });

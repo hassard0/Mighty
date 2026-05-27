@@ -899,6 +899,31 @@ impl<'a> BorrowCx<'a> {
                 });
                 None
             }
+            HirExpr::WhileLet {
+                pat,
+                scrutinee,
+                body,
+            } => {
+                // v0.29 Track D: borrow-flow for `while let`. The
+                // scrutinee is re-evaluated each iteration; pattern
+                // bindings live only inside the body's frame. Mirrors
+                // `For` (which also re-binds per iteration) plus the
+                // pattern-binding logic from `IfLet`.
+                let _ = self.walk_expr(scrutinee, Position::Use);
+                let scrut_ty = self
+                    .typed
+                    .expr_ty
+                    .get(&scrutinee)
+                    .copied()
+                    .unwrap_or(self.typed.ty_arena.unit);
+                self.loop_fixed_point(|this| {
+                    this.push_frame(None);
+                    this.bind_pattern(pat, scrut_ty);
+                    this.walk_block(body);
+                    this.pop_frame();
+                });
+                None
+            }
             HirExpr::Loop { body } => {
                 self.loop_fixed_point(|this| {
                     this.walk_block(body);

@@ -286,6 +286,23 @@ fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
             let _ = check_block(cx, body, None);
             cx.arena.unit
         }
+        HirExpr::WhileLet {
+            pat,
+            scrutinee,
+            body,
+        } => {
+            // v0.29 Track D: `while let pat = scrutinee { body }`.
+            // Mirrors `if let` typing: synth the scrutinee, check the
+            // pattern against that type to introduce its bindings, then
+            // check the body. The whole expression has type `unit`
+            // (just like plain `while`).
+            let scrut_ty = synth_expr(cx, scrutinee);
+            cx.locals.enter();
+            check_pattern(cx, pat, scrut_ty);
+            let _ = check_block(cx, body, None);
+            cx.locals.leave();
+            cx.arena.unit
+        }
         HirExpr::Loop { body } => {
             let _ = check_block(cx, body, None);
             cx.arena.never

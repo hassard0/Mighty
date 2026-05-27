@@ -1,0 +1,78 @@
+// 30_stream_consume.mty — v0.29 Track D: source-level `while let`.
+//
+// v0.27 Track E shipped the streaming runtime (`MessageStream::next`
+// + `next_blocking`, plus the `Stream` trait impl) and v0.27's
+// example 29 set up the `_drain_stream` helper. What was missing was
+// the surface-syntax loop: a Mighty `.mty` program had to use a
+// bounded `for _i in 0..k` shape because the parser couldn't accept
+// `while let Some(delta) = stream.next() { ... }`.
+//
+// Track D lands the `while let` parser + HIR lowering, so the
+// canonical streaming loop now compiles as written. This example
+// pins the SHAPE down — `mty check` must keep accepting it, and the
+// surrounding stream stub keeps the demo mounted in the LLM
+// streaming story.
+//
+// Build:
+//   mty fmt examples/30_stream_consume.mty
+//   mty check examples/30_stream_consume.mty
+//
+// We don't `mty run` against a live model — the `MessageStream` is
+// opaque to the SIR interpreter and `next()` returns `None` for
+// non-array receivers (which makes the loop exit immediately). The
+// canonical Rust-side test lives in
+// `crates/mty-stdlib/tests/llm_streaming_source.rs`, and an interp-
+// level test for the `while let` lowering itself lives in
+// `crates/mty-driver/tests/interp_runnable.rs`
+// (`while_let_*` tests).
+// ----- Source-level streaming surface -----------------------------------
+//
+// `_drain_stream` pulls deltas off the typed handle until the
+// upstream stream is exhausted. The Mighty source matches the
+// snippet baked into the `MessageStream::next` doc comment
+// one-for-one:
+//
+//   while let Some(delta) = stream.next() { handle(delta) }
+//
+// On the SIR interpreter (`mty check` / fixture tests) the opaque
+// receiver returns `None` from the very first `.next()` so the loop
+// runs zero iterations. On the AOT runtime the loop drives the real
+// async stream through `next_blocking`.
+fn _drain_stream(stream: MessageStream) {
+  while let Some(_delta) = stream.next() {
+    log("delta")
+  }
+}
+
+// `_consume_with_break` shows that `break` works the same inside
+// `while let` as inside plain `while` — the loop frame the lowering
+// installs routes break back to the same exit target, so a
+// streaming consumer can short-circuit on the first sentinel delta
+// without losing the pattern-match semantics.
+fn _consume_with_break(stream: MessageStream) {
+  while let Some(_delta) = stream.next() {
+    log("delta")
+    break
+  }
+}
+
+// ----- Provider stub ----------------------------------------------------
+//
+// `make_stream` stands in for a real `client.complete_stream(req)`
+// call; returning the opaque handle without invoking a live model
+// keeps `mty check` deterministic. The real call site lives in the
+// Rust-side streaming test.
+fn make_stream() -> MessageStream {
+  MessageStream.empty()
+}
+
+// ----- Entry point ------------------------------------------------------
+//
+// `main` exercises only the parser + checker surface — same
+// discipline as example 29. The helpers above are the regression
+// hooks; `main` keeps the example mounted in the workspace sweep.
+fn main() {
+  let s = make_stream()
+  _drain_stream(s)
+  log("30_stream_consume: while let Some(delta) = stream.next() { ... }")
+}

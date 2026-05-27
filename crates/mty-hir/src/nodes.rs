@@ -435,6 +435,17 @@ pub enum HirExpr {
         then: BlockId,
         else_: Option<ExprId>,
     },
+    /// `while let Pattern = scrutinee { body }`. v0.29 Track D — kept
+    /// as its own variant (rather than desugaring to `loop` + `match`)
+    /// so the type checker, borrow checker, and downstream IR lowering
+    /// can keep the `Stream`-iteration intent visible. Re-evaluates the
+    /// scrutinee on every iteration; the loop exits when the pattern
+    /// fails to match.
+    WhileLet {
+        pat: PatId,
+        scrutinee: ExprId,
+        body: BlockId,
+    },
     /// `run <expr>` — leading-keyword expression used in sandbox bodies
     /// (spec §16.1). Slice 2 does not constrain where it can appear;
     /// slice 3's type checker will restrict it.

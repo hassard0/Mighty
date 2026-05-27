@@ -101,3 +101,51 @@ agent A {
     let r = parse(src);
     assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
 }
+
+// ---- v0.29 Track D: while let ----
+
+#[test]
+fn parse_while_let_some() {
+    use mty_syntax::{parse, SyntaxKind, SyntaxNode};
+    let src = "fn f() { while let Some(x) = iter.next() { use_x(x) } }";
+    let r = parse(src);
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    let while_node = root
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::WHILE_EXPR)
+        .expect("WHILE_EXPR");
+    let has_let = while_node
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .any(|t| t.kind() == SyntaxKind::LET_KW);
+    assert!(has_let, "while let should carry LET_KW token");
+}
+
+#[test]
+fn parse_while_let_no_else_branch() {
+    use mty_syntax::parse;
+    // `while let` has no else arm, unlike `if let`.
+    let src = "fn f() { while let Some(c) = resp.stream().next() { handle(c) } }";
+    let r = parse(src);
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+}
+
+#[test]
+fn parse_plain_while_still_parses() {
+    use mty_syntax::{parse, SyntaxKind, SyntaxNode};
+    // Regression: adding the let arm must not break the plain shape.
+    let src = "fn f() { while ready() { step() } }";
+    let r = parse(src);
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    let while_node = root
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::WHILE_EXPR)
+        .expect("WHILE_EXPR");
+    let has_let = while_node
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .any(|t| t.kind() == SyntaxKind::LET_KW);
+    assert!(!has_let, "plain while must not carry LET_KW");
+}

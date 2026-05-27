@@ -81,3 +81,77 @@ fn panic_traps() {
     let (res, _) = run_src(src);
     assert!(matches!(res, RunResult::Trap { .. }));
 }
+
+// ---- v0.29 Track D: while let lowering + interp ----
+
+#[test]
+fn while_let_immediately_exits_on_none() {
+    // The scrutinee starts as `None`, so the loop body must NEVER
+    // run. This pins down the pattern-fail -> exit transition in
+    // `lower_while_let`: the first iteration's match fails, we jump
+    // to the exit block, and `log("after")` runs once.
+    let src = r#"
+        fn pull() -> Option[I32] { None }
+        fn main() {
+          while let Some(_x) = pull() {
+            log("BODY-RAN")
+          }
+          log("after")
+        }
+    "#;
+    let (res, out) = run_src(src);
+    assert_eq!(res, RunResult::Ok { exit: 0 });
+    let trimmed = out.trim_end();
+    assert!(
+        !trimmed.contains("BODY-RAN"),
+        "body must not run: {:?}",
+        out
+    );
+    assert!(trimmed.ends_with("after"), "expected after-line: {:?}", out);
+}
+
+#[test]
+fn while_let_runs_body_when_match_succeeds() {
+    // The scrutinee yields `Some(7)` on the first call, then the
+    // body sets `done = true` and `break`s. This drives the
+    // success-then-break path through the new lowering, exercising
+    // both the per-iter pattern binding and the loop-frame goto.
+    let src = r#"
+        fn pull() -> Option[I32] { Some(7) }
+        fn main() {
+          let mut done = false
+          while let Some(x) = pull() {
+            log(x.to_str())
+            done = true
+            break
+          }
+          if done { log("done") } else { log("notdone") }
+        }
+    "#;
+    let (res, out) = run_src(src);
+    assert_eq!(res, RunResult::Ok { exit: 0 });
+    let lines: Vec<&str> = out.trim_end().lines().collect();
+    assert_eq!(lines, vec!["7", "done"], "unexpected output: {:?}", out);
+}
+
+#[test]
+fn while_let_pattern_binding_visible_in_body() {
+    // The pattern binding (`x`) must be in scope inside the body,
+    // and only in the body. After `break`, the binding goes out of
+    // scope but the loop's result lands at the exit block (Unit),
+    // so the post-loop code still typechecks + runs.
+    let src = r#"
+        fn produce() -> Option[I32] { Some(42) }
+        fn main() {
+          let mut sum: I32 = 0
+          while let Some(x) = produce() {
+            sum = sum + x
+            break
+          }
+          log(sum.to_str())
+        }
+    "#;
+    let (res, out) = run_src(src);
+    assert_eq!(res, RunResult::Ok { exit: 0 });
+    assert_eq!(out.trim_end(), "42");
+}
