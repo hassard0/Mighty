@@ -15,7 +15,6 @@
 //     via the runtime API.
 //   * HTTPS is unavailable today (see STDLIB_V0_2_NOTES.md). All URLs
 //     use `http://`.
-
 package search_api
 
 use std.http

@@ -8,7 +8,6 @@
 //! - sqlite-backed persistence (gated behind `memory-sqlite`, on by default)
 
 use mty_stdlib::memory::episodic::Episodic;
-use mty_stdlib::memory::MemoryHandle;
 use serde_json::Value;
 
 #[test]

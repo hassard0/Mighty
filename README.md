@@ -16,56 +16,93 @@ default; bare core modules via `--no-component`).
 The compiler, runtime, formatter, package manager, doc generator, LSP
 server, and stdlib are all in one Rust workspace and one `mty` binary.
 
-> **Status:** pre-alpha. The v1.0 language spec is at **v1.0-RC5**
-> (operator precedence promoted to normative §11.1.1; full
-> 63-reserved-keyword set enumerated; effect-row grammar admits the
-> multi-row-variable tail since v0.18; v0.24 RC5 polish absorbed
-> cluster mesh + hot reload + std.web + the v1.0 normative
-> conformance split into prose). The toolchain is exercised by
-> **1790 Rust tests** across 20 crates plus a second independent
-> Python implementation at [`impl-py/`](impl-py/) (full pipeline:
-> lex → parse → lower → typeck → borrow → wasm; **490 tests**,
-> 23/23 examples typeck clean, 21/24 emit wasm) and a third
-> source-only Go front-end at [`impl-go/`](impl-go/) (4848 LOC,
-> cross-validation pending Go toolchain). All six CI jobs are
-> required gates. **KNOWN_ISSUES P1 stays empty**; P2 holds one
-> open entry (#9 demo 06 headless-smoke RAF-mid-frame phash flake
-> — 4/5 success rate, predates v0.24, no required-gate impact); P2
-> #8 (wasm32-web Unit-returning user-fn call stack-balance) is
-> **closed** by v0.25 Track A's `emit_call` `FnRef::User` fix.
-> v0.25 closed all 7 v0.24 demo-blocking gaps; demo 06 V2's JS
-> shim drops **213 → 110 LOC (−48 %)** and the Mighty agent owns
-> canvas rendering end-to-end via the new HIR → IR canvas routing,
-> with **5 narrow gaps** carried to v0.26 (wasm32-web agent
-> persistence emitter-side; extern_js kebab-vs-`_` drift through
-> component encode; canvas-handle taint through fn params; `const`
-> identifier in match patterns; `format!()` named-arg `n=v`
-> passthrough). **v1.0 freeze blockers are down to RFC comment
-> windows**: blocker #1 (Python 2nd-impl) closed with HM closures
-> + generic-constraints + full borrow + wasm codegen pipeline +
-> v0.25 format-spec parser; blocker #3 (normative conformance
-> suite) closed with the **159-case kit** + normative
-> `docs/spec/conformance.md` (coverage stable at 63% direct / 99%
-> any-harness; MT3012 DROP_IN_CONST_CONTEXT remains the only
-> uncovered code, deferred pending HIR `CONST_DECL` lowering) AND
-> the v0.24-declared v1.0 GA normative/informative split (104
-> normative / 49 informative); blocker #2 (eight RFC comment-
-> window closures) is infrastructure-ready
+> **Status:** pre-alpha — but with v0.26 Mighty is now **the
+> first compiler-backed agent language with capability-typed
+> tools + deterministic replay.** The v1.0 language spec is at
+> **v1.0-RC5** (operator precedence promoted to normative
+> §11.1.1; full 63-reserved-keyword set enumerated; effect-row
+> grammar admits the multi-row-variable tail since v0.18; v0.24
+> RC5 polish absorbed cluster mesh + hot reload + std.web + the
+> v1.0 normative conformance split into prose). The toolchain is
+> exercised by **1989 Rust tests** across 20 crates plus a second
+> independent Python implementation at [`impl-py/`](impl-py/)
+> (full pipeline: lex → parse → lower → typeck → borrow → wasm;
+> **490 tests**, 23/23 examples typeck clean, 21/24 emit wasm)
+> and a third source-only Go front-end at [`impl-go/`](impl-go/)
+> (4848 LOC, cross-validation pending Go toolchain). All six CI
+> jobs are required gates. **KNOWN_ISSUES P1 stays empty**; P2
+> holds one open entry (#9 demo 06 headless-smoke RAF-mid-frame
+> phash flake — 4/5 success rate, predates v0.24, no required-
+> gate impact). v0.26 lands three new stdlib surfaces
+> (`std.llm` typed providers + `@tool` / `std.mcp` server &
+> client + `std.memory` vector / episodic / working) plus a
+> 213-LOC demo 07 that consumes all three end-to-end against a
+> mock-LLM smoke + the real Anthropic API. Track D closes 3 of
+> 5 v0.25 Track F gaps (wasm32-web agent persistence emitter-
+> side via per-agent 64KB linear-memory regions; extern_js
+> `kebab()` canonicalisation pivoting from "preserve `_`
+> verbatim" because `wit_parser` rejects `_`-prefixed
+> identifiers; canvas-handle taint through fn parameters via
+> type-based detection). **v1.0 freeze blockers are down to RFC
+> comment windows**: blocker #1 (Python 2nd-impl) closed with HM
+> closures + generic-constraints + full borrow + wasm codegen
+> pipeline + v0.25 format-spec parser; blocker #3 (normative
+> conformance suite) closed with the **159-case kit** +
+> normative `docs/spec/conformance.md` (coverage stable at 63%
+> direct / 99% any-harness; MT3012 DROP_IN_CONST_CONTEXT remains
+> the only uncovered code, deferred pending HIR `CONST_DECL`
+> lowering) AND the v0.24-declared v1.0 GA normative/informative
+> split (104 normative / 49 informative); blocker #2 (eight RFC
+> comment-window closures) is infrastructure-ready
 > ([`docs/spec/rfcs/COMMENT_WINDOWS.md`](docs/spec/rfcs/COMMENT_WINDOWS.md)
-> tracks all 8 windows;
+> tracks all 8 windows; the live dashboard at
 > [`docs/spec/rfcs/RFC_DASHBOARD.md`](docs/spec/rfcs/RFC_DASHBOARD.md)
-> gives the live per-window countdown + per-RFC implementation
-> status as of v0.24) and awaits the user-side Discussion-thread
-> openings. **Every former Post-v1.0 roadmap item has now landed
-> pre-v1.0.** **Earliest possible v1.0.0 tag: 2026-07-26** (the day
-> after the longest 60-day windows close). See [Status](#status)
-> below.
+> now points at the **opened-2026-05-26** Discussion threads
+> #2–#9 with per-window countdowns + per-RFC implementation
+> status). **Every former Post-v1.0 roadmap item has now landed
+> pre-v1.0.** **Earliest possible v1.0.0 tag: 2026-07-26** (the
+> day after the longest 60-day windows close). See
+> [Status](#status) below.
 
 ## Release timeline
 
-- **v0.25.0** (this release): closes all 7 v0.24 demo-blocking
-  gaps in a six-track parallel swarm — HIR → IR canvas routing +
-  Unit-fn stack-balance fix (Track A); `extern js` → wasm imports
+- **v0.26.0** (this release): **Mighty is now an LLM-agent
+  language.** Five-track parallel swarm lands `std.llm` typed
+  provider abstraction (Track A — Anthropic SHIPPED-FULL with
+  real HTTP/1.1 + SSE streaming + typed tool_use + budget short-
+  circuit; OpenAI / Gemini / Bedrock SHIPPED-SKELETON with auth
+  + endpoint + body shape correct, response parser deferred to
+  v0.27), `@tool` attribute macro + `std.mcp` server (stdio +
+  http) + client + 5-family CapabilitySet enforcement (Track B
+  — `Fs` / `Net` / `Clock` / `Model` / `Custom(Str)` checked at
+  every tool invocation; new MT6011–MT6016 diagnostic band),
+  `std.memory` vector + episodic + working primitives with
+  deterministic-replay integration (Track C — every mutation
+  emits `MemoryDelta` through `record_io_read`; sqlite-backed
+  Episodic via opt-on `memory-sqlite` feature). Track D closes
+  3 of 5 v0.25 Track F gaps (wasm32-web agent persistence
+  emitter-side via per-agent 64KB linear-memory regions; extern_js
+  `kebab()` canonicalisation pivoting from v0.25's "preserve `_`
+  verbatim" because `wit_parser` rejects `_`-prefixed
+  identifiers; canvas taint through fn params via type-based
+  detection). Track E ships demo 07 research agent
+  (`demos/07_research_agent/src/main.mty` — 213 LOC consuming
+  `std.llm` + `std.memory`; mock-LLM smoke + real-Anthropic
+  paths both work; SHIPPED-PARTIAL with 6 narrow v0.27 follow-
+  ups documented: `@tool` source-level parser, opaque-ADT ctor
+  scope + agent ADT fields → wasm32-web, real OpenAI/Gemini/
+  Bedrock provider bodies, `mty run` argv forwarding,
+  `Vector.is_empty()`, source-level `stream!`). Integrator fix:
+  `mty fmt --check` now normalises CRLF → LF before compare
+  (Windows checkouts with `core.autocrlf=true` were always
+  failing). Conformance kit stable at 159 cases. Rust test count
+  **1790 → 1989** (+199; A +49, B +48, C +63, D +15, E +0,
+  integrator +24). Python stable at 490. Self-host stays at 23.
+  Combined (with conformance) **2476 → 2661** (+185). See
+  [`dev/history/releases/RELEASE-v0.26.md`](dev/history/releases/RELEASE-v0.26.md).
+- **v0.25.0**: closes all 7 v0.24 demo-blocking gaps in a six-
+  track parallel swarm — HIR → IR canvas routing + Unit-fn
+  stack-balance fix (Track A); `extern js` → wasm imports
   (Track B); agent fields `[T; N]` + SIR persistence pin (Track
   C); `format!()` extended layout grammar (width / precision /
   alignment / sign / `#` / `0` / fill / `b` / `o`, Track D);
@@ -114,15 +151,21 @@ server, and stdlib are all in one Rust workspace and one `mty` binary.
   picks up two P2 entries (#8 + #9 per Track E). Conformance kit
   grows 153 → 156 cases. Rust test count **1604 → 1675** (+71).
   Combined **2254 → 2328** (+74).
-- **v0.26-RC1** (next): close Track F's 5 surfaced gaps
-  (wasm32-web agent persistence emitter-side; extern_js kebab-vs-
-  leading-`_` drift through `wit-component` `wrap_as_component`;
-  canvas-handle taint propagation through fn parameters; `const`
-  identifier resolution in match patterns; `format!()` named-arg
-  `n=v` passthrough alongside `{n}` shorthand + positional `{0}`
-  + dynamic `{:1$}` / `{:.*}`); continue v1.0 freeze gate prep —
-  RFC monitoring + last spec polish ahead of the 2026-07-25
-  last-RFC-window close.
+- **v0.27** (next): close Track E's 6 v0.27 follow-ups + 5
+  carry-forward QoL items. (1) `@tool` source-level parser
+  surface (Track B macro registered, no `@tool(...)` parse
+  yet); (2) opaque-ADT ctor scope + agent ADT fields → wasm32-
+  web (`LlmClient` / `MemoryStore` handles must pass through
+  ctor args today); (3) real OpenAI / Gemini / Bedrock provider
+  bodies (promote v0.26 skeletons to SHIPPED-FULL); (4)
+  `Vector.is_empty()` + source-level `stream!` macro + `mty run`
+  argv forwarding + `const` in match patterns +
+  `format!("{n}", n=value)` named-arg shorthand (QoL bundle);
+  (5) multi-agent swarm + cost consensus —
+  `swarm!(claude, gpt, gemini, q)` macro under a shared
+  `DollarBudget` as the v0.27 forcing-function demo. Continue
+  v1.0 freeze gate prep — RFC monitoring + last spec polish
+  ahead of the 2026-07-25 last-RFC-window close.
 - **v1.0.0 GA**: when all 8 RFC comment windows close.
   **Earliest: 2026-07-26** (the day after RFC-002 / RFC-006's 60-day
   windows close). The integrator collects dispositions →
@@ -468,6 +511,104 @@ Then:
   [`examples/26_string_vec.mty`](examples/26_string_vec.mty)
   exercises the surface.
 
+**LLM agents (v0.26 — `std.llm` + `@tool` / `std.mcp` + `std.memory`)**
+
+This is "Mighty for LLM agents." After v0.26 a Mighty program
+can pick a typed LLM provider, expose its own fns as
+capability-typed MCP tools (or connect to any external MCP
+server), persist agent memory across turns through vector +
+episodic + working stores, and replay the whole conversation
+byte-identically through the v0.19 deterministic-replay
+machinery. Every LLM call, tool invocation, and memory mutation
+is a typed event in the replay log — this is what makes Mighty
+**the first compiler-backed agent language with capability-typed
+tools + deterministic replay.**
+
+- **`std.llm` typed provider abstraction (v0.26 Track A).** The
+  single trait `mty_stdlib::llm::LlmProvider` is the source of
+  truth for every backend. Anthropic is **SHIPPED-FULL** — real
+  HTTP/1.1 over the workspace's existing `hyper` + `tokio-rustls`
+  stack, SSE streaming via `event: content_block_delta` /
+  `event: message_stop`, typed
+  `ContentBlock::ToolUse { id, name, input }` for tool-use blocks
+  with caller-side dispatch, typed `Budget` carrying
+  `{max_tokens, max_calls, max_dollars}` with per-method short-
+  circuit that returns `LlmError::BudgetExhausted` before the HTTP
+  call ever starts (off the request estimate, not the response
+  actual — predictable for replay), typed `LlmError` over
+  `BudgetExhausted` / `Network` / `Status` / `Decode` / `Stream`.
+  OpenAI / Gemini / Bedrock ship as **SHIPPED-SKELETON** — auth
+  bearer / API key shape correct against the canonical vendor URL
+  (`api.openai.com/v1/responses` /
+  `generativelanguage.googleapis.com/v1beta/models/...` /
+  `bedrock-runtime.<region>.amazonaws.com/...`), request body shape
+  correct against the vendor's typed schema, `complete()` returns
+  a stub `Message::assistant_text(format!("[<vendor> stub v0.26
+  — model=...]"))` so a caller's typed loop still works. v0.27
+  wires the response-parser + streaming bodies for each. The
+  typed `Message` / `ContentBlock` surface uses Anthropic's
+  vocabulary (`text` / `tool_use` / `tool_result` / `image`)
+  forward-compatibly across providers; translation to per-vendor
+  wire shape happens at the `LlmProvider` boundary in each
+  provider's `build_body` + response-parser pair, never in user
+  code.
+- **`@tool` macro + `std.mcp` server / client + capability sandbox
+  (v0.26 Track B).** `@tool` is a typed attribute macro
+  registered through the `mty_macros` registry with the
+  signature `@tool(description: Str, cap: CapabilitySet)`. At
+  expansion time the macro emits a synthesised `__tool_<name>`
+  companion fn that carries the fn metadata (typed argv shape,
+  result type, doc string) plus a registration call into the
+  process-wide MCP registry. The macro is registered at Rust
+  level for v0.26; the source-level `@tool(...)` parse is v0.27
+  work (Track E demo had to fall back to doc-comment spec).
+  `mty_stdlib::mcp::server::serve_stdio(opts)` + `serve_http(opts)`
+  auto-expose the registered tools through MCP's JSON-RPC
+  catalogue + invocation handler; the same agent can also be an
+  MCP client of someone else's server via
+  `McpClient::connect(transport)` running the initialise +
+  tools/list + tools/call handshake. The cap sandbox checks
+  every tool invocation against a 5-family CapabilitySet (`Fs` /
+  `Net` / `Clock` / `Model` / `Custom(Str)`) and accumulates a
+  per-invocation capability ledger for replay. New diagnostic
+  band MT6011 (`TOOL_CAP_DENIED`), MT6012 (`TOOL_NOT_FOUND`),
+  MT6013 (`TOOL_INVALID_ARGS`), MT6014 (`TOOL_RUNTIME_ERROR`),
+  MT6015 (`MCP_TRANSPORT_ERROR`), MT6016
+  (`MCP_PROTOCOL_VIOLATION`).
+- **`std.memory` vector + episodic + working primitives (v0.26
+  Track C).** Three memory primitives every agent loop needs.
+  `VectorStore` (local flat-list cosine-similarity index +
+  qdrant skeleton) for document recall;
+  `Episodic` (in-memory ring buffer + sqlite-backed persistence
+  via opt-on `memory-sqlite` feature, schema `(rowid, key TEXT,
+  value JSON, recorded_at TEXT)`) for conversation history;
+  `Working` (token-budgeted scratchpad with FIFO drop-oldest on
+  budget overflow) for the current turn's scratchpad. Every
+  mutation across the three stores emits a `MemoryDelta { store,
+  op, key, value }` event through the existing `record_io_read`
+  hook, so the v0.19 deterministic-replay machinery
+  reconstructs memory state at any frame — the "what did the
+  agent remember at step N" question is deterministically
+  answerable.
+- **Demo 07 research agent (v0.26 Track E, SHIPPED-PARTIAL).**
+  A 213-LOC `.mty` source at
+  [`demos/07_research_agent/`](demos/07_research_agent/) that
+  consumes `std.llm` + `std.memory` in a Researcher agent —
+  indexes a local 5-doc corpus into the VectorStore, calls the
+  LLM provider, dispatches tool invocations against the
+  `@tool`-tagged fns (`read_doc` / `save_answer` /
+  `search_corpus`), persists episodic memory across turns,
+  writes the final answer back into the corpus. Opt-in mock-LLM
+  smoke (`MTY_AGENT_SMOKE=1 bash
+  demos/07_research_agent/smoke.sh`); real Anthropic path via
+  `ANTHROPIC_API_KEY=sk-ant-... mty run
+  demos/07_research_agent/src/main.mty`. **SHIPPED-PARTIAL** —
+  6 narrow v0.27 follow-ups documented (`@tool` source-level
+  parser; opaque-ADT ctor scope + agent ADT fields → wasm32-
+  web; `mty run` argv forwarding; `Vector.is_empty()`; source-
+  level `stream!` macro; real OpenAI/Gemini/Bedrock provider
+  bodies).
+
 **Self-hosting (full pipeline)**
 
 - Lexer (full), parser (~1.9 KLOC subset), HIR lowering, minimal typeck, MtyIR lowering, **and Wasm core-module codegen** are all written in Mighty itself and exercised end-to-end against examples 01-05 plus arithmetic / option / pattern / string fixtures.
@@ -484,12 +625,15 @@ Then:
   MT3001–MT3005 and Core 1.0 wasm codegen emitting i32 arithmetic /
   control flow / calls / locals with deduplicated type table and
   structural validation; v0.25 adds the `format!()` extended-spec
-  parser). **490 tests** (+16 in v0.25), 23/23 examples typeck
-  clean, **21/24 examples emit wasm fn bodies** (the 3 zero-fn
-  examples are agent-only files). Closes v1.0 freeze blocker #1 +
-  completes the v1.0-RC validation question (the Rust reference
-  is no longer the only impl that exists — every spec-prose claim
-  now has a 2nd impl that round-trips through codegen).
+  parser). **490 tests** (stable v0.25 → v0.26; the v0.26 surfaces
+  `std.llm` / `std.mcp` / `std.memory` sit above the lex → parse →
+  typeck → borrow → wasm pipeline this 2nd-impl certifies),
+  23/23 examples typeck clean, **21/24 examples emit wasm fn
+  bodies** (the 3 zero-fn examples are agent-only files). Closes
+  v1.0 freeze blocker #1 + completes the v1.0-RC validation
+  question (the Rust reference is no longer the only impl that
+  exists — every spec-prose claim now has a 2nd impl that round-
+  trips through codegen).
 - Go 3rd-impl front-end at [`impl-go/`](impl-go/) — Go 1.22+ lexer + parser + CLI built from the v1.0-RC spec prose alone. 4848 LOC; cross-validation (`go test ./...`, example sweep) pending Go toolchain on the build host.
 
 ## Documentation
@@ -556,16 +700,16 @@ The single remaining blocker is the eight RFC comment windows:
   RFC-009).** Infrastructure shipped v0.19; **live dashboard added
   v0.24** at
   [`docs/spec/rfcs/RFC_DASHBOARD.md`](docs/spec/rfcs/RFC_DASHBOARD.md)
-  (per-window countdowns + per-RFC implementation status +
-  Discussion-thread-opened checkboxes), plus the window-policy
-  master tracker
+  (per-window countdowns + per-RFC implementation status), plus
+  the window-policy master tracker
   [`docs/spec/rfcs/COMMENT_WINDOWS.md`](docs/spec/rfcs/COMMENT_WINDOWS.md).
-  All 8 windows opened 2026-05-26 and await user-side Discussion-
-  thread openings. Earliest close 2026-06-09 (RFC-005, 14 days);
-  latest close 2026-07-25 (RFC-002 / RFC-006, 60 days each). Three
-  RFCs (006, 008, 009) are already implemented and await procedural
-  ratification; five (001..005) are substantive forward-looking
-  proposals.
+  **All 8 RFC discussion threads opened on 2026-05-26** (commit
+  `bf4261e`); the live dashboard now points at the open
+  Discussion threads #2–#9. Earliest close 2026-06-09 (RFC-005,
+  14 days); latest close 2026-07-25 (RFC-002 / RFC-006, 60 days
+  each). Three RFCs (006, 008, 009) are already implemented and
+  await procedural ratification; five (001..005) are substantive
+  forward-looking proposals.
 
 ### Post-v1.0
 
@@ -573,16 +717,19 @@ The Post-v1.0 backlog is **empty** as of v0.22 — every former
 post-v1.0 roadmap item (per-message work-stealing, PGO/ThinLTO,
 Python 2nd-impl borrow + codegen) landed pre-v1.0. Beyond v1.0,
 candidate slices are tracked in the `[Unreleased]` block of
-[`CHANGELOG.md`](CHANGELOG.md) (v0.24 Track E surfaced gaps — HIR
-→ IR routing for `canvas.fill_rect(...)`; latent wasm32-web
-emitter Unit-returning user-fn call stack-balance fix
-(KNOWN_ISSUES #8); agent fields across exported callbacks + arrays
-in agent fields; `extern js { fn _foo() }` emits wasm imports;
-`format!()` extended specs (width / precision / alignment) —
-plus the carry-forward BOLT post-link optimisation; multi-socket
-NUMA benchmark; `mty conform` implementer-CLI shim; systematic
-v1.0-RC validation sweep; MT3012 closure pending HIR `CONST_DECL`
-lowering).
+[`CHANGELOG.md`](CHANGELOG.md). v0.27 candidate tracks (from
+v0.26 Track E's 6 follow-ups): `@tool` source-level parser
+surface; opaque-ADT ctor scope + agent ADT fields → wasm32-web;
+real OpenAI / Gemini / Bedrock provider bodies (promote v0.26
+skeletons to SHIPPED-FULL); `Vector.is_empty()` + source-level
+`stream!` + `mty run` argv forwarding + `const` in match
+patterns + `format!("{n}", n=value)` named-arg shorthand;
+multi-agent `swarm!(claude, gpt, gemini, q)` + shared
+`DollarBudget` consensus voting as the v0.27 forcing-function
+demo. Plus the carry-forward BOLT post-link optimisation; multi-
+socket NUMA benchmark; `mty conform` implementer-CLI shim;
+systematic v1.0-RC validation sweep; MT3012 closure pending HIR
+`CONST_DECL` lowering.
 
 ### Landed pre-v1.0 (formerly post-v1.0)
 
@@ -618,44 +765,49 @@ see [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Status
 
-Mighty is **pre-alpha**. Internal milestones have been tagged through
-**v0.25**. The v1.0 language spec is at **v1.0-RC5** (v0.24 polish
-absorbed §12.6 `Resumable` / §12.7 `MT506x` reload band / §12.8
-Tier 4.3 migration + `PlacementPolicy` / §20.6 cap-name resolver /
-§22.5 per-message work-stealing / §25.8.1-8
-`mty:web/canvas@0.1` + `mty:web/input@0.1` into normative prose) —
-see `docs/spec/v1.0-rc.md`. There are **1790 Rust tests** across
-the workspace (plus **490 Python tests** in the
-[`impl-py/`](impl-py/) 2nd-impl now covering the full pipeline lex
-→ parse → lower → typeck → borrow → wasm, **159 normative
-conformance cases** at **63% direct / 99% any-harness** coverage
-with only MT3012 DROP_IN_CONST_CONTEXT remaining uncovered
-(deferred pending HIR `CONST_DECL` lowering) split **104 normative
-/ 49 informative** by the v0.24-shipped
+Mighty is **pre-alpha** — and as of v0.26 it is **the first
+compiler-backed agent language with capability-typed tools +
+deterministic replay**. Internal milestones have been tagged
+through **v0.26**. The v1.0 language spec is at **v1.0-RC5**
+(v0.24 polish absorbed §12.6 `Resumable` / §12.7 `MT506x`
+reload band / §12.8 Tier 4.3 migration + `PlacementPolicy` /
+§20.6 cap-name resolver / §22.5 per-message work-stealing /
+§25.8.1-8 `mty:web/canvas@0.1` + `mty:web/input@0.1` into
+normative prose) — see `docs/spec/v1.0-rc.md`. There are
+**1989 Rust tests** across the workspace (plus **490 Python
+tests** in the [`impl-py/`](impl-py/) 2nd-impl now covering the
+full pipeline lex → parse → lower → typeck → borrow → wasm,
+**159 normative conformance cases** at **63% direct / 99% any-
+harness** coverage with only MT3012 DROP_IN_CONST_CONTEXT
+remaining uncovered (deferred pending HIR `CONST_DECL`
+lowering) split **104 normative / 49 informative** by the
+v0.24-shipped
 [`tests/conformance/v1.0-NORMATIVE.md`](tests/conformance/v1.0-NORMATIVE.md)
-declaration, and **23 self-host driver** codegen tests = **2476
-combined**), 0 clippy warnings *under the strict `pedantic` gate*
-(a required CI job, not advisory), and **6/6 demos** pass
-`smoke.sh` (including the v0.23 canvas-driven 06_canvas_game demo,
-rewritten in v0.24 against the new wasm32-web exports +
-`format!()` — all 6 demos pass headless `MTY_WEB_SMOKE=1` smoke
-where applicable, modulo the v0.24-documented RAF-mid-frame phash
-flake on demo 06 at 4/5 success rate — see KNOWN_ISSUES #9). The
-cargo-fuzz harness covers four targets (parser / typeck / fmt /
-codegen). **KNOWN_ISSUES P1 is empty**; P2 picks up two entries in
-v0.24 (#8 latent wasm32-web Unit-returning user-fn call stack-
-balance — NOT a v0.24 regression; tracked for v0.25 closure; #9
-demo 06 headless-smoke phash flake — no required-gate impact).
-**Every former Post-v1.0 roadmap item has now landed pre-v1.0**
-(per-message work-stealing, PGO/ThinLTO, Python 2nd-impl full
-pipeline all shipped in v0.22); **v1.0 freeze blockers are down
-to the RFC comment windows only** (infrastructure shipped; awaits
-user-side Discussion thread openings; earliest v1.0.0 tag
-2026-07-26 — see [Release timeline](#release-timeline) above,
+declaration, and **23 self-host driver** codegen tests =
+**2661 combined**), 0 clippy warnings *under the strict
+`pedantic` gate* (a required CI job, not advisory), and **7/7
+demos** pass `smoke.sh` (including the v0.23 canvas-driven
+06_canvas_game demo and the v0.26 research-agent demo 07; all 6
+web/canvas demos pass headless `MTY_WEB_SMOKE=1` smoke where
+applicable, modulo the v0.24-documented RAF-mid-frame phash
+flake on demo 06 at 4/5 success rate — see KNOWN_ISSUES #9;
+demo 07 passes mock-LLM smoke under `MTY_AGENT_SMOKE=1` and the
+real Anthropic path via `ANTHROPIC_API_KEY`). The cargo-fuzz
+harness covers four targets (parser / typeck / fmt / codegen).
+**KNOWN_ISSUES P1 is empty**; P2 holds one open entry (#9 demo
+06 headless-smoke phash flake — no required-gate impact). P2
+#8 (wasm32-web Unit-returning user-fn call stack-balance) is
+closed by v0.25 Track A. **Every former Post-v1.0 roadmap item
+has now landed pre-v1.0** (per-message work-stealing,
+PGO/ThinLTO, Python 2nd-impl full pipeline all shipped in
+v0.22); **v1.0 freeze blockers are down to the RFC comment
+windows only** (infrastructure shipped + discussion threads
+opened 2026-05-26; earliest v1.0.0 tag 2026-07-26 — see
+[Release timeline](#release-timeline) above,
 [`docs/spec/rfcs/COMMENT_WINDOWS.md`](docs/spec/rfcs/COMMENT_WINDOWS.md),
 and the live
 [`docs/spec/rfcs/RFC_DASHBOARD.md`](docs/spec/rfcs/RFC_DASHBOARD.md)
-added in v0.24).
+now pointing at the opened discussion threads #2–#9).
 
 **Pre-built `mty` binaries** for Linux x86_64, macOS arm64, and
 Windows x86_64 are produced automatically on every `v*` tag push

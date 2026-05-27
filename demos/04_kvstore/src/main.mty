@@ -44,7 +44,6 @@
 //     instead trigger an automatic spawn + replay.
 //
 // LOC budget: keep main.mty under ~400 lines of `.mty` source.
-
 package kvstore
 
 use std.trace

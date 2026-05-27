@@ -25,7 +25,6 @@
 //     budget + per-message dispatch — is what a real extractor will
 //     carry; the per-token classifier sharpens once pattern methods
 //     bind in v0.5.
-
 package extract_tool
 
 use std.json

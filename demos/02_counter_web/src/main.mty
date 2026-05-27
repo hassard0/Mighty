@@ -20,7 +20,6 @@
 //     binding (see `crates/mty-codegen-wasm/src/wit.rs`). The
 //     counter state is *materialised on the JS side* by parsing the
 //     emitted log lines — the Mighty agent is the source of truth.
-
 package counter_web
 
 // ---------------------------------------------------------------------

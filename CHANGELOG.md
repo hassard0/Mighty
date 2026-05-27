@@ -9,43 +9,130 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- v0.26-RC1 candidates (from v0.25 Track F's 5 surfaced gaps):
-  (1) **wasm32-web agent persistence emitter-side** — Track C
-  v0.25 pinned the SIR-runtime side; the emitter has no agent
-  lowering. Implement the single-agent-instance pattern Track C
-  designed: `Emitter::emit_agent_state_region` reserves a fixed
-  memory region per agent declaration, anchored at a stable
-  offset, `__agent_<Name>__inst_ptr` global, callback exports
-  load state pointer + call handler with state as implicit
-  first arg. Closes the demo 06 V2 shim's ~12 LOC state mirror.
-  (2) **extern_js kebab-vs-leading-underscore drift through
-  component encode** — `predeclare_extern_js_imports` preserves
-  `_alert` in the wasm import but `emit_extern_js_interface`
-  kebab-strips it, so `wit-component`'s `wrap_as_component` step
-  fails with "import interface `mty:web/js` is missing function
-  `_alert`". Pick: preserve `_` in the WIT stub (`%_alert`-style
-  escape, needs WIT spec verification) OR strip the leading `_`
-  in the import name (back-compat-breaking).
-  (3) **Canvas handle taint propagation through fn parameters** —
-  v0.25 Track A's taint scheme is per-fn; passing a Canvas
-  handle as a parameter to another fn doesn't carry the taint.
-  Propagate the taint through fn parameter types when the param
-  resolves to `std.web.Canvas`; likely needs exposing
-  `std.web.Canvas` in the typeck prelude first.
-  (4) **`const` identifier resolution in match patterns** —
-  `const KEY_LEFT: U32 = 37` referenced in a match arm
-  `KEY_LEFT => ...` binds as a fresh variable, not a literal
-  compare. Pattern-compile resolve top-level `const` identifiers
-  before falling through to the variable-binding path.
-  (5) **`format!()` v0.26 deferrals** — accept `format!("{n}",
-  n=value)` named-arg shorthand alongside the in-scope-binding
-  form; positional `{0}`; dynamic width / precision (`{:1$}`,
-  `{:.*}`). Plus the carry-forward items from v0.23 / v0.24
-  (MT3012 / BOLT / multi-socket NUMA bench / `mty conform
-  <kit.tar.gz>` / spec validation sweep) if they don't fit into
-  v0.26's swarm budget. There is **no remaining Post-v1.0
-  backlog** — only RFC comment windows stand between current main
-  and v1.0 GA.
+- v0.27 candidates (from v0.26 Track E's 6 follow-ups + v0.25
+  carry-forward QoL):
+  (1) **`@tool` source-level parser surface.** The v0.26 Track B
+  macro is registered through the existing `mty_macros` registry,
+  but the source-level `@tool(...)` form is not yet parser-wired.
+  Track E demo had to fall back to doc-comment spec. Parser
+  extension + attribute-macro typed expansion.
+  (2) **Opaque-ADT ctor scope + agent ADT fields → wasm32-web.**
+  The `std.llm` / `std.memory` handles can't be agent fields on
+  wasm yet; must pass through ctor args. Two related typeck +
+  emitter changes that together let Mighty agents own
+  `LlmClient` + `MemoryStore` handles directly.
+  (3) **Real OpenAI / Gemini / Bedrock provider bodies.** Track
+  A's skeletons ship auth + endpoint + body shape correctly but
+  stub `complete()`; v0.27 wires the response-parsing + streaming
+  bodies for each, promoting to SHIPPED-FULL across the matrix.
+  (4) **`Vector.is_empty()` + source-level `stream!` macro + `mty
+  run` argv forwarding (QoL gaps).** Small ergonomic gaps Track E
+  surfaced. Bundle with v0.25 carry-forward `const`-in-match-
+  patterns + `format!("{n}", n=value)` shorthand.
+  (5) **Multi-agent swarm + cost consensus.** The v0.27 forcing-
+  function demo: `swarm!(claude, gpt, gemini, q)` macro fires the
+  same prompt at multiple providers under a shared
+  `DollarBudget`, votes the consensus answer (or hands back the
+  cheapest one if the answers disagree, with the typed diff).
+  Plus the carry-forward items from v0.23 / v0.24 (MT3012 / BOLT
+  / multi-socket NUMA bench / `mty conform <kit.tar.gz>` / spec
+  validation sweep) if they don't fit into v0.27's swarm budget.
+  There is **no remaining Post-v1.0 backlog** — only RFC comment
+  windows stand between current main and v1.0 GA.
+
+## [0.26.0] - 2026-05-27
+
+**Mighty is now an LLM-agent language: typed providers,
+capability-enforced tools, MCP server/client, and memory
+primitives. Demo 07 puts it all together.** v0.26 is the agent-
+features turning-point release. Three new stdlib surfaces
+(`std.llm` + `@tool` / `std.mcp` + `std.memory`) land in parallel
+with the v0.25 carry-over cleanup and a 213-LOC research-agent
+demo that consumes the new surfaces end-to-end. **Track A** ships
+`mty_stdlib::llm::LlmProvider` as the single typed trait every
+backend implements, with Anthropic as the SHIPPED-FULL reference
+(real HTTP/1.1 over `hyper` + `tokio-rustls`, SSE streaming via
+`event: content_block_delta` / `message_stop`, typed `ContentBlock::
+ToolUse { id, name, input }` for tool-use blocks, typed `Budget`
+with per-method short-circuit returning `LlmError::BudgetExhausted`
+off the request estimate, typed `LlmError` covering
+`BudgetExhausted` / `Network` / `Status` / `Decode` / `Stream`)
+and OpenAI / Gemini / Bedrock as SHIPPED-SKELETON (auth +
+endpoint + body shape correct against the canonical vendor URL +
+typed schema; `complete()` returns a stub
+`Message::assistant_text("[<vendor> stub v0.26 ...]")`; v0.27
+wires the response parser + streaming bodies); 49 new tests.
+**Track B** ships `@tool` as a typed attribute macro through
+`mty_macros` (signature `@tool(description: Str, cap:
+CapabilitySet)`; expansion emits a synthesised `__tool_<name>`
+companion fn with the fn metadata + registry registration call;
+the macro is registered at Rust level — the source-level
+`@tool(...)` parse is v0.27 work), plus `std.mcp` server (stdio
++ http auto-exposes registered tools) + `std.mcp` client (runs
+the JSON-RPC initialise + tools/list + tools/call handshake) +
+5-family CapabilitySet enforcement (`Fs` / `Net` / `Clock` /
+`Model` / `Custom(Str)` checked at every tool invocation; per-
+invocation capability ledger accumulates for replay); new
+`MT6011`–`MT6016` diagnostic band; 48 new tests. **Track C**
+ships `std.memory` with three primitives — `VectorStore` (local
+flat-list cosine-similarity index + qdrant skeleton), `Episodic`
+(in-memory ring buffer + sqlite-backed persistence via opt-on
+`memory-sqlite` feature; `(rowid, key TEXT, value JSON,
+recorded_at TEXT)` schema), `Working` (token-budgeted scratchpad
+with FIFO drop-oldest on budget overflow) — and replay
+integration via a new `MemoryDelta { store, op, key, value }`
+event variant routed through the existing `record_io_read` hook
+so `mty replay` reconstructs memory state at any frame; 63 new
+tests. **Track D** closes 3 of 5 v0.25 Track F gaps: wasm32-web
+agent persistence emitter-side via per-agent 64KB linear-memory
+regions + `__agent_<Name>__inst_ptr` global + callback exports
+loading state pointer + calling handler with state as implicit
+first arg (closes Track F §C); extern_js name canonicalised via
+`kebab()` (pivoted from v0.25's "preserve `_` verbatim" because
+`wit_parser` rejects `_`-prefixed identifiers even with
+`%`-escape; closes Track F §B; side effect: existing hand-written
+JS shims targeting `_foo` must migrate to `foo` in the WIT-
+binding layer); canvas taint through fn parameters via type-based
+detection (extends v0.25 Track A's per-fn scheme to flow taint
+into callees when a param resolves to `std.web.Canvas`; closes
+Track F §A); 15 new tests. Track F's remaining 2 gaps (§D
+`const` in match patterns, §E `format!("{n}", n=value)`)
+roll forward to v0.27 QoL. **Track E** ships demo 07 research
+agent — 213-LOC `.mty` source that consumes `std.llm` +
+`std.memory` (indexes a local 5-doc corpus into the VectorStore,
+calls the LLM provider, dispatches tool invocations against the
+`@tool`-tagged fns, persists episodic memory across turns, writes
+the final answer back into the corpus), opt-in mock-LLM smoke
+(`MTY_AGENT_SMOKE=1 bash demos/07_research_agent/smoke.sh`) + real
+Anthropic invocation path (`ANTHROPIC_API_KEY=sk-ant-... mty
+run`). **SHIPPED-PARTIAL**: 6 narrow v0.27 follow-ups documented
+(`@tool` source-level parser; opaque-ADT ctor scope + agent ADT
+fields → wasm32-web; `mty run` argv forwarding; `Vector.is_empty()`;
+source-level `stream!` macro). **Integrator fixes (this tag
+commit):** `crates/mty-cli/src/cmd/fmt.rs` normalises CRLF → LF
+before the `fmt --check` compare and preserves the file's original
+line-ending convention on write — `fmt --check` was failing on
+Windows checkouts (`core.autocrlf=true`) because the formatter
+emits LF and exact-string compare against CRLF was always reporting
+"would reformat"; the v0.26 swarm Windows smoke would have shipped
+red without this fix. Plus 4 demo formatter-idempotence sweeps
+(`demos/0{1,2,3,4}/src/main.mty` each had an extra blank line the
+formatter collapses to canonical single-blank) and one unused-
+import removal in `crates/mty-stdlib/tests/memory_episodic.rs` that
+v0.26 Track C left after a late-merge refactor. **KNOWN_ISSUES
+net: 0.** No new entries. P2 #9 (demo 06 RAF-mid-frame phash flake,
+4/5 success rate, predates v0.24, no required-gate impact) stays
+open. P1 stays empty. **v1.0 freeze gate status: unchanged
+structurally.** Blockers #1 + #3 stay CLOSED; #2 (8 RFC comment
+windows) infrastructure + dashboard stay live + discussion threads
+opened 2026-05-26 (commit `bf4261e`); earliest possible v1.0.0 tag
+remains **2026-07-26**. Conformance kit stable at **159 cases**
+(new surfaces are stdlib, not normative). Rust test count grows
+**1790 → 1989** (+199; A +49, B +48, C +63, D +15, E +0, +24
+integrator / scaffolding). Python stable at **490**. Self-host
+driver still at **23**. Combined (with 159 conformance cases):
+**2661** (+185 vs v0.25). See
+[`dev/history/releases/RELEASE-v0.26.md`](dev/history/releases/RELEASE-v0.26.md).
 
 ## [0.25.0] - 2026-05-26
 
