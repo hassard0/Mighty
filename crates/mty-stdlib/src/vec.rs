@@ -115,6 +115,7 @@ impl<T> Vec<T> {
     /// Mutable counterpart of [`iter`].
     ///
     /// [`iter`]: Self::iter
+    #[allow(clippy::iter_without_into_iter)] // &mut Vec<T> via inherent iter_mut is intentional; IntoIterator for &mut is a v0.26 follow-up
     pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, T> {
         self.inner.iter_mut()
     }
@@ -303,7 +304,7 @@ mod tests {
     fn iter_yields_borrowed_refs() {
         let v: Vec<u32> = (0..5u32).collect();
         let sum: u32 = v.iter().sum();
-        assert_eq!(sum, 0 + 1 + 2 + 3 + 4);
+        assert_eq!(sum, 1 + 2 + 3 + 4);
     }
 
     #[test]

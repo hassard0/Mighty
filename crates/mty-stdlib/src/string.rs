@@ -84,6 +84,10 @@ impl String {
 
     /// Clone a borrowed `&str` into an owned `String`. Cheap: one
     /// `memcpy` over the source bytes.
+    ///
+    /// Named `from_str` for stdlib parity; this is an inherent method,
+    /// not an `std::str::FromStr` impl (which would force a Result).
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         Self {
             bytes: s.as_bytes().to_vec(),

@@ -630,9 +630,8 @@ impl<'a> Emitter<'a> {
             let Some(f) = self.prog.fns.iter().find(|f| f.id == fn_id) else {
                 continue;
             };
-            let sig = match Self::fn_sig_for_extern_js(f) {
-                Ok(s) => s,
-                Err(_) => continue,
+            let Ok(sig) = Self::fn_sig_for_extern_js(f) else {
+                continue;
             };
             let ty = self.intern_sig(sig);
             self.import_section

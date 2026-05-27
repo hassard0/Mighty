@@ -221,10 +221,8 @@ fn all_call_targets(wasm: &[u8]) -> Vec<u32> {
         if let Payload::CodeSectionEntry(body) = payload.expect("parse") {
             let mut reader = body.get_operators_reader().expect("ops reader");
             while !reader.eof() {
-                if let Ok(op) = reader.read() {
-                    if let Operator::Call { function_index } = op {
-                        out.push(function_index);
-                    }
+                if let Ok(Operator::Call { function_index }) = reader.read() {
+                    out.push(function_index);
                 }
             }
         }
