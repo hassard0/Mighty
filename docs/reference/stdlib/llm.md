@@ -4,19 +4,61 @@ Typed LLM provider abstraction. Shipped in v0.26 (Track A) — the
 single biggest gap between Mighty and "the standard language for
 agents". One trait, four backends.
 
-| Provider | Status (v0.26) | Rust API |
+| Provider | Status (v0.27) | Rust API |
 |---|---|---|
-| Anthropic Messages | **full** — HTTP + streaming + tool-use + budgets | [`AnthropicClient`](https://docs.rs/mty-stdlib/latest/mty_stdlib/llm/anthropic/) |
-| OpenAI Responses | skeleton — auth + request shape | [`OpenAiClient`](https://docs.rs/mty-stdlib/latest/mty_stdlib/llm/openai/) |
-| Google Gemini `generateContent` | skeleton | [`GeminiClient`](https://docs.rs/mty-stdlib/latest/mty_stdlib/llm/gemini/) |
-| AWS Bedrock Converse | skeleton (bearer-token; SigV4 v0.27) | [`BedrockClient`](https://docs.rs/mty-stdlib/latest/mty_stdlib/llm/bedrock/) |
+| Anthropic Messages | **full** — HTTP + streaming + tool-use + budgets (v0.26) | [`AnthropicClient`](https://docs.rs/mty-stdlib/latest/mty_stdlib/llm/anthropic/) |
+| OpenAI Responses | **full** — HTTP + SSE streaming + tools + structured outputs (v0.27) | [`OpenAiClient`](https://docs.rs/mty-stdlib/latest/mty_stdlib/llm/openai/) |
+| Google Gemini `generateContent` | **full** — HTTP + `alt=sse` streaming + tools + safety settings (v0.27) | [`GeminiClient`](https://docs.rs/mty-stdlib/latest/mty_stdlib/llm/gemini/) |
+| AWS Bedrock Converse | **full** — SigV4 + ConverseStream binary event-stream + tools (v0.27) | [`BedrockClient`](https://docs.rs/mty-stdlib/latest/mty_stdlib/llm/bedrock/) |
 
-The three skeleton clients ship **auth, endpoint routing, and
-request-body shaping**. Their `complete()` returns a stub
-[`Message`](#message) so the trait surface compiles and downstream
-tools (Track B's `@tool` macro, Track C's memory backends) can be
-written against the typed shape today. The actual response-parsing
-+ streaming-SSE-conversion bodies are tagged `TODO v0.27`.
+v0.27 Track C promoted the three skeletons (OpenAI / Gemini / Bedrock)
+to full implementations. All four backends now ship the same shape:
+HTTP/1.1 round-trip + streaming + tool-use + budget short-circuit +
+typed error variants.
+
+## Provider-specific quirks
+
+The trait surface is uniform, but each upstream has wire-format
+peculiarities the provider modules paper over:
+
+| Concern | Anthropic | OpenAI | Gemini | Bedrock |
+|---|---|---|---|---|
+| Endpoint | `/v1/messages` | `/v1/responses` | `/v1beta/models/<M>:generateContent` | `/model/<M>/converse` |
+| Auth header | `x-api-key` | `Authorization: Bearer` | `?key=` URL param | SigV4 OR `Authorization: Bearer` |
+| System prompt | top-level `system` field | first `developer`-role item | `systemInstruction` field | top-level `system` array |
+| Assistant role | `assistant` | `assistant` | **`model`** | `assistant` |
+| Tool def shape | `{name, description, input_schema}` | `{type:"function", name, parameters}` | `{functionDeclarations: [{name, parameters}]}` | `{toolSpec: {name, inputSchema: {json}}}` |
+| Tool call carry | `tool_use` content block w/ `id` | `function_call` output item w/ `call_id` | `functionCall` part (no id; we synthesise `gem_<name>`) | `toolUse` content block w/ `toolUseId` |
+| Streaming envelope | SSE w/ named events | SSE w/ `response.*` event types | SSE (`alt=sse` opt-in); JSON-array otherwise | **Binary event-stream** (AWS proprietary framing) |
+| Terminal event | `message_stop` / `message_delta.stop_reason` | `response.completed` | `finishReason` on candidate | `messageStop.stopReason` |
+| `ToolChoice::Any` | `{type:"any"}` | `"required"` | `functionCallingConfig.mode = "ANY"` | `{any: {}}` |
+| `ToolChoice::Tool{name}` | `{type:"tool", name}` | `{type:"function", name}` | `mode="ANY" + allowedFunctionNames=[name]` | `{tool: {name}}` |
+| Rate-limit signal | 429 + `retry-after` | 429 + `retry-after` | 429 + `retry-after` | 429 + `retry-after` |
+
+### Bedrock SigV4 + event-stream notes
+
+Bedrock requests are signed with AWS Signature Version 4 against the
+`bedrock` service. The signing key derives `secret → date → region →
+service → "aws4_request"` via HMAC-SHA256, and the canonical request
+hashes method + URI + query + sorted headers + body. We implement
+this inline on top of `sha2` rather than pulling `aws-sigv4` + the
+`aws-smithy-*` tree in.
+
+ConverseStream uses AWS's binary event-stream framing (not SSE).
+Each frame is:
+
+```text
+┌────────────┬────────────┬────────────┬──────────┬─────────┬────────────┐
+│ total_len  │ headers_len│ prelude_crc│ headers  │ payload │ message_crc│
+│  (4 bytes) │  (4 bytes) │  (4 bytes) │   (var)  │  (var)  │  (4 bytes) │
+└────────────┴────────────┴────────────┴──────────┴─────────┴────────────┘
+```
+
+We parse the `:event-type` header (header value-type `7` = string) to
+discriminate between `messageStart` / `contentBlockDelta` /
+`messageStop` and project each into the typed [`MessageDelta`]
+stream. The message CRC isn't validated — TLS already guarantees
+end-to-end integrity.
 
 ## Mighty surface
 
@@ -154,7 +196,7 @@ All four providers surface errors through one enum:
 | Anthropic | `ANTHROPIC_API_KEY` | Sent as `x-api-key` header. |
 | OpenAI | `OPENAI_API_KEY` | Sent as `Authorization: Bearer …`. |
 | Gemini | `GEMINI_API_KEY` (fallback `GOOGLE_API_KEY`) | Sent as `?key=…` URL parameter. |
-| Bedrock | `AWS_BEDROCK_API_TOKEN` (region: `AWS_REGION`, default `us-east-1`) | v0.27 will add SigV4 with `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`. |
+| Bedrock | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` (+ optional `AWS_SESSION_TOKEN`), OR `AWS_BEDROCK_API_TOKEN`. `AWS_REGION` defaults to `us-east-1`. | SigV4 path is preferred; bearer-token is the fallback for short-lived API tokens. |
 
 ## Pricing table
 

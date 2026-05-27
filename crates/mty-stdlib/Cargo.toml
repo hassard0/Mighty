@@ -55,6 +55,16 @@ futures-util = "0.3"
 async-trait = "0.1"
 async-stream = "0.3"
 webpki-roots = "1"
+# v0.27 — Bedrock SigV4 signing. `sha2` powers both the SHA-256
+# canonical-request digest and the HMAC-SHA-256 derived-key chain;
+# `hex` formats the digest hexadecimal for the Authorization header.
+# `hmac` is implemented inline on top of `sha2` to keep the AWS dep
+# tree out of the workspace (no `aws-sigv4` / `aws-smithy-*` chain).
+sha2.workspace = true
+hex.workspace = true
+# v0.27 — Bedrock ConverseStream parses the AWS event-stream framing
+# (a small binary protocol — 12-byte header + headers + payload + CRC).
+# Implemented inline in `bedrock.rs`; no extra dep needed.
 
 [features]
 # `runner` pulls the full driver/diagnostics stack so `std.test`

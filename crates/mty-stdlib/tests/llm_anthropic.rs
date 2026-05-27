@@ -235,7 +235,10 @@ data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\
     let mut stream = client.complete_stream(req).await.unwrap();
     let mut text = String::new();
     let mut saw_done = false;
-    while let Some(item) = stream.next().await {
+    // Fully-qualified `StreamExt::next` so we get the
+    // `Result<MessageDelta, LlmError>` shape rather than the inherent
+    // `next()` (Track E QoL) which collapses errors.
+    while let Some(item) = StreamExt::next(&mut stream).await {
         match item.unwrap() {
             MessageDelta::TextDelta { text: t } => text.push_str(&t),
             MessageDelta::Done { stop_reason } => {
@@ -286,7 +289,7 @@ data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\
     let mut stream = client.complete_stream(req).await.unwrap();
     let mut budget_err_seen = false;
     let mut delta_count = 0;
-    while let Some(item) = stream.next().await {
+    while let Some(item) = StreamExt::next(&mut stream).await {
         match item {
             Ok(_) => delta_count += 1,
             Err(LlmError::BudgetExhausted(_)) => {

@@ -1,14 +1,16 @@
 //! `std.llm` — typed LLM provider abstraction.
 //!
-//! v0.26 Track A. One trait surface
-//! ([`LlmProvider`](provider::LlmProvider)), four implementations:
+//! v0.26 Track A shipped Anthropic full + three skeletons. v0.27
+//! Track C promotes the three skeletons to full implementations.
+//! One trait surface ([`LlmProvider`](provider::LlmProvider)), four
+//! shipping implementations:
 //!
 //! | Provider | Status | Module |
 //! |---|---|---|
 //! | Anthropic Messages | **full** (HTTP + streaming + tool-use + budgets) | [`anthropic`] |
-//! | OpenAI Responses | skeleton (auth + request shaping; body parse TODO v0.27) | [`openai`] |
-//! | Google Gemini `generateContent` | skeleton | [`gemini`] |
-//! | AWS Bedrock Converse | skeleton (bearer-token; SigV4 TODO v0.27) | [`bedrock`] |
+//! | OpenAI Responses | **full** (HTTP + SSE streaming + tools + budgets) | [`openai`] |
+//! | Google Gemini `generateContent` | **full** (HTTP + `alt=sse` streaming + tools + safety) | [`gemini`] |
+//! | AWS Bedrock Converse | **full** (SigV4 + ConverseStream event-stream + tools + budgets) | [`bedrock`] |
 //!
 //! Mighty source consumes this module via the permissive method
 //! table (`std.llm.anthropic.messages(...)`); the typed shapes
@@ -79,7 +81,7 @@ pub mod tools;
 // can write `mty_stdlib::llm::Message` instead of digging through
 // submodules.
 pub use anthropic::AnthropicClient;
-pub use bedrock::BedrockClient;
+pub use bedrock::{AwsCredentials, BedrockClient};
 pub use budget::{DollarBudget, TokenBudget};
 pub use error::{BudgetExhausted, LlmError, RateLimitError};
 pub use gemini::GeminiClient;
