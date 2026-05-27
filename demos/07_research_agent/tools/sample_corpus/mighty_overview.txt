@@ -1,0 +1,20 @@
+Mighty is a memory-safe, async-first systems language that makes
+agents, capabilities, and replay first-class. Every Mighty program
+is built from supervised agents that exchange typed messages over
+bounded mailboxes; the runtime records every message, every
+capability check, and every spawn into a deterministic trace so any
+production crash can be replayed byte-identically on a developer
+laptop.
+
+The language ships a single compiler (`mty`) with three backends:
+native (cranelift + LLVM), Wasm Component Model (wasm32-web), and an
+in-process SIR interpreter for tests and REPLs. Build artifacts are
+content-addressed and reproducible; the same source on the same
+toolchain always produces the same bytes.
+
+Mighty's design north star is "the standard language for agents":
+strong types where they reduce bugs, escape hatches where they
+don't, and a stdlib that covers HTTP, JSON, filesystem, LLM clients,
+vector + episodic memory, and the Model Context Protocol out of the
+box. v0.26 is the release that closes the LLM-agent integration
+loop end-to-end.

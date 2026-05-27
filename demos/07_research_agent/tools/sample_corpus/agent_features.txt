@@ -1,0 +1,25 @@
+Mighty agents are typed, supervised, mailbox-backed actors. Each
+agent declares a protocol (the message vocabulary it answers) and a
+set of `on Msg(args) -> Result` handlers. The runtime gives every
+agent its own tokio task + bounded mailbox; back-pressure is
+explicit (sends fail or block when the mailbox is full).
+
+Supervisors are first-class: `supervisor SearchFlow(strategy:
+one_for_one) { child planner = spawn Planner(); on_fail(planner) {
+restart up_to 3 in 30s } }` declares both the topology and the
+failure policy in one block. The runtime enforces both — a child
+that exceeds its restart budget is escalated to the parent
+supervisor's policy.
+
+Budgets are typed and inherited. `budget { cpu 150ms; wall 2s; mem
+128MiB; mb 1k } run { ... }` caps every nested call in the block;
+child agents spawned inside inherit the remaining budget. v0.26 adds
+`TokenBudget` and `DollarBudget` for LLM calls — shared by clone, so
+a parent agent can hand one budget down through a whole research
+pipeline.
+
+Sandboxes narrow capabilities: `sandbox Tool with { fs.read =
+["/data"]; net = []; cpu = 150ms } { run job(input)? }` gives a
+nested computation strictly less authority than its parent. The cap
+set is enforced at runtime; the typechecker rejects any path that
+escapes the narrowed set.

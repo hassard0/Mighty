@@ -1,0 +1,35 @@
+The Mighty standard library covers the surfaces an agent needs to
+talk to the world. Every module lives under `std.`; `use std.X`
+brings the module's permissive method table into scope.
+
+`std.http` — typed HTTP client + server. `http.get(url)` returns
+`Result[Response, HttpErr]`; the server side wires `http.serve(addr,
+handler_agent)` directly to an agent's `on Request(req)` handler.
+
+`std.fs` — filesystem. `std.fs.read_to_string(path)`,
+`std.fs.write(path, body)`, `std.fs.read_dir(path)`. Every call
+flows through the cap-set; sandboxed bodies refuse paths outside
+their declared roots.
+
+`std.json` — JSON encode/decode with typed ADTs. `json.encode(v)`
+and `json.decode[T](bytes)` are the canonical entry points.
+
+`std.llm` (v0.26) — typed LLM provider abstraction. One trait
+(`LlmProvider`), four backends (Anthropic Messages full impl;
+OpenAI / Gemini / Bedrock skeletons). `client.messages(model,
+system, prompt, max_tokens)` is the one-shot entry point;
+`client.complete_stream(req)` returns a typed `MessageStream` of
+`MessageDelta` events.
+
+`std.memory` (v0.26) — three handle types for LLM workflows.
+`VectorStore.local(path)` or `.qdrant(url, collection)` for
+semantic search; `Episodic.in_memory(max)` or `.sqlite(path, max)`
+for conversation history; `Working.new()` for the per-turn
+scratchpad with a soft token budget and a `render()` that produces
+a markdown summary for prompt assembly.
+
+`std.mcp` (v0.26) — Model Context Protocol server + client + the
+`@tool` registry. The `@tool("desc", cap: fs.read) fn read(...)`
+attribute auto-generates the JSON schema, registers the fn with the
+process-wide tool registry, and exposes it over the MCP stdio
+transport.

@@ -1,0 +1,33 @@
+v0.18 — Slice-7 tokio runtime: per-agent tasks, bounded mailboxes,
+deterministic spawn ordering.
+
+v0.19 — Deterministic replay: every send / spawn / capability check
+is recorded into a byte-identical trace; `mty replay` reconstructs
+the same in-memory state at any frame.
+
+v0.20 — Tier 1.5 hot reload: drain handler, snapshot state via
+`Resumable`, swap code, restore state, resume — mailbox preserved
+end-to-end.
+
+v0.21 — `std.tls` + content-addressed package store.
+
+v0.22 — `mty bench` + per-fn flamegraphs.
+
+v0.23 — `mty serve --watch` + `mty new --template web-game`.
+Canvas-direct rendering reaches the embedded core module via the
+`mty:web/canvas@0.1` WIT contract.
+
+v0.24 — wasm32-web emitter completion: canvas WIT imports + `export
+fn` → core exports. `format!()` string interpolation as a builtin
+call macro.
+
+v0.25 — `[T; N]` agent fields with cross-callback persistence.
+Foundational `std.String` + `std.Vec[T]` real impls. Extended
+`format!()` specs (`{:>4}`, `{:#06x}`, named args).
+
+v0.26 — The LLM-agent release. Track A: typed `std.llm` provider
+abstraction (full Anthropic, skeleton OpenAI/Gemini/Bedrock).
+Track B: `@tool` macro + `std.mcp` server/client + cap-enforced
+sandbox. Track C: `std.memory` (vector + episodic + working).
+Track D: three v0.25 Track F regression closes. Track E: this
+demo — `demos/07_research_agent`.

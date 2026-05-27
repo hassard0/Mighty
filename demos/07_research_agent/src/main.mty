@@ -1,0 +1,213 @@
+// demo 07_research_agent — v0.26 LLM-driven research agent.
+//
+// Forcing-function demo for v0.26's three LLM-agent tracks:
+//
+//   * Track A (`std.llm`) — typed Anthropic / OpenAI / Gemini / Bedrock
+//     provider abstraction. `client.messages(...)` here dispatches
+//     through the permissive method table to
+//     `mty_stdlib::llm::anthropic::AnthropicClient::complete`. The
+//     `model` effect is registered in the prelude alongside
+//     `net`/`dom`/`spawn`.
+//   * Track B (`@tool` + `std.mcp`) — three tools (read_doc /
+//     save_answer / search_corpus) are documented inline as Mighty
+//     fns. The `@tool(...)` source-form is NOT yet parser-wired
+//     (v0.27 work — see DEMO07_RESEARCH_AGENT_V0_26_NOTES.md §A and
+//     `dev/history/notes/TOOL_MCP_V0_26_NOTES.md`). The Rust-side
+//     registry (`mty_stdlib::mcp::register_tool`) wires the cap-set
+//     at v0.26; for this demo, the Mighty fns below act as the
+//     source-spec the v0.27 attribute-macro pass will hoist into the
+//     synthesised `__tool_*` companions.
+//   * Track C (`std.memory`) — `VectorStore` for document recall,
+//     `Episodic` for conversation history, `Working` for the current
+//     turn's scratchpad. All three integrate with v0.19 deterministic
+//     replay; `mty replay` reconstructs the same state at any frame.
+//
+// Build:
+//   mty check demos/07_research_agent/src/main.mty
+//   ANTHROPIC_API_KEY=sk-ant-... mty run \
+//       demos/07_research_agent/src/main.mty
+//
+// The canonical seed question is hard-coded in `main()` —
+// `mty run <path>` does not yet accept `-- <argv>` positional
+// forwarding into `std.env.args()` (v0.27 follow-up #3 in the notes
+// file). See `demos/07_research_agent/README.md` for the full run
+// guide and `dev/history/notes/DEMO07_RESEARCH_AGENT_V0_26_NOTES.md`
+// for every v0.27 follow-up the v0.26 parser/handler-scope gaps
+// generated.
+package research_agent
+
+use std.llm
+use std.memory
+use std.fs
+
+// ---------------------------------------------------------------------
+// Tools the agent can call.
+//
+// The v0.27 surface is:
+//
+//   @tool("Read a text file from the corpus", cap: fs.read)
+//   fn read_doc(path: Str) -> Str { ... }
+//
+// At v0.26 the `@<attr>` parser hook isn't wired (Track B notes §A
+// "HIR-preprocessor attribute plumbing"). The fns below stand in as
+// the source-spec the v0.27 attribute-macro pass will lift into the
+// auto-generated `__tool_descriptor_<NAME>` / `__tool_invoke_<NAME>` /
+// `__tool_register_<NAME>` companion fns. Until then, the agent body
+// uses these directly.
+//
+// Return types are `Str` (Mighty's owned string alias the v0.26
+// permissive method table dispatches through). The v0.27 attribute
+// pass picks `Str` up as the spec'd return shape for JSON-schema
+// generation.
+// ---------------------------------------------------------------------
+
+// @tool("Read a text file from the sample corpus", cap: fs.read)
+// cap narrowed to `./tools/sample_corpus/**` — runtime refuses
+// any path outside that subtree even if the LLM prompts for one.
+fn read_doc(path: Str) -> Str {
+  std.fs.read_to_string(path)
+}
+
+// @tool("Write a final answer to ./answers/<slug>.md", cap: fs.write)
+// cap narrowed to `./answers/**`.
+fn save_answer(slug: Str, body: Str) -> Str {
+  let path = format!("./answers/{}.md", slug)
+  std.fs.write(path, body)
+  format!("saved: {}", path)
+}
+
+// @tool("Recall top-K corpus docs for a query", cap: fs.read)
+// Body is a stub at the `mty check` layer — the real semantic
+// lookup happens inside the agent body where the typed
+// `VectorStore` handle is in scope (`vector.search(...)` in
+// `on Ask` below). The stub keeps the `@tool` source-spec
+// shape pinned for the v0.27 hoist.
+fn search_corpus(query: Str) -> Str {
+  format!("recall:{}", query)
+}
+
+// ---------------------------------------------------------------------
+// Researcher protocol — the one message the agent answers. Track A's
+// `client.messages(...)` drives the LLM turn; Track C gives us the
+// vector / episodic / working handles; Track B's `@tool` registry
+// would be the tool surface Claude sees (once the v0.27 attribute
+// syntax hoist lands).
+// ---------------------------------------------------------------------
+
+protocol ResearcherInput {
+  Ask(question: Str) -> Str
+}
+
+// ---------------------------------------------------------------------
+// The Researcher agent. Receives all four handles (client, vector,
+// episodic, working) as capability-style ctor args so the strict
+// handler scope (v0.3 A65 — MT2021 on unknown names) can reach them
+// via the param list rather than via re-construction.
+//
+// `on Ask` runs the standard agent loop:
+//
+//   1. Pull recalled docs from the vector store (semantic search).
+//   2. Stage a marker on the per-turn `Working` scratchpad.
+//   3. Build the user-side prompt + send to Claude via Track A.
+//   4. Record the question + answer in `Episodic` for next turn.
+//   5. Return the answer body.
+//
+// v0.26 emitter doesn't yet lower agent fields of opaque ADT type
+// (`VectorStore` / `Episodic` / `AnthropicClient` / `Working`) into
+// the wasm32-web per-agent state region — the SIR interpreter happily
+// threads them through `Value::Opaque` slots, so this demo runs end-
+// to-end on the slice-7 tokio runtime via `mty run`. The wasm-side
+// lift is v0.27 follow-up #2 in the notes file.
+// ---------------------------------------------------------------------
+
+agent Researcher(client, vector, episodic, working): ResearcherInput {
+  on Ask(question) {
+    // Semantic recall — the v0.26 stub embedder is deterministic
+    // (FNV-1a, dim=64), so re-running the agent with the same corpus
+    // returns the same top-3 hits, which is what the smoke test
+    // asserts on.
+    let hits = vector.search(question, 3)
+    working.push("recalled", "see hits below")
+
+    // Episodic context — last 3 turns, newest first.
+    let history = episodic.recent(3)
+
+    // Build the prompt. The system message pins Claude as a
+    // "careful researcher" so it leans on the recalled context
+    // instead of confabulating; the user message stitches the
+    // question + the working-set render so the model sees the
+    // staged corpus.
+    let prompt = format!(
+      "Question: {}\n\nRecalled context:\n{}",
+      question,
+      working.render()
+    )
+
+    // Track A entry point — `client.messages(...)` dispatches
+    // through the permissive method table to
+    // `mty_stdlib::llm::anthropic::AnthropicClient::complete`. The
+    // returned `Message` carries `.text()` + `.tool_uses()` so the
+    // agent loop can react to tool calls in a future v0.27 slice.
+    let reply = client.messages(
+      "claude-opus-4-7",
+      "You are a careful researcher. Use the recalled context when relevant.",
+      prompt,
+      10000
+    )
+
+    // Bookkeeping for next turn. `Episodic.record` stamps a
+    // wall-clock timestamp + the deterministic-replay event into the
+    // trace.
+    episodic.record("query", question)
+    episodic.record("answer", reply)
+
+    log("evt:researcher:ask")
+    reply
+  }
+}
+
+// ---------------------------------------------------------------------
+// `main` — boot the demo. Builds the four handles, indexes the
+// sample corpus on first run, spawns one Researcher, and asks it
+// the canonical seed question.
+//
+// The v0.26 CLI surface accepts `mty run <path> -- <args>` but the
+// argv plumbing into Mighty source (`std.env.args()`) is a v0.27
+// follow-up — see notes §C. For now the question is the canonical
+// seed; the smoke test exercises the same shape.
+// ---------------------------------------------------------------------
+
+fn main() {
+  // Build the four handles. Locations are relative to CWD so
+  // `mty run demos/07_research_agent/src/main.mty` from the repo
+  // root resolves into the demo's tools/ subtree.
+  let client = AnthropicClient.from_env()
+  let vector = VectorStore.local("./demos/07_research_agent/tools/vector.json")
+  let episodic = Episodic.in_memory(100)
+  let working = Working.new()
+
+  // First-run indexing. The corpus is small (5 short text files)
+  // so the loop runs in <100ms. Subsequent runs reuse the persisted
+  // vector.json; the v0.27 follow-up #3 in the notes is the
+  // `is_empty()` predicate gate — for v0.26 the upsert path is
+  // idempotent on the local backend (same id replaces), so we
+  // re-index every run without harm.
+  let entries = std.fs.read_dir("./demos/07_research_agent/tools/sample_corpus")
+  for entry in entries {
+    let text = std.fs.read_to_string(entry)
+    vector.upsert(entry, text)
+  }
+  log("research_agent: indexed sample corpus into ./tools/vector.json")
+
+  // Spawn the Researcher. The slice-7 runtime gives it its own
+  // mailbox + tokio task; `!Ask(q)` hands off through the protocol.
+  let researcher = spawn Researcher(client, vector, episodic, working)
+
+  // Canonical seed question. Exercises the corpus content
+  // (stdlib_quick_ref.txt mentions `std.memory`) so the recall
+  // step has something to bite on.
+  let question = "What does std.memory provide in Mighty v0.26?"
+
+  let answer = researcher!Ask(question)
+  log(format!("research_agent: answer = {}", answer))
+}

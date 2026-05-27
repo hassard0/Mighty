@@ -1,0 +1,36 @@
+v0.27 lifts every v0.26 surface from "compiles + Rust-callable" to
+"Mighty-source-callable, end-to-end."
+
+The big v0.27 hooks:
+
+1. `@tool` parser wiring. The `@<attr>` token is lexed today but
+   the parser doesn't yet route it to `expand_builtin_attribute`.
+   v0.27 wires the HIR preprocessor + lifts the synth `__tool_*`
+   companions into the module item list automatically.
+
+2. Opaque-ADT agent state in the wasm32-web emitter. The SIR
+   interpreter threads `VectorStore` / `Episodic` / `Working` /
+   `AnthropicClient` through `Value::Opaque` slots today; the
+   wasm32-web emitter needs a per-agent state region that stores
+   opaque-handle indices into a host-side table.
+
+3. `std.env.args()` for `mty run <path> -- <args>`. The CLI
+   accepts the `-- <args>` form today but the Mighty-source-side
+   accessor is unimplemented; v0.27 lifts argv into a permissive
+   `std.env` module method.
+
+4. `vector.is_empty()` predicate gate so re-indexing on every run
+   becomes optional. The local backend's `upsert` is currently
+   idempotent (same id replaces), so the v0.26 demo re-indexes on
+   every run without correctness loss.
+
+5. Full Anthropic streaming surface in `.mty` source. The Rust API
+   (`client.complete_stream(req)`) is full; the Mighty-source
+   permissive entry point is a v0.27 follow-up.
+
+6. OpenAI / Gemini / Bedrock response-body parsing. v0.26 ships
+   skeleton clients (auth + request shaping); body parsing + SSE
+   conversion lands in v0.27.
+
+v0.28 and beyond: typed tool-use round-trips, multi-cap
+declarations, generic `@tool` fns, sandbox-narrowed LLM clients.
