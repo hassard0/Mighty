@@ -6,838 +6,250 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/hassard0/Mighty/ci.yml?branch=main)](https://github.com/hassard0/Mighty/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-online-success)](https://hassard0.github.io/Mighty/)
 
-**Mighty is an agent-first systems programming language.** It is
-statically typed, ownership-based, and treats *agents*, *protocols*,
-*capabilities*, *effects*, *arenas*, and *budgets* as first-class
-concepts. The toolchain targets both native code (Cranelift JIT + AOT;
-LLVM behind `--features llvm`) and WebAssembly (Component Model by
-default; bare core modules via `--no-component`).
+**Mighty is a statically-typed, agent-first systems language.**
+*Agents*, *protocols*, *capabilities*, *effects*, *arenas*, and
+*budgets* are first-class. The toolchain targets native code
+(Cranelift JIT + AOT; LLVM behind `--features llvm`) and WebAssembly
+(Component Model by default).
 
-The compiler, runtime, formatter, package manager, doc generator, LSP
-server, and stdlib are all in one Rust workspace and one `mty` binary.
+Compiler, runtime, formatter, package manager, doc generator, LSP,
+and stdlib all live in one Rust workspace and one `mty` binary.
 
-> **Status:** pre-alpha — but with v0.26 Mighty is now **the
-> first compiler-backed agent language with capability-typed
-> tools + deterministic replay.** The v1.0 language spec is at
-> **v1.0-RC5** (operator precedence promoted to normative
-> §11.1.1; full 63-reserved-keyword set enumerated; effect-row
-> grammar admits the multi-row-variable tail since v0.18; v0.24
-> RC5 polish absorbed cluster mesh + hot reload + std.web + the
-> v1.0 normative conformance split into prose). The toolchain is
-> exercised by **1989 Rust tests** across 20 crates plus a second
-> independent Python implementation at [`impl-py/`](impl-py/)
-> (full pipeline: lex → parse → lower → typeck → borrow → wasm;
-> **490 tests**, 23/23 examples typeck clean, 21/24 emit wasm)
-> and a third source-only Go front-end at [`impl-go/`](impl-go/)
-> (4848 LOC, cross-validation pending Go toolchain). All six CI
-> jobs are required gates. **KNOWN_ISSUES P1 stays empty**; P2
-> holds one open entry (#9 demo 06 headless-smoke RAF-mid-frame
-> phash flake — 4/5 success rate, predates v0.24, no required-
-> gate impact). v0.26 lands three new stdlib surfaces
-> (`std.llm` typed providers + `@tool` / `std.mcp` server &
-> client + `std.memory` vector / episodic / working) plus a
-> 213-LOC demo 07 that consumes all three end-to-end against a
-> mock-LLM smoke + the real Anthropic API. Track D closes 3 of
-> 5 v0.25 Track F gaps (wasm32-web agent persistence emitter-
-> side via per-agent 64KB linear-memory regions; extern_js
-> `kebab()` canonicalisation pivoting from "preserve `_`
-> verbatim" because `wit_parser` rejects `_`-prefixed
-> identifiers; canvas-handle taint through fn parameters via
-> type-based detection). **v1.0 freeze blockers are down to RFC
-> comment windows**: blocker #1 (Python 2nd-impl) closed with HM
-> closures + generic-constraints + full borrow + wasm codegen
-> pipeline + v0.25 format-spec parser; blocker #3 (normative
-> conformance suite) closed with the **159-case kit** +
-> normative `docs/spec/conformance.md` (coverage stable at 63%
-> direct / 99% any-harness; MT3012 DROP_IN_CONST_CONTEXT remains
-> the only uncovered code, deferred pending HIR `CONST_DECL`
-> lowering) AND the v0.24-declared v1.0 GA normative/informative
-> split (104 normative / 49 informative); blocker #2 (eight RFC
-> comment-window closures) is infrastructure-ready
-> ([`docs/spec/rfcs/COMMENT_WINDOWS.md`](docs/spec/rfcs/COMMENT_WINDOWS.md)
-> tracks all 8 windows; the live dashboard at
-> [`docs/spec/rfcs/RFC_DASHBOARD.md`](docs/spec/rfcs/RFC_DASHBOARD.md)
-> now points at the **opened-2026-05-26** Discussion threads
-> #2–#9 with per-window countdowns + per-RFC implementation
-> status). **Every former Post-v1.0 roadmap item has now landed
-> pre-v1.0.** **Earliest possible v1.0.0 tag: 2026-07-26** (the
-> day after the longest 60-day windows close). See
-> [Status](#status) below.
+## Why Mighty
 
-## Release timeline
+Mighty is the first compiler-backed agent language with
+**capability-typed tools** and **deterministic replay**. LLM-agent
+frameworks reinvent these badly in Python/TS; Mighty bakes them into
+the type system:
 
-- **v0.26.0** (this release): **Mighty is now an LLM-agent
-  language.** Five-track parallel swarm lands `std.llm` typed
-  provider abstraction (Track A — Anthropic SHIPPED-FULL with
-  real HTTP/1.1 + SSE streaming + typed tool_use + budget short-
-  circuit; OpenAI / Gemini / Bedrock SHIPPED-SKELETON with auth
-  + endpoint + body shape correct, response parser deferred to
-  v0.27), `@tool` attribute macro + `std.mcp` server (stdio +
-  http) + client + 5-family CapabilitySet enforcement (Track B
-  — `Fs` / `Net` / `Clock` / `Model` / `Custom(Str)` checked at
-  every tool invocation; new MT6011–MT6016 diagnostic band),
-  `std.memory` vector + episodic + working primitives with
-  deterministic-replay integration (Track C — every mutation
-  emits `MemoryDelta` through `record_io_read`; sqlite-backed
-  Episodic via opt-on `memory-sqlite` feature). Track D closes
-  3 of 5 v0.25 Track F gaps (wasm32-web agent persistence
-  emitter-side via per-agent 64KB linear-memory regions; extern_js
-  `kebab()` canonicalisation pivoting from v0.25's "preserve `_`
-  verbatim" because `wit_parser` rejects `_`-prefixed
-  identifiers; canvas taint through fn params via type-based
-  detection). Track E ships demo 07 research agent
-  (`demos/07_research_agent/src/main.mty` — 213 LOC consuming
-  `std.llm` + `std.memory`; mock-LLM smoke + real-Anthropic
-  paths both work; SHIPPED-PARTIAL with 6 narrow v0.27 follow-
-  ups documented: `@tool` source-level parser, opaque-ADT ctor
-  scope + agent ADT fields → wasm32-web, real OpenAI/Gemini/
-  Bedrock provider bodies, `mty run` argv forwarding,
-  `Vector.is_empty()`, source-level `stream!`). Integrator fix:
-  `mty fmt --check` now normalises CRLF → LF before compare
-  (Windows checkouts with `core.autocrlf=true` were always
-  failing). Conformance kit stable at 159 cases. Rust test count
-  **1790 → 1989** (+199; A +49, B +48, C +63, D +15, E +0,
-  integrator +24). Python stable at 490. Self-host stays at 23.
-  Combined (with conformance) **2476 → 2661** (+185). See
-  [`dev/history/releases/RELEASE-v0.26.md`](dev/history/releases/RELEASE-v0.26.md).
-- **v0.25.0**: closes all 7 v0.24 demo-blocking gaps in a six-
-  track parallel swarm — HIR → IR canvas routing + Unit-fn
-  stack-balance fix (Track A); `extern js` → wasm imports
-  (Track B); agent fields `[T; N]` + SIR persistence pin (Track
-  C); `format!()` extended layout grammar (width / precision /
-  alignment / sign / `#` / `0` / fill / `b` / `o`, Track D);
-  real `std.String` + `std.Vec[T]` (Track E); demo 06 V2 canvas-
-  direct rewrite (Track F — shim **213 → 110 LOC, −48 %**; 5
-  narrow gaps deferred to v0.26: wasm32-web agent persistence
-  emitter-side, extern_js kebab-vs-`_` drift through component
-  encode, canvas-handle taint through fn params, `const` in
-  match patterns, `format!()` `n=v` named-arg shorthand).
-  KNOWN_ISSUES P2 #8 (wasm32-web Unit-fn stack-balance) closed
-  by Track A. Conformance kit grows 156 → 159 cases. Rust test
-  count **1675 → 1790** (+115); Python **474 → 490** (+16);
-  driver **153 → 173** (+20); selfhost stays at 23. Combined
-  **2328 → 2476** (+148). See
-  [`dev/history/releases/RELEASE-v0.25.md`](dev/history/releases/RELEASE-v0.25.md).
-- **v0.24.0**: **wasm32-web emitter completion +
-  `format!()` + v1.0-RC5 spec polish + deterministic `mty serve
-  --watch`.** Closes the v0.23 Track D #1 / #2 / #3 language gaps
-  at the emitter + macro layer: Track A's
-  `BuiltinId::CanvasOp(CanvasOpKind)` SIR variant + wasm32-web
-  dispatch arm lowers `canvas.fill_rect(...)`-style SIR ops to
-  direct `mty:web/canvas@0.1` imports, and `is_web_callback_export`
-  wires `export fn frame/keydown/keyup` into the embedded core
-  module's export section (10 codegen tests). Track B ships
-  `format!()` as a first-class Mighty macro (`{}` / `{:x}` /
-  `{:X}` / `{:?}` / named-arg passthrough / brace escapes, MT6009
-  + MT6010 diagnostics, 22 integration + 19 unit + 3 conformance
-  fixtures). Track C drops the v0.23 `#[ignore]` on
-  `serve_watch_rebuilds_on_change` via an env-gated test hook
-  (`MTY_SERVE_TEST_WATCH_HOOK=1`) — 5/5 deterministic, +2 net
-  tests. Track D walks the spec from RC4 to RC5 (+414 normative
-  lines; §12.6 Resumable / §12.7 MT506x reload band / §12.8 Tier
-  4.3 migration + PlacementPolicy / §20.6 cap-name resolver /
-  §22.5 per-message work-stealing / §25.8.1-8 std.web), ships
-  [`docs/spec/rfcs/RFC_DASHBOARD.md`](docs/spec/rfcs/RFC_DASHBOARD.md)
-  with per-window countdowns + per-RFC implementation status, and
-  declares the v1.0 GA normative/informative conformance split
-  (104 normative / 49 informative). Track E rewrites demo
-  06_canvas_game against the new exports + `format!()` (Mighty
-  source 195 → 186 LOC; JS shim 235 → 213 LOC) and surfaces 6
-  v0.25 gaps (HIR → IR routing for `canvas.fill_rect(...)`; latent
-  wasm32-web Unit-call stack-balance bug — NOT a v0.24 regression,
-  reproduces against v0.23.0; agent fields across exported
-  callbacks; arrays in agent fields; `extern js { fn _foo() }`
-  emits wasm imports; `format!()` extended specs). KNOWN_ISSUES
-  picks up two P2 entries (#8 + #9 per Track E). Conformance kit
-  grows 153 → 156 cases. Rust test count **1604 → 1675** (+71).
-  Combined **2254 → 2328** (+74).
-- **v0.27** (next): close Track E's 6 v0.27 follow-ups + 5
-  carry-forward QoL items. (1) `@tool` source-level parser
-  surface (Track B macro registered, no `@tool(...)` parse
-  yet); (2) opaque-ADT ctor scope + agent ADT fields → wasm32-
-  web (`LlmClient` / `MemoryStore` handles must pass through
-  ctor args today); (3) real OpenAI / Gemini / Bedrock provider
-  bodies (promote v0.26 skeletons to SHIPPED-FULL); (4)
-  `Vector.is_empty()` + source-level `stream!` macro + `mty run`
-  argv forwarding + `const` in match patterns +
-  `format!("{n}", n=value)` named-arg shorthand (QoL bundle);
-  (5) multi-agent swarm + cost consensus —
-  `swarm!(claude, gpt, gemini, q)` macro under a shared
-  `DollarBudget` as the v0.27 forcing-function demo. Continue
-  v1.0 freeze gate prep — RFC monitoring + last spec polish
-  ahead of the 2026-07-25 last-RFC-window close.
-- **v1.0.0 GA**: when all 8 RFC comment windows close.
-  **Earliest: 2026-07-26** (the day after RFC-002 / RFC-006's 60-day
-  windows close). The integrator collects dispositions →
-  `dev/history/notes/RFC_DISPOSITION_<RFC>.md`, builds
-  `mty-conformance-kit-v1.0.0.tar.gz` from
-  `scripts/build-conformance-kit.sh`, tags `v1.0.0`.
+- `@tool(cap: fs.read("./data/**"))` is **enforced by the runtime**,
+  not the prompt. A misbehaving LLM cannot escape its capability set.
+- Every agent run is byte-identically replayable from the recorded
+  trace — regression-test LLM agents like any other code.
+- Cross-node agent swarms, hot reload preserving conversation
+  state, OpenTelemetry spans — all in stdlib.
 
 ## Install
 
-Pre-built `mty` binaries for Linux x86_64, macOS arm64, and Windows
-x86_64 are attached to each tagged release on the
-[GitHub Releases page](https://github.com/hassard0/Mighty/releases)
-(produced automatically by `.github/workflows/release.yml` on `v*`
-tag push, starting with v0.15.0; Intel macOS dropped from the matrix
-in v0.18 after Apple's runner retirement).
-
-To build the toolchain from source instead:
+Pre-built binaries (Linux x86_64, macOS arm64, Windows x86_64) on
+the [Releases page](https://github.com/hassard0/Mighty/releases).
+Or from source (MSRV: Rust 1.85):
 
 ```bash
-git clone https://github.com/hassard0/Mighty
-cd Mighty
+git clone https://github.com/hassard0/Mighty && cd Mighty
 cargo install --path crates/mty-cli
 ```
 
-This installs the `mty` binary. **MSRV: Rust 1.85.**
-
-Fastest on-ramp to a browser-hosted Mighty program (v0.23):
+Scaffold a new project:
 
 ```bash
-mty new --template web-game asteroids
-cd asteroids
-mty serve --port 8000   # built-in dev server + file-watcher hot-reload
-# open http://localhost:8000
+mty new --template web-game my-game     # canvas-driven web game
+mty new my-cli                          # plain CLI binary
+mty serve --watch                       # dev server + hot reload
 ```
-
-`mty new --template web-game <name>` scaffolds a 5-file
-agent + canvas + dom-shim project ready to build under
-`--target wasm32-web`. `mty serve` hands the resulting Component +
-`web/` static assets out over HTTP/1.1 with optional `--watch`-driven
-websocket hot-reload.
 
 ## Hello, Mighty
 
 ```bash
-mty new hello
-cd hello
+mty new hello && cd hello
 mty check src/main.mty
 mty run   src/main.mty
 # → hello, Mighty
 ```
 
-`mty new` produces:
-
-```mty
-fn main() {
-  log("hello, Mighty")
-}
-```
-
-Then:
-
-| Command | What it does |
-|---|---|
-| `mty check` | lex, parse, lower, type-check, borrow-check |
-| `mty run`   | JIT via Cranelift (interpreter fallback on unsupported shapes) |
-| `mty build` | native object + linker, or `--target wasm32-wasi` for Wasm |
-| `mty fmt`   | canonical Wadler/Lindig formatter |
-| `mty dump --sir` | inspect the mid-level IR |
-| `mty explain MTxxxx` | one-paragraph explanation of any diagnostic code |
+| Command          | What it does                                                       |
+|------------------|--------------------------------------------------------------------|
+| `mty check`      | lex, parse, lower, type-check, borrow-check                        |
+| `mty run`        | JIT via Cranelift (interpreter fallback on unsupported shapes)     |
+| `mty build`      | native object + linker, or `--target wasm32-web` for the browser   |
+| `mty serve`      | dev server: build + http + websocket reload on file change         |
+| `mty fmt`        | canonical Wadler/Lindig formatter                                  |
+| `mty inspect`    | live agent snapshot via the runtime control socket                 |
+| `mty replay`     | re-run a recorded trace; `--byte-identical` strict mode            |
+| `mty reload`     | swap an agent's wasm without losing its state                      |
+| `mty explain`    | one-paragraph explanation of any `MTxxxx` diagnostic code          |
 
 ## Features
 
 **Type system**
-
-- Hindley–Milner inference with bidirectional checking
+- Hindley-Milner inference with bidirectional checking
 - Generics with monomorphization, trait dispatch, `dyn Trait` fat pointers
-- `?` propagation for `Result`
-- Ownership + move + borrow + affine + arena tracking
-- Field-level borrow Places with NLL last-use deactivation
+- Ownership + move + borrow + affine + arena tracking with field-level
+  Places and NLL last-use deactivation
 - Effect system + capabilities (`fs`, `net`, `time`, `rand`, `model`)
-- Formal `Sendable` trait — cross-agent message-arg soundness
+- Effect-row polymorphism (Koka/Eff-style) with `!{a, b | E}` surface
+- Polonius-style borrow check available via `--features polonius`
+- Hygienic macros via set-of-scopes resolution
 
 **Concurrency**
+- Tokio-backed runtime: mailboxes, supervisors, deadlines, budgets
+- Per-message work-stealing with NUMA-locality steal ordering
+- Cluster mesh: cross-node `send`/`ask` over framed CBOR + mTLS
+- Lossless live agent migration between nodes (RFC-006)
+- Hot reload with `Resumable` trait + schema-hash migrations
+- Deterministic replay end-to-end (byte-identical)
+- Live introspection via `mty inspect` + OTel span integration
 
-- Tokio-backed concurrent runtime with mailboxes, supervisors, deadline timers
-- Multi-core scheduler — per-worker tokio runtimes + crossbeam-deque work-stealing + affinity hints
-- **Per-message work-stealing (v0.22, Tier 5)** — promotes the v0.10
-  affinity-hint scheduler to true per-worker crossbeam-deque queues
-  with NUMA-locality steal ordering (own NUMA node → same socket →
-  anywhere fallback via Linux `/sys` probe with flat-topology
-  Windows/macOS fallback); `local → siblings → injector` phase
-  reversal (v0.21 had `local → injector → siblings` which let
-  pinned-burst workloads sit on the injector-race winner); new
-  process-wide `worker.steals_total{src,dst}` OTel counter
-  (cardinality-bounded at `(N+1) × N` entries); -61% on the "1000
-  tasks pinned to worker 0" microbenchmark vs v0.21, -9.3% on the
-  "1000 tasks via global injector" workload
-- Cooperative mid-turn cancellation, deterministic-execution mode
-- Per-handler memory budget + tick budget with auto-charge on alloc
-- **Live agent introspection** — `mty inspect` CLI + opt-in
-  `MTY_RUNTIME_CONTROL_SOCK` runtime control socket exposing
-  mailbox depth, in-flight handler, budgets, and last-N messages
-- **OpenTelemetry agent spans** — spawn / send / ask / handler /
-  restart / budget-exhausted spans, plus `agent.event(name, &[(k, v)])`
-  helper; lazy init from `MTY_OTLP_ENDPOINT`, cost-zero when disabled
-- **Deterministic replay — byte-identical re-execution (v0.19 / v0.20,
-  wire v2)** — `Recorder` + 8 typed `TraceEvent` variants wired into
-  the Runtime hot path across 13 instrumentation sites (spawn / send
-  / ask / handle / IO / clock / random / budget / exit); structural
-  `ReplayPayload::Values` codec mirrors the 13 `Value` variants and
-  is the live default for in-process send/ask payloads since v0.20
-  (the v0.18 hot-path migration finishes; the `Opaque` arm is now a
-  back-compat fallback that never fires for fresh recordings);
-  `ReplayDriver` re-runs the program against the trace and diffs
-  events byte-for-byte; `mty replay --byte-identical --program <src>`
-  CLI; v1 traces decode transparently via `V1TraceFile` back-compat
-  shim; opt-in via `MTY_RECORD_TRACE=/path/to/trace`
-- **Distributed agents — cross-node send + ask (v0.19, Tier 4.1)** —
-  `AgentAddr = node:type:pid` + framed CBOR-over-TLS transport;
-  `Runtime::with_cluster(SharedRouter)` +
-  `Runtime::send_addr(AgentAddr, …)` +
-  `Runtime::ask_addr(AgentAddr, …)` consult the router; node-wide
-  `CorrelationTable` demuxes inbound `Reply` / `Error` frames into
-  oneshot receivers; peer-disconnect fan-out fails every in-flight
-  ask to that node (`MT5032`); `[cluster]` / `[[cluster.peers]]` /
-  `[cluster.tls]` manifest section
-- **Cluster mTLS + CN-bound node identity (v0.20)** — opt-in via
-  `ClusterMesh::from_config_mtls(cfg)` (zero-breakage for v0.18 /
-  v0.19 callers); `cluster/tls.rs` builds rustls accept/connect
-  configs and pins a custom post-handshake `verify_peer_identity`
-  that rejects connections whose cert CN doesn't match the
-  configured `node_id`; hand-rolled ~50-LOC TLV walker
-  (`extract_cn_from_der`) pulls the CN without an extra dep
-- **Cluster supervisor (v0.20, Tier 4.2)** — `ClusterSupervisor`
-  with per-child state machine, three restart strategies
-  (`OneForOne` / `RestForOne` / `OneForAll`) matching the local
-  supervisor surface, per-child circuit breaker (sliding-window
-  failure count → tripped open → half-open after cooldown → closed
-  on next success); restart decisions emit on a bounded
-  `SUPERVISOR_EVENT_CAPACITY = 256` channel (caller picks
-  placement); mesh `notify_node_disconnect` hook marks affected
-  children `:noproc`
-- **Hot reload — `Resumable` + swap pipeline (v0.20/v0.21, Tier 1.5)** —
-  `Resumable` trait (FNV-1a `SCHEMA_HASH` const + default
-  ciborium-backed `to_snapshot`/`from_snapshot`); swap pipeline
-  `reload::swap` (pause → drain → snapshot → schema check → restore
-  → resume) via `ReloadGate`, mailbox preserved across the boundary;
-  `mty reload <agent-type> --from new.wasm` CLI with `--dry-run` /
-  `--deadline-ms` / `--sock` / `--json`; new diagnostic band
-  `MT5060`–`MT5069`; **v0.21 completes the wasm-bytes path** via a
-  `wasmparser`-driven loader (`__mty_agent_type` + `__mty_schema_hash`
-  custom sections), `MigrateFrom<Old>` + `SchemaRegistry` BFS over
-  `(old_hash, new_hash)` edges (V1 → V2 → V3 supported), the
-  control-socket `op=reload` handler + `ReloadHook` registry, and
-  a parking_lot condvar drain (no more 1 ms busy-poll)
-- **Lossless live agent migration (v0.21, Tier 4.3 — RFC-006)** —
-  `MigrationOrchestrator::migrate_agent(agent, target, deadline)`
-  ships a running agent's snapshot + queued mailbox + continuation
-  between cluster nodes via the new `WireFrame::MigrateSnapshot` /
-  `MigrateAck` / `MigrateError` frames; abstracted over the runtime
-  via `SnapshotSource` / `SnapshotSink` / mesh wire hooks (6 MB
-  hard cap on snapshot payload); new `PlacementPolicy` trait + 3
-  bundled policies (`StickyPolicy`, `LeastLoadedPolicy`,
-  `StaticPolicy`) feed `RestartRequested` events with
-  `placement_hint: Option<NodeId>`; new `[cluster.placement]`
-  manifest block; OTel cluster metrics
-  (migrations_started/completed/failed/rolled_back_total,
-  migration_state_bytes_sum, placements_chosen_total{policy}); new
-  `MT507x` diagnostic band (MT5071..MT5079)
-- **Polonius-style borrows (v0.21, opt-in `polonius` feature)** —
-  second-pass borrow checker layered on the v0.3-vintage NLL walker;
-  datalog fact model (`Borrow(origin, place, mut)`, `Loan(origin,
-  scope)`, `Subset(o1, o2, point)`, `Invalidates(origin, point)`)
-  + 4 inference rules (transitive subset closure, loan-region
-  intersection, mutual-borrow conflict, end-of-scope loan death) +
-  fixpoint solver; default build (no feature) is byte-identical to
-  v0.20 borrow-check semantics
-- **Cap-name resolver — MT4060–MT4065 active (v0.21)** — 3-layer
-  scope-frame resolver (current fn signature, enclosing impl/trait,
-  module-level prelude) pinning `Fs` / `Net` / `Clock` / `Dom` /
-  `Model` names against their cap family + narrowing surface; the
-  six v0.20-uncovered MT4xxx codes now actively emit (MT4060
-  Unbound / MT4061 FamilyMismatch / MT4062 NarrowingParamMismatch /
-  MT4063 NarrowingInBodyButNotSignature / MT4064
-  FamilySurfaceInconsistency / MT4065 NarrowingConstructorArgShape)
+**LLM agent stdlib** *(new in v0.26)*
+- `std.llm` — typed Anthropic / OpenAI / Gemini / Bedrock providers
+  with streaming, tool use, structured outputs, `TokenBudget` short-circuit
+- `@tool` decorator — auto-generates JSON schema for every provider;
+  `cap:` annotation enforced by the runtime (not the prompt)
+- `std.mcp` — server (stdio + http) auto-exposes annotated tools;
+  client connects to other MCP servers
+- `std.memory` — `VectorStore` (local + qdrant), `Episodic`
+  (in-memory + sqlite), `Working` (token-budgeted scratchpad);
+  deterministic snapshots fold into the replay machinery
+
+**Web** *(canvas + keyboard agents)*
+- `std.web.Canvas` + `std.web.Input` WIT interfaces
+- `wasm32-web` target emits a real Component-Model component
+- Demo 06 — agent owns the canvas, JS shim is ~110 LOC
 
 **Codegen**
-
 - Cranelift JIT + AOT object emission (default)
 - LLVM backend (`--features llvm`)
-- WASI Preview 2 **default for `wasm32-wasi`** (explicit `--wasi=p1`
-  opts back to v0.13/v0.14 behaviour); the preview1 adapter is
-  **opt-in** via
-  `Preview2Options::with_adapter(Some(AdapterEmbed::new(kind, bytes)))`
-  rather than always-on, and the vendored bytes were dropped from
-  the crate in v0.19 — callers download the matching wasmtime
-  release's adapter when they need it. `std.fs.*` / `std.http.*` /
-  `std.random.*` / `std.time.*` / `log()` all emit direct versioned
-  P2 imports (`wasi:filesystem` / `wasi:http` / `wasi:random` /
-  `wasi:clocks` / `wasi:cli/stdout` + `wasi:io/streams`); no
-  surface still flows through the adapter on a default build
-- **Real free-list `cabi_realloc` (v0.18)** — extracted from
-  `emit.rs` into `cabi_realloc.rs`; segregated free-list with 8 size
-  classes (8B → 1024B, powers of 2) + a large bump path, with
-  per-class LIFO push/pop, ~190 emitted wasm instructions, 32-byte
-  state region; 17 dedicated coverage tests
-- Wasm Component Model (`wit-component`) emission with user-supplied
-  WIT via `[wit]` in `mighty.toml`
-- DWARF v4 debug info + Wasm source maps + `name` section; opt-in
-  DWARF v5 + per-instruction line program via `MTY_DWARF5=1`
-  (v0.20/v0.21) — parallel emission path with the v5
-  `.debug_line_str` quintuple; **v0.21 plumbs cranelift's
-  `MachSrcLoc` map through `Module::define_function`** so every
-  machine instruction inherits its MtyIR statement source loc
-  (`LowerCtx { fn_debug, capture_debug_info }` + per-stmt
-  `b.set_srcloc(...)`); `.debug_loclists` per-local emitted from
-  cranelift slot offsets; v5 binary-size delta flips from +3.2%
-  (v0.20, conservative 2-entry table) to **-2.3% vs v4** (v0.21,
-  dense `DW_LNS_advance_pc` + small-delta `DW_LNS_copy` opcodes
-  beat the equivalent v4 stream once you cross ~8 rows per fn)
+- WASI Preview 2 default for `wasm32-wasi`; `std.fs` / `std.http` /
+  `std.random` / `std.time` / `log()` emit direct versioned P2 imports
+- DWARF v5 with per-instruction line program (opt-in via `MTY_DWARF5=1`)
+- PGO + ThinLTO via `release-pgo` profile + `scripts/build-pgo.sh`
 
 **Tooling**
-
-- `mty lsp` — LSP 3.17 server (diagnostics, hover, completion, go-to-def, semantic tokens, rename, inlay hints, code actions, signature help, workspace folders)
-- `mty pkg` — package manager: resolver, lockfile, GitHub-Releases-backed registry, `.tar.gz` bundles, signed sidecars
-- **`mty pkg publish --sign` — real Sigstore keyless (v0.18, `sigstore-real` feature)** — Fulcio short-lived ECDSA-P256 cert + Rekor `hashedrekord` transparency-log entry, full Sigstore Bundle JSON embedded in the `.bundle` envelope; `cosign verify-blob` / `rekor-cli` consume the embedded Bundle directly
-- `mty doc` — markdown / HTML doc generator with search index
-- `mty fmt` — canonical formatter (idempotent under fuzz)
-- Stdlib: `std.json`, `std.tls`, `std.http`, `std.fs`, `std.time`, `std.test`, `std.io` — backed by `rustls` / `hyper` / `serde_json` / `tokio`
-- Diagnostics: `MT0001`–`MT8010`, each with `mty explain`
-- **PGO + ThinLTO build profile (v0.22)** — `release-pgo` cargo
-  profile (inherits `release` with `lto = "thin"` + `codegen-units = 1`
-  + `panic = "abort"` + `debug = "line-tables-only"`); two-stage
-  `scripts/build-pgo.{sh,ps1}` pipeline drives an instrumented
-  build → `mty-bench-pgo` sweep across `examples/*.mty` →
-  `llvm-profdata merge` → final build with `-Cprofile-use` +
-  `-Clinker-plugin-lto` writing to `target/mty-pgo`; manual
-  `.github/workflows/pgo-bench.yml` runs the pipeline on
-  `workflow_dispatch` and writes a baseline-vs-PGO `mty check`
-  wall-clock delta to the workflow summary (v0.22 ships measurement,
-  not gating; v0.23's BOLT follow-up turns it into the default
-  release artifact pipeline)
-- **`std.web` (canvas + keyboard) + `mty serve` + headless visual
-  smoke (v0.23)** — first-class browser host surface for Mighty.
-  `std.web.Canvas::{clear, fill_rect, request_animation_frame}` +
-  `std.web.Input::{poll_keydown, poll_keyup}` lower to a
-  `mty:web/canvas@0.1` + `mty:web/input@0.1` Component-Model WIT
-  pair (drift-guarded by `WIT_IMPORT_*` / `WIT_EXPORT_*` consts in
-  `crates/mty-stdlib/src/web/{canvas,input}.rs`). New `mty serve
-  [--port <n>] [--watch]` subcommand: hand-rolled HTTP/1.1 dev
-  server (no `hyper`/`axum` dep) + RFC 6455 hand-rolled websocket
-  hot-reload triggered by `notify` file-watcher events under `src/`
-  + `web/`. New `mty new --template web-game <name>` scaffolds the
-  5-file agent + canvas + dom-shim project. Headless-browser visual
-  smoke at `tests/web-smoke/smoke-headless.mjs` (Playwright,
-  8x8 average-hash perceptual hash, hamming-distance budget 12,
-  per-demo `golden/<name>.phash` lock-in, manual `web-smoke.yml`
-  workflow_dispatch CI job, gated by `MTY_WEB_SMOKE=1` locally so
-  the heavy Playwright install is opt-in). A regression harness at
-  `crates/mty-codegen-wasm/tests/embedded_core_module.rs` locks in
-  the wasm32-web framing invariant (Component envelope embeds the
-  core module at byte offset 189, ±32 byte tolerance for
-  wit-component drift between releases).
-- **`format!()` string interpolation (v0.24 Track B, extended
-  v0.25 Track D)** — first-class Mighty builtin macro that
-  expands at compile time into a
-  `("" + ... + (x).to_str() + ...)` chain. v0.24 shipped the
-  conversion sigils (`{}` / `{name}` named-arg passthrough /
-  `{:x}` / `{:X}` / `{:?}`) and brace escapes (`{{` / `}}`);
-  v0.25 closes the deferred layout grammar
-  `[[fill]align][sign][#][0][width][.precision][type]`:
-  width `{:5}`, zero-pad `{:05}`, alignment `{:<5}` / `{:>5}` /
-  `{:^5}`, fill char `{:*<5}`, precision `{:.3}`, sign `{:+}`,
-  alternate prefixes `{:#x}` / `{:#X}` / `{:#b}` / `{:#o}`,
-  binary/octal `{:b}` / `{:o}`. Combined specs respect canonical
-  ordering (`{:#05x}` → `0x0ff`). Diagnostics MT6009
-  (MALFORMED_FORMAT_SPEC), MT6010 (FORMAT_ARG_COUNT_MISMATCH),
-  MT6011 (UNSUPPORTED_FORMAT_TYPE), MT6012
-  (MALFORMED_FORMAT_WIDTH), MT6013 (MALFORMED_FORMAT_PRECISION)
-  surface at macro-expansion time. End-to-end through the
-  wasm32-web backend. Carried to v0.26: positional `{0}`,
-  dynamic `{:1$}` / `{:.*}`, explicit `n=v` named-arg
-  passthrough (works as `{n}` in-scope shorthand today).
-- **wasm32-web emitter completion (v0.24 Track A, HIR routing
-  v0.25 Track A)** — the `BuiltinId::CanvasOp(CanvasOpKind)`
-  SIR variant lowers `canvas.fill_rect(...)`-style calls to
-  direct `call $imported_canvas_*` against the eight
-  `mty:web/canvas@0.1` WIT imports; `export fn
-  frame/keydown/keyup` reaches the embedded core module's
-  export section under its canonical name (the host shim can
-  `inst.exports.frame(dt)` directly without going through the
-  v0.23 `log("evt:...")` fallback). v0.25 Track A closes the
-  HIR → IR routing via a per-fn canvas-handle taint scheme on
-  `FnBuilder::canvas_locals` (constructor taints the result
-  local; `bind_pat_assign` propagates through let-rebind;
-  `lower_call`'s local-method-call arm routes tainted-receiver
-  calls to `BuiltinId::CanvasOp`) and fixes the latent
-  Unit-returning user-fn stack-balance bug in `emit_call`'s
-  `FnRef::User` arm (closes KNOWN_ISSUES P2 #8). Canvas-handle
-  taint propagation through fn parameters carried to v0.26.
-- **`extern js { fn _foo() }` → real wasm imports (v0.25,
-  Track B)** — `extern js` blocks are now lifted into
-  `(import "mty:web/js" "<name>" ...)` entries in the core
-  module + matching `interface js { ... }` in the WIT world,
-  via a new `Program::extern_bindings` IR side-table populated
-  by `record_extern_bindings` and an
-  `Emitter::predeclare_extern_js_imports` pre-declare pass.
-  String params expand to `(ptr:i32, len:i32)` pairs matching
-  the canonical-ABI flat layout. Call-site dispatch via
-  `FnRef::User(callee)` lands naturally on the import (no
-  separate builtin variant). The WIT stub generator currently
-  kebab-strips leading underscores — `wrap_as_component` step
-  fails for `_foo`-shaped names; carried to v0.26.
-- **Agent fields with fixed-size arrays `[T; N]` (v0.25,
-  Track C)** — `agent X { board: [U32; 200] = [0; 200] }` now
-  parses through HIR lowering with the length expression
-  captured (v0.24 dropped it, degrading the field to a slice
-  shape), typechecks as `TyData::Array { elem: U32, len:
-  Some(200) }`, and the SIR runtime threads the same
-  `AgentDescriptor.state` across every dispatched message
-  (cross-callback persistence pinned by a regression test:
-  `crates/mty-runtime/tests/agent_callback_persistence.rs`).
-  `const N: U32 = 200` referenced as the length parses but
-  resolves to `len: None` (v0.26 follow-up — real const
-  evaluator for array lengths). wasm32-web emitter-side agent
-  persistence carries to v0.26 (single-agent-instance pattern
-  designed in
-  [`dev/history/notes/AGENT_FIELDS_V0_25_NOTES.md`](dev/history/notes/AGENT_FIELDS_V0_25_NOTES.md)).
-- **`std.String` + `std.Vec[T]` stdlib types (v0.25, Track
-  E)** — foundational owned, growable types in
-  `crates/mty-stdlib/`. `std.String` is a UTF-8 byte string
-  (`Vec<u8>`-backed; `String.new` / `with_capacity` /
-  `from_str` / `from_utf8` / `len` (bytes — NOT chars) /
-  `push_str` / `push(c)` / `clear` (capacity-preserving) /
-  `as_str` / `to_str`); no `unsafe` — every UTF-8
-  re-validation goes through `std::str::from_utf8` (~5 %
-  throughput hit accepted because the stdlib is the trust
-  anchor). `std.Vec[T]` is `#[repr(transparent)]` over
-  `std::vec::Vec<T>` so the storage layout matches the wasm
-  Component ABI `list<T>` lowering (`Vec.new` /
-  `with_capacity` / `push` / `pop` / `get` / `len` /
-  `is_empty` / `clear` / `iter`). New
-  [`examples/26_string_vec.mty`](examples/26_string_vec.mty)
-  exercises the surface.
-
-**LLM agents (v0.26 — `std.llm` + `@tool` / `std.mcp` + `std.memory`)**
-
-This is "Mighty for LLM agents." After v0.26 a Mighty program
-can pick a typed LLM provider, expose its own fns as
-capability-typed MCP tools (or connect to any external MCP
-server), persist agent memory across turns through vector +
-episodic + working stores, and replay the whole conversation
-byte-identically through the v0.19 deterministic-replay
-machinery. Every LLM call, tool invocation, and memory mutation
-is a typed event in the replay log — this is what makes Mighty
-**the first compiler-backed agent language with capability-typed
-tools + deterministic replay.**
-
-- **`std.llm` typed provider abstraction (v0.26 Track A).** The
-  single trait `mty_stdlib::llm::LlmProvider` is the source of
-  truth for every backend. Anthropic is **SHIPPED-FULL** — real
-  HTTP/1.1 over the workspace's existing `hyper` + `tokio-rustls`
-  stack, SSE streaming via `event: content_block_delta` /
-  `event: message_stop`, typed
-  `ContentBlock::ToolUse { id, name, input }` for tool-use blocks
-  with caller-side dispatch, typed `Budget` carrying
-  `{max_tokens, max_calls, max_dollars}` with per-method short-
-  circuit that returns `LlmError::BudgetExhausted` before the HTTP
-  call ever starts (off the request estimate, not the response
-  actual — predictable for replay), typed `LlmError` over
-  `BudgetExhausted` / `Network` / `Status` / `Decode` / `Stream`.
-  OpenAI / Gemini / Bedrock ship as **SHIPPED-SKELETON** — auth
-  bearer / API key shape correct against the canonical vendor URL
-  (`api.openai.com/v1/responses` /
-  `generativelanguage.googleapis.com/v1beta/models/...` /
-  `bedrock-runtime.<region>.amazonaws.com/...`), request body shape
-  correct against the vendor's typed schema, `complete()` returns
-  a stub `Message::assistant_text(format!("[<vendor> stub v0.26
-  — model=...]"))` so a caller's typed loop still works. v0.27
-  wires the response-parser + streaming bodies for each. The
-  typed `Message` / `ContentBlock` surface uses Anthropic's
-  vocabulary (`text` / `tool_use` / `tool_result` / `image`)
-  forward-compatibly across providers; translation to per-vendor
-  wire shape happens at the `LlmProvider` boundary in each
-  provider's `build_body` + response-parser pair, never in user
-  code.
-- **`@tool` macro + `std.mcp` server / client + capability sandbox
-  (v0.26 Track B).** `@tool` is a typed attribute macro
-  registered through the `mty_macros` registry with the
-  signature `@tool(description: Str, cap: CapabilitySet)`. At
-  expansion time the macro emits a synthesised `__tool_<name>`
-  companion fn that carries the fn metadata (typed argv shape,
-  result type, doc string) plus a registration call into the
-  process-wide MCP registry. The macro is registered at Rust
-  level for v0.26; the source-level `@tool(...)` parse is v0.27
-  work (Track E demo had to fall back to doc-comment spec).
-  `mty_stdlib::mcp::server::serve_stdio(opts)` + `serve_http(opts)`
-  auto-expose the registered tools through MCP's JSON-RPC
-  catalogue + invocation handler; the same agent can also be an
-  MCP client of someone else's server via
-  `McpClient::connect(transport)` running the initialise +
-  tools/list + tools/call handshake. The cap sandbox checks
-  every tool invocation against a 5-family CapabilitySet (`Fs` /
-  `Net` / `Clock` / `Model` / `Custom(Str)`) and accumulates a
-  per-invocation capability ledger for replay. New diagnostic
-  band MT6011 (`TOOL_CAP_DENIED`), MT6012 (`TOOL_NOT_FOUND`),
-  MT6013 (`TOOL_INVALID_ARGS`), MT6014 (`TOOL_RUNTIME_ERROR`),
-  MT6015 (`MCP_TRANSPORT_ERROR`), MT6016
-  (`MCP_PROTOCOL_VIOLATION`).
-- **`std.memory` vector + episodic + working primitives (v0.26
-  Track C).** Three memory primitives every agent loop needs.
-  `VectorStore` (local flat-list cosine-similarity index +
-  qdrant skeleton) for document recall;
-  `Episodic` (in-memory ring buffer + sqlite-backed persistence
-  via opt-on `memory-sqlite` feature, schema `(rowid, key TEXT,
-  value JSON, recorded_at TEXT)`) for conversation history;
-  `Working` (token-budgeted scratchpad with FIFO drop-oldest on
-  budget overflow) for the current turn's scratchpad. Every
-  mutation across the three stores emits a `MemoryDelta { store,
-  op, key, value }` event through the existing `record_io_read`
-  hook, so the v0.19 deterministic-replay machinery
-  reconstructs memory state at any frame — the "what did the
-  agent remember at step N" question is deterministically
-  answerable.
-- **Demo 07 research agent (v0.26 Track E, SHIPPED-PARTIAL).**
-  A 213-LOC `.mty` source at
-  [`demos/07_research_agent/`](demos/07_research_agent/) that
-  consumes `std.llm` + `std.memory` in a Researcher agent —
-  indexes a local 5-doc corpus into the VectorStore, calls the
-  LLM provider, dispatches tool invocations against the
-  `@tool`-tagged fns (`read_doc` / `save_answer` /
-  `search_corpus`), persists episodic memory across turns,
-  writes the final answer back into the corpus. Opt-in mock-LLM
-  smoke (`MTY_AGENT_SMOKE=1 bash
-  demos/07_research_agent/smoke.sh`); real Anthropic path via
-  `ANTHROPIC_API_KEY=sk-ant-... mty run
-  demos/07_research_agent/src/main.mty`. **SHIPPED-PARTIAL** —
-  6 narrow v0.27 follow-ups documented (`@tool` source-level
-  parser; opaque-ADT ctor scope + agent ADT fields → wasm32-
-  web; `mty run` argv forwarding; `Vector.is_empty()`; source-
-  level `stream!` macro; real OpenAI/Gemini/Bedrock provider
-  bodies).
-
-**Self-hosting (full pipeline)**
-
-- Lexer (full), parser (~1.9 KLOC subset), HIR lowering, minimal typeck, MtyIR lowering, **and Wasm core-module codegen** are all written in Mighty itself and exercised end-to-end against examples 01-05 plus arithmetic / option / pattern / string fixtures.
-- 23 self-host driver codegen tests passing (0 ignored), supported by 9 IR + 7 typeck + 7 HIR + 13 parser + 4 lexer suites.
-- v0.13 closed the front-end-through-back-end self-host chain for the slice-1 subset; v0.14 broadened the Wasm codegen with string pool emission, ADT bump-alloc layout, and pattern lowering, bringing example 03 through the bootstrap chain. v0.15 added variant-call lowering in `mty-ir::lower::exprs::resolve_callee` (Some/Ok/MyEnum.Variant lower to `Rvalue::AdtInit`), a SwitchInt cascade for dense integer matches, and a `for i in 0..n` desugar. v0.16 lowers `Rvalue::MethodCall` through the host `ir_method_resolve(name)` bridge (v0.15 emitted `unreachable`) and desugars `for x in custom_iter` at the selfhost-IR layer into the iter-protocol shape, so for-loops over user-defined iterators now emit real iteration code.
+- `mty lsp` — LSP 3.17 (hover, completion, go-to-def, semantic tokens,
+  rename, inlay hints, code actions, signature help)
+- `mty pkg` — resolver, lockfile, GitHub-Releases-backed registry,
+  signed bundles via real sigstore behind `sigstore-real` feature
+- `mty doc` — markdown + HTML doc generator with search
+- `format!()` with `{:<>^}` alignment, `{:.3}` precision, `{:#x}`
+  alt-hex/bin/oct, named-arg passthrough
 
 **Independent implementations**
-
-- Rust reference compiler (this repo, `crates/mty-*`).
-- Python 2nd-impl at [`impl-py/`](impl-py/) — **full pipeline**
-  (lex → parse → lower → typeck → borrow → wasm) in pure Python,
-  built from the v1.0-RC spec prose alone (**v0.22**, extends the
-  v0.19 typeck-only impl with NLL-flavoured borrow checker covering
-  MT3001–MT3005 and Core 1.0 wasm codegen emitting i32 arithmetic /
-  control flow / calls / locals with deduplicated type table and
-  structural validation; v0.25 adds the `format!()` extended-spec
-  parser). **490 tests** (stable v0.25 → v0.26; the v0.26 surfaces
-  `std.llm` / `std.mcp` / `std.memory` sit above the lex → parse →
-  typeck → borrow → wasm pipeline this 2nd-impl certifies),
-  23/23 examples typeck clean, **21/24 examples emit wasm fn
-  bodies** (the 3 zero-fn examples are agent-only files). Closes
-  v1.0 freeze blocker #1 + completes the v1.0-RC validation
-  question (the Rust reference is no longer the only impl that
-  exists — every spec-prose claim now has a 2nd impl that round-
-  trips through codegen).
-- Go 3rd-impl front-end at [`impl-go/`](impl-go/) — Go 1.22+ lexer + parser + CLI built from the v1.0-RC spec prose alone. 4848 LOC; cross-validation (`go test ./...`, example sweep) pending Go toolchain on the build host.
+- Rust reference compiler (`crates/mty-*`)
+- Python 2nd-impl ([`impl-py/`](impl-py/)) — full pipeline through
+  wasm codegen; 490 tests; 23/23 examples typeck clean, 21/24 emit wasm
+- Go 3rd-impl front-end ([`impl-go/`](impl-go/)) — lexer + parser,
+  cross-validation pending Go toolchain on the build host
 
 ## Documentation
 
-Live docs site: **<https://hassard0.github.io/Mighty/>**
+Live docs site: <https://hassard0.github.io/Mighty/>
 
 - [Getting started](docs/getting-started.md)
 - [Tour](docs/tour/README.md) — walk through the canonical examples
-- [Language spec v1.0-RC4](docs/spec/v1.0-rc.md) (frozen for v1.0)
-- [Normative conformance doc](docs/spec/conformance.md) (v0.19)
-- [Spec v0.1 + amendment log](docs/spec/v0.1.md)
+- [Language spec v1.0-RC5](docs/spec/v1.0-rc.md) (frozen for v1.0)
 - [Reference](docs/reference/README.md) — CLI, manifest, registry, diagnostics
-- [Internals](docs/internals/README.md) — compiler architecture, crate-by-crate
+- [Internals](docs/internals/README.md) — compiler architecture
+- [Agent features roadmap](docs/internals/agent-features-roadmap.md)
 - [FAQ](docs/faq.md)
 - [Contributing](docs/contributing.md)
 
 ## Project layout
 
-The compiler is a Rust workspace of twenty crates:
+20-crate Rust workspace:
 
 | Crate | Responsibility |
-|---|---|
+|-------|---------------|
 | `mty-syntax` | lexer (logos), CST (rowan), parser |
 | `mty-ast` | typed AST view over the CST |
-| `mty-diagnostics` | diagnostic types, MT-coded labels, ariadne rendering |
-| `mty-hir` | name-resolved HIR with arena storage; macro preprocessor hook |
-| `mty-types` | resolved `Ty`, HM inference, bidirectional type checker, effects + capabilities, `Sendable` |
-| `mty-borrow` | ownership / move / borrow / affine / arena analysis (field-level Places + NLL last-use) |
-| `mty-sir` | mid-level IR + tree-walking interpreter |
-| `mty-runtime` | concurrent tokio runtime: agents, mailboxes, supervisors, budgets |
-| `mty-codegen-cranelift` | native backend — JIT + AOT object |
-| `mty-codegen-wasm` | wasm32-wasi / wasm32-web core module + Component Model emitter |
+| `mty-diagnostics` | `MTxxxx` codes, ariadne rendering |
+| `mty-hir` | name-resolved HIR with arena storage |
+| `mty-types` | HM inference, bidirectional check, effects + caps + `Sendable` |
+| `mty-borrow` | ownership / move / borrow / affine / arena analysis (Polonius opt-in) |
+| `mty-ir` | mid-level IR + tree-walking interpreter |
+| `mty-runtime` | tokio runtime: agents, mailboxes, supervisors, cluster, replay, reload, introspect, telemetry |
+| `mty-codegen-cranelift` | native backend (JIT + AOT) |
+| `mty-codegen-wasm` | wasm core + Component Model + `mty:web/*` WIT |
 | `mty-codegen-llvm` | LLVM backend (real lowering behind `--features llvm`) |
-| `mty-debuginfo` | DWARF v4 builder + wasm source-map + `name` section |
-| `mty-fmt` | canonical formatter (Wadler/Lindig pretty-printer) |
-| `mty-driver` | compilation pipeline and `mighty.toml` manifest loader |
-| `mty-pkg` | package manager: resolver, lockfile, fetchers, publisher |
-| `mty-lsp` | LSP 3.17 server over stdio |
-| `mty-doc` | doc generator (extract + render markdown/HTML) |
-| `mty-stdlib` | real `std.json` / `tls` / `http` / `fs` / `time` / `test` |
-| `mty-macros` | declarative-macro registry + expander + hygiene |
+| `mty-debuginfo` | DWARF v4 + v5 builders |
+| `mty-fmt` | canonical formatter |
+| `mty-driver` | compilation pipeline + `mighty.toml` loader |
+| `mty-pkg` | package manager (sigstore-real signing) |
+| `mty-lsp` | LSP 3.17 server |
+| `mty-doc` | doc generator |
+| `mty-stdlib` | `std.{json,tls,http,fs,time,test,llm,mcp,memory,web,fmt}` |
+| `mty-macros` | declarative macros + `format!` + `@tool` builtin attributes |
 | `mty-cli` | the `mty` binary |
 
-Adjacent trees: `examples/` (canonical programs), `demos/`
-(end-to-end runnable apps with `smoke.sh`), `benches/` (criterion +
-the `mty-bench` runner), `selfhost/` (the bootstrap compiler written
-in Mighty), `tests/conformance/` (cross-crate behavioural specs),
-`editor/vscode/` (VS Code extension).
+Adjacent trees: `examples/` (26 canonical programs), `demos/`
+(7 end-to-end runnable apps with `smoke.sh`), `benches/` (criterion),
+`selfhost/` (the bootstrap compiler written in Mighty),
+`tests/conformance/` (159-case normative kit), `tests/web-smoke/`
+(headless-browser visual smoke).
 
 ## Roadmap
 
 ### To `v1.0`
 
-The v1.0 spec is feature-complete at **v1.0-RC5** (`docs/spec/v1.0-rc.md`).
-**Earliest possible v1.0.0 tag: 2026-07-26.** Blockers #1 (Python
-2nd-impl) and #3 (normative conformance suite) closed in v0.19 and
-have grown since (Python full-pipeline through wasm codegen at
-v0.22; kit at **159 cases** / 24 categories with the v0.24-declared
-v1.0 GA **104 normative / 49 informative** split at
-[`tests/conformance/v1.0-NORMATIVE.md`](tests/conformance/v1.0-NORMATIVE.md)).
-The single remaining blocker is the eight RFC comment windows:
+The v1.0 spec is feature-complete at v1.0-RC5. **Proposed freeze
+date: 2026-09-01** (earliest possible tag: **2026-07-26** — one
+day after the longest 60-day RFC window closes).
 
-- **#2 — The eight RFC comment windows (RFC-001..006 + RFC-008 +
-  RFC-009).** Infrastructure shipped v0.19; **live dashboard added
-  v0.24** at
-  [`docs/spec/rfcs/RFC_DASHBOARD.md`](docs/spec/rfcs/RFC_DASHBOARD.md)
-  (per-window countdowns + per-RFC implementation status), plus
-  the window-policy master tracker
-  [`docs/spec/rfcs/COMMENT_WINDOWS.md`](docs/spec/rfcs/COMMENT_WINDOWS.md).
-  **All 8 RFC discussion threads opened on 2026-05-26** (commit
-  `bf4261e`); the live dashboard now points at the open
-  Discussion threads #2–#9. Earliest close 2026-06-09 (RFC-005,
-  14 days); latest close 2026-07-25 (RFC-002 / RFC-006, 60 days
-  each). Three RFCs (006, 008, 009) are already implemented and
-  await procedural ratification; five (001..005) are substantive
-  forward-looking proposals.
+Only one blocker remains:
+
+- **8 RFC comment windows.** Opened 2026-05-26 on GitHub Discussions
+  ([dashboard](docs/spec/rfcs/RFC_DASHBOARD.md)). RFC-005 closes
+  earliest (2026-06-09, 14 days); RFC-002 + RFC-006 latest
+  (2026-07-25, 60 days). Threads
+  [#2–#9](https://github.com/hassard0/Mighty/discussions).
+
+The other two former blockers — 2nd-impl through the pipeline, and
+the published normative conformance suite — both closed in v0.19.
 
 ### Post-v1.0
 
-The Post-v1.0 backlog is **empty** as of v0.22 — every former
-post-v1.0 roadmap item (per-message work-stealing, PGO/ThinLTO,
-Python 2nd-impl borrow + codegen) landed pre-v1.0. Beyond v1.0,
-candidate slices are tracked in the `[Unreleased]` block of
-[`CHANGELOG.md`](CHANGELOG.md). v0.27 candidate tracks (from
-v0.26 Track E's 6 follow-ups): `@tool` source-level parser
-surface; opaque-ADT ctor scope + agent ADT fields → wasm32-web;
-real OpenAI / Gemini / Bedrock provider bodies (promote v0.26
-skeletons to SHIPPED-FULL); `Vector.is_empty()` + source-level
-`stream!` + `mty run` argv forwarding + `const` in match
-patterns + `format!("{n}", n=value)` named-arg shorthand;
-multi-agent `swarm!(claude, gpt, gemini, q)` + shared
-`DollarBudget` consensus voting as the v0.27 forcing-function
-demo. Plus the carry-forward BOLT post-link optimisation; multi-
-socket NUMA benchmark; `mty conform` implementer-CLI shim;
-systematic v1.0-RC validation sweep; MT3012 closure pending HIR
-`CONST_DECL` lowering.
+Currently empty. Every former post-v1.0 roadmap item — lossless
+live agent migration, Polonius borrows, distributed agents, hot
+reload, DWARF v5, PGO/ThinLTO, work-stealing — has landed pre-v1.0.
+The next reach is into v1.1+ territory: cluster placement policies,
+multi-agent swarm consensus primitives, MCP federation, BOLT
+post-link optimisation.
 
-### Landed pre-v1.0 (formerly post-v1.0)
-
-- WASI Preview 2 + user-supplied WIT (v0.13 → v0.19) — `[wit]` section, default for `wasm32-wasi`, every `std.*` lowering goes through versioned P2 imports, the preview1 adapter is opt-in via `AdapterEmbed::new(kind, bytes)` and the vendored bytes were removed in v0.19.
-- Effect-row polymorphism end-to-end (v0.13 → v0.19, RFC-008) — surface syntax (`!E` / `!{a | E}` / `effect a | E` / `!{| E1, E2}` / `effect a, b | E1, E2`); typeck `HirEffectRow::Open(Vec<HirRowVar>)`; HIR multi-row lowering complete in v0.19 (every `EFFECT_ROW_VAR` child read); MT4055–MT4059 all active emit.
-- Set-of-scopes macro hygiene (RFC-009, v0.13 → v0.15).
-- End-to-end self-hosting through Wasm codegen (v0.13 → v0.16) — 23 codegen driver tests, 0 ignored; examples 01-03 bootstrap through the self-host chain.
-- Live agent introspection + OpenTelemetry (v0.16) — `mty inspect` CLI + `MTY_RUNTIME_CONTROL_SOCK`; OTel spans at every agent boundary + `agent.event(name, …)` helper; cost-zero when disabled.
-- Deterministic replay — byte-identical re-execution (v0.17 → v0.19) — Recorder wired into the Runtime hot path across 13 instrumentation sites; wire format v2 + structural `ReplayPayload::Values` codec; `ReplayDriver` re-runs the program against the trace and diffs events byte-for-byte; `mty replay --byte-identical --program <src>`; v1 traces decode transparently.
-- Independent second implementation (v0.17 → v0.19) — Python 2nd-impl through HM closures + generic-constraints; 311 tests; 23/23 examples typeck clean. **Closes v1.0 freeze blocker #1.**
-- Real `cabi_realloc` free-list allocator (v0.18) — closes KNOWN_ISSUES #1. 8 size classes (8B → 1024B) + large bump path; ~190 wasm instructions; 17 dedicated tests.
-- Real Sigstore keyless signing (v0.18, `sigstore-real` feature) — closes KNOWN_ISSUES #2. Fulcio short-lived ECDSA-P256 cert + Rekor `hashedrekord` entry; Sigstore Bundle JSON embedded for direct `cosign verify-blob` / `rekor-cli` consumption.
-- Distributed agents — cross-node send + ask (v0.18 transport → v0.19 routing) — `AgentAddr = node:type:pid` + framed CBOR-over-TLS mesh; `Runtime::with_cluster(SharedRouter)` + `send_addr` / `ask_addr` consult the router; node-wide `CorrelationTable` demuxes inbound `Reply` / `Error`; peer-disconnect fan-out fails in-flight asks with `MT5032`.
-- Normative conformance kit (v0.19 → v0.20) — `scripts/build-conformance-kit.sh` packages 140 cases / 24 categories + spec docs into a ~108 K versioned tarball; v0.20 backfilled the 4 placeholder categories (`deterministic_replay/` +5, `formatter_idempotence/` +5, `native_abi/` +4, `wasm_component/` +4) and wired the kit-build into `release.yml` so it auto-attaches alongside the binaries on every tagged release. **Closes v1.0 freeze blocker #3.**
-- Hot reload — `Resumable` + swap pipeline (v0.20, Tier 1.5) — `Resumable` trait (FNV-1a `SCHEMA_HASH` const + default ciborium-backed `to_snapshot`/`from_snapshot`); swap pipeline `reload::swap` (pause → drain → snapshot → schema check → restore → resume) via `ReloadGate`; `mty reload <agent-type> --from new.wasm` CLI; `MT5060`–`MT5069` diagnostic band; state-only reload wired end-to-end (raw-wasm via `Program::with_swapped_agent` is v0.21).
-- Cluster mTLS + Tier 4.2 supervisor (v0.20) — mTLS via opt-in `ClusterMesh::from_config_mtls(cfg)` with CN-bound `verify_peer_identity` (hand-rolled `extract_cn_from_der` TLV walker, no extra dep); `ClusterSupervisor` with three restart strategies (`OneForOne` / `RestForOne` / `OneForAll`) + per-child circuit breaker; restart decisions emit on a bounded event channel (caller picks placement; v0.21 lands `PlacementPolicy`); mesh `notify_node_disconnect` hook marks affected children `:noproc`.
-- DWARF v5 + per-instruction line program (v0.20, opt-in) — `MTY_DWARF5=1` env-var toggle (parallel emission alongside the v4 default); new `crates/mty-debuginfo/src/dwarf5.rs` emits the v5 `.debug_info` + `.debug_line` + `.debug_str` + `.debug_line_str` + `.debug_abbrev` quintuple; v5 *capacity* for denser opcode-table line rows + cross-CU `.debug_line_str` string sharing is wired (the *enablement* of those wins waits on cranelift `MachSrcLoc` plumbing in v0.21).
-- Strict-equality replay payloads (v0.20) — v0.18 hot-path migration of `Runtime::send` / `Runtime::ask` from `Opaque(format!("{:?}", args))` to `Values(...)`; the `ReplayDriver`'s strict structural equality arm is now the live replay semantic (the `Opaque ≈ Opaque` loose-equality arm becomes a back-compat fallback that never fires for fresh recordings; cluster routing still uses the byte envelope by transport contract).
-- Hot reload completion + wasm-bytes swap + schema migrations (v0.21, Tier 1.5) — `wasm_loader` parses `__mty_agent_type` + `__mty_schema_hash` custom sections via `wasmparser`; `Program::with_swapped_agent` clones the per-agent slot map; `MigrateFrom<Old>` + `SchemaRegistry` BFS over `(old_hash, new_hash)` edges supports schema-evolution chains (V1 → V2 → V3); control-socket `op=reload` handler via `Request::Reload { agent_type, module_b64, deadline_ms }` + `ReloadHook` registry; parking_lot condvar drain replaces the 1 ms busy-poll.
-- Lossless live agent migration (v0.21, Tier 4.3, RFC-006) — `MigrationOrchestrator::migrate_agent(agent, target, deadline)` ships an agent's snapshot + queued mailbox + continuation between cluster nodes; abstracted over the runtime via `SnapshotSource` / `SnapshotSink` / mesh wire hooks; 6 MB hard cap; `PlacementPolicy` trait + 3 bundled policies (`StickyPolicy` / `LeastLoadedPolicy` / `StaticPolicy`) feeding `RestartRequested` placement hints; `[cluster.placement]` manifest block; OTel cluster metrics; new `MT507x` diagnostic band.
-- DWARF v5 MachSrcLoc plumbing (v0.21) — cranelift's per-instruction `MachSrcLoc` map flows through `Module::define_function`; v0.20's conservative 2-entry line table replaced with a dense per-statement line program; `.debug_loclists` per-local emitted from cranelift slot offsets; v5 binary-size flips from +3.2% to -2.3% vs v4 on the synthetic benchmark.
-- Polonius-style borrows (v0.21, opt-in `polonius` feature) — datalog fact model + 4 inference rules + fixpoint solver layered on the v0.3-vintage NLL walker; default build (no feature) is byte-identical to v0.20 borrow-check semantics.
-- Cap-name resolver — MT4060–MT4065 active emit (v0.21) — 3-layer scope-frame resolver (current fn signature, enclosing impl/trait, module-level prelude) pinning `Fs` / `Net` / `Clock` / `Dom` / `Model` names against their cap family + narrowing surface; closes the 6 v0.20-uncovered MT4xxx typeck codes.
-- Per-message work-stealing — Tier 5 (v0.22) — promotes the v0.10 affinity-hint scheduler to true crossbeam-deque per-worker queues with NUMA-locality steal ordering (own NUMA → same socket → anywhere via Linux `/sys` probe, flat fallback on Windows/macOS); `local → siblings → injector` phase reversal; process-wide `worker.steals_total{src,dst}` OTel counter; -61% on the pinned-burst microbenchmark vs v0.21. Closes the last roadmap Tier.
-- PGO + ThinLTO build profile (v0.22) — new `release-pgo` cargo profile + two-stage `scripts/build-pgo.{sh,ps1}` pipeline (instrumented build → `mty-bench-pgo` sweep over `examples/*.mty` → `llvm-profdata merge` → final build with `-Cprofile-use` + `-Clinker-plugin-lto`); manual `.github/workflows/pgo-bench.yml` writes baseline-vs-PGO `mty check` wall-clock delta to the workflow summary (measurement-only; v0.23 BOLT follow-up turns it into the default release artifact pipeline).
-- Python 2nd-impl full pipeline (v0.22) — extends the v0.19 typeck-only impl with NLL-flavoured borrow checker (MT3001–MT3005, +865 LOC, +28 tests) + Core 1.0 wasm codegen (+954 LOC, +37 tests) emitting i32 arithmetic, control flow, calls, locals with deduplicated type table and structural validation; 96-case full-pipeline sweep; 21/24 examples emit wasm fn bodies; Python test count 311 → 474 (+163). Completes the v1.0-RC validation question — every spec-prose claim now has a 2nd impl that round-trips through codegen.
-- Diagnostic-code coverage closure (v0.22) — activates 7 of the 8 v0.21-uncovered codes (MT0004 / MT0030 via `Parser::pre_lex_scan` + driver `DiagCode` preservation; MT2015 / MT2016 via `synth_match`; MT2018 via `synth_expr_inner` If branch; MT2019 via `items` custom function-body path; MT3015 via `mty-borrow::flow::walk_stmt` binding `let x: T;` as `Ownership::Uninit`). +7 conformance fixtures. Coverage 62 → 69 direct (56% → 63%), any-harness 93% → 99%, uncovered 8 → 1. MT3012 DROP_IN_CONST_CONTEXT explicitly deferred to v0.23 pending HIR `CONST_DECL` lowering.
-- MtyIR `Stmt` real source-span carrier (v0.22) — every MtyIR `Stmt` + `Terminator` now carries a real `SourceSpan` field (default `SourceSpan::ZERO` for back-compat with manually-constructed programs); HIR spans propagate through `lower → MtyIR → cranelift SourceLoc → DWARF v5 line row`, replacing v0.21's synthetic-uniform per-statement byte-offset spread; `gdb step-line` against v0.22 binaries walks source lines byte-accurately.
-- `std.web` (canvas + keyboard) + `mty serve` + headless visual smoke (v0.23) — first-class browser host surface for Mighty. `mty:web/canvas@0.1` + `mty:web/input@0.1` Component-Model WIT pair + `std.web.Canvas` / `std.web.Input` Mighty-side bindings drift-guarded by `WIT_IMPORT_*` / `WIT_EXPORT_*` consts; new `mty serve [--port <n>] [--watch]` subcommand (hand-rolled HTTP/1.1 + RFC 6455 hand-rolled websocket hot-reload over `notify` file watches); new `mty new --template web-game <name>` scaffold; `wasm32-web` embedded-core-module regression harness (the long-standing "header-only component" suspicion was wrong — the core module IS embedded at byte offset 189); 6th demo `06_canvas_game` (agent-driven canvas, JS shim -32% LOC vs v0.22 notetris); headless-browser visual smoke (Playwright + 8x8 phash + per-demo golden, gated by `MTY_WEB_SMOKE=1`). Three v0.24 language gaps documented: `BuiltinId::CanvasOp(...)` lowering arm in `mty-codegen-wasm/src/emit.rs`; `format!()` / interpolation; `export fn` reaching the embedded core module's export table. Conformance kit grows 147 → 153 cases.
-
-For the full per-version history of what shipped on the road to v1.0,
-see [`CHANGELOG.md`](CHANGELOG.md).
+Per-version detail lives in `CHANGELOG.md` and
+`dev/history/releases/RELEASE-v0.X.md`. This README tracks the
+current state of the language, not its history.
 
 ## Status
 
-Mighty is **pre-alpha** — and as of v0.26 it is **the first
-compiler-backed agent language with capability-typed tools +
-deterministic replay**. Internal milestones have been tagged
-through **v0.26**. The v1.0 language spec is at **v1.0-RC5**
-(v0.24 polish absorbed §12.6 `Resumable` / §12.7 `MT506x`
-reload band / §12.8 Tier 4.3 migration + `PlacementPolicy` /
-§20.6 cap-name resolver / §22.5 per-message work-stealing /
-§25.8.1-8 `mty:web/canvas@0.1` + `mty:web/input@0.1` into
-normative prose) — see `docs/spec/v1.0-rc.md`. There are
-**1989 Rust tests** across the workspace (plus **490 Python
-tests** in the [`impl-py/`](impl-py/) 2nd-impl now covering the
-full pipeline lex → parse → lower → typeck → borrow → wasm,
-**159 normative conformance cases** at **63% direct / 99% any-
-harness** coverage with only MT3012 DROP_IN_CONST_CONTEXT
-remaining uncovered (deferred pending HIR `CONST_DECL`
-lowering) split **104 normative / 49 informative** by the
-v0.24-shipped
-[`tests/conformance/v1.0-NORMATIVE.md`](tests/conformance/v1.0-NORMATIVE.md)
-declaration, and **23 self-host driver** codegen tests =
-**2661 combined**), 0 clippy warnings *under the strict
-`pedantic` gate* (a required CI job, not advisory), and **7/7
-demos** pass `smoke.sh` (including the v0.23 canvas-driven
-06_canvas_game demo and the v0.26 research-agent demo 07; all 6
-web/canvas demos pass headless `MTY_WEB_SMOKE=1` smoke where
-applicable, modulo the v0.24-documented RAF-mid-frame phash
-flake on demo 06 at 4/5 success rate — see KNOWN_ISSUES #9;
-demo 07 passes mock-LLM smoke under `MTY_AGENT_SMOKE=1` and the
-real Anthropic path via `ANTHROPIC_API_KEY`). The cargo-fuzz
-harness covers four targets (parser / typeck / fmt / codegen).
-**KNOWN_ISSUES P1 is empty**; P2 holds one open entry (#9 demo
-06 headless-smoke phash flake — no required-gate impact). P2
-#8 (wasm32-web Unit-returning user-fn call stack-balance) is
-closed by v0.25 Track A. **Every former Post-v1.0 roadmap item
-has now landed pre-v1.0** (per-message work-stealing,
-PGO/ThinLTO, Python 2nd-impl full pipeline all shipped in
-v0.22); **v1.0 freeze blockers are down to the RFC comment
-windows only** (infrastructure shipped + discussion threads
-opened 2026-05-26; earliest v1.0.0 tag 2026-07-26 — see
-[Release timeline](#release-timeline) above,
-[`docs/spec/rfcs/COMMENT_WINDOWS.md`](docs/spec/rfcs/COMMENT_WINDOWS.md),
-and the live
-[`docs/spec/rfcs/RFC_DASHBOARD.md`](docs/spec/rfcs/RFC_DASHBOARD.md)
-now pointing at the opened discussion threads #2–#9).
+Mighty is **pre-alpha**. Internal milestones tagged through v0.26.
+The toolchain is exercised by **1989 Rust tests** across 20 crates
+plus **490 Python 2nd-impl tests** plus **159 normative conformance
+cases** plus **23 self-host driver codegen tests** — combined
+**2661 tests, 0 failing**. All 7 demos pass `smoke.sh`; 3 web demos
+opt-in to a headless-browser visual smoke. All KNOWN_ISSUES P1 are
+closed; P2 holds one open entry (#9 — demo 06 RAF-mid-frame phash
+flake; 4-of-5 success, no required-gate impact). Six CI jobs are
+required gates: `test` (cross-OS matrix), `test-minimal`, `msrv`,
+`clippy-strict` (pedantic + `-D warnings`), `bench`, `security`
+(`cargo audit --deny warnings`). Coverage at 63% direct / 99%
+any-harness (only `MT3012 DROP_IN_CONST_CONTEXT` uncovered, pending
+HIR `CONST_DECL` lowering).
 
-**Pre-built `mty` binaries** for Linux x86_64, macOS arm64, and
-Windows x86_64 are produced automatically on every `v*` tag push
-(see [Releases](https://github.com/hassard0/Mighty/releases)). Intel
-macOS was dropped from the matrix in v0.18 after Apple's runner
-retirement. Building from source is still supported. Treat the
-language as unstable and please file issues for everything that
-surprises you.
+**There is no released GA binary yet.** Pre-built tagged binaries
+ship on every release; treat the language as unstable; please file
+issues for everything that surprises you.
 
 ## Contributing
 
-Issues are welcome. Pull requests must rebase on `main`, include
-tests, and pass `cargo fmt --all -- --check`,
-`cargo clippy --workspace --all-targets -- -D warnings`, and
-`cargo test --workspace`. See [`CONTRIBUTING.md`](CONTRIBUTING.md)
-for the short form and [`docs/contributing.md`](docs/contributing.md)
-for the full workflow. The community standards live in
+Issues welcome. PRs must rebase on `main`, include tests, and pass
+`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets
+-- -D warnings`, and `cargo test --workspace`. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for the short form and
+[`docs/contributing.md`](docs/contributing.md) for the full
+workflow. Community standards live in
 [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
 
 ## Community
 
-- File bug reports, feature requests, and language questions in
+- Bug reports, feature requests, and language questions in
   [GitHub Issues](https://github.com/hassard0/Mighty/issues).
-- Open-ended design discussions go in
+- Open-ended design discussions in
   [GitHub Discussions](https://github.com/hassard0/Mighty/discussions).
-- There is no Discord / Slack / matrix room yet.
+- Active **v1.0 RFC comment windows** — feedback welcome on any of
+  the 8 RFC threads.
 
 ## License
 
-Mighty is released under the [MIT license](LICENSE).
+MIT — see [LICENSE](LICENSE).
 
 Unless you explicitly state otherwise, any contribution intentionally
 submitted for inclusion in this work shall be MIT-licensed as above,

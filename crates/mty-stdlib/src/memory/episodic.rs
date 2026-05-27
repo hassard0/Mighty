@@ -19,6 +19,7 @@ use super::MemoryHandle;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::VecDeque;
+#[cfg(feature = "memory-sqlite")]
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
