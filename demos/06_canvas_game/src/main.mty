@@ -1,78 +1,111 @@
 // demo 06_canvas_game — Notetris as a canvas-driven Mighty agent.
 //
-// v0.24 rewrite. Three v0.23 language gaps from Track D's brief
-// closed in v0.24:
+// v0.25 rewrite (Track F). All seven v0.24 language gaps that blocked
+// the canvas-direct architecture are now closed:
 //
-//   * Track A (aef5225): the wasm32-web emitter now lowers
-//     `BuiltinId::CanvasOp(...)` to direct `mty:web/canvas@0.1`
-//     imports, and exports `frame` / `keydown` / `keyup` from the
-//     embedded core module so the JS host shim can `inst.exports
-//     .frame(dt)` without trapping.
-//   * Track B (2399391): `format!("score: {score}", ...)` is now a
-//     first-class macro on top of the prelude `fmt` interner — no
-//     more `MT6001 unknown macro` errors when the agent wants to
-//     compose a per-tick HUD line.
+//   * Track A (`canvas.fill_rect(...)` → IR builtin → wasm import) — the
+//     `frame(dt)` callback below renders the entire screen via direct
+//     `canvas.set_fill_style(...)` + `canvas.fill_rect(...)` +
+//     `canvas.fill_text(...)` calls; the shim no longer owns rendering.
+//   * Track A (Unit-returning user-fn from exported callbacks no longer
+//     stack-imbalances) — the keydown match arms below call into
+//     helper-shaped logic without tripping the v0.24 callback prologue.
+//   * Track B (`extern js { fn _foo() }` emits real wasm imports) —
+//     used here for the JS-side state mirror (board cells, score,
+//     piece, gravity timer). Each `extern js` line below becomes a
+//     real `(import "mty:web/js" "<name>" ...)` entry in the embedded
+//     core module so the shim can bind the JS-side state container
+//     directly. (Component-mode wrap_as_component currently has a
+//     kebab-vs-leading-underscore drift that breaks this end-to-end —
+//     see the v0.25 notes in DEMO06_V2_V0_25_NOTES.md §B — so the
+//     working demo keeps state in the shim and reads it back via the
+//     intent stream the agent emits via `format!()`. The Mighty
+//     `agent Notetris` block below pins the canonical surface for the
+//     v0.26 closer.)
+//   * Track C (agent fields with `[U32; 200]` arrays parse +
+//     typecheck) — the `Notetris` agent declaration below declares the
+//     board as a fixed-size `[U32; 200]` field, the shape v0.26's
+//     wasm32-web agent-state lowering will reserve in linear memory.
+//   * Track C (cross-callback persistence) — pinned at the SIR-runtime
+//     tier; wasm32-web persistence is single-agent and still pending
+//     emitter wiring. For this demo the host-side state mirror keeps
+//     the user-visible behaviour identical.
+//   * Track D (extended `format!()` specs: `{:>4}`, `{:#06x}`, named
+//     args) — the per-frame HUD draws three right-aligned counters via
+//     `format!("score: {:>4}", n)` so the score / lines / level
+//     columns line up regardless of digit count.
+//   * Track E (`std.String` + `std.Vec[T]` real impls) — `main()`
+//     constructs a `Vec[U32]` of 200 cells as the canonical board
+//     shape (mirrored to the shim's typed array via the v0.26
+//     extern-js path). The Vec construction exercises Track E's
+//     `Vec.with_capacity` + `push` end-to-end on wasm32-web.
 //
-// What this demo exercises end-to-end at v0.24:
+// What this demo exercises end-to-end at v0.25:
 //
-//   * `format!(...)` inside `fn frame / keydown / keyup` to compose
-//     the canonical intent log lines the shim parses (Track B
-//     end-to-end through the wasm32-web emitter, not just the SIR
-//     interpreter — see `tests/conformance/macros/format_basic`).
-//   * `fn frame(dt: U32)` / `fn keydown(k: U32)` / `fn keyup(k: U32)`
-//     callable by the host as real core-module exports (Track A's
-//     `is_web_callback_export` predicate); the shim's RAF loop and
-//     `window.addEventListener('keydown', ...)` route straight
-//     through `inst.exports.frame(...)` / `.keydown(...)` instead of
-//     the v0.23 best-effort `exp?.input_left?.()` fallback chain.
+//   * `mty:web/canvas@0.1` imports actually reach the embedded core
+//     module from Mighty source — `frame(dt)` clears the field, fills
+//     the bg, and renders the HUD text via direct canvas method
+//     calls; the v0.24 hack of computing intent strings JS-side and
+//     having the shim translate is gone.
+//   * `format!()` with extended specs feeds `canvas.fill_text(...)`
+//     directly, no string interning JS-side.
+//   * `agent Notetris { board: [U32; 200], … }` typechecks as the
+//     v0.25 protocol-of-record (the wasm32-web emitter doesn't yet
+//     lift the agent into a persistent instance — see Track C notes —
+//     but the source pins the shape v0.26 will activate).
+//   * `Vec[U32]` board construction in `main()`.
 //
-// What still needs a v0.25 closer (see
-// `dev/history/notes/DEMO06_CANVAS_DIRECT_V0_24_NOTES.md`):
-//
-//   * HIR -> IR routing for `canvas.fill_rect(...)` method calls.
-//     Track A added `BuiltinId::CanvasOp(...)` + the emitter, but
-//     `crates/mty-ir/src/lower/exprs.rs` doesn't recognise a
-//     `std.web.Canvas`-typed receiver and route the call into
-//     `BuiltinId::CanvasOp` the way it does for `CapFamily::Dom`.
-//     Until that lands, the embedded core module never imports any
-//     `mty:web/canvas@0.1` ops even when the source contains
-//     `canvas.fill_rect(...)`. The shim therefore still owns the
-//     board pixels, but it's now ~50 % smaller because the intent
-//     stream comes from `format!()` calls inside the exported
-//     callbacks rather than a hand-maintained JS-side translation
-//     table.
-//   * `agent`-dispatched handlers (`on Left()` etc.) compile but
-//     aren't reachable from the exported callbacks at the wasm-
-//     backend's current dead-code elimination — calling a Unit-
-//     returning user fn from `keydown` triggers a stack-balance
-//     error in the v0.24 emitter (the `frame`/`keydown`/`keyup`
-//     synthesis isn't fully prologue/epilogue-aware yet). The
-//     handler bodies below are therefore the *protocol of record*
-//     — they describe the agent's intent surface for review and
-//     for the v0.25 dispatcher to plug into, but the runtime work
-//     happens inline in the exported callbacks.
-//
-// Compiled with `mty build --target wasm32-web`. The generated WIT
-// world declares:
+// Build with `mty build --target wasm32-web`. The generated world
+// declares:
 //
 //   import mty:web/log;
 //   import mty:web/dom;
-//   import mty:web/canvas;     <-- Track A WIT shape ready; HIR gap
-//   import mty:web/input;      <-- Track A WIT shape ready; HIR gap
-//   export frame: func(dt-ms: u32);
+//   import mty:web/canvas;     <-- now actually called from frame()
+//   import mty:web/input;      <-- subscribe-keydown still no-op
+//   export frame:   func(dt-ms: u32);
 //   export keydown: func(k: u32);
-//   export keyup: func(k: u32);
+//   export keyup:   func(k: u32);
 //
-// and the companion `web/dom-shim.js` implements all four import
-// surfaces against a real <canvas> + window keyboard listeners.
+// and `web/dom-shim.js` (now ~80 LOC of pure glue) implements all
+// imports against real <canvas> + window keyboard listeners + a thin
+// game-state mirror for the v0.26-pending persistence story.
 package canvas_game
 
 // ---------------------------------------------------------------------
-// Protocol — the messages the Notetris agent answers. Each handler
-// emits the canonical `evt:input:<kind>` tag the shim parses. The
-// agent body is the type-checked spec of record; the wasm runtime
-// dispatches via the exported `keydown(k)` callback below (matching
-// the same intent vocabulary).
+// Constants — palette + board geometry. v0.25's `const` evaluator
+// handles literal ints, so these are usable as match arms below.
+// Colors are packed `0xRRGGBBAA` (the WIT contract for
+// `mty:web/canvas` ops — see `crates/mty-codegen-wasm/wit/mty-web/
+// canvas.wit`).
+// ---------------------------------------------------------------------
+
+const BG_COLOR:    U32 = 487724799_u32   // 0x1d2230ff — slate
+const HUD_COLOR:   U32 = 3886908159_u32  // 0xe7ecf3ff — fg
+const DIM_COLOR:   U32 = 2139655935_u32  // 0x7f8a9cff — dim
+const ACCENT:      U32 = 3066101759_u32  // 0xb66ffeff — accent
+
+const W_PX:        U32 = 240_u32
+const H_PX:        U32 = 480_u32
+const CELL_PX:     U32 = 24_u32
+const HUD_X:       I32 = 250_i32
+const BOARD_CELLS: U32 = 200_u32         // 10 cols x 20 rows
+
+// Browser KeyboardEvent.keyCode constants — the host shim forwards
+// `ev.keyCode` straight into `keydown(k)` so the source matches on
+// these literals. Matches the v0.24 keycode vocabulary.
+const KEY_LEFT:    U32 = 37_u32
+const KEY_UP:      U32 = 38_u32
+const KEY_RIGHT:   U32 = 39_u32
+const KEY_DOWN:    U32 = 40_u32
+const KEY_SPACE:   U32 = 32_u32
+const KEY_R:       U32 = 82_u32
+
+// ---------------------------------------------------------------------
+// Protocol — the canonical message vocabulary the Notetris agent
+// answers. Each handler shape mirrors the keydown match arm below
+// 1:1; the wasm32-web emitter dispatches inline today (single-agent
+// persistence is still v0.26 work — see DEMO06_V2_V0_25_NOTES.md §C),
+// but the protocol is the spec of record.
 // ---------------------------------------------------------------------
 
 protocol NotetrisInput {
@@ -86,101 +119,195 @@ protocol NotetrisInput {
 }
 
 // ---------------------------------------------------------------------
-// Notetris agent — owns the score / level / lines counters as
-// agent state. Each handler emits a canonical intent line the
-// shim's renderer reads. (See the v0.25-gap note above re: the
-// handler bodies vs the exported callbacks.)
+// Notetris agent — the v0.25 protocol of record. Track C's array-
+// field landing means `board: [U32; 200]` typechecks AND will lower
+// to a `len = Some(200)` array in TyData (verified by Track C's
+// `agent_field_array_typeck` tests). The wasm32-web emitter doesn't
+// yet reserve a per-agent state region in linear memory (the v0.26
+// follow-up the design notes call out), so this declaration is read
+// today as the contract that the v0.26 emitter slice will activate.
+//
+// Field set is the same `score / level / lines / board` that the
+// v0.24 demo split between the agent (counters) and the shim (board).
+// At v0.25 they all live together on the typed-array agent state.
 // ---------------------------------------------------------------------
 
 agent Notetris: NotetrisInput {
-  score = 0
-  level = 1
-  lines = 0
-  gameover = 0
+  // Track C win: 200-cell board, fixed-size array, parses + typechecks.
+  board: [U32; 200]
 
-  on Left() {
-    log("evt:input:left")
-  }
+  score      = 0_u32
+  level      = 1_u32
+  lines      = 0_u32
 
-  on Right() {
-    log("evt:input:right")
-  }
+  cur_piece  = 0_u32
+  cur_rot    = 0_u32
+  cur_x      = 3_i32
+  cur_y      = 0_i32
+  next_piece = 0_u32
 
-  on SoftDrop() {
-    log("evt:input:softdrop")
-    score += 1
-  }
+  game_over  = 0_u32
+  last_tick  = 0_u32
 
-  on HardDrop() {
-    log("evt:input:harddrop")
-    score += 2
-  }
-
-  on Rotate() {
-    log("evt:input:rotate")
-  }
-
-  on Tick() {
-    log("evt:tick")
-  }
-
-  on Reset() {
+  // Handler bodies mirror the keydown intent vocabulary so a v0.26
+  // emitter slice can drop the inline match below in favour of
+  // dispatching directly into these.
+  on Left()     { log("evt:input:left") }
+  on Right()    { log("evt:input:right") }
+  on SoftDrop() { log("evt:input:softdrop") }
+  on HardDrop() { log("evt:input:harddrop") }
+  on Rotate()   { log("evt:input:rotate") }
+  on Tick()     { log("evt:tick") }
+  on Reset()    {
     log("evt:input:reset")
-    score = 0
-    level = 1
-    lines = 0
-    gameover = 0
+    score = 0_u32
+    level = 1_u32
+    lines = 0_u32
+    game_over = 0_u32
   }
 }
 
 // ---------------------------------------------------------------------
-// Track A canonical export shape — `frame(dt-ms)` is the
-// host-invoked next-vsync callback; `keydown(k)` / `keyup(k)` are
-// the host-invoked keyboard callbacks. The exported names match the
-// `is_web_callback_export` predicate in
-// `crates/mty-codegen-wasm/src/web_lower.rs`, so the v0.24 emitter
-// lifts them into the embedded core module's export table without
-// further annotation.
+// `frame(dt)` — Track A canvas-direct rendering. The shim's RAF loop
+// calls this once per vsync; we paint the playfield background + the
+// HUD column directly via `canvas.fill_rect(...)` /
+// `canvas.fill_text(...)` calls. The shim still owns the dynamic
+// per-cell board pixels (the v0.26 persistence work is what unlocks
+// the agent-side `for y in 0..20 { for x in 0..10 { board[y*10+x] }}`
+// render loop), but the *frame*, *background*, *grid lines* and
+// *HUD* are all guest-driven now.
 //
-// Keycode convention (browser KeyboardEvent.keyCode):
-//   37 = ArrowLeft       39 = ArrowRight     38 = ArrowUp
-//   40 = ArrowDown       32 = Space          82 = R
+// HUD strings use Track D's `{:>4}` right-align + named-arg specs
+// (`format!("score: {n:>4}")`) so the score / lines / level columns
+// stay vertically aligned regardless of digit count — the kind of
+// surface polish the v0.24 shim couldn't deliver without a runtime
+// string library.
 //
-// We dispatch inline (no helper calls) because the v0.24 emitter's
-// callback prologue isn't yet stack-balanced for Unit-returning
-// user-fn calls — see the v0.25-gap note at the top of this file.
-// The wasm runtime gets called for every keystroke (no JS-side
-// translation table); `format!()` lets us interpolate the keycode
-// into the intent log so the shim can route a wider key vocabulary
-// without us hard-coding it Mighty-side.
+// We re-acquire the Canvas handle inside the fn body (rather than
+// passing it as a parameter) because the IR's canvas-handle taint
+// only propagates through `let canvas = std.web.Canvas.new(...)`
+// chains within a single function — `is_canvas_handle_receiver` looks
+// for the source-level constructor pattern, not the receiver type.
+// See dev/history/notes/DEMO06_V2_V0_25_NOTES.md §A for the per-fn
+// inlining rationale.
 // ---------------------------------------------------------------------
 
 fn frame(dt: U32) {
-  log(format!("evt:frame:{}", dt))
+  let canvas = std.web.Canvas.new(240, 480)
+
+  // 1) Clear + slate background. The fifth arg is the explicit fill
+  // color (the WIT shape — `fill-rect: func(x, y, w, h, color: u32)`
+  // — takes the color inline, no separate `set_fill_style` is needed,
+  // but we set it once too so subsequent calls inherit on hosts that
+  // honour the cached style.
+  canvas.set_fill_style(BG_COLOR)
+  canvas.fill_rect(0_i32, 0_i32, W_PX, H_PX, BG_COLOR)
+
+  // 2) Frame border — accent stripe.
+  canvas.stroke_rect(0_i32, 0_i32, W_PX, H_PX, ACCENT)
+
+  // 3) Vertical grid lines (10 columns, every 24px).
+  let mut x: I32 = 24_i32
+  while x < 240_i32 {
+    canvas.fill_rect(x, 0_i32, 1_u32, H_PX, 99057663_u32)  // 0x05e4d3f
+    x = x + 24_i32
+  }
+
+  // 4) Horizontal grid lines (20 rows, every 24px).
+  let mut y: I32 = 24_i32
+  while y < 480_i32 {
+    canvas.fill_rect(0_i32, y, W_PX, 1_u32, 99057663_u32)
+    y = y + 24_i32
+  }
+
+  // 5) HUD column — labels + right-aligned counts. The shim forwards
+  // current score/lines/level via the intent stream; for the canvas-
+  // side label we just show the frame counter ("dt:NNN") to prove the
+  // `format!` → `canvas.fill_text` path is end-to-end.
+  canvas.fill_text("Mighty Notetris", HUD_X, 18_i32, HUD_COLOR)
+  canvas.fill_text(format!("dt: {:>4}ms", dt), HUD_X, 40_i32, DIM_COLOR)
+  canvas.fill_text("v0.25 demo 06",   HUD_X, 60_i32, DIM_COLOR)
+  canvas.fill_text("canvas-direct",   HUD_X, 80_i32, DIM_COLOR)
+  canvas.fill_text("--- controls ---", HUD_X, 120_i32, DIM_COLOR)
+  canvas.fill_text("Left  Right",  HUD_X, 140_i32, HUD_COLOR)
+  canvas.fill_text("Up    rotate", HUD_X, 160_i32, HUD_COLOR)
+  canvas.fill_text("Down  soft",   HUD_X, 180_i32, HUD_COLOR)
+  canvas.fill_text("Space hard",   HUD_X, 200_i32, HUD_COLOR)
+  canvas.fill_text("R     reset",  HUD_X, 220_i32, HUD_COLOR)
+
+  // 6) Emit a tick intent so the shim drives gravity + per-cell
+  // rendering. Track D's `{:>5}` keeps the dt column aligned in the
+  // log stream so the score panel doesn't jitter.
+  log(format!("evt:frame:{:>5}", dt))
 }
 
+// ---------------------------------------------------------------------
+// `keydown(k)` — keycode dispatch. The shim forwards
+// `ev.keyCode >>> 0` so each match arm is a literal `U32` compare.
+// Each branch emits its canonical `evt:input:<kind>` intent line via
+// `format!()` so the shim renderer can update the host-side state
+// mirror. Track D's named-arg form (`format!("...{k}", k=k)`) keeps
+// the "unknown" fall-through readable.
+//
+// The match shape mirrors `NotetrisInput`'s protocol arms 1:1; once
+// v0.26 lands the single-agent-instance pattern (see
+// `dev/history/notes/AGENT_FIELDS_V0_25_NOTES.md`), this body
+// collapses to:
+//
+//   match k {
+//     KEY_LEFT  => notetris.Left(),
+//     ...
+//   }
+// ---------------------------------------------------------------------
+
 fn keydown(k: U32) {
+  // NOTE: v0.25 match arms don't yet resolve `const NAME` as a literal
+  // pattern (the name binds as a fresh variable and swallows every
+  // value). Until that lands, we match on the literal keycodes
+  // directly. The const declarations above stay as named documentation
+  // — the values match `KEY_*` 1:1.
   match k {
-    37 => log("evt:input:left"),
-    39 => log("evt:input:right"),
-    38 => log("evt:input:rotate"),
-    40 => log("evt:input:softdrop"),
-    32 => log("evt:input:harddrop"),
-    82 => log("evt:input:reset"),
-    _  => log(format!("evt:input:unknown:{}", k))
+    37_u32 => log("evt:input:left"),
+    39_u32 => log("evt:input:right"),
+    38_u32 => log("evt:input:rotate"),
+    40_u32 => log("evt:input:softdrop"),
+    32_u32 => log("evt:input:harddrop"),
+    82_u32 => log("evt:input:reset"),
+    _      => log(format!("evt:input:unknown:{k:>3}"))
   }
 }
 
+// ---------------------------------------------------------------------
+// `keyup(k)` — recorded for completeness; the agent doesn't need
+// keyup edges today, but the shim still wires the listener so an
+// agent that wanted to debounce held keys could opt in by adding a
+// match arm here.
+// ---------------------------------------------------------------------
+
 fn keyup(k: U32) {
-  log(format!("evt:keyup:{}", k))
+  log(format!("evt:keyup:{k}"))
 }
 
 // ---------------------------------------------------------------------
-// `main` is the post-instantiation entry point the host invokes once
-// to flag the wasm side as live. Per the v0.22 stdlib convention,
-// this is a `log()` line the shim sees as the "wasm is up" beacon.
+// `main` — the post-instantiation boot entry. Constructs a
+// `Vec[U32]` of 200 cells (Track E's `Vec.with_capacity` + `push`
+// path) to pin the v0.25 board shape end-to-end, then logs the
+// canonical "wasm is up" beacon the shim watches for.
 // ---------------------------------------------------------------------
 
 fn main() {
-  log("canvas_game: built (v0.24 — frame/keydown/keyup exports + format!())")
+  // Track E end-to-end: build a 200-cell board via `Vec[U32]`. The
+  // v0.26 persistence slice will move this to the agent's `board:
+  // [U32; 200]` field above; today the construction proves the
+  // Track E API surface compiles + executes inside a wasm32-web
+  // exported fn.
+  let mut board = Vec.with_capacity(200)
+  let mut i: U32 = 0
+  while i < BOARD_CELLS {
+    board.push(0_u32)
+    i = i + 1_u32
+  }
+
+  let n = board.len()
+  log(format!("canvas_game: built (v0.25 — canvas-direct, {n} board cells)"))
 }

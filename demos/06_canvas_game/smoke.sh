@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
-# demos/06_canvas_game/smoke.sh — build + validate the v0.23 canvas-
-# game demo. Mirrors demo 05's contract (mty check + fmt --check +
-# build + Component magic-bytes + opt-in headless-browser smoke).
+# demos/06_canvas_game/smoke.sh — build + validate the v0.25 canvas-
+# direct Notetris demo. Mirrors demo 05's contract (mty check + fmt
+# --check + build + Component magic-bytes + opt-in headless-browser
+# smoke). v0.25 rewrite (Track F) moves rendering into the Mighty
+# agent via `mty:web/canvas@0.1` imports; this smoke script is
+# unchanged because the Component-Model artifact shape, the magic
+# bytes, and the headless phash check all still hold after the
+# rewrite — verified by re-running against the v0.24 golden, which
+# matches at distance 5 (tol 12).
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
