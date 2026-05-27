@@ -22,7 +22,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::eval::replay_glue::{decode_trace_baseline, ReplayGlueError};
+use crate::eval::replay_glue::{decode_baseline_auto, ReplayGlueError};
 
 /// One eval case. Use [`Case::from_input`] for raw prompts and
 /// [`Case::from_trace`] for recorded-trace replay.
@@ -108,7 +108,12 @@ impl Case {
                 source_trace: None,
             }),
             CaseKind::Trace { path } => {
-                let baseline = decode_trace_baseline(path)?;
+                // v0.29: auto-route between the v3 binary trace
+                // produced by `MTY_RECORD_TRACE` and the legacy
+                // JSON-lines shim. `decode_baseline_auto` sniffs the
+                // 8-byte `MTYTRACE` magic and dispatches accordingly,
+                // so existing eval fixtures keep working unchanged.
+                let baseline = decode_baseline_auto(path)?;
                 Ok(CaseRun {
                     name: self.name.clone(),
                     prompt: baseline.prompt,

@@ -45,7 +45,7 @@ use mty_ir::interp::value::Value as RuntimeValue;
 use mty_ir::ir::Program;
 
 use super::to_runtime_value;
-use super::wire::{ReplayPayload, TraceEvent, TraceFile};
+use super::wire::{LlmCallRef, LlmToolUse, ReplayPayload, TraceEvent, TraceFile};
 use crate::agent::AgentHandle;
 use crate::runtime::RuntimeBuilder;
 
@@ -117,6 +117,9 @@ pub struct ReplayDriver {
     byte_identical: bool,
     /// Optional ask deadline; defaults to 5s to avoid hanging tests.
     ask_deadline_ms: u64,
+    /// v0.29: optional provider hook for [`Self::replay_llm_turns`]
+    /// / [`Self::diff_llm_turn`]. Installed via [`Self::with_provider`].
+    turn_provider: Option<Arc<dyn TurnProvider>>,
 }
 
 impl ReplayDriver {
@@ -130,6 +133,7 @@ impl ReplayDriver {
             mock_io: true,
             byte_identical: true,
             ask_deadline_ms: 5_000,
+            turn_provider: None,
         }
     }
 
@@ -561,6 +565,305 @@ fn payloads_match(a: &ReplayPayload, b: &ReplayPayload) -> bool {
     }
 }
 
+// -----------------------------------------------------------------------------
+// v0.29 Track F: LLM-only replay hooks
+// -----------------------------------------------------------------------------
+//
+// `std.eval` needs two operations the v0.21 full re-execution driver
+// doesn't surface natively:
+//
+// 1. "Walk the recorded trace, when you hit an `LlmCall`, ask my
+//    `TurnProvider` for a fresh reply, compare reply text + tool_uses
+//    against the recorded turn, accumulate a diff."
+//
+// 2. "Same as above but stop at a specific `turn_id` and surface only
+//    that turn's recorded payload + the live reply — for `mty replay
+//    --diff --turn <id>`."
+//
+// The full byte-identical re-execution path (`replay_all`) doesn't
+// know about the LLM provider — it just feeds recorded messages to a
+// fresh `Runtime`. For "LLM-only replay" we don't need a `Runtime` at
+// all: we just walk `TraceFile.iter_llm_calls()` and dispatch each
+// `(prompt, system, tools)` triple to the `TurnProvider`.
+//
+// `TurnProvider` is intentionally narrower than `crate::swarm::Member`
+// — `mty-runtime` doesn't depend on `mty-stdlib`, so we expose a
+// minimal trait + an adapter that `std.eval` can implement against
+// any `Member`. The eval layer maps `Member::ask(prompt)` →
+// `TurnProvider::reply(turn)` and threads its own `SharedDollarBudget`
+// through.
+
+/// Output of one live provider turn: just the assistant text + any
+/// emitted tool-use blocks. Mirrors the structural fields of
+/// [`TraceEvent::LlmCall`] so diffs can be field-by-field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProvidedTurn {
+    /// Plain-text assistant reply.
+    pub reply: String,
+    /// Tool-use blocks the assistant emitted.
+    pub tool_uses: Vec<LlmToolUse>,
+    /// Optional cost in cents reported by the provider.
+    pub cost_cents: u64,
+}
+
+impl ProvidedTurn {
+    /// Build a reply-only turn with no tool-uses + zero cost. Most
+    /// `Compare::equal()`-style eval cases use this shape.
+    pub fn from_reply(reply: impl Into<String>) -> Self {
+        Self {
+            reply: reply.into(),
+            tool_uses: Vec::new(),
+            cost_cents: 0,
+        }
+    }
+}
+
+/// Narrow trait the v0.29 LLM-only replay path dispatches against.
+///
+/// `std.eval` implements this for its `Member` enum so the eval driver
+/// can re-run the recorded LLM turns against a fresh provider without
+/// dragging `mty-stdlib` into `mty-runtime`. The trait is sync at the
+/// surface but the implementation may run an async dispatch internally
+/// — the replay driver spins a current-thread executor for each call.
+pub trait TurnProvider: Send + Sync {
+    /// Run one recorded turn against the live provider. The
+    /// recorded turn carries the prompt + system + tool list; the
+    /// implementation returns the fresh reply + any tool-uses the
+    /// assistant emitted.
+    ///
+    /// Returning `Err(msg)` lets the eval driver stamp the cell as
+    /// `Verdict::Error` rather than aborting the whole replay.
+    fn provide(&self, turn: LlmCallRef<'_>) -> Result<ProvidedTurn, String>;
+}
+
+/// Implement [`TurnProvider`] for any closure with the right shape.
+/// Handy in tests + for one-off eval drivers.
+impl<F> TurnProvider for F
+where
+    F: Fn(LlmCallRef<'_>) -> Result<ProvidedTurn, String> + Send + Sync,
+{
+    fn provide(&self, turn: LlmCallRef<'_>) -> Result<ProvidedTurn, String> {
+        (self)(turn)
+    }
+}
+
+/// One (recorded, live) turn pair surfaced by
+/// [`ReplayDriver::replay_llm_turns`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LlmTurnReplay {
+    /// The recorded turn from the trace.
+    pub turn_id: u64,
+    /// The recorded reply text.
+    pub recorded_reply: String,
+    /// The recorded tool-uses.
+    pub recorded_tool_uses: Vec<LlmToolUse>,
+    /// `Some(turn)` when the live provider returned a reply,
+    /// `None` when it errored (`live_error` is populated).
+    pub live: Option<ProvidedTurn>,
+    /// Error message from the live provider when [`live`] is `None`.
+    pub live_error: Option<String>,
+}
+
+impl LlmTurnReplay {
+    /// `true` when the live reply text matches the recorded reply
+    /// text exactly. The simplest comparator — eval cases that want
+    /// semantic similarity layer it on top of this raw equality.
+    pub fn replies_match(&self) -> bool {
+        match &self.live {
+            Some(t) => t.reply == self.recorded_reply,
+            None => false,
+        }
+    }
+
+    /// `true` when the set of tool-names emitted matches between
+    /// recorded + live. Order-independent (mirrors
+    /// `Compare::tool_call_set_equal()` in `std.eval`).
+    pub fn tool_call_set_matches(&self) -> bool {
+        match &self.live {
+            Some(t) => {
+                let recorded: std::collections::BTreeSet<&str> = self
+                    .recorded_tool_uses
+                    .iter()
+                    .map(|u| u.name.as_str())
+                    .collect();
+                let live: std::collections::BTreeSet<&str> =
+                    t.tool_uses.iter().map(|u| u.name.as_str()).collect();
+                recorded == live
+            }
+            None => false,
+        }
+    }
+}
+
+/// Human-readable diff between one recorded turn and one live reply —
+/// the payload `mty replay --diff --turn <id>` renders. Carried back
+/// up to the CLI so the diff renderer + the eval divergence reporter
+/// share the same shape.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LlmTurnDiff {
+    pub turn_id: u64,
+    pub prompt: String,
+    pub system: Option<String>,
+    pub recorded_reply: String,
+    pub live_reply: Option<String>,
+    pub recorded_tool_names: Vec<String>,
+    pub live_tool_names: Vec<String>,
+    /// `true` when reply text and tool-name set both match.
+    pub identical: bool,
+}
+
+impl LlmTurnDiff {
+    /// Multi-line rendering — the format the CLI prints.
+    pub fn render(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&format!("=== replay diff turn #{} ===\n", self.turn_id));
+        out.push_str(&format!("  prompt   : {}\n", truncate(&self.prompt, 200)));
+        if let Some(sys) = &self.system {
+            out.push_str(&format!("  system   : {}\n", truncate(sys, 200)));
+        }
+        out.push_str(&format!(
+            "  recorded : {}\n",
+            truncate(&self.recorded_reply, 200)
+        ));
+        match &self.live_reply {
+            Some(r) => out.push_str(&format!("  live     : {}\n", truncate(r, 200))),
+            None => out.push_str("  live     : <error / no reply>\n"),
+        }
+        if !self.recorded_tool_names.is_empty() || !self.live_tool_names.is_empty() {
+            out.push_str(&format!(
+                "  recorded tools : {}\n",
+                self.recorded_tool_names.join(", ")
+            ));
+            out.push_str(&format!(
+                "  live tools     : {}\n",
+                self.live_tool_names.join(", ")
+            ));
+        }
+        out.push_str(&format!(
+            "  verdict  : {}\n",
+            if self.identical { "MATCH" } else { "DIVERGE" }
+        ));
+        out
+    }
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max).collect();
+        format!("{truncated}…")
+    }
+}
+
+impl ReplayDriver {
+    /// v0.29 backlog item #1: swap the recorded `LlmProvider` for a
+    /// fresh provider mid-replay.
+    ///
+    /// Today this is the *LLM-only* surface — the full re-execution
+    /// path (`replay_all`) doesn't itself dispatch LLM calls (the
+    /// runtime does so opaquely from the host side). For the eval
+    /// driver's "just rerun the LLM turns" fast path,
+    /// [`ReplayDriver::with_provider`] returns a builder you then
+    /// drive via [`Self::replay_llm_turns`]; that's the byte-replay-
+    /// the-trace-but-divert-the-LLM-calls flow Track G surfaced.
+    ///
+    /// The full-Runtime-integrated `with_provider` (where every
+    /// recorded LLM call mid-`replay_all` is rewritten on the fly)
+    /// is queued for v0.30 — it requires the runtime to surface an
+    /// `LlmProvider` injection point, which today lives behind the
+    /// `mty_stdlib::llm` boundary. The surface API + tests below
+    /// pin the v0.30 contract.
+    pub fn with_provider<P: TurnProvider + 'static>(mut self, provider: P) -> Self {
+        self.turn_provider = Some(Arc::new(provider));
+        self
+    }
+
+    /// Walk every recorded LLM turn in the loaded trace, dispatch it
+    /// against the [`TurnProvider`] installed via
+    /// [`Self::with_provider`], and return the per-turn diff. The
+    /// driver does NOT spin a fresh `Runtime` for this path — it
+    /// walks `TraceFile::iter_llm_calls()` directly. Errors from the
+    /// provider are surfaced as `LlmTurnReplay.live_error` on the
+    /// affected turn rather than aborting the iteration.
+    ///
+    /// `Err(msg)` is returned only when no provider was installed.
+    pub fn replay_llm_turns(&self) -> Result<Vec<LlmTurnReplay>, String> {
+        let Some(provider) = &self.turn_provider else {
+            return Err(
+                "ReplayDriver::replay_llm_turns: no provider installed (call .with_provider(...) \
+                 first)"
+                    .into(),
+            );
+        };
+
+        let mut out = Vec::new();
+        for turn in self.trace.iter_llm_calls() {
+            let recorded_reply = turn.reply.to_string();
+            let recorded_tool_uses = turn.tool_uses.to_vec();
+            let (live, live_error) = match provider.provide(turn) {
+                Ok(t) => (Some(t), None),
+                Err(e) => (None, Some(e)),
+            };
+            out.push(LlmTurnReplay {
+                turn_id: turn.turn_id,
+                recorded_reply,
+                recorded_tool_uses,
+                live,
+                live_error,
+            });
+        }
+        Ok(out)
+    }
+
+    /// Same as [`Self::replay_llm_turns`] but stop at a specific
+    /// turn id and surface the structural diff. Used by `mty replay
+    /// --diff --turn <id>` and by `std.eval`'s divergence reporter
+    /// when it wants to point the user at exactly one recorded turn.
+    pub fn diff_llm_turn(&self, turn_id: u64) -> Result<LlmTurnDiff, String> {
+        let Some(provider) = &self.turn_provider else {
+            return Err(
+                "ReplayDriver::diff_llm_turn: no provider installed (call .with_provider(...) \
+                 first)"
+                    .into(),
+            );
+        };
+        let turn = self
+            .trace
+            .llm_call_by_turn(turn_id)
+            .ok_or_else(|| format!("ReplayDriver::diff_llm_turn: turn #{turn_id} not found"))?;
+
+        let recorded_reply = turn.reply.to_string();
+        let recorded_tool_names: Vec<String> =
+            turn.tool_uses.iter().map(|t| t.name.clone()).collect();
+        let prompt = turn.prompt.to_string();
+        let system = turn.system.map(|s| s.to_string());
+
+        let (live_reply, live_tool_names, identical) = match provider.provide(turn) {
+            Ok(p) => {
+                let live_names: Vec<String> = p.tool_uses.iter().map(|t| t.name.clone()).collect();
+                let recorded_set: std::collections::BTreeSet<&String> =
+                    recorded_tool_names.iter().collect();
+                let live_set: std::collections::BTreeSet<&String> = live_names.iter().collect();
+                let id = p.reply == recorded_reply && recorded_set == live_set;
+                (Some(p.reply), live_names, id)
+            }
+            Err(_) => (None, Vec::new(), false),
+        };
+
+        Ok(LlmTurnDiff {
+            turn_id,
+            prompt,
+            system,
+            recorded_reply,
+            live_reply,
+            recorded_tool_names,
+            live_tool_names,
+            identical,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -670,5 +973,188 @@ mod tests {
         let v = RuntimeValue::Bool(true);
         let r = from_runtime_value(&v);
         assert!(matches!(r, super::super::wire::ReplayValue::Bool(true)));
+    }
+
+    // -------------------------------------------------------------------------
+    // v0.29 Track F: with_provider / replay_llm_turns / diff_llm_turn
+    // -------------------------------------------------------------------------
+
+    fn trace_with_llm_calls() -> TraceFile {
+        let mut t = TraceFile::new(0, 0, 1);
+        t.events.push(TraceEvent::LlmCall {
+            agent: 1,
+            turn_id: 1,
+            prompt: "what's 2+2?".into(),
+            system: Some("you are a calculator".into()),
+            tools: vec![],
+            reply: "4".into(),
+            tool_uses: vec![],
+            cost_cents: 1,
+        });
+        t.events.push(TraceEvent::LlmCall {
+            agent: 1,
+            turn_id: 2,
+            prompt: "search for cats".into(),
+            system: None,
+            tools: vec!["search_web".into()],
+            reply: "I'll search for that.".into(),
+            tool_uses: vec![LlmToolUse {
+                name: "search_web".into(),
+                id: "tu-1".into(),
+                input_json: "{}".into(),
+            }],
+            cost_cents: 2,
+        });
+        t
+    }
+
+    #[test]
+    fn with_provider_installs_provider() {
+        let t = trace_with_llm_calls();
+        let driver = ReplayDriver::from_trace(t).with_provider(
+            |_turn: LlmCallRef<'_>| -> Result<ProvidedTurn, String> {
+                Ok(ProvidedTurn::from_reply("anything"))
+            },
+        );
+        assert!(driver.turn_provider.is_some());
+    }
+
+    #[test]
+    fn replay_llm_turns_errors_without_provider() {
+        let t = trace_with_llm_calls();
+        let driver = ReplayDriver::from_trace(t);
+        let r = driver.replay_llm_turns();
+        assert!(r.is_err());
+        assert!(r.unwrap_err().contains("no provider installed"));
+    }
+
+    #[test]
+    fn replay_llm_turns_visits_every_recorded_turn() {
+        let t = trace_with_llm_calls();
+        let driver = ReplayDriver::from_trace(t).with_provider(
+            |turn: LlmCallRef<'_>| -> Result<ProvidedTurn, String> {
+                // Echo the recorded reply back — should byte-match.
+                Ok(ProvidedTurn {
+                    reply: turn.reply.to_string(),
+                    tool_uses: turn.tool_uses.to_vec(),
+                    cost_cents: 0,
+                })
+            },
+        );
+        let out = driver.replay_llm_turns().unwrap();
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].turn_id, 1);
+        assert_eq!(out[1].turn_id, 2);
+        assert!(out[0].replies_match());
+        assert!(out[1].replies_match());
+        assert!(out[1].tool_call_set_matches());
+    }
+
+    #[test]
+    fn replay_llm_turns_captures_divergence_per_turn() {
+        let t = trace_with_llm_calls();
+        let driver = ReplayDriver::from_trace(t).with_provider(
+            |_turn: LlmCallRef<'_>| -> Result<ProvidedTurn, String> {
+                Ok(ProvidedTurn::from_reply("WRONG"))
+            },
+        );
+        let out = driver.replay_llm_turns().unwrap();
+        assert_eq!(out.len(), 2);
+        assert!(!out[0].replies_match());
+        assert!(!out[1].replies_match());
+        // Tool sets don't match either: live has no tool uses.
+        assert!(!out[1].tool_call_set_matches());
+    }
+
+    #[test]
+    fn replay_llm_turns_surfaces_provider_errors_per_turn() {
+        let t = trace_with_llm_calls();
+        let driver = ReplayDriver::from_trace(t).with_provider(
+            |_turn: LlmCallRef<'_>| -> Result<ProvidedTurn, String> {
+                Err("provider blew up".into())
+            },
+        );
+        let out = driver.replay_llm_turns().unwrap();
+        assert_eq!(out.len(), 2);
+        for r in &out {
+            assert!(r.live.is_none());
+            assert_eq!(r.live_error.as_deref(), Some("provider blew up"));
+            assert!(!r.replies_match());
+        }
+    }
+
+    #[test]
+    fn diff_llm_turn_finds_recorded_turn_and_renders_match() {
+        let t = trace_with_llm_calls();
+        let driver = ReplayDriver::from_trace(t).with_provider(
+            |turn: LlmCallRef<'_>| -> Result<ProvidedTurn, String> {
+                Ok(ProvidedTurn {
+                    reply: turn.reply.to_string(),
+                    tool_uses: turn.tool_uses.to_vec(),
+                    cost_cents: 0,
+                })
+            },
+        );
+        let diff = driver.diff_llm_turn(2).unwrap();
+        assert_eq!(diff.turn_id, 2);
+        assert_eq!(diff.recorded_reply, "I'll search for that.");
+        assert_eq!(diff.live_reply.as_deref(), Some("I'll search for that."));
+        assert!(diff.identical);
+        let rendered = diff.render();
+        assert!(rendered.contains("turn #2"));
+        assert!(rendered.contains("MATCH"));
+        assert!(rendered.contains("search_web"));
+    }
+
+    #[test]
+    fn diff_llm_turn_renders_divergence() {
+        let t = trace_with_llm_calls();
+        let driver = ReplayDriver::from_trace(t).with_provider(
+            |_turn: LlmCallRef<'_>| -> Result<ProvidedTurn, String> {
+                Ok(ProvidedTurn::from_reply("not the same"))
+            },
+        );
+        let diff = driver.diff_llm_turn(1).unwrap();
+        assert_eq!(diff.turn_id, 1);
+        assert_eq!(diff.recorded_reply, "4");
+        assert_eq!(diff.live_reply.as_deref(), Some("not the same"));
+        assert!(!diff.identical);
+        let rendered = diff.render();
+        assert!(rendered.contains("DIVERGE"));
+    }
+
+    #[test]
+    fn diff_llm_turn_errors_on_unknown_turn() {
+        let t = trace_with_llm_calls();
+        let driver = ReplayDriver::from_trace(t).with_provider(
+            |_turn: LlmCallRef<'_>| -> Result<ProvidedTurn, String> {
+                Ok(ProvidedTurn::from_reply("x"))
+            },
+        );
+        let r = driver.diff_llm_turn(999);
+        assert!(r.is_err());
+        assert!(r.unwrap_err().contains("turn #999"));
+    }
+
+    #[test]
+    fn diff_llm_turn_handles_provider_error_as_diverge() {
+        let t = trace_with_llm_calls();
+        let driver = ReplayDriver::from_trace(t).with_provider(
+            |_turn: LlmCallRef<'_>| -> Result<ProvidedTurn, String> { Err("network!".into()) },
+        );
+        let diff = driver.diff_llm_turn(1).unwrap();
+        assert!(diff.live_reply.is_none());
+        assert!(!diff.identical);
+        let rendered = diff.render();
+        assert!(rendered.contains("DIVERGE"));
+        assert!(rendered.contains("<error / no reply>"));
+    }
+
+    #[test]
+    fn provided_turn_from_reply_default_shape() {
+        let t = ProvidedTurn::from_reply("hi");
+        assert_eq!(t.reply, "hi");
+        assert!(t.tool_uses.is_empty());
+        assert_eq!(t.cost_cents, 0);
     }
 }

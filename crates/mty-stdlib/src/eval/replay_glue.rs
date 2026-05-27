@@ -1,69 +1,80 @@
-//! Replay-runtime glue — thin wrapper over the v0.21 replay machinery
-//! that exposes "give me the prompt + recorded reply from this trace"
-//! and "re-run this trace's LLM turn against a fresh provider".
+//! Replay-runtime glue — bridges `std.eval` to the v0.29 native
+//! replay machinery in `mty_runtime::replay`.
 //!
-//! ## Scope
+//! ## v0.28 vs v0.29
 //!
-//! The v0.21 [`mty_runtime::replay::ReplayDriver`] re-executes a
-//! recorded `Spawn`/`MessageSent`/`MessageHandled` event stream against
-//! a fresh `Runtime` — it gives byte-identical replay of the *agent*
-//! layer, but it does not surface the recorded *LLM* turns directly.
-//! For v0.28 Track G the eval driver only needs two operations:
+//! v0.28 Track G shipped this module as a JSON-lines shim: trace
+//! files were single-purpose `{"type":"user"|"assistant"}` lines
+//! decoded by [`decode_trace_baseline`], and eval re-runs went
+//! straight through `Member::ask` without involving the replay
+//! driver at all. The v0.29 backlog (the `V029_BACKLOG` constant
+//! below, kept for historical reference) called out four upgrades.
+//! Track F lands them:
 //!
-//! 1. Decode the recorded prompt + assistant reply out of a trace
-//!    file so a `Case::from_trace` can use them as the baseline.
-//! 2. Re-run that prompt against a fresh [`crate::swarm::Member`]
-//!    under the eval's shared budget.
+//! 1. **`ReplayDriver::with_provider`** — `mty_runtime` now exposes
+//!    a [`TurnProvider`] trait + a `ReplayDriver::with_provider`
+//!    method that swaps the recorded LLM provider for a fresh one
+//!    mid-replay. See `crates/mty-runtime/src/replay/replay_driver.rs`.
+//! 2. **`TraceFile::iter_llm_calls`** — borrowed iterator over every
+//!    [`mty_runtime::replay::TraceEvent::LlmCall`] event in a trace.
+//! 3. **Wire v3** — the recorder now emits `TraceEvent::LlmCall`
+//!    structurally (prompt + system + tools + reply + tool_uses).
+//!    `TRACE_WIRE_VERSION` bumped 2 → 3.
+//! 4. **`mty replay --diff`** — the CLI surfaces
+//!    [`mty_runtime::replay::ReplayDriver::diff_llm_turn`] under
+//!    `mty replay --diff <trace> --turn <id>` so an eval divergence
+//!    points back at the exact recorded turn.
 //!
-//! Both operations are exposed by this module. Operation 1 reads a
-//! lightweight on-disk format (one JSON object per turn) that the
-//! v0.28 `mty trace record` CLI emits in eval-mode; Operation 2 calls
-//! straight into `Member::ask`. The v0.21 byte-identical replay
-//! machinery is *not* required for v0.28 — the typical eval case is
-//! "rerun a 1-turn query on N models", not "byte-replay a multi-agent
-//! trace". The full integration is queued under [`V029_BACKLOG`].
+//! ## What this module exposes
 //!
-//! ## v0.29 backlog
+//! * [`decode_trace_baseline`] — the v0.28 JSON-lines decoder, kept
+//!   as a fallback for trace files written before wire-v3 (and used
+//!   by [`Case::from_trace`] for `.jsonl`-style traces).
+//! * [`decode_trace_baseline_native`] — the v0.29 path: load a
+//!   binary `.mty-trace` produced by `MTY_RECORD_TRACE`, iterate
+//!   `TraceFile::iter_llm_calls()`, return the first LLM turn as the
+//!   baseline.
+//! * [`decode_baseline_auto`] — try the native path first; fall back
+//!   to JSON-lines if the file doesn't carry the trace magic prefix.
+//!   This is what `Case::from_trace` calls.
+//! * [`MemberTurnProvider`] — adapter that implements
+//!   `mty_runtime::replay::TurnProvider` for a `Member`, so the eval
+//!   driver can hand a panel member to
+//!   `ReplayDriver::with_provider`.
+//! * [`run_trace_with_member`] — convenience: dispatch the recorded
+//!   prompt against a fresh member under the shared budget.
 //!
-//! See [`V029_BACKLOG`] for the list of replay-runtime hooks the
-//! integrator should land in v0.29:
+//! ## Mixed wire support
 //!
-//! 1. `Replay::with_provider(member)` constructor on `ReplayDriver`
-//!    that swaps the recorded LLM provider mid-replay so the eval
-//!    driver can byte-replay a multi-turn trace + only divert the LLM
-//!    calls to a new member.
-//! 2. `RecordedTrace::iter_llm_calls()` accessor so the eval driver
-//!    can fast-path "just rerun the LLM turns" without spinning a
-//!    full `Runtime`.
-//! 3. Trace v3 wire format that captures LLM request+response shapes
-//!    structurally (prompt + system + tools + reply) so eval reports
-//!    can show tool-call diffs without re-parsing model output.
-//!
-//! The eval driver works against the existing v0.21 replay surface
-//! today by reading a minimal JSON-lines trace shape (see
-//! [`decode_trace_baseline`]); upgrading to the v3 wire format is a
-//! drop-in once the integrator lands the hooks above.
+//! The auto-decoder accepts both the lightweight JSON-lines shim
+//! (for hand-written eval fixtures + older recordings) and the v3
+//! binary trace. The `Case::from_trace` constructor doesn't care
+//! which one a fixture uses — both surface as
+//! [`TraceBaseline { prompt, assistant_reply }`].
 
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 use thiserror::Error;
+use tokio::runtime::Handle;
+
+use mty_runtime::replay::{
+    decode as decode_binary_trace, LlmCallRef, LlmToolUse, ProvidedTurn, RecorderError, TraceFile,
+    TurnProvider, TRACE_MAGIC,
+};
 
 use crate::swarm::{Member, MemberReply, SharedDollarBudget};
 
-/// v0.29 backlog items the integrator should land to upgrade
-/// `std.eval` from the JSON-lines fast path to the full byte-identical
-/// replay-driver integration. Surfaced as a `const &[&str]` so the
-/// commit body + the docs page can pull it without duplicating text.
+/// v0.29 backlog — kept for historical reference. **All four items
+/// were landed by v0.29 Track F.** The constant lives on so the
+/// docs page + commit-body can cite it; the items are now marked
+/// shipped via the `[shipped]` prefix.
 pub const V029_BACKLOG: &[&str] = &[
-    "replay-runtime: `Replay::with_provider(member)` constructor on \
-     `ReplayDriver` that swaps the recorded `LlmProvider` mid-replay.",
-    "replay-runtime: `RecordedTrace::iter_llm_calls()` accessor so \
-     std.eval can rerun just the LLM turns without a fresh Runtime.",
-    "replay-wire: v3 format capturing LLM request+response shapes \
-     structurally (prompt + system + tools + reply text + tool_uses).",
-    "std.eval: divergence reporter integration with `mty replay --diff` \
-     so eval failures point back at the exact recorded turn.",
+    "[shipped v0.29] replay-runtime: `ReplayDriver::with_provider` + `TurnProvider` trait.",
+    "[shipped v0.29] replay-runtime: `TraceFile::iter_llm_calls` borrowed iterator.",
+    "[shipped v0.29] replay-wire: wire-v3 `TraceEvent::LlmCall` (prompt + system + tools + reply + tool_uses).",
+    "[shipped v0.29] std.eval: `mty replay --diff <trace> --turn <id>` integration.",
 ];
 
 /// Errors returned by the replay-glue layer.
@@ -82,10 +93,26 @@ pub enum ReplayGlueError {
     #[error("eval-replay: trace at {0} does not contain a user prompt")]
     NoUserPrompt(String),
     /// The trace file's wire shape was unrecognised. v0.28 reads a
-    /// JSON-lines turn format; future versions can add a magic prefix
-    /// + structured wire decoder here.
+    /// JSON-lines turn format; v0.29 adds the v3 binary trace decoder.
     #[error("eval-replay: trace at {path} is malformed: {reason}")]
     MalformedTrace { path: String, reason: String },
+    /// The binary trace decoded but didn't contain any `LlmCall`
+    /// events — caller's [`Case::from_trace`] needs at least one.
+    #[error(
+        "eval-replay: trace at {0} is a valid v3 trace but contains no LlmCall events; \
+         either record an LLM turn via `MTY_RECORD_TRACE` + a `std.eval` driver, or use the \
+         JSON-lines fallback shape"
+    )]
+    NoLlmTurns(String),
+}
+
+impl From<RecorderError> for ReplayGlueError {
+    fn from(err: RecorderError) -> Self {
+        ReplayGlueError::MalformedTrace {
+            path: "<binary trace>".to_string(),
+            reason: err.to_string(),
+        }
+    }
 }
 
 /// Decoded baseline pulled from a trace file. The eval driver uses
@@ -98,8 +125,8 @@ pub struct TraceBaseline {
 }
 
 /// Read a trace file off disk and extract the first
-/// `(user-prompt, assistant-reply)` pair. The on-disk format for
-/// v0.28 is one JSON object per turn:
+/// `(user-prompt, assistant-reply)` pair. The on-disk format
+/// accepted by this decoder is one JSON object per turn:
 ///
 /// ```text
 /// {"type": "user", "content": "What is 2+2?"}
@@ -109,6 +136,10 @@ pub struct TraceBaseline {
 /// The decoder ignores other event types (`system`, `tool_use`, ...)
 /// so it stays forward-compatible with the v0.29 structured trace
 /// wire format. Unknown fields are silently dropped.
+///
+/// For native v3 binary traces produced by `MTY_RECORD_TRACE`, use
+/// [`decode_trace_baseline_native`] (or [`decode_baseline_auto`],
+/// which routes both shapes).
 pub fn decode_trace_baseline(path: &Path) -> Result<TraceBaseline, ReplayGlueError> {
     let body = fs::read_to_string(path).map_err(|e| ReplayGlueError::TraceRead {
         path: path.display().to_string(),
@@ -149,11 +180,171 @@ pub fn decode_trace_baseline(path: &Path) -> Result<TraceBaseline, ReplayGlueErr
     })
 }
 
+/// v0.29 native path — decode a binary `.mty-trace` produced by the
+/// `MTY_RECORD_TRACE` recorder + return the first `LlmCall` event's
+/// `(prompt, reply)` as the baseline.
+///
+/// Routes through [`mty_runtime::replay::TraceFile::iter_llm_calls`]
+/// (v0.29 backlog item #2) so the eval driver no longer parses a
+/// trace-specific JSON shape — it consumes the same wire format the
+/// runtime's `mty replay` CLI does.
+pub fn decode_trace_baseline_native(path: &Path) -> Result<TraceBaseline, ReplayGlueError> {
+    let trace = read_binary_trace(path)?;
+    let first = trace
+        .iter_llm_calls()
+        .next()
+        .ok_or_else(|| ReplayGlueError::NoLlmTurns(path.display().to_string()))?;
+    Ok(TraceBaseline {
+        prompt: first.prompt.to_string(),
+        assistant_reply: first.reply.to_string(),
+    })
+}
+
+/// Auto-route between native v3 binary traces and the JSON-lines
+/// fallback. Detection is by the 8-byte `MTYTRACE` magic prefix —
+/// any file that starts with it routes through the native decoder,
+/// every other file goes through the JSON-lines path.
+///
+/// `Case::from_trace` calls this so existing eval fixtures
+/// (JSON-lines) keep working while new recordings produced by
+/// `MTY_RECORD_TRACE` flow through the native v3 path.
+pub fn decode_baseline_auto(path: &Path) -> Result<TraceBaseline, ReplayGlueError> {
+    let bytes = fs::read(path).map_err(|e| ReplayGlueError::TraceRead {
+        path: path.display().to_string(),
+        source: e,
+    })?;
+    if bytes.starts_with(TRACE_MAGIC) {
+        let trace = decode_binary_trace(&bytes).map_err(|e| ReplayGlueError::MalformedTrace {
+            path: path.display().to_string(),
+            reason: e.to_string(),
+        })?;
+        let first = trace
+            .iter_llm_calls()
+            .next()
+            .ok_or_else(|| ReplayGlueError::NoLlmTurns(path.display().to_string()))?;
+        return Ok(TraceBaseline {
+            prompt: first.prompt.to_string(),
+            assistant_reply: first.reply.to_string(),
+        });
+    }
+    decode_trace_baseline(path)
+}
+
+/// Load the full `TraceFile` from disk — used by callers that want
+/// to iterate every recorded turn, not just the first. `std.eval`
+/// uses this when the eval driver wants to walk an entire
+/// multi-turn trace via [`MemberTurnProvider`].
+pub fn read_binary_trace(path: &Path) -> Result<TraceFile, ReplayGlueError> {
+    let bytes = fs::read(path).map_err(|e| ReplayGlueError::TraceRead {
+        path: path.display().to_string(),
+        source: e,
+    })?;
+    decode_binary_trace(&bytes).map_err(|e| ReplayGlueError::MalformedTrace {
+        path: path.display().to_string(),
+        reason: e.to_string(),
+    })
+}
+
+/// Adapter — implements [`mty_runtime::replay::TurnProvider`] for a
+/// `std.eval` [`Member`], so the eval driver can hand a panel member
+/// straight to
+/// [`mty_runtime::replay::ReplayDriver::with_provider`] (v0.29
+/// backlog item #1).
+///
+/// The provider serialises through the active tokio runtime
+/// (`Handle::current().block_on(...)`) because `TurnProvider::provide`
+/// is sync at the surface — `mty-runtime` doesn't want to drag an
+/// async runtime through its trait. Callers must invoke
+/// `replay_llm_turns` from within a `#[tokio::main]` / `block_in_place`
+/// context for this to work.
+pub struct MemberTurnProvider {
+    member: Member,
+    budget: Arc<SharedDollarBudget>,
+}
+
+impl MemberTurnProvider {
+    pub fn new(member: Member, budget: SharedDollarBudget) -> Self {
+        Self {
+            member,
+            budget: Arc::new(budget),
+        }
+    }
+
+    /// Convenience: build a provider backed by an unlimited budget.
+    /// Useful in tests + when the caller has already capped cost
+    /// elsewhere.
+    pub fn unbounded(member: Member) -> Self {
+        Self::new(member, SharedDollarBudget::new(u64::MAX))
+    }
+}
+
+impl TurnProvider for MemberTurnProvider {
+    fn provide(&self, turn: LlmCallRef<'_>) -> Result<ProvidedTurn, String> {
+        let prompt = turn.prompt.to_string();
+        let member = self.member.clone();
+        let budget = self.budget.clone();
+        // Run the async ask inside the current tokio runtime. If the
+        // caller invoked us from a sync context (`#[test]` without
+        // `#[tokio::test]`), `Handle::try_current` returns `Err` and
+        // we surface a helpful message rather than panicking on
+        // `block_on`.
+        let reply: Result<MemberReply, String> = match Handle::try_current() {
+            Ok(handle) => match handle.runtime_flavor() {
+                tokio::runtime::RuntimeFlavor::CurrentThread => {
+                    // We're inside a single-threaded runtime — blocking
+                    // would deadlock. Spawn a fresh runtime on a
+                    // dedicated thread instead.
+                    block_on_isolated(async move { member.ask(&prompt, &budget).await })
+                        .map_err(|e| e.to_string())
+                }
+                _ => tokio::task::block_in_place(|| {
+                    handle.block_on(async move { member.ask(&prompt, &budget).await })
+                })
+                .map_err(|e| e.to_string()),
+            },
+            Err(_) => block_on_isolated(async move { member.ask(&prompt, &budget).await })
+                .map_err(|e| e.to_string()),
+        };
+        let reply = reply?;
+        Ok(ProvidedTurn {
+            reply: reply.body,
+            // The streaming adapter surfaces tool_uses via the LLM
+            // layer, not via `MemberReply` — v0.29 surfaces only the
+            // text. A v0.30 follow-up lifts tool_uses up through
+            // `Member::ask` so the provider can return them
+            // structurally.
+            tool_uses: Vec::<LlmToolUse>::new(),
+            cost_cents: reply.cost_cents,
+        })
+    }
+}
+
+/// Run an async future on a dedicated single-thread runtime —
+/// guaranteed to not deadlock against the current runtime, at the
+/// cost of one short-lived OS thread per call.
+fn block_on_isolated<F, T>(fut: F) -> T
+where
+    F: std::future::Future<Output = T> + Send + 'static,
+    T: Send + 'static,
+{
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("eval-replay: isolated tokio runtime build failed");
+        let v = rt.block_on(fut);
+        let _ = tx.send(v);
+    });
+    rx.recv()
+        .expect("eval-replay: isolated runtime thread dropped its channel")
+}
+
 /// Run a trace's prompt against a fresh member under the supplied
-/// budget. The default v0.28 path is just `member.ask(prompt, budget)`
-/// — the v0.29 backlog upgrades this to a true byte-identical replay
-/// via [`mty_runtime::replay::ReplayDriver`] once the
-/// `with_provider` hook lands.
+/// budget. Equivalent to a single-turn dispatch through
+/// [`MemberTurnProvider`]; kept as a separate helper because the
+/// most common eval-case path (`Case::from_trace` + 1-turn fixture)
+/// only needs one ask.
 pub async fn run_trace_with_member(
     prompt: &str,
     member: &Member,
@@ -165,6 +356,7 @@ pub async fn run_trace_with_member(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mty_runtime::replay::{Recorder, TraceCodec, TraceEvent};
     use std::io::Write;
 
     #[test]
@@ -228,12 +420,13 @@ mod tests {
     }
 
     #[test]
-    fn v029_backlog_is_non_empty() {
-        // Sanity check — the backlog text is what the commit body
-        // surfaces. If someone empties it, the commit message would
-        // lose the v0.29 follow-up list.
+    fn v029_backlog_marks_every_item_as_shipped() {
+        // Sanity check — every backlog entry now starts with the
+        // shipped-marker (Track F closed all four items).
         assert!(!V029_BACKLOG.is_empty());
-        assert!(V029_BACKLOG.iter().all(|s| !s.is_empty()));
+        assert!(V029_BACKLOG
+            .iter()
+            .all(|s| s.starts_with("[shipped v0.29]")));
     }
 
     #[tokio::test]
@@ -245,5 +438,133 @@ mod tests {
             .unwrap();
         assert_eq!(r.body, "paris");
         assert_eq!(r.cost_cents, 1);
+    }
+
+    // -------------------------------------------------------------------------
+    // v0.29 Track F: native v3 binary trace decoder + auto-routing
+    // -------------------------------------------------------------------------
+
+    fn write_v3_trace_with_one_llm_call(path: &Path) {
+        let r = Recorder::new(path, 0, 1).with_codec(TraceCodec::Json);
+        r.record_llm_call(
+            0,
+            None,
+            "what is 2+2?",
+            Some("you are a calculator"),
+            vec!["calc".into()],
+            "4",
+            vec![LlmToolUse {
+                name: "calc".into(),
+                id: "tu-1".into(),
+                input_json: "{\"x\":2}".into(),
+            }],
+            1,
+        );
+        r.flush_to_disk().unwrap();
+    }
+
+    #[test]
+    fn decode_baseline_native_reads_v3_binary_trace() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("eval.mty-trace");
+        write_v3_trace_with_one_llm_call(&path);
+        let b = decode_trace_baseline_native(&path).unwrap();
+        assert_eq!(b.prompt, "what is 2+2?");
+        assert_eq!(b.assistant_reply, "4");
+    }
+
+    #[test]
+    fn decode_baseline_native_errors_when_no_llm_turns() {
+        // Build a v3 trace that contains a Spawn but no LlmCall.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("no-llm.mty-trace");
+        let r = Recorder::new(&path, 0, 1).with_codec(TraceCodec::Json);
+        r.record_spawn(1, "Echo", None);
+        r.flush_to_disk().unwrap();
+        let err = decode_trace_baseline_native(&path).unwrap_err();
+        assert!(matches!(err, ReplayGlueError::NoLlmTurns(_)));
+    }
+
+    #[test]
+    fn decode_baseline_auto_routes_binary_to_native_decoder() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auto.mty-trace");
+        write_v3_trace_with_one_llm_call(&path);
+        let b = decode_baseline_auto(&path).unwrap();
+        assert_eq!(b.prompt, "what is 2+2?");
+        assert_eq!(b.assistant_reply, "4");
+    }
+
+    #[test]
+    fn decode_baseline_auto_routes_jsonl_to_shim_decoder() {
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        writeln!(tmp, r#"{{"type":"user","content":"hi"}}"#).unwrap();
+        writeln!(tmp, r#"{{"type":"assistant","content":"hello"}}"#).unwrap();
+        tmp.flush().unwrap();
+        let b = decode_baseline_auto(tmp.path()).unwrap();
+        assert_eq!(b.prompt, "hi");
+        assert_eq!(b.assistant_reply, "hello");
+    }
+
+    #[test]
+    fn read_binary_trace_round_trips_every_llm_call() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("multi.mty-trace");
+        let r = Recorder::new(&path, 0, 1).with_codec(TraceCodec::Json);
+        r.record_llm_call(0, None, "q1", None, vec![], "a1", vec![], 1);
+        r.record_llm_call(0, None, "q2", None, vec![], "a2", vec![], 2);
+        r.record_llm_call(0, None, "q3", None, vec![], "a3", vec![], 3);
+        r.flush_to_disk().unwrap();
+
+        let trace = read_binary_trace(&path).unwrap();
+        let calls: Vec<_> = trace.iter_llm_calls().collect();
+        assert_eq!(calls.len(), 3);
+        assert_eq!(calls[0].prompt, "q1");
+        assert_eq!(calls[2].reply, "a3");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn member_turn_provider_dispatches_recorded_turn_against_member() {
+        // Build a small trace with one LLM turn, then drive it via
+        // MemberTurnProvider against a mock member. The provider
+        // bypasses tokio bookkeeping (block_in_place) on the
+        // multi-thread runtime so we can serialise the async ask.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("provider.mty-trace");
+        write_v3_trace_with_one_llm_call(&path);
+        let trace = read_binary_trace(&path).unwrap();
+
+        let provider = MemberTurnProvider::unbounded(Member::mock("m", "fresh-reply", 7));
+        let turn = trace.iter_llm_calls().next().unwrap();
+        let out = provider.provide(turn).unwrap();
+        assert_eq!(out.reply, "fresh-reply");
+        assert_eq!(out.cost_cents, 7);
+    }
+
+    #[test]
+    fn member_turn_provider_surfaces_member_errors_as_strings() {
+        // Sync context — provider falls through to an isolated
+        // runtime. The mock-error member returns an LlmError that
+        // the provider converts to its `String` failure shape.
+        let provider = MemberTurnProvider::unbounded(Member::mock_error("m", "boom"));
+        // Synthesise a one-shot LlmCallRef by hand for the test —
+        // the call site doesn't need a full TraceFile.
+        let event = TraceEvent::LlmCall {
+            agent: 0,
+            turn_id: 0,
+            prompt: "p".into(),
+            system: None,
+            tools: vec![],
+            reply: "ignored".into(),
+            tool_uses: vec![],
+            cost_cents: 0,
+        };
+        // Borrow the call ref out of a trace.
+        let mut t = TraceFile::new(0, 0, 1);
+        t.events.push(event);
+        let turn = t.iter_llm_calls().next().unwrap();
+        let r = provider.provide(turn);
+        assert!(r.is_err());
+        assert!(r.unwrap_err().contains("boom"));
     }
 }

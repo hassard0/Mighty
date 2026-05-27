@@ -25,6 +25,22 @@
 //! [`ReplayPayload::Opaque`] arm. v1 traces therefore continue to load
 //! cleanly with the v0.19 replayer.
 //!
+//! ### v0.29 — wire version 3 (structural LLM turns)
+//!
+//! v3 adds a new [`TraceEvent::LlmCall`] variant that captures one LLM
+//! request+response *structurally* (`prompt`, `system`, `tools`,
+//! `reply`, `tool_uses`) instead of the v2 opaque-bytes approximation.
+//! v3 is purely additive on top of v2: every v2 event variant is
+//! preserved verbatim, only new variants and new optional fields are
+//! introduced.
+//!
+//! v2 readers that don't know about `LlmCall` will get a serde error
+//! on that one variant; the in-tree decoder upgrades cleanly because
+//! the v3 binary always lists `LlmCall` in its `TraceEvent` enum. A
+//! v2 trace (no `LlmCall` events) still deserialises fine under v3:
+//! the [`decode`] entry point accepts `version <= TRACE_WIRE_VERSION`
+//! and treats the missing-LLM-call case as `iter_llm_calls() -> empty`.
+//!
 //! ## Format choice
 //!
 //! Postcard is the eventual on-disk codec for its compact varint
@@ -48,7 +64,12 @@ use serde::{Deserialize, Serialize};
 /// * **2** — v0.19: `MessageSent.payload` is [`ReplayPayload`], either
 ///   structural [`ReplayValue`]s (byte-identical) or [`Vec<u8>`]
 ///   Opaque bytes (legacy / cheap-record).
-pub const TRACE_WIRE_VERSION: u32 = 2;
+/// * **3** — v0.29: adds [`TraceEvent::LlmCall`] capturing one LLM
+///   turn structurally (prompt + system + tools + reply text +
+///   tool_uses). Additive: v2 traces still decode cleanly because the
+///   new variant only fires when the recorder explicitly captures an
+///   LLM call.
+pub const TRACE_WIRE_VERSION: u32 = 3;
 
 /// Magic bytes prefix for trace files. Lets `mty replay` reject random
 /// binaries before attempting full decode.
@@ -133,6 +154,53 @@ pub enum TraceEvent {
         /// Free-form reason string (`"normal"`, `"trap:MT5020"`).
         reason: String,
     },
+    /// v0.29 wire-v3: a single LLM turn captured structurally.
+    ///
+    /// Where `MessageSent` records the *agent* mailbox, `LlmCall`
+    /// records the *LLM* request/response on the line below it — the
+    /// prompt the agent gave the model, the model's reply text, and
+    /// any tool-use blocks the assistant emitted. This lets
+    /// `std.eval` reconstruct the recorded turn structurally and
+    /// dispatch only the LLM half against a fresh provider.
+    ///
+    /// All fields are owned strings / vecs for serialization
+    /// portability. Optional fields use `#[serde(default)]` so v2
+    /// readers can still load a v3 trace with a partial `LlmCall`
+    /// payload — and so a future v4 reader can drop new optional
+    /// fields without breaking v3 writers.
+    LlmCall {
+        /// Agent that issued the call. `0` when the call came from the
+        /// process bootstrap (e.g. a CLI eval), not from a spawned
+        /// agent.
+        #[serde(default)]
+        agent: u64,
+        /// Monotonic per-trace turn id. Stable across recordings so
+        /// `mty replay --diff --turn <id>` can address one turn
+        /// uniquely.
+        turn_id: u64,
+        /// User-facing prompt (the assistant `Message` content).
+        prompt: String,
+        /// System prompt prefix the agent paired with the call.
+        /// `None` when the agent didn't set one.
+        #[serde(default)]
+        system: Option<String>,
+        /// Tool names the agent advertised at call time. Order is
+        /// stable across the recorded run.
+        #[serde(default)]
+        tools: Vec<String>,
+        /// Plain-text reply the model returned (assistant content
+        /// block, concatenated when streamed).
+        #[serde(default)]
+        reply: String,
+        /// Tool-use blocks the assistant emitted in this turn.
+        /// Per-block schema mirrors the v0.21 `LlmReply` shape.
+        #[serde(default)]
+        tool_uses: Vec<LlmToolUse>,
+        /// Optional cost in cents reported by the provider. `0` when
+        /// the provider didn't surface a cost.
+        #[serde(default)]
+        cost_cents: u64,
+    },
 }
 
 impl TraceEvent {
@@ -147,6 +215,7 @@ impl TraceEvent {
             Self::RandomRead { .. } => "random_read",
             Self::BudgetExhausted { .. } => "budget_exhausted",
             Self::Exit { .. } => "exit",
+            Self::LlmCall { .. } => "llm_call",
         }
     }
 
@@ -163,8 +232,46 @@ impl TraceEvent {
             | Self::RandomRead { agent, .. }
             | Self::BudgetExhausted { agent, .. }
             | Self::Exit { agent, .. } => Some(*agent),
+            Self::LlmCall { agent, .. } => Some(*agent),
         }
     }
+}
+
+/// One tool-use block from an assistant turn — the v3 structural
+/// counterpart to the streaming `LlmReply::tool_uses` shape.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LlmToolUse {
+    /// Tool name (`"search_web"`, `"read_file"`, …).
+    pub name: String,
+    /// Provider-assigned id for cross-referencing follow-up
+    /// tool-result messages. Empty when the provider didn't supply
+    /// one (e.g. the Bedrock adapter).
+    #[serde(default)]
+    pub id: String,
+    /// Raw JSON-encoded arguments the assistant supplied. Stored as
+    /// a string so the trace doesn't depend on
+    /// `serde_json::Value`'s wire shape — readers parse it on demand.
+    #[serde(default)]
+    pub input_json: String,
+}
+
+/// v0.29 hook: a typed projection of one `LlmCall` event, returned by
+/// [`TraceFile::iter_llm_calls`].
+///
+/// All fields are borrowed from the underlying [`TraceEvent::LlmCall`]
+/// arm so iteration is allocation-free. `std.eval` uses this to drive
+/// "rerun only the LLM turns against a fresh provider" without
+/// spinning a full [`super::super::runtime::Runtime`].
+#[derive(Debug, Clone, Copy)]
+pub struct LlmCallRef<'a> {
+    pub turn_id: u64,
+    pub agent: u64,
+    pub prompt: &'a str,
+    pub system: Option<&'a str>,
+    pub tools: &'a [String],
+    pub reply: &'a str,
+    pub tool_uses: &'a [LlmToolUse],
+    pub cost_cents: u64,
 }
 
 /// Payload attached to a [`TraceEvent::MessageSent`].
@@ -312,6 +419,10 @@ pub struct TraceSummary {
     pub exit_count: usize,
     /// Total elapsed microseconds across recorded handler dispatches.
     pub total_handler_elapsed_us: u64,
+    /// v0.29: number of [`TraceEvent::LlmCall`] events in the trace.
+    /// `0` for v2 traces (no LLM events were recorded).
+    #[serde(default)]
+    pub llm_call_count: usize,
 }
 
 impl TraceFile {
@@ -338,6 +449,7 @@ impl TraceFile {
         let mut random = 0;
         let mut budget = 0;
         let mut exit = 0;
+        let mut llm = 0;
         let mut elapsed_us = 0_u64;
         let mut agents: BTreeSet<u64> = BTreeSet::new();
         for e in &self.events {
@@ -356,6 +468,7 @@ impl TraceFile {
                 TraceEvent::RandomRead { .. } => random += 1,
                 TraceEvent::BudgetExhausted { .. } => budget += 1,
                 TraceEvent::Exit { .. } => exit += 1,
+                TraceEvent::LlmCall { .. } => llm += 1,
             }
         }
         TraceSummary {
@@ -374,7 +487,48 @@ impl TraceFile {
             budget_exhausted_count: budget,
             exit_count: exit,
             total_handler_elapsed_us: elapsed_us,
+            llm_call_count: llm,
         }
+    }
+
+    /// v0.29 hook (item #2 of the v0.29 backlog): borrowed iterator
+    /// over every [`TraceEvent::LlmCall`] event in the trace.
+    ///
+    /// `std.eval` calls this in its native fast-path to rerun only
+    /// the recorded LLM turns against a fresh
+    /// [`crate::swarm::Member`]-like provider, without spinning up a
+    /// fresh [`super::super::runtime::Runtime`]. v2 traces (no LLM
+    /// events) yield an empty iterator.
+    pub fn iter_llm_calls(&self) -> impl Iterator<Item = LlmCallRef<'_>> + '_ {
+        self.events.iter().filter_map(|e| match e {
+            TraceEvent::LlmCall {
+                turn_id,
+                agent,
+                prompt,
+                system,
+                tools,
+                reply,
+                tool_uses,
+                cost_cents,
+            } => Some(LlmCallRef {
+                turn_id: *turn_id,
+                agent: *agent,
+                prompt: prompt.as_str(),
+                system: system.as_deref(),
+                tools: tools.as_slice(),
+                reply: reply.as_str(),
+                tool_uses: tool_uses.as_slice(),
+                cost_cents: *cost_cents,
+            }),
+            _ => None,
+        })
+    }
+
+    /// Find one recorded LLM turn by its `turn_id`. Used by
+    /// `mty replay --diff --turn <id>` to address a single turn from
+    /// the eval driver's divergence report.
+    pub fn llm_call_by_turn(&self, turn_id: u64) -> Option<LlmCallRef<'_>> {
+        self.iter_llm_calls().find(|c| c.turn_id == turn_id)
     }
 }
 
@@ -517,8 +671,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn wire_version_is_two() {
-        assert_eq!(TRACE_WIRE_VERSION, 2);
+    fn wire_version_is_three() {
+        // v0.29 bumped wire version 2 → 3 to introduce the
+        // `TraceEvent::LlmCall` structural event.
+        assert_eq!(TRACE_WIRE_VERSION, 3);
     }
 
     #[test]
@@ -656,6 +812,144 @@ mod tests {
             let back: ReplayValue = serde_json::from_str(&js).unwrap();
             assert_eq!(c, back);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // v0.29 wire-v3 tests — structural LLM-call events
+    // -------------------------------------------------------------------------
+
+    fn sample_llm_call(turn_id: u64) -> TraceEvent {
+        TraceEvent::LlmCall {
+            agent: 7,
+            turn_id,
+            prompt: format!("turn-{turn_id} prompt"),
+            system: Some("you are a helpful assistant".into()),
+            tools: vec!["search_web".into(), "read_file".into()],
+            reply: format!("turn-{turn_id} reply"),
+            tool_uses: vec![LlmToolUse {
+                name: "search_web".into(),
+                id: "tu-1".into(),
+                input_json: "{\"q\":\"hi\"}".into(),
+            }],
+            cost_cents: 3,
+        }
+    }
+
+    #[test]
+    fn llm_call_round_trips_through_json() {
+        let mut t = TraceFile::new(0, 0, 1);
+        t.events.push(sample_llm_call(1));
+        t.events.push(sample_llm_call(2));
+        let js = serde_json::to_string(&t).unwrap();
+        let back: TraceFile = serde_json::from_str(&js).unwrap();
+        assert_eq!(t, back);
+    }
+
+    #[test]
+    fn iter_llm_calls_returns_only_llm_events() {
+        let mut t = TraceFile::new(0, 0, 1);
+        t.events.push(TraceEvent::Spawn {
+            agent_id: 7,
+            agent_type: "Eval".into(),
+            supervisor: None,
+        });
+        t.events.push(sample_llm_call(10));
+        t.events.push(TraceEvent::ClockRead {
+            agent: 7,
+            value_ms: 1,
+        });
+        t.events.push(sample_llm_call(11));
+        let calls: Vec<_> = t.iter_llm_calls().collect();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].turn_id, 10);
+        assert_eq!(calls[1].turn_id, 11);
+        assert_eq!(calls[0].prompt, "turn-10 prompt");
+        assert_eq!(calls[0].reply, "turn-10 reply");
+        assert_eq!(calls[0].system, Some("you are a helpful assistant"));
+        assert_eq!(calls[0].tools.len(), 2);
+        assert_eq!(calls[0].tool_uses.len(), 1);
+        assert_eq!(calls[0].tool_uses[0].name, "search_web");
+    }
+
+    #[test]
+    fn llm_call_by_turn_finds_recorded_turn() {
+        let mut t = TraceFile::new(0, 0, 1);
+        t.events.push(sample_llm_call(1));
+        t.events.push(sample_llm_call(42));
+        t.events.push(sample_llm_call(7));
+        let got = t.llm_call_by_turn(42).expect("turn 42 exists");
+        assert_eq!(got.turn_id, 42);
+        assert_eq!(got.prompt, "turn-42 prompt");
+        assert!(t.llm_call_by_turn(999).is_none());
+    }
+
+    #[test]
+    fn summary_counts_llm_calls() {
+        let mut t = TraceFile::new(0, 0, 1);
+        t.events.push(TraceEvent::Spawn {
+            agent_id: 1,
+            agent_type: "Eval".into(),
+            supervisor: None,
+        });
+        t.events.push(sample_llm_call(1));
+        t.events.push(sample_llm_call(2));
+        t.events.push(sample_llm_call(3));
+        let s = t.summary();
+        assert_eq!(s.llm_call_count, 3);
+        assert_eq!(s.event_count, 4);
+        // The agent set folds in the LLM-call agent id.
+        assert!(s.agent_count >= 1);
+    }
+
+    #[test]
+    fn llm_call_kind_and_agent_helpers() {
+        let e = sample_llm_call(99);
+        assert_eq!(e.kind(), "llm_call");
+        assert_eq!(e.agent(), Some(7));
+    }
+
+    #[test]
+    fn llm_call_with_only_required_fields_round_trips() {
+        // Every optional field at its serde default — exercising the
+        // forward-compat path where a future writer may drop the
+        // optional fields entirely.
+        let e = TraceEvent::LlmCall {
+            agent: 0,
+            turn_id: 1,
+            prompt: "p".into(),
+            system: None,
+            tools: vec![],
+            reply: String::new(),
+            tool_uses: vec![],
+            cost_cents: 0,
+        };
+        let js = serde_json::to_string(&e).unwrap();
+        let back: TraceEvent = serde_json::from_str(&js).unwrap();
+        assert_eq!(e, back);
+    }
+
+    #[test]
+    fn v2_trace_with_no_llm_events_still_works_under_v3() {
+        // Construct a v2-shape trace (no LLM events) — under wire-v3 it
+        // must still deserialise, just with `iter_llm_calls()` empty.
+        let mut t = TraceFile::new(0, 0, 1);
+        t.version = 2;
+        t.events.push(TraceEvent::Spawn {
+            agent_id: 1,
+            agent_type: "Echo".into(),
+            supervisor: None,
+        });
+        t.events.push(TraceEvent::MessageSent {
+            from: 0,
+            to: 1,
+            msg: "Ping".into(),
+            payload: ReplayPayload::default(),
+        });
+        let js = serde_json::to_string(&t).unwrap();
+        let back: TraceFile = serde_json::from_str(&js).unwrap();
+        assert_eq!(back.version, 2);
+        assert_eq!(back.iter_llm_calls().count(), 0);
+        assert_eq!(back.summary().llm_call_count, 0);
     }
 
     #[test]

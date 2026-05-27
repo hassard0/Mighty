@@ -27,7 +27,8 @@
 //! rationale and the v0.18 step-debugger follow-up.
 
 use super::wire::{
-    ReplayPayload, ReplayValue, TraceEvent, TraceFile, V1TraceFile, TRACE_MAGIC, TRACE_WIRE_VERSION,
+    LlmToolUse, ReplayPayload, ReplayValue, TraceEvent, TraceFile, V1TraceFile, TRACE_MAGIC,
+    TRACE_WIRE_VERSION,
 };
 use parking_lot::{Mutex, RwLock};
 use std::path::{Path, PathBuf};
@@ -70,6 +71,9 @@ pub struct Recorder {
     worker_count: u32,
     buffer: Mutex<Vec<TraceEvent>>,
     counters: dashmap::DashMap<u64, AgentCounters>,
+    /// v0.29 wire-v3: monotonic LLM-turn id allocator for the
+    /// `TraceEvent::LlmCall` variant.
+    next_llm_turn_id: AtomicU64,
 }
 
 impl Recorder {
@@ -85,6 +89,7 @@ impl Recorder {
             worker_count,
             buffer: Mutex::new(Vec::new()),
             counters: dashmap::DashMap::new(),
+            next_llm_turn_id: AtomicU64::new(0),
         }
     }
 
@@ -227,6 +232,37 @@ impl Recorder {
             agent,
             reason: reason.to_string(),
         });
+    }
+
+    /// v0.29 wire-v3: record one structural LLM turn. `turn_id`
+    /// auto-allocates (monotonic per-recorder) when callers pass
+    /// `None` so a single `mty trace record` session keeps the
+    /// `LlmCall.turn_id` field unique without coordination.
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_llm_call(
+        &self,
+        agent: u64,
+        turn_id: Option<u64>,
+        prompt: &str,
+        system: Option<&str>,
+        tools: Vec<String>,
+        reply: &str,
+        tool_uses: Vec<LlmToolUse>,
+        cost_cents: u64,
+    ) -> u64 {
+        let turn_id =
+            turn_id.unwrap_or_else(|| self.next_llm_turn_id.fetch_add(1, Ordering::Relaxed));
+        self.record(TraceEvent::LlmCall {
+            agent,
+            turn_id,
+            prompt: prompt.to_string(),
+            system: system.map(|s| s.to_string()),
+            tools,
+            reply: reply.to_string(),
+            tool_uses,
+            cost_cents,
+        });
+        turn_id
     }
 
     /// Build a [`TraceFile`] from the buffered events without
@@ -453,6 +489,50 @@ mod tests {
         assert_eq!(r.record_message_handled(1, "X", 1), 1);
         assert_eq!(r.record_message_handled(2, "X", 1), 0);
         assert_eq!(r.record_message_handled(1, "X", 1), 2);
+    }
+
+    #[test]
+    fn record_llm_call_appends_and_assigns_monotonic_turn_id() {
+        let r = Recorder::new(tmp_path("llmcall"), 0, 1);
+        let id0 = r.record_llm_call(
+            5,
+            None,
+            "what's 2+2?",
+            Some("you are a calculator"),
+            vec!["calc".into()],
+            "4",
+            vec![],
+            1,
+        );
+        let id1 = r.record_llm_call(
+            5,
+            None,
+            "what's 3+3?",
+            None,
+            vec![],
+            "6",
+            vec![LlmToolUse {
+                name: "calc".into(),
+                id: "tu-1".into(),
+                input_json: "{\"x\":3}".into(),
+            }],
+            2,
+        );
+        assert_eq!(id0, 0);
+        assert_eq!(id1, 1);
+        // Caller-supplied turn_id wins over the auto allocator.
+        let id_force = r.record_llm_call(5, Some(42), "x", None, vec![], "y", vec![], 0);
+        assert_eq!(id_force, 42);
+
+        let snap = r.events_snapshot();
+        assert_eq!(snap.len(), 3);
+        let calls = r.to_trace_file();
+        let llm: Vec<_> = calls.iter_llm_calls().collect();
+        assert_eq!(llm.len(), 3);
+        assert_eq!(llm[0].prompt, "what's 2+2?");
+        assert_eq!(llm[0].reply, "4");
+        assert_eq!(llm[1].tool_uses.len(), 1);
+        assert_eq!(llm[2].turn_id, 42);
     }
 
     #[test]

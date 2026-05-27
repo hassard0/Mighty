@@ -1,4 +1,4 @@
-# `std.eval` — replay-driven LLM eval harness (internals, v0.28)
+# `std.eval` — replay-driven LLM eval harness (internals, v0.28 → v0.29)
 
 **Module:** `mty_stdlib::eval` (submodules `suite`, `case`, `runner`,
 `compare`, `replay_glue`)
@@ -186,29 +186,85 @@ v0.28 Track G integrates the v0.21 replay machinery (the
 glue layer in `replay_glue.rs`. Two operations:
 
 1. **`decode_trace_baseline(path)`** — read the recorded prompt +
-   assistant reply out of the trace file so a `Case::from_trace`
-   has a baseline column.
+   assistant reply out of the JSON-lines trace shim so a
+   `Case::from_trace` has a baseline column.
 2. **`run_trace_with_member(prompt, member, budget)`** — dispatch
-   the recorded prompt against a fresh `Member`. Today this is a
+   the recorded prompt against a fresh `Member`. v0.28 path: a
    straight `member.ask(prompt, budget)` call.
 
-The full byte-identical replay-driver integration (where the eval
-driver feeds the recorded trace into a fresh `Runtime` + only
-diverts the LLM provider calls to the new member) is queued for
-v0.29:
+## Native replay (v0.29)
 
-| Backlog item | What lands |
+v0.29 Track F upgraded the integration from the JSON-lines shim to
+the real `mty_runtime::replay` machinery. Four backlog items shipped:
+
+| Backlog item | What landed |
 |---|---|
-| `Replay::with_provider(member)` | Constructor on `ReplayDriver` that swaps the recorded `LlmProvider` mid-replay. |
-| `RecordedTrace::iter_llm_calls()` | Accessor so `std.eval` can rerun just the LLM turns without spinning a fresh `Runtime`. |
-| Trace wire v3 | Captures LLM request+response shapes structurally (prompt + system + tools + reply + tool_uses). |
-| `mty replay --diff` integration | Eval divergence reporter points back at the exact recorded turn. |
+| `ReplayDriver::with_provider(member)` | New method on `ReplayDriver` plus a `TurnProvider` trait — swaps the recorded LLM provider for a fresh one mid-replay. The v0.29 surface is the **LLM-only** path (walk every `TraceEvent::LlmCall`, redispatch against the live provider, collect per-turn diffs). Full re-execution `with_provider` (inside `replay_all`) is queued for v0.30 — see "v0.30 follow-ups" below. |
+| `TraceFile::iter_llm_calls()` | Borrowed iterator over every recorded `TraceEvent::LlmCall` event. `std.eval` uses this to fast-path "just rerun the LLM turns" without spinning a fresh `Runtime`. |
+| Trace wire v3 | New `TraceEvent::LlmCall` variant captures one LLM turn structurally: `agent`, `turn_id`, `prompt`, `system`, `tools`, `reply`, `tool_uses`, `cost_cents`. `TRACE_WIRE_VERSION` bumped 2 → 3. Additive: v2 traces still decode cleanly (`iter_llm_calls()` returns empty). |
+| `mty replay --diff` | CLI gained `--diff` + `--turn <id>` flags. `--diff` alone renders a sweep over every recorded LLM turn ("turn #N : MATCH/DIVERGE"); `--turn <id>` renders the full structural diff for one turn (`LlmTurnDiff::render`). The eval driver's divergence reporter points users at this shell command. |
 
-The eval driver works against today's v0.21 replay surface by
-reading the lightweight JSON-lines trace shape; upgrading to the v3
-wire format is a drop-in once the integrator lands the hooks above.
-See `mty_stdlib::eval::replay_glue::V029_BACKLOG` for the canonical
-list (kept in sync with the commit-body backlog).
+### New native-path surfaces
+
+The glue layer's `replay_glue.rs` exposes the v0.29 native bridges:
+
+| Symbol | Shape |
+|---|---|
+| `decode_trace_baseline_native(path)` | Read a v3 binary `.mty-trace`; return the first recorded LLM turn as the baseline. |
+| `decode_baseline_auto(path)` | Sniff the 8-byte `MTYTRACE` magic; route to native or JSON-lines. `Case::from_trace` calls this so legacy + native fixtures coexist. |
+| `read_binary_trace(path)` | Load the full `TraceFile`; caller iterates `iter_llm_calls()`. |
+| `MemberTurnProvider` | Adapter — implements `mty_runtime::replay::TurnProvider` for a `Member`, so `Suite::compare()` can hand a panel member to `ReplayDriver::with_provider`. |
+
+### Auto-routing
+
+`Case::from_trace(path)` now auto-routes:
+
+- File starts with `MTYTRACE` magic → v3 binary decoder
+  (`decode_trace_baseline_native`).
+- Anything else → v0.28 JSON-lines shim (`decode_trace_baseline`).
+
+Existing eval fixtures (hand-written JSON-lines) keep working
+unchanged; new recordings produced by `MTY_RECORD_TRACE` flow
+through the native path without any per-call-site change.
+
+### `MemberTurnProvider` async serialisation
+
+`TurnProvider::provide` is sync at the trait surface (`mty-runtime`
+doesn't take an async dep in its public trait), but `Member::ask`
+is async. The adapter handles the async-from-sync bridge:
+
+1. Multi-thread tokio runtime → `tokio::task::block_in_place` +
+   `Handle::block_on`.
+2. Current-thread / no runtime → spawn a fresh single-thread
+   runtime on a dedicated OS thread, channel back the reply.
+
+Eval drivers running under `#[tokio::main]` get the cheap path
+automatically; standalone callers (CLI tools, test fixtures) pay
+one short-lived OS thread per turn.
+
+### v0.30 follow-ups
+
+Three deep-runtime items were stubbed at the v0.29 surface but
+deferred — `mty_runtime` would need a deeper refactor to land them
+without scope creep:
+
+1. **`Member::ask` returning `tool_uses` structurally** — today
+   `MemberReply` only surfaces the text. The provider wraps with
+   `tool_uses: vec![]`. v0.30 lifts the LLM adapter's structured
+   reply through the swarm layer.
+2. **`ReplayDriver::replay_all` + `with_provider` together** — full
+   re-execution that intercepts every recorded LLM call inside the
+   running `Runtime`. Requires a runtime-side LLM-provider
+   injection point (today the runtime is opaque to `mty-stdlib::llm`).
+3. **Recorder integration into `Member::ask`** — `Member::ask`
+   doesn't itself call `record_llm_call` today; the recording side
+   is wired in std.eval's record-mode driver only. v0.30 lifts it
+   into the `LlmProvider` trait so any agent run with
+   `MTY_RECORD_TRACE` captures LLM turns automatically.
+
+See `mty_stdlib::eval::replay_glue::V029_BACKLOG` — every entry
+now starts with the `[shipped v0.29]` marker; the constant is kept
+for the audit trail.
 
 ## Why a fluent builder over a `struct` literal
 
@@ -241,13 +297,20 @@ shape would work in Rust but trips on two boundaries:
 * `crates/mty-stdlib/src/eval/runner.rs` (6 tests): matrix
   dispatch, error-cell capture, verdict stamping, semantic-divergence
   explanation includes cosine score.
-* `crates/mty-stdlib/src/eval/replay_glue.rs` (7 tests): baseline
+* `crates/mty-stdlib/src/eval/replay_glue.rs` (15 tests): baseline
   decode, malformed JSON, missing file, missing user prompt, mock
-  dispatch round-trip, v0.29 backlog non-empty.
+  dispatch round-trip, v0.29 backlog shipped-marker, native v3
+  binary trace decoder, auto-routing (binary + JSON-lines),
+  `read_binary_trace`, `MemberTurnProvider` against mock + error
+  members.
 * `crates/mty-stdlib/src/eval/mod.rs` (2 tests): empty-suite +
   no-members error paths.
 
-60 tests total. All pass via `cargo test -p mty-stdlib --lib eval`.
+68 tests total in `mty-stdlib`. Native replay machinery adds 18
+tests in `mty-runtime/src/replay/*` (8 new for `iter_llm_calls` +
+`with_provider` + `diff_llm_turn` + wire-v3 round-trips, plus the
+v0.29 recorder hook). CLI ships 5 new tests for `mty replay --diff`.
+All pass via `cargo test --workspace`.
 
 ## See also
 
@@ -259,6 +322,9 @@ shape would work in Rust but trips on two boundaries:
   `Member` wraps.
 * `docs/reference/stdlib/memory.md` — the `Embedder` trait the
   semantic-similarity comparator uses.
-* `examples/31_eval_agent.mty` — minimal Mighty-source example.
+* `examples/31_eval_agent.mty` — minimal Mighty-source example
+  (v0.28 JSON-lines shim).
+* `examples/32_eval_native.mty` — v0.29 native-replay-backed
+  example (binary `.mty-trace` via `MTY_RECORD_TRACE`).
 * `dev/history/notes/STD_EVAL_V0_28_NOTES.md` — design rationale
   (track-G ship notes; populated by the integrator).

@@ -189,6 +189,17 @@ enum Cmd {
         /// recorded against. Required with `--byte-identical`.
         #[arg(long)]
         program: Option<std::path::PathBuf>,
+        /// v0.29 Track F: render an LLM-turn diff (one per recorded
+        /// `TraceEvent::LlmCall`). Pair with `--turn <id>` to address
+        /// a single turn. Used by `std.eval`'s divergence reporter to
+        /// surface the exact recorded turn behind a failing case.
+        #[arg(long)]
+        diff: bool,
+        /// v0.29 Track F: focus the diff renderer on one recorded
+        /// `LlmCall.turn_id`. Setting this without `--diff` implies
+        /// `--diff`.
+        #[arg(long, value_name = "ID")]
+        turn: Option<u64>,
     },
     /// Hot-reload a running agent: drain its current handler, snapshot
     /// state via `Resumable`, swap the code, restore the state, and
@@ -353,6 +364,8 @@ fn main() {
             byte_identical,
             mock_io,
             program,
+            diff,
+            turn,
         } => cmd::replay::run(cmd::replay::ReplayArgs {
             trace,
             dump_json,
@@ -361,6 +374,8 @@ fn main() {
             byte_identical,
             mock_io,
             program,
+            diff,
+            turn,
         }),
         Cmd::Reload {
             agent_type,

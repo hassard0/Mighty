@@ -38,10 +38,13 @@ pub use recorder::{
     decode, encode, global_recorder, install, install_from_env, recording_enabled, uninstall,
     with_recorder, Recorder, RecorderError, TraceCodec, RECORD_ENV,
 };
-pub use replay_driver::{EventMismatch, ReplayDriver, ReplayReport};
+pub use replay_driver::{
+    EventMismatch, LlmTurnDiff, LlmTurnReplay, ProvidedTurn, ReplayDriver, ReplayReport,
+    TurnProvider,
+};
 pub use wire::{
-    ReplayPayload, ReplayValue, RuntimeValueLike, TraceEvent, TraceFile, TraceSummary, TRACE_MAGIC,
-    TRACE_WIRE_VERSION,
+    LlmCallRef, LlmToolUse, ReplayPayload, ReplayValue, RuntimeValueLike, TraceEvent, TraceFile,
+    TraceSummary, TRACE_MAGIC, TRACE_WIRE_VERSION,
 };
 
 use mty_ir::interp::value::Value as RuntimeValue;
@@ -284,6 +287,8 @@ pub struct CountingStepHandler {
     pub random_read_count: usize,
     pub budget_exhausted_count: usize,
     pub exit_count: usize,
+    /// v0.29 wire-v3: count of `TraceEvent::LlmCall` events seen.
+    pub llm_call_count: usize,
 }
 
 impl CountingStepHandler {
@@ -307,6 +312,7 @@ impl StepHandler for CountingStepHandler {
             TraceEvent::RandomRead { .. } => self.random_read_count += 1,
             TraceEvent::BudgetExhausted { .. } => self.budget_exhausted_count += 1,
             TraceEvent::Exit { .. } => self.exit_count += 1,
+            TraceEvent::LlmCall { .. } => self.llm_call_count += 1,
         }
         Ok(())
     }
@@ -434,6 +440,12 @@ impl Replayer {
                         });
                     }
                 }
+                // v0.29 wire-v3: LlmCall is a structural side-channel
+                // — the recorder may emit it without a prior Spawn
+                // (e.g. CLI eval drivers issue LLM calls from the
+                // process bootstrap, not from a spawned agent). We
+                // accept any `agent` id including the synthetic 0.
+                TraceEvent::LlmCall { .. } => {}
             }
         }
         Ok(())
