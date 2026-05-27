@@ -117,8 +117,19 @@ pub fn lower_expr(ctx: &mut LowerCtx, fb: &mut FnBuilder, eid: ExprId) -> Operan
         HirExpr::Field { receiver, name } => {
             let recv = lower_expr(ctx, fb, receiver);
             // Field-by-name → resolve to index via the receiver's typed
-            // ADT.
-            let field_idx = resolve_field_index(ctx, receiver, &name).unwrap_or(0);
+            // ADT. v0.29 Track A: also consult the permissive stdlib
+            // field-name table so `consensus.majority` / `.dissents` /
+            // `.total_cost_cents` etc. read the right field on the
+            // synthetic Consensus / MemberReply / DollarBudget structs
+            // synthesised by the SIR swarm dispatcher (those values
+            // carry `IrTy::Error` at lowering time — they're built by
+            // a `BuiltinId::Swarm` call whose return type isn't a
+            // typed ADT in the user program). Without this fallback
+            // every chained access would read field 0 and lose the
+            // shape.
+            let field_idx = resolve_field_index(ctx, receiver, &name)
+                .or_else(|| stdlib_field_index(&name))
+                .unwrap_or(0);
             let temp = fb.fresh_temp(IrTy::Error);
             let recv_place = operand_to_place(fb, recv);
             fb.push_stmt(Stmt::Assign(
@@ -514,6 +525,35 @@ fn resolve_path(ctx: &mut LowerCtx, fb: &mut FnBuilder, segments: &[String]) -> 
             return Operand::Copy(Place::local(local));
         }
     }
+    // v0.29 Track A — multi-segment path starting with a local is a
+    // chained field access (`local.field` or `local.f1.f2.f3`). The
+    // CST parses `c.budget_exhausted` as a PATH_EXPR with segments
+    // ["c", "budget_exhausted"] rather than a FIELD_EXPR, so without
+    // this projection step the access falls through to `Const::Unit`
+    // (the fallback at step 6) and the condition reads as Unit.
+    // Project each remaining segment via `Rvalue::FieldRead` using
+    // the permissive `stdlib_field_index` table (user struct field
+    // names are not known at this layer; they fall back to index 0
+    // — same behaviour as the bare `HirExpr::Field` lowering).
+    if segments.len() >= 2 {
+        if let Some(local) = fb.locals_by_name.get(&segments[0]).copied() {
+            let mut cur = Operand::Copy(Place::local(local));
+            for seg in &segments[1..] {
+                let field_idx = stdlib_field_index(seg).unwrap_or(0);
+                let projected = fb.fresh_temp(IrTy::Error);
+                let recv_place = operand_to_place(fb, cur);
+                fb.push_stmt(Stmt::Assign(
+                    Place::local(projected),
+                    Rvalue::FieldRead {
+                        receiver: recv_place,
+                        field: field_idx,
+                    },
+                ));
+                cur = Operand::Move(Place::local(projected));
+            }
+            return cur;
+        }
+    }
     // 2. Single segment matching a value defref.
     if segments.len() == 1 {
         if let Some(dref) = ctx.typed.def_map.lookup(&segments[0]) {
@@ -561,9 +601,45 @@ fn resolve_path(ctx: &mut LowerCtx, fb: &mut FnBuilder, segments: &[String]) -> 
     if let Some(b) = builtin_for_name(&segments.join(".")) {
         return Operand::Const(Const::FnPtr(FnRef::Builtin(b)));
     }
-    // 5. Fallback: poisoned, but valid.
+    // 5. v0.29 Track A — bare-path stdlib constants. `ConsensusStrategy.Majority`,
+    // `ConsensusStrategy.Unanimous`, `ConsensusStrategy.FirstAgreed` parse as
+    // multi-segment `Path` expressions with no variant in the def-map (the
+    // `ConsensusStrategy` ADT isn't registered in user source — it's a
+    // permissive stdlib name). Lower them as a zero-arg builtin call so the
+    // interpreter's `try_stdlib_ctor` arm synthesises the matching tagged
+    // value instead of falling through to `Const::Unit` (which would erase
+    // the strategy from the swarm call site).
+    if is_stdlib_const_path(segments) {
+        let joined = segments.join(".");
+        let temp = fb.fresh_temp(IrTy::Error);
+        fb.push_stmt(Stmt::Assign(
+            Place::local(temp),
+            Rvalue::Call {
+                func: FnRef::Builtin(BuiltinId::Extern(joined)),
+                args: vec![],
+            },
+        ));
+        return Operand::Move(Place::local(temp));
+    }
+    // 6. Fallback: poisoned, but valid.
     let _ = (ctx, fb);
     Operand::Const(Const::Unit)
+}
+
+/// v0.29 Track A — recognise the bare-path stdlib constants that
+/// `resolve_path` must lower as zero-arg builtin calls so the
+/// interpreter's `try_stdlib_ctor` arm sees them.
+fn is_stdlib_const_path(segments: &[String]) -> bool {
+    if segments.len() != 2 {
+        return false;
+    }
+    matches!(
+        (segments[0].as_str(), segments[1].as_str()),
+        (
+            "ConsensusStrategy",
+            "Majority" | "Unanimous" | "FirstAgreed"
+        )
+    )
 }
 
 fn builtin_for_name(name: &str) -> Option<BuiltinId> {
@@ -577,6 +653,12 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "raw_ptr" => BuiltinId::RawPtr,
         "valid" => BuiltinId::Valid,
         "null" => BuiltinId::Null,
+        // v0.29 Track A — `swarm(prompt, panel, budget, strategy)` lowers
+        // to `BuiltinId::Swarm` so the SIR interpreter can resolve the
+        // consensus synchronously (without going through the host's
+        // extern table, which would return `Value::Unit`). Real async
+        // dispatch lives in `mty_stdlib::swarm::swarm` for `mty build`.
+        "swarm" => BuiltinId::Swarm,
         _ => return None,
     })
 }
@@ -623,15 +705,31 @@ fn lower_call(ctx: &mut LowerCtx, fb: &mut FnBuilder, callee: ExprId, args: &[Hi
                 let method = segments.last().cloned().unwrap_or_default();
                 // Build receiver expression from the segments-prefix.
                 let recv_local = fb.locals_by_name.get(head).copied().unwrap();
-                let recv_op = Operand::Copy(Place::local(recv_local));
-                // For 3+ segments (`x.a.b.foo()`), project intermediate
-                // fields. We don't know field indices for arbitrary
-                // chains in slice 6, so we route the whole thing through
-                // a MethodCall on the head value (interpreter's method
-                // table is permissive for unknown names).
+                let mut recv_op = Operand::Copy(Place::local(recv_local));
+                // v0.29 Track A — for 3+ segments (`x.a.b.foo()`), emit
+                // intermediate `Rvalue::FieldRead` projections so the
+                // receiver of the final MethodCall is the right slot.
+                // Pre-v0.29 we dropped the intermediate fields and routed
+                // through the head local directly, which silently lost
+                // the `.majority` / `.dissents` / `.body` accesses that
+                // demo 08's swarm consensus rendering depends on. Field
+                // indices come from `stdlib_field_index` (permissive
+                // table); user struct fields fall back to index 0 — same
+                // behaviour as the bare-field-access lowering above.
                 if segments.len() > 2 {
-                    // Best-effort: leave recv as the head local.
-                    let _ = recv_op.clone();
+                    for seg in &segments[1..segments.len() - 1] {
+                        let field_idx = stdlib_field_index(seg).unwrap_or(0);
+                        let projected = fb.fresh_temp(IrTy::Error);
+                        let recv_place = operand_to_place(fb, recv_op);
+                        fb.push_stmt(Stmt::Assign(
+                            Place::local(projected),
+                            Rvalue::FieldRead {
+                                receiver: recv_place,
+                                field: field_idx,
+                            },
+                        ));
+                        recv_op = Operand::Move(Place::local(projected));
+                    }
                 }
                 let arg_ops: Vec<Operand> =
                     args.iter().map(|a| lower_expr(ctx, fb, a.value)).collect();
@@ -1349,6 +1447,37 @@ fn order_struct_fields(
         .iter()
         .map(|(_, e)| lower_expr(ctx, fb, *e))
         .collect()
+}
+
+/// v0.29 Track A — permissive field-name table for the SIR swarm
+/// dispatcher's synthetic value shapes. The `BuiltinId::Swarm` arm
+/// returns a tagged `Value::Struct` whose fields are positional; this
+/// table maps the user-facing field names (`consensus.majority`,
+/// `consensus.dissents`, etc.) onto the matching positional index so
+/// source-level field access reads the right slot.
+///
+/// Mirrors `swarm_dispatch::{consensus_value, reply_value, member_value,
+/// budget_value}` in `crates/mty-ir/src/interp/run.rs`. Keep in sync
+/// when adding new fields to those tagged shapes.
+fn stdlib_field_index(name: &str) -> Option<usize> {
+    Some(match name {
+        // Consensus { majority, dissents, all_replies, budget_exhausted, strategy, total_cost_cents }
+        "majority" => 0,
+        "dissents" => 1,
+        "all_replies" => 2,
+        "budget_exhausted" => 3,
+        "strategy" => 4,
+        "total_cost_cents" => 5,
+        // MemberReply { member, body, tokens_used, cost_cents }
+        "member" => 0,
+        "body" => 1,
+        "tokens_used" => 2,
+        "cost_cents" => 3,
+        // DollarBudget { limit_cents, consumed_cents }
+        "limit_cents" => 0,
+        "consumed_cents" => 1,
+        _ => return None,
+    })
 }
 
 fn resolve_field_index(ctx: &LowerCtx, receiver: ExprId, name: &str) -> Option<usize> {

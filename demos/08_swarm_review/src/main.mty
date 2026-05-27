@@ -95,11 +95,12 @@ fn run_panel_review(panel, spend_cap, snippet: Str) -> Str {
   // against the shared `spend_cap`, and resolves the replies through
   // `ConsensusStrategy.Majority` into a `Consensus` result.
   //
-  // The SIR interpreter dispatches `swarm` as a permissive extern call
-  // — it returns `Value::Unit` on `mty run`. The real wiring fires
-  // when `mty build --target host` lowers the call through to
-  // `mty_stdlib::swarm::swarm`. v0.28 follow-up: a `BuiltinId::Swarm`
-  // arm so `mty run` exercises the typed handle directly.
+  // v0.29 Track A: the SIR interpreter now dispatches `swarm` through
+  // `BuiltinId::Swarm`, so `mty run` exercises the typed handle
+  // directly (deterministic synth replies for the real-provider
+  // Member variants; the live HTTP path still fires when
+  // `mty build --target host` lowers the call through to
+  // `mty_stdlib::swarm::swarm`).
   let consensus = swarm(
     prompt,
     panel,

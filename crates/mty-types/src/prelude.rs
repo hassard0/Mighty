@@ -642,6 +642,32 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         "first_agreed",
         "dissents",
         "ask",
+        // v0.29 Track A — extra `Member` / `ConsensusStrategy` /
+        // `DollarBudget` / `Consensus` surface names so the chained
+        // constructors + field accesses in demo 08 (and any user code
+        // that mirrors that shape) parse + typecheck against the
+        // permissive table. Interp dispatch for the ctors lives in
+        // `try_stdlib_ctor` in `crates/mty-ir/src/interp/run.rs`;
+        // field accesses go through `stdlib_field_index` in
+        // `crates/mty-ir/src/lower/exprs.rs`.
+        "Majority",
+        "Unanimous",
+        "WeightedVote",
+        "FirstAgreed",
+        "mock",
+        "mock_error",
+        "from_dollars",
+        "unbounded",
+        "total_cost_cents",
+        "all_replies",
+        "budget_exhausted",
+        "strategy",
+        "limit_cents",
+        "consumed_cents",
+        "cost_cents",
+        "tokens_used",
+        "body",
+        "member",
     ];
     for m in permissive_methods {
         defs.builtin_methods.insert(
