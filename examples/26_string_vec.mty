@@ -17,6 +17,11 @@
 //   mty fmt examples/26_string_vec.mty
 //   mty check examples/26_string_vec.mty
 //
+// The `log(...)` calls in `main()` stay on string literals so the
+// native v0.2 codegen path can compile this example unchanged — the
+// log-of-dynamic-string lowering is a Track A v0.26 follow-up. The
+// String/Vec API is fully exercised in the helper fns above.
+//
 // (`_` prefix on helper fns keeps them out of the WIT export world; the
 // example focus is the API surface, not exportability.)
 
@@ -46,17 +51,20 @@ fn _utf8_byte_length() -> USize {
 
 // Build, then clear, then re-use the buffer. The runtime preserves the
 // underlying capacity across `clear()` so build-and-clear loops avoid
-// reallocations.
-fn _scratchpad(rounds: U32) {
+// reallocations. Returns the final accumulated length to demonstrate
+// build/clear/rebuild without invoking the dynamic-log path.
+fn _scratchpad(rounds: U32) -> USize {
   let mut s = String.with_capacity(64)
+  let mut total: USize = 0
   let mut i: U32 = 0
   while i < rounds {
     s.push_str("round ")
     s.push_str(format!("{}", i))
-    log(s.as_str())
+    total = total + s.len()
     s.clear()
     i = i + 1
   }
+  total
 }
 
 // ----- Vec[T] surface ---------------------------------------------------
@@ -118,9 +126,8 @@ fn _vec_lifecycle() -> USize {
   n
 }
 
-// `get(idx)` returns `Option[T]`. Tested below in the entry point as a
-// shape pin — the interpreter dispatches both `get` and `get_mut`
-// through `mty-ir::interp::run::eval_method`.
+// `get(idx)` returns `Option[T]`. The interpreter dispatches both
+// `get` and `get_mut` through `mty-ir::interp::run::eval_method`.
 fn _vec_get_oob(v: Vec[U32]) -> Bool {
   match v.get(999) {
     Some(_) => false
@@ -129,28 +136,19 @@ fn _vec_get_oob(v: Vec[U32]) -> Bool {
 }
 
 fn main() {
+  // Build everything; the helpers exercise the v0.25 API surface
+  // end-to-end. Discarded with `_` so the borrow checker stays
+  // quiet without forcing a dynamic-string log path.
   let _empty = _make_empty_string()
-  let msg = _make_message(7_u32)
-  log(msg.as_str())
-
-  let bytes = _utf8_byte_length()
-  log(format!("'a©' is {} bytes", bytes))
-
-  _scratchpad(3_u32)
-
+  let _msg = _make_message(7_u32)
+  let _bytes = _utf8_byte_length()
+  let _scratch = _scratchpad(3_u32)
   let board = _make_board()
-  log(format!("board cells: {}", board.len()))
-
-  let buf = _make_byte_buffer()
-  log(format!("buf len: {}", buf.len()))
-
-  let names = _make_name_list()
-  log(format!("names: {}", names.len()))
-
-  let n = _vec_lifecycle()
-  log(format!("lifecycle len snapshot: {}", n))
-
+  let _updated = _set_cell(board, 0, 7_u32)
+  let _buf = _make_byte_buffer()
+  let _names = _make_name_list()
+  let _life = _vec_lifecycle()
   let empty: Vec[U32] = Vec.new()
-  let oob = _vec_get_oob(empty)
-  log(format!("oob is None? {}", oob))
+  let _oob = _vec_get_oob(empty)
+  log("26_string_vec: std.String + std.Vec[T] real impls (v0.25 Track E)")
 }
