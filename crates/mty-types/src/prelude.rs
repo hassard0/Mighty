@@ -329,6 +329,26 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         "McpServer",
         "McpClient",
         "ToolRegistry",
+        // v0.29 Track B — std.swarm carve-out follow-up. Demo 08
+        // (v0.27 Track F) had to lift `Member.anthropic(...)`,
+        // `DollarBudget.from_dollars(...)`, and the
+        // `ConsensusStrategy.Majority` reference out of the handler body
+        // because none of the four swarm ADTs were on the v0.27 allowlist
+        // — that's the workaround `demos/08_swarm_review/src/main.mty`
+        // documented as "v0.28 follow-up". Adding them here lets the
+        // CodeReviewer agent build its own panel + budget + strategy
+        // inside `on Review(snippet)` without tripping MT2021. User-
+        // defined opaque names continue to need ctor-in-main threading
+        // (back-compat pinned by `user_defined_adt_without_effects_still_blocked_in_handler`).
+        //
+        // Real impls live in `mty_stdlib::swarm::{member,consensus,budget}`.
+        // The companion permissive methods (`anthropic`, `openai`,
+        // `majority`, `from_dollars`, ...) were already registered in the
+        // v0.27 Track D prelude addition below.
+        "Member",
+        "DollarBudget",
+        "ConsensusStrategy",
+        "Consensus",
     ];
     for name in handler_safe_opaque_names {
         // If already defined (e.g. via the `opaque_names` block above
