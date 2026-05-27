@@ -69,6 +69,27 @@ SIZE=$(wc -c < "$SRC" | tr -d ' ')
 LOC=$(wc -l < "$SRC" | tr -d ' ')
 echo "smoke OK: $SRC ($SIZE bytes / $LOC LOC, $N_SNIPS sample snippets, 9 v0.27 surface markers)"
 
+# 4b) v0.29 Track A — `mty run` exercises `BuiltinId::Swarm` directly.
+# Pre-v0.29 the SIR interpreter dispatched `swarm(...)` as a permissive
+# extern call (returns `Value::Unit`) so the swarm consensus was a
+# no-op on `mty run`. With the v0.29 Track A interpreter arm the
+# dispatcher resolves Member/DollarBudget/ConsensusStrategy values and
+# fires the synchronous consensus path. The marker check below confirms
+# the reviewer handler still fires + the swarm call completes without
+# trap, which validates the v0.29 wiring end-to-end without needing a
+# mock LLM server (those markers are covered by the optional
+# MTY_AGENT_SMOKE=1 stage below).
+RUN_OUT=$("$MTY" run "$SRC" -- "let x = eval(user_input)" 2>&1 || true)
+for marker in "evt:reviewer:review" "swarm_review: report follows"; do
+  if ! grep -q "$marker" <<<"$RUN_OUT"; then
+    echo "smoke FAIL: mty run missing marker: $marker" >&2
+    echo "--- mty run output ---" >&2
+    echo "$RUN_OUT" >&2
+    exit 1
+  fi
+done
+echo "smoke OK: mty run fires reviewer handler + completes swarm call (v0.29 Track A)"
+
 # 5) OPTIONAL mock-LLM end-to-end smoke. Opt in via MTY_AGENT_SMOKE=1.
 # Spawns the three-route mock LLM stub on localhost:8776, runs the
 # agent against the canned panel, asserts the swarm spawn + handler

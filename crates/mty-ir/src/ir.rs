@@ -176,6 +176,19 @@ pub enum BuiltinId {
     /// args)` so headless tests get a deterministic default — same
     /// pattern as `DomOp`.
     CanvasOp(CanvasOpKind),
+    /// v0.29 Track A — `std.swarm` consensus primitive. Emitted when
+    /// a bare `swarm(prompt, panel, budget, strategy)` call lowers
+    /// from the HIR (see `builtin_for_name` in
+    /// `crates/mty-ir/src/lower/exprs.rs`). The SIR interpreter arm
+    /// (in `crates/mty-ir/src/interp/run.rs`) performs synchronous
+    /// consensus resolution over the inline `Member`/`DollarBudget`/
+    /// `ConsensusStrategy` values built by `try_stdlib_ctor` and
+    /// `try_stdlib_path_value`, returning a `Consensus`-shaped
+    /// `Value::Struct`. The real async dispatcher lives in
+    /// `mty_stdlib::swarm::swarm`; the SIR arm mirrors its
+    /// deterministic resolution logic so `mty run` exercises the
+    /// typed handle without an LLM network call.
+    Swarm,
 }
 
 /// v0.24 — typed enum of `mty:web/canvas@0.1` methods. Pinned by

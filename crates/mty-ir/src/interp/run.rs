@@ -1066,6 +1066,7 @@ impl<'a> Interp<'a> {
                 let qualified = format!("canvas.{}", op.as_snake());
                 Ok(host.extern_call(&qualified, &args))
             }
+            BuiltinId::Swarm => Ok(swarm_dispatch::run_swarm(&args)),
         }
     }
 }
@@ -1143,6 +1144,105 @@ fn try_stdlib_ctor(name: &str, args: &[Value]) -> Option<Value> {
         // ---- Vec[T] constructors ----
         "Vec.new" => Some(Array(Vec::new())),
         "Vec.with_capacity" => Some(Array(Vec::with_capacity(usize_arg(0)))),
+        // ---- v0.29 Track A: std.swarm typed-handle constructors ----
+        //
+        // The SIR interpreter can't link against `mty_stdlib::swarm`
+        // (that would invert the crate-dep direction), so we mirror
+        // the shape here as a tagged `Value::Struct` / `Value::Enum`.
+        // The `BuiltinId::Swarm` arm pattern-matches on the
+        // `SWARM_*_TAG` sentinels in field 0 to recognise these
+        // shapes when the panel + budget + strategy arguments reach
+        // it.
+        "Member.anthropic" => Some(swarm_dispatch::member_value(
+            "anthropic",
+            &str_arg(0).unwrap_or_default(),
+            None,
+            None,
+            false,
+        )),
+        "Member.openai" => Some(swarm_dispatch::member_value(
+            "openai",
+            &str_arg(0).unwrap_or_default(),
+            None,
+            None,
+            false,
+        )),
+        "Member.gemini" => Some(swarm_dispatch::member_value(
+            "gemini",
+            &str_arg(0).unwrap_or_default(),
+            None,
+            None,
+            false,
+        )),
+        "Member.bedrock" => Some(swarm_dispatch::member_value(
+            "bedrock",
+            &str_arg(0).unwrap_or_default(),
+            None,
+            None,
+            false,
+        )),
+        // `Member.mock(name, reply_body, cost_cents)`
+        "Member.mock" => Some(swarm_dispatch::member_value(
+            "mock",
+            &str_arg(0).unwrap_or_default(),
+            Some(str_arg(1).unwrap_or_default()),
+            args.get(2)
+                .and_then(|v| v.as_int())
+                .map(|n| n.max(0) as u64),
+            false,
+        )),
+        // `Member.mock_error(name, body)`
+        "Member.mock_error" => Some(swarm_dispatch::member_value(
+            "mock_error",
+            &str_arg(0).unwrap_or_default(),
+            Some(str_arg(1).unwrap_or_default()),
+            Some(0),
+            true,
+        )),
+        // ---- DollarBudget / SharedDollarBudget constructors ----
+        "DollarBudget.new" | "SharedDollarBudget.new" => {
+            Some(swarm_dispatch::budget_value(usize_arg(0) as u64))
+        }
+        "DollarBudget.from_dollars" | "SharedDollarBudget.from_dollars" => {
+            let dollars: f64 = match args.first() {
+                Some(Float(f, _)) => *f,
+                Some(Int(n, _)) => *n as f64,
+                _ => 0.0,
+            };
+            let cents = (dollars * 100.0).round().max(0.0) as u64;
+            Some(swarm_dispatch::budget_value(cents))
+        }
+        "DollarBudget.unbounded" | "SharedDollarBudget.unbounded" => {
+            Some(swarm_dispatch::budget_value(u64::MAX))
+        }
+        // ---- ConsensusStrategy bare-path constants ----
+        //
+        // `ConsensusStrategy.Majority` etc. lower as zero-arg builtin
+        // calls (see `is_stdlib_const_path` in `lower::exprs`); the
+        // ctor synthesises the tagged enum value.
+        "ConsensusStrategy.Majority" => Some(swarm_dispatch::strategy_value(
+            swarm_dispatch::STRAT_MAJORITY,
+        )),
+        "ConsensusStrategy.Unanimous" => Some(swarm_dispatch::strategy_value(
+            swarm_dispatch::STRAT_UNANIMOUS,
+        )),
+        "ConsensusStrategy.FirstAgreed" => Some(swarm_dispatch::strategy_value(
+            swarm_dispatch::STRAT_FIRST_AGREED,
+        )),
+        // `ConsensusStrategy.weighted_vote([w1, w2, ...])` is the
+        // call form; lower via Call (not bare path) and we synthesise
+        // with the provided weight array.
+        "ConsensusStrategy.WeightedVote" | "ConsensusStrategy.weighted_vote" => {
+            let weights = match args.first() {
+                Some(Array(xs)) => xs
+                    .iter()
+                    .filter_map(|v| v.as_int())
+                    .map(|n| n.max(0) as u32)
+                    .collect::<Vec<_>>(),
+                _ => Vec::new(),
+            };
+            Some(swarm_dispatch::weighted_strategy_value(&weights))
+        }
         _ => None,
     }
 }
@@ -2182,6 +2282,575 @@ fn looks_numeric(s: &str) -> bool {
     bytes[i..]
         .iter()
         .all(|&b| b.is_ascii_hexdigit() || b == b'.' || b == b'e' || b == b'E' || b == b'_')
+}
+
+// ---------------------------------------------------------------------------
+// v0.29 Track A: `BuiltinId::Swarm` interpreter dispatch
+// ---------------------------------------------------------------------------
+
+/// Synchronous SIR-interpreter mirror of `mty_stdlib::swarm::swarm`.
+///
+/// The interp crate can't depend on `mty-stdlib` (that would invert the
+/// existing dependency direction — see `crates/mty-stdlib/Cargo.toml`),
+/// so this module rebuilds the deterministic resolution logic over the
+/// tagged `Value::Struct` / `Value::Enum` shapes that `try_stdlib_ctor`
+/// synthesises. The shape is private to the interpreter — callers
+/// inspect the `Consensus` result through field 0 (majority), field 1
+/// (dissents), etc.
+///
+/// Why pure-synchronous: `mty run` is a single-threaded tree-walking
+/// interp; the `tokio::spawn` + `join_all` machinery in the real
+/// stdlib would force the interp to embed a runtime. The resolution
+/// logic itself is pure — once each `Member::ask` is materialised as a
+/// canned reply body + cost (which `Member.mock(...)` already pre-bakes
+/// and which the non-mock variants synthesise from the model name),
+/// the consensus algorithm is the same as `mty_stdlib::swarm::resolve`.
+pub(crate) mod swarm_dispatch {
+    use super::Value;
+    use mty_types::{AdtId, IntKind};
+
+    /// Sentinel AdtIds for the swarm typed-handle shapes. Picked from
+    /// the top of the AdtId space so they never collide with real
+    /// ADTs lowered by `mty-ir::lower`. The `BuiltinId::Swarm` arm
+    /// inspects field 0 of incoming `Value::Struct`s against these.
+    pub(crate) const MEMBER_TAG: AdtId = AdtId(0xFFFF_FFF0);
+    pub(crate) const BUDGET_TAG: AdtId = AdtId(0xFFFF_FFF1);
+    pub(crate) const STRATEGY_TAG: AdtId = AdtId(0xFFFF_FFF2);
+    pub(crate) const CONSENSUS_TAG: AdtId = AdtId(0xFFFF_FFF3);
+    pub(crate) const REPLY_TAG: AdtId = AdtId(0xFFFF_FFF4);
+
+    /// Strategy-variant discriminants. Match `ConsensusStrategy` in
+    /// `mty_stdlib::swarm::consensus`.
+    pub(crate) const STRAT_MAJORITY: usize = 0;
+    pub(crate) const STRAT_UNANIMOUS: usize = 1;
+    pub(crate) const STRAT_WEIGHTED: usize = 2;
+    pub(crate) const STRAT_FIRST_AGREED: usize = 3;
+
+    /// Build a `Member` tagged struct. Fields:
+    ///   0: provider tag (`"anthropic"`, `"openai"`, …, `"mock"`,
+    ///      `"mock_error"`)
+    ///   1: model / mock name
+    ///   2: canned reply body (`""` for non-mock members — the
+    ///      `BuiltinId::Swarm` arm synthesises one from the prompt)
+    ///   3: forced cost cents (`u64::MAX` for "no forced cost" —
+    ///      synthesise from prompt length)
+    ///   4: forced-error flag (Bool — true only for `Member.mock_error`)
+    pub(crate) fn member_value(
+        provider: &str,
+        name: &str,
+        reply: Option<String>,
+        forced_cost_cents: Option<u64>,
+        forced_error: bool,
+    ) -> Value {
+        Value::Struct {
+            adt: MEMBER_TAG,
+            fields: vec![
+                Value::Str(provider.to_string()),
+                Value::Str(name.to_string()),
+                Value::Str(reply.unwrap_or_default()),
+                Value::Int(forced_cost_cents.unwrap_or(u64::MAX) as i128, IntKind::U64),
+                Value::Bool(forced_error),
+            ],
+        }
+    }
+
+    /// Build a `DollarBudget` tagged struct. Field 0 is the cap in
+    /// integer cents. Field 1 is consumed-cents (initially 0); the
+    /// swarm arm updates it as members run.
+    pub(crate) fn budget_value(limit_cents: u64) -> Value {
+        Value::Struct {
+            adt: BUDGET_TAG,
+            fields: vec![
+                Value::Int(limit_cents as i128, IntKind::U64),
+                Value::Int(0, IntKind::U64),
+            ],
+        }
+    }
+
+    /// Build a `ConsensusStrategy` tagged enum. Variant index encodes
+    /// the strategy (see `STRAT_*` consts); for `WeightedVote` the
+    /// payload is `[Array(weights)]`.
+    pub(crate) fn strategy_value(variant: usize) -> Value {
+        Value::Enum {
+            adt: STRATEGY_TAG,
+            variant,
+            payload: vec![],
+        }
+    }
+
+    /// Weighted-vote strategy with a weight array.
+    pub(crate) fn weighted_strategy_value(weights: &[u32]) -> Value {
+        let arr: Vec<Value> = weights
+            .iter()
+            .map(|w| Value::Int(*w as i128, IntKind::U32))
+            .collect();
+        Value::Enum {
+            adt: STRATEGY_TAG,
+            variant: STRAT_WEIGHTED,
+            payload: vec![Value::Array(arr)],
+        }
+    }
+
+    /// Build a `MemberReply` tagged struct mirroring
+    /// `mty_stdlib::swarm::member::MemberReply`.
+    ///   0: member label
+    ///   1: reply body
+    ///   2: tokens_used (U32)
+    ///   3: cost_cents (U64)
+    pub(crate) fn reply_value(member: &str, body: &str, tokens: u32, cost: u64) -> Value {
+        Value::Struct {
+            adt: REPLY_TAG,
+            fields: vec![
+                Value::Str(member.to_string()),
+                Value::Str(body.to_string()),
+                Value::Int(tokens as i128, IntKind::U32),
+                Value::Int(cost as i128, IntKind::U64),
+            ],
+        }
+    }
+
+    /// Build the final `Consensus` tagged struct.
+    ///   0: majority (`Option[Str]` — `Enum{variant:0, payload:[Str]}` /
+    ///      `Enum{variant:1, payload:[]}`)
+    ///   1: dissents (`Array[Value::Struct(MemberReply)]`)
+    ///   2: all_replies (`Array[Value::Struct(MemberReply)]`)
+    ///   3: budget_exhausted (Bool)
+    ///   4: strategy name (Str)
+    ///   5: total_cost_cents (U64)
+    pub(crate) fn consensus_value(
+        majority: Option<String>,
+        dissents: Vec<Value>,
+        all_replies: Vec<Value>,
+        budget_exhausted: bool,
+        strategy_name: &str,
+    ) -> Value {
+        let majority_val = match majority {
+            Some(s) => Value::Enum {
+                adt: AdtId(0),
+                variant: 0,
+                payload: vec![Value::Str(s)],
+            },
+            None => Value::Enum {
+                adt: AdtId(0),
+                variant: 1,
+                payload: vec![],
+            },
+        };
+        let total_cost: u64 = all_replies
+            .iter()
+            .map(|r| match r {
+                Value::Struct { fields, .. } => fields
+                    .get(3)
+                    .and_then(|v| v.as_int())
+                    .map(|n| n.max(0) as u64)
+                    .unwrap_or(0),
+                _ => 0,
+            })
+            .sum();
+        Value::Struct {
+            adt: CONSENSUS_TAG,
+            fields: vec![
+                majority_val,
+                Value::Array(dissents),
+                Value::Array(all_replies),
+                Value::Bool(budget_exhausted),
+                Value::Str(strategy_name.to_string()),
+                Value::Int(total_cost as i128, IntKind::U64),
+            ],
+        }
+    }
+
+    /// Recognise a `Member` tagged struct in the panel array.
+    fn member_provider(v: &Value) -> Option<&str> {
+        if let Value::Struct { adt, fields } = v {
+            if *adt == MEMBER_TAG {
+                if let Some(Value::Str(p)) = fields.first() {
+                    return Some(p.as_str());
+                }
+            }
+        }
+        None
+    }
+
+    fn member_field(v: &Value, idx: usize) -> Option<&Value> {
+        if let Value::Struct { adt, fields } = v {
+            if *adt == MEMBER_TAG {
+                return fields.get(idx);
+            }
+        }
+        None
+    }
+
+    fn budget_limit_cents(v: &Value) -> Option<u64> {
+        if let Value::Struct { adt, fields } = v {
+            if *adt == BUDGET_TAG {
+                return fields
+                    .first()
+                    .and_then(|f| f.as_int())
+                    .map(|n| n.max(0) as u64);
+            }
+        }
+        None
+    }
+
+    fn strategy_kind(v: &Value) -> (usize, Vec<u32>) {
+        if let Value::Enum {
+            adt,
+            variant,
+            payload,
+        } = v
+        {
+            if *adt == STRATEGY_TAG {
+                let weights = payload
+                    .first()
+                    .map(|p| {
+                        if let Value::Array(xs) = p {
+                            xs.iter()
+                                .filter_map(|w| w.as_int())
+                                .map(|n| n.max(0) as u32)
+                                .collect::<Vec<_>>()
+                        } else {
+                            Vec::new()
+                        }
+                    })
+                    .unwrap_or_default();
+                return (*variant, weights);
+            }
+        }
+        // Default → Majority. Matches `ConsensusStrategy::default()`.
+        (STRAT_MAJORITY, Vec::new())
+    }
+
+    fn strategy_name(variant: usize) -> &'static str {
+        match variant {
+            STRAT_MAJORITY => "majority",
+            STRAT_UNANIMOUS => "unanimous",
+            STRAT_WEIGHTED => "weighted",
+            STRAT_FIRST_AGREED => "first_agreed",
+            _ => "majority",
+        }
+    }
+
+    /// Materialise one member's reply for `prompt`. Mock members carry
+    /// a canned body + forced cost; real-provider members synthesise a
+    /// deterministic reply (`"echo:<model>"`) so the interpreter path
+    /// stays free of network I/O. The forced-error flag short-circuits
+    /// before the reply is built.
+    ///
+    /// Returns `(label, body, cost_cents, errored)`. `errored=true`
+    /// means this member doesn't contribute to the consensus replies
+    /// (it counts as a dropout).
+    fn dispatch_member(prompt: &str, m: &Value) -> (String, String, u64, bool) {
+        let provider = member_provider(m).unwrap_or("unknown");
+        let name = member_field(m, 1)
+            .and_then(|v| {
+                if let Value::Str(s) = v {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+        let canned_reply = member_field(m, 2)
+            .and_then(|v| {
+                if let Value::Str(s) = v {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+        let forced_cost = member_field(m, 3).and_then(|v| v.as_int()).unwrap_or(0);
+        let errored = matches!(member_field(m, 4), Some(Value::Bool(true)));
+        let label = match provider {
+            "anthropic" | "openai" | "gemini" | "bedrock" => {
+                format!("{provider}:{name}")
+            }
+            _ => name.clone(),
+        };
+        if errored {
+            return (label, String::new(), 0, true);
+        }
+        // Body: mock members carry a canned reply; real-provider members
+        // synthesise one. The synthesised body is deterministic so the
+        // smoke test sees a stable output.
+        let body = if !canned_reply.is_empty() {
+            canned_reply
+        } else if matches!(provider, "anthropic" | "openai" | "gemini" | "bedrock") {
+            synthesise_reply(prompt, &label)
+        } else {
+            String::new()
+        };
+        // Cost: mock members pass `forced_cost_cents` (`u64::MAX` means
+        // "synthesise"); real-provider members synthesise from prompt
+        // length (1 cent floor).
+        let cost = if forced_cost as u64 != u64::MAX {
+            forced_cost.max(0) as u64
+        } else {
+            ((prompt.len() as u64) / 100).max(1)
+        };
+        (label, body, cost, false)
+    }
+
+    /// Deterministic stand-in reply for real-provider members. Returns
+    /// one of `"SAFE"` / `"UNSAFE"` / `"UNCLEAR"` based on a few simple
+    /// markers in `prompt` so demo 08's reviewer agent surfaces a
+    /// realistic-looking verdict without an LLM call. Provider label
+    /// influences nothing — the SIR path is deterministic across the
+    /// panel.
+    fn synthesise_reply(prompt: &str, _label: &str) -> String {
+        let lower = prompt.to_lowercase();
+        if lower.contains("eval(")
+            || lower.contains("unsafe ")
+            || lower.contains("system(")
+            || lower.contains("rm -rf")
+        {
+            "UNSAFE".into()
+        } else if lower.contains("?") || lower.contains("uncertain") {
+            "UNCLEAR".into()
+        } else {
+            "SAFE".into()
+        }
+    }
+
+    /// Cluster a panel's reply bodies. Mirrors the
+    /// `mty_stdlib::swarm::vote::cluster_replies` "exact" mode for
+    /// short bodies (<= 24 chars) and a simple token-set Jaccard for
+    /// longer ones — same heuristic as the real impl in
+    /// `crates/mty-stdlib/src/swarm/mod.rs::run_first_agreed`.
+    fn cluster_bodies(bodies: &[String]) -> Vec<Vec<usize>> {
+        let mut clusters: Vec<Vec<usize>> = Vec::new();
+        if bodies.iter().all(|b| b.len() <= 24) {
+            // Exact-match clustering on case-normalised, trimmed bodies.
+            for (i, b) in bodies.iter().enumerate() {
+                let key = b.trim().to_lowercase();
+                let mut placed = false;
+                for c in clusters.iter_mut() {
+                    let rep = bodies[c[0]].trim().to_lowercase();
+                    if rep == key {
+                        c.push(i);
+                        placed = true;
+                        break;
+                    }
+                }
+                if !placed {
+                    clusters.push(vec![i]);
+                }
+            }
+        } else {
+            // Token-set Jaccard, 0.6 threshold.
+            for (i, b) in bodies.iter().enumerate() {
+                let mut placed = false;
+                let tokens_i = tokenise(b);
+                for c in clusters.iter_mut() {
+                    let tokens_rep = tokenise(&bodies[c[0]]);
+                    if jaccard(&tokens_i, &tokens_rep) >= 0.6 {
+                        c.push(i);
+                        placed = true;
+                        break;
+                    }
+                }
+                if !placed {
+                    clusters.push(vec![i]);
+                }
+            }
+        }
+        clusters
+    }
+
+    fn tokenise(s: &str) -> Vec<String> {
+        s.split(|c: char| !c.is_alphanumeric())
+            .filter(|t| !t.is_empty())
+            .map(|t| t.to_lowercase())
+            .collect()
+    }
+
+    fn jaccard(a: &[String], b: &[String]) -> f64 {
+        use std::collections::BTreeSet;
+        let sa: BTreeSet<&String> = a.iter().collect();
+        let sb: BTreeSet<&String> = b.iter().collect();
+        let inter = sa.intersection(&sb).count();
+        let union = sa.union(&sb).count();
+        if union == 0 {
+            0.0
+        } else {
+            inter as f64 / union as f64
+        }
+    }
+
+    /// Top-level dispatcher for the `BuiltinId::Swarm` arm.
+    ///
+    /// Args layout (matches the source-level call
+    /// `swarm(prompt, panel, budget, strategy)`):
+    ///   args[0] = `Value::Str(prompt)`
+    ///   args[1] = `Value::Array(Vec<Member>)`
+    ///   args[2] = `Value::Struct(DollarBudget)`
+    ///   args[3] = `Value::Enum(ConsensusStrategy)`
+    ///
+    /// Returns a `Value::Struct(Consensus)` (always — empty-panel /
+    /// all-failed cases surface with `majority = None`, mirroring the
+    /// `SwarmError::EmptyPanel` shape but flattened into the value
+    /// channel so the source-level `consensus.majority` access reads
+    /// uniformly).
+    pub fn run_swarm(args: &[Value]) -> Value {
+        let prompt = match args.first() {
+            Some(Value::Str(s)) => s.clone(),
+            Some(other) => other.as_str(),
+            None => String::new(),
+        };
+        let panel: &[Value] = match args.get(1) {
+            Some(Value::Array(xs)) => xs.as_slice(),
+            _ => &[],
+        };
+        let budget_limit = args.get(2).and_then(budget_limit_cents).unwrap_or(u64::MAX);
+        let (strategy_variant, weights) = match args.get(3) {
+            Some(v) => strategy_kind(v),
+            None => (STRAT_MAJORITY, Vec::new()),
+        };
+        let strat_name = strategy_name(strategy_variant);
+
+        // Empty panel → no-consensus result. Matches the real impl's
+        // `SwarmError::EmptyPanel` flattened into a value.
+        if panel.is_empty() {
+            return consensus_value(None, vec![], vec![], false, strat_name);
+        }
+
+        // Dispatch members sequentially, charging the shared budget.
+        // FirstAgreed short-circuits once two replies cluster.
+        let mut replies: Vec<(String, String, u64)> = Vec::new();
+        let mut consumed: u64 = 0;
+        let mut budget_exhausted = false;
+        for m in panel {
+            if consumed >= budget_limit {
+                budget_exhausted = true;
+                break;
+            }
+            let (label, body, cost, errored) = dispatch_member(&prompt, m);
+            if errored {
+                // Skip — member dropped out, no contribution.
+                continue;
+            }
+            consumed = consumed.saturating_add(cost);
+            replies.push((label, body, cost));
+            if strategy_variant == STRAT_FIRST_AGREED {
+                let bodies: Vec<String> = replies.iter().map(|(_, b, _)| b.clone()).collect();
+                let clusters = cluster_bodies(&bodies);
+                if clusters.iter().any(|c| c.len() >= 2) {
+                    break;
+                }
+            }
+        }
+        if consumed > budget_limit {
+            budget_exhausted = true;
+        }
+
+        // All members errored / panel was non-empty but yielded no
+        // replies → no-consensus result.
+        if replies.is_empty() {
+            return consensus_value(None, vec![], vec![], budget_exhausted, strat_name);
+        }
+
+        // Resolve through the requested strategy.
+        let bodies: Vec<String> = replies.iter().map(|(_, b, _)| b.clone()).collect();
+        let clusters = cluster_bodies(&bodies);
+        let reply_structs: Vec<Value> = replies
+            .iter()
+            .map(|(l, b, c)| reply_value(l, b, 0, *c))
+            .collect();
+
+        let (majority, dissent_idxs): (Option<String>, Vec<usize>) = match strategy_variant {
+            STRAT_UNANIMOUS => {
+                if clusters.len() == 1 {
+                    let body = bodies[clusters[0][0]].clone();
+                    (Some(body), Vec::new())
+                } else {
+                    // No consensus → every reply is a dissent.
+                    (None, (0..replies.len()).collect())
+                }
+            }
+            STRAT_WEIGHTED => resolve_weighted(&bodies, &clusters, &weights, replies.len()),
+            STRAT_FIRST_AGREED => {
+                if let Some(c) = clusters.iter().find(|c| c.len() >= 2) {
+                    let body = bodies[c[0]].clone();
+                    let dissents = (0..replies.len()).filter(|i| !c.contains(i)).collect();
+                    (Some(body), dissents)
+                } else {
+                    (None, (0..replies.len()).collect())
+                }
+            }
+            _ => {
+                // Majority: most-members cluster wins. Tie-break by
+                // earliest-formed (lowest first index).
+                let winner = clusters
+                    .iter()
+                    .enumerate()
+                    .max_by_key(|(_, c)| {
+                        (
+                            c.len(),
+                            std::cmp::Reverse(c.iter().min().copied().unwrap_or(0)),
+                        )
+                    })
+                    .map(|(i, _)| i);
+                if let Some(wi) = winner {
+                    let body = bodies[clusters[wi][0]].clone();
+                    let dissents = (0..replies.len())
+                        .filter(|i| !clusters[wi].contains(i))
+                        .collect();
+                    (Some(body), dissents)
+                } else {
+                    (None, (0..replies.len()).collect())
+                }
+            }
+        };
+
+        let dissents: Vec<Value> = dissent_idxs
+            .iter()
+            .map(|i| reply_structs[*i].clone())
+            .collect();
+        consensus_value(
+            majority,
+            dissents,
+            reply_structs,
+            budget_exhausted,
+            strat_name,
+        )
+    }
+
+    fn resolve_weighted(
+        bodies: &[String],
+        clusters: &[Vec<usize>],
+        weights: &[u32],
+        total_replies: usize,
+    ) -> (Option<String>, Vec<usize>) {
+        if clusters.is_empty() {
+            return (None, (0..total_replies).collect());
+        }
+        let cluster_weights: Vec<u32> = clusters
+            .iter()
+            .map(|c| {
+                c.iter()
+                    .map(|i| weights.get(*i).copied().unwrap_or(1))
+                    .sum::<u32>()
+            })
+            .collect();
+        let winner_idx = cluster_weights
+            .iter()
+            .enumerate()
+            .max_by_key(|(i, w)| {
+                (
+                    **w,
+                    clusters[*i].len(),
+                    std::cmp::Reverse(clusters[*i].iter().min().copied().unwrap_or(0)),
+                )
+            })
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        let body = bodies[clusters[winner_idx][0]].clone();
+        let dissents: Vec<usize> = (0..total_replies)
+            .filter(|i| !clusters[winner_idx].contains(i))
+            .collect();
+        (Some(body), dissents)
+    }
 }
 
 /// For zero-pad alignment, split a numeric string into its sign +

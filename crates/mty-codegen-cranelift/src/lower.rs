@@ -1789,6 +1789,17 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 // native; return zero placeholder, same as DomOp.
                 Ok(self.b.ins().iconst(ct::I64, 0))
             }
+            FnRef::Builtin(BuiltinId::Swarm) => {
+                // v0.29 Track A — `swarm(...)` on the cranelift native
+                // backend isn't directly representable (the real impl
+                // lives in `mty_stdlib::swarm::swarm` as an async fn).
+                // The cranelift JIT path is reserved for tight numeric
+                // kernels — swarm calls are funneled through the SIR
+                // interpreter or the host-target build. Return a zero
+                // placeholder so cross-target programs that never hit
+                // a swarm call at runtime still emit cleanly.
+                Ok(self.b.ins().iconst(ct::I64, 0))
+            }
         }
     }
 
