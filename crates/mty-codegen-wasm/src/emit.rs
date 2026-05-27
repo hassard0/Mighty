@@ -15,7 +15,7 @@ use crate::error::{CompileResult, WasmError};
 use crate::preview2::P2DirectImport;
 use crate::target::WasmTarget;
 use crate::web_lower::{ensure_canvas_import, is_web_callback_export, CanvasImports};
-use crate::wit::emit_wit;
+use crate::wit::{emit_wit, extern_js_canonical_name};
 use mty_ir::ir::{
     BinOp, BlockId, BuiltinId, CanvasOpKind, Const, FnRef, Function, IrFnId, IrTy, Operand, Place,
     Program, Rvalue, Stmt, Term, UnOp,
@@ -260,6 +260,94 @@ pub use crate::cabi_realloc::{
     CABI_REALLOC_STATE_BASE,
 };
 
+/// v0.26 Track D — single-instance agent state region base in linear
+/// memory. Placed at a page-aligned offset well above the
+/// `cabi_realloc` allocator's state area (32768..32800) and the
+/// data-section slack. The wasm module is bootstrapped with 16 pages
+/// (1 MiB) of linear memory; the agent region starts on the 64 KiB
+/// page boundary at offset 65536 and reserves
+/// [`AGENT_REGION_PER_AGENT_BYTES`] per agent declaration in the
+/// program. Adjacent agents are laid out sequentially.
+///
+/// Linear memory is persistent across `inst.exports.frame(...)` /
+/// `inst.exports.keydown(...)` invocations (the host re-enters the
+/// same module instance), so writes performed during a `spawn` in
+/// `main()` survive across every later callback. Closes the v0.25
+/// Track F §C gap.
+pub const AGENT_REGION_BASE: i32 = 65536;
+
+/// v0.26 Track D — bytes reserved per single-instance agent. 64 KiB
+/// matches one wasm page so the bump-allocator alignment story stays
+/// trivial. Enough headroom for the canonical web-game agent shape
+/// (`agent Notetris { board: [U32; 200], score: U32, ... }` totals
+/// ~820 bytes; the 64 KiB reservation leaves headroom for the v0.27
+/// "embed an in-flight Vec" follow-up).
+pub const AGENT_REGION_PER_AGENT_BYTES: i32 = 65536;
+
+/// v0.26 Track D — compute the linear-memory base address for the
+/// `idx`'th agent declaration in the program. Agents are laid out
+/// sequentially starting at [`AGENT_REGION_BASE`].
+pub fn agent_region_base(idx: usize) -> i32 {
+    AGENT_REGION_BASE + (idx as i32) * AGENT_REGION_PER_AGENT_BYTES
+}
+
+/// v0.26 Track D — return the by-field byte offsets for an agent's
+/// state ADT. Each scalar field is sized + aligned to 4 bytes; 64-bit
+/// scalars take 8 bytes (aligned to 8); `Array { elem, len: Some(N) }`
+/// fields take `N * size_of(elem)` bytes. Returns `Vec<u32>` of
+/// per-field offsets parallel to the variant's `fields` list, plus
+/// the total layout size (offset of one-past-the-last-field).
+///
+/// The layout is conservative: it doesn't pack sub-word fields tight
+/// (an `I8` field still consumes 4 bytes). That keeps the wasm-side
+/// load/store instructions on 4-byte aligned addresses — the slot
+/// economy doesn't matter at this scale (Notetris-shaped agents are
+/// well under 1 KiB), and the simpler layout makes the emitter easier
+/// to reason about.
+fn agent_field_layout(fields: &[mty_ir::ir::FieldRef]) -> (Vec<u32>, u32) {
+    let mut offsets = Vec::with_capacity(fields.len());
+    let mut cur: u32 = 0;
+    for f in fields {
+        let size = field_size_bytes(&f.ty);
+        let align = field_align_bytes(&f.ty);
+        // Align `cur` up to `align`.
+        cur = (cur + align - 1) & !(align - 1);
+        offsets.push(cur);
+        cur += size;
+    }
+    (offsets, cur)
+}
+
+/// Byte size used by an agent state field. Mirrors `agent_field_layout`
+/// — scalars round to 4 bytes; 64-bit scalars use 8; arrays multiply
+/// element size by length.
+fn field_size_bytes(t: &IrTy) -> u32 {
+    match t {
+        IrTy::Int(IntKind::I64 | IntKind::U64 | IntKind::ISize | IntKind::USize) => 8,
+        IrTy::Float(mty_types::FloatKind::F64 | mty_types::FloatKind::FloatInfer) => 8,
+        IrTy::Duration | IrTy::Size => 8,
+        IrTy::Array { elem, len } => {
+            let n = len.unwrap_or(0) as u32;
+            n.saturating_mul(field_size_bytes(elem).max(4))
+        }
+        // Everything else (Bool, Char, 32-bit scalars, pointers,
+        // aggregates) → 4-byte slot. Aggregates fit because they're
+        // represented as i32 pointers into the heap; v0.26 doesn't
+        // yet inline aggregates into the agent region.
+        _ => 4,
+    }
+}
+
+/// Byte alignment used by an agent state field.
+fn field_align_bytes(t: &IrTy) -> u32 {
+    match t {
+        IrTy::Int(IntKind::I64 | IntKind::U64 | IntKind::ISize | IntKind::USize) => 8,
+        IrTy::Float(mty_types::FloatKind::F64 | mty_types::FloatKind::FloatInfer) => 8,
+        IrTy::Duration | IrTy::Size => 8,
+        _ => 4,
+    }
+}
+
 struct Emitter<'a> {
     prog: &'a Program,
     target: WasmTarget,
@@ -312,6 +400,20 @@ struct Emitter<'a> {
     /// String literal pool — appends to data section, returns (ptr, len).
     string_pool: HashMap<String, (u32, u32)>,
     next_data_offset: u32,
+    /// v0.26 Track D — per-agent linear-memory layout cache. Keyed by
+    /// [`mty_ir::ir::AgentIrId`]; value is `(base_addr, field_offsets)`
+    /// where `field_offsets[i]` is the byte offset of the i'th state
+    /// field within the agent's region. Populated lazily by
+    /// [`Self::agent_layout`].
+    agent_layouts: HashMap<mty_ir::ir::AgentIrId, (i32, Vec<u32>)>,
+    /// v0.26 Track D — per-SIR-local marker: which agent's state
+    /// pointer does this local hold? Populated when an `AgentSpawn`
+    /// rvalue lowers to a constant-address push AND when a handler's
+    /// `self` param is recognised as an agent state ref. The Place
+    /// lowerers consult this map to decide whether a `proj: [Field(N)]`
+    /// projection should load/store at the agent's linear-memory
+    /// offset instead of returning `Unsupported`.
+    agent_state_locals: HashMap<u32, mty_ir::ir::AgentIrId>,
 }
 
 #[derive(Hash, PartialEq, Eq, Clone)]
@@ -371,7 +473,78 @@ impl<'a> Emitter<'a> {
             string_pool: HashMap::new(),
             next_data_offset: 1024, // reserve first 1KiB for the stack
             extern_js_fns: std::collections::HashSet::new(),
+            agent_layouts: HashMap::new(),
+            agent_state_locals: HashMap::new(),
         })
+    }
+
+    /// v0.26 Track D — look up (or compute) the linear-memory layout
+    /// for the agent identified by `agent_id`. Returns `(base_addr,
+    /// field_offsets)` where `field_offsets` is parallel to the
+    /// agent's state-struct fields.
+    ///
+    /// Returns `None` when the agent id has no matching entry in
+    /// `prog.agents` (defensive — the lowerer's contract is that any
+    /// `Rvalue::AgentSpawn` references a real agent, so the failure
+    /// should never trip in practice).
+    fn agent_layout(&mut self, agent_id: mty_ir::ir::AgentIrId) -> Option<(i32, Vec<u32>)> {
+        if let Some(cached) = self.agent_layouts.get(&agent_id) {
+            return Some(cached.clone());
+        }
+        let (idx, agent) = self
+            .prog
+            .agents
+            .iter()
+            .enumerate()
+            .find(|(_, a)| a.id == agent_id)?;
+        // Look up the state ADT to get its fields.
+        let adt = self.prog.adts.iter().find(|a| a.adt == agent.state_adt)?;
+        let v0 = adt.variants.first()?;
+        let (offsets, _total) = agent_field_layout(&v0.fields);
+        let base = agent_region_base(idx);
+        let entry = (base, offsets);
+        self.agent_layouts.insert(agent_id, entry.clone());
+        Some(entry)
+    }
+
+    /// v0.26 Track D — return the agent id whose state pointer is
+    /// (currently believed to be) held in SIR `Local(local_idx)` of
+    /// the in-flight fn. Cleared between fn bodies; populated when
+    /// `Rvalue::AgentSpawn` lowers or when a handler's `self` param
+    /// is detected as an agent state ref.
+    fn local_holds_agent_state(&self, local_idx: u32) -> Option<mty_ir::ir::AgentIrId> {
+        self.agent_state_locals.get(&local_idx).copied()
+    }
+
+    /// v0.26 Track D — scan `f`'s param list for any `&mut Adt(agent_state_adt)`
+    /// or `Adt(agent_state_adt)` typed param and mark the matching
+    /// SIR local as an agent state pointer. This catches the
+    /// agent-handler `self` param so `self.score += 1` inside an
+    /// `on Inc()` handler lowers to the right load/store.
+    fn populate_agent_state_locals_for_fn(&mut self, f: &Function) {
+        // Build a quick lookup of state-adt → agent-id.
+        let agent_by_state_adt: HashMap<mty_types::AdtId, mty_ir::ir::AgentIrId> = self
+            .prog
+            .agents
+            .iter()
+            .map(|a| (a.state_adt, a.id))
+            .collect();
+        for &p in &f.params {
+            let decl = &f.locals[p.0 as usize];
+            let adt_id = match &decl.ty {
+                IrTy::Ref { inner, .. } => match inner.as_ref() {
+                    IrTy::Adt(id, _) => Some(*id),
+                    _ => None,
+                },
+                IrTy::Adt(id, _) => Some(*id),
+                _ => None,
+            };
+            if let Some(adt_id) = adt_id {
+                if let Some(agent_id) = agent_by_state_adt.get(&adt_id).copied() {
+                    self.agent_state_locals.insert(p.0, agent_id);
+                }
+            }
+        }
     }
 
     /// True iff the function body contains a `log()` / `print()`
@@ -592,10 +765,15 @@ impl<'a> Emitter<'a> {
     ///
     /// Import module convention: `mty:web/js` — matches the kebab-case
     /// shape of the other web imports (`mty:web/dom`, `mty:web/canvas`,
-    /// `mty:web/input`, `mty:web/log`). Function names are passed
-    /// through verbatim (leading `_` preserved); the WIT-export filter
-    /// (`is_exportable_fn`) keeps `_`-prefixed names out of the world
-    /// export list, so the existing convention that "extern js bindings
+    /// `mty:web/input`, `mty:web/log`). v0.26 Track D — function names
+    /// are run through [`extern_js_canonical_name`] (kebab-case, leading
+    /// `_` stripped) so the wasm core module's import-name matches the
+    /// WIT-side declaration emitted by `wit.rs::emit_extern_js_interface`.
+    /// Without the match `wit-component::wrap_as_component` fails at
+    /// encode time with `failed to resolve import "mty:web/js::<name>"`.
+    /// The WIT-export filter (`is_exportable_fn`) still uses the raw
+    /// source name to drop `_`-prefixed entries from the world's export
+    /// list, so the Mighty-source convention that "extern js bindings
     /// stay private" still holds.
     ///
     /// Only emits on the **Web** target. On wasi the wasm-component
@@ -634,8 +812,15 @@ impl<'a> Emitter<'a> {
                 continue;
             };
             let ty = self.intern_sig(sig);
+            // v0.26 Track D — canonicalize the import name so it lines
+            // up with the WIT stub's identifier (`extern_js_canonical_name`
+            // also runs on the WIT side in `emit_extern_js_interface`).
+            // Without this, `wit-component`'s encoder fails at
+            // `wrap_as_component` time with `failed to resolve import
+            // "mty:web/js::<name>"`.
+            let canonical = extern_js_canonical_name(&name);
             self.import_section
-                .import("mty:web/js", &name, EntityType::Function(ty));
+                .import("mty:web/js", &canonical, EntityType::Function(ty));
             let idx = self.import_count;
             self.import_count += 1;
             self.fn_index.insert(fn_id, idx);
@@ -1172,6 +1357,21 @@ impl<'a> Emitter<'a> {
 
         // Mutable i32 global: bump pointer for `cabi_realloc`. Starts
         // at `CABI_REALLOC_HEAP_BASE` and grows upward.
+        // v0.26 Track D — when the program has at least one agent
+        // declaration, push the `cabi_realloc` bump-pointer global
+        // past the end of the per-agent state regions so the realloc
+        // heap doesn't trample on agent fields. Each agent reserves
+        // [`AGENT_REGION_PER_AGENT_BYTES`] bytes starting at
+        // [`AGENT_REGION_BASE`]; the safe bump-start is therefore
+        // `max(CABI_REALLOC_HEAP_BASE, AGENT_REGION_BASE + n_agents *
+        // AGENT_REGION_PER_AGENT_BYTES)`.
+        let n_agents = self.prog.agents.len() as i32;
+        let agents_end = AGENT_REGION_BASE + n_agents * AGENT_REGION_PER_AGENT_BYTES;
+        let heap_init = if n_agents > 0 {
+            CABI_REALLOC_HEAP_BASE.max(agents_end)
+        } else {
+            CABI_REALLOC_HEAP_BASE
+        };
         let mut globals = GlobalSection::new();
         globals.global(
             GlobalType {
@@ -1179,7 +1379,7 @@ impl<'a> Emitter<'a> {
                 mutable: true,
                 shared: false,
             },
-            &ConstExpr::i32_const(CABI_REALLOC_HEAP_BASE),
+            &ConstExpr::i32_const(heap_init),
         );
 
         // Assemble module in canonical order.
@@ -1188,10 +1388,15 @@ impl<'a> Emitter<'a> {
         m.section(&self.import_section);
         m.section(&self.function_section);
         // Memory: one min/max page, growable. Slice-8 starts with
-        // 16 pages (~1 MiB).
+        // 16 pages (~1 MiB); v0.26 Track D grows this when an agent
+        // region would otherwise extend past the initial allocation.
+        // Round up to whole-page count + at least 4 pages of headroom
+        // for the realloc heap.
+        let min_bytes_needed = (heap_init as u32).saturating_add(4 * 65536);
+        let min_pages = (min_bytes_needed / 65536).max(16);
         let mut mem = wasm_encoder::MemorySection::new();
         mem.memory(MemoryType {
-            minimum: 16,
+            minimum: min_pages as u64,
             maximum: None,
             memory64: false,
             shared: false,
@@ -1211,6 +1416,12 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_fn(&mut self, f: &Function) -> CompileResult<WFunction> {
+        // v0.26 Track D — reset + repopulate the per-fn agent-state
+        // local-marking. Each fn lowering starts with a clean map so
+        // a previous fn's `self` param doesn't leak into the next.
+        self.agent_state_locals.clear();
+        self.populate_agent_state_locals_for_fn(f);
+
         // Build the locals list: skip params (already in fn signature),
         // include the rest. Slice-8 packs everything as i32/i64 — no
         // shadow-stack juggling for aggregates.
@@ -1380,9 +1591,45 @@ impl<'a> Emitter<'a> {
         rv: &Rvalue,
         wfn: &mut WFunction,
     ) -> CompileResult<()> {
+        // v0.26 Track D — projected assignments into agent state are
+        // i32.store ops at a known linear-memory offset. Two shapes
+        // matter today:
+        //
+        //   * `Place { local: <agent ptr local>, proj: [Field(N)] }` —
+        //     `agent.field = value` directly through an agent pointer
+        //     local (e.g. the temp returned by `Rvalue::AgentSpawn`).
+        //   * `Place { local: <state ref param>, proj: [Deref, Field(N)] }` —
+        //     `self.field = value` inside an `on Msg(...)` handler.
+        //     The IR lowerer's `lower_agent_bodies` emits this shape
+        //     for state writebacks at end-of-handler (see
+        //     `crates/mty-ir/src/lower/items.rs::lower_one_agent`).
+        //
+        // Both lower to a single `(I32Const(base+offset)) <rvalue> (I32Store)`
+        // sequence. The receiver value itself is dropped — the agent
+        // base is a const we don't need to keep on the stack.
+        if let Some((base, offset)) = self.agent_field_addr(p) {
+            // Push the absolute address first, then the value, then
+            // store. Use a memarg with `align: 2` (4-byte alignment)
+            // matching the agent_field_layout choices.
+            wfn.instruction(&I::I32Const(base + offset as i32));
+            self.emit_rvalue(f, m, rv, wfn)?;
+            wfn.instruction(&I::I32Store(wasm_encoder::MemArg {
+                offset: 0,
+                align: 2,
+                memory_index: 0,
+            }));
+            return Ok(());
+        }
         if !p.proj.is_empty() {
             // v0.2 wasm: bail (caller demotes to body-level unreachable).
             return Err(WasmError::Unsupported("wasm place projection".into()));
+        }
+        // v0.26 Track D — when the rvalue is an `AgentSpawn`, the
+        // destination local is now holding the agent's base pointer.
+        // Mark it so subsequent `Place { local, proj: [Field(N)] }`
+        // projections route through the agent layout.
+        if let Rvalue::AgentSpawn { agent, .. } = rv {
+            self.agent_state_locals.insert(p.local.0, *agent);
         }
         self.emit_rvalue(f, m, rv, wfn)?;
         let Some(&wlocal) = m.get(&p.local.0) else {
@@ -1391,6 +1638,29 @@ impl<'a> Emitter<'a> {
         };
         wfn.instruction(&I::LocalSet(wlocal));
         Ok(())
+    }
+
+    /// v0.26 Track D — compute the absolute linear-memory address of
+    /// the agent-state field projection encoded in `place`, if any.
+    /// Returns `Some((base, offset))` when `place.local` holds an
+    /// agent state pointer (per `agent_state_locals`) AND the
+    /// projection chain ends with a `Field(N)`. The two recognised
+    /// shapes are:
+    ///
+    /// * `[Field(N)]` — direct field of a value-typed agent pointer
+    ///   (the v0.26 main()-driven case).
+    /// * `[Deref, Field(N)]` — field of a `&mut State` ref (the
+    ///   handler-body case).
+    fn agent_field_addr(&mut self, place: &Place) -> Option<(i32, usize)> {
+        let agent_id = self.local_holds_agent_state(place.local.0)?;
+        let field_idx = match place.proj.as_slice() {
+            [mty_ir::ir::Projection::Field(n)] => *n,
+            [mty_ir::ir::Projection::Deref, mty_ir::ir::Projection::Field(n)] => *n,
+            _ => return None,
+        };
+        let (base, offsets) = self.agent_layout(agent_id)?;
+        let offset = *offsets.get(field_idx)? as usize;
+        Some((base, offset))
     }
 
     fn emit_rvalue(
@@ -1413,6 +1683,66 @@ impl<'a> Emitter<'a> {
                 self.emit_unop(*op, wfn)
             }
             Rvalue::Call { func, args } => self.emit_call(f, m, func, args, wfn),
+            // v0.26 Track D — spawn returns the agent's linear-memory
+            // base pointer. The arguments (if any) are zero-cost
+            // placeholders for v0.26 — the canonical web-game shape
+            // `spawn Notetris()` is zero-arg and the agent's state-
+            // field initialisers come from the `agent` declaration
+            // itself, not from the spawn call. We deliberately don't
+            // emit field-init writes here either: the IR-side state-
+            // ADT-build is still pending (v0.25 Track C left the
+            // `state_adt` variant's fields as a placeholder); v0.26
+            // Track D agents are zero-initialised via the wasm
+            // memory-zero default, and the user assigns concrete
+            // values via `agent.field = ...` after spawn.
+            Rvalue::AgentSpawn { agent, args } => {
+                // Drop any args (zero-arg ctor is the canonical shape).
+                for a in args {
+                    self.emit_operand(f, m, a, wfn)?;
+                    wfn.instruction(&I::Drop);
+                }
+                if let Some((base, _)) = self.agent_layout(*agent) {
+                    wfn.instruction(&I::I32Const(base));
+                    Ok(())
+                } else {
+                    // Defensive fallback — should be unreachable per
+                    // the lowerer's contract.
+                    wfn.instruction(&I::I32Const(0));
+                    Ok(())
+                }
+            }
+            // v0.26 Track D — agent state field read.
+            // `Rvalue::FieldRead { receiver, field }` where `receiver`
+            // is an agent state pointer lowers to a `(I32Const(base+offset))
+            // (I32Load)` pair. Receivers that aren't agent pointers
+            // still hit the generic `Unsupported` fallback below.
+            Rvalue::FieldRead { receiver, field } => {
+                let agent_id = self.local_holds_agent_state(receiver.local.0);
+                // Pattern-match the projection chain: must be empty
+                // (direct field of the pointer local) or a single
+                // `Deref` (handler `self.field` shape).
+                let proj_ok = matches!(
+                    receiver.proj.as_slice(),
+                    [] | [mty_ir::ir::Projection::Deref]
+                );
+                if let (Some(agent_id), true) = (agent_id, proj_ok) {
+                    if let Some((base, offsets)) = self.agent_layout(agent_id) {
+                        if let Some(&offset) = offsets.get(*field) {
+                            wfn.instruction(&I::I32Const(base + offset as i32));
+                            wfn.instruction(&I::I32Load(wasm_encoder::MemArg {
+                                offset: 0,
+                                align: 2,
+                                memory_index: 0,
+                            }));
+                            return Ok(());
+                        }
+                    }
+                }
+                Err(WasmError::Unsupported(format!(
+                    "wasm rvalue {:?}",
+                    std::mem::discriminant(rv)
+                )))
+            }
             _ => Err(WasmError::Unsupported(format!(
                 "wasm rvalue {:?}",
                 std::mem::discriminant(rv)

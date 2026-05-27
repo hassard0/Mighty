@@ -292,7 +292,17 @@ fn lower_one_fn(ctx: &mut LowerCtx, hir_id: mty_hir::FnId, sir_id: IrFnId) {
         .get(&hir_id)
         .cloned()
         .unwrap_or_default();
-    for (name, ty) in &params_ty {
+    // v0.26 Track D — collect the HIR param's syntactic type (the
+    // resolver doesn't model `std.web.Canvas` so the typed entry comes
+    // back as `Error`; the only place the canvas-handle hint survives
+    // is the source-level `HirType::Path(["std","web","Canvas"])`).
+    // We walk in parallel with `params_ty` so the indices line up. If
+    // the HIR fn has fewer params than `params_ty` (impossible in
+    // practice but defensive), the extra `params_ty` entries get an
+    // empty hint.
+    let hir_param_types: Vec<Option<mty_hir::TypeId>> =
+        ctx.pkg.fns[hir_id].params.iter().map(|p| p.ty).collect();
+    for (idx, (name, ty)) in params_ty.iter().enumerate() {
         let l = fb.new_local(
             name.clone(),
             lower_ty(*ty, ctx.ty_arena()),
@@ -300,6 +310,17 @@ fn lower_one_fn(ctx: &mut LowerCtx, hir_id: mty_hir::FnId, sir_id: IrFnId) {
             LocalSource::Param,
         );
         fb.params.push(l);
+        // v0.26 Track D — if the source-level param type is
+        // `std.web.Canvas`, mark the local as a canvas handle so
+        // `is_canvas_handle_receiver` (in `exprs.rs`) routes
+        // `c.fill_rect(...)` to `BuiltinId::CanvasOp(...)`. Closes the
+        // v0.25 Track F §A gap where a Canvas handle passed as a fn
+        // parameter dropped the canvas-routing taint.
+        if let Some(hir_ty_id) = hir_param_types.get(idx).copied().flatten() {
+            if is_std_web_canvas_type(ctx.pkg, hir_ty_id) {
+                fb.mark_canvas_local(l);
+            }
+        }
     }
 
     let body = match &f.body {
@@ -524,6 +545,33 @@ fn lookup_hir_type(ctx: &LowerCtx, t: mty_hir::TypeId) -> mty_types::TyId {
     match &ctx.pkg.types[t] {
         HirType::Unit => ctx.typed.ty_arena.unit,
         _ => ctx.typed.ty_arena.error,
+    }
+}
+
+/// v0.26 Track D — detect a `std.web.Canvas` type at the HIR source
+/// level. The type checker stamps `Error` on this path (no `std.web`
+/// module / `Canvas` ADT in the prelude — same blocker that drove the
+/// per-fn `canvas_locals` workaround in v0.25); the only place the
+/// canvas-handle hint survives a parameter declaration is the raw
+/// `HirType::Path` segments.
+///
+/// Accepts the canonical multi-segment form (`std.web.Canvas`) plus
+/// the single-segment `Canvas` (in case a future `use std::web::Canvas`
+/// shorthand lands). Mutable / immutable borrow wrappers are peeled.
+///
+/// Closes the v0.25 Track F §A gap. The `lower_fn_bodies` path consults
+/// this from `lower_one_fn` to mark each canvas-typed param's local in
+/// `FnBuilder::canvas_locals`.
+pub(crate) fn is_std_web_canvas_type(pkg: &mty_hir::Package, ty: mty_hir::TypeId) -> bool {
+    use mty_hir::HirType;
+    match &pkg.types[ty] {
+        HirType::Path { segments, .. } => match segments.len() {
+            1 => segments[0] == "Canvas",
+            3 => segments[0] == "std" && segments[1] == "web" && segments[2] == "Canvas",
+            _ => false,
+        },
+        HirType::Borrow { inner, .. } => is_std_web_canvas_type(pkg, *inner),
+        _ => false,
     }
 }
 

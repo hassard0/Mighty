@@ -194,6 +194,16 @@ fn collect_extern_js_fns(prog: &Program) -> Vec<&Function> {
 /// are kept as WIT `string` (the canonical-ABI lifter expands them
 /// into ptr+len pairs at the core-module boundary). Param names are
 /// kebab-cased so the WIT round-trip parser accepts them.
+///
+/// v0.26 Track D — fn names are emitted via [`extern_js_wit_name`] so
+/// the WIT identifier matches the wasm import name verbatim. Without
+/// this the WIT-side `kebab()` would strip a leading `_` (e.g.
+/// `_alert` → `alert`) while `predeclare_extern_js_imports` in
+/// `emit.rs` keeps the verbatim name (`_alert`), and the resulting
+/// drift trips `wit-component`'s `wrap_as_component` step with
+/// `failed to resolve import "mty:web/js::_alert"`. Closes the v0.25
+/// Track F gap documented in
+/// `dev/history/notes/DEMO06_V2_V0_25_NOTES.md` §B.
 fn emit_extern_js_interface(out: &mut String, prog: &Program) -> CompileResult<()> {
     let fns = collect_extern_js_fns(prog);
     if fns.is_empty() {
@@ -201,7 +211,7 @@ fn emit_extern_js_interface(out: &mut String, prog: &Program) -> CompileResult<(
     }
     out.push_str("  interface js {\n");
     for f in fns {
-        let name = kebab(&f.name);
+        let name = extern_js_canonical_name(&f.name);
         write!(out, "    {}: func(", name).unwrap();
         let mut first = true;
         for p in &f.params {
@@ -556,6 +566,28 @@ fn wit_ty(t: &IrTy) -> Option<String> {
         | IrTy::Never
         | IrTy::Error => return None,
     })
+}
+
+/// v0.26 Track D — canonical extern-js fn name: the WIT identifier
+/// AND the wasm core-module import name MUST agree because
+/// `wit-component`'s encoder uses `wit_parser::Resolve::wasm_import_name`
+/// to look up the import-name from the WIT canonical name; any
+/// mismatch trips `failed to resolve import "mty:web/js::<name>"` at
+/// `wrap_as_component` time.
+///
+/// WIT 0.2's identifier grammar rejects bare leading `_` (verified
+/// against `wit_parser::Resolve::push_str` — `_alert` parses with
+/// "invalid character in identifier '_'"; the `%`-prefix escape
+/// (`%_alert`) is rejected for the same reason). The only viable
+/// canonical form is the `kebab(name)` transform, which strips the
+/// leading `_` and then snake→kebabs the rest.
+///
+/// Closes the v0.25 Track F gap documented in
+/// `dev/history/notes/DEMO06_V2_V0_25_NOTES.md` §B. The companion
+/// helper in `emit.rs::extern_js_import_name` returns the same string
+/// so the WIT and wasm sides stay in lock-step.
+pub fn extern_js_canonical_name(name: &str) -> String {
+    kebab(name)
 }
 
 /// Convert a snake_case / camelCase identifier into WIT's required

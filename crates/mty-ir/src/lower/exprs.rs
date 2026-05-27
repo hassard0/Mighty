@@ -1374,6 +1374,14 @@ pub(crate) fn canvas_op_for_method(name: &str) -> Option<CanvasOpKind> {
 /// module + `Canvas` ADT aren't modeled in the prelude). The
 /// local-tagging hand-off keeps the pipeline working without forcing
 /// a prelude shape change in the same slice as the routing fix.
+///
+/// v0.26 Track D — `canvas_locals` is now also populated for fn
+/// parameters whose source-level type is `std.web.Canvas` (see
+/// `lower::items::lower_one_fn`), so a fn like
+/// `fn render(c: std.web.Canvas) { c.fill_rect(...) }` routes through
+/// `BuiltinId::CanvasOp(...)` without needing an inline
+/// `std.web.Canvas.new(...)` re-acquire. Closes the v0.25 Track F
+/// §A unfinished business.
 fn is_canvas_handle_receiver(ctx: &LowerCtx, fb: &FnBuilder, receiver: ExprId) -> bool {
     match &ctx.pkg.exprs[receiver] {
         HirExpr::Path(segs) if segs.len() == 1 => fb

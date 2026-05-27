@@ -168,15 +168,32 @@ where
     idx
 }
 
-/// Returns `true` iff `name` is one of the canonical wasm32-web export
-/// names the JS host shim invokes on the embedded core module
-/// (`frame`, `keydown`, `keyup`).
+/// Returns `true` iff `name` should appear in the wasm32-web core
+/// module's export section.
 ///
-/// Used by the export-section emitter so an `export fn frame(dt)` in
-/// the Mighty source lands as a real wasm export and not just a WIT
-/// entry the host can't reach.
+/// v0.23: canonical callback names (`frame`, `keydown`, `keyup`).
+/// v0.26 Track D: ALSO export any user fn whose name is a valid
+/// non-private wasm identifier (starts with an ASCII letter and isn't
+/// `main`/`cabi_realloc`/`memory` — those are handled separately).
+/// The permissive shape lets agent-driven web programs expose
+/// arbitrary host-callable entry points (e.g.
+/// `inst.exports.dispatch_message(...)`) without first carving out a
+/// new keyword. Names starting with `_` or `__` stay private to
+/// preserve the v0.24 surface promise that "underscore-prefixed fns
+/// are implementation details".
 pub fn is_web_callback_export(name: &str) -> bool {
-    matches!(name, "frame" | "keydown" | "keyup")
+    if name == "main" || name == "cabi_realloc" || name == "memory" {
+        return false;
+    }
+    if name.starts_with('_') {
+        return false;
+    }
+    // Must be a plausible wasm identifier — at minimum a non-empty
+    // string starting with an ASCII letter.
+    name.chars()
+        .next()
+        .map(|c| c.is_ascii_alphabetic())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -206,11 +223,23 @@ mod tests {
 
     #[test]
     fn callback_export_names() {
+        // Canonical callback names always export.
         assert!(is_web_callback_export("frame"));
         assert!(is_web_callback_export("keydown"));
         assert!(is_web_callback_export("keyup"));
+        // Reserved infrastructure names never export through this
+        // helper (they're handled by separate emit logic).
         assert!(!is_web_callback_export("main"));
-        assert!(!is_web_callback_export("frame_helper"));
+        assert!(!is_web_callback_export("cabi_realloc"));
+        assert!(!is_web_callback_export("memory"));
+        // v0.26 Track D — non-reserved user fns DO export, so a host
+        // can drive `inst.exports.dispatch_message(...)` without
+        // first inventing a new canonical-name keyword.
+        assert!(is_web_callback_export("frame_helper"));
+        assert!(is_web_callback_export("dispatch_message"));
+        // Underscore-prefixed names stay private.
+        assert!(!is_web_callback_export("_internal"));
+        assert!(!is_web_callback_export("__hidden"));
     }
 
     #[test]

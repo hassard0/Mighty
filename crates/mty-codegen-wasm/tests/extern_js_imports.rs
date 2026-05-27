@@ -1,5 +1,14 @@
 //! v0.25 Track B — `extern js { fn _foo() }` actually emits a wasm
-//! `(import "mty:web/js" "_foo" ...)` declaration in the core module.
+//! `(import "mty:web/js" "<kebab(_foo)>" ...)` declaration in the core
+//! module. v0.26 Track D pins the post-v0.25 canonical-name rule:
+//! both the wasm import-name and the WIT identifier are produced by
+//! `crate::wit::extern_js_canonical_name(...)`, which strips the
+//! leading `_` and snake→kebabs the rest. Pre-Track-D the wasm side
+//! preserved `_alert` verbatim while the WIT side kebabed it to
+//! `alert`, and `wit-component::wrap_as_component` failed with
+//! `failed to resolve import "mty:web/js::_alert"`. Closes the v0.25
+//! Track F gap §B; the canonical pre/post is documented in
+//! `dev/history/notes/DEMO06_V2_V0_25_NOTES.md`.
 //!
 //! Before this slice the wasm32-web emitter treated `extern js` fns
 //! as ordinary user fns: they got an empty body and never appeared in
@@ -35,8 +44,8 @@
 //!
 //! A seventh test (`example_15_extern_js_compiles_with_imports`)
 //! pipelines example 15 (`examples/15_extern_js.mty`) end-to-end and
-//! asserts the resulting wasm carries the `_alert` import — the
-//! canonical surface the v0.24 Track E gap notes called out.
+//! asserts the resulting wasm carries the canonical `alert` import
+//! (post-v0.26 Track D rename from the source-language `_alert`).
 //!
 //! See `dev/history/notes/EXTERN_JS_IMPORTS_V0_25_NOTES.md` for the
 //! design discussion + investigation trail.
@@ -316,7 +325,9 @@ fn imports_with_sigs(
 
 #[test]
 fn extern_js_fn_emits_import() {
-    // Minimal case: `extern js { fn _foo() }` on the Web target.
+    // Minimal case: `extern js { fn _foo() }` on the Web target. The
+    // wasm import name is the v0.26-canonicalised form (`kebab("_foo")
+    // = "foo"`); see the module-level docs above.
     let prog = program_with_extern_js("_foo", &[], IrTy::Unit, false);
     let wasm = compile_program_to_bytes(&prog, WasmTarget::Web).expect("compile");
 
@@ -328,10 +339,8 @@ fn extern_js_fn_emits_import() {
 
     let imports = imported_funcs(&wasm);
     assert!(
-        imports
-            .iter()
-            .any(|(m, n)| m == "mty:web/js" && n == "_foo"),
-        "expected `mty:web/js#_foo` import; got {imports:?}",
+        imports.iter().any(|(m, n)| m == "mty:web/js" && n == "foo"),
+        "expected `mty:web/js#foo` import (canonical kebab); got {imports:?}",
     );
 }
 
@@ -354,8 +363,8 @@ fn extern_js_fn_with_args() {
     let imports = imports_with_sigs(&wasm);
     let bar = imports
         .iter()
-        .find(|(m, n, _, _)| m == "mty:web/js" && n == "_bar")
-        .unwrap_or_else(|| panic!("missing _bar import; got {imports:?}"));
+        .find(|(m, n, _, _)| m == "mty:web/js" && n == "bar")
+        .unwrap_or_else(|| panic!("missing canonical `bar` import; got {imports:?}"));
     assert_eq!(
         bar.2,
         vec![wasmparser::ValType::I32, wasmparser::ValType::I32],
@@ -378,8 +387,8 @@ fn extern_js_fn_with_return() {
     let imports = imports_with_sigs(&wasm);
     let len = imports
         .iter()
-        .find(|(m, n, _, _)| m == "mty:web/js" && n == "_len")
-        .unwrap_or_else(|| panic!("missing _len import; got {imports:?}"));
+        .find(|(m, n, _, _)| m == "mty:web/js" && n == "len")
+        .unwrap_or_else(|| panic!("missing canonical `len` import; got {imports:?}"));
     assert_eq!(
         len.2,
         vec![wasmparser::ValType::I32, wasmparser::ValType::I32],
@@ -408,12 +417,13 @@ fn extern_js_call_routes_to_import() {
         .expect("valid wasm");
 
     let imports = imported_funcs(&wasm);
-    // Find the index of `_foo` in the imports list — that's its
-    // function-index in the wasm core's combined imports+funcs space.
+    // Find the index of the canonical name `foo` in the imports list
+    // — that's the wasm core's combined imports+funcs index space.
     let foo_idx = imports
         .iter()
-        .position(|(m, n)| m == "mty:web/js" && n == "_foo")
-        .unwrap_or_else(|| panic!("missing _foo import; got {imports:?}")) as u32;
+        .position(|(m, n)| m == "mty:web/js" && n == "foo")
+        .unwrap_or_else(|| panic!("missing canonical `foo` import; got {imports:?}"))
+        as u32;
 
     let calls = all_call_targets(&wasm);
     assert!(
@@ -437,8 +447,9 @@ fn extern_js_unused_still_imported() {
     assert!(
         imports
             .iter()
-            .any(|(m, n)| m == "mty:web/js" && n == "_feature_flag"),
-        "unused extern js fn should still be imported; got {imports:?}",
+            .any(|(m, n)| m == "mty:web/js" && n == "feature-flag"),
+        "unused extern js fn should still be imported under its \
+         canonical name; got {imports:?}",
     );
 
     // And the WIT doc generated for the same program should mention
@@ -459,10 +470,14 @@ fn extern_js_unused_still_imported() {
 
 #[test]
 fn extern_js_underscore_prefix_works() {
-    // The leading `_` is the Mighty convention that keeps the fn out
-    // of the WIT world's *export* list (`is_exportable_fn`). For
-    // *imports* the underscore must be preserved verbatim because the
-    // JS shim's binding-table key is the raw name.
+    // The leading `_` is the Mighty source-language convention that
+    // keeps the fn out of the WIT world's *export* list
+    // (`is_exportable_fn`). v0.26 Track D pivots the *import* name to
+    // the canonical (`kebab`-stripped) form so the WIT and wasm sides
+    // match — `wit-component`'s encoder cannot resolve a `_alert`
+    // import against an `alert` WIT entry (`wit_parser` rejects bare
+    // leading-`_` identifiers; see `extern_js_canonical_name`'s doc
+    // comment).
     let prog = program_with_extern_js("_alert", &[IrTy::Str], IrTy::Unit, false);
     let wasm = compile_program_to_bytes(&prog, WasmTarget::Web).expect("compile");
     wasmparser::Validator::new()
@@ -473,11 +488,22 @@ fn extern_js_underscore_prefix_works() {
     assert!(
         imports
             .iter()
-            .any(|(m, n)| m == "mty:web/js" && n == "_alert"),
-        "leading underscore must be preserved in import name; got {imports:?}",
+            .any(|(m, n)| m == "mty:web/js" && n == "alert"),
+        "canonical (kebab-stripped) name `alert` expected in import; \
+         got {imports:?}",
     );
-    // And the world should NOT export `_alert` (would re-introduce
-    // the v0.24 "private fn in export list" bug fixed by
+    // The verbatim `_alert` MUST NOT appear — the v0.25 → v0.26 fix
+    // was exactly removing the drift between this list and the WIT
+    // identifier.
+    assert!(
+        !imports
+            .iter()
+            .any(|(m, n)| m == "mty:web/js" && n == "_alert"),
+        "the verbatim `_alert` name regressed; v0.26 canonicalises to \
+         `alert`. imports = {imports:?}",
+    );
+    // And the world should NOT export `alert` / `_alert` (would
+    // re-introduce the v0.24 "private fn in export list" bug fixed by
     // `is_exportable_fn`).
     let doc = emit_wit(&prog, "demo", WasmTarget::Web).expect("emit-wit");
     assert!(
@@ -557,7 +583,9 @@ fn example_15_extern_js_compiles_with_imports() {
     assert!(
         imports
             .iter()
-            .any(|(m, n)| m == "mty:web/js" && n == "_alert"),
-        "example 15's wasm must import `mty:web/js#_alert`; got {imports:?}",
+            .any(|(m, n)| m == "mty:web/js" && n == "alert"),
+        "example 15's wasm must import the canonical `mty:web/js#alert` \
+         (v0.26 Track D canonicalises the `_`-prefixed source name to \
+         `alert`); got {imports:?}",
     );
 }
