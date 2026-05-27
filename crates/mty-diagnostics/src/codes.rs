@@ -224,11 +224,24 @@ pub const PROC_MACRO_RESOURCE_EXCEEDED: DiagCode = DiagCode::new(6008);
 /// the specific failure mode. v0.24 baseline.
 pub const MACRO_FORMAT_BAD_TEMPLATE: DiagCode = DiagCode::new(6009);
 /// MT6010 — `format!` template uses a format specification that the
-/// v0.24 expander does not implement yet (width/padding/precision/align).
-/// The supported spec subset is `{}`, `{x}`, `{X}`, `{?}`. Width
-/// (`{:05}`), precision (`{:.3}`), and alignment (`{:>10}`) are tracked
-/// for v0.25 — see dev/history/notes/FORMAT_MACRO_V0_24_NOTES.md.
+/// current expander does not implement (v0.25 still defers indexed
+/// positional `{0}` and dynamic width/precision `{:1$}` / `{:.*}` to
+/// v0.26). The v0.25 expander handles `{}`, `{x}`, `{X}`, `{?}`, `{b}`,
+/// `{o}`, width `{:5}`, zero-pad `{:05}`, alignment `{:<5}`/`{:>5}`/
+/// `{:^5}`, fill `{:*<5}`, precision `{:.3}`, sign `{:+}`, and
+/// alternate form `{:#x}`/`{:#b}`/`{:#o}`. See
+/// dev/history/notes/FORMAT_EXTENDED_V0_25_NOTES.md for the v0.26 plan.
 pub const MACRO_FORMAT_UNSUPPORTED_SPEC: DiagCode = DiagCode::new(6010);
+
+/// MT6011 — `format!` template specifies a width that the expander
+/// cannot parse (e.g. overflows U32). Width must be a small unsigned
+/// integer literal. v0.25 Track D.
+pub const MACRO_FORMAT_BAD_WIDTH: DiagCode = DiagCode::new(6011);
+
+/// MT6012 — `format!` template specifies a precision that the
+/// expander cannot parse (overflows U32, missing digits after `.`).
+/// Precision must be a small unsigned integer literal. v0.25 Track D.
+pub const MACRO_FORMAT_BAD_PRECISION: DiagCode = DiagCode::new(6012);
 
 // Borrow checker: MT3001..MT3099
 pub const USE_AFTER_MOVE: DiagCode = DiagCode::new(3001);
@@ -1054,18 +1067,45 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
              Spec:    \u{a7}20.3.5 (format macro) of v1.0-RC2."
         }
         6010 => {
-            "MT6010: `format!` spec not yet implemented.\n\
+            "MT6010: `format!` spec not implemented in the current version.\n\
              \n\
-             Cause:   The v0.24 `format!` expander ships a subset of Rust's \
-             format-spec grammar: `{}`, `{x}` (hex), `{X}` (HEX), `{?}` \
-             (debug), and named-arg passthrough `{name}`. Width, precision, \
-             alignment, fill, and sign flags are deferred to v0.25.\n\
-             Example: `format!(\"{:05}\", n)`     // width is v0.25\n\
-                      `format!(\"{:.3}\", pi)`    // precision is v0.25\n\
-             Fix:     Until v0.25 ships padding/width/precision, build the \
-             result by hand (`if n < 10 { \"0\" + n.to_str() } else \
-             { n.to_str() }`).\n\
-             Tracked: dev/history/notes/FORMAT_MACRO_V0_24_NOTES.md."
+             Cause:   v0.25 Track D ships width / zero-pad / alignment / \
+             fill / precision / sign / alternate-form flags. The remaining \
+             unsupported arms are indexed positional (`{0}`, `{1}`) and \
+             dynamic width/precision via arg (`{:1$}`, `{:.*}`); both are \
+             deferred to v0.26.\n\
+             Example: `format!(\"{0} {1}\", a, b)`  // indexed → v0.26\n\
+                      `format!(\"{:1$}\", x, w)`     // dyn-width → v0.26\n\
+             Fix:     For indexed reuse, repeat the named-arg form \
+             (`format!(\"{x} {y} {x}\")`). For dynamic width, splice in a \
+             pad call by hand or wait for v0.26.\n\
+             Tracked: dev/history/notes/FORMAT_EXTENDED_V0_25_NOTES.md."
+        }
+        6011 => {
+            "MT6011: `format!` template has a malformed width.\n\
+             \n\
+             Cause:   The integer in the width position of a format spec \
+             (e.g. `{:5}`, `{:05}`) could not be parsed as a u32. The \
+             likely culprit is an overflow (`{:99999999999}`) or a non-\
+             digit character where digits were expected.\n\
+             Example: `format!(\"{:99999999999}\", n)`  // overflows u32\n\
+             Fix:     Use a small unsigned integer literal (typically \
+             1..=999). v0.25 does not support dynamic width via an \
+             argument (`{:1$}`) — that lands in v0.26.\n\
+             Tracked: dev/history/notes/FORMAT_EXTENDED_V0_25_NOTES.md."
+        }
+        6012 => {
+            "MT6012: `format!` template has a malformed precision.\n\
+             \n\
+             Cause:   The integer after `.` in a format spec's precision \
+             slot (e.g. `{:.3}`) could not be parsed as a u32. The likely \
+             culprit is a missing digit (`{:.}`) or overflow.\n\
+             Example: `format!(\"{:.}\", pi)`           // no digits after `.`\n\
+                      `format!(\"{:.99999999999}\", pi)` // overflows\n\
+             Fix:     Supply at least one decimal digit after `.`; keep \
+             precision under u32 range. Dynamic precision via an argument \
+             (`{:.0$}`, `{:.*}`) lands in v0.26.\n\
+             Tracked: dev/history/notes/FORMAT_EXTENDED_V0_25_NOTES.md."
         }
         _ => return None,
     })

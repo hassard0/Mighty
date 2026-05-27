@@ -1,0 +1,6 @@
+// v0.25 Track D positive: precision spec on a float caps decimal places.
+// `{:.3}` of 3.14159 rounds (nearest) to "3.142".
+fn main() {
+  let pi = 3.14159
+  log(format!("pi={:.3}", pi))
+}

@@ -1,34 +1,17 @@
-//! Integration tests for the `format!` builtin macro (v0.24 Track B).
+//! Integration tests for the `format!` builtin macro.
 //!
-//! These tests exercise the parser + expander pair directly rather
-//! than driving the full HIR preprocessor — the HIR-level wiring is
-//! covered by `crates/mty-hir/src/lower/macros.rs`'s in-module tests
-//! and the `tests/conformance/macros/format_basic` fixture (run by
-//! `conformance_full`).
-//!
-//! ## Coverage summary (per v0.24 plan)
-//!
-//! 1. `format_empty_string`              — `format!("")` → `""`
-//! 2. `format_single_arg_default`        — `format!("hi {}", n)` uses `to_str`
-//! 3. `format_multiple_args`             — `format!("{} + {} = {}", 1, 2, 3)`
-//! 4. `format_hex_lowercase`             — `format!("{:x}", 255)` uses `to_hex_str`
-//! 5. `format_hex_uppercase`             — `format!("{:X}", 255)` uses `to_hex_upper_str`
-//! 6. `format_named_arg_passthrough`     — `format!("score: {score}")`
-//! 7. `format_literal_braces`            — `format!("{{}}")` → `{}`
-//! 8. `format_unknown_spec_clear_error`  — `format!("{:05}", n)` → UnsupportedSpec
-//! 9. `format_arity_mismatch_diagnostic` — `format!("{} {}", 1)` → NotEnoughArgs
-//! 10. `format_first_arg_must_be_literal` — `format!(x, 1)` rejected
-//! 11. `format_named_arg_with_hex_spec`  — `format!("{n:x}")`
-//! 12. `format_debug_spec`               — `format!("{:?}", v)`
-//! 13. `format_bare_x_is_named_not_hex`  — `format!("{x}")` is named-arg
-//! 14. `format_template_runtime_concat_smoke` — sanity check the snippet shape
+//! v0.24 Track B shipped the conversion sigils and named-arg
+//! passthrough. v0.25 Track D extends that with width/precision/align/
+//! fill/sign/alternate-form layout flags. The two suites live
+//! side-by-side here — the v0.24 baseline tests must keep passing,
+//! and the v0.25 tests cover the new spec arms.
 
 use mty_macros::stdlib::format::{
-    arg_is_string_literal, decode_string_literal, expand_format_call, parse_template, ConvKind,
-    FormatExpandError, FormatPiece,
+    arg_is_string_literal, decode_string_literal, expand_format_call, parse_template, Alignment,
+    ConvKind, FormatExpandError, FormatPiece, FormatSpec,
 };
 
-// --- 1. empty template ------------------------------------------------------
+// --- v0.24 baseline ---------------------------------------------------------
 
 #[test]
 fn format_empty_string() {
@@ -36,19 +19,13 @@ fn format_empty_string() {
     assert_eq!(out, "\"\"");
 }
 
-// --- 2. single positional ---------------------------------------------------
-
 #[test]
 fn format_single_arg_default() {
     let out = expand_format_call(&["\"hi {}\"", "n"]).expect("single-arg expands");
-    // The expansion folds `"hi "` and `(n).to_str()` into a `+` chain
-    // anchored by an empty string head.
     assert!(out.contains("\"hi \""), "literal missing: {out}");
     assert!(out.contains("(n).to_str()"), "to_str call missing: {out}");
     assert!(out.contains('+'), "concat operator missing: {out}");
 }
-
-// --- 3. multiple positional args -------------------------------------------
 
 #[test]
 fn format_multiple_args() {
@@ -60,23 +37,17 @@ fn format_multiple_args() {
     assert!(out.contains("\" = \""), "got: {out}");
 }
 
-// --- 4. hex lowercase via spec ----------------------------------------------
-
 #[test]
 fn format_hex_lowercase() {
     let out = expand_format_call(&["\"{:x}\"", "255"]).expect("hex expands");
     assert!(out.contains("(255).to_hex_str()"), "got: {out}");
 }
 
-// --- 5. hex uppercase via spec ----------------------------------------------
-
 #[test]
 fn format_hex_uppercase() {
     let out = expand_format_call(&["\"{:X}\"", "255"]).expect("HEX expands");
     assert!(out.contains("(255).to_hex_upper_str()"), "got: {out}");
 }
-
-// --- 6. named-arg passthrough -----------------------------------------------
 
 #[test]
 fn format_named_arg_passthrough() {
@@ -88,41 +59,14 @@ fn format_named_arg_passthrough() {
     assert!(out.contains("\"score: \""), "literal missing: {out}");
 }
 
-// --- 7. literal braces ------------------------------------------------------
-
 #[test]
 fn format_literal_braces() {
-    // `format!("{{}}")` should yield the literal string `{}`.
     let out = expand_format_call(&["\"{{}}\""]).expect("literal braces expand");
-    // The expansion contains a Mighty string literal `"{}"`.
     assert!(out.contains("\"{}\""), "literal braces missing: {out}");
 
-    // Direct parse check too.
     let pieces = parse_template("{{}}").unwrap();
     assert_eq!(pieces, vec![FormatPiece::Literal("{}".into())]);
 }
-
-// --- 8. unsupported spec: clear error ---------------------------------------
-
-#[test]
-fn format_unknown_spec_clear_error() {
-    let e = expand_format_call(&["\"{:05}\"", "n"]).unwrap_err();
-    match e {
-        FormatExpandError::UnsupportedSpec { ref spec, .. } => {
-            assert_eq!(spec, "05", "spec text preserved");
-        }
-        other => panic!("expected UnsupportedSpec, got {other:?}"),
-    }
-    // Message is human-readable.
-    let msg = e.to_string();
-    assert!(msg.contains("v0.24"), "msg: {msg}");
-    assert!(
-        msg.contains("not supported") || msg.contains("v0.25"),
-        "msg: {msg}"
-    );
-}
-
-// --- 9. arity mismatch ------------------------------------------------------
 
 #[test]
 fn format_arity_mismatch_diagnostic() {
@@ -154,20 +98,14 @@ fn format_arity_mismatch_too_many() {
     ));
 }
 
-// --- 10. first arg must be a string literal ---------------------------------
-
 #[test]
 fn format_first_arg_must_be_literal() {
-    // Bare identifier, not a string literal.
     let e = expand_format_call(&["my_template", "x"]).unwrap_err();
     assert!(matches!(e, FormatExpandError::NotAStringLiteral));
 
-    // Concatenation looks string-shaped but isn't a single literal.
     let e2 = expand_format_call(&["\"a\" + \"b\"", "x"]).unwrap_err();
     assert!(matches!(e2, FormatExpandError::NotAStringLiteral));
 }
-
-// --- 11. named arg with hex spec --------------------------------------------
 
 #[test]
 fn format_named_arg_with_hex_spec() {
@@ -182,20 +120,14 @@ fn format_named_arg_with_upper_hex_spec() {
     assert!(out.contains("\"color=\""), "got: {out}");
 }
 
-// --- 12. debug spec ---------------------------------------------------------
-
 #[test]
 fn format_debug_spec() {
     let out = expand_format_call(&["\"v={:?}\"", "val"]).expect("debug expands");
     assert!(out.contains("(val).to_debug_str()"), "got: {out}");
 }
 
-// --- 13. bare {x} is named-arg, NOT positional hex --------------------------
-
 #[test]
 fn format_bare_x_is_named_not_hex() {
-    // Rust convention: `{x}` is a named-arg passthrough referring to
-    // the in-scope identifier `x`. The hex conversion sigil is `:x`.
     let out = expand_format_call(&["\"{x}\""]).expect("bare {x} expands");
     assert!(out.contains("(x).to_str()"), "got: {out}");
     assert!(
@@ -204,11 +136,8 @@ fn format_bare_x_is_named_not_hex() {
     );
 }
 
-// --- 14. snippet shape sanity ----------------------------------------------
-
 #[test]
 fn format_template_runtime_concat_smoke() {
-    // The cell-coordinates example from the v0.24 spec.
     let out =
         expand_format_call(&["\"cell {x},{y} = {color:x}\""]).expect("named-only template expands");
     assert!(out.contains("(x).to_str()"), "got: {out}");
@@ -217,6 +146,246 @@ fn format_template_runtime_concat_smoke() {
     assert!(out.contains("\"cell \""), "got: {out}");
     assert!(out.contains("\",\""), "got: {out}");
     assert!(out.contains("\" = \""), "got: {out}");
+}
+
+// --- v0.25 Track D extensions ----------------------------------------------
+
+#[test]
+fn format_width_basic() {
+    let pieces = parse_template("{:5}").unwrap();
+    match &pieces[0] {
+        FormatPiece::Positional { spec } => {
+            assert_eq!(spec.width, Some(5));
+            assert_eq!(spec.kind, ConvKind::Display);
+            assert!(!spec.zero_pad);
+            assert!(spec.align.is_none());
+        }
+        other => panic!("expected Positional, got {other:?}"),
+    }
+    let out = expand_format_call(&["\"{:5}\"", "n"]).unwrap();
+    assert!(out.contains("pad_str(5"), "got: {out}");
+}
+
+#[test]
+fn format_zero_pad() {
+    let pieces = parse_template("{:05}").unwrap();
+    match &pieces[0] {
+        FormatPiece::Positional { spec } => {
+            assert_eq!(spec.width, Some(5));
+            assert!(spec.zero_pad);
+            assert_eq!(spec.fill, '0');
+            assert_eq!(spec.align, Some(Alignment::Right));
+        }
+        other => panic!("expected Positional, got {other:?}"),
+    }
+    let out = expand_format_call(&["\"{:05}\"", "n"]).unwrap();
+    assert!(out.contains("pad_str(5"), "got: {out}");
+    assert!(out.contains("'0'"), "got: {out}");
+}
+
+#[test]
+fn format_align_left() {
+    let pieces = parse_template("{:<5}").unwrap();
+    match &pieces[0] {
+        FormatPiece::Positional { spec } => {
+            assert_eq!(spec.align, Some(Alignment::Left));
+            assert_eq!(spec.width, Some(5));
+        }
+        other => panic!("expected Positional, got {other:?}"),
+    }
+    let out = expand_format_call(&["\"{:<5}\"", "n"]).unwrap();
+    assert!(out.contains("\"left\""), "got: {out}");
+}
+
+#[test]
+fn format_align_right() {
+    let pieces = parse_template("{:>5}").unwrap();
+    match &pieces[0] {
+        FormatPiece::Positional { spec } => {
+            assert_eq!(spec.align, Some(Alignment::Right));
+            assert_eq!(spec.width, Some(5));
+        }
+        other => panic!("expected Positional, got {other:?}"),
+    }
+    let out = expand_format_call(&["\"{:>5}\"", "n"]).unwrap();
+    assert!(out.contains("\"right\""), "got: {out}");
+}
+
+#[test]
+fn format_align_center() {
+    let pieces = parse_template("{:^5}").unwrap();
+    match &pieces[0] {
+        FormatPiece::Positional { spec } => {
+            assert_eq!(spec.align, Some(Alignment::Center));
+            assert_eq!(spec.width, Some(5));
+        }
+        other => panic!("expected Positional, got {other:?}"),
+    }
+    let out = expand_format_call(&["\"{:^5}\"", "n"]).unwrap();
+    assert!(out.contains("\"center\""), "got: {out}");
+}
+
+#[test]
+fn format_fill_char() {
+    let pieces = parse_template("{:*<5}").unwrap();
+    match &pieces[0] {
+        FormatPiece::Positional { spec } => {
+            assert_eq!(spec.fill, '*');
+            assert_eq!(spec.align, Some(Alignment::Left));
+            assert_eq!(spec.width, Some(5));
+        }
+        other => panic!("expected Positional, got {other:?}"),
+    }
+    let out = expand_format_call(&["\"{:*<5}\"", "n"]).unwrap();
+    assert!(out.contains("'*'"), "got: {out}");
+}
+
+#[test]
+fn format_precision() {
+    let pieces = parse_template("{:.3}").unwrap();
+    match &pieces[0] {
+        FormatPiece::Positional { spec } => {
+            assert_eq!(spec.precision, Some(3));
+        }
+        other => panic!("expected Positional, got {other:?}"),
+    }
+    let out = expand_format_call(&["\"{:.3}\"", "pi"]).unwrap();
+    assert!(out.contains("to_str_spec"), "got: {out}");
+    assert!(out.contains(", 3)"), "got: {out}");
+}
+
+#[test]
+fn format_sign_positive() {
+    let pieces = parse_template("{:+}").unwrap();
+    match &pieces[0] {
+        FormatPiece::Positional { spec } => {
+            assert!(spec.sign_plus);
+        }
+        other => panic!("expected Positional, got {other:?}"),
+    }
+    let out = expand_format_call(&["\"{:+}\"", "n"]).unwrap();
+    assert!(out.contains("to_str_spec(true"), "got: {out}");
+}
+
+#[test]
+fn format_alt_hex() {
+    let pieces = parse_template("{:#x}").unwrap();
+    match &pieces[0] {
+        FormatPiece::Positional { spec } => {
+            assert!(spec.alternate);
+            assert_eq!(spec.kind, ConvKind::HexLower);
+        }
+        other => panic!("expected Positional, got {other:?}"),
+    }
+    let out = expand_format_call(&["\"{:#x}\"", "255"]).unwrap();
+    assert!(out.contains("to_hex_str_spec"), "got: {out}");
+    assert!(out.contains("false, true"), "got: {out}");
+}
+
+#[test]
+fn format_alt_binary() {
+    let pieces = parse_template("{:#b}").unwrap();
+    match &pieces[0] {
+        FormatPiece::Positional { spec } => {
+            assert!(spec.alternate);
+            assert_eq!(spec.kind, ConvKind::Binary);
+        }
+        other => panic!("expected Positional, got {other:?}"),
+    }
+    let out = expand_format_call(&["\"{:#b}\"", "5"]).unwrap();
+    assert!(out.contains("to_bin_str_spec"), "got: {out}");
+}
+
+#[test]
+fn format_alt_octal() {
+    let pieces = parse_template("{:#o}").unwrap();
+    match &pieces[0] {
+        FormatPiece::Positional { spec } => {
+            assert!(spec.alternate);
+            assert_eq!(spec.kind, ConvKind::Octal);
+        }
+        other => panic!("expected Positional, got {other:?}"),
+    }
+    let out = expand_format_call(&["\"{:#o}\"", "8"]).unwrap();
+    assert!(out.contains("to_oct_str_spec"), "got: {out}");
+}
+
+#[test]
+fn format_combined_spec() {
+    let pieces = parse_template("{:#05x}").unwrap();
+    match &pieces[0] {
+        FormatPiece::Positional { spec } => {
+            assert!(spec.alternate);
+            assert!(spec.zero_pad);
+            assert_eq!(spec.width, Some(5));
+            assert_eq!(spec.kind, ConvKind::HexLower);
+        }
+        other => panic!("expected Positional, got {other:?}"),
+    }
+    let out = expand_format_call(&["\"{:#05x}\"", "0xff"]).unwrap();
+    assert!(out.contains("to_hex_str_spec"), "got: {out}");
+    assert!(out.contains("pad_str(5"), "got: {out}");
+}
+
+#[test]
+fn format_named_arg_with_width() {
+    let pieces = parse_template("{n:5}").unwrap();
+    match &pieces[0] {
+        FormatPiece::Named { ident, spec } => {
+            assert_eq!(ident, "n");
+            assert_eq!(spec.width, Some(5));
+        }
+        other => panic!("expected Named, got {other:?}"),
+    }
+    let out = expand_format_call(&["\"{n:5}\""]).unwrap();
+    assert!(out.contains("pad_str(5"), "got: {out}");
+    assert!(out.contains("(n)"), "got: {out}");
+}
+
+#[test]
+fn format_indexed_positional_deferred() {
+    let e = expand_format_call(&["\"{0}\"", "x"]).unwrap_err();
+    assert!(
+        matches!(e, FormatExpandError::UnsupportedSpec { .. }),
+        "got: {e:?}"
+    );
+}
+
+#[test]
+fn format_dynamic_width_deferred() {
+    let e = expand_format_call(&["\"{:1$}\"", "x", "5"]).unwrap_err();
+    assert!(
+        matches!(e, FormatExpandError::UnsupportedSpec { .. }),
+        "got: {e:?}"
+    );
+}
+
+#[test]
+fn format_bin_no_prefix() {
+    let pieces = parse_template("{:b}").unwrap();
+    match &pieces[0] {
+        FormatPiece::Positional { spec } => {
+            assert_eq!(spec.kind, ConvKind::Binary);
+            assert!(!spec.alternate);
+        }
+        other => panic!("expected Positional, got {other:?}"),
+    }
+    let out = expand_format_call(&["\"{:b}\"", "5"]).unwrap();
+    assert!(out.contains("(5).to_bin_str()"), "got: {out}");
+}
+
+#[test]
+fn format_oct_no_prefix() {
+    let pieces = parse_template("{:o}").unwrap();
+    match &pieces[0] {
+        FormatPiece::Positional { spec } => {
+            assert_eq!(spec.kind, ConvKind::Octal);
+            assert!(!spec.alternate);
+        }
+        other => panic!("expected Positional, got {other:?}"),
+    }
+    let out = expand_format_call(&["\"{:o}\"", "8"]).unwrap();
+    assert!(out.contains("(8).to_oct_str()"), "got: {out}");
 }
 
 // --- bonus: extra coverage -------------------------------------------------
@@ -232,7 +401,6 @@ fn unclosed_brace_position_reported() {
     let e = parse_template("hi {").unwrap_err();
     match e {
         FormatExpandError::UnclosedBrace { position } => {
-            // `{` is at byte index 3 (after "hi ").
             assert_eq!(position, 3);
         }
         other => panic!("expected UnclosedBrace, got {other:?}"),
@@ -257,12 +425,26 @@ fn empty_call_errors_clearly() {
 
 #[test]
 fn conv_kind_method_names_stable() {
-    // Locking in the method-name contract so the runtime side
-    // (mty-stdlib::fmt + mty-ir interp) and the parser stay in sync.
     assert_eq!(ConvKind::Display.method(), "to_str");
     assert_eq!(ConvKind::HexLower.method(), "to_hex_str");
     assert_eq!(ConvKind::HexUpper.method(), "to_hex_upper_str");
     assert_eq!(ConvKind::Debug.method(), "to_debug_str");
+    assert_eq!(ConvKind::Binary.method(), "to_bin_str");
+    assert_eq!(ConvKind::Octal.method(), "to_oct_str");
+}
+
+#[test]
+fn alignment_runtime_strings_stable() {
+    assert_eq!(Alignment::Left.as_runtime_str(), "left");
+    assert_eq!(Alignment::Right.as_runtime_str(), "right");
+    assert_eq!(Alignment::Center.as_runtime_str(), "center");
+}
+
+#[test]
+fn format_spec_display_is_bare() {
+    let s = FormatSpec::display();
+    assert!(s.is_bare_conversion());
+    assert_eq!(s.kind, ConvKind::Display);
 }
 
 #[test]

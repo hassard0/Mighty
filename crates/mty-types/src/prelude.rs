@@ -188,6 +188,31 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
     defs.by_name
         .insert("AgentRef".into(), DefRef::Adt(agent_ref_id));
 
+    // ---- Vec[T] (v0.25 Track E) ----
+    // Generic opaque ADT — like `AgentRef`, this lets the typechecker
+    // accept `Vec[U32]` as a type position. The real Rust-side impl
+    // lives in `mty-stdlib::vec`; the SIR interpreter stores Vec
+    // values as `Value::Array(_)` and dispatches the permissive
+    // methods (`push`, `pop`, `len`, `get`, `with_capacity`, ...) in
+    // `mty-ir::interp::run::eval_method`. The receiver-less ctors
+    // (`Vec.new`, `Vec.with_capacity`) route through
+    // `mty-ir::interp::run::try_stdlib_ctor`.
+    let vec_param = defs.alloc_param(ParamDef {
+        name: "T".into(),
+        bounds: vec![],
+    });
+    let vec_id = defs.alloc_adt(AdtDef {
+        name: "Vec".into(),
+        kind: AdtKind::Opaque,
+        generics: vec![ParamDef {
+            name: "T".into(),
+            bounds: vec![],
+        }],
+        param_ids: vec![vec_param],
+        variants: vec![],
+    });
+    defs.by_name.insert("Vec".into(), DefRef::Adt(vec_id));
+
     // ---- opaque types referenced by examples ----
     let opaque_names = [
         "Url",
@@ -408,6 +433,19 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         "to_hex_str",
         "to_hex_upper_str",
         "to_debug_str",
+        // v0.25 (Track D): extended format-spec arms add binary/octal
+        // conversions, the `_spec` chained-flag helpers (sign/alt/
+        // precision), and the `pad_str` width-padding tail. See
+        // `mty_stdlib::fmt` for the runtime contract.
+        "to_bin_str",
+        "to_oct_str",
+        "to_str_spec",
+        "to_hex_str_spec",
+        "to_hex_upper_str_spec",
+        "to_debug_str_spec",
+        "to_bin_str_spec",
+        "to_oct_str_spec",
+        "pad_str",
         "get",
         "ok_or",
         "query",
@@ -463,6 +501,22 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         "spawn",
         "method",
         "to_str",
+        // v0.25 (Track E): foundational `std.String` + `std.Vec[T]`
+        // methods. Real impls live in `mty-stdlib::{string,vec}`; the
+        // SIR interpreter dispatches them on `Value::Str` / `Value::Array`
+        // (see `mty-ir::interp::run::eval_method`). Registered here as
+        // permissive so calls like `s.push_str("x")` and
+        // `v.with_capacity(200)` typecheck on any receiver. See
+        // `dev/history/notes/STDLIB_STRING_VEC_V0_25_NOTES.md`.
+        "with_capacity",
+        "from_str",
+        "from_utf8",
+        "push_str",
+        "clear",
+        "get_mut",
+        "as_slice",
+        "as_mut_slice",
+        "capacity",
     ];
     for m in permissive_methods {
         defs.builtin_methods.insert(

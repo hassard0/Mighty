@@ -1032,7 +1032,19 @@ impl<'a> Interp<'a> {
             )),
             BuiltinId::Valid => Ok(Value::Bool(true)),
             BuiltinId::Null => Ok(Value::Int(0, IntKind::USize)),
-            BuiltinId::Extern(name) => Ok(host.extern_call(name, &args)),
+            BuiltinId::Extern(name) => {
+                // v0.25 Track E: receiver-less stdlib constructors
+                // (`String.new`, `Vec.with_capacity`, ...) lower
+                // through the path-call fall-through as
+                // `BuiltinId::Extern("Type.ctor")`. The host doesn't
+                // know about them, so we synthesise the value here
+                // before delegating.
+                if let Some(v) = try_stdlib_ctor(name, &args) {
+                    Ok(v)
+                } else {
+                    Ok(host.extern_call(name, &args))
+                }
+            }
             BuiltinId::DomOp(op) => {
                 // v0.6 — Dom builtin calls go through the host's extern
                 // table as `dom.<op>` so headless test runs (without a
@@ -1071,6 +1083,68 @@ enum EvalOutcome {
     /// (unused but reserved) — sub-call already produced a value.
     #[allow(dead_code)]
     ConsumedReturn(Value),
+}
+
+/// v0.25 Track E: recognise the `Type.ctor()` shapes that lower as
+/// `BuiltinId::Extern("Type.ctor")` (the fall-through path in
+/// `lower::exprs::resolve_callee`) and synthesise the matching value.
+///
+/// Returning `None` lets the call fall through to the host's extern
+/// table — that keeps `extern fn _foo(...)` declarations working.
+fn try_stdlib_ctor(name: &str, args: &[Value]) -> Option<Value> {
+    use Value::*;
+    let usize_arg = |i: usize| -> usize {
+        args.get(i)
+            .and_then(|v| v.as_int())
+            .map(|n| n.max(0) as usize)
+            .unwrap_or(0)
+    };
+    let str_arg = |i: usize| -> Option<String> {
+        match args.get(i) {
+            Some(Str(s)) => Some(s.clone()),
+            _ => None,
+        }
+    };
+    let ok = |v: Value| Value::Enum {
+        adt: mty_types::AdtId(0),
+        variant: 0,
+        payload: vec![v],
+    };
+    let err = || Value::Enum {
+        adt: mty_types::AdtId(0),
+        variant: 1,
+        payload: vec![Unit],
+    };
+    match name {
+        // ---- String constructors ----
+        "String.new" => Some(Str(String::new())),
+        "String.with_capacity" => Some(Str(String::with_capacity(usize_arg(0)))),
+        "String.from_str" => Some(Str(str_arg(0).unwrap_or_default())),
+        "String.from_utf8" => match args.first() {
+            Some(Str(s)) => match std::str::from_utf8(s.as_bytes()) {
+                Ok(_) => Some(ok(Str(s.clone()))),
+                Err(_) => Some(err()),
+            },
+            Some(Array(xs)) => {
+                let bytes: Vec<u8> = xs
+                    .iter()
+                    .filter_map(|v| match v {
+                        Int(n, _) => Some(*n as u8),
+                        _ => None,
+                    })
+                    .collect();
+                match String::from_utf8(bytes) {
+                    Ok(s) => Some(ok(Str(s))),
+                    Err(_) => Some(err()),
+                }
+            }
+            _ => Some(err()),
+        },
+        // ---- Vec[T] constructors ----
+        "Vec.new" => Some(Array(Vec::new())),
+        "Vec.with_capacity" => Some(Array(Vec::with_capacity(usize_arg(0)))),
+        _ => None,
+    }
 }
 
 /// v0.5 Gap-4 helper: rough byte size of a [`Value`] for memory
@@ -1449,6 +1523,92 @@ fn eval_method(receiver: &Value, name: &str, args: &[Value]) -> Value {
             Char(c) => Str(format!("{:?}", c)),
             other => Str(other.as_str()),
         },
+        // v0.25 (Track D): binary / octal bare conversions.
+        "to_bin_str" => match receiver {
+            Int(n, _) => {
+                let v = *n as i64;
+                if v < 0 {
+                    Str(format!("-{:b}", v.unsigned_abs()))
+                } else {
+                    Str(format!("{:b}", v as u64))
+                }
+            }
+            Char(c) => Str(format!("{:b}", *c as u32)),
+            Bool(b) => Str(format!("{:b}", if *b { 1 } else { 0 })),
+            other => Str(other.as_str()),
+        },
+        "to_oct_str" => match receiver {
+            Int(n, _) => {
+                let v = *n as i64;
+                if v < 0 {
+                    Str(format!("-{:o}", v.unsigned_abs()))
+                } else {
+                    Str(format!("{:o}", v as u64))
+                }
+            }
+            Char(c) => Str(format!("{:o}", *c as u32)),
+            Bool(b) => Str(format!("{:o}", if *b { 1 } else { 0 })),
+            other => Str(other.as_str()),
+        },
+        // v0.25 (Track D): spec-helper methods —
+        // `to_{kind}_spec(sign_plus: Bool, alternate: Bool, precision: U32)`.
+        // The precision sentinel `u32::MAX` (4294967295) means
+        // "no precision". The expander emits literal `4294967295` for
+        // the None case.
+        "to_str_spec" => {
+            let sign_plus = args.first().map(Value::truthy).unwrap_or(false);
+            let _alternate = args.get(1).map(Value::truthy).unwrap_or(false);
+            let precision = args.get(2).and_then(|v| v.as_int()).map(|n| n as i64);
+            render_display_spec(receiver, sign_plus, precision)
+        }
+        "to_hex_str_spec" => {
+            let sign_plus = args.first().map(Value::truthy).unwrap_or(false);
+            let alternate = args.get(1).map(Value::truthy).unwrap_or(false);
+            let precision = args.get(2).and_then(|v| v.as_int()).map(|n| n as i64);
+            render_radix_spec(receiver, 16, false, "0x", sign_plus, alternate, precision)
+        }
+        "to_hex_upper_str_spec" => {
+            let sign_plus = args.first().map(Value::truthy).unwrap_or(false);
+            let alternate = args.get(1).map(Value::truthy).unwrap_or(false);
+            let precision = args.get(2).and_then(|v| v.as_int()).map(|n| n as i64);
+            render_radix_spec(receiver, 16, true, "0x", sign_plus, alternate, precision)
+        }
+        "to_bin_str_spec" => {
+            let sign_plus = args.first().map(Value::truthy).unwrap_or(false);
+            let alternate = args.get(1).map(Value::truthy).unwrap_or(false);
+            let precision = args.get(2).and_then(|v| v.as_int()).map(|n| n as i64);
+            render_radix_spec(receiver, 2, false, "0b", sign_plus, alternate, precision)
+        }
+        "to_oct_str_spec" => {
+            let sign_plus = args.first().map(Value::truthy).unwrap_or(false);
+            let alternate = args.get(1).map(Value::truthy).unwrap_or(false);
+            let precision = args.get(2).and_then(|v| v.as_int()).map(|n| n as i64);
+            render_radix_spec(receiver, 8, false, "0o", sign_plus, alternate, precision)
+        }
+        "to_debug_str_spec" => {
+            // Debug ignores sign_plus/alternate/precision (no-op).
+            match receiver {
+                Str(s) => Str(format!("{:?}", s)),
+                Char(c) => Str(format!("{:?}", c)),
+                other => Str(other.as_str()),
+            }
+        }
+        // v0.25 (Track D): width-padding tail on a string value.
+        // Signature: `pad_str(width: U32, fill: Char, align: Str)`.
+        "pad_str" => {
+            let width = args.first().and_then(|v| v.as_int()).unwrap_or(0).max(0) as usize;
+            let fill = match args.get(1) {
+                Some(Char(c)) => *c,
+                Some(Str(s)) => s.chars().next().unwrap_or(' '),
+                _ => ' ',
+            };
+            let align = args
+                .get(2)
+                .map(Value::as_str)
+                .unwrap_or_else(|| "right".into());
+            let s = receiver.as_str();
+            Str(pad_str(&s, width, fill, &align))
+        }
         "is_empty" => match receiver {
             Str(s) => Bool(s.is_empty()),
             Array(xs) => Bool(xs.is_empty()),
@@ -1674,6 +1834,73 @@ fn eval_method(receiver: &Value, name: &str, args: &[Value]) -> Value {
         },
         "iter" => receiver.clone(),
 
+        // ---------------- v0.25 (Track E): String + Vec[T] ctors / accessors ----------------
+        //
+        // Receiver-less constructors come in via the path-call lowering
+        // route (e.g. `String.new()`). Lowering rewrites that as a call
+        // whose callee falls through to `BuiltinId::Extern("String.new")`;
+        // see `Interp::call_builtin` for the matching `try_stdlib_ctor`
+        // hook below. The cases here cover the **method-style** receivers
+        // — `s.with_capacity(n)`, `bytes.from_utf8()` — that the
+        // dogfood agent uses in chained calls.
+        "with_capacity" => match receiver {
+            Str(_) => Str(String::with_capacity(arg_usize(args, 0).unwrap_or(0))),
+            Array(_) => Array(Vec::with_capacity(arg_usize(args, 0).unwrap_or(0))),
+            _ => {
+                // Receiver-less form (`String.with_capacity(n)` or
+                // `Vec.with_capacity(n)`): with no concrete receiver
+                // value we default to an empty Str. Callers that need
+                // Vec semantics will reassign to an Array on the first
+                // push, which the permissive value layout supports.
+                Str(String::with_capacity(arg_usize(args, 0).unwrap_or(0)))
+            }
+        },
+        "from_str" => match arg_str(args, 0) {
+            Some(s) => Str(s.to_string()),
+            None => Str(String::new()),
+        },
+        "from_utf8" => match args.first() {
+            Some(Str(s)) => match std::str::from_utf8(s.as_bytes()) {
+                Ok(_) => some(Str(s.clone())),
+                Err(_) => none(),
+            },
+            Some(Array(xs)) => {
+                let bytes: Vec<u8> = xs
+                    .iter()
+                    .filter_map(|v| match v {
+                        Int(n, _) => Some(*n as u8),
+                        _ => None,
+                    })
+                    .collect();
+                match String::from_utf8(bytes) {
+                    Ok(s) => some(Str(s)),
+                    Err(_) => none(),
+                }
+            }
+            _ => none(),
+        },
+        "get_mut" => match (receiver, arg_usize(args, 0)) {
+            // The interpreter's value model is by-clone, so `get_mut`
+            // returns the same Option[T] shape as `get`. In-place writes
+            // go through `Stmt::Assign` on the indexed place, not
+            // through the returned reference.
+            (Array(xs), Some(i)) => match xs.get(i) {
+                Some(v) => some(v.clone()),
+                None => none(),
+            },
+            (Str(s), Some(i)) => match s.chars().nth(i) {
+                Some(c) => some(Char(c)),
+                None => none(),
+            },
+            _ => none(),
+        },
+        "as_slice" | "as_mut_slice" => receiver.clone(),
+        "capacity" => match receiver {
+            Str(s) => Int(s.capacity() as i128, IntKind::USize),
+            Array(xs) => Int(xs.capacity() as i128, IntKind::USize),
+            _ => Int(0, IntKind::USize),
+        },
+
         // ---------------- still-stubbed / permissive ----------------
         "query" => none(),
 
@@ -1701,3 +1928,251 @@ fn main_exit_for_value(v: &Value) -> RunResult {
 }
 
 use mty_types::FloatKind;
+
+// ---------------------------------------------------------------------------
+// v0.25 Track D: format!() spec helpers
+// ---------------------------------------------------------------------------
+
+/// Sentinel "no precision specified" — matches the value the
+/// `format!` expander emits as a literal U32::MAX. Keep in sync with
+/// `mty_stdlib::fmt::PRECISION_NONE`.
+const FMT_PRECISION_NONE: i64 = u32::MAX as i64;
+
+/// Render `{:+}` / `{:.N}` style Display conversion for the spec
+/// helper. `sign_plus` prepends `+` to non-negative numbers;
+/// `precision_opt` (when not the `None` sentinel) caps the result to
+/// that many chars for strings, or fixes float decimal places.
+fn render_display_spec(receiver: &Value, sign_plus: bool, precision_opt: Option<i64>) -> Value {
+    use Value::*;
+    let precision = match precision_opt {
+        Some(p) if p != FMT_PRECISION_NONE && p >= 0 => Some(p as usize),
+        _ => None,
+    };
+    match receiver {
+        Int(n, _) => {
+            let v = *n;
+            let body = if v < 0 {
+                format!("-{}", v.unsigned_abs())
+            } else if sign_plus {
+                format!("+{}", v)
+            } else {
+                format!("{}", v)
+            };
+            Str(body)
+        }
+        Float(f, _) => {
+            let body = match precision {
+                Some(p) => format!("{:.*}", p, f.abs()),
+                None => format!("{}", f.abs()),
+            };
+            let signed = if *f < 0.0 {
+                format!("-{}", body)
+            } else if sign_plus {
+                format!("+{}", body)
+            } else {
+                body
+            };
+            Str(signed)
+        }
+        Str(s) => {
+            let body = match precision {
+                Some(p) => s.chars().take(p).collect::<String>(),
+                None => s.clone(),
+            };
+            Str(body)
+        }
+        other => Str(other.as_str()),
+    }
+}
+
+/// Render a `{:#x}` / `{:#b}` / `{:#o}` style integer-radix
+/// conversion for the spec helper. `radix` is 2, 8, or 16;
+/// `upper` controls hex-letter case; `prefix` is the alt-form prefix
+/// (`"0x"`, `"0b"`, `"0o"`); `sign_plus` and `alternate` come from
+/// the spec; precision pads the digit body to at least N digits with
+/// leading zeros (precision is a no-op for non-integer receivers).
+#[allow(clippy::too_many_arguments)]
+fn render_radix_spec(
+    receiver: &Value,
+    radix: u32,
+    upper: bool,
+    prefix: &str,
+    sign_plus: bool,
+    alternate: bool,
+    precision_opt: Option<i64>,
+) -> Value {
+    use Value::*;
+    let precision = match precision_opt {
+        Some(p) if p != FMT_PRECISION_NONE && p >= 0 => Some(p as usize),
+        _ => None,
+    };
+    let (sign, magnitude_str) = match receiver {
+        Int(n, _) => {
+            let v = *n as i64;
+            let mag = (v as i128).unsigned_abs();
+            let body = format_radix_u128(mag, radix, upper);
+            let sign = if v < 0 {
+                "-"
+            } else if sign_plus {
+                "+"
+            } else {
+                ""
+            };
+            (sign, body)
+        }
+        Char(c) => {
+            let body = format_radix_u128(*c as u128, radix, upper);
+            (if sign_plus { "+" } else { "" }, body)
+        }
+        Bool(b) => {
+            let body = format_radix_u128(if *b { 1 } else { 0 }, radix, upper);
+            (if sign_plus { "+" } else { "" }, body)
+        }
+        other => return Str(other.as_str()),
+    };
+    let padded_body = match precision {
+        Some(p) if magnitude_str.len() < p => {
+            let mut s = String::with_capacity(p);
+            for _ in 0..(p - magnitude_str.len()) {
+                s.push('0');
+            }
+            s.push_str(&magnitude_str);
+            s
+        }
+        _ => magnitude_str,
+    };
+    let pre = if alternate { prefix } else { "" };
+    Value::Str(format!("{}{}{}", sign, pre, padded_body))
+}
+
+/// Render a non-negative integer in the requested radix (2/8/16).
+fn format_radix_u128(mut n: u128, radix: u32, upper: bool) -> String {
+    if n == 0 {
+        return "0".to_string();
+    }
+    let alphabet_lower: &[u8] = b"0123456789abcdef";
+    let alphabet_upper: &[u8] = b"0123456789ABCDEF";
+    let alph = if upper { alphabet_upper } else { alphabet_lower };
+    let mut digits = Vec::with_capacity(32);
+    let r = radix as u128;
+    while n > 0 {
+        let d = (n % r) as usize;
+        digits.push(alph[d] as char);
+        n /= r;
+    }
+    digits.iter().rev().collect()
+}
+
+/// Pad `s` to `width` characters with `fill`, aligning per `align`
+/// (`"left"`/`"right"`/`"center"`/`"default"`). The `"default"`
+/// sentinel selects right-alignment for content that looks numeric
+/// (matches Rust's per-type default) and left-alignment otherwise.
+fn pad_str(s: &str, width: usize, fill: char, align: &str) -> String {
+    let len = s.chars().count();
+    if len >= width || width == 0 {
+        return s.to_string();
+    }
+    let total_pad = width - len;
+    let resolved = if align == "default" {
+        if looks_numeric(s) {
+            "right"
+        } else {
+            "left"
+        }
+    } else {
+        align
+    };
+    match resolved {
+        "left" => {
+            let mut out = String::with_capacity(s.len() + total_pad);
+            out.push_str(s);
+            for _ in 0..total_pad {
+                out.push(fill);
+            }
+            out
+        }
+        "center" => {
+            let left_pad = total_pad / 2;
+            let right_pad = total_pad - left_pad;
+            let mut out = String::with_capacity(s.len() + total_pad);
+            for _ in 0..left_pad {
+                out.push(fill);
+            }
+            out.push_str(s);
+            for _ in 0..right_pad {
+                out.push(fill);
+            }
+            out
+        }
+        _ => {
+            // Default and "right": pad on the left. For numeric zero-pad
+            // with a sign/prefix, Rust inserts the zeros *between* the
+            // sign/prefix and the magnitude. We approximate that here:
+            // if `fill == '0'` and `s` starts with a sign (`+`/`-`) or
+            // with `0x`/`0b`/`0o`, lift the prefix and pad the tail.
+            if fill == '0' {
+                let (prefix, tail) = split_numeric_prefix(s);
+                let tail_chars = tail.chars().count();
+                let extra = width.saturating_sub(prefix.chars().count() + tail_chars);
+                if extra > 0 {
+                    let mut out = String::with_capacity(s.len() + extra);
+                    out.push_str(prefix);
+                    for _ in 0..extra {
+                        out.push('0');
+                    }
+                    out.push_str(tail);
+                    return out;
+                }
+                return s.to_string();
+            }
+            let mut out = String::with_capacity(s.len() + total_pad);
+            for _ in 0..total_pad {
+                out.push(fill);
+            }
+            out.push_str(s);
+            out
+        }
+    }
+}
+
+/// Heuristic: does `s` look like a number? Used by the `"default"`
+/// alignment sentinel to pick right-align (for numbers) vs left-align
+/// (for strings). We accept an optional leading sign, an optional
+/// `0x`/`0b`/`0o` prefix, then digits / a decimal point / etc.
+fn looks_numeric(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    let mut i = 0usize;
+    if matches!(bytes.first(), Some(b'+') | Some(b'-')) {
+        i = 1;
+    }
+    if bytes.len() >= i + 2 && bytes[i] == b'0' {
+        let p = bytes[i + 1];
+        if matches!(p, b'x' | b'X' | b'b' | b'B' | b'o' | b'O') {
+            i += 2;
+        }
+    }
+    if i >= bytes.len() {
+        return false;
+    }
+    bytes[i..]
+        .iter()
+        .all(|&b| b.is_ascii_hexdigit() || b == b'.' || b == b'e' || b == b'E' || b == b'_')
+}
+
+/// For zero-pad alignment, split a numeric string into its sign +
+/// alternate-form prefix and the magnitude tail. Returns `("", s)`
+/// when no recognisable prefix is present.
+fn split_numeric_prefix(s: &str) -> (&str, &str) {
+    let bytes = s.as_bytes();
+    let mut end = 0usize;
+    if matches!(bytes.first(), Some(b'+') | Some(b'-')) {
+        end = 1;
+    }
+    if bytes.len() >= end + 2 && bytes[end] == b'0' {
+        let p = bytes[end + 1];
+        if matches!(p, b'x' | b'X' | b'b' | b'B' | b'o' | b'O') {
+            end += 2;
+        }
+    }
+    (&s[..end], &s[end..])
+}

@@ -1,0 +1,9 @@
+// v0.25 Track D positive: alignment + fill render correctly.
+// Left, right, center, custom-fill.
+fn main() {
+  let n = 1
+  log(format!("[{:<5}]", n))
+  log(format!("[{:>5}]", n))
+  log(format!("[{:^5}]", n))
+  log(format!("[{:*<5}]", n))
+}

@@ -1,0 +1,8 @@
+// v0.25 Track D positive: width + zero-pad expand and run.
+// `{:5}` pads `1` to width 5 with spaces (right-aligned default for nums).
+// `{:05}` pads with leading zeros.
+fn main() {
+  let n = 1
+  log(format!("[{:5}]", n))
+  log(format!("[{:05}]", n))
+}

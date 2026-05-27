@@ -1,4 +1,4 @@
-//! The `format!` builtin macro (v0.24 Track B).
+//! The `format!` builtin macro (v0.24 Track B + v0.25 Track D extensions).
 //!
 //! Unlike `assert!`/`debug!`/`unreachable!`, `format!` is not a plain
 //! declarative macro that can be expressed as `pub macro format(...)
@@ -13,7 +13,9 @@
 //! preprocessor splices back in, or a structured error the call site
 //! reports as a diagnostic.
 //!
-//! ## Supported spec subset (v0.24)
+//! ## Supported spec subset (v0.25)
+//!
+//! v0.24 Track B shipped the conversion sigils:
 //!
 //! | Spec        | Behaviour                                            |
 //! |-------------|------------------------------------------------------|
@@ -27,16 +29,42 @@
 //! | `{name:?}`  | named-arg passthrough, `.to_debug_str()` on `name`   |
 //! | `{{` / `}}` | literal `{` / `}`                                    |
 //!
+//! v0.25 Track D extends this with layout flags:
+//!
+//! | Spec        | Behaviour                                            |
+//! |-------------|------------------------------------------------------|
+//! | `{:5}`      | minimum width 5 (right-aligned default for numbers)  |
+//! | `{:05}`     | width 5 + zero-padding                               |
+//! | `{:<5}`     | left-align to width 5                                |
+//! | `{:>5}`     | right-align to width 5                               |
+//! | `{:^5}`     | center-align to width 5                              |
+//! | `{:*<5}`    | fill char `*` + left-align to width 5                |
+//! | `{:.3}`     | precision 3 (floats: decimal places; strings: max)   |
+//! | `{:+}`      | always show sign for numbers                         |
+//! | `{:#x}`     | alternate hex (prefix `0x`)                          |
+//! | `{:#X}`     | alternate HEX (prefix `0x`)                          |
+//! | `{:#b}`     | alternate binary (prefix `0b`)                       |
+//! | `{:#o}`     | alternate octal (prefix `0o`)                        |
+//! | `{:b}`      | binary (no prefix)                                   |
+//! | `{:o}`      | octal (no prefix)                                    |
+//!
+//! Combined specs work in the canonical order
+//! `[fill][align][sign][#][0][width][.precision][type]`, matching Rust:
+//!
+//! | Spec        | Renders                                              |
+//! |-------------|------------------------------------------------------|
+//! | `{:#05x}`   | `0x0ff` for 0xff (alt + zero + width + hex)          |
+//! | `{:+05}`    | `+0001` for 1 (sign + zero + width)                  |
+//! | `{:>10.3}`  | `"     3.142"` for 3.14159 (align + width + precision) |
+//!
 //! Per the Rust convention, `{x}` is a *named-arg passthrough* (refers
 //! to in-scope `x`), NOT a positional hex sigil. Use `{:x}` for
 //! positional hex, `{x:x}` for "named x rendered as hex".
 //!
-//! ## Deferred to v0.25
+//! ## Deferred to v0.26
 //!
-//! Width (`{:05}`), precision (`{:.3}`), alignment/fill (`{:>10}`,
-//! `{:*<5}`), sign flags (`{:+}`), and `0` padding modifiers all
-//! return [`FormatExpandError::UnsupportedSpec`]. See the notes file
-//! `dev/history/notes/FORMAT_MACRO_V0_24_NOTES.md` for the roadmap.
+//! - Indexed positional `{0} {1} {0}` (argument reuse by index)
+//! - Dynamic width/precision via argument `{:1$}`, `{:.0$}`, `{:.*}`
 
 use crate::token::lex_fragment;
 use mty_syntax::SyntaxKind;
@@ -47,12 +75,12 @@ pub enum FormatPiece {
     /// Literal source text (`{{` and `}}` already decoded to `{` / `}`).
     Literal(String),
     /// A placeholder that consumes one of the trailing positional args.
-    /// `kind` selects which conversion method the arg is funneled through.
-    Positional { kind: ConvKind },
+    /// `spec` carries both the conversion sigil and the layout flags.
+    Positional { spec: FormatSpec },
     /// A `{name}` placeholder that resolves to an in-scope identifier.
     /// The expander emits `name.<conv>()` directly — no positional arg
     /// is consumed.
-    Named { ident: String, kind: ConvKind },
+    Named { ident: String, spec: FormatSpec },
 }
 
 /// How a placeholder converts its argument to a string.
@@ -66,6 +94,10 @@ pub enum ConvKind {
     HexUpper,
     /// `{:?}` / `{name:?}` — `.to_debug_str()`.
     Debug,
+    /// `{:b}` / `{name:b}` — `.to_bin_str()`. v0.25 Track D.
+    Binary,
+    /// `{:o}` / `{name:o}` — `.to_oct_str()`. v0.25 Track D.
+    Octal,
 }
 
 impl ConvKind {
@@ -78,7 +110,86 @@ impl ConvKind {
             ConvKind::HexLower => "to_hex_str",
             ConvKind::HexUpper => "to_hex_upper_str",
             ConvKind::Debug => "to_debug_str",
+            ConvKind::Binary => "to_bin_str",
+            ConvKind::Octal => "to_oct_str",
         }
+    }
+}
+
+/// Alignment within a width-padded field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Alignment {
+    /// `{:<N}` — pad on the right (default for strings).
+    Left,
+    /// `{:>N}` — pad on the left (default for numbers).
+    Right,
+    /// `{:^N}` — pad symmetrically.
+    Center,
+}
+
+impl Alignment {
+    /// Canonical name of the variant the runtime helper accepts.
+    /// Surfaced as a string the runtime can pattern-match without
+    /// needing to import the enum type.
+    pub fn as_runtime_str(self) -> &'static str {
+        match self {
+            Alignment::Left => "left",
+            Alignment::Right => "right",
+            Alignment::Center => "center",
+        }
+    }
+}
+
+/// Full parsed format spec — captures the v0.24 conversion sigil PLUS
+/// the v0.25 layout flags.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormatSpec {
+    /// Conversion method (`{:x}`, `{:?}`, …).
+    pub kind: ConvKind,
+    /// Fill character (default `' '`, or `'0'` when zero-pad flag set).
+    pub fill: char,
+    /// Alignment, if the spec supplies one explicitly.
+    pub align: Option<Alignment>,
+    /// `+` flag — always show sign for numbers.
+    pub sign_plus: bool,
+    /// `#` flag — alternate form (prefix hex/oct/bin).
+    pub alternate: bool,
+    /// `0` zero-pad flag (implies fill = `'0'` and align = Right when
+    /// no explicit fill/align supplied).
+    pub zero_pad: bool,
+    /// Minimum width.
+    pub width: Option<u32>,
+    /// Precision (float decimals, string max chars).
+    pub precision: Option<u32>,
+}
+
+impl FormatSpec {
+    /// The bare-`{}` default spec — Display conversion, no layout.
+    pub fn display() -> Self {
+        FormatSpec {
+            kind: ConvKind::Display,
+            fill: ' ',
+            align: None,
+            sign_plus: false,
+            alternate: false,
+            zero_pad: false,
+            width: None,
+            precision: None,
+        }
+    }
+
+    /// True if the spec has no layout flags beyond the conversion
+    /// sigil — i.e. the v0.24 baseline path suffices. The expander
+    /// uses this to avoid materialising a `to_str_spec`/`pad_str`-style
+    /// call chain when a plain `to_str()` is enough.
+    pub fn is_bare_conversion(&self) -> bool {
+        self.fill == ' '
+            && self.align.is_none()
+            && !self.sign_plus
+            && !self.alternate
+            && !self.zero_pad
+            && self.width.is_none()
+            && self.precision.is_none()
     }
 }
 
@@ -91,8 +202,13 @@ pub enum FormatExpandError {
     UnclosedBrace { position: usize },
     /// Lone `}` outside a placeholder.
     UnexpectedCloseBrace { position: usize },
-    /// Spec like `{:05}` or `{:.3}` that v0.24 doesn't implement.
+    /// Spec like `{0}` (indexed positional) or `{:1$}` (dynamic width
+    /// via arg) that the v0.25 parser cannot interpret. Tracked for v0.26.
     UnsupportedSpec { spec: String, position: usize },
+    /// Width digit run does not parse as `u32`.
+    BadWidth { spec: String, position: usize },
+    /// Precision digit run does not parse as `u32` or is missing digits.
+    BadPrecision { spec: String, position: usize },
     /// `format!("{} {}", 1)` — three placeholders, two args.
     NotEnoughArgs { expected: usize, given: usize },
     /// `format!("{}", 1, 2)` — extra args supplied. Warning-ish but we
@@ -118,7 +234,15 @@ impl std::fmt::Display for FormatExpandError {
             ),
             FormatExpandError::UnsupportedSpec { spec, position } => write!(
                 f,
-                "format spec `{{:{spec}}}` at position {position} is not supported in v0.24 (only `{{}}`, `{{x}}`, `{{X}}`, `{{?}}`, and named-arg passthrough ship; width / precision / alignment land in v0.25)"
+                "format spec `{{:{spec}}}` at position {position} is not supported (indexed positional `{{0}}` and dynamic width/precision land in v0.26)"
+            ),
+            FormatExpandError::BadWidth { spec, position } => write!(
+                f,
+                "format spec `{{:{spec}}}` at position {position} has a malformed width (must be a 32-bit unsigned integer literal)"
+            ),
+            FormatExpandError::BadPrecision { spec, position } => write!(
+                f,
+                "format spec `{{:{spec}}}` at position {position} has a malformed precision (must be a 32-bit unsigned integer literal)"
             ),
             FormatExpandError::NotEnoughArgs { expected, given } => write!(
                 f,
@@ -148,14 +272,11 @@ pub fn parse_template(template: &str) -> Result<Vec<FormatPiece>, FormatExpandEr
         let c = bytes[i];
         match c {
             b'{' => {
-                // `{{` is a literal `{`.
                 if i + 1 < bytes.len() && bytes[i + 1] == b'{' {
                     lit.push('{');
                     i += 2;
                     continue;
                 }
-                // Start of a placeholder. Find the matching `}`. We do
-                // NOT support nested braces in v0.24.
                 let start = i;
                 let mut j = i + 1;
                 while j < bytes.len() && bytes[j] != b'}' {
@@ -164,7 +285,6 @@ pub fn parse_template(template: &str) -> Result<Vec<FormatPiece>, FormatExpandEr
                 if j >= bytes.len() {
                     return Err(FormatExpandError::UnclosedBrace { position: start });
                 }
-                // Flush any pending literal before consuming the placeholder.
                 if !lit.is_empty() {
                     pieces.push(FormatPiece::Literal(std::mem::take(&mut lit)));
                 }
@@ -173,7 +293,6 @@ pub fn parse_template(template: &str) -> Result<Vec<FormatPiece>, FormatExpandEr
                 i = j + 1;
             }
             b'}' => {
-                // `}}` is a literal `}`.
                 if i + 1 < bytes.len() && bytes[i + 1] == b'}' {
                     lit.push('}');
                     i += 2;
@@ -182,9 +301,6 @@ pub fn parse_template(template: &str) -> Result<Vec<FormatPiece>, FormatExpandEr
                 return Err(FormatExpandError::UnexpectedCloseBrace { position: i });
             }
             _ => {
-                // UTF-8 multi-byte chars: copy as-is. Since we only
-                // pattern-match on ASCII `{` / `}`, a raw byte index
-                // never lands inside a multi-byte boundary.
                 lit.push(c as char);
                 i += 1;
             }
@@ -198,47 +314,30 @@ pub fn parse_template(template: &str) -> Result<Vec<FormatPiece>, FormatExpandEr
 
 /// Parse the body of a single `{ ... }` placeholder. `inner` is the
 /// text between the braces (e.g. `""`, `"x"`, `"name"`, `":x"`,
-/// `"name:x"`). `start_pos` is the byte index of the opening `{` in
-/// the outer template, used for diagnostics.
+/// `"name:x"`, `":>05x"`, `":.3"`). `start_pos` is the byte index of
+/// the opening `{` in the outer template, used for diagnostics.
 fn parse_placeholder(inner: &str, start_pos: usize) -> Result<FormatPiece, FormatExpandError> {
-    // Split on the *first* `:` — that separates the optional argument
-    // selector (positional/named/sigil-conv) from the optional format spec.
     let (head, spec_opt) = match inner.find(':') {
         Some(idx) => (&inner[..idx], Some(&inner[idx + 1..])),
         None => (inner, None),
     };
 
-    // Resolve the format spec (after the `:`). This is what selects
-    // the conversion method for positional sites AND for named-arg
-    // passthrough sites.
-    let spec_kind = match spec_opt {
-        None => None,
-        Some("") => None,
-        Some("x") => Some(ConvKind::HexLower),
-        Some("X") => Some(ConvKind::HexUpper),
-        Some("?") => Some(ConvKind::Debug),
-        Some(other) => {
-            return Err(FormatExpandError::UnsupportedSpec {
-                spec: other.to_string(),
-                position: start_pos,
-            });
-        }
-    };
-    let kind = spec_kind.unwrap_or(ConvKind::Display);
+    // Defer: indexed positional `{0}` is intentionally not supported in v0.25.
+    if !head.is_empty() && head.chars().all(|c| c.is_ascii_digit()) {
+        return Err(FormatExpandError::UnsupportedSpec {
+            spec: head.to_string(),
+            position: start_pos,
+        });
+    }
 
-    // The head is either:
-    //   ""    — positional placeholder (`{}` / `{:x}`)
-    //   IDENT — named-arg passthrough (`{name}` / `{name:x}`)
-    //
-    // Per the Rust convention, `{x}` is a *named* arg referring to the
-    // in-scope `x`; the hex conversion sigil is the spec form `{:x}`
-    // (or `{name:x}` for a named arg). No positional shorthand sigils.
+    let spec = match spec_opt {
+        None | Some("") => FormatSpec::display(),
+        Some(raw) => parse_spec(raw, start_pos)?,
+    };
+
     if head.is_empty() {
-        Ok(FormatPiece::Positional { kind })
+        Ok(FormatPiece::Positional { spec })
     } else {
-        // Treat as a Mighty identifier. Validate quickly so a typo like
-        // `{1+2}` falls through to the lexer error path instead of
-        // silently emitting `(1+2).to_str()`.
         if !is_identifier(head) {
             return Err(FormatExpandError::UnsupportedSpec {
                 spec: head.to_string(),
@@ -247,14 +346,162 @@ fn parse_placeholder(inner: &str, start_pos: usize) -> Result<FormatPiece, Forma
         }
         Ok(FormatPiece::Named {
             ident: head.to_string(),
-            kind,
+            spec,
         })
     }
 }
 
+/// Parse the post-`:` spec body. Implements the canonical Rust spec
+/// grammar: `[[fill]align][sign][#][0][width][.precision][type]`.
+///
+/// Returns [`FormatExpandError::UnsupportedSpec`] for shapes the
+/// v0.25 expander cannot lower (dynamic width via arg, etc.).
+fn parse_spec(raw: &str, start_pos: usize) -> Result<FormatSpec, FormatExpandError> {
+    let mut spec = FormatSpec::display();
+    let chars: Vec<char> = raw.chars().collect();
+    let mut i = 0usize;
+
+    // [[fill]align] — fill is any char, align is one of `<>^`.
+    if chars.len() >= 2 && is_align_char(chars[1]) {
+        spec.fill = chars[0];
+        spec.align = Some(align_from_char(chars[1]));
+        i += 2;
+    } else if !chars.is_empty() && is_align_char(chars[0]) {
+        spec.align = Some(align_from_char(chars[0]));
+        i += 1;
+    }
+
+    // [sign]
+    if i < chars.len() && chars[i] == '+' {
+        spec.sign_plus = true;
+        i += 1;
+    }
+
+    // [#] alternate form
+    if i < chars.len() && chars[i] == '#' {
+        spec.alternate = true;
+        i += 1;
+    }
+
+    // [0] zero-pad
+    if i < chars.len() && chars[i] == '0' {
+        spec.zero_pad = true;
+        if spec.fill == ' ' && spec.align.is_none() {
+            spec.fill = '0';
+            spec.align = Some(Alignment::Right);
+        }
+        i += 1;
+    }
+
+    // [width] — run of digits.
+    if i < chars.len() && chars[i].is_ascii_digit() {
+        let start = i;
+        while i < chars.len() && chars[i].is_ascii_digit() {
+            i += 1;
+        }
+        // Dynamic width `5$` is deferred.
+        if i < chars.len() && chars[i] == '$' {
+            return Err(FormatExpandError::UnsupportedSpec {
+                spec: raw.to_string(),
+                position: start_pos,
+            });
+        }
+        let width_str: String = chars[start..i].iter().collect();
+        let width = width_str
+            .parse::<u32>()
+            .map_err(|_| FormatExpandError::BadWidth {
+                spec: raw.to_string(),
+                position: start_pos,
+            })?;
+        spec.width = Some(width);
+    } else if i < chars.len() && chars[i] == '*' {
+        // Dynamic width `*`. Deferred.
+        return Err(FormatExpandError::UnsupportedSpec {
+            spec: raw.to_string(),
+            position: start_pos,
+        });
+    }
+
+    // [.precision] — `.<digits>` or `.*`.
+    if i < chars.len() && chars[i] == '.' {
+        i += 1;
+        if i < chars.len() && chars[i] == '*' {
+            return Err(FormatExpandError::UnsupportedSpec {
+                spec: raw.to_string(),
+                position: start_pos,
+            });
+        }
+        if i >= chars.len() || !chars[i].is_ascii_digit() {
+            return Err(FormatExpandError::BadPrecision {
+                spec: raw.to_string(),
+                position: start_pos,
+            });
+        }
+        let start = i;
+        while i < chars.len() && chars[i].is_ascii_digit() {
+            i += 1;
+        }
+        let prec_str: String = chars[start..i].iter().collect();
+        if i < chars.len() && chars[i] == '$' {
+            return Err(FormatExpandError::UnsupportedSpec {
+                spec: raw.to_string(),
+                position: start_pos,
+            });
+        }
+        let precision = prec_str
+            .parse::<u32>()
+            .map_err(|_| FormatExpandError::BadPrecision {
+                spec: raw.to_string(),
+                position: start_pos,
+            })?;
+        spec.precision = Some(precision);
+    }
+
+    // [type]
+    if i < chars.len() {
+        let ty = chars[i];
+        i += 1;
+        spec.kind = match ty {
+            'x' => ConvKind::HexLower,
+            'X' => ConvKind::HexUpper,
+            '?' => ConvKind::Debug,
+            'b' => ConvKind::Binary,
+            'o' => ConvKind::Octal,
+            _ => {
+                return Err(FormatExpandError::UnsupportedSpec {
+                    spec: raw.to_string(),
+                    position: start_pos,
+                });
+            }
+        };
+    }
+
+    if i < chars.len() {
+        return Err(FormatExpandError::UnsupportedSpec {
+            spec: raw.to_string(),
+            position: start_pos,
+        });
+    }
+
+    Ok(spec)
+}
+
+fn is_align_char(c: char) -> bool {
+    matches!(c, '<' | '>' | '^')
+}
+
+fn align_from_char(c: char) -> Alignment {
+    match c {
+        '<' => Alignment::Left,
+        '>' => Alignment::Right,
+        '^' => Alignment::Center,
+        _ => unreachable!("is_align_char guarded"),
+    }
+}
+
 /// True if `s` is a single Mighty identifier (ASCII letter/underscore
-/// followed by letters/digits/underscores). v0.24 only supports plain
-/// identifiers in named-arg passthrough.
+/// followed by letters/digits/underscores). Only plain identifiers
+/// participate in named-arg passthrough.
 fn is_identifier(s: &str) -> bool {
     let mut it = s.chars();
     match it.next() {
@@ -324,6 +571,69 @@ pub fn arg_is_string_literal(src: &str) -> bool {
     non_trivia.len() == 1 && non_trivia[0].kind == SyntaxKind::STRING_LITERAL
 }
 
+/// Render the Mighty snippet for a single non-literal placeholder.
+/// The receiver expression `recv_src` is the user's source text
+/// (e.g. `score` or `1 + 2`); this fn wraps it in the conversion
+/// method call plus, when layout flags are set, follow-on
+/// `to_<kind>_spec(...)` / `.pad_str(...)` calls.
+fn render_placeholder(recv_src: &str, spec: &FormatSpec) -> String {
+    if spec.is_bare_conversion() {
+        return format!("({}).{}()", recv_src, spec.kind.method());
+    }
+    let conv = format!(
+        "({}).{}_spec({}, {}, {})",
+        recv_src,
+        spec.kind.method(),
+        bool_lit(spec.sign_plus),
+        bool_lit(spec.alternate),
+        precision_arg(spec),
+    );
+    if spec.width.is_none() && spec.align.is_none() && spec.fill == ' ' && !spec.zero_pad {
+        return conv;
+    }
+    let align_str = match spec.align {
+        Some(a) => a.as_runtime_str(),
+        None => "default",
+    };
+    format!(
+        "({}).pad_str({}, '{}', \"{}\")",
+        conv,
+        spec.width.unwrap_or(0),
+        escape_char_for_mty(spec.fill),
+        align_str,
+    )
+}
+
+fn bool_lit(b: bool) -> &'static str {
+    if b {
+        "true"
+    } else {
+        "false"
+    }
+}
+
+fn precision_arg(spec: &FormatSpec) -> String {
+    // `u32::MAX` (4294967295) is the "no precision" sentinel — picked
+    // because no real format spec needs that many digits. Keep in sync
+    // with `mty_stdlib::fmt::PRECISION_NONE`.
+    match spec.precision {
+        Some(p) => p.to_string(),
+        None => "4294967295".to_string(),
+    }
+}
+
+/// Escape a fill char for embedding in a Mighty `'x'` char literal.
+fn escape_char_for_mty(c: char) -> String {
+    match c {
+        '\\' => "\\\\".into(),
+        '\'' => "\\'".into(),
+        '\n' => "\\n".into(),
+        '\t' => "\\t".into(),
+        '\r' => "\\r".into(),
+        _ => c.to_string(),
+    }
+}
+
 /// Expand a `format!(args)` call into a Mighty source snippet.
 ///
 /// `args` is the list of comma-split source slices the caller already
@@ -341,17 +651,12 @@ pub fn expand_format_call(args: &[&str]) -> Result<String, FormatExpandError> {
     let template_src = args[0].trim();
     let template =
         decode_string_literal(template_src).ok_or(FormatExpandError::NotAStringLiteral)?;
-    // Defense in depth: confirm the source slice actually lexes as one
-    // STRING_LITERAL token; catches a glued case like `"a" + "b"` which
-    // `decode_string_literal` happens to accept (it strips outer quotes
-    // off the trimmed slice).
     if !arg_is_string_literal(template_src) {
         return Err(FormatExpandError::NotAStringLiteral);
     }
 
     let pieces = parse_template(&template)?;
 
-    // Count positional placeholders so we can arity-check the call.
     let pos_needed = pieces
         .iter()
         .filter(|p| matches!(p, FormatPiece::Positional { .. }))
@@ -370,8 +675,6 @@ pub fn expand_format_call(args: &[&str]) -> Result<String, FormatExpandError> {
         });
     }
 
-    // Walk pieces, emitting a chain of `+` between string fragments.
-    // Empty template short-circuits to `""`.
     if pieces.is_empty() {
         return Ok("\"\"".to_string());
     }
@@ -383,29 +686,20 @@ pub fn expand_format_call(args: &[&str]) -> Result<String, FormatExpandError> {
             FormatPiece::Literal(s) => {
                 chunks.push(format!("\"{}\"", escape_for_mty_literal(s)));
             }
-            FormatPiece::Positional { kind } => {
-                // args[0] is the template; positional args start at index 1.
+            FormatPiece::Positional { spec } => {
                 let arg_src = args[pos_idx + 1].trim();
-                chunks.push(format!("({}).{}()", arg_src, kind.method()));
+                chunks.push(render_placeholder(arg_src, spec));
                 pos_idx += 1;
             }
-            FormatPiece::Named { ident, kind } => {
-                chunks.push(format!("({}).{}()", ident, kind.method()));
+            FormatPiece::Named { ident, spec } => {
+                chunks.push(render_placeholder(ident, spec));
             }
         }
     }
 
-    // A single chunk needs no `+`. Multiple chunks: glue with `+`. We
-    // start with `""` so the result type is always String even when the
-    // first chunk is a method call that the inferencer might want to
-    // double-check (`("x").to_str() + ...` already strings-out, but the
-    // explicit `"" + ...` head also helps when the template starts with
-    // a placeholder and the user wraps the call in `log(...)`).
     let body = if chunks.len() == 1 {
         chunks.remove(0)
     } else {
-        // Build (((""+a)+b)+c) shape — Mighty's `+` on strings is
-        // left-associative and concat semantics live in the runtime.
         let mut out = String::from("\"\"");
         for chunk in chunks {
             out = format!("({} + {})", out, chunk);
@@ -444,7 +738,7 @@ mod tests {
             vec![
                 FormatPiece::Literal("x=".into()),
                 FormatPiece::Positional {
-                    kind: ConvKind::Display
+                    spec: FormatSpec::display(),
                 },
             ]
         );
@@ -452,68 +746,46 @@ mod tests {
 
     #[test]
     fn parse_hex_via_spec() {
-        // Hex conversion is the `:x` / `:X` spec, not a placeholder
-        // shorthand. `{x}` / `{X}` are named-arg passthroughs, NOT
-        // positional hex placeholders (Rust convention).
         let pieces = parse_template("0x{:x} 0x{:X}").unwrap();
-        assert_eq!(
-            pieces,
-            vec![
-                FormatPiece::Literal("0x".into()),
-                FormatPiece::Positional {
-                    kind: ConvKind::HexLower
-                },
-                FormatPiece::Literal(" 0x".into()),
-                FormatPiece::Positional {
-                    kind: ConvKind::HexUpper
-                },
-            ]
-        );
+        match &pieces[1] {
+            FormatPiece::Positional { spec } => assert_eq!(spec.kind, ConvKind::HexLower),
+            other => panic!("expected Positional, got {other:?}"),
+        }
+        match &pieces[3] {
+            FormatPiece::Positional { spec } => assert_eq!(spec.kind, ConvKind::HexUpper),
+            other => panic!("expected Positional, got {other:?}"),
+        }
     }
 
     #[test]
     fn parse_bare_named_idents() {
-        // `{x}` and `{X}` are NAMED-arg passthroughs, not hex.
         let pieces = parse_template("{x} and {X}").unwrap();
-        assert_eq!(
-            pieces,
-            vec![
-                FormatPiece::Named {
-                    ident: "x".into(),
-                    kind: ConvKind::Display
-                },
-                FormatPiece::Literal(" and ".into()),
-                FormatPiece::Named {
-                    ident: "X".into(),
-                    kind: ConvKind::Display
-                },
-            ]
-        );
+        match &pieces[0] {
+            FormatPiece::Named { ident, spec } => {
+                assert_eq!(ident, "x");
+                assert_eq!(spec.kind, ConvKind::Display);
+            }
+            other => panic!("expected Named, got {other:?}"),
+        }
+        match &pieces[2] {
+            FormatPiece::Named { ident, spec } => {
+                assert_eq!(ident, "X");
+                assert_eq!(spec.kind, ConvKind::Display);
+            }
+            other => panic!("expected Named, got {other:?}"),
+        }
     }
 
     #[test]
     fn parse_named_with_hex_spec() {
         let pieces = parse_template("cell {x},{y} = {color:x}").unwrap();
-        assert_eq!(
-            pieces,
-            vec![
-                FormatPiece::Literal("cell ".into()),
-                FormatPiece::Named {
-                    ident: "x".into(),
-                    kind: ConvKind::Display
-                },
-                FormatPiece::Literal(",".into()),
-                FormatPiece::Named {
-                    ident: "y".into(),
-                    kind: ConvKind::Display
-                },
-                FormatPiece::Literal(" = ".into()),
-                FormatPiece::Named {
-                    ident: "color".into(),
-                    kind: ConvKind::HexLower
-                },
-            ]
-        );
+        match &pieces[5] {
+            FormatPiece::Named { ident, spec } => {
+                assert_eq!(ident, "color");
+                assert_eq!(spec.kind, ConvKind::HexLower);
+            }
+            other => panic!("expected Named, got {other:?}"),
+        }
     }
 
     #[test]
@@ -535,20 +807,128 @@ mod tests {
     }
 
     #[test]
-    fn parse_width_spec_is_unsupported() {
-        let e = parse_template("{:05}").unwrap_err();
+    fn parse_width_basic() {
+        let pieces = parse_template("{:5}").unwrap();
+        match &pieces[0] {
+            FormatPiece::Positional { spec } => {
+                assert_eq!(spec.width, Some(5));
+                assert_eq!(spec.kind, ConvKind::Display);
+                assert!(!spec.zero_pad);
+            }
+            other => panic!("expected Positional, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_zero_pad_width() {
+        let pieces = parse_template("{:05}").unwrap();
+        match &pieces[0] {
+            FormatPiece::Positional { spec } => {
+                assert_eq!(spec.width, Some(5));
+                assert!(spec.zero_pad);
+                assert_eq!(spec.fill, '0');
+                assert_eq!(spec.align, Some(Alignment::Right));
+            }
+            other => panic!("expected Positional, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_align_only() {
+        for (raw, want) in [
+            ("<5", Alignment::Left),
+            (">5", Alignment::Right),
+            ("^5", Alignment::Center),
+        ] {
+            let template = format!("{{:{raw}}}");
+            let pieces = parse_template(&template).unwrap();
+            match &pieces[0] {
+                FormatPiece::Positional { spec } => {
+                    assert_eq!(spec.align, Some(want));
+                    assert_eq!(spec.width, Some(5));
+                }
+                other => panic!("expected Positional, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn parse_fill_char_with_align() {
+        let pieces = parse_template("{:*<5}").unwrap();
+        match &pieces[0] {
+            FormatPiece::Positional { spec } => {
+                assert_eq!(spec.fill, '*');
+                assert_eq!(spec.align, Some(Alignment::Left));
+                assert_eq!(spec.width, Some(5));
+            }
+            other => panic!("expected Positional, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_precision() {
+        let pieces = parse_template("{:.3}").unwrap();
+        match &pieces[0] {
+            FormatPiece::Positional { spec } => {
+                assert_eq!(spec.precision, Some(3));
+                assert_eq!(spec.kind, ConvKind::Display);
+            }
+            other => panic!("expected Positional, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_sign_plus() {
+        let pieces = parse_template("{:+}").unwrap();
+        match &pieces[0] {
+            FormatPiece::Positional { spec } => {
+                assert!(spec.sign_plus);
+            }
+            other => panic!("expected Positional, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_alternate_hex() {
+        let pieces = parse_template("{:#x}").unwrap();
+        match &pieces[0] {
+            FormatPiece::Positional { spec } => {
+                assert!(spec.alternate);
+                assert_eq!(spec.kind, ConvKind::HexLower);
+            }
+            other => panic!("expected Positional, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_combined_alt_zero_width_hex() {
+        let pieces = parse_template("{:#05x}").unwrap();
+        match &pieces[0] {
+            FormatPiece::Positional { spec } => {
+                assert!(spec.alternate);
+                assert!(spec.zero_pad);
+                assert_eq!(spec.width, Some(5));
+                assert_eq!(spec.kind, ConvKind::HexLower);
+            }
+            other => panic!("expected Positional, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_indexed_positional_unsupported() {
+        let e = parse_template("{0}").unwrap_err();
         assert!(matches!(e, FormatExpandError::UnsupportedSpec { .. }));
     }
 
     #[test]
-    fn parse_precision_spec_is_unsupported() {
-        let e = parse_template("{:.3}").unwrap_err();
+    fn parse_dynamic_width_unsupported() {
+        let e = parse_template("{:1$}").unwrap_err();
         assert!(matches!(e, FormatExpandError::UnsupportedSpec { .. }));
     }
 
     #[test]
-    fn parse_align_spec_is_unsupported() {
-        let e = parse_template("{:>10}").unwrap_err();
+    fn parse_dynamic_precision_unsupported() {
+        let e = parse_template("{:.*}").unwrap_err();
         assert!(matches!(e, FormatExpandError::UnsupportedSpec { .. }));
     }
 
@@ -616,8 +996,6 @@ mod tests {
 
     #[test]
     fn expand_bare_x_is_named_arg() {
-        // `{x}` is a named-arg passthrough — the expander emits
-        // `(x).to_str()`, NOT a positional `(arg).to_hex_str()`.
         let out = expand_format_call(&["\"{x}\""]).unwrap();
         assert!(out.contains("(x).to_str()"), "got: {out}");
         assert!(!out.contains("to_hex_str"), "got: {out}");
@@ -653,8 +1031,27 @@ mod tests {
     #[test]
     fn expand_double_brace_literal() {
         let out = expand_format_call(&["\"{{}}\""]).unwrap();
-        // The expansion contains a string literal `{}`. Because we
-        // escape on emit, the raw chars in the output source are `\"{}\"`.
         assert!(out.contains("\"{}\""), "got: {out}");
+    }
+
+    #[test]
+    fn expand_width_emits_pad_call() {
+        let out = expand_format_call(&["\"{:5}\"", "n"]).unwrap();
+        assert!(out.contains("pad_str(5"), "got: {out}");
+    }
+
+    #[test]
+    fn expand_zero_pad_emits_zero_fill() {
+        let out = expand_format_call(&["\"{:05}\"", "n"]).unwrap();
+        assert!(out.contains("pad_str(5"), "got: {out}");
+        assert!(out.contains("'0'"), "got: {out}");
+        assert!(out.contains("\"right\""), "got: {out}");
+    }
+
+    #[test]
+    fn expand_alt_hex_emits_alternate_flag() {
+        let out = expand_format_call(&["\"{:#x}\"", "255"]).unwrap();
+        assert!(out.contains("to_hex_str_spec"), "got: {out}");
+        assert!(out.contains("false, true"), "got: {out}");
     }
 }

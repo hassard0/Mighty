@@ -53,9 +53,18 @@ pub const PROC_MACRO_RESOURCE_EXCEEDED: u16 = codes::PROC_MACRO_RESOURCE_EXCEEDE
 /// unbalanced braces, bad named-arg ident). v0.24.
 pub const MACRO_FORMAT_BAD_TEMPLATE: u16 = codes::MACRO_FORMAT_BAD_TEMPLATE.0;
 
-/// MT6010 — `format!` template used a spec the v0.24 expander doesn't
-/// understand (width/precision/alignment/fill). v0.24.
+/// MT6010 — `format!` template used a spec the expander doesn't
+/// understand. v0.25 narrows this to indexed-positional + dynamic
+/// width/precision (v0.26 follow-ups).
 pub const MACRO_FORMAT_UNSUPPORTED_SPEC: u16 = codes::MACRO_FORMAT_UNSUPPORTED_SPEC.0;
+
+/// MT6011 — `format!` template width is malformed (overflows U32 or
+/// non-digit characters where digits expected). v0.25 Track D.
+pub const MACRO_FORMAT_BAD_WIDTH: u16 = codes::MACRO_FORMAT_BAD_WIDTH.0;
+
+/// MT6012 — `format!` template precision is malformed (overflows U32
+/// or missing digits after `.`). v0.25 Track D.
+pub const MACRO_FORMAT_BAD_PRECISION: u16 = codes::MACRO_FORMAT_BAD_PRECISION.0;
 
 /// Human-readable explanation for an SD6xxx code. v0.6: delegates to
 /// `mty_diagnostics::codes::explain` so the catalog stays
@@ -81,5 +90,11 @@ mod tests {
     fn format_codes_are_explainable() {
         assert!(explain(MACRO_FORMAT_BAD_TEMPLATE).is_some());
         assert!(explain(MACRO_FORMAT_UNSUPPORTED_SPEC).is_some());
+    }
+
+    #[test]
+    fn format_v0_25_codes_are_explainable() {
+        assert!(explain(MACRO_FORMAT_BAD_WIDTH).is_some());
+        assert!(explain(MACRO_FORMAT_BAD_PRECISION).is_some());
     }
 }
