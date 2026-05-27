@@ -20,7 +20,6 @@
 // notes and the v0.26 plan for the wasm32-web export-callback
 // dispatch path (single-agent-instance pattern living in linear
 // memory).
-
 protocol GridOps {
   Get(i: U32) -> I32
   Tick() -> Unit

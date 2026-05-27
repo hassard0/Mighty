@@ -24,9 +24,7 @@
 //
 // (`_` prefix on helper fns keeps them out of the WIT export world; the
 // example focus is the API surface, not exportability.)
-
 // ----- String surface ---------------------------------------------------
-
 // Empty owned UTF-8 buffer, growable via push/push_str.
 fn _make_empty_string() -> String {
   String.new()

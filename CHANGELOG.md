@@ -9,34 +9,131 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- v0.25-RC1 candidates (from v0.24 Track E's surfaced gap
-  inventory + Track B deferred items): (1) HIR → IR routing for
-  `canvas.fill_rect(...)` — add `CapFamily::Canvas` +
-  `is_canvas_handle_receiver` predicate in
-  `mty-ir/src/lower/exprs.rs` next to the DOM branch, closing
-  Track E gap A end-to-end so demo 06's JS shim can drop from
-  213 LOC to ~50 LOC; (2) Unit-returning user-fn call stack-
-  balance fix — the latent wasm32-web emitter bug Track E gap B
-  surfaced (reproduces against v0.23.0; not a v0.24 regression;
-  KNOWN_ISSUES #8), likely `declare_fns` not pushing the implicit
-  stack-frame i32 for callsites targeting Unit-returning user fns
-  when the result isn't consumed; (3) agent state across exported
-  callbacks + arrays in agent fields — combined Track E gaps C +
-  D (either top-level `spawn`-once + `send` pattern that the
-  export-fn prologue dispatches into, or module-scope `let mut`
-  wired to a wasm global the callbacks share, plus extending the
-  agent state-field grammar to accept type annotation + array
-  literal `board: [U32; 200] = [0; 200]`); (4) `extern js { fn
-  _foo() }` emits wasm imports — Track E gap E; the wasm32-web
-  emitter needs an `extern js`-block walker analogous to the
-  native `extern c` block path; (5) `format!()` extended specs —
-  width `{:5}`, precision `{:.3}`, alignment `{:>10}` (Track B
-  deferred; Track E gap F). Plus the carry-forward items from
-  v0.23 (MT3012 / BOLT / multi-socket NUMA bench / `mty conform
+- v0.26-RC1 candidates (from v0.25 Track F's 5 surfaced gaps):
+  (1) **wasm32-web agent persistence emitter-side** — Track C
+  v0.25 pinned the SIR-runtime side; the emitter has no agent
+  lowering. Implement the single-agent-instance pattern Track C
+  designed: `Emitter::emit_agent_state_region` reserves a fixed
+  memory region per agent declaration, anchored at a stable
+  offset, `__agent_<Name>__inst_ptr` global, callback exports
+  load state pointer + call handler with state as implicit
+  first arg. Closes the demo 06 V2 shim's ~12 LOC state mirror.
+  (2) **extern_js kebab-vs-leading-underscore drift through
+  component encode** — `predeclare_extern_js_imports` preserves
+  `_alert` in the wasm import but `emit_extern_js_interface`
+  kebab-strips it, so `wit-component`'s `wrap_as_component` step
+  fails with "import interface `mty:web/js` is missing function
+  `_alert`". Pick: preserve `_` in the WIT stub (`%_alert`-style
+  escape, needs WIT spec verification) OR strip the leading `_`
+  in the import name (back-compat-breaking).
+  (3) **Canvas handle taint propagation through fn parameters** —
+  v0.25 Track A's taint scheme is per-fn; passing a Canvas
+  handle as a parameter to another fn doesn't carry the taint.
+  Propagate the taint through fn parameter types when the param
+  resolves to `std.web.Canvas`; likely needs exposing
+  `std.web.Canvas` in the typeck prelude first.
+  (4) **`const` identifier resolution in match patterns** —
+  `const KEY_LEFT: U32 = 37` referenced in a match arm
+  `KEY_LEFT => ...` binds as a fresh variable, not a literal
+  compare. Pattern-compile resolve top-level `const` identifiers
+  before falling through to the variable-binding path.
+  (5) **`format!()` v0.26 deferrals** — accept `format!("{n}",
+  n=value)` named-arg shorthand alongside the in-scope-binding
+  form; positional `{0}`; dynamic width / precision (`{:1$}`,
+  `{:.*}`). Plus the carry-forward items from v0.23 / v0.24
+  (MT3012 / BOLT / multi-socket NUMA bench / `mty conform
   <kit.tar.gz>` / spec validation sweep) if they don't fit into
-  v0.25's swarm budget. There is **no remaining Post-v1.0
+  v0.26's swarm budget. There is **no remaining Post-v1.0
   backlog** — only RFC comment windows stand between current main
   and v1.0 GA.
+
+## [0.25.0] - 2026-05-26
+
+**Closed all 7 v0.24 demo-blocking gaps + extended `format!()` +
+real `std.String` / `std.Vec[T]`. Demo 06 V2 shim −48 %.** v0.25
+is a six-track parallel swarm that closes every gap v0.24 Track
+E flagged for v0.25 plus extends the language surface with two
+foundational stdlib types. **Track A** wires `canvas.fill_rect(...)`
+through HIR → IR → wasm32-web import via a per-fn canvas-handle
+taint scheme on `FnBuilder::canvas_locals` (constructor taints
+the result local; `bind_pat_assign` propagates through let-
+rebind; `lower_expr::MethodCall` and `lower_call`'s local-method-
+call arm route tainted-receiver calls to `BuiltinId::CanvasOp`)
++ fixes the latent Unit-returning user-fn stack-balance bug
+(`emit_call`'s `FnRef::User` arm now pushes a placeholder
+`i32.const 0` for Unit / Never callees, matching every other
+arm) — closes v0.24 Track E gaps A + B + KNOWN_ISSUES P2 #8;
+24 new tests. **Track B** lifts `extern js { fn _foo() }`
+into real `(import "mty:web/js" "_foo" ...)` entries via a new
+`Program::extern_bindings` IR side-table populated by
+`record_extern_bindings` in `register_fn_shells`, an
+`Emitter::predeclare_extern_js_imports` pre-declare pass that
+runs before `declare_fns` (so the function-index space is
+correct), and a per-program `interface js { ... }` WIT stub —
+closes v0.24 Track E gap E; 13 new tests. **Track C** fixes
+agent fields with `[T; N]` types — the parser already accepted
+the surface, but HIR lowering's `TYPE_ARRAY` arm dropped the
+length expression (`len: None` → slice degrade); 12-line fix
+captures the expression as `ExprId` and passes `len = Some(...)`
+through to the downstream `const_eval_len` path. Plus pins SIR-
+runtime cross-callback persistence with three regression tests
+(persistence already worked there; never tested). Designs the
+wasm32-web single-agent-instance pattern for v0.26 — closes
+v0.24 Track E gaps C + D; 12 new tests. **Track D** extends
+`format!()` to the full Rust layout grammar
+(`[[fill]align][sign][#][0][width][.precision][type]`): `{:5}`,
+`{:05}`, `{:<5}` / `{:>5}` / `{:^5}`, `{:*<5}` fill char,
+`{:.3}` precision, `{:+}` sign, `{:#x}` / `{:#X}` / `{:#b}` /
+`{:#o}` alt prefixes, `{:b}` / `{:o}` no-prefix. Combined specs
+respect canonical ordering (`{:#05x}` → `0x0ff`). New
+diagnostics MT6011 (`UNSUPPORTED_FORMAT_TYPE`), MT6012
+(`MALFORMED_FORMAT_WIDTH`), MT6013 (`MALFORMED_FORMAT_PRECISION`).
+Defers positional `{0}`, dynamic `{:1$}`/`{:.*}`, explicit
+`n=v` named-arg passthrough to v0.26 — closes v0.24 Track E
+gap F; 64 new tests + 6 conformance fixtures. **Track E**
+lands real `std.String` (UTF-8 byte string, `Vec<u8>`-backed,
+`String.new` / `with_capacity` / `from_str` / `from_utf8` /
+`len` (bytes) / `push_str` / `push` / `clear` cap-preserve /
+`as_str` / `to_str`, no `unsafe`) and `std.Vec[T]`
+(`#[repr(transparent)]` over `std::vec::Vec<T>` so the wasm
+Component ABI `list<T>` layout matches; `new` / `with_capacity` /
+`push` / `pop` / `get` / `len` / `is_empty` / `clear` / `iter`)
+in `mty-stdlib`; new `examples/26_string_vec.mty`; 41 unit
+tests. **Track F** rewrites demo 06_canvas_game canvas-direct
+against Tracks A–E's outputs — `agent Notetris: NotetrisInput
+{ board: [U32; 200] = [0; 200], score = 0, ... }` is the
+protocol of record, `frame(dt)` opens `let canvas = ...` and
+routes 30+ render ops through the local, HUD lines use
+`format!("score: {:>4}", n)`. JS shim drops **213 → 110 LOC
+(−48 %)**; Mighty source grows 186 → 313 LOC (now carries the
+canonical agent decl + canvas-direct render + Vec[U32] board
+construction). Surfaces **5 narrow v0.26 gaps**: (§A) canvas-
+handle taint through fn params; (§B) extern_js kebab-vs-`_`
+drift through `wit-component`; (§C) wasm32-web agent
+persistence emitter-side; (§D) `const` identifier in match
+patterns; (§E) `format!("{n}", n=value)` named-arg shorthand.
+**Integrator fixes (this tag commit):** orchestrator commit
+`4b8ae7a` ("ci: fix clippy-strict failures across v0.25
+swarm") pinned 5 cross-track clippy-strict lints
+(`manual_let_else` + 4 others) the unified
+`-D warnings` sweep surfaced that no individual track ran;
+this tag commit fixes two example-file formatter idempotence
+drifts in `examples/25_agent_array.mty` (CRLF line ending) +
+`examples/26_string_vec.mty` (blank lines around a `// -----`
+divider). **KNOWN_ISSUES net: −1.** P2 #8 (wasm32-web Unit-fn
+stack-balance) resolved by Track A's `emit_call` fix; P2 #9
+(demo 06 RAF-mid-frame phash flake, 4/5 success, not a
+required-gate blocker) stays open. P1 stays empty. **v1.0
+freeze gate status: unchanged structurally.** Blockers #1 + #3
+stay CLOSED; #2 (8 RFC comment windows) infra + dashboard
+stay live; earliest possible v1.0.0 tag remains
+**2026-07-26**. Conformance kit grows **156 → 159 cases**
+(+6 new `format_*` fixtures, replaces 3 v0.24 stubs). Rust
+test count grows **1675 → 1790** (+115). Python grows **474 →
+490** (+16; format-spec parser tests). Self-host driver still
+at **23**. Driver bucket grows **153 → 173** (+20). Combined:
+**2476** (+148). See
+[`dev/history/releases/RELEASE-v0.25.md`](dev/history/releases/RELEASE-v0.25.md).
 
 ## [0.24.0] - 2026-05-26
 
