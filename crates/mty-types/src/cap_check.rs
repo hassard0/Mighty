@@ -264,6 +264,12 @@ fn collect_expr(
             collect_expr(pkg, cond, out);
             collect_block_exprs(pkg, body, out);
         }
+        HirExpr::WhileLet {
+            scrutinee, body, ..
+        } => {
+            collect_expr(pkg, scrutinee, out);
+            collect_block_exprs(pkg, body, out);
+        }
         HirExpr::Loop { body } | HirExpr::Unsafe(body) | HirExpr::TaskScope { body, .. } => {
             collect_block_exprs(pkg, body, out)
         }

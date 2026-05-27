@@ -84,6 +84,29 @@ fn sum_evens(n: I32) -> I32 {
   shipped grammar — `break` always exits the innermost loop. Tracked
   by amendment A82 (DEFER-V1.1).
 
+## `while let` — pattern-driven loops
+
+A `while let` loop iterates as long as the scrutinee keeps matching
+a pattern. It's the canonical shape for draining anything that
+yields `Option[T]` until exhaustion — the most common case being a
+stream pulled one chunk at a time:
+
+```mty
+fn drain(stream: MessageStream) {
+  while let Some(chunk) = stream.next() {
+    handle(chunk)
+  }
+}
+```
+
+The scrutinee is re-evaluated every iteration; the bindings
+introduced by the pattern (`chunk` above) are in scope only inside
+the body. The loop exits the moment the pattern fails — for
+`Option[T]`, that's the first `None`. `break` and `continue` work
+exactly as in plain `while`. There is no `else` branch (unlike
+`if let`); use a follow-up statement if you need post-loop fallback
+work.
+
 There is no `defer`. Deterministic cleanup is handled by ownership
 and destructors. See [spec §11.4](../spec/v1.0-rc.md).
 

@@ -429,6 +429,12 @@ fn walk_expr(
         HirExpr::Loop { body } | HirExpr::While { body, .. } | HirExpr::For { body, .. } => {
             walk_block(solver, typed, pkg, body, state);
         }
+        HirExpr::WhileLet {
+            scrutinee, body, ..
+        } => {
+            walk_expr(solver, typed, pkg, scrutinee, state);
+            walk_block(solver, typed, pkg, body, state);
+        }
         HirExpr::Return(inner) | HirExpr::Break(inner) => {
             if let Some(e) = inner {
                 walk_expr(solver, typed, pkg, e, state);

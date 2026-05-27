@@ -734,6 +734,32 @@ fn walk_expr_for_user_row_violations(
                 diagnostics,
             );
         }
+        HirExpr::WhileLet {
+            scrutinee, body, ..
+        } => {
+            walk_expr_for_user_row_violations(
+                *scrutinee,
+                pkg,
+                defs,
+                arena,
+                known,
+                user_row_poly,
+                declared,
+                enforce_subsumption,
+                diagnostics,
+            );
+            walk_block_for_user_row_violations(
+                *body,
+                pkg,
+                defs,
+                arena,
+                known,
+                user_row_poly,
+                declared,
+                enforce_subsumption,
+                diagnostics,
+            );
+        }
         HirExpr::Loop { body } => walk_block_for_user_row_violations(
             *body,
             pkg,
@@ -1047,6 +1073,20 @@ fn walk_expr_for_row_violations(
         }
         HirExpr::While { cond, body } => {
             walk_expr_for_row_violations(*cond, pkg, defs, arena, known, declared, diagnostics);
+            walk_block_for_row_violations(*body, pkg, defs, arena, known, declared, diagnostics);
+        }
+        HirExpr::WhileLet {
+            scrutinee, body, ..
+        } => {
+            walk_expr_for_row_violations(
+                *scrutinee,
+                pkg,
+                defs,
+                arena,
+                known,
+                declared,
+                diagnostics,
+            );
             walk_block_for_row_violations(*body, pkg, defs, arena, known, declared, diagnostics);
         }
         HirExpr::Loop { body } => {
@@ -1854,6 +1894,21 @@ fn walk_expr_effects(
         }
         HirExpr::While { cond, body } => {
             walk_expr_effects(*cond, pkg, defs, arena, known, user_row_poly, out, callees);
+            walk_block_effects(*body, pkg, defs, arena, known, user_row_poly, out, callees);
+        }
+        HirExpr::WhileLet {
+            scrutinee, body, ..
+        } => {
+            walk_expr_effects(
+                *scrutinee,
+                pkg,
+                defs,
+                arena,
+                known,
+                user_row_poly,
+                out,
+                callees,
+            );
             walk_block_effects(*body, pkg, defs, arena, known, user_row_poly, out, callees);
         }
         HirExpr::Loop { body } => {

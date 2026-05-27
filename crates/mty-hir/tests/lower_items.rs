@@ -103,6 +103,42 @@ fn lower_plain_if_still_works() {
     assert!(!has_iflet, "plain if should NOT lower to IfLet");
 }
 
+// ---- v0.29 Track D: while let lowering ----
+
+#[test]
+fn lower_while_let_expr() {
+    let p = lower("fn f() { while let Some(x) = iter.next() { use_x(x) } }");
+    let has_while_let = p
+        .exprs
+        .iter()
+        .any(|(_, e)| matches!(e, mty_hir::HirExpr::WhileLet { .. }));
+    assert!(has_while_let, "expected HirExpr::WhileLet");
+    // And there must NOT be a plain While (we shouldn't double-lower).
+    let has_plain_while = p
+        .exprs
+        .iter()
+        .any(|(_, e)| matches!(e, mty_hir::HirExpr::While { .. }));
+    assert!(
+        !has_plain_while,
+        "while-let must lower to WhileLet, not plain While"
+    );
+}
+
+#[test]
+fn lower_plain_while_still_works() {
+    let p = lower("fn f() { while ready() { step() } }");
+    let has_while = p
+        .exprs
+        .iter()
+        .any(|(_, e)| matches!(e, mty_hir::HirExpr::While { .. }));
+    let has_while_let = p
+        .exprs
+        .iter()
+        .any(|(_, e)| matches!(e, mty_hir::HirExpr::WhileLet { .. }));
+    assert!(has_while, "expected HirExpr::While");
+    assert!(!has_while_let, "plain while should NOT lower to WhileLet");
+}
+
 #[test]
 fn lower_run_expr() {
     let p = lower("fn f() { run g() }");

@@ -638,6 +638,12 @@ fn collect_expr_kinds(pkg: &Package, eid: mty_hir::ids::ExprId, out: &mut Vec<St
                 collect_expr_kinds(pkg, *e, out);
             }
         }
+        HirExpr::WhileLet {
+            scrutinee, body, ..
+        } => {
+            collect_expr_kinds(pkg, *scrutinee, out);
+            collect_expr_kinds_block(pkg, *body, out);
+        }
         HirExpr::Run(e) => collect_expr_kinds(pkg, *e, out),
         HirExpr::Error => {}
     }
@@ -685,6 +691,7 @@ fn expr_kind_name(e: &HirExpr) -> String {
         HirExpr::Cast { .. } => "Cast",
         HirExpr::Lambda { .. } => "Lambda",
         HirExpr::IfLet { .. } => "IfLet",
+        HirExpr::WhileLet { .. } => "WhileLet",
         HirExpr::Run(_) => "Run",
         HirExpr::Error => "Error",
     }

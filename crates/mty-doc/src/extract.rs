@@ -1104,6 +1104,12 @@ fn visit_expr(
             visit_expr(pkg, *cond, owner, names, accum);
             visit_block(pkg, *body, owner, names, accum);
         }
+        WhileLet {
+            scrutinee, body, ..
+        } => {
+            visit_expr(pkg, *scrutinee, owner, names, accum);
+            visit_block(pkg, *body, owner, names, accum);
+        }
         Loop { body } => visit_block(pkg, *body, owner, names, accum),
         Return(Some(e)) => visit_expr(pkg, *e, owner, names, accum),
         Block(b) => visit_block(pkg, *b, owner, names, accum),

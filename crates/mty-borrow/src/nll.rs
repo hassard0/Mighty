@@ -196,6 +196,12 @@ impl<'a> Pre<'a> {
                 self.visit_expr(cond);
                 self.visit_block(body);
             }
+            HirExpr::WhileLet {
+                scrutinee, body, ..
+            } => {
+                self.visit_expr(scrutinee);
+                self.visit_block(body);
+            }
             HirExpr::Loop { body } => self.visit_block(body),
             HirExpr::Return(e) => {
                 if let Some(x) = e {
