@@ -55,6 +55,11 @@ ast_node!(GenericArgList, GENERIC_ARG_LIST);
 ast_node!(GenericArg, GENERIC_ARG);
 ast_node!(Visibility, VISIBILITY);
 
+// v0.27 Track A: `@tool(...)` attribute prefix.
+ast_node!(ToolAttr, TOOL_ATTR);
+ast_node!(ToolAttrArgs, TOOL_ATTR_ARGS);
+ast_node!(ToolAttrCapArg, TOOL_ATTR_CAP_ARG);
+
 // Common accessors:
 impl File {
     pub fn items(&self) -> impl Iterator<Item = SyntaxNode> + '_ {

@@ -101,10 +101,26 @@ pub fn preprocess(source: &str) -> Preprocessed {
     let mut scope_gen = ScopeGen::new();
     let mut macro_trace: Vec<MacroExpansionRecord> = vec![];
 
+    // v0.27 Track A: hoist `@tool(...)` attribute prefixes BEFORE the
+    // declarative macro pass runs. The attribute pass:
+    //   1. Walks each FN_DECL with a TOOL_ATTR child
+    //   2. Calls `mty_macros::expand_builtin_attribute("tool", ...)`
+    //   3. Splices the synthesised `__tool_*` companions after the user
+    //      fn in the source text
+    //   4. Strips the `@tool(args)` prefix so subsequent parser passes
+    //      don't re-hit it
+    //
+    // Running it before the macro loop means any descriptor / invoke /
+    // register fn the expander returns is visible to the rest of the
+    // pipeline as a plain top-level item.
+    let attr_result = expand_tool_attributes(&current);
+    current = attr_result.source;
+    diags.extend(attr_result.diagnostics);
+
     // MT6005: check every proc-macro decl's purity once, before expansion.
     // This is a static check so we only need to run it on the original
     // source (subsequent expansion passes don't change decls).
-    diags.extend(check_proc_macros(source));
+    diags.extend(check_proc_macros(&current));
 
     for depth in 0..=MAX_EXPANSION_DEPTH {
         let parsed = mty_syntax::parse(&current);
@@ -1063,6 +1079,241 @@ fn diag_proc_macro_resource(
             "sandboxed proc-macro expansion is bounded by wall-clock, step, and memory caps"
                 .to_string(),
         ],
+        helps: vec![],
+    }
+}
+
+// ---------------------------------------------------------------------
+// v0.27 Track A: attribute-macro preprocessing
+// ---------------------------------------------------------------------
+
+/// Output of [`expand_tool_attributes`].
+struct AttrPassResult {
+    source: String,
+    diagnostics: Vec<Diagnostic>,
+}
+
+/// Walk every `@tool(...)`-decorated fn in `source`, run the v0.26
+/// `tool` macro expander, splice the synthesised companion fns after
+/// the user's fn, and strip the `@tool(args)` prefix from the source.
+///
+/// The result is a fully-rewritten `source` string the rest of the
+/// HIR preprocessor consumes unchanged. Any expander error (MT6011..
+/// MT6016) surfaces as a HIR-layer diagnostic at the attribute span.
+fn expand_tool_attributes(source: &str) -> AttrPassResult {
+    let parsed = mty_syntax::parse(source);
+    let root = SyntaxNode::new_root(parsed.green);
+    let Some(file) = File::cast(root) else {
+        return AttrPassResult {
+            source: source.to_string(),
+            diagnostics: vec![],
+        };
+    };
+
+    struct Site {
+        /// Whole `@tool(...)` prefix span — what we strip.
+        attr_start: usize,
+        attr_end: usize,
+        /// User's fn span — what the synthesised companions get
+        /// spliced AFTER.
+        fn_end: usize,
+        /// The expanded source we splice in.
+        expansion: Result<
+            mty_macros::stdlib::tool::ToolExpansion,
+            mty_macros::stdlib::tool::ToolMacroError,
+        >,
+    }
+
+    let mut sites: Vec<Site> = vec![];
+
+    for fn_node in file
+        .0
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::FN_DECL)
+    {
+        let Some(attr) = mty_ast::ToolAttr::for_fn_decl(&fn_node) else {
+            continue;
+        };
+        // Only handle attributes whose name is `tool` (others were
+        // already MT1003'd at the parser layer).
+        if attr.name() != "tool" {
+            continue;
+        }
+        // Build the ParsedFn view the macro expander needs.
+        let Some(parsed_fn) = build_parsed_fn(&fn_node, source) else {
+            continue;
+        };
+        let attr_args = collect_attr_args(&attr);
+        let attr_args_refs: Vec<&str> = attr_args.iter().map(|s| s.as_str()).collect();
+        let result = mty_macros::stdlib::tool::expand_tool_attribute(&attr_args_refs, &parsed_fn);
+
+        let attr_range = attr.syntax().text_range();
+        let fn_range = fn_node.text_range();
+        sites.push(Site {
+            attr_start: usize::from(attr_range.start()),
+            attr_end: usize::from(attr_range.end()),
+            fn_end: usize::from(fn_range.end()),
+            expansion: result,
+        });
+    }
+
+    if sites.is_empty() {
+        return AttrPassResult {
+            source: source.to_string(),
+            diagnostics: vec![],
+        };
+    }
+
+    // Rewrites are applied right-to-left to keep byte offsets valid.
+    // We DON'T strip the `@tool(args)` prefix — leaving it in source
+    // means the next parser pass keeps the TOOL_ATTR child on the
+    // FN_DECL, so `mty_ast::ToolAttr::for_fn_decl` still works at HIR
+    // lowering time (which is how the typed AST surface carries the
+    // attribute through to `HirFn.tool_attr`). The parser accepts the
+    // prefix; the synthesised companion fns get appended after the
+    // user's fn.
+    let mut diagnostics: Vec<Diagnostic> = vec![];
+    let mut rewrites: Vec<(usize, usize, String)> = vec![];
+    for site in &sites {
+        match &site.expansion {
+            Ok(exp) => {
+                let companions = exp.synthesised_decls.join("\n");
+                // Splice companions right after the fn.
+                rewrites.push((site.fn_end, site.fn_end, format!("\n{companions}")));
+            }
+            Err(err) => {
+                diagnostics.push(diag_tool_attr_error(site.attr_start, site.attr_end, err));
+            }
+        }
+    }
+    // Sort by offset and apply in reverse.
+    rewrites.sort_by_key(|(s, _, _)| *s);
+    let mut current = source.to_string();
+    for (s, e, with) in rewrites.into_iter().rev() {
+        current.replace_range(s..e, &with);
+    }
+
+    AttrPassResult {
+        source: current,
+        diagnostics,
+    }
+}
+
+/// Build a `ParsedFn` view (the shape the v0.26 macro expander
+/// expects) from a FN_DECL CST node.
+fn build_parsed_fn(
+    fn_node: &SyntaxNode,
+    source: &str,
+) -> Option<mty_macros::stdlib::tool::ParsedFn> {
+    use mty_macros::stdlib::tool::{ParsedFn, ParsedParam};
+    let fn_ast = mty_ast::FnDecl::cast(fn_node.clone())?;
+    let name = fn_ast.name()?.text();
+    // Generics: the parser tucks them under GENERIC_PARAM_LIST.
+    let has_generics = fn_node
+        .children()
+        .any(|c| c.kind() == SyntaxKind::GENERIC_PARAM_LIST);
+    // Params: walk FN_PARAM children, grab the name + type text.
+    let params = fn_ast
+        .param_list()
+        .map(|pl| {
+            pl.syntax()
+                .children()
+                .filter_map(mty_ast::FnParam::cast)
+                .map(|p| {
+                    let pname = p
+                        .syntax()
+                        .children()
+                        .find_map(mty_ast::Name::cast)
+                        .map(|n| n.text())
+                        .unwrap_or_default();
+                    // Type text: any child whose kind is a type node.
+                    let mty_type = p
+                        .syntax()
+                        .children()
+                        .find(|c| {
+                            matches!(
+                                c.kind(),
+                                SyntaxKind::TYPE_PATH
+                                    | SyntaxKind::TYPE_BORROW
+                                    | SyntaxKind::TYPE_TUPLE
+                                    | SyntaxKind::TYPE_ARRAY
+                                    | SyntaxKind::TYPE_FN
+                                    | SyntaxKind::TYPE_RESULT_SUGAR
+                                    | SyntaxKind::TYPE_UNION
+                                    | SyntaxKind::TYPE_DYN
+                            )
+                        })
+                        .map(|n| n.text().to_string())
+                        .unwrap_or_default();
+                    ParsedParam {
+                        name: pname,
+                        mty_type,
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    // Return type: look under RET_TYPE.
+    let ret_ty = fn_ast
+        .ret_type()
+        .and_then(|r| r.syntax().children().next())
+        .map(|n| n.text().to_string())
+        .unwrap_or_default();
+    // Source slice for the fn (verbatim, for round-trip).
+    let range = fn_node.text_range();
+    let source_slice = source[usize::from(range.start())..usize::from(range.end())].to_string();
+    Some(ParsedFn {
+        name,
+        params,
+        ret_ty,
+        has_generics,
+        source: source_slice,
+    })
+}
+
+/// Collect the `@tool(...)` attribute's positional + named args as raw
+/// source strings in the shape the macro expander expects:
+///   - First positional = description literal (verbatim with quotes)
+///   - `cap: <expr>` becomes `"cap: <expr-text>"`
+///   - Other named args become `"<name>: <value-text>"`
+fn collect_attr_args(attr: &mty_ast::ToolAttr) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    if let Some(desc) = attr.description_literal() {
+        out.push(desc);
+    }
+    if let Some(cap) = attr.cap_expr_text() {
+        out.push(format!("cap: {cap}"));
+    }
+    for (k, v) in attr.named_args() {
+        out.push(format!("{k}: {v}"));
+    }
+    out
+}
+
+fn diag_tool_attr_error(
+    start: usize,
+    end: usize,
+    err: &mty_macros::stdlib::tool::ToolMacroError,
+) -> Diagnostic {
+    use mty_macros::stdlib::tool::ToolMacroError as E;
+    let code = match err {
+        E::NotAFn { .. } => 6011,
+        E::MissingDescription => 6012,
+        E::DescriptionNotALiteral { .. } => 6013,
+        E::MalformedCap { .. } => 6014,
+        E::GenericNotSupported { .. } => 6015,
+        E::ParamMissingType { .. } => 6016,
+    };
+    Diagnostic {
+        code: DiagCode::new(code),
+        severity: Severity::Error,
+        primary: Label {
+            start,
+            end,
+            message: err.to_string(),
+        },
+        secondary: vec![],
+        notes: vec![],
         helps: vec![],
     }
 }

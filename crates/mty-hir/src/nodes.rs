@@ -62,6 +62,38 @@ pub struct HirFn {
     /// downstream code paths read from there.
     pub effect_row: Option<HirEffectRow>,
     pub body: Option<BlockId>,
+    /// v0.27 Track A: when the source spelled `@tool("desc", cap: ...)`
+    /// above this fn, the lowering layer captures the parsed view of
+    /// the attribute here. The HIR preprocessor calls the v0.26 macro
+    /// expander (`mty_macros::expand_builtin_attribute("tool", ...)`)
+    /// to synthesise the `__tool_*` companion fns at preprocess time;
+    /// this field carries the per-fn record so downstream stages
+    /// (`mty-types` schema check, `mty-stdlib::mcp::register_tool`) can
+    /// look up the registered tool without re-walking the CST.
+    pub tool_attr: Option<HirToolAttr>,
+    pub span: SourceSpan,
+}
+
+/// v0.27 Track A: lowered view of a `@tool(...)` attribute. Carries the
+/// description string + (optional) capability path so downstream tooling
+/// can reason about declared tools without re-parsing source.
+///
+/// This is the HIR-side counterpart to the parser's `TOOL_ATTR` CST
+/// node; the lowering pass extracts the validated parts (description
+/// already decoded from the string-literal source slice, cap stripped
+/// to a dotted-path text) so consumers never have to touch the raw
+/// `\"`-wrapped form.
+#[derive(Debug, Clone)]
+pub struct HirToolAttr {
+    /// The decoded description string (no surrounding quotes).
+    pub description: String,
+    /// The cap argument's source text (e.g. `"fs.read"` or
+    /// `"fs.read(\"./data/**\")"`). `None` when omitted.
+    pub capability: Option<String>,
+    /// Extra named args (`streaming: true`, `name: "rd"`, ...) in
+    /// declaration order. Values are stored as raw source text — the
+    /// macro expander does the typed parse.
+    pub extra: Vec<(String, String)>,
     pub span: SourceSpan,
 }
 

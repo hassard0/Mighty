@@ -46,6 +46,9 @@ fn lower_fn(ctx: &mut LoweringCtx, f: FnDecl) -> FnId {
     let name = f.name().map(|n| n.text()).unwrap_or_default();
     let is_pub = f.is_pub();
     let is_unsafe = f.is_unsafe();
+    // v0.27 Track A: capture the `@tool(...)` attribute (if any) so
+    // downstream HIR consumers carry it without re-walking the CST.
+    let tool_attr = lower_tool_attr(&f.0);
     let params = f
         .param_list()
         .map(|pl| {
@@ -87,9 +90,64 @@ fn lower_fn(ctx: &mut LoweringCtx, f: FnDecl) -> FnId {
         effects,
         effect_row,
         body,
+        tool_attr,
         span: span_of(&f.0),
     };
     ctx.package.fns.alloc(hf)
+}
+
+/// v0.27 Track A: lift a `@tool(...)` attribute on a fn decl into the
+/// HIR. Returns `None` when the fn has no attribute.
+///
+/// The HIR-side record carries the DECODED description (no quotes) so
+/// downstream consumers don't have to re-strip the literal. The cap
+/// expression's raw source is kept verbatim — the macro expander
+/// validates the dotted-path shape.
+fn lower_tool_attr(fn_node: &SyntaxNode) -> Option<crate::nodes::HirToolAttr> {
+    use crate::nodes::HirToolAttr;
+    let attr = mty_ast::ToolAttr::for_fn_decl(fn_node)?;
+    let raw_desc = attr.description_literal();
+    let description = raw_desc
+        .as_deref()
+        .and_then(decode_string_literal)
+        .unwrap_or_default();
+    let capability = attr.cap_expr_text();
+    let extra = attr.named_args();
+    Some(HirToolAttr {
+        description,
+        capability,
+        extra,
+        span: span_of(attr.syntax()),
+    })
+}
+
+/// Decode a Mighty string literal: strip the surrounding `"`s and
+/// process the four supported escapes (`\\`, `\"`, `\n`, `\t`, `\r`).
+/// Returns `None` if `raw` doesn't look like a string literal.
+fn decode_string_literal(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let inner = raw.strip_prefix('"')?.strip_suffix('"')?;
+    let mut out = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('\\') => out.push('\\'),
+                Some('"') => out.push('"'),
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some('r') => out.push('\r'),
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    Some(out)
 }
 
 /// v0.16 RFC-008: lower an effect clause to BOTH the legacy
@@ -404,6 +462,7 @@ fn lower_extern_block(ctx: &mut LoweringCtx, node: SyntaxNode) -> HirExternBlock
             effects: vec![],
             effect_row: None,
             body: None,
+            tool_attr: None,
             span: span_of(&child),
         };
         let fid = ctx.package.fns.alloc(hf);

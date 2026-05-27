@@ -9,8 +9,10 @@ impl rowan::Language for Mighty {
     fn kind_from_raw(raw: rowan::SyntaxKind) -> Self::Kind {
         // SAFETY: We only ever round-trip SyntaxKind through u16 — see kind_to_raw.
         // The assert guards against rowan handing us a tag we never emitted.
-        // PROC_MACRO_DECL is the last variant in SyntaxKind (see syntax_kind.rs).
-        assert!(raw.0 <= (SyntaxKind::PROC_MACRO_DECL as u16));
+        // TOOL_ATTR_CAP_ARG is the last variant in SyntaxKind (see syntax_kind.rs).
+        // v0.27 Track A appended TOOL_ATTR / TOOL_ATTR_ARGS / TOOL_ATTR_CAP_ARG
+        // after PROC_MACRO_DECL; the upper bound shifts to match.
+        assert!(raw.0 <= (SyntaxKind::TOOL_ATTR_CAP_ARG as u16));
         unsafe { std::mem::transmute::<u16, SyntaxKind>(raw.0) }
     }
 

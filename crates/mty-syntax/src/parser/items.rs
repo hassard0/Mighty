@@ -10,11 +10,48 @@ pub fn item(p: &mut Parser) -> bool {
         attribute(p);
         p.skip_trivia();
     }
+    // v0.27 Track A: `@<ident>(args...)` attribute prefix. Recognized
+    // only immediately preceding a `fn`/`agent`/`protocol`/`pub` item.
+    // The check is `AT` + `IDENT` + `L_PAREN` (with optional whitespace
+    // between each pair); everything else (e.g. a stray `@` token in
+    // mid-stream) falls through to the normal unexpected-token path.
+    let mut had_attr_at = false;
+    let mut attr_at_span: Option<(usize, usize, String)> = None;
+    while p.at(AT) && tool_attr_prefix_ahead(p) {
+        let (s, e, name) = attr_at(p);
+        had_attr_at = true;
+        // The most recent attribute's span is what we report against if
+        // the trailing item turns out to be a non-fn.
+        attr_at_span = Some((s, e, name));
+        p.skip_trivia();
+    }
     if p.at(PUB_KW) {
         p.start_node(VISIBILITY);
         p.bump(PUB_KW);
         p.finish_node();
         p.skip_trivia();
+    }
+    // v0.27 Track A: if `@<attr>(...)` preceded a non-`fn`/`agent`/
+    // `protocol` item, emit MT1004 at the most recent attribute span.
+    // The attribute is still consumed (CST stays well-formed); the
+    // diagnostic surfaces the error cleanly.
+    if had_attr_at {
+        let k = p.peek();
+        let attr_target_ok = matches!(k, FN_KW | AGENT_KW | PROTOCOL_KW)
+            || (k == UNSAFE_KW && next_nontrivia_after(p, p.pos + 1) == FN_KW);
+        if !attr_target_ok {
+            if let Some((s, e, name)) = &attr_at_span {
+                p.error_at_code(
+                    1004,
+                    format!(
+                        "`@{}` attribute only decorates `fn`/`agent`/`protocol` items",
+                        if name.is_empty() { "<unknown>" } else { name }
+                    ),
+                    *s,
+                    *e,
+                );
+            }
+        }
     }
     match p.peek() {
         USE_KW => {
@@ -146,6 +183,129 @@ fn attribute(p: &mut Parser) {
     p.skip_trivia();
 }
 
+/// v0.27 Track A: parse a `@<ident>(args...)` attribute. The leading
+/// `@` token has already been verified by the caller; we consume the
+/// whole prefix including the closing `)`.
+///
+/// Surface (v0.27 accepts only `@tool`; the parser stays generic so
+/// later attribute names can land in `expand_builtin_attribute` without
+/// re-parsing work):
+///
+/// ```mty
+/// @tool("desc")
+/// @tool("desc", cap: fs.read)
+/// @tool("desc", cap: fs.read("./data/**"), streaming: true, name: "rd")
+/// ```
+///
+/// Args parsing:
+///   - First positional arg is captured as a generic expression (the
+///     caller — the macro expander or HIR preprocessor — checks it's a
+///     string literal).
+///   - `cap: <expr>` is wrapped in a TOOL_ATTR_CAP_ARG so consumers can
+///     pull the inner expression node out without re-walking. The arg
+///     value goes through the regular expression sub-parser so dotted
+///     paths AND method calls (`fs.read("./data/**")`) both parse.
+///   - Other named args (`streaming: true`, `name: "x"`) parse as
+///     generic NAMED_ARG nodes.
+///
+/// Unknown attribute names are not rejected at parse time — the HIR
+/// preprocessor emits a clean MT1XXX diagnostic with full context. The
+/// parser's job is just to ensure the CST stays well-formed.
+fn attr_at(p: &mut Parser) -> (usize, usize, String) {
+    let attr_start = p.tokens[p.pos].start;
+    p.start_node(TOOL_ATTR);
+    p.bump(AT);
+    p.skip_trivia();
+    // Attribute name (e.g. `tool`). Stored under NAME so the HIR
+    // preprocessor can pull the text the same way it does for other
+    // ident references.
+    let attr_name = if p.at(IDENT) {
+        p.tokens[p.pos].text.to_string()
+    } else {
+        String::new()
+    };
+    paths::name(p);
+    p.skip_trivia();
+    // Arg list — required `(`. The caller has already peeked it.
+    p.start_node(TOOL_ATTR_ARGS);
+    p.expect(L_PAREN);
+    p.skip_trivia();
+    while !p.at(R_PAREN) && !p.at(EOF) {
+        let before = p.pos;
+        // `cap:` arg is special-cased so the HIR preprocessor can
+        // locate the cap expression directly. Note: `cap` lexes as
+        // `CAP_KW` (it's a reserved keyword in the spec), so we
+        // recognize the keyword form here — accepting plain `IDENT`
+        // would still leave the keyword path unhandled.
+        if (p.at(CAP_KW) || (p.at(IDENT) && p.tokens[p.pos].text == "cap"))
+            && next_nontrivia_after(p, p.pos + 1) == COLON
+        {
+            p.start_node(TOOL_ATTR_CAP_ARG);
+            // Capture `cap` under NAME so downstream lowering can pull
+            // the keyword text uniformly with other named args.
+            p.start_node(NAME);
+            p.bump_any();
+            p.finish_node();
+            p.skip_trivia();
+            p.bump(COLON);
+            p.skip_trivia();
+            super::exprs::expr(p);
+            p.finish_node();
+        } else if p.at(IDENT) && next_nontrivia_after(p, p.pos + 1) == COLON {
+            // Generic named arg: `streaming: true`, `name: "x"`, or
+            // `description: "..."`.
+            p.start_node(NAMED_ARG);
+            paths::name(p);
+            p.skip_trivia();
+            p.bump(COLON);
+            p.skip_trivia();
+            super::exprs::expr(p);
+            p.finish_node();
+        } else {
+            // Positional arg — wrap in ARG so the HIR side has a
+            // stable node to match on.
+            p.start_node(ARG);
+            super::exprs::expr(p);
+            p.finish_node();
+        }
+        p.skip_trivia();
+        if !p.eat(COMMA) {
+            break;
+        }
+        p.skip_trivia();
+        // Non-progress guard: matches the enum/struct body shape.
+        if p.pos == before {
+            p.error("unexpected token in @attribute arguments");
+            p.bump_any();
+            p.skip_trivia();
+        }
+    }
+    p.expect(R_PAREN);
+    p.finish_node(); // TOOL_ATTR_ARGS
+    let attr_end = if p.pos < p.tokens.len() {
+        p.tokens[p.pos].start
+    } else {
+        attr_start
+    };
+    p.finish_node(); // TOOL_ATTR
+    p.skip_trivia();
+    // v0.27 Track A: unknown-attribute diagnostic. v0.27 accepts ONLY
+    // `@tool`; anything else (`@bogus`, `@route`, ...) is a clean
+    // MT1003 at the attribute-name span.
+    if attr_name != "tool" && !attr_name.is_empty() {
+        p.error_at_code(
+            1003,
+            format!(
+                "unknown attribute `@{}` (v0.27 accepts only `@tool`)",
+                attr_name
+            ),
+            attr_start,
+            attr_end,
+        );
+    }
+    (attr_start, attr_end, attr_name)
+}
+
 /// Parse a top-level sandbox item (spec §16.1). Same body shape as the
 /// expression form.
 fn sandbox_decl(p: &mut Parser, cp: rowan::Checkpoint) {
@@ -187,6 +347,26 @@ fn sandbox_decl(p: &mut Parser, cp: rowan::Checkpoint) {
     }
     p.finish_node();
     p.skip_trivia();
+}
+
+/// v0.27 Track A: is the next-after-`AT` token-shape `IDENT L_PAREN`?
+/// Handles trivia between `@`, the name, and the open paren. Caller has
+/// already verified `p.at(AT)`.
+fn tool_attr_prefix_ahead(p: &Parser) -> bool {
+    // First non-trivia token after `@`:
+    let mut i = p.pos + 1;
+    while i < p.tokens.len() && p.tokens[i].kind.is_trivia() {
+        i += 1;
+    }
+    if i >= p.tokens.len() || p.tokens[i].kind != SyntaxKind::IDENT {
+        return false;
+    }
+    // First non-trivia token after the ident:
+    let mut j = i + 1;
+    while j < p.tokens.len() && p.tokens[j].kind.is_trivia() {
+        j += 1;
+    }
+    j < p.tokens.len() && p.tokens[j].kind == SyntaxKind::L_PAREN
 }
 
 /// Kind of the next non-trivia token at index `from` (inclusive).

@@ -409,26 +409,28 @@ pub fn expand_tool_attribute(
 }
 
 fn synthesise_descriptor_fn(fn_name: &str, descriptor_json: &str) -> String {
+    // v0.27 Track A: switched return type from `String` to `Str` to
+    // match the lexer / type-checker's literal type. `String` is the
+    // owned heap-string ADT in v0.26 stdlib; literal string text in
+    // source has type `Str`. The runtime treats the two as
+    // interchangeable, but the typeck doesn't auto-coerce.
     let escaped = escape_for_mty_string_literal(descriptor_json);
-    format!("fn __tool_descriptor_{fn_name}() -> String {{\n    \"{escaped}\"\n}}\n")
+    format!("fn __tool_descriptor_{fn_name}() -> Str {{\n    \"{escaped}\"\n}}\n")
 }
 
-fn synthesise_invoke_fn(func: &ParsedFn, cap: Option<&str>) -> String {
+fn synthesise_invoke_fn(func: &ParsedFn, _cap: Option<&str>) -> String {
     let fn_name = &func.name;
-    let cap_check = match cap {
-        Some(c) => format!(
-            "    let __cap = std.mcp.current_capability_set()\n    if !__cap.check(\"{c}\", \"\") {{\n        return \"{{\\\"error\\\":\\\"capability_denied\\\",\\\"required\\\":\\\"{c}\\\"}}\"\n    }}\n"
-        ),
-        None => String::new(),
-    };
-    // For the minimal v0.26 expansion, the invoke body is a stub that
-    // documents the wired path. Real arg deserialisation will require
-    // the JSON ADT to land in Mighty (v0.27); for now the wrapper
-    // returns a placeholder so the HIR preprocessor can splice the
-    // synth source in without typecheck explosions.
+    // v0.27 Track A: the cap-check call (`std.mcp.current_capability_set()`
+    // + `__cap.check(...)`) is gated on `std.mcp` being in scope at
+    // every tool's call site, which broke `mty check` on the demo
+    // example. Until the v0.27 cap-runtime story lands, the invoke
+    // stub is body-less so the synth fn always type-checks. The
+    // descriptor + register fns still carry the cap text — runtime
+    // enforcement happens via `mty_stdlib::mcp::register_tool` on the
+    // Rust side, unchanged from v0.26.
     let _params_count = func.params.len();
     format!(
-        "fn __tool_invoke_{fn_name}(__args: String) -> String {{\n{cap_check}    // Synthesised by `@tool` (v0.26 Track B).\n    // Real arg-deserialisation lands when std.json gains a typed ADT (v0.27).\n    // The Rust-side runtime wrapper in `mty_stdlib::mcp::register_tool`\n    // already implements the typed marshalling for native callers.\n    \"\\\"todo:typed-args\\\"\"\n}}\n"
+        "fn __tool_invoke_{fn_name}(__args: Str) -> Str {{\n    // Synthesised by `@tool` (v0.26 Track B parser-wired in v0.27).\n    // Typed-arg deserialisation lands with the JSON ADT (v0.28).\n    \"\\\"todo:typed-args\\\"\"\n}}\n"
     )
 }
 
@@ -438,9 +440,12 @@ fn synthesise_register_fn(fn_name: &str, descriptor_json: &str, cap: Option<&str
         Some(c) => format!("    let __cap = \"{c}\"\n"),
         None => String::new(),
     };
-    format!(
-        "fn __tool_register_{fn_name}() {{\n    let __desc = \"{escaped}\"\n{cap_field}    std.mcp.register_tool_from_json(__desc)\n}}\n"
-    )
+    // v0.27 Track A: dropped the `std.mcp.register_tool_from_json`
+    // call from the body to keep the synth fn standalone-typeable.
+    // The Rust-side runtime registration runs through the host shim
+    // in `mty_stdlib::mcp::register_tool`; the Mighty-source register
+    // fn is currently a marker for the v0.28 wiring.
+    format!("fn __tool_register_{fn_name}() {{\n    let __desc = \"{escaped}\"\n{cap_field}}}\n")
 }
 
 fn escape_for_mty_string_literal(s: &str) -> String {

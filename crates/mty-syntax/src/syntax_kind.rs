@@ -425,6 +425,26 @@ pub enum SyntaxKind {
     // `proc macro name(input: TokenStream) -> TokenStream { body }`.
     // Stored alongside MACRO_DECL but flagged in the registry as procedural.
     PROC_MACRO_DECL,
+    // v0.27 Track A: `@tool(...)` attribute on fn/agent/protocol decls.
+    //
+    // TOOL_ATTR wraps the entire `@ident ( args )` prefix; the parent
+    // node (the FN_DECL it precedes) follows TOOL_ATTR as a sibling
+    // under the original checkpoint. The HIR preprocessor (and tests)
+    // can locate the attribute via `fn_decl.prev_sibling()` of kind
+    // TOOL_ATTR — or by reading the ATTR child the parser also leaves
+    // in place for forward-compat with the v0.5 `#[derive(...)]` shape.
+    //
+    // TOOL_ATTR_ARGS wraps the comma-separated arg list inside the
+    // outer parens (skipping `(` / `)`). Each child is either:
+    //   - A LITERAL_EXPR (the first positional desc string), or
+    //   - A TOOL_ATTR_CAP_ARG (for `cap: <expr>`), or
+    //   - A NAMED_ARG-shaped node for `streaming:`/`name:` etc.
+    //
+    // TOOL_ATTR_CAP_ARG wraps the `cap: <expr>` named arg. Holds a
+    // single expression child (the cap path or call expr).
+    TOOL_ATTR,
+    TOOL_ATTR_ARGS,
+    TOOL_ATTR_CAP_ARG,
 }
 
 impl SyntaxKind {

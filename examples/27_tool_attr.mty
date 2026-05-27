@@ -1,0 +1,38 @@
+// 27_tool_attr.mty — v0.27 Track A: source-level `@tool(...)` decorator.
+//
+// v0.26 Track B shipped the `@tool` macro registry but no parser surface
+// for `@tool(...)` on user fns. v0.26 demo 07 had to ship its three
+// tool fns as plain `fn` decls with `@tool("desc", cap: fs.read)`
+// preserved only as a leading comment. v0.27 closes the gap.
+//
+// After this slice:
+//
+//   @tool("Read a text file from the corpus", cap: fs.read("./data/**"))
+//   fn read_doc(path: String) -> Result[String, FsError] !{fs} {
+//     std.fs.read_to_string(path)
+//   }
+//
+// parses, type-checks, and the HIR preprocessor calls
+// `mty_macros::expand_builtin_attribute("tool", ...)` to splice the
+// `__tool_descriptor_<NAME>` / `__tool_invoke_<NAME>` /
+// `__tool_register_<NAME>` companion fns into the source. The MCP
+// server + LLM-side schema generator (`std.mcp`) pick the tool up
+// automatically once the synthesised `register` fn runs.
+//
+// Build:
+//   mty fmt examples/27_tool_attr.mty
+//   mty check examples/27_tool_attr.mty
+//
+// The example deliberately uses a no-effect body (no `!{...}` row,
+// no `std.fs.read_to_string` call) so the v0.2 native codegen path
+// can still compile it. Track F (demo 08) re-uses the same surface
+// with the real `fs.read` capability + effect-row signature.
+@tool("Echo a short greeting back to the caller", cap: fs.read)
+fn _greet(name: Str) -> Str {
+  name
+}
+
+fn main() {
+  let _g = _greet("world")
+  log("27_tool_attr: @tool(...) parses + lowers + macro-expands (v0.27 Track A)")
+}

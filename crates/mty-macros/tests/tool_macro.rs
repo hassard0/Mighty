@@ -70,8 +70,11 @@ fn tool_attribute_generates_invoke() {
     )
     .expect("expansion ok");
     let joined = exp.synthesised_decls.join("\n");
+    // v0.27 Track A: the invoke fn now takes `Str` (the lexer's literal
+    // string type) rather than `String` (the heap-buffer ADT) so the
+    // synth fn type-checks without auto-coercion.
     assert!(
-        joined.contains("fn __tool_invoke_read_file(__args: String)"),
+        joined.contains("fn __tool_invoke_read_file(__args: Str)"),
         "synth: {joined}"
     );
 }
@@ -179,9 +182,17 @@ fn tool_register_fn_synthesised() {
         joined.contains("__tool_register_read_file"),
         "synth: {joined}"
     );
-    // The register fn calls into std.mcp to populate the runtime registry.
+    // v0.27 Track A: the register fn now stages the descriptor JSON +
+    // cap text but no longer calls `std.mcp.register_tool_from_json`
+    // — that call site moves back in v0.28 once `std.mcp` is in the
+    // auto-prelude. The descriptor + cap content stay in the body so
+    // the v0.28 wiring just re-introduces a single call line.
     assert!(
-        joined.contains("std.mcp.register_tool_from_json"),
-        "synth: {joined}"
+        joined.contains("let __desc"),
+        "synth missing __desc: {joined}"
+    );
+    assert!(
+        joined.contains("\"fs.read\""),
+        "synth missing fs.read cap text: {joined}"
     );
 }
