@@ -39,7 +39,15 @@ pub use proc::{
 };
 pub use registry::{MacroDef, MacroKind, MacroRegistry, PackageMacros};
 pub use scopes::{resolve, ResolveAmbiguity, ScopeGen, ScopeId, Scopes};
-pub use stdlib::{expand_builtin_macro, is_builtin_macro, BUILTIN_MACRO_NAMES};
+pub use stdlib::tool::{
+    build_input_schema_json, expand_tool_attribute, is_optional_param,
+    mty_type_to_json_schema_type, parse_tool_attribute_args, render_descriptor_json, ParsedFn,
+    ParsedParam, ToolAttributeArgs, ToolDescriptorSnippet, ToolExpansion, ToolMacroError,
+};
+pub use stdlib::{
+    expand_builtin_attribute, expand_builtin_macro, is_builtin_attribute, is_builtin_macro,
+    BUILTIN_ATTRIBUTE_NAMES, BUILTIN_MACRO_NAMES,
+};
 pub use token::{lex_fragment, tokens_from_body_node, tokens_to_source, Tok};
 
 /// v0.5 macro-expansion depth limit. Recursive macro definitions are

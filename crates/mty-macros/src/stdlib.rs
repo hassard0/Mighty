@@ -28,6 +28,7 @@
 //! [`expand_builtin_macro`] to check + expand the builtin set.
 
 pub mod format;
+pub mod tool;
 
 use crate::registry::PackageMacros;
 use mty_ast::{AstNode, File};
@@ -72,6 +73,44 @@ pub fn expand_builtin_macro(
 ) -> Option<Result<String, format::FormatExpandError>> {
     match name {
         "format" => Some(format::expand_format_call(args)),
+        _ => None,
+    }
+}
+
+/// Names of every code-driven builtin **attribute** macro shipped
+/// with the compiler. Attribute macros decorate an item (a fn today)
+/// and synthesise companion items. This list is consulted by the HIR
+/// preprocessor's attribute-resolution pass before raising the
+/// "unknown attribute" diagnostic.
+///
+/// v0.26 Track B adds `tool` — the `@tool(...)` decorator that
+/// auto-generates the MCP descriptor + invoke + register companion
+/// fns. See [`tool::expand_tool_attribute`] and
+/// `docs/reference/macros/tool.md`.
+pub const BUILTIN_ATTRIBUTE_NAMES: &[&str] = &["tool"];
+
+/// True if `name` is the name of a code-driven builtin attribute
+/// macro shipped with the compiler.
+pub fn is_builtin_attribute(name: &str) -> bool {
+    BUILTIN_ATTRIBUTE_NAMES.contains(&name)
+}
+
+/// Expand a builtin attribute macro on a parsed fn item. Returns
+/// `Some(expansion)` on success, `Some(Err(...))` when the attribute
+/// is known but the call is malformed, and `None` if the attribute
+/// isn't a builtin at all.
+///
+/// The `attr_args` slice is the comma-split source of the
+/// parenthesised argument list (matches the shape
+/// [`format::expand_format_call`] consumes). `func` is the parsed
+/// view of the user's fn — see [`tool::ParsedFn`].
+pub fn expand_builtin_attribute(
+    name: &str,
+    attr_args: &[&str],
+    func: &tool::ParsedFn,
+) -> Option<Result<tool::ToolExpansion, tool::ToolMacroError>> {
+    match name {
+        "tool" => Some(tool::expand_tool_attribute(attr_args, func)),
         _ => None,
     }
 }

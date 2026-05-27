@@ -22,6 +22,9 @@
 //! - [`fmt`]   — v0.24: runtime contract for `format!` conversion methods
 //! - [`string`] — v0.25 Track E: owned UTF-8 `String` (host-side Rust impl)
 //! - [`vec`]   — v0.25 Track E: generic `Vec[T]` (host-side Rust impl)
+//! - [`mcp`]   — v0.26 Track B: Model Context Protocol server + client +
+//!   `@tool` registry + capability-enforced sandbox. See
+//!   `docs/reference/stdlib/mcp.md`.
 //! - [`test`]  — Mighty-native test discovery + reporter
 //! - [`host`]  — single entry point invoked from `mty-runtime`'s
 //!   `host_std` to dispatch `std.*` generic calls.
@@ -33,6 +36,7 @@ pub mod http;
 pub mod http_server;
 pub mod json;
 pub mod log;
+pub mod mcp;
 pub mod memory;
 pub mod random;
 pub mod string;

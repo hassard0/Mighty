@@ -84,6 +84,11 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         "std.time",
         // v0.26 Track C — vector / episodic / working memory primitives.
         "std.memory",
+        // v0.26 Track B — Model Context Protocol surface (server +
+        // client + @tool registry + capability-enforced sandbox).
+        // Real impls live in `mty_stdlib::mcp`. See
+        // `docs/reference/stdlib/mcp.md`.
+        "std.mcp",
     ];
     for m in std_mods {
         let id = defs.alloc_module(m);
