@@ -40,6 +40,21 @@ For the full per-release notes, see
   There is **no remaining Post-v1.0 backlog** — only RFC comment
   windows stand between current main and v1.0 GA.
 
+## [0.26.1] - 2026-05-27
+
+**Hotfix: SSE parser tolerates CRLF input on Windows checkouts.**
+Anthropic SSE-event boundaries are `\n\n` per spec; on Windows
+checkouts with `core.autocrlf=true`, the captured streaming
+fixtures load as CRLF and `parse_anthropic_sse`'s
+`rsplit_once("\n\n")` never matches, returning the entire body as
+the tail and dropping every event on the floor. v0.26.1
+normalises CRLF → LF at the head of the parser so fixtures (and
+any upstream proxy that rewrites line endings) parse identically
+on every platform. The Anthropic real-network path is unaffected —
+Anthropic emits LF only. CI red on windows-latest at v0.26.0
+(5/5 `llm_streaming` tests failed); CI green at v0.26.1. No new
+tests; the existing 5 `llm_streaming` tests now pass on Windows.
+
 ## [0.26.0] - 2026-05-27
 
 **Mighty is now an LLM-agent language: typed providers,
