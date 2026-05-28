@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <rect width="128" height="128" rx="20" fill="#1a1a2e"/>
+  <path d="M28 96 V32 L48 64 L64 32 L80 64 L100 32 V96" stroke="#f7768e" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <circle cx="64" cy="104" r="5" fill="#9ece6a"/>
+  <text x="64" y="120" text-anchor="middle" font-family="monospace" font-size="9" fill="#a9b1d6" font-weight="bold">mty</text>
+</svg>
