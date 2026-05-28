@@ -26,7 +26,6 @@
 //   Pass `recordTrace: "${workspaceFolder}/trace.bin"` in the launch
 //   config to capture a full execution trace as you debug. Replay it
 //   later with `mty replay trace.bin --step`.
-
 // Underscore-prefixed helper fns stay out of the wasm Component
 // world export list (same convention as 06_for_while_loop.mty).
 fn _add(a: I32, b: I32) -> I32 {
