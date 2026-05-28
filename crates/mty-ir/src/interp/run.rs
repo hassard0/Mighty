@@ -2397,6 +2397,10 @@ pub(crate) mod swarm_dispatch {
     ///   1: reply body
     ///   2: tokens_used (U32)
     ///   3: cost_cents (U64)
+    ///   4: tool_uses (Array[Str] — tool names. v0.32 Track F surfaces
+    ///      the structural shapes through Rust callers; Mighty source
+    ///      gets the name-list view since the Mighty side doesn't have
+    ///      a typed JSON value to bind the per-tool `input` payload.)
     pub(crate) fn reply_value(member: &str, body: &str, tokens: u32, cost: u64) -> Value {
         Value::Struct {
             adt: REPLY_TAG,
@@ -2405,6 +2409,7 @@ pub(crate) mod swarm_dispatch {
                 Value::Str(body.to_string()),
                 Value::Int(tokens as i128, IntKind::U32),
                 Value::Int(cost as i128, IntKind::U64),
+                Value::Array(Vec::new()),
             ],
         }
     }

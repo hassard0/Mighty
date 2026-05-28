@@ -1,56 +1,48 @@
-//! Replay-runtime glue — bridges `std.eval` to the v0.29 native
+//! Replay-runtime glue — bridges `std.eval` to the native v3 binary
 //! replay machinery in `mty_runtime::replay`.
 //!
-//! ## v0.28 vs v0.29
+//! ## v0.28 → v0.32
 //!
-//! v0.28 Track G shipped this module as a JSON-lines shim: trace
-//! files were single-purpose `{"type":"user"|"assistant"}` lines
-//! decoded by [`decode_trace_baseline`], and eval re-runs went
-//! straight through `Member::ask` without involving the replay
-//! driver at all. The v0.29 backlog (the `V029_BACKLOG` constant
-//! below, kept for historical reference) called out four upgrades.
-//! Track F lands them:
+//! v0.28 Track G shipped this module as a JSON-lines shim
+//! (`{"type":"user"|"assistant"}` lines), keyed off
+//! `decode_trace_baseline`. v0.29 Track F added the v3 native
+//! decoders + auto-route. v0.32 Track F closes the loop:
 //!
-//! 1. **`ReplayDriver::with_provider`** — `mty_runtime` now exposes
-//!    a [`TurnProvider`] trait + a `ReplayDriver::with_provider`
-//!    method that swaps the recorded LLM provider for a fresh one
-//!    mid-replay. See `crates/mty-runtime/src/replay/replay_driver.rs`.
-//! 2. **`TraceFile::iter_llm_calls`** — borrowed iterator over every
-//!    [`mty_runtime::replay::TraceEvent::LlmCall`] event in a trace.
-//! 3. **Wire v3** — the recorder now emits `TraceEvent::LlmCall`
-//!    structurally (prompt + system + tools + reply + tool_uses).
-//!    `TRACE_WIRE_VERSION` bumped 2 → 3.
-//! 4. **`mty replay --diff`** — the CLI surfaces
-//!    [`mty_runtime::replay::ReplayDriver::diff_llm_turn`] under
-//!    `mty replay --diff <trace> --turn <id>` so an eval divergence
-//!    points back at the exact recorded turn.
+//! * [`Case::from_trace`](crate::eval::case::Case::from_trace) now
+//!   reads **only** the v3 binary `.mty-trace` shape — the
+//!   JSON-lines fallback that the auto-route used to fall back on
+//!   has been retired. Legacy `*.jsonl` fixtures get a clear error
+//!   pointing at `MTY_RECORD_TRACE` rather than a silent
+//!   "best-effort" decode.
+//! * Every `Member::ask` call surfaces structured `tool_uses` on
+//!   `MemberReply`, so [`MemberTurnProvider`] forwards them through
+//!   to the live provider's [`ProvidedTurn`] without losing the
+//!   structural shape.
+//! * `MTY_RECORD_TRACE=<path>` now auto-captures every `Member::ask`
+//!   call through the [`recorder`](mty_runtime::replay::recorder)
+//!   hook in `std.swarm::member` — no eval driver needs to call
+//!   `record_llm_call` explicitly.
 //!
 //! ## What this module exposes
 //!
-//! * [`decode_trace_baseline`] — the v0.28 JSON-lines decoder, kept
-//!   as a fallback for trace files written before wire-v3 (and used
-//!   by [`Case::from_trace`] for `.jsonl`-style traces).
-//! * [`decode_trace_baseline_native`] — the v0.29 path: load a
-//!   binary `.mty-trace` produced by `MTY_RECORD_TRACE`, iterate
+//! * [`decode_trace_baseline`] — the v0.28 JSON-lines decoder. Kept
+//!   for `read_jsonl_baseline()`-style explicit calls (tests + tools
+//!   that author traces by hand). **Not** wired into `Case::from_trace`
+//!   anymore.
+//! * [`decode_trace_baseline_native`] — load a v3 binary `.mty-trace`
+//!   produced by `MTY_RECORD_TRACE`, iterate
 //!   `TraceFile::iter_llm_calls()`, return the first LLM turn as the
 //!   baseline.
-//! * [`decode_baseline_auto`] — try the native path first; fall back
-//!   to JSON-lines if the file doesn't carry the trace magic prefix.
-//!   This is what `Case::from_trace` calls.
+//! * [`decode_baseline_auto`] — v0.32: enforces the native-only path.
+//!   Files without the `MTYTRACE` magic prefix now error rather than
+//!   falling through to the JSON-lines shim.
 //! * [`MemberTurnProvider`] — adapter that implements
 //!   `mty_runtime::replay::TurnProvider` for a `Member`, so the eval
 //!   driver can hand a panel member to
-//!   `ReplayDriver::with_provider`.
+//!   `ReplayDriver::with_provider`. v0.32 surfaces the structural
+//!   tool_uses through.
 //! * [`run_trace_with_member`] — convenience: dispatch the recorded
 //!   prompt against a fresh member under the shared budget.
-//!
-//! ## Mixed wire support
-//!
-//! The auto-decoder accepts both the lightweight JSON-lines shim
-//! (for hand-written eval fixtures + older recordings) and the v3
-//! binary trace. The `Case::from_trace` constructor doesn't care
-//! which one a fixture uses — both surface as
-//! [`TraceBaseline { prompt, assistant_reply }`].
 
 use std::fs;
 use std::path::Path;
@@ -66,15 +58,28 @@ use mty_runtime::replay::{
 
 use crate::swarm::{Member, MemberReply, SharedDollarBudget};
 
-/// v0.29 backlog — kept for historical reference. **All four items
-/// were landed by v0.29 Track F.** The constant lives on so the
-/// docs page + commit-body can cite it; the items are now marked
-/// shipped via the `[shipped]` prefix.
-pub const V029_BACKLOG: &[&str] = &[
-    "[shipped v0.29] replay-runtime: `ReplayDriver::with_provider` + `TurnProvider` trait.",
-    "[shipped v0.29] replay-runtime: `TraceFile::iter_llm_calls` borrowed iterator.",
-    "[shipped v0.29] replay-wire: wire-v3 `TraceEvent::LlmCall` (prompt + system + tools + reply + tool_uses).",
-    "[shipped v0.29] std.eval: `mty replay --diff <trace> --turn <id>` integration.",
+/// v0.33 follow-ups — items surfaced during v0.32 Track F that didn't
+/// fit the v0.32 scope but are worth tracking for the next track:
+///
+/// 1. `Member::ask` doesn't yet know which agent spawned it, so the
+///    `record_member_turn` hook stamps every recorded turn with the
+///    synthetic agent id `0`. v0.33 should plumb the spawning agent's
+///    id through the swarm + eval surface so multi-agent traces
+///    attribute turns to the right agent.
+/// 2. The tool-name list emitted on `TraceEvent::LlmCall.tools` today
+///    is the *model* name (one-element vec) because `Member::ask`
+///    doesn't carry an advertised tool list at construction. v0.33
+///    should add a `Member::with_tools(...)` builder + lift the
+///    advertised tool names into the record.
+/// 3. `ReplayDriver::replay_all` interleaved with `with_provider`
+///    re-emits each LLM call against the live provider but does not
+///    yet *re-record* the live turn into the replay's secondary
+///    trace. v0.33 should add `--rerecord <path>` so a successful
+///    eval can write the new trace as the next baseline.
+pub const V033_FOLLOWUPS: &[&str] = &[
+    "v0.33: lift spawning-agent id through Member::ask so trace.agent is non-zero for in-runtime calls.",
+    "v0.33: thread advertised-tool list (Member::with_tools) through to TraceEvent::LlmCall.tools.",
+    "v0.33: ReplayDriver::replay_all --rerecord <path> writes live turns as the next baseline trace.",
 ];
 
 /// Errors returned by the replay-glue layer.
@@ -200,34 +205,47 @@ pub fn decode_trace_baseline_native(path: &Path) -> Result<TraceBaseline, Replay
     })
 }
 
-/// Auto-route between native v3 binary traces and the JSON-lines
-/// fallback. Detection is by the 8-byte `MTYTRACE` magic prefix —
-/// any file that starts with it routes through the native decoder,
-/// every other file goes through the JSON-lines path.
+/// v0.32 Track F: route a trace path through the native v3 binary
+/// decoder. The v0.28-era JSON-lines fallback (`decode_trace_baseline`)
+/// is no longer auto-invoked from this entry point — `Case::from_trace`
+/// is now native-only.
 ///
-/// `Case::from_trace` calls this so existing eval fixtures
-/// (JSON-lines) keep working while new recordings produced by
-/// `MTY_RECORD_TRACE` flow through the native v3 path.
+/// The auto-route name is kept so existing callers don't churn, but
+/// the only path it takes is the v3 binary one. Files without the
+/// 8-byte `MTYTRACE` magic prefix surface a clear
+/// [`ReplayGlueError::MalformedTrace`] pointing the user at
+/// `MTY_RECORD_TRACE` rather than a silent "best-effort JSON-lines"
+/// decode.
+///
+/// Callers that *do* want to read a hand-written JSON-lines fixture
+/// should call [`decode_trace_baseline`] explicitly — it stays in the
+/// surface for the tools-and-tests use case.
 pub fn decode_baseline_auto(path: &Path) -> Result<TraceBaseline, ReplayGlueError> {
     let bytes = fs::read(path).map_err(|e| ReplayGlueError::TraceRead {
         path: path.display().to_string(),
         source: e,
     })?;
-    if bytes.starts_with(TRACE_MAGIC) {
-        let trace = decode_binary_trace(&bytes).map_err(|e| ReplayGlueError::MalformedTrace {
+    if !bytes.starts_with(TRACE_MAGIC) {
+        return Err(ReplayGlueError::MalformedTrace {
             path: path.display().to_string(),
-            reason: e.to_string(),
-        })?;
-        let first = trace
-            .iter_llm_calls()
-            .next()
-            .ok_or_else(|| ReplayGlueError::NoLlmTurns(path.display().to_string()))?;
-        return Ok(TraceBaseline {
-            prompt: first.prompt.to_string(),
-            assistant_reply: first.reply.to_string(),
+            reason: "missing MTYTRACE magic prefix — Case::from_trace is native-only \
+                     since v0.32; record traces via MTY_RECORD_TRACE=<path> or call \
+                     decode_trace_baseline() explicitly for legacy JSON-lines fixtures"
+                .to_string(),
         });
     }
-    decode_trace_baseline(path)
+    let trace = decode_binary_trace(&bytes).map_err(|e| ReplayGlueError::MalformedTrace {
+        path: path.display().to_string(),
+        reason: e.to_string(),
+    })?;
+    let first = trace
+        .iter_llm_calls()
+        .next()
+        .ok_or_else(|| ReplayGlueError::NoLlmTurns(path.display().to_string()))?;
+    Ok(TraceBaseline {
+        prompt: first.prompt.to_string(),
+        assistant_reply: first.reply.to_string(),
+    })
 }
 
 /// Load the full `TraceFile` from disk — used by callers that want
@@ -306,14 +324,24 @@ impl TurnProvider for MemberTurnProvider {
                 .map_err(|e| e.to_string()),
         };
         let reply = reply?;
+        // v0.32 Track F: `MemberReply.tool_uses` is now populated by
+        // every provider's `Member::ask` (lifted from the typed
+        // `Message::tool_uses()` block). Translate the structural
+        // `crate::llm::ToolUse` shape into the wire-v3
+        // `mty_runtime::replay::LlmToolUse` shape so the live turn
+        // mirrors the recorded one structurally.
+        let tool_uses: Vec<LlmToolUse> = reply
+            .tool_uses
+            .iter()
+            .map(|t| LlmToolUse {
+                name: t.name.clone(),
+                id: t.id.clone(),
+                input_json: serde_json::to_string(&t.input).unwrap_or_else(|_| "{}".to_string()),
+            })
+            .collect();
         Ok(ProvidedTurn {
             reply: reply.body,
-            // The streaming adapter surfaces tool_uses via the LLM
-            // layer, not via `MemberReply` — v0.29 surfaces only the
-            // text. A v0.30 follow-up lifts tool_uses up through
-            // `Member::ask` so the provider can return them
-            // structurally.
-            tool_uses: Vec::<LlmToolUse>::new(),
+            tool_uses,
             cost_cents: reply.cost_cents,
         })
     }
@@ -420,13 +448,11 @@ mod tests {
     }
 
     #[test]
-    fn v029_backlog_marks_every_item_as_shipped() {
-        // Sanity check — every backlog entry now starts with the
-        // shipped-marker (Track F closed all four items).
-        assert!(!V029_BACKLOG.is_empty());
-        assert!(V029_BACKLOG
-            .iter()
-            .all(|s| s.starts_with("[shipped v0.29]")));
+    fn v033_followups_list_three_items() {
+        // The v0.32 closeout surfaces 3 follow-ups for v0.33 — see
+        // module-level docs for the rationale of each.
+        assert_eq!(V033_FOLLOWUPS.len(), 3);
+        assert!(V033_FOLLOWUPS.iter().all(|s| s.starts_with("v0.33:")));
     }
 
     #[tokio::test]
@@ -496,14 +522,62 @@ mod tests {
     }
 
     #[test]
-    fn decode_baseline_auto_routes_jsonl_to_shim_decoder() {
+    fn decode_baseline_auto_rejects_jsonl_without_native_magic() {
+        // v0.32: the JSON-lines fallback is no longer auto-invoked by
+        // `decode_baseline_auto`. Files without the MTYTRACE magic
+        // prefix surface a clear error pointing the user at
+        // `MTY_RECORD_TRACE` or the explicit `decode_trace_baseline`
+        // entry point.
         let mut tmp = tempfile::NamedTempFile::new().unwrap();
         writeln!(tmp, r#"{{"type":"user","content":"hi"}}"#).unwrap();
         writeln!(tmp, r#"{{"type":"assistant","content":"hello"}}"#).unwrap();
         tmp.flush().unwrap();
-        let b = decode_baseline_auto(tmp.path()).unwrap();
+        let err = decode_baseline_auto(tmp.path()).unwrap_err();
+        match err {
+            ReplayGlueError::MalformedTrace { reason, .. } => {
+                assert!(reason.contains("MTYTRACE"));
+                assert!(reason.contains("MTY_RECORD_TRACE"));
+            }
+            other => panic!("expected MalformedTrace, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decode_trace_baseline_still_reads_jsonl_directly() {
+        // The legacy JSON-lines decoder is still exposed for tools
+        // and tests that author fixtures by hand — it's just not
+        // routed through `decode_baseline_auto` anymore.
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        writeln!(tmp, r#"{{"type":"user","content":"hi"}}"#).unwrap();
+        writeln!(tmp, r#"{{"type":"assistant","content":"hello"}}"#).unwrap();
+        tmp.flush().unwrap();
+        let b = decode_trace_baseline(tmp.path()).unwrap();
         assert_eq!(b.prompt, "hi");
         assert_eq!(b.assistant_reply, "hello");
+    }
+
+    #[test]
+    fn decode_baseline_auto_reads_native_trace_end_to_end() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("native_end_to_end.mty-trace");
+        write_v3_trace_with_one_llm_call(&path);
+        let b = decode_baseline_auto(&path).unwrap();
+        assert_eq!(b.prompt, "what is 2+2?");
+        assert_eq!(b.assistant_reply, "4");
+    }
+
+    #[test]
+    fn decode_baseline_auto_propagates_recorder_error_on_corrupt_native() {
+        // File starts with MTYTRACE but body is junk → native decoder
+        // surfaces a `RecorderError::Serde` which propagates through
+        // as `MalformedTrace`.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("corrupt.mty-trace");
+        let mut bytes = TRACE_MAGIC.to_vec();
+        bytes.extend_from_slice(b"not json at all");
+        std::fs::write(&path, bytes).unwrap();
+        let err = decode_baseline_auto(&path).unwrap_err();
+        assert!(matches!(err, ReplayGlueError::MalformedTrace { .. }));
     }
 
     #[test]
@@ -566,5 +640,75 @@ mod tests {
         let r = provider.provide(turn);
         assert!(r.is_err());
         assert!(r.unwrap_err().contains("boom"));
+    }
+
+    // -------------------------------------------------------------------------
+    // v0.32 Track F: native-only Case::from_trace + MemberTurnProvider
+    // structural tool_uses
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn member_turn_provider_lifts_structural_tool_uses_through_to_provided_turn() {
+        use crate::llm::message::ToolUse;
+        let canned = vec![ToolUse {
+            id: "tu_1".into(),
+            name: "search_web".into(),
+            input: serde_json::json!({"q": "rust"}),
+        }];
+        let provider =
+            MemberTurnProvider::unbounded(Member::mock_with_tool_uses("m", "ok", 1, canned));
+        let event = TraceEvent::LlmCall {
+            agent: 0,
+            turn_id: 0,
+            prompt: "go search".into(),
+            system: None,
+            tools: vec![],
+            reply: "ignored".into(),
+            tool_uses: vec![],
+            cost_cents: 0,
+        };
+        let mut t = TraceFile::new(0, 0, 1);
+        t.events.push(event);
+        let turn = t.iter_llm_calls().next().unwrap();
+        let out = provider.provide(turn).unwrap();
+        assert_eq!(out.tool_uses.len(), 1);
+        assert_eq!(out.tool_uses[0].name, "search_web");
+        assert!(out.tool_uses[0].input_json.contains("\"q\":\"rust\""));
+    }
+
+    #[test]
+    fn decode_baseline_auto_is_native_only_after_v032() {
+        // A v0.28-style JSON-lines fixture used to auto-route through
+        // the JSON-lines shim. v0.32 retired that fallback — the
+        // surface now surfaces an error pointing at MTY_RECORD_TRACE.
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        writeln!(tmp, r#"{{"type":"user","content":"hi"}}"#).unwrap();
+        tmp.flush().unwrap();
+        let err = decode_baseline_auto(tmp.path()).unwrap_err();
+        let s = err.to_string();
+        assert!(s.contains("MTY_RECORD_TRACE") || s.contains("MTYTRACE"));
+    }
+
+    #[test]
+    fn case_from_trace_now_round_trips_via_native_recorder() {
+        // The end-to-end Case::from_trace path now reads only the v3
+        // binary shape. This test asserts the typed CaseRun lifts
+        // through cleanly.
+        use crate::eval::case::Case;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("e2e.mty-trace");
+        write_v3_trace_with_one_llm_call(&path);
+        let c = Case::from_trace(&path);
+        let cr = c.resolve().unwrap();
+        assert_eq!(cr.prompt, "what is 2+2?");
+        assert_eq!(cr.baseline_reply.as_deref(), Some("4"));
+        assert!(cr.source_trace.is_some());
+    }
+
+    #[test]
+    fn v033_followups_documented_and_starts_with_v033_prefix() {
+        for entry in V033_FOLLOWUPS {
+            assert!(entry.starts_with("v0.33:"), "entry: {entry}");
+            assert!(!entry.is_empty());
+        }
     }
 }

@@ -1468,11 +1468,12 @@ fn stdlib_field_index(name: &str) -> Option<usize> {
         "budget_exhausted" => 3,
         "strategy" => 4,
         "total_cost_cents" => 5,
-        // MemberReply { member, body, tokens_used, cost_cents }
+        // MemberReply { member, body, tokens_used, cost_cents, tool_uses }
         "member" => 0,
         "body" => 1,
         "tokens_used" => 2,
         "cost_cents" => 3,
+        "tool_uses" => 4,
         // DollarBudget { limit_cents, consumed_cents }
         "limit_cents" => 0,
         "consumed_cents" => 1,

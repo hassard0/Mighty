@@ -198,26 +198,47 @@ mod tests {
 
     #[test]
     fn from_trace_resolves_baseline() {
-        // Write a minimal v0.28-eval-format trace file: two JSON lines
-        // representing a user prompt + recorded assistant reply.
+        // v0.32: Case::from_trace is native-only — write a v3
+        // binary trace via the recorder + verify the baseline lifts
+        // through cleanly.
+        use mty_runtime::replay::{Recorder, TraceCodec};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("native.mty-trace");
+        let r = Recorder::new(&path, 0, 1).with_codec(TraceCodec::Json);
+        r.record_llm_call(
+            0,
+            None,
+            "What's the capital of France?",
+            None,
+            vec![],
+            "Paris",
+            vec![],
+            1,
+        );
+        r.flush_to_disk().unwrap();
+
+        let c = Case::from_trace(&path);
+        let cr = c.resolve().unwrap();
+        assert_eq!(cr.prompt, "What's the capital of France?");
+        assert_eq!(cr.baseline_reply.as_deref(), Some("Paris"));
+        assert!(cr.source_trace.is_some());
+    }
+
+    #[test]
+    fn from_trace_rejects_jsonl_fixtures_after_v032_native_pivot() {
+        // The legacy JSON-lines shim is no longer auto-routed; the
+        // `from_trace` surface points at MTY_RECORD_TRACE.
         let mut tmp = tempfile::NamedTempFile::new().unwrap();
         let user = serde_json::json!({
             "type": "user",
-            "content": "What's the capital of France?",
-        });
-        let assistant = serde_json::json!({
-            "type": "assistant",
-            "content": "Paris",
+            "content": "old fixture",
         });
         writeln!(tmp, "{}", user).unwrap();
-        writeln!(tmp, "{}", assistant).unwrap();
         tmp.flush().unwrap();
 
         let c = Case::from_trace(tmp.path());
-        let r = c.resolve().unwrap();
-        assert_eq!(r.prompt, "What's the capital of France?");
-        assert_eq!(r.baseline_reply.as_deref(), Some("Paris"));
-        assert!(r.source_trace.is_some());
+        let err = c.resolve().unwrap_err();
+        assert!(matches!(err, ReplayGlueError::MalformedTrace { .. }));
     }
 
     #[test]

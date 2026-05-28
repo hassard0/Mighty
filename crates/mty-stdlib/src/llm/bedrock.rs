@@ -1445,4 +1445,59 @@ mod tests {
         });
         assert!(sigv4.signs_with_sigv4());
     }
+
+    // -------------------------------------------------------------------------
+    // v0.32 Track F: structural tool_use parsing through Bedrock's
+    // Converse `toolUse` content blocks.
+
+    #[test]
+    fn bedrock_response_lifts_tool_use_block_through_typed_message() {
+        let raw = serde_json::json!({
+            "output": {
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {"text": "calling search"},
+                        {"toolUse": {
+                            "toolUseId": "tu_01",
+                            "name": "search_web",
+                            "input": {"q": "rust"}
+                        }}
+                    ]
+                }
+            },
+            "stopReason": "tool_use",
+            "usage": {"inputTokens": 12, "outputTokens": 30}
+        });
+        let parsed: ConverseResponse = serde_json::from_value(raw).unwrap();
+        let blocks = parsed.into_blocks();
+        let msg = Message {
+            role: Role::Assistant,
+            content: blocks,
+        };
+        assert_eq!(msg.text(), "calling search");
+        let tus = msg.tool_uses();
+        assert_eq!(tus.len(), 1);
+        assert_eq!(tus[0].id, "tu_01");
+        assert_eq!(tus[0].name, "search_web");
+        assert_eq!(tus[0].input["q"], "rust");
+    }
+
+    #[test]
+    fn bedrock_response_with_no_tool_use_yields_empty_tool_uses() {
+        let raw = serde_json::json!({
+            "output": {
+                "message": {
+                    "content": [{"text": "hi"}]
+                }
+            }
+        });
+        let parsed: ConverseResponse = serde_json::from_value(raw).unwrap();
+        let blocks = parsed.into_blocks();
+        let msg = Message {
+            role: Role::Assistant,
+            content: blocks,
+        };
+        assert!(msg.tool_uses().is_empty());
+    }
 }

@@ -871,4 +871,56 @@ data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"\"}]},\"finishReason
             .iter()
             .any(|d| matches!(d, MessageDelta::Done { stop_reason } if stop_reason == "STOP")));
     }
+
+    // -------------------------------------------------------------------------
+    // v0.32 Track F: structural tool_use parsing through Gemini's
+    // `function_call` parts. Gemini doesn't issue tool ids itself, so
+    // the lift synthesises a stable id from `gem_<name>_<index>`.
+
+    #[test]
+    fn gemini_response_lifts_function_call_into_tool_use_block() {
+        let raw = serde_json::json!({
+            "candidates": [{
+                "content": {
+                    "role": "model",
+                    "parts": [
+                        {"text": "let me check"},
+                        {"functionCall": {"name": "search_web", "args": {"q": "rust"}}}
+                    ]
+                }
+            }]
+        });
+        let parsed: GenerateContentResponse = serde_json::from_value(raw).unwrap();
+        let blocks = parsed.into_blocks();
+        let msg = Message {
+            role: Role::Assistant,
+            content: blocks,
+        };
+        assert_eq!(msg.text(), "let me check");
+        let tus = msg.tool_uses();
+        assert_eq!(tus.len(), 1);
+        assert_eq!(tus[0].name, "search_web");
+        assert_eq!(tus[0].input["q"], "rust");
+        // Gemini-synthesised id pattern.
+        assert!(tus[0].id.starts_with("gem_search_web_"));
+    }
+
+    #[test]
+    fn gemini_response_with_no_function_calls_yields_no_tool_uses() {
+        let raw = serde_json::json!({
+            "candidates": [{
+                "content": {
+                    "parts": [{"text": "hello"}]
+                }
+            }]
+        });
+        let parsed: GenerateContentResponse = serde_json::from_value(raw).unwrap();
+        let blocks = parsed.into_blocks();
+        let msg = Message {
+            role: Role::Assistant,
+            content: blocks,
+        };
+        assert_eq!(msg.text(), "hello");
+        assert!(msg.tool_uses().is_empty());
+    }
 }

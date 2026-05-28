@@ -807,4 +807,67 @@ mod tests {
         let body = c.build_body(&req);
         assert!(body.get("stream").is_none());
     }
+
+    // -------------------------------------------------------------------------
+    // v0.32 Track F: structural tool_use parsing from Anthropic responses
+    //
+    // These exercise the private `MessagesResponse` -> typed `Message`
+    // round-trip path so the swarm layer can rely on
+    // `Message::tool_uses()` returning the structural shape Anthropic
+    // emits on its `content` array.
+
+    #[test]
+    fn anthropic_response_parses_tool_use_blocks_into_typed_message() {
+        // Sample real-shape response with one text + one tool_use block.
+        let body = serde_json::json!({
+            "id": "msg_01",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-opus-4-7",
+            "stop_reason": "tool_use",
+            "content": [
+                {"type": "text", "text": "Let me search for that."},
+                {"type": "tool_use", "id": "toolu_01ABC", "name": "search_web",
+                 "input": {"query": "rust async"}},
+            ],
+            "usage": {"input_tokens": 12, "output_tokens": 30}
+        });
+        let parsed: MessagesResponse = serde_json::from_value(body).unwrap();
+        let blocks: Vec<ContentBlock> =
+            parsed.content.into_iter().map(|c| c.into_typed()).collect();
+        let msg = Message {
+            role: Role::Assistant,
+            content: blocks,
+        };
+        // The lifted Message should yield text + one tool_use.
+        assert_eq!(msg.text(), "Let me search for that.");
+        let tus = msg.tool_uses();
+        assert_eq!(tus.len(), 1);
+        assert_eq!(tus[0].name, "search_web");
+        assert_eq!(tus[0].id, "toolu_01ABC");
+        assert_eq!(tus[0].input["query"], "rust async");
+    }
+
+    #[test]
+    fn anthropic_response_with_multiple_tool_uses_preserves_order() {
+        let body = serde_json::json!({
+            "content": [
+                {"type": "tool_use", "id": "toolu_1", "name": "a", "input": {}},
+                {"type": "tool_use", "id": "toolu_2", "name": "b", "input": {"x": 1}},
+                {"type": "text", "text": "done"},
+            ]
+        });
+        let parsed: MessagesResponse = serde_json::from_value(body).unwrap();
+        let blocks: Vec<ContentBlock> =
+            parsed.content.into_iter().map(|c| c.into_typed()).collect();
+        let msg = Message {
+            role: Role::Assistant,
+            content: blocks,
+        };
+        let tus = msg.tool_uses();
+        assert_eq!(tus.len(), 2);
+        assert_eq!(tus[0].name, "a");
+        assert_eq!(tus[1].name, "b");
+        assert_eq!(tus[1].input["x"], 1);
+    }
 }

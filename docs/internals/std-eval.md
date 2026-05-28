@@ -242,29 +242,57 @@ Eval drivers running under `#[tokio::main]` get the cheap path
 automatically; standalone callers (CLI tools, test fixtures) pay
 one short-lived OS thread per turn.
 
-### v0.30 follow-ups
+## Native replay (v0.32)
 
-Three deep-runtime items were stubbed at the v0.29 surface but
-deferred — `mty_runtime` would need a deeper refactor to land them
-without scope creep:
+v0.32 Track F closes the three deep-runtime follow-ups the v0.29
+backlog had deferred. With Track F merged, every `std.eval` workflow
+uses the native v3 binary trace shape end-to-end and no JSON-lines
+fallback is auto-invoked:
 
-1. **`Member::ask` returning `tool_uses` structurally** — today
-   `MemberReply` only surfaces the text. The provider wraps with
-   `tool_uses: vec![]`. v0.30 lifts the LLM adapter's structured
-   reply through the swarm layer.
-2. **`ReplayDriver::replay_all` + `with_provider` together** — full
-   re-execution that intercepts every recorded LLM call inside the
-   running `Runtime`. Requires a runtime-side LLM-provider
-   injection point (today the runtime is opaque to `mty-stdlib::llm`).
-3. **Recorder integration into `Member::ask`** — `Member::ask`
-   doesn't itself call `record_llm_call` today; the recording side
-   is wired in std.eval's record-mode driver only. v0.30 lifts it
-   into the `LlmProvider` trait so any agent run with
-   `MTY_RECORD_TRACE` captures LLM turns automatically.
+| Track F deliverable | What landed |
+|---|---|
+| **`MemberReply.tool_uses`** | `MemberReply` now carries a typed `tool_uses: Vec<ToolUse>` field lifted from `Message::tool_uses()` on every provider. The four LLM clients (Anthropic, OpenAI, Gemini, Bedrock) already parsed their wire shapes into typed `ContentBlock::ToolUse` blocks; v0.32 surfaces them through the swarm layer so comparators and the recorder see structured data instead of stringified prose. |
+| **`ReplayDriver::replay_all` + `with_provider`** | Calling `ReplayDriver::with_program(prog).with_provider(member).replay_all()` now walks every recorded `TraceEvent::LlmCall` mid-replay and dispatches it against the live `TurnProvider`, populating the new `ReplayReport.llm_turn_replays` field with per-turn diffs. Non-LLM events still flow through the existing runtime re-execution path. |
+| **Recorder integration into `Member::ask`** | `Member::ask` now consults `mty_runtime::replay::recording_enabled()` on every call. When `MTY_RECORD_TRACE=<path>` is set at process start, every `ask()` auto-captures a wire-v3 `TraceEvent::LlmCall` with prompt + reply + structured tool_uses + cost. Zero overhead when no recorder is installed (one `RwLock::read` + `Option::is_none` check before any other work). |
+| **`Case::from_trace` is native-only** | The v0.28 JSON-lines auto-route is retired. `Case::from_trace(path)` now requires a v3 binary `.mty-trace` (i.e. a file produced by `MTY_RECORD_TRACE`). Files without the `MTYTRACE` magic prefix surface a clear error pointing the user at the env var instead of silently best-effort-decoding. The standalone `decode_trace_baseline()` entry point still works for hand-written JSON-lines fixtures used by tools and tests. |
 
-See `mty_stdlib::eval::replay_glue::V029_BACKLOG` — every entry
-now starts with the `[shipped v0.29]` marker; the constant is kept
-for the audit trail.
+### What "native" buys you
+
+Before v0.32, a `Case::from_trace` only ever surfaced the recorded
+prompt + reply text (no tool calls, no system prompt, no per-turn
+cost). After v0.32:
+
+* The eval driver can run `Compare::tool_call_set_equal` against the
+  structurally-recorded tool_uses rather than the stringified-prose
+  regex extractor.
+* `ReplayDriver::replay_all` can drive a *full* re-execution against
+  a fresh provider, asserting both the byte-identical event stream
+  *and* the per-LLM-turn divergence in one call.
+* Any agent run with `MTY_RECORD_TRACE` writes the recording in the
+  shape `std.eval` expects, with no per-call-site wiring required.
+
+### v0.33 follow-ups
+
+Three smaller items surfaced during the v0.32 Track F work:
+
+1. **Plumb the spawning-agent id through `Member::ask`** — today the
+   recorder stamps `agent: 0` for every recorded turn because
+   `Member::ask` doesn't know which agent invoked it. v0.33 should
+   widen the swarm/eval surface to carry the spawning id so
+   multi-agent traces attribute turns to the right agent.
+2. **Lift advertised tool list onto `TraceEvent::LlmCall.tools`** —
+   the recorder today writes a single-element `[model]` placeholder
+   on `tools` because `Member::ask` doesn't carry an advertised tool
+   list at construction. v0.33 should add a `Member::with_tools(...)`
+   builder + thread it through to the record.
+3. **`ReplayDriver::replay_all --rerecord <path>`** — full
+   re-execution writes the byte-identical event stream + the live
+   LLM turns to a fresh trace so a successful eval can advance the
+   baseline. v0.33 should add the option + a CLI surface.
+
+See `mty_stdlib::eval::replay_glue::V033_FOLLOWUPS` — the
+canonical list lives in code so the doc + the audit trail stay in
+sync.
 
 ## Why a fluent builder over a `struct` literal
 
