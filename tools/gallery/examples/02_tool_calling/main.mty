@@ -1,0 +1,18 @@
+// 02_tool_calling.mty — `@tool(...)` decorator on a plain fn.
+//
+// The compiler synthesises a JSON-schema descriptor + invoke shim,
+// and the runtime registers the tool with the MCP server on first
+// call. From the LLM's side it looks like any other tool entry.
+//
+// See examples/27_tool_attr.mty for the canonical in-tree version
+// and `docs/internals/tool-macro.md` for the schema generation rules.
+
+@tool("Echo a short greeting back to the caller", cap: fs.read)
+fn greet(name: Str) -> Str {
+  name
+}
+
+fn main() {
+  let g = greet("world")
+  log(g)
+}

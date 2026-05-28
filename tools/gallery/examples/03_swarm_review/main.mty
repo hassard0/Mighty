@@ -1,0 +1,25 @@
+// 03_swarm_review.mty — multi-LLM review panel.
+//
+// `Member` and `Panel` from `std.swarm` keep provider differences
+// behind one interface: Anthropic, OpenAI, Gemini, Bedrock, and a
+// deterministic Mock all expose the same `.ask(...)` shape.
+//
+// The pattern: declare the panel once at the package level, then
+// `.review(...)` a piece of work. Each Member votes; the panel
+// returns a `Verdict` with the per-member breakdown.
+
+package swarm_review
+
+use std.swarm.Member
+use std.swarm.Panel
+
+fn _panel() -> Panel {
+  Panel.new("review")
+    .with(Member.anthropic("claude-opus-4-7"))
+    .with(Member.openai("gpt-5"))
+    .with(Member.gemini("gemini-2.5-pro"))
+}
+
+fn main() {
+  log("03_swarm_review: panel constructed")
+}

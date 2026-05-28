@@ -1,0 +1,24 @@
+// 05_taint_safety.mty — prompt injection caught at compile time.
+//
+// @compile-error — this example is INTENDED to fail with MT4099.
+//
+// `Member.ask(...)` returns `Tainted[Str]`. `std.fs.write` requires
+// its `contents` argument to be untainted. The compiler emits MT4099
+// at the sink call with a fix-envelope pointing at the three
+// untainting paths: `.matches_regex(...)`, `.in_allowlist[Enum]()`,
+// or `.sanitize_with(HtmlEscape | ShellEscape | SqlEscape | PathBoundary(...))`.
+//
+// See examples/33_taint_basics.mty for the in-tree version + MT4099
+// reference docs at `docs/internals/taint-types.md`.
+
+package taint_basics
+
+use std.fs
+use std.swarm.Member
+
+fn main() {
+  let m = Member.anthropic("claude-opus-4-7")
+  let user_input = m.ask("Summarise the day")
+  // ↓ Compile error — tainted value flowing into the contents arg.
+  std.fs.write("log.txt", user_input)
+}
