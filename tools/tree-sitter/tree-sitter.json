@@ -1,0 +1,35 @@
+{
+  "grammars": [
+    {
+      "name": "mighty",
+      "camelcase": "Mighty",
+      "scope": "source.mighty",
+      "path": ".",
+      "file-types": ["mty"],
+      "highlights": "queries/highlights.scm",
+      "locals": "queries/locals.scm",
+      "indents": "queries/indents.scm",
+      "injections": "queries/injections.scm",
+      "tags": "queries/tags.scm"
+    }
+  ],
+  "metadata": {
+    "version": "0.31.0",
+    "license": "MIT OR Apache-2.0",
+    "description": "tree-sitter grammar for the Mighty agent-first programming language",
+    "authors": [
+      { "name": "Mighty contributors" }
+    ],
+    "links": {
+      "repository": "https://github.com/hassard0/Mighty"
+    }
+  },
+  "bindings": {
+    "c": true,
+    "go": false,
+    "node": true,
+    "python": false,
+    "rust": true,
+    "swift": false
+  }
+}

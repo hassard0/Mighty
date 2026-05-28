@@ -1,0 +1,122 @@
+============================
+use std.llm
+============================
+
+use std.llm.Member
+
+----
+
+(source_file
+  (use_declaration
+    (identifier)
+    (identifier)
+    (identifier)))
+
+============================
+member ask
+============================
+
+fn main() {
+  let m = Member.anthropic("claude-opus-4-7")
+  let reply = m.ask("hi")
+}
+
+----
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameters)
+    (block
+      (let_statement
+        name: (identifier)
+        value: (call_expression
+          function: (path_expression (identifier) (identifier))
+          arguments: (argument_list (string_literal))))
+      (let_statement
+        name: (identifier)
+        value: (method_call_expression
+          receiver: (path_expression (identifier))
+          method: (identifier)
+          arguments: (argument_list (string_literal)))))))
+
+============================
+streaming while let
+============================
+
+fn drain(s: MessageStream) {
+  while let Some(d) = s.next() {
+    log("delta")
+  }
+}
+
+----
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameters
+      (parameter name: (identifier) type: (path_type (identifier))))
+    (block
+      (expression_statement
+        (while_expression
+          (enum_pattern (identifier) (identifier))
+          (method_call_expression
+            receiver: (path_expression (identifier))
+            method: (identifier)
+            arguments: (argument_list))
+          body: (block
+            (expression_statement
+              (call_expression
+                function: (path_expression (identifier))
+                arguments: (argument_list (string_literal))))))))))
+
+============================
+tool attribute
+============================
+
+@tool("Read a doc", cap: fs.read)
+fn read_doc(path: Str) -> Str {
+  path
+}
+
+----
+
+(source_file
+  (function_declaration
+    (attribute_at
+      name: (identifier)
+      (string_literal)
+      (named_argument
+        name: (identifier)
+        value: (path_expression (identifier) (identifier))))
+    name: (identifier)
+    (parameters
+      (parameter name: (identifier) type: (path_type (identifier))))
+    return_type: (path_type (identifier))
+    (block
+      (expression_statement (path_expression (identifier))))))
+
+============================
+spawn agent
+============================
+
+fn main() {
+  let s = spawn Searcher(net, model)
+}
+
+----
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameters)
+    (block
+      (let_statement
+        name: (identifier)
+        value: (spawn_expression
+          (call_expression
+            function: (path_expression (identifier))
+            arguments: (argument_list
+              (path_expression (identifier))
+              (path_expression (identifier)))))))))

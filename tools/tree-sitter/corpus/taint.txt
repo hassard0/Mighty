@@ -1,0 +1,110 @@
+============================
+tainted type
+============================
+
+fn handle(t: Tainted[Str]) -> Str {
+  t.sanitize_with(HtmlEscape)
+}
+
+----
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameters
+      (parameter
+        name: (identifier)
+        type: (path_type
+          (identifier)
+          (generic_arguments_type (path_type (identifier))))))
+    return_type: (path_type (identifier))
+    (block
+      (expression_statement
+        (method_call_expression
+          receiver: (path_expression (identifier))
+          method: (identifier)
+          arguments: (argument_list (path_expression (identifier))))))))
+
+============================
+matches_regex untaint
+============================
+
+fn pick(raw: Tainted[Str]) -> Str {
+  raw.matches_regex("^[a-z]+$").unwrap_or("anon")
+}
+
+----
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameters
+      (parameter
+        name: (identifier)
+        type: (path_type
+          (identifier)
+          (generic_arguments_type (path_type (identifier))))))
+    return_type: (path_type (identifier))
+    (block
+      (expression_statement
+        (method_call_expression
+          receiver: (method_call_expression
+            receiver: (path_expression (identifier))
+            method: (identifier)
+            arguments: (argument_list (string_literal)))
+          method: (identifier)
+          arguments: (argument_list (string_literal)))))))
+
+============================
+sink call
+============================
+
+fn write(t: Str) {
+  std.fs.write("log.txt", t)
+}
+
+----
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameters
+      (parameter name: (identifier) type: (path_type (identifier))))
+    (block
+      (expression_statement
+        (call_expression
+          function: (path_expression (identifier) (identifier) (identifier))
+          arguments: (argument_list
+            (string_literal)
+            (path_expression (identifier))))))))
+
+============================
+in_allowlist generic
+============================
+
+fn pick(raw: Tainted[Str]) -> Verdict {
+  raw.in_allowlist().unwrap_or(Verdict.Unknown)
+}
+
+----
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameters
+      (parameter
+        name: (identifier)
+        type: (path_type
+          (identifier)
+          (generic_arguments_type (path_type (identifier))))))
+    return_type: (path_type (identifier))
+    (block
+      (expression_statement
+        (method_call_expression
+          receiver: (method_call_expression
+            receiver: (path_expression (identifier))
+            method: (identifier)
+            arguments: (argument_list))
+          method: (identifier)
+          arguments: (argument_list
+            (path_expression (identifier) (identifier))))))))

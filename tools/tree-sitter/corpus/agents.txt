@@ -1,0 +1,108 @@
+============================
+protocol with single message
+============================
+
+protocol Echo {
+  Ping(msg: Str) -> Str
+}
+
+----
+
+(source_file
+  (protocol_declaration
+    name: (identifier)
+    (protocol_message
+      name: (identifier)
+      (parameter name: (identifier) type: (path_type (identifier)))
+      (path_type (identifier)))))
+
+============================
+echo agent
+============================
+
+agent Echoer: Echo {
+  on Ping(msg) -> msg
+}
+
+----
+
+(source_file
+  (agent_declaration
+    name: (identifier)
+    (path_type (identifier))
+    (on_handler
+      message: (identifier)
+      (identifier)
+      (path_expression (identifier)))))
+
+============================
+agent with state
+============================
+
+agent Counter: Count {
+  n = 0
+  on Inc() -> { n += 1; n }
+}
+
+----
+
+(source_file
+  (agent_declaration
+    name: (identifier)
+    (path_type (identifier))
+    (agent_state_field
+      name: (identifier)
+      value: (integer_literal))
+    (on_handler
+      message: (identifier)
+      (block
+        (expression_statement
+          (compound_assignment_expression
+            left: (path_expression (identifier))
+            operator: (_)
+            right: (integer_literal)))
+        (path_expression (identifier))))))
+
+============================
+supervisor
+============================
+
+supervisor SearchFlow(strategy: one_for_one) {
+  child planner = spawn Planner()
+  on_fail(planner) { restart }
+}
+
+----
+
+(source_file
+  (supervisor_declaration
+    name: (identifier)
+    (named_argument name: (identifier) value: (path_expression (identifier)))
+    (sup_child
+      (identifier)
+      (spawn_expression
+        (call_expression
+          function: (path_expression (identifier))
+          arguments: (argument_list))))
+    (on_fail_clause
+      (identifier))))
+
+============================
+agent ctor params
+============================
+
+agent Fetcher(net, clock): Fetch {
+  on Page(url) -> url
+}
+
+----
+
+(source_file
+  (agent_declaration
+    name: (identifier)
+    (agent_ctor_params (identifier) (identifier))
+    (path_type (identifier))
+    (on_handler
+      message: (identifier)
+      (identifier)
+      (path_expression (identifier)))))

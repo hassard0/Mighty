@@ -1,0 +1,139 @@
+============================
+computer_use attribute
+============================
+
+@computer_use(width: 1280, height: 800, cap: computer.screen)
+agent BrowserOperator: BrowserOp {
+  on Run(goal) {
+    goal
+  }
+}
+
+----
+
+(source_file
+  (agent_declaration
+    (attribute_at
+      name: (identifier)
+      (named_argument name: (identifier) value: (integer_literal))
+      (named_argument name: (identifier) value: (integer_literal))
+      (named_argument name: (identifier) value: (path_expression (identifier) (identifier))))
+    name: (identifier)
+    (path_type (identifier))
+    (on_handler
+      message: (identifier)
+      (identifier)
+      (block
+        (expression_statement (path_expression (identifier)))))))
+
+============================
+deadline expression
+============================
+
+fn fetch(net: Net) -> Page {
+  net.get(url) @2s
+}
+
+----
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameters
+      (parameter name: (identifier) type: (path_type (identifier))))
+    return_type: (path_type (identifier))
+    (block
+      (expression_statement
+        (deadline_expression
+          (method_call_expression
+            receiver: (path_expression (identifier))
+            method: (identifier)
+            arguments: (argument_list (path_expression (identifier))))
+          (duration_literal))))))
+
+============================
+send and ask
+============================
+
+fn drive(logger: Logger, fetcher: Fetcher) {
+  logger!Info("started")
+  let p = fetcher?Page(url)
+}
+
+----
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameters
+      (parameter name: (identifier) type: (path_type (identifier)))
+      (parameter name: (identifier) type: (path_type (identifier))))
+    (block
+      (expression_statement
+        (send_expression
+          receiver: (path_expression (identifier))
+          message: (identifier)
+          arguments: (argument_list (string_literal))))
+      (let_statement
+        name: (identifier)
+        value: (ask_expression
+          receiver: (path_expression (identifier))
+          message: (identifier)
+          arguments: (argument_list (path_expression (identifier))))))))
+
+============================
+budget block
+============================
+
+fn run_job(input: Bytes) {
+  budget {
+    cpu 150ms
+    mem 128MiB
+  } run {
+    log("running")
+  }
+}
+
+----
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameters
+      (parameter name: (identifier) type: (path_type (identifier))))
+    (block
+      (expression_statement
+        (budget_expression
+          (budget_entry (identifier) (duration_literal))
+          (budget_entry (identifier) (size_literal))
+          (block
+            (expression_statement
+              (call_expression
+                function: (path_expression (identifier))
+                arguments: (argument_list (string_literal))))))))))
+
+============================
+arena block
+============================
+
+fn turn(input: Str) -> Str {
+  arena turn {
+    input
+  }
+}
+
+----
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameters
+      (parameter name: (identifier) type: (path_type (identifier))))
+    return_type: (path_type (identifier))
+    (block
+      (expression_statement
+        (arena_expression
+          name: (identifier)
+          (block
+            (expression_statement
+              (path_expression (identifier)))))))))
