@@ -42,6 +42,29 @@ demos/07_research_agent/
 └── answers/                          # save_answer() target (created on demand)
 ```
 
+## Discovering the APIs (v0.33 T7 — `mty find`)
+
+An agent dropped into this codebase can discover the stdlib surfaces
+this demo uses without scanning the source tree by hand. From the
+workspace root:
+
+```bash
+# "Which stdlib API embeds + queries a corpus?"
+./target/debug/mty find --format json --top 1 "vector store"
+# → {"name":"VectorStore","module":"std.memory.vector",
+#    "capability":"fs.read + fs.write", "signature":"pub struct VectorStore { ... }", ...}
+
+# "Where do I call an LLM?"
+./target/debug/mty find "ask llm" --top 3
+
+# "What does fs.write give me access to?"
+./target/debug/mty find --by-capability fs.write
+```
+
+See `docs/reference/find.md` for the query DSL + ranking spec; the
+JSON shape is stable across the v0.33 patch series so agents can wrap
+it directly.
+
 ## Run
 
 ### Sanity check (no LLM call)

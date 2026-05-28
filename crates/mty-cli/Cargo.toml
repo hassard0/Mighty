@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[lib]
+name = "mty_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "mty"
 path = "src/main.rs"

@@ -8,6 +8,12 @@ pub mod dap;
 pub mod doc;
 pub mod dump;
 pub mod explain;
+// v0.33 T7 — `mty find <query>`: capability-tagged stdlib search.
+// Walks `crates/mty-stdlib/src` and builds an index of public items so
+// agents and humans can discover the right API via natural-language
+// queries (e.g. `mty find "write files"` → `std.fs.write`). See
+// `docs/reference/find.md` for the query DSL + ranking spec.
+pub mod find;
 pub mod fmt;
 pub mod inspect;
 pub mod lsp;
