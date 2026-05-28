@@ -6,6 +6,11 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+# v0.33 T3 added a second `[[bin]]` (`mty-playground`) behind the
+# `playground-wasm` feature. Without `default-run`, plain
+# `cargo run -p mty-cli` errors with "could not determine which
+# binary to run" (caught by the v0.33 release CI's example sweep).
+default-run = "mty"
 
 [lib]
 name = "mty_cli"
