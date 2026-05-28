@@ -79,7 +79,9 @@ fn last_done(lines: &[String]) -> Option<i32> {
         .find_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
         .and_then(|v| {
             if v.get("kind").and_then(|s| s.as_str()) == Some("done") {
-                v.get("exit_code").and_then(|c| c.as_i64()).map(|c| c as i32)
+                v.get("exit_code")
+                    .and_then(|c| c.as_i64())
+                    .map(|c| c as i32)
             } else {
                 None
             }
@@ -223,10 +225,7 @@ fn single_shot_check_clean_file() {
 #[test]
 fn single_shot_check_with_diagnostic_streams_envelope() {
     // A program with an unbalanced delimiter triggers a parse error.
-    let (_tmp, p) = write_tmp(
-        "bad.mty",
-        "fn main() -> Unit {\n  let x = (\n}\n",
-    );
+    let (_tmp, p) = write_tmp("bad.mty", "fn main() -> Unit {\n  let x = (\n}\n");
     let req = format!(r#"{{"op":"check","path":"{}"}}"#, path_json(&p));
     let (code, lines, _) = single_shot(&req);
     assert_eq!(code, 1);
@@ -244,10 +243,7 @@ fn single_shot_check_with_diagnostic_streams_envelope() {
 
 #[test]
 fn single_shot_check_include_source_embeds_snippet() {
-    let (_tmp, p) = write_tmp(
-        "bad.mty",
-        "fn main() -> Unit {\n  let x = (\n}\n",
-    );
+    let (_tmp, p) = write_tmp("bad.mty", "fn main() -> Unit {\n  let x = (\n}\n");
     let req = format!(
         r#"{{"op":"check","path":"{}","include_source":true}}"#,
         path_json(&p)
@@ -256,7 +252,10 @@ fn single_shot_check_include_source_embeds_snippet() {
     let envelopes = find_kind(&lines, "envelope");
     assert!(!envelopes.is_empty());
     // Every envelope should have an embedded source snippet.
-    let with_src: Vec<_> = envelopes.iter().filter(|e| e.get("source").is_some()).collect();
+    let with_src: Vec<_> = envelopes
+        .iter()
+        .filter(|e| e.get("source").is_some())
+        .collect();
     assert!(!with_src.is_empty());
 }
 
@@ -267,10 +266,7 @@ fn single_shot_fmt_check_clean_file() {
     let req_write = format!(r#"{{"op":"fmt","path":"{}"}}"#, path_json(&p));
     let _ = single_shot(&req_write);
     // Now `--check`.
-    let req = format!(
-        r#"{{"op":"fmt","path":"{}","check":true}}"#,
-        path_json(&p)
-    );
+    let req = format!(r#"{{"op":"fmt","path":"{}","check":true}}"#, path_json(&p));
     let (_code, lines, _) = single_shot(&req);
     let results = find_kind(&lines, "result");
     assert_eq!(results[0]["op"], "fmt");
@@ -378,10 +374,8 @@ fn single_shot_transport_unknown_errors() {
 
 #[test]
 fn interactive_explain_then_halt() {
-    let (code, lines, _) = interactive(&[
-        r#"{"op":"explain","code":"MT0001"}"#,
-        r#"{"op":"halt"}"#,
-    ]);
+    let (code, lines, _) =
+        interactive(&[r#"{"op":"explain","code":"MT0001"}"#, r#"{"op":"halt"}"#]);
     assert_eq!(code, 0);
     let dones: Vec<_> = find_kind(&lines, "done");
     // One done per request.
@@ -434,10 +428,7 @@ fn interactive_continues_after_bad_json() {
     // At least one error envelope (the malformed JSON).
     assert!(!errors.is_empty());
     // At least one successful result (the explain).
-    let explain_results: Vec<_> = results
-        .iter()
-        .filter(|r| r["op"] == "explain")
-        .collect();
+    let explain_results: Vec<_> = results.iter().filter(|r| r["op"] == "explain").collect();
     assert_eq!(explain_results.len(), 1);
 }
 
@@ -499,8 +490,7 @@ fn interactive_check_then_unknown_op_then_halt() {
     let dones = find_kind(&lines, "done");
     assert_eq!(dones.len(), 3);
     let errors = find_kind(&lines, "error");
-    assert!(errors.iter().any(|e| e["message"]
-        .as_str()
-        .unwrap_or("")
-        .contains("unknown op")));
+    assert!(errors
+        .iter()
+        .any(|e| e["message"].as_str().unwrap_or("").contains("unknown op")));
 }

@@ -16,11 +16,7 @@
 
 use std::collections::HashMap;
 
-use mty_stdlib::llm::{
-    anthropic::AnthropicClient,
-    gemini::GeminiClient,
-    image::Image,
-};
+use mty_stdlib::llm::{anthropic::AnthropicClient, gemini::GeminiClient, image::Image};
 use mty_stdlib::rag::{Index, Rag};
 use mty_stdlib::swarm::member::Member;
 use wiremock::matchers::{method, path, path_regex};

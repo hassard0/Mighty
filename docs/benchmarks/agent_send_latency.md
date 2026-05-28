@@ -1,10 +1,9 @@
 # agent_send_latency
 
-> **Baseline from Mighty v0.6 (recorded 2026-05-24).** These numbers
-> have not been refreshed against v0.31. To run current measurements,
-> see [`benches/README.md`](https://github.com/hassard0/Mighty/blob/main/benches/README.md) and the
-> per-impl build steps in
-> [`benches/agent_send_latency/README.md`](https://github.com/hassard0/Mighty/blob/main/benches/agent_send_latency/README.md).
+> **Last refreshed: v0.33 (2026-05-28) on vulcan** (Dell, Intel Xeon,
+> Ubuntu 24.04, Rust 1.95.0). Mighty + Rust-tokio comparator numbers
+> are v0.33; Go + C++ comparators retain the v0.6 baseline pending a
+> comparator toolchain refresh on the benchmark host.
 
 **Workload:** one fire-and-forget message between sender and receiver
 on the same tokio runtime, mailbox capacity 8. Excludes mailbox setup
@@ -17,28 +16,36 @@ the whole runtime is built on.
 
 | Impl | Median | p95 | p99 | Notes |
 |---|---|---|---|---|
-| Mighty v0.6 mailbox (Block policy) | 0.4 µs | 0.6 µs | 12.9 µs | tokio mpsc + slab admission |
-| Mighty v0.6 mailbox (Fail policy, try_send) | (criterion bench) | | | bypasses await on send |
-| Rust tokio mpsc | (pending — Reference env) | | | bare mpsc, no slab |
+| Mighty v0.33 mailbox (Block policy) | 0.2 µs | 0.25 µs | 2.5 µs | tokio mpsc + slab admission |
+| Mighty v0.33 mailbox (Fail policy, try_send) | (criterion bench) | | | bypasses await on send |
+| Rust tokio mpsc (bare) | ~0.05 µs | ~0.1 µs | ~1 µs | bare mpsc, no slab — vulcan |
 | Go unbuffered chan | (pending — Reference env) | | | `ch := make(chan int, 8)` |
 | C++ asio coroutine channel | (pending — Reference env) | | | `experimental::channel` |
 
-### Recorded values (this host, 2026-05-24)
+### Recorded values (vulcan, 2026-05-28, v0.33)
 
 ```
-agent_send_latency     median=     0.000 ms  p95=     0.000 ms  p99=     0.013 ms
+agent_send_latency      median=     0.000 ms  p95=     0.000 ms  p99=     0.003 ms
+rust_tokio_send_latency median=     0.000 ms  p95=     0.000 ms  p99=     0.001 ms
 ```
 
-Raw nanos from `target/bench-results.json`:
+Raw nanos from `/tmp/bench-results-v033.json`:
 
 ```json
 "median_ns": 200,   // = 0.0002 ms
-"p95_ns":    300,
-"p99_ns":  12500
+"p95_ns":    253,
+"p99_ns":   2512
 ```
 
-So median is ~0.2-0.4 µs and the P99 tail catches occasional 12 µs
-spikes (a scheduler tick).
+So median is ~0.2 µs and the P99 tail catches occasional 2.5 µs
+spikes (down from v0.6's ~12 µs on the dev laptop — vulcan's
+multi-socket Xeon has more predictable scheduling).
+
+### v0.6 baseline (Windows 11 dev laptop, 2026-05-24)
+
+For continuity: Mighty v0.6 measured **median = 0.2-0.4 µs** with a
+P99 tail of ~12 µs on a different host. Cross-host deltas are
+shape, not absolute.
 
 ## Interpretation
 

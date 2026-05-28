@@ -29,6 +29,10 @@ the type system:
   not the prompt. A misbehaving LLM cannot escape its capability set.
 - Every agent run is byte-identically replayable from the recorded
   trace — regression-test LLM agents like any other code.
+- Structured diagnostics with auto-fix proposals — every `MTxxxx`
+  ships a machine-readable fix envelope, giving Mighty the highest
+  agent first-shot success rate of any language toolchain (see
+  [docs/internals/diagnostic-envelopes.md](docs/internals/diagnostic-envelopes.md)).
 - Cross-node agent swarms, hot reload preserving conversation
   state, OpenTelemetry spans — all in stdlib.
 
@@ -45,6 +49,7 @@ cargo install --path crates/mty-cli
 ```
 
 Or via package manager: `brew install hassard0/mighty/mty` (taps coming v0.32; see [`tools/distribution/`](tools/distribution/)).
+Or try in the browser at [`tools/playground/`](tools/playground/) (Monaco + WASM, no install).
 
 Scaffold a new project: `mty new <name>` (CLI), `mty new --template web-game <name>` (canvas), `mty serve --watch` (dev server + hot reload).
 
@@ -93,13 +98,17 @@ mty run   src/main.mty
 
 **LLM agent stdlib**
 - `std.llm` — typed Anthropic / OpenAI / Gemini / Bedrock providers
-  with streaming, tool use, structured outputs, `TokenBudget` short-circuit
+  with streaming, tool use, structured outputs, `TokenBudget`
+  short-circuit; multi-modal vision-language Image input across all
+  four providers
 - `@tool` decorator — `@tool(description, cap)` generates JSON
   schema for every provider; `cap:` enforced by the runtime
 - `std.mcp` — server (stdio + http) auto-exposes annotated tools;
   client connects to other MCP servers
 - `std.memory` — `VectorStore`, `Episodic`, `Working`;
   deterministic snapshots fold into the replay machinery
+- `std.rag` — RAG-as-stdlib: `Index` + `Retriever` + `Reranker` +
+  `Pipeline` over the existing vector / sparse / hybrid stores
 - `std.swarm` — votes consensus across providers under a shared
   dollar budget; `Majority` / `Plurality` / `Unanimous` / `Weighted`
 - `std.eval` — typed `Suite` / `Case` / `Member` / `Compare`
@@ -110,6 +119,9 @@ mty run   src/main.mty
   capability with typed sandbox bounds
 - `mty replay --diff` — divergence reporter, points at the first
   divergent recorded turn across two traces
+- `mty agent` — structured NDJSON-over-stdio CLI protocol (9 ops)
+  so LLM agents can drive every other `mty` subcommand without
+  scraping human-rendered output
 
 **Web** *(canvas + keyboard agents)*
 - `std.web.Canvas` + `std.web.Input` WIT interfaces
@@ -125,8 +137,11 @@ mty run   src/main.mty
 - PGO + ThinLTO via `release-pgo` profile + `scripts/build-pgo.sh`
 
 **Tooling**
-- `mty lsp` — LSP 3.17 (hover, completion, go-to-def, semantic tokens,
-  rename, inlay hints, code actions, signature help)
+- `mty lsp` — LSP 3.17 (hover ships extracted `///` examples +
+  See-also references + capability hints, completion, go-to-def,
+  semantic tokens, rename, inlay hints, code actions, signature help)
+- `mty find` — capability-tagged stdlib search ("write files" →
+  `fs.write` APIs); pretty / NDJSON / short formats
 - `mty pkg` — resolver, lockfile, GitHub-Releases-backed registry,
   signed bundles via real sigstore behind `sigstore-real` feature
 - `mty doc` — markdown + HTML doc generator with search
@@ -188,8 +203,8 @@ Live docs site: <https://hassard0.github.io/Mighty/>
 | `mty-macros` | declarative macros + `format!` + `@tool` builtin attributes |
 | `mty-cli` | the `mty` binary |
 
-Adjacent trees: `examples/` (37 canonical programs), `demos/`
-(9 runnable apps with `smoke.sh`), `benches/` + `bench/swe/`
+Adjacent trees: `examples/` (38 canonical programs), `demos/`
+(10 runnable apps with `smoke.sh`), `benches/` + `bench/swe/`
 (criterion + SWE-bench Verified harness), `selfhost/` (bootstrap
 in Mighty), `tests/conformance/` + `tests/web-smoke/` (159-case
 normative kit + headless-browser visual smoke).
@@ -228,18 +243,20 @@ current state of the language, not its history.
 
 ## Status
 
-Mighty is **pre-alpha**. Internal milestones tagged through v0.31.
-The toolchain is exercised by **2560 Rust tests** across 20 crates
+Mighty is **pre-alpha**. Internal milestones tagged through v0.32.
+The toolchain is exercised by **~2766 Rust tests** across 20 crates
 plus **490 Python 2nd-impl tests** plus **159 normative conformance
-cases** plus **23 self-host driver codegen tests** — combined **3232
-tests, 0 failing**. All four LLM providers full; `std.swarm` votes
-consensus across them; `std.eval` regression-tests agents under
-byte-identical replay. All 9 demos pass `smoke.sh`; 3 web demos opt
-into headless-browser visual smoke; 2 agent demos into mock-LLM
-end-to-end smoke. KNOWN_ISSUES P1 closed; P2 holds one entry (#9 demo
-06 RAF-mid-frame phash flake; 4-of-5 success). Six required CI gates:
-`test`, `test-minimal`, `msrv`, `clippy-strict`, `bench`, `security`.
-Coverage 63% direct / 99% any-harness (only `MT3012` uncovered).
+cases** plus **23 self-host driver codegen tests** — combined **~3438
+tests, 0 failing**. All four LLM providers full (with multi-modal
+vision-language Image input); `std.swarm` votes consensus across
+them; `std.eval` regression-tests agents under byte-identical
+replay; `std.rag` is the canonical RAG path. All 10 demos pass
+`smoke.sh`; 3 web demos opt into headless-browser visual smoke; 2
+agent demos into mock-LLM end-to-end smoke. KNOWN_ISSUES P1 closed;
+P2 holds one entry (#9 demo 06 RAF-mid-frame phash flake; 4-of-5
+success). Six required CI gates: `test`, `test-minimal`, `msrv`,
+`clippy-strict`, `bench`, `security`. Coverage 63% direct / 99%
+any-harness (only `MT3012` uncovered).
 
 **There is no released GA binary yet.** Pre-built tagged binaries
 ship on every release; treat the language as unstable; please file

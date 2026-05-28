@@ -1,10 +1,9 @@
 # mailbox_throughput
 
-> **Baseline from Mighty v0.6 (recorded 2026-05-24).** These numbers
-> have not been refreshed against v0.31. To run current measurements,
-> see [`benches/README.md`](https://github.com/hassard0/Mighty/blob/main/benches/README.md) and the
-> per-impl build steps in
-> [`benches/mailbox_throughput/README.md`](https://github.com/hassard0/Mighty/blob/main/benches/mailbox_throughput/README.md).
+> **Last refreshed: v0.33 (2026-05-28) on vulcan** (Dell, Intel Xeon,
+> Ubuntu 24.04, Rust 1.95.0). Mighty + Rust-tokio comparator numbers
+> are v0.33; Go + C++ comparators retain the v0.6 baseline pending a
+> comparator toolchain refresh on the benchmark host.
 
 **Workload:** one producer task, one consumer task, drain 1 000 (CLI)
 or 10 000 (criterion) `MessageFrame`s through a bounded mailbox.
@@ -15,19 +14,27 @@ or 10 000 (criterion) `MessageFrame`s through a bounded mailbox.
 
 | Impl | Median | p95 | p99 | Msgs/sec (median) | Notes |
 |---|---|---|---|---|---|
-| Mighty v0.6 mailbox (1k msgs) | 0.23 ms | 0.44 ms | 0.48 ms | ~4.4M/sec | tokio mpsc + slab |
-| Mighty v0.6 mailbox (10k msgs, criterion) | (criterion bench) | | | | |
-| Rust tokio mpsc (10k msgs) | (pending — Reference env) | | | | |
+| Mighty v0.33 mailbox (1k msgs) | 0.24 ms | 0.24 ms | 0.25 ms | ~4.2M/sec | tokio mpsc + slab |
+| Mighty v0.33 mailbox (10k msgs, criterion) | (criterion bench) | | | | |
+| Rust tokio mpsc (10k msgs) | 1.28 ms | 1.31 ms | 1.33 ms | ~7.8M/sec | bare mpsc, no slab — vulcan |
 | Go buffered chan (10k msgs) | (pending — Reference env) | | | | |
 | C++ SPSC lock-free ring (10k msgs) | (pending — Reference env) | | | | will be the fastest by a wide margin |
 
-### Recorded values (this host, 2026-05-24)
+### Recorded values (vulcan, 2026-05-28, v0.33)
 
 ```
-mailbox_throughput     median=     0.227 ms  p95=     0.436 ms  p99=     0.483 ms
+mailbox_throughput        median=     0.235 ms  p95=     0.244 ms  p99=     0.251 ms  (1k msgs/iter)
+rust_tokio_mailbox        median=     1.282 ms  p95=     1.308 ms  p99=     1.331 ms  (10k msgs/iter)
 ```
 
-With 1 000 msgs/iter: **median = 4.4M msgs/sec single-threaded**.
+With 1 000 msgs/iter: **median ≈ 4.2M msgs/sec single-threaded** —
+about 54% of bare Rust tokio mpsc on the same host, which is the
+slab admission overhead the prior baseline anticipated.
+
+### v0.6 baseline (Windows 11 dev laptop, 2026-05-24)
+
+For continuity: Mighty v0.6 measured **median = 0.23 ms** for 1k
+msgs (~4.4M msgs/sec). Cross-host deltas are shape, not absolute.
 
 ## Interpretation
 

@@ -51,10 +51,7 @@
 //     the library rather than this bin.
 // Both moves are mechanical; the surface contract here doesn't change.
 
-#![cfg_attr(
-    not(target_arch = "wasm32"),
-    allow(dead_code, unused_imports)
-)]
+#![cfg_attr(not(target_arch = "wasm32"), allow(dead_code, unused_imports))]
 
 #[cfg(all(target_arch = "wasm32", feature = "playground-wasm"))]
 mod wasm {
@@ -147,9 +144,7 @@ mod wasm {
     }
 
     fn any_error(diags: &[Diagnostic]) -> bool {
-        diags
-            .iter()
-            .any(|d| matches!(d.severity, Severity::Error))
+        diags.iter().any(|d| matches!(d.severity, Severity::Error))
     }
 
     // ---- Exported surface ----------------------------------------------
@@ -172,8 +167,7 @@ mod wasm {
             ok,
             diagnostics: diags.iter().map(to_out).collect(),
         };
-        serde_wasm_bindgen::to_value(&out)
-            .unwrap_or(JsValue::NULL)
+        serde_wasm_bindgen::to_value(&out).unwrap_or(JsValue::NULL)
     }
 
     /// `check` + SIR lower + tree-walker interpret. Returns
@@ -188,8 +182,7 @@ mod wasm {
                 trace: String::from("// rejected before run — see diagnostics"),
                 diagnostics: diags.iter().map(to_out).collect(),
             };
-            return serde_wasm_bindgen::to_value(&out)
-                .unwrap_or(JsValue::NULL);
+            return serde_wasm_bindgen::to_value(&out).unwrap_or(JsValue::NULL);
         }
         // v0.33 ships the diagnostics path; the interpreter-on-wasm path
         // lands once mty-runtime's tokio-free `BudgetTracker`/`StdHost`

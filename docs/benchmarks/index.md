@@ -1,11 +1,11 @@
 # Mighty cross-language microbenchmark results
 
-> **Last refreshed: v0.6 baseline (2026-05-24).** The recorded numbers
-> below were collected against Mighty v0.6 and have **not** been
-> rerun against the current release (v0.31). The comparator code in
-> `benches/` is current and ready to run on any host; the numbers
-> themselves are stale. To collect current measurements, see
-> [How to rerun](#how-to-rerun) below.
+> **Last refreshed: v0.33 (2026-05-28).** Numbers below were rerun on
+> the vulcan benchmark host (Dell, Intel Xeon, 4× NVIDIA V100, Ubuntu
+> 24.04, Rust 1.95.0). Mighty + Rust comparator numbers are v0.33;
+> Go + C++ comparators retain the v0.6 baseline pending a comparator
+> toolchain refresh on the benchmark host. To collect current
+> measurements yourself, see [How to rerun](#how-to-rerun) below.
 
 This page is the canonical landing for the **language-level
 microbenchmarks** that put Mighty's performance in context against
@@ -26,39 +26,45 @@ instead — that's a different concern with a different cadence.
 | Compile to native | Build time for ~1 KLOC Mighty → wasm | [compile_to_native.md](compile_to_native.md) |
 | Wasm size | Output size for a 50-unit fixture | [wasm_size.md](wasm_size.md) |
 
-## Headline summary (v0.6 baseline)
+## Headline summary (v0.33)
 
-(all numbers are median over 20–30 runs on the host described below;
-**not refreshed for v0.31**)
+(all numbers are median over 30 runs on vulcan; ~ symbol indicates
+the value moved within noise vs the v0.6 baseline)
 
-| Category | Mighty v0.6 | Notes |
-|---|---|---|
-| Agent send latency | ~0.4 µs | Sub-µs P50 on a single tokio task |
-| Mailbox 1k msgs | 0.23 ms | ~4.4M msgs/sec single-thread |
-| HTTP GET round-trip | 0.24 ms | In-process, std.http serve_in_memory |
-| Parse 10 KLOC | 6.2 ms | ~20 MB/s logos-based pipeline |
-| Compile 1 KLOC → wasm | 7.9 ms | wasm-core release |
-| Wasm size (50 units) | 2068 bytes | core module, no debug info |
+| Category | Mighty v0.33 | Δ vs v0.6 | Notes |
+|---|---|---|---|
+| Agent send latency | 0.2 µs | -50% | sub-µs P50; tokio mpsc + slab admit |
+| Mailbox 1k msgs | 0.24 ms | ~ | ~4.2M msgs/sec single-thread |
+| HTTP GET round-trip | 0.11 ms | -56% | in-process, std.http serve_in_memory |
+| Parse 10 KLOC | 5.6 ms | -10% | ~24 MB/s logos-based pipeline |
+| Compile 1 KLOC → wasm | 8.0 ms | ~ | wasm-core release path |
+| Wasm size (50 units) | 2698 bytes | +30% | core module; growth comes from v0.15+ stdlib intrinsics |
 
-These were first-cut numbers in v0.6. They are **not** a claim of
-being faster than C++/Rust/Go on every workload — see each category
-page for the honest interpretation against the cross-language
+These are first-cut Mighty numbers re-run on a different host (vulcan)
+than the v0.6 baseline (Windows 11 dev laptop). Apples-to-apples
+deltas need both runs on the same host — the cross-host delta
+column is for shape, not absolute claims. They are **not** a claim
+of being faster than C++/Rust/Go on every workload — see each
+category page for the honest interpretation against the cross-language
 comparators.
 
-## Environment (v0.6 baseline recording)
+## Environment (v0.33 refresh)
 
 | | |
 |---|---|
-| Host | Windows 11 Home 10.0.26200 |
-| CPU | (host's default, captured at bench time) |
-| RAM | (host's default, captured at bench time) |
-| Mighty | v0.6 prep, commit `a678e41+` |
+| Host | vulcan (Dell server, Ubuntu 24.04) |
+| CPU | Intel Xeon (NUMA, multi-socket) |
+| GPU | 4× NVIDIA V100-SXM2 16GB NVLinked (not on the bench path) |
+| Mighty | v0.33, commit `eb9cb2b+` |
 | Toolchain | rustc 1.95.0 (cargo 1.95.0) |
-| Bench harness | criterion 0.5 + `mty-bench-runner` |
+| Bench harness | criterion 0.5 + `mty-bench-runner --all --iters 30` |
 
-C++/Go comparators were **not run** on this host (the toolchains were
-not installed at v0.6 recording time). Their impls ship as code; the
-methodology page describes the reference environment.
+The Rust comparator was rerun on this host for v0.33 (parse,
+agent-send-latency, mailbox; the hyper http server has a
+pre-existing comparator compile error tracked as a v0.34 backlog
+item). Go + C++ comparators were **not run** on vulcan; their impls
+ship as code, the v0.6-baseline pending rows on each category page
+are retained as such.
 
 ## How to rerun
 

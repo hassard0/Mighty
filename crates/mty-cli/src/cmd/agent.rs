@@ -139,10 +139,7 @@ fn run_stdio(args: AgentArgs) -> i32 {
                         message: format!("malformed JSON: {e}"),
                     },
                 );
-                emit(
-                    &mut stdout_locked,
-                    &Response::Done { exit_code: 2 },
-                );
+                emit(&mut stdout_locked, &Response::Done { exit_code: 2 });
                 worst_exit = worst_exit.max(2);
                 continue;
             }
@@ -535,10 +532,7 @@ impl Session {
         let cost = matches!(view, "cost");
         let args = super::inspect::InspectArgs {
             sock: req.str("sock").map(|s| s.to_string()),
-            agent: req
-                .fields
-                .get("agent")
-                .and_then(|v| v.as_u64()),
+            agent: req.fields.get("agent").and_then(|v| v.as_u64()),
             json: true,
             watch_ms: None,
             cost,
@@ -761,7 +755,11 @@ impl Session {
         let write = req.bool("write");
 
         // Allow `path` override; otherwise use the last-checked path.
-        let path_buf = match req.str("path").map(PathBuf::from).or_else(|| self.last_path.clone()) {
+        let path_buf = match req
+            .str("path")
+            .map(PathBuf::from)
+            .or_else(|| self.last_path.clone())
+        {
             Some(p) => p,
             None => {
                 emit(
@@ -806,7 +804,11 @@ impl Session {
             emit(
                 out,
                 &Response::Error {
-                    message: format!("fix: no diagnostic with code `{}` in {}", code, path_buf.display()),
+                    message: format!(
+                        "fix: no diagnostic with code `{}` in {}",
+                        code,
+                        path_buf.display()
+                    ),
                 },
             );
             return 1;
@@ -977,10 +979,15 @@ fn apply_unified_diff(src: &str, diff: &str) -> Option<String> {
             return None;
         }
     }
-    let mut out: Vec<String> = Vec::with_capacity(src_lines.len() - old_body.len() + new_body.len());
+    let mut out: Vec<String> =
+        Vec::with_capacity(src_lines.len() - old_body.len() + new_body.len());
     out.extend(src_lines[..line_idx].iter().map(|s| s.to_string()));
     out.extend(new_body.iter().cloned());
-    out.extend(src_lines[line_idx + old_body.len()..].iter().map(|s| s.to_string()));
+    out.extend(
+        src_lines[line_idx + old_body.len()..]
+            .iter()
+            .map(|s| s.to_string()),
+    );
     Some(join_lines(&out, src_had_trailing_nl))
 }
 
@@ -1022,20 +1029,14 @@ fn find_hits(root: &Path, query: &str, top: usize) -> Vec<FindHit> {
             let p = e.path();
             if p.is_dir() {
                 // Skip hidden + target dirs to keep results scoped.
-                let name = p
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("");
+                let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
                 if name.starts_with('.') || name == "target" || name == "node_modules" {
                     continue;
                 }
                 stack.push(p);
                 continue;
             }
-            let ext = p
-                .extension()
-                .and_then(|s| s.to_str())
-                .unwrap_or("");
+            let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("");
             if !matches!(ext, "mty" | "md") {
                 continue;
             }
@@ -1144,8 +1145,7 @@ mod tests {
     #[test]
     fn apply_diff_multi_line_replace() {
         let src = "a\nb\nc\nd\n";
-        let diff =
-            "--- a/x.mty\n+++ b/x.mty\n@@ -2,2 +2,3 @@\n-b\n-c\n+B\n+C\n+CC\n";
+        let diff = "--- a/x.mty\n+++ b/x.mty\n@@ -2,2 +2,3 @@\n-b\n-c\n+B\n+C\n+CC\n";
         let out = apply_unified_diff(src, diff).unwrap();
         assert_eq!(out, "a\nB\nC\nCC\nd\n");
     }
@@ -1402,11 +1402,8 @@ mod tests {
         // Now `--check`.
         let check_req = Request {
             op: "fmt".into(),
-            fields: serde_json::from_str(&format!(
-                r#"{{"path":"{}","check":true}}"#,
-                path_str
-            ))
-            .unwrap(),
+            fields: serde_json::from_str(&format!(r#"{{"path":"{}","check":true}}"#, path_str))
+                .unwrap(),
         };
         let mut buf2: Vec<u8> = Vec::new();
         let _ = s.handle(&check_req, &mut buf2);

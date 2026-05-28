@@ -267,7 +267,12 @@ impl FixBuilder {
             line_no = line_no,
             count = lines.len(),
         );
-        let body: String = lines.iter().map(|l| format!("+{l}\n")).collect();
+        let mut body = String::new();
+        for l in lines.iter() {
+            body.push('+');
+            body.push_str(l);
+            body.push('\n');
+        }
         self.diff = header + &body;
         self
     }

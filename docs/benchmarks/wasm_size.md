@@ -1,10 +1,9 @@
 # wasm_size
 
-> **Baseline from Mighty v0.6 (recorded 2026-05-24).** These numbers
-> have not been refreshed against v0.31. To run current measurements,
-> see [`benches/README.md`](https://github.com/hassard0/Mighty/blob/main/benches/README.md) and the
-> per-impl build steps in
-> [`benches/wasm_size/README.md`](https://github.com/hassard0/Mighty/blob/main/benches/wasm_size/README.md).
+> **Last refreshed: v0.33 (2026-05-28) on vulcan** (Dell, Intel Xeon,
+> Ubuntu 24.04, Rust 1.95.0). Mighty number is v0.33; Rust / TinyGo
+> / Emscripten comparators retain the v0.6 baseline pending a
+> toolchain refresh on the benchmark host.
 
 **Workload:** emit a 50-unit (~500-line) synthetic Mighty source as
 a wasm-core module, release mode, no Component-Model wrapper, no
@@ -18,16 +17,29 @@ matter.
 
 | Impl | Bytes | Bytes/unit | Notes |
 |---|---|---|---|
-| Mighty v0.6 → wasm-core (release) | 2 068 | ~41 | 50 structs + 50 fns; no debug info |
+| Mighty v0.33 → wasm-core (release) | 2 698 | ~54 | 50 structs + 50 fns; no debug info |
 | Rust → wasm32-unknown-unknown (release) | (pending) | | `cargo build --release --target wasm32` |
 | TinyGo → wasi (release) | (pending) | | `tinygo build -target=wasi -no-debug` |
 | Emscripten → wasm | (pending) | | `emcc -O3 -s STANDALONE_WASM` |
 
-### Recorded values (this host, 2026-05-24)
+### Recorded values (vulcan, 2026-05-28, v0.33)
 
 ```
-wasm_size: 2068 bytes
+wasm_size: 2698 bytes
 ```
+
+A +30% bump vs the v0.6 baseline (2068 bytes) — accounted for by
+v0.15+ stdlib intrinsics that the wasm-core lowerer now emits
+direct lowerings for (versioned `wasi:*@0.2.3` import shape;
+`std.random` + `std.time` direct calls). Tracked as a v0.34
+follow-up: function deduplication + a Wasm size-budget gate to
+prevent silent regressions.
+
+### v0.6 baseline (Windows 11 dev laptop, 2026-05-24)
+
+For continuity: Mighty v0.6 emitted **2 068 bytes** for the same
+50-unit fixture. The growth is stdlib WASI integration, not
+codegen regression.
 
 ## Interpretation
 

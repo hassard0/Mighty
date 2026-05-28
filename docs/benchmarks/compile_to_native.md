@@ -1,10 +1,9 @@
 # compile_to_native
 
-> **Baseline from Mighty v0.6 (recorded 2026-05-24).** These numbers
-> have not been refreshed against v0.31. To run current measurements,
-> see [`benches/README.md`](https://github.com/hassard0/Mighty/blob/main/benches/README.md) and the
-> per-impl build steps in
-> [`benches/compile_to_native/README.md`](https://github.com/hassard0/Mighty/blob/main/benches/compile_to_native/README.md).
+> **Last refreshed: v0.33 (2026-05-28) on vulcan** (Dell, Intel Xeon,
+> Ubuntu 24.04, Rust 1.95.0). Mighty numbers are v0.33; Rust/Go/C++
+> comparators retain the v0.6 baseline pending a toolchain refresh
+> on the benchmark host (vulcan has no Go installed).
 
 **Workload:** end-to-end compile of a 1 002-line synthetic Mighty
 source (`synth_source(100)`) to a wasm-core module (release mode).
@@ -26,16 +25,25 @@ edit-compile cycle is the user-visible metric here.
 
 | Impl | Median | Lines | Lines/sec | Notes |
 |---|---|---|---|---|
-| Mighty v0.6 → wasm-core (release) | 7.88 ms | 1002 | ~127k LoC/sec | full pipeline |
+| Mighty v0.33 → wasm-core (release) | 8.03 ms | 1002 | ~125k LoC/sec | full pipeline |
 | Rust 1.95 → release native | (pending — Reference env) | 1002 | | `cargo build --release` |
 | Go 1.22 → native | (pending — Reference env) | 1002 | | `go build` |
 | C++ clang++ -O2 → native | (pending — Reference env) | 1002 | | `clang++ -O2 -std=c++20` |
 
-### Recorded values (this host, 2026-05-24)
+### Recorded values (vulcan, 2026-05-28, v0.33)
 
 ```
-compile_to_native      median=     7.875 ms  p95=     8.642 ms  p99=     8.642 ms
+compile_to_native      median=     8.029 ms  p95=     8.241 ms  p99=     8.241 ms
 ```
+
+Holds within noise of the v0.6 baseline (8.03 ms ≈ 7.88 ms on a
+different host) — which is the expected shape: the v0.33 tracks
+added stdlib + LSP + CLI surface area, not pipeline cost.
+
+### v0.6 baseline (Windows 11 dev laptop, 2026-05-24)
+
+For continuity: Mighty v0.6 measured **median = 7.88 ms** (127k
+LoC/sec). Cross-host deltas are shape, not absolute.
 
 ## Interpretation
 

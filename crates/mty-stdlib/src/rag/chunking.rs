@@ -414,7 +414,10 @@ mod tests {
         let c = Chunker::new(ChunkStrategy::ByParagraph).with_max_tokens(1);
         let chunks = c.chunk(&d);
         for ch in &chunks {
-            assert_eq!(ch.metadata.get("source"), Some(&Value::String("docs".into())));
+            assert_eq!(
+                ch.metadata.get("source"),
+                Some(&Value::String("docs".into()))
+            );
             assert!(ch.metadata.contains_key("chunk_idx"));
         }
     }

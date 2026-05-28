@@ -215,11 +215,7 @@ impl Rag {
     }
 
     /// RAG + multiple image inputs.
-    pub async fn ask_with_images(
-        &self,
-        query: &str,
-        images: Vec<Image>,
-    ) -> Result<String, RagErr> {
+    pub async fn ask_with_images(&self, query: &str, images: Vec<Image>) -> Result<String, RagErr> {
         self.ask_inner(query, images).await
     }
 
@@ -282,10 +278,7 @@ fn build_augmented_prompt(system: &str, query: &str, hits: &[Hit]) -> String {
     s
 }
 
-fn build_multimodal_content(
-    prompt: &str,
-    images: Vec<Image>,
-) -> Result<Vec<ContentBlock>, RagErr> {
+fn build_multimodal_content(prompt: &str, images: Vec<Image>) -> Result<Vec<ContentBlock>, RagErr> {
     let mut blocks = Vec::with_capacity(images.len() + 1);
     for img in images {
         blocks.push(ContentBlock::Image {

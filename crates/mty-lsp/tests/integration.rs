@@ -148,11 +148,12 @@ fn hover_on_member_ask_returns_stdlib_payload() {
     // walker to fire — hover is a CST-level concern.
     let src = "fn main() { let r = Member.anthropic(\"x\").ask(\"hi\") }\n";
     let doc = analyze(src);
-    let pos = locate(src, ".ask(").map(|p| Position {
-        line: p.line,
-        character: p.character + 1,
-    })
-    .unwrap();
+    let pos = locate(src, ".ask(")
+        .map(|p| Position {
+            line: p.line,
+            character: p.character + 1,
+        })
+        .unwrap();
     let h = hover(&doc, pos).expect("hover returns Some");
     let HoverContents::Markup(m) = h.contents else {
         panic!("expected markup hover")

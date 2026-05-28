@@ -116,7 +116,7 @@ fn levenshtein(a: &str, b: &str) -> usize {
 
 /// Find the closest identifier in `source` to `target` (by Levenshtein).
 /// Returns (candidate, distance). Caller usually filters dist <= 2.
-fn closest_ident<'a>(source: &'a str, target: &str) -> Option<(String, usize)> {
+fn closest_ident(source: &str, target: &str) -> Option<(String, usize)> {
     let mut best: Option<(String, usize)> = None;
     let mut current = String::new();
     for ch in source.chars() {
@@ -184,7 +184,7 @@ fn fix_for(
 
         // Borrow
         3001 => fix_use_after_move(source_id, source, span),
-        3004 | 3005 | 3006 => fix_borrow_conflict(source_id, source, span, diag.code.0),
+        3004..=3006 => fix_borrow_conflict(source_id, source, span, diag.code.0),
         3013 | 3014 => fix_immut_local(source_id, source, span),
         3015 => fix_use_uninitialized(source_id, source, span),
 
@@ -449,18 +449,12 @@ fn fix_type_mismatch(
                  handle the Err branch.",
                 0.75,
             )
-            .replace_line(
-                source_id,
-                span.line,
-                line,
-                &line.replace("\"", "\"").to_string(),
-            )
             .diff(format!(
-                "--- a/{f}\n+++ b/{f}\n@@ -{l},1 +{l},1 @@\n-{old}\n+{new}\n",
+                "--- a/{f}\n+++ b/{f}\n@@ -{l},1 +{l},1 @@\n-{old}\n+{new}.parse()?\n",
                 f = source_id,
                 l = span.line,
                 old = line,
-                new = format!("{}.parse()?", line.trim_end())
+                new = line.trim_end()
             ))
             .build(),
         );
@@ -473,11 +467,11 @@ fn fix_type_mismatch(
                 0.7,
             )
             .diff(format!(
-                "--- a/{f}\n+++ b/{f}\n@@ -{l},1 +{l},1 @@\n-{old}\n+{new}\n",
+                "--- a/{f}\n+++ b/{f}\n@@ -{l},1 +{l},1 @@\n-{old}\n+{new}.to_string()\n",
                 f = source_id,
                 l = span.line,
                 old = line,
-                new = format!("{}.to_string()", line.trim_end())
+                new = line.trim_end()
             ))
             .build(),
         );
@@ -1331,7 +1325,7 @@ fn see_also_for(code: DiagCode) -> Vec<String> {
         2010 => vec!["MT2011".into()],
         2026 => vec!["MT4031".into(), "MT4032".into(), "MT4033".into()],
         3001 => vec!["MT3002".into(), "MT3008".into()],
-        3004 | 3005 | 3006 => vec!["MT3001".into()],
+        3004..=3006 => vec!["MT3001".into()],
         4001 => vec!["MT4050".into()],
         4050 => vec!["MT4055".into(), "MT4059".into()],
         4060 => vec!["MT4061".into(), "MT4062".into(), "MT4063".into()],

@@ -122,8 +122,8 @@ impl Index {
     /// [`VectorStore::with_embedder`].
     #[must_use]
     pub fn with_embedder(mut self, embedder: Arc<dyn Embedder>) -> Self {
-        self.store = std::mem::replace(&mut self.store, VectorStore::local(""))
-            .with_embedder(embedder);
+        self.store =
+            std::mem::replace(&mut self.store, VectorStore::local("")).with_embedder(embedder);
         self
     }
 
@@ -173,8 +173,7 @@ impl Index {
             }
             let chunks = self.chunker.chunk(&doc);
             for chunk in chunks {
-                self.store
-                    .upsert(&chunk.id, &chunk.text, chunk.metadata)?;
+                self.store.upsert(&chunk.id, &chunk.text, chunk.metadata)?;
                 total_chunks += 1;
             }
         }
@@ -270,7 +269,10 @@ mod tests {
         idx.add_doc(Doc::new("d1", "first version of the text"));
         idx.build().unwrap();
         let before = idx.chunk_count();
-        idx.add_doc(Doc::new("d1", "second version one\n\nsecond version two\n\nthird"));
+        idx.add_doc(Doc::new(
+            "d1",
+            "second version one\n\nsecond version two\n\nthird",
+        ));
         idx.build().unwrap();
         let after = idx.chunk_count();
         assert!(after >= before, "expected at least as many chunks");
@@ -318,7 +320,8 @@ mod tests {
         let dir = tempdir().unwrap();
         let mut idx = Index::new(dir.path());
         assert_eq!(idx.pending_count(), 0);
-        idx.add_text("a", HashMap::new()).add_text("b", HashMap::new());
+        idx.add_text("a", HashMap::new())
+            .add_text("b", HashMap::new());
         assert_eq!(idx.pending_count(), 2);
         idx.build().unwrap();
         assert_eq!(idx.pending_count(), 0);

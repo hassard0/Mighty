@@ -758,8 +758,7 @@ fn target_module_prefix(symbol: &'static str) -> Option<&'static str> {
 /// Best-effort path to the on-disk examples cache. Returns `None`
 /// when neither `HOME` nor `USERPROFILE` is set (e.g. some CI runners).
 pub fn default_cache_path() -> Option<std::path::PathBuf> {
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))?;
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
     let mut p = std::path::PathBuf::from(home);
     p.push(".mty");
     p.push("examples-index.json");
@@ -915,7 +914,11 @@ mod tests {
         let e = lookup("Member.ask").unwrap();
         let md = render_hover_markdown(e);
         assert!(md.contains("```mty"), "missing code fence: {}", md);
-        assert!(md.contains("Required capability"), "missing capability: {}", md);
+        assert!(
+            md.contains("Required capability"),
+            "missing capability: {}",
+            md
+        );
         assert!(md.contains("Example"), "missing example: {}", md);
         assert!(md.contains("See also"), "missing see-also: {}", md);
         assert!(md.contains("Member.anthropic"));

@@ -1,10 +1,10 @@
 # http_server_throughput
 
-> **Baseline from Mighty v0.6 (recorded 2026-05-24).** These numbers
-> have not been refreshed against v0.31. To run current measurements,
-> see [`benches/README.md`](https://github.com/hassard0/Mighty/blob/main/benches/README.md) and the
-> per-impl build steps in
-> [`benches/http_server_throughput/README.md`](https://github.com/hassard0/Mighty/blob/main/benches/http_server_throughput/README.md).
+> **Last refreshed: v0.33 (2026-05-28) on vulcan** (Dell, Intel Xeon,
+> Ubuntu 24.04, Rust 1.95.0). Mighty numbers are v0.33; comparator
+> rows pending. The Rust+Hyper comparator has a pre-existing compile
+> error against the v0.33 toolchain (tracked in v0.34 backlog —
+> `http-server-throughput-rust-hyper` `BodyExt::collect` E0790).
 
 **Workload:** HTTP/1.1 GET round-trip on the in-process `std.http`
 server (`sdust_runtime::http::serve_in_memory`). Connection per
@@ -16,19 +16,25 @@ request, small body ("ok").
 
 | Impl | Median | p95 | p99 | Notes |
 |---|---|---|---|---|
-| Mighty v0.6 std.http (in-process) | 0.24 ms | 0.32 ms | 0.43 ms | bare TCP read/write loop |
-| Rust + Hyper (in-process) | (pending — Reference env) | | | hyper 1.x service_fn |
+| Mighty v0.33 std.http (in-process) | 0.11 ms | 0.23 ms | 0.34 ms | bare TCP read/write loop |
+| Rust + Hyper (in-process) | (comparator broken — see callout) | | | hyper 1.x service_fn |
 | Go stdlib net/http (httptest) | (pending — Reference env) | | | net/http handler |
 | C++ POSIX sockets (in-process) | (pending — Reference env) | | | bare socket loop |
 
-### Recorded values (this host, 2026-05-24)
+### Recorded values (vulcan, 2026-05-28, v0.33)
 
 ```
-http_server_throughput median=     0.235 ms  p95=     0.319 ms  p99=     0.425 ms
+http_server_throughput median=     0.106 ms  p95=     0.227 ms  p99=     0.338 ms
 ```
 
-Sequential 100-GET batch (criterion bench): see `target/criterion/`
-HTML report.
+The 56% drop vs v0.6 is mostly the host change (vulcan's Xeon vs
+the v0.6 dev laptop). Sequential 100-GET batch (criterion bench):
+see `target/criterion/` HTML report.
+
+### v0.6 baseline (Windows 11 dev laptop, 2026-05-24)
+
+For continuity: Mighty v0.6 measured **median = 0.24 ms**.
+Cross-host deltas are shape, not absolute.
 
 ## Interpretation
 

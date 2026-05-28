@@ -85,7 +85,10 @@ mod tests {
     #[test]
     fn with_meta_round_trips() {
         let d = Doc::new("a", "x").with_meta("source", Value::String("docs/x.md".into()));
-        assert_eq!(d.metadata.get("source"), Some(&Value::String("docs/x.md".into())));
+        assert_eq!(
+            d.metadata.get("source"),
+            Some(&Value::String("docs/x.md".into()))
+        );
     }
 
     #[test]
@@ -95,6 +98,9 @@ mod tests {
         std::fs::write(&p, "# heading\n\nbody").unwrap();
         let d = Doc::from_file(&p).unwrap();
         assert!(d.text.contains("body"));
-        assert_eq!(d.metadata.get("source"), Some(&Value::String(p.display().to_string())));
+        assert_eq!(
+            d.metadata.get("source"),
+            Some(&Value::String(p.display().to_string()))
+        );
     }
 }

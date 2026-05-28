@@ -423,9 +423,7 @@ pub(crate) fn extract_items(src: &str, module: &str, source_rel: &str) -> Vec<It
         // Track `impl <Foo> {` blocks so we know we're inside one when
         // we hit a method. We strip generics and trait clauses to get
         // a clean type name.
-        if (line.starts_with("impl ") || line.starts_with("impl<"))
-            && line.contains('{')
-        {
+        if (line.starts_with("impl ") || line.starts_with("impl<")) && line.contains('{') {
             let ty = parse_impl_target(line);
             impl_stack.push(ty);
             brace_depth_at_impl.push(brace_depth);
@@ -756,8 +754,7 @@ pub(crate) fn infer_capability(module: &str, name: &str, doc: &str) -> String {
     let d = doc.to_ascii_lowercase();
     // Module-rooted defaults.
     if module.starts_with("std.fs") {
-        if n.starts_with("read") || n == "open" || n == "exists" || n == "list_dir" || n == "stat"
-        {
+        if n.starts_with("read") || n == "open" || n == "exists" || n == "list_dir" || n == "stat" {
             return "fs.read".into();
         }
         if n.starts_with("write")
@@ -770,7 +767,10 @@ pub(crate) fn infer_capability(module: &str, name: &str, doc: &str) -> String {
         }
         return "fs".into();
     }
-    if module.starts_with("std.http") || module.starts_with("std.tls") || module.starts_with("std.web") {
+    if module.starts_with("std.http")
+        || module.starts_with("std.tls")
+        || module.starts_with("std.web")
+    {
         if module.contains("server") || n == "serve" || n.contains("bind") {
             return "net.bind".into();
         }
@@ -867,9 +867,7 @@ fn split_identifier(name: &str) -> Vec<String> {
             out.push(buf.to_ascii_lowercase());
         }
     }
-    out.into_iter()
-        .filter(|s| s.len() >= 2)
-        .collect()
+    out.into_iter().filter(|s| s.len() >= 2).collect()
 }
 
 const STOPWORDS: &[&str] = &[

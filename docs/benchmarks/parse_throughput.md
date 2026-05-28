@@ -1,10 +1,9 @@
 # parse_throughput
 
-> **Baseline from Mighty v0.6 (recorded 2026-05-24).** These numbers
-> have not been refreshed against v0.31. To run current measurements,
-> see [`benches/README.md`](https://github.com/hassard0/Mighty/blob/main/benches/README.md) and the
-> per-impl build steps in
-> [`benches/parse_throughput/README.md`](https://github.com/hassard0/Mighty/blob/main/benches/parse_throughput/README.md).
+> **Last refreshed: v0.33 (2026-05-28) on vulcan** (Dell, Intel Xeon,
+> Ubuntu 24.04, Rust 1.95.0). Mighty + Rust-logos comparator numbers
+> are v0.33; Go + C++ comparators retain the v0.6 baseline pending a
+> comparator toolchain refresh on the benchmark host.
 
 **Workload:** lex + parse a 10 002-line synthetic Mighty source
 (~130 KB; deterministic — see `crates/mty-bench/src/fixtures.rs`).
@@ -16,9 +15,9 @@ incremental compiler all sit on top of this pipeline.
 
 | Impl | Median | p95 | p99 | Notes |
 |---|---|---|---|---|
-| Mighty v0.6 (full pipeline) | 6.19 ms | 10.01 ms | 10.40 ms | parse_source: lex + CST + diag collection |
-| Mighty v0.6 (lex only) | (see criterion HTML) | | | logos pass only |
-| Rust + logos 0.14 | (pending — see methodology.md) | | | hand-written tokenizer using the same crate |
+| Mighty v0.33 (full pipeline) | 5.64 ms | 8.71 ms | 10.62 ms | parse_source: lex + CST + diag collection |
+| Mighty v0.33 (lex only) | (see criterion HTML) | | | logos pass only |
+| Rust + logos 0.14 | 0.18 ms | 0.19 ms | 0.22 ms | hand-written tokenizer using the same crate |
 | Go bufio scanner | (pending — Reference env) | | | hand-written scanner; no AST |
 | C++ hand-written | (pending — Reference env) | | | -O3 single-pass tokenizer |
 
@@ -26,13 +25,24 @@ incremental compiler all sit on top of this pipeline.
 relevant toolchain. The comparator impls are in
 `benches/parse_throughput/<lang>/` and ready to invoke.)
 
-### Recorded values (this host, 2026-05-24)
+### Recorded values (vulcan, 2026-05-28, v0.33)
 
 ```
-parse_throughput       median=     6.192 ms  p95=    10.011 ms  p99=    10.401 ms
+parse_throughput       median=     5.637 ms  p95=     8.713 ms  p99=    10.617 ms
+rust_parse_throughput  median=     0.183 ms  p95=     0.189 ms  p99=     0.220 ms  (bytes=132799)
 ```
 
-Source size: 132 842 bytes ⇒ **~21 MB/s** at the median.
+Source size: 132 840 bytes ⇒ **~24 MB/s** at the median for the full
+Mighty pipeline. The Rust + logos lex-only number lands at ~31× the
+Mighty full-pipeline throughput — which is the right shape (Mighty
+also builds a rowan CST and collects diagnostics; the comparator
+just streams tokens).
+
+### v0.6 baseline (Windows 11 dev laptop, 2026-05-24)
+
+For continuity: Mighty v0.6 measured **median = 6.19 ms** for the
+full pipeline (~21 MB/s) on a different host. Cross-host deltas are
+shape, not absolute.
 
 ## Interpretation
 

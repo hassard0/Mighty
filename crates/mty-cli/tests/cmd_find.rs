@@ -179,7 +179,9 @@ fn ranks_http_send_intent() {
     // We accept either `get`, `post`, or `request` as the top hit —
     // the test asserts at least one is in the top-3.
     assert!(
-        names.iter().any(|n| matches!(*n, "get" | "post" | "request")),
+        names
+            .iter()
+            .any(|n| matches!(*n, "get" | "post" | "request")),
         "expected http verb in top-3, got {names:?}"
     );
 }
