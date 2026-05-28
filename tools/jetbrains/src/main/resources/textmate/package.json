@@ -1,0 +1,27 @@
+{
+  "name": "mighty-tmbundle",
+  "displayName": "Mighty",
+  "description": "TextMate-grammar-based syntax highlighting for Mighty (.mty) files. Used by the JetBrains plugin as the fallback path on Community-edition IDEs that lack the LSP API.",
+  "version": "0.32.0",
+  "publisher": "dev.mighty.jetbrains",
+  "engines": {
+    "vscode": "^1.0.0"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "mighty",
+        "aliases": ["Mighty", "mighty"],
+        "extensions": [".mty"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "mighty",
+        "scopeName": "source.mty",
+        "path": "./Syntaxes/mighty.tmLanguage.json"
+      }
+    ]
+  }
+}
