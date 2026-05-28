@@ -1,0 +1,53 @@
+# tools/gh-actions/examples/mty-explain-on-failure.yml
+#
+# When `mty check` fails on a PR, this workflow grabs the first
+# `MTxxxx` diagnostic code from the failure, runs `mty explain` on it,
+# and appends the prose to the job summary. The job still fails (the
+# diagnostic explanation doesn't suppress the error) — it just gives
+# the reviewer a one-click link to "what does MT4099 actually mean?"
+# right on the workflow run page.
+#
+# Drop at `.github/workflows/mighty-check-explain.yml` in your project.
+name: Mighty check (with explain)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-with-explain:
+    name: mty check + diagnostic prose
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mty
+        uses: hassard0/Mighty/tools/gh-actions/setup-mty@v0.32.0
+        with:
+          version: "0.32.0"
+
+      - id: check
+        name: mty check
+        uses: hassard0/Mighty/tools/gh-actions/mty-check@v0.32.0
+        # Don't short-circuit the job here — we want the explain step
+        # to run on the captured `error_code` before the job fails.
+        continue-on-error: true
+
+      - name: Explain diagnostic
+        if: steps.check.outcome == 'failure' && steps.check.outputs.error_code != ''
+        uses: hassard0/Mighty/tools/gh-actions/mty-explain@v0.32.0
+        with:
+          code: ${{ steps.check.outputs.error_code }}
+          output-to: "job-summary"
+          # `mty-check` may emit a malformed code in unusual cases;
+          # don't tank the workflow over that.
+          fail-on-unknown: "false"
+
+      - name: Re-fail on check error
+        if: steps.check.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "::error::mty check failed — see job summary for diagnostic explanation" >&2
+          exit 1

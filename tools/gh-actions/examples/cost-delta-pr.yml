@@ -1,0 +1,50 @@
+# tools/gh-actions/examples/cost-delta-pr.yml
+#
+# Post a sticky "Mighty cost delta" comment on every PR. Replays the
+# eval suite on both the base ref and the PR ref, diffs the cost
+# snapshots from `mty inspect --cost`, and updates a single PR comment
+# in-place so reviewers see the trend without comment-spam.
+#
+# Recorded-traces only (free, no API key) by default — the comment
+# calls that out, so don't conflate the numbers with real-money spend.
+# Set `replay-only: "false"` + add an `ANTHROPIC_API_KEY` secret to
+# diff actual costs.
+#
+# Drop at `.github/workflows/mighty-cost-delta.yml` in your project.
+name: Mighty cost delta
+
+on:
+  pull_request:
+    branches: [main]
+
+# The sticky-comment step needs write access to PR comments. Forks
+# don't get this token automatically — see `pull_request_target` if
+# you want fork PRs to comment too (read the GH docs on the security
+# implications first).
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  cost-delta:
+    name: replay both refs, post sticky cost-delta comment
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # cost-delta checks out the base ref too; deepen so the fetch
+          # doesn't have to round-trip.
+          fetch-depth: 0
+
+      - name: Install mty
+        uses: hassard0/Mighty/tools/gh-actions/setup-mty@v0.32.0
+        with:
+          version: "0.32.0"
+
+      - name: Post cost delta comment
+        uses: hassard0/Mighty/tools/gh-actions/cost-delta@v0.32.0
+        with:
+          replay-only: "true"
+          comment-style: "sticky"
+          # Uncomment to fail the job if cost grows more than 50%.
+          # fail-on-increase-percent: "50"

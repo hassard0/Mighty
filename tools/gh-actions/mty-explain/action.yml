@@ -1,0 +1,155 @@
+name: "Mighty explain"
+description: >-
+  Wrap `mty explain MTxxxx` for linkable diagnostic prose. Pair this
+  with `mty-check` (whose `outputs.error_code` captures the first
+  `MTxxxx` token from a failing check) to attach the human
+  explanation of a CI failure to a job summary or PR comment.
+  Requires the `mty` binary on `$PATH` — pair with
+  `hassard0/Mighty/tools/gh-actions/setup-mty`.
+author: "Mighty"
+branding:
+  icon: "help-circle"
+  color: "purple"
+
+inputs:
+  code:
+    description: >-
+      Diagnostic code to explain, e.g. `MT4099`. `mty explain` also
+      accepts `mt4099`, the legacy `SD4099`/`sd4099` prefix, or the
+      bare numeric form (`4099`).
+    required: true
+  format:
+    description: >-
+      Output format. `markdown` (default) wraps `mty explain`'s prose
+      in a `### MTxxxx` heading + fenced details block. `text` is the
+      raw stdout. `json` emits `{"code": "...", "explanation": "..."}`.
+    required: false
+    default: "markdown"
+  output-to:
+    description: >-
+      Where to send the formatted explanation. `stdout` (default)
+      writes to the job log only. `job-summary` appends to
+      `$GITHUB_STEP_SUMMARY` (shown on the workflow run page).
+      `pr-comment` posts a new PR comment via
+      `peter-evans/create-or-update-comment@v4` — requires
+      `pull-requests: write` and a `pull_request` event.
+    required: false
+    default: "stdout"
+  github-token:
+    description: >-
+      Token for `pr-comment` mode. Defaults to `GITHUB_TOKEN`.
+    required: false
+    default: ${{ github.token }}
+  fail-on-unknown:
+    description: >-
+      When `true` (default), fail the action if `mty explain` doesn't
+      recognize the code (exit 1) or the code argument is malformed
+      (exit 2). Set `false` to treat unknown codes as a no-op — useful
+      when chaining off `mty-check.outputs.error_code` which may be
+      empty when nothing failed.
+    required: false
+    default: "true"
+
+outputs:
+  rendered:
+    description: "The formatted explanation, as it was written to the chosen sink."
+    value: ${{ steps.explain.outputs.rendered }}
+  exit-code:
+    description: >-
+      Raw exit code from `mty explain`: 0 ok, 1 unknown code, 2
+      malformed argument. Useful when `fail-on-unknown` is `false`.
+    value: ${{ steps.explain.outputs.exit_code }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: explain
+      name: Run mty explain
+      shell: bash
+      env:
+        MTY_CODE: ${{ inputs.code }}
+        MTY_FORMAT: ${{ inputs.format }}
+        MTY_FAIL_UNKNOWN: ${{ inputs.fail-on-unknown }}
+      run: |
+        set -uo pipefail
+        if [ -z "${MTY_CODE}" ]; then
+          # Empty code is a common chained-from-mty-check case; bail cleanly
+          # so the caller's `if:` guard is the obvious place to gate.
+          echo "mty-explain: code input is empty; skipping"
+          echo "exit_code=0" >> "$GITHUB_OUTPUT"
+          {
+            echo "rendered<<EOF_RENDER"
+            echo ""
+            echo "EOF_RENDER"
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        if ! command -v mty >/dev/null 2>&1; then
+          echo "mty not found on PATH — install setup-mty first" >&2
+          exit 1
+        fi
+        RAW="$(mty explain "${MTY_CODE}" 2>&1)"
+        EXIT=$?
+        echo "exit_code=${EXIT}" >> "$GITHUB_OUTPUT"
+        if [ "${EXIT}" -ne 0 ]; then
+          if [ "${MTY_FAIL_UNKNOWN}" = "true" ]; then
+            echo "${RAW}" >&2
+            exit "${EXIT}"
+          fi
+          echo "mty-explain: code ${MTY_CODE} not recognized (exit ${EXIT}); continuing"
+          {
+            echo "rendered<<EOF_RENDER"
+            echo ""
+            echo "EOF_RENDER"
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        case "${MTY_FORMAT}" in
+          markdown)
+            RENDERED="$(printf '### `%s`\n```\n%s\n```\n' "${MTY_CODE}" "${RAW}")"
+            ;;
+          text)
+            RENDERED="${RAW}"
+            ;;
+          json)
+            RENDERED="$(jq -n --arg code "${MTY_CODE}" --arg explanation "${RAW}" \
+              '{code: $code, explanation: $explanation}')"
+            ;;
+          *)
+            echo "mty-explain: bad format '${MTY_FORMAT}' (want markdown|text|json)" >&2
+            exit 2
+            ;;
+        esac
+        # Stash for downstream steps + the rendered output.
+        DELIM="EOF_$(date +%s)_$RANDOM"
+        {
+          echo "rendered<<${DELIM}"
+          printf '%s\n' "${RENDERED}"
+          echo "${DELIM}"
+        } >> "$GITHUB_OUTPUT"
+        printf '%s\n' "${RENDERED}"
+
+    - name: Append to job summary
+      if: ${{ inputs.output-to == 'job-summary' && steps.explain.outputs.exit_code == '0' && inputs.code != '' }}
+      shell: bash
+      env:
+        RENDERED: ${{ steps.explain.outputs.rendered }}
+      run: |
+        set -euo pipefail
+        if [ -z "${RENDERED}" ]; then
+          echo "mty-explain: nothing to append (rendered empty)"
+          exit 0
+        fi
+        printf '%s\n\n' "${RENDERED}" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Post PR comment
+      if: >-
+        inputs.output-to == 'pr-comment' &&
+        steps.explain.outputs.exit_code == '0' &&
+        inputs.code != '' &&
+        (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+      uses: peter-evans/create-or-update-comment@v4
+      with:
+        issue-number: ${{ github.event.pull_request.number }}
+        body: ${{ steps.explain.outputs.rendered }}
+        token: ${{ inputs.github-token }}

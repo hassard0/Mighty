@@ -27,6 +27,8 @@ every recorded `*.eval.mty` cell — all without a single API key.
 | [`mty-test`](./mty-test)                        | Run the Mighty unit-test runner (`mty test`).                            |
 | [`mty-test-eval`](./mty-test-eval)              | Run LLM-eval suites (`mty test --eval`); default `--replay-only=true`.   |
 | [`mty-bench-smoke`](./mty-bench-smoke)          | Run the 10-problem SWE-bench Verified smoke; gated on an Anthropic key.  |
+| [`cost-delta`](./cost-delta)                    | Sticky PR comment with the LLM cost delta vs the base ref.               |
+| [`mty-explain`](./mty-explain)                  | Wrap `mty explain MTxxxx` for linkable diagnostic prose.                 |
 
 Every action is a [composite
 action](https://docs.github.com/en/actions/creating-actions/creating-a-composite-action) —
@@ -72,14 +74,62 @@ bump may change them. Pin the action ref AND the
 
 Copy-paste-ready workflows live in [`examples/`](./examples):
 
-| Workflow                                       | Use case                                                          |
-| ---------------------------------------------- | ----------------------------------------------------------------- |
-| [`basic-check.yml`](./examples/basic-check.yml) | Minimal: install + `mty check` + `mty fmt --check`.               |
-| [`full-ci.yml`](./examples/full-ci.yml)         | Recommended PR gate: check + unit tests + replay-only eval.       |
-| [`nightly-eval.yml`](./examples/nightly-eval.yml) | Daily real-LLM eval + SWE-bench smoke; gated on a secret.       |
+| Workflow                                                            | Use case                                                              |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| [`basic-check.yml`](./examples/basic-check.yml)                     | Minimal: install + `mty check` + `mty fmt --check`.                   |
+| [`full-ci.yml`](./examples/full-ci.yml)                             | Recommended PR gate: check + unit tests + replay-only eval.           |
+| [`nightly-eval.yml`](./examples/nightly-eval.yml)                   | Daily real-LLM eval + SWE-bench smoke; gated on a secret.             |
+| [`cost-delta-pr.yml`](./examples/cost-delta-pr.yml)                 | Sticky cost-delta comment on every PR (replay-derived by default).    |
+| [`mty-explain-on-failure.yml`](./examples/mty-explain-on-failure.yml) | When `mty check` fails, append `mty explain` to the job summary.    |
+| [`dependabot.yml`](./examples/dependabot.yml)                       | Dependabot config to auto-bump action refs on every Mighty release.   |
 
 Drop one into `.github/workflows/` and edit the `version:` to match
-the Mighty release you're targeting.
+the Mighty release you're targeting. (`dependabot.yml` goes in
+`.github/dependabot.yml`, not under `workflows/`.)
+
+## Copy-paste snippets — v0.32 additions
+
+### Cost delta on every PR
+
+```yaml
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  cost-delta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: hassard0/Mighty/tools/gh-actions/setup-mty@v0.32.0
+        with: { version: "0.32.0" }
+      - uses: hassard0/Mighty/tools/gh-actions/cost-delta@v0.32.0
+        with:
+          replay-only: "true"
+          comment-style: "sticky"
+```
+
+The comment makes the replay-vs-live distinction explicit so
+reviewers don't read the recorded-trace numbers as real-money spend.
+
+### Explain a failing diagnostic
+
+```yaml
+- id: check
+  uses: hassard0/Mighty/tools/gh-actions/mty-check@v0.32.0
+  continue-on-error: true
+- if: steps.check.outcome == 'failure' && steps.check.outputs.error_code != ''
+  uses: hassard0/Mighty/tools/gh-actions/mty-explain@v0.32.0
+  with:
+    code: ${{ steps.check.outputs.error_code }}
+    output-to: "job-summary"
+    fail-on-unknown: "false"
+```
+
+`mty-check` now scrapes the first `MTxxxx` token from a failing
+check into `outputs.error_code`; `mty-explain` formats the
+`mty explain` prose for stdout, the job summary, or a PR comment.
 
 ## Authoring conventions
 
@@ -97,24 +147,29 @@ If you're hacking on these actions:
   gains a new sweep convention (e.g. v0.30's `@compile-error`
   marker), reflect it in the composite actions the same release.
 
-## v0.32 follow-ups
+## v0.33 follow-ups
 
-These aren't blockers for shipping the v0.31 library, but they're the
-obvious next moves:
+Shipped in v0.32: [`cost-delta`](./cost-delta),
+[`mty-explain`](./mty-explain), and the
+[`dependabot.yml`](./examples/dependabot.yml) example.
+The next round of obvious moves:
 
-- **PR auto-comment with cost delta** — surface `bench-smoke`'s
-  `$5-$20` cost line as a sticky PR comment so reviewers see the
-  spend before approving the merge.
-- **`mty-explain` action** — wrap `mty explain MTxxxx` so a CI failure
-  can link directly to the diagnostic's prose.
 - **Native binary cache** — drop the workaround `tar.gz` → manual
   extract step in `setup-mty` if upstream `release.yml` switches to a
   flat-layout archive (no nested `mty-v<version>/` directory).
 - **Add `arm64` Linux + `x86_64` macOS** when upstream `release.yml`
   starts shipping those targets again (Intel macOS dropped in
   v0.18 — see `release.yml` comment).
-- **Auto-pin via `dependabot.yml`** — ship a tiny dependabot config
-  example so consumers' action refs bump on every Mighty release.
+- **Cost-delta on live LLM runs** — pair the action with a gated
+  nightly workflow so an opt-in subset of PRs gets *real* cost
+  numbers (not just replay-derived). Today the action supports
+  `replay-only: "false"` but no example shows the gating pattern.
+- **`mty-explain` SARIF mode** — emit SARIF so GH's "Annotations"
+  panel inlines the diagnostic prose on the PR diff view; today the
+  action targets job summary + PR comments only.
+- **`mty-bench-smoke` cost delta** — extend `cost-delta` to ingest
+  the bench-smoke cost line too, not just the eval suite's, so the
+  one comment covers both spend categories.
 
 ## Where this fits
 

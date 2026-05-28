@@ -37,10 +37,19 @@ inputs:
     required: false
     default: "."
 
+outputs:
+  error_code:
+    description: >-
+      First `MTxxxx` diagnostic code captured from a failing check, if
+      any. Empty string on success. Useful as input to the
+      `mty-explain` action: see `examples/mty-explain-on-failure.yml`.
+    value: ${{ steps.sweep.outputs.error_code }}
+
 runs:
   using: "composite"
   steps:
-    - name: mty check sweep
+    - id: sweep
+      name: mty check sweep
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
@@ -48,15 +57,30 @@ runs:
         MTY_FMT_CHECK: ${{ inputs.fmt-check }}
         MTY_HONOR_MARKERS: ${{ inputs.honor-markers }}
       run: |
-        set -euo pipefail
+        set -uo pipefail
         shopt -s globstar nullglob
         # shellcheck disable=SC2206
         FILES=( $MTY_GLOB )
         if [ "${#FILES[@]}" -eq 0 ]; then
           echo "no files matched glob: ${MTY_GLOB}" >&2
+          echo "error_code=" >> "$GITHUB_OUTPUT"
           exit 0
         fi
         FAIL=0
+        ERROR_CODE=""
+        LOG="$(mktemp)"
+        capture_code() {
+          # Extract the first `MTxxxx` (4-5 digits) token from $1, if any.
+          # Mighty diagnostics surface like `error[MT4099]: ...` in the
+          # check output; we scrape that for downstream `mty explain`.
+          if [ -z "${ERROR_CODE}" ]; then
+            local hit
+            hit="$(grep -oE 'MT[0-9]{4,5}' "$1" | head -n1 || true)"
+            if [ -n "${hit}" ]; then
+              ERROR_CODE="${hit}"
+            fi
+          fi
+        }
         for f in "${FILES[@]}"; do
           # Skip the obvious non-source paths even if the glob would
           # otherwise admit them.
@@ -76,14 +100,21 @@ runs:
             fi
           else
             echo "check: $f"
-            if ! mty check "$f"; then
+            mty check "$f" 2>&1 | tee "${LOG}"
+            # `tee` always exits 0; consult PIPESTATUS for `mty`'s exit code.
+            if [ "${PIPESTATUS[0]}" -ne 0 ]; then
               FAIL=1
+              capture_code "${LOG}"
             fi
           fi
           if [ "${MTY_FMT_CHECK}" = "true" ]; then
-            if ! mty fmt --check "$f"; then
+            mty fmt --check "$f" 2>&1 | tee "${LOG}"
+            if [ "${PIPESTATUS[0]}" -ne 0 ]; then
               FAIL=1
+              capture_code "${LOG}"
             fi
           fi
         done
+        rm -f "${LOG}"
+        echo "error_code=${ERROR_CODE}" >> "$GITHUB_OUTPUT"
         exit "${FAIL}"
