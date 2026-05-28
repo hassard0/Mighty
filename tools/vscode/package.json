@@ -2,7 +2,7 @@
   "name": "mighty-language",
   "displayName": "Mighty Language",
   "description": "First-class Mighty language support for VS Code: syntax highlighting, LSP client, snippets, palette commands, and a live cost status bar.",
-  "version": "0.31.0",
+  "version": "0.32.0",
   "publisher": "hassard0",
   "license": "MIT",
   "icon": "icons/mighty.png",
@@ -110,6 +110,11 @@
         "command": "mighty.restartServer",
         "title": "Mighty: Restart Language Server",
         "category": "Mighty"
+      },
+      {
+        "command": "mighty.debugCurrentFile",
+        "title": "Mighty: Debug current file",
+        "category": "Mighty"
       }
     ],
     "keybindings": [
@@ -124,6 +129,12 @@
         "key": "ctrl+shift+b",
         "mac": "cmd+shift+b",
         "when": "editorTextFocus && editorLangId == mighty"
+      },
+      {
+        "command": "mighty.debugCurrentFile",
+        "key": "f5",
+        "mac": "f5",
+        "when": "editorTextFocus && editorLangId == mighty && !inDebugMode"
       }
     ],
     "menus": {
@@ -142,6 +153,11 @@
           "command": "mighty.fmt",
           "when": "editorLangId == mighty",
           "group": "mighty@3"
+        },
+        {
+          "command": "mighty.debugCurrentFile",
+          "when": "editorLangId == mighty",
+          "group": "mighty@4"
         }
       ]
     },
@@ -197,7 +213,91 @@
         "editor.insertSpaces": true,
         "editor.formatOnSave": false
       }
-    }
+    },
+    "breakpoints": [
+      {
+        "language": "mighty"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "mighty",
+        "label": "Mighty",
+        "languages": [
+          "mighty"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Absolute path to the Mighty (.mty) source file to debug.",
+                "default": "${file}"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Trailing argv forwarded to `std.env.args()`.",
+                "default": []
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Pause at the entry point of `main`.",
+                "default": false
+              },
+              "replayTrace": {
+                "type": "string",
+                "description": "Optional path to a `mty-trace-*.bin` file. When set, the debugger drives the program through `ReplayDriver` instead of executing live.",
+                "default": null
+              },
+              "recordTrace": {
+                "type": "string",
+                "description": "Optional path to write a recorded trace to. When set, the runtime emits trace events as the debugger steps. See `MTY_RECORD_TRACE`.",
+                "default": null
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "mighty",
+            "request": "launch",
+            "name": "Mighty: Debug current file",
+            "program": "${file}",
+            "stopOnEntry": false
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Mighty: Debug current file",
+            "description": "Launch the current .mty file under `mty dap`.",
+            "body": {
+              "type": "mighty",
+              "request": "launch",
+              "name": "${1:Mighty: Debug current file}",
+              "program": "^\"\\${file}\"",
+              "stopOnEntry": false
+            }
+          },
+          {
+            "label": "Mighty: Replay a recorded trace",
+            "description": "Walk a `mty-trace-*.bin` file step-by-step.",
+            "body": {
+              "type": "mighty",
+              "request": "launch",
+              "name": "${1:Mighty: Replay trace}",
+              "program": "^\"\\${file}\"",
+              "replayTrace": "^\"\\${workspaceFolder}/trace.bin\""
+            }
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

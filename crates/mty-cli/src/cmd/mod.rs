@@ -1,5 +1,10 @@
 pub mod build;
 pub mod check;
+// v0.32 Track A — `mty dap`: Debug Adapter Protocol server over stdio.
+// Drives breakpoint-aware execution of `main` (or a replay trace)
+// from a VS Code DAP client or a JetBrains debug configuration. See
+// `docs/reference/cli/mty-dap.md`.
+pub mod dap;
 pub mod doc;
 pub mod dump;
 pub mod explain;

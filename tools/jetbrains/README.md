@@ -21,6 +21,22 @@ On top of that it adds:
 - A **Mighty** color settings page for token highlighting.
 - **Settings > Tools > Mighty** to configure the `mty` binary path and
   cost-polling cadence.
+- **Mighty Debug** run configuration type (v0.32): launches `mty dap`
+  over stdio with a configured program path, optional replay/record
+  trace, argv, and `stopOnEntry` toggle. Available in **Run → Edit
+  Configurations…** under the "Mighty Debug" category. Works in both
+  Community and Ultimate JetBrains IDEs (the debugger API is in
+  platform core, unlike the LSP API).
+
+## Debugging (v0.32)
+
+Create a new run configuration via **Run → Edit Configurations… → +
+→ Mighty Debug**, fill in the program path (an absolute `.mty` path),
+then hit the standard Debug button. The configuration spawns `mty dap`
+over stdio; per-line breakpoints come from the LSP gutter. The DAP
+↔ XDebugger frontend that surfaces full step-in / step-over UI is
+the v0.33 follow-up — what ships in v0.32 is the run-target plumbing,
+console mode, and the option surfaces.
 
 ---
 

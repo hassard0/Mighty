@@ -132,6 +132,13 @@ enum Cmd {
     },
     /// Run the Mighty Language Server (LSP 3.17) over stdio.
     Lsp,
+    /// v0.32 Track A — Run the Mighty Debug Adapter Protocol server
+    /// over stdio. Speaks DAP per the Microsoft spec; the VS Code +
+    /// JetBrains plugins shell out to `mty dap` as their adapter
+    /// process. Accepts no flags; the client drives everything via
+    /// `launch` / `setBreakpoints` / `continue` / etc. See
+    /// `docs/reference/cli/mty-dap.md`.
+    Dap,
     /// Package manager: add / remove / update / fetch / list / publish.
     Pkg {
         #[command(subcommand)]
@@ -418,6 +425,7 @@ fn main() {
         }),
         Cmd::Explain { code } => cmd::explain::run(&code),
         Cmd::Lsp => cmd::lsp::run(),
+        Cmd::Dap => cmd::dap::run(),
         Cmd::Pkg {
             cmd: pkg_cmd,
             manifest_dir,

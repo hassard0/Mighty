@@ -470,3 +470,130 @@ fn replay_value_opaque_survives_disk_round_trip() {
         other => panic!("expected Values, got {other:?}"),
     }
 }
+
+// ----------------------------------------------------------------------------
+// Test 8 (v0.32 Track F) — replay_all interleaved with with_provider
+//
+// The recorded trace mixes non-LLM events (Spawn / MessageSent /
+// MessageHandled) with synthetic `TraceEvent::LlmCall` events that the
+// recorder added. The driver's `replay_all` should drive the runtime
+// half byte-identically AND dispatch each recorded LLM turn to the
+// installed `TurnProvider`, populating `ReplayReport.llm_turn_replays`
+// with one entry per recorded turn.
+// ----------------------------------------------------------------------------
+
+#[test]
+fn replay_all_interleaves_llm_calls_through_provider() {
+    use mty_runtime::replay::{
+        LlmCallRef, LlmToolUse, ProvidedTurn, ReplayDriver, TraceEvent, TraceFile,
+    };
+
+    let _g = recorder_serializer().lock();
+    let _ = uninstall();
+
+    // Hand-craft a trace that mixes a Spawn + LLM call + Exit. The
+    // Spawn lets `replay_all` exercise the runtime side (it spawns
+    // an Echoer); the LLM call exercises the new interleave path.
+    let mut trace = TraceFile::new(0, 0, 1);
+    trace.events.push(TraceEvent::Spawn {
+        agent_id: 1,
+        agent_type: "Echoer".into(),
+        supervisor: None,
+    });
+    trace.events.push(TraceEvent::LlmCall {
+        agent: 1,
+        turn_id: 0,
+        prompt: "first turn".into(),
+        system: Some("sys".into()),
+        tools: vec!["calc".into()],
+        reply: "recorded-1".into(),
+        tool_uses: vec![LlmToolUse {
+            name: "calc".into(),
+            id: "tu_1".into(),
+            input_json: "{}".into(),
+        }],
+        cost_cents: 1,
+    });
+    trace.events.push(TraceEvent::LlmCall {
+        agent: 1,
+        turn_id: 1,
+        prompt: "second turn".into(),
+        system: None,
+        tools: vec![],
+        reply: "recorded-2".into(),
+        tool_uses: vec![],
+        cost_cents: 2,
+    });
+    trace.events.push(TraceEvent::Exit {
+        agent: 1,
+        reason: "normal".into(),
+    });
+
+    let prog = compile(ECHO_SRC);
+    let mut driver = ReplayDriver::from_trace(trace)
+        .with_program(prog)
+        .byte_identical(false) // we only care about the LLM-interleave half here
+        .with_provider(|turn: LlmCallRef<'_>| -> Result<ProvidedTurn, String> {
+            // Echo the recorded reply + tool_uses back — every turn
+            // should byte-match.
+            Ok(ProvidedTurn {
+                reply: turn.reply.to_string(),
+                tool_uses: turn.tool_uses.to_vec(),
+                cost_cents: 0,
+            })
+        });
+    let report = driver.replay_all().expect("replay_all");
+
+    // The new field is populated with one row per recorded LLM turn.
+    assert_eq!(report.llm_turn_replays.len(), 2);
+    assert!(report.llm_turn_replays[0].replies_match());
+    assert!(report.llm_turn_replays[1].replies_match());
+    assert_eq!(report.llm_turn_replays[0].turn_id, 0);
+    assert_eq!(report.llm_turn_replays[1].turn_id, 1);
+    // The recorded tool_uses are surfaced on the row itself so the
+    // eval driver can render them in a diff.
+    assert_eq!(report.llm_turn_replays[0].recorded_tool_uses.len(), 1);
+    assert_eq!(
+        report.llm_turn_replays[0].recorded_tool_uses[0].name,
+        "calc"
+    );
+    assert!(report.llm_turn_replays[1].recorded_tool_uses.is_empty());
+}
+
+#[test]
+fn replay_all_without_provider_leaves_llm_turn_replays_empty() {
+    use mty_runtime::replay::{ReplayDriver, TraceEvent, TraceFile};
+
+    let _g = recorder_serializer().lock();
+    let _ = uninstall();
+
+    let mut trace = TraceFile::new(0, 0, 1);
+    trace.events.push(TraceEvent::Spawn {
+        agent_id: 1,
+        agent_type: "Echoer".into(),
+        supervisor: None,
+    });
+    trace.events.push(TraceEvent::LlmCall {
+        agent: 1,
+        turn_id: 0,
+        prompt: "go".into(),
+        system: None,
+        tools: vec![],
+        reply: "ok".into(),
+        tool_uses: vec![],
+        cost_cents: 0,
+    });
+    trace.events.push(TraceEvent::Exit {
+        agent: 1,
+        reason: "normal".into(),
+    });
+
+    let prog = compile(ECHO_SRC);
+    let mut driver = ReplayDriver::from_trace(trace)
+        .with_program(prog)
+        .byte_identical(false);
+    let report = driver.replay_all().expect("replay_all");
+
+    // Without a provider installed, the LLM-interleave side is a no-op.
+    assert!(report.llm_turn_replays.is_empty());
+}

@@ -989,4 +989,38 @@ data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\
             _ => panic!("expected ToolUse block"),
         }
     }
+
+    // -------------------------------------------------------------------------
+    // v0.32 Track F: structural tool_use parsing through Message::tool_uses
+    //
+    #[test]
+    fn openai_response_with_multiple_function_calls_lifts_through_typed_message() {
+        let raw = serde_json::json!({
+            "output": [
+                {
+                    "type": "function_call",
+                    "call_id": "call_a",
+                    "name": "alpha",
+                    "arguments": "{}"
+                },
+                {
+                    "type": "function_call",
+                    "call_id": "call_b",
+                    "name": "bravo",
+                    "arguments": "{\"n\":42}"
+                }
+            ]
+        });
+        let payload: ResponsesPayload = serde_json::from_value(raw).unwrap();
+        let blocks = payload.into_blocks();
+        let msg = Message {
+            role: Role::Assistant,
+            content: blocks,
+        };
+        let tus = msg.tool_uses();
+        assert_eq!(tus.len(), 2);
+        assert_eq!(tus[0].name, "alpha");
+        assert_eq!(tus[1].name, "bravo");
+        assert_eq!(tus[1].input["n"], 42);
+    }
 }

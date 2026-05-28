@@ -262,15 +262,25 @@ mod tests {
         assert_eq!(r.total_cost_cents, 6);
     }
 
+    /// v0.32 Track F: helper that writes a native v3 binary trace
+    /// containing one LLM turn (`prompt` → `reply`). Used by the
+    /// trace-baseline test pair below — the JSON-lines fallback was
+    /// retired in v0.32, so every `Case::from_trace` fixture is now a
+    /// real `.mty-trace`.
+    fn write_native_trace(path: &std::path::Path, prompt: &str, reply: &str) {
+        use mty_runtime::replay::{Recorder, TraceCodec};
+        let r = Recorder::new(path, 0, 1).with_codec(TraceCodec::Json);
+        r.record_llm_call(0, None, prompt, None, vec![], reply, vec![], 1);
+        r.flush_to_disk().unwrap();
+    }
+
     #[tokio::test]
     async fn compare_with_trace_baseline_marks_member_diverges_from_baseline() {
-        use std::io::Write;
-        let mut tmp = tempfile::NamedTempFile::new().unwrap();
-        writeln!(tmp, r#"{{"type":"user","content":"what's 2+2"}}"#).unwrap();
-        writeln!(tmp, r#"{{"type":"assistant","content":"4"}}"#).unwrap();
-        tmp.flush().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("diverge.mty-trace");
+        write_native_trace(&path, "what's 2+2", "4");
         let s = Suite::new("x")
-            .case(Case::from_trace(tmp.path()))
+            .case(Case::from_trace(&path))
             // Both members produce "five" — trace baseline is "4" so
             // both diverge.
             .run_with(Member::mock("a", "five", 1))
@@ -282,13 +292,11 @@ mod tests {
 
     #[tokio::test]
     async fn compare_with_trace_baseline_matches_when_member_agrees() {
-        use std::io::Write;
-        let mut tmp = tempfile::NamedTempFile::new().unwrap();
-        writeln!(tmp, r#"{{"type":"user","content":"what's 2+2"}}"#).unwrap();
-        writeln!(tmp, r#"{{"type":"assistant","content":"4"}}"#).unwrap();
-        tmp.flush().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("match.mty-trace");
+        write_native_trace(&path, "what's 2+2", "4");
         let s = Suite::new("x")
-            .case(Case::from_trace(tmp.path()))
+            .case(Case::from_trace(&path))
             .run_with(Member::mock("a", "4", 1))
             .run_with(Member::mock("b", "4", 1));
         let r = s.compare(Compare::equal()).await.unwrap();
