@@ -21,6 +21,10 @@ pub mod items;
 pub mod prelude;
 pub mod resolve;
 pub mod sendable;
+/// v0.30 Track A — compiler-checked prompt injection prevention via
+/// the `Tainted[T]` wrapper + taint-flow pass. See
+/// [`docs/internals/taint-types.md`].
+pub mod taint;
 pub mod ty;
 
 pub use defs::*;

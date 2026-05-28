@@ -1,0 +1,58 @@
+// 33_taint_basics.mty — v0.30 Track A: compiler-checked prompt injection prevention.
+//
+// @compile-error — this example is INTENDED to fail with MT4099. The
+// codegen-sweep conformance tests skip files carrying this marker.
+//
+// "The only language where prompt injection is a compile error."
+//
+// This example demonstrates the negative case: a value from an
+// untrusted source (LLM response, env var, MCP tool result, ...)
+// reaches a sensitive sink (`std.fs.write`) WITHOUT being untainted.
+// The compiler emits MT4099 at the sink call.
+//
+// Build:
+//   mty check examples/33_taint_basics.mty
+//   # Expected: MT4099 reported on the std.fs.write call.
+//
+// See 34_taint_untaint.mty for the positive case — untainting via
+// regex match, allowlist, or sanitizer.
+//
+// Reference:
+//   - docs/internals/taint-types.md
+//   - mty explain MT4099
+package taint_basics
+
+use std.fs
+use std.swarm
+
+fn main() {
+  // ----- Build a one-member LLM panel for demonstration ------------
+  //
+  // `Member.anthropic(model)` constructs a typed LLM panel member.
+  // The Mighty type system flags `Member.ask(...)` as a *tainted
+  // source* — its return type is conceptually `Tainted[Str]`, and
+  // the taint-flow pass tracks the binding through the rest of the
+  // function.
+  let m = Member.anthropic("claude-opus-4-7")
+  let user_input = m.ask("What is the weather today?")
+
+  // ----- The compile-error site ------------------------------------
+  //
+  // `std.fs.write` is one of the four documented sinks (file write,
+  // process arg, SQL execute, network request body). The contents
+  // argument MUST be untainted; passing a tainted value here trips
+  // MT4099 with a helpful message:
+  //
+  //   error[MT4099]: tainted value flows to `std.fs.write` (arg #1)
+  //                  — untaint via `.matches_regex(...)`,
+  //                  `.in_allowlist[Enum]()`, or
+  //                  `.sanitize_with(HtmlEscape | ShellEscape |
+  //                  SqlEscape | PathBoundary(...))`
+  //
+  // This is the entire point of taint types: no programmer can
+  // accidentally write LLM output to a file (or shell, or SQL, or
+  // network) without consciously deciding the value is safe.
+  std.fs.write("log.txt", user_input)
+
+  log("33_taint_basics: this never runs — the compile error blocks the build")
+}

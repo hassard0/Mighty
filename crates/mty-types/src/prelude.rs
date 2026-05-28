@@ -214,6 +214,73 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
     defs.by_name
         .insert("AgentRef".into(), DefRef::Adt(agent_ref_id));
 
+    // ---- Tainted[T] (v0.30 Track A) ----
+    //
+    // First-class wrapper marking values that originate from an
+    // untrusted source (LLM response, MCP tool result, HTTP body,
+    // environment variable, ...) and must be untainted via a
+    // controlled sanitiser before reaching a sink.
+    //
+    // Registered as an opaque generic ADT so source code that names it
+    // (e.g. `let user_input: Tainted[Str] = ...`) parses + typechecks.
+    // The taint propagation + sink-rejection rules are enforced by the
+    // dedicated taint-flow pass (see `crate::taint`) that runs after
+    // type checking; the ADT itself is "just" a marker type at the
+    // surface.
+    //
+    // Tainted ADTs are handler-safe by default: any `Tainted[T]` value
+    // returned from a stdlib call must be usable inside an agent's
+    // `on Msg(...)` handler without tripping MT2021.
+    let tainted_param = defs.alloc_param(ParamDef {
+        name: "T".into(),
+        bounds: vec![],
+    });
+    let tainted_id = defs.alloc_adt(AdtDef {
+        name: "Tainted".into(),
+        kind: AdtKind::Opaque,
+        generics: vec![ParamDef {
+            name: "T".into(),
+            bounds: vec![],
+        }],
+        param_ids: vec![tainted_param],
+        variants: vec![],
+    });
+    defs.by_name
+        .insert("Tainted".into(), DefRef::Adt(tainted_id));
+    defs.handler_safe_adts.insert(tainted_id);
+
+    // ---- Built-in sanitizer marker types (v0.30 Track A) ----
+    //
+    // These four opaque names refer to provably-correct sanitisers the
+    // standard library provides out of the box. Source code uses them
+    // by name as arguments to `Tainted::sanitize_with`. Adding more
+    // sanitisers is the pluggable extension story — see
+    // `docs/internals/taint-types.md` §"Sanitizer extension".
+    let sanitizer_names = [
+        "HtmlEscape",
+        "ShellEscape",
+        "SqlEscape",
+        "PathBoundary",
+        // The marker trait every sanitiser implements. Surfaced as an
+        // opaque name so user code that references `Sanitizer` (e.g. in
+        // a trait bound) parses.
+        "Sanitizer",
+    ];
+    for name in sanitizer_names {
+        if defs.by_name.contains_key(name) {
+            continue;
+        }
+        let aid = defs.alloc_adt(AdtDef {
+            name: name.into(),
+            kind: AdtKind::Opaque,
+            generics: vec![],
+            param_ids: vec![],
+            variants: vec![],
+        });
+        defs.by_name.insert(name.into(), DefRef::Adt(aid));
+        defs.handler_safe_adts.insert(aid);
+    }
+
     // ---- Vec[T] (v0.25 Track E) ----
     // Generic opaque ADT — like `AgentRef`, this lets the typechecker
     // accept `Vec[U32]` as a type position. The real Rust-side impl
@@ -688,6 +755,18 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         "tokens_used",
         "body",
         "member",
+        // v0.30 Track A — Tainted[T] untainting + sanitiser surface.
+        // These permissive entries make method calls on `Tainted[T]`
+        // typecheck against any receiver; the taint-flow pass
+        // (`crate::taint`) is what actually distinguishes "untaints"
+        // from "propagates taint". Adding `matches_regex`,
+        // `in_allowlist`, and `sanitize_with` as permissive names also
+        // lets source code that calls these on plain `Str` typecheck
+        // (the no-op cases — calling `.matches_regex` on an already-
+        // untainted string is harmless and returns `Option[Str]`).
+        "matches_regex",
+        "in_allowlist",
+        "sanitize_with",
     ];
     for m in permissive_methods {
         defs.builtin_methods.insert(

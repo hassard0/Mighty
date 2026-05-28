@@ -216,6 +216,25 @@ fn main() {
   // and we no longer need the v0.27 `format!("{}", report)` workaround
   // that papered over the pre-v0.29 Unit fallback.
   let report: Str = reviewer!Review(snippet)
+
+  // v0.30 Track A — taint flow: the reviewer's `report` is built
+  // (inside the handler) by concatenating the consensus `verdict`
+  // (an `Option[Str]` returned from `swarm(...)`, which itself
+  // collects `Tainted[Str]` replies from each `Member.ask(...)`),
+  // the per-call cost cents, and the dissent list. By v0.30 Track
+  // A's tainted-source rules, that `report` value flows through
+  // the agent boundary as `Tainted[Str]`.
+  //
+  // The two `log(...)` calls below are the documented "implicit
+  // untaint for logging" path (option (a) in the v0.30 spec):
+  // printing a tainted value is a display action, not an exec
+  // sink, so MT4099 stays silent. If we instead wrote
+  // `std.fs.write("report.txt", report)`, MT4099 would fire and
+  // the build would fail until the user wrapped the value in
+  // `.sanitize_with(HtmlEscape)` (or another sanitiser).
+  //
+  // See examples/33_taint_basics.mty + examples/34_taint_untaint.mty
+  // + docs/internals/taint-types.md for the negative+positive case.
   log("swarm_review: report follows")
   log(report)
 }
