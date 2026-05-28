@@ -1,0 +1,62 @@
+{
+  "name": "tree-sitter-mighty",
+  "version": "0.31.0",
+  "description": "tree-sitter grammar for the Mighty agent-first programming language",
+  "keywords": [
+    "parser",
+    "tree-sitter",
+    "mighty",
+    "agents",
+    "syntax-highlighting"
+  ],
+  "homepage": "https://github.com/hassard0/Mighty",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hassard0/Mighty.git",
+    "directory": "tools/tree-sitter"
+  },
+  "license": "MIT OR Apache-2.0",
+  "author": "Mighty contributors",
+  "main": "bindings/node",
+  "types": "bindings/node",
+  "files": [
+    "grammar.js",
+    "binding.gyp",
+    "queries/",
+    "bindings/node/*",
+    "src/**"
+  ],
+  "tree-sitter": [
+    {
+      "scope": "source.mighty",
+      "file-types": [
+        "mty"
+      ],
+      "highlights": "queries/highlights.scm",
+      "locals": "queries/locals.scm",
+      "indents": "queries/indents.scm",
+      "injections": "queries/injections.scm",
+      "tags": "queries/tags.scm"
+    }
+  ],
+  "scripts": {
+    "build": "tree-sitter generate && tree-sitter build",
+    "test": "tree-sitter test",
+    "parse": "tree-sitter parse"
+  },
+  "dependencies": {
+    "node-addon-api": "^7.1.0",
+    "node-gyp-build": "^4.8.0"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "^0.25.10"
+  },
+  "peerDependencies": {
+    "tree-sitter": "^0.21.1"
+  },
+  "peerDependenciesMeta": {
+    "tree-sitter": {
+      "optional": true
+    }
+  }
+}

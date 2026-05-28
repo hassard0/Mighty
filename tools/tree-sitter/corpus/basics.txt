@@ -1,0 +1,128 @@
+============================
+hello world
+============================
+
+fn main() {
+  log("hello, Mighty")
+}
+
+----
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameters)
+    (block
+      (expression_statement
+        (call_expression
+          function: (path_expression (identifier))
+          arguments: (argument_list
+            (string_literal)))))))
+
+============================
+struct and enum
+============================
+
+struct User {
+  id: UserId
+  name: String
+}
+
+enum Shape {
+  Circle(F64)
+  Rect(F64, F64)
+}
+
+----
+
+(source_file
+  (struct_declaration
+    name: (identifier)
+    (struct_field name: (identifier) type: (path_type (identifier)))
+    (struct_field name: (identifier) type: (path_type (identifier))))
+  (enum_declaration
+    name: (identifier)
+    (enum_variant name: (identifier) (path_type (identifier)))
+    (enum_variant name: (identifier) (path_type (identifier)) (path_type (identifier)))))
+
+============================
+type alias
+============================
+
+type UserId = U64
+
+----
+
+(source_file
+  (type_alias
+    name: (identifier)
+    (path_type (identifier))))
+
+============================
+generic function
+============================
+
+fn first[T](xs: T) -> T {
+  xs
+}
+
+----
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (generic_parameters (generic_parameter (identifier)))
+    (parameters
+      (parameter name: (identifier) type: (path_type (identifier))))
+    return_type: (path_type (identifier))
+    (block
+      (expression_statement (path_expression (identifier))))))
+
+============================
+literals
+============================
+
+fn lits() {
+  let a = 42
+  let b = 3.14
+  let c = "hi"
+  let d = 'x'
+  let e = true
+  let f = 2s
+  let g = 128MiB
+}
+
+----
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameters)
+    (block
+      (let_statement name: (identifier) value: (integer_literal))
+      (let_statement name: (identifier) value: (float_literal))
+      (let_statement name: (identifier) value: (string_literal))
+      (let_statement name: (identifier) value: (char_literal))
+      (let_statement name: (identifier) value: (boolean_literal))
+      (let_statement name: (identifier) value: (duration_literal))
+      (let_statement name: (identifier) value: (size_literal)))))
+
+============================
+comments
+============================
+
+// line comment
+/// doc comment
+/* block comment */
+fn main() {}
+
+----
+
+(source_file
+  (line_comment)
+  (doc_comment)
+  (block_comment)
+  (function_declaration
+    name: (identifier)
+    (parameters)
+    (block)))
