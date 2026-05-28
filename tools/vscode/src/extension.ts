@@ -25,6 +25,10 @@ import {
 } from "vscode-languageclient/node";
 
 import { registerCommands } from "./commands";
+// v0.32 Track A — `mty dap` over stdio. Registers a debug-adapter
+// descriptor factory + a default config resolver so users can hit F5
+// on any `.mty` file without writing a launch.json. See `dap.ts`.
+import { registerMightyDap } from "./dap";
 import { CostStatusBar } from "./status";
 
 let client: LanguageClient | undefined;
@@ -87,6 +91,10 @@ export async function activate(
   // All palette + context commands live in their own module so this
   // file stays activation-focused.
   registerCommands(context);
+
+  // v0.32 Track A — debugger integration. Idempotent + safe even if
+  // the user never opens a launch.json (we synthesise a default).
+  registerMightyDap(context);
 
   // Cost status bar — best-effort. If `mty` isn't on PATH or the
   // observations DB is missing, the bar shows `$0.00` rather than

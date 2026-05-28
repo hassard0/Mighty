@@ -1,0 +1,50 @@
+// 37_debug_demo.mty — v0.32 Track A: DAP debugging demo.
+//
+// This file is designed to be loaded into VS Code or JetBrains and
+// debugged via the `mty dap` Debug Adapter. Each `let` binding below
+// is a natural breakpoint candidate, and the final `result` line is
+// where you'll typically pin the "watch this expression" breakpoint.
+//
+// ## VS Code
+//   1. Install the Mighty extension (tools/vscode).
+//   2. Open this file.
+//   3. Hit F5. The default launch config debugs the current file.
+//   4. Set a breakpoint by clicking the gutter on line 36
+//      (`let total = sum + multiplier`). Step over (F10) to walk
+//      through the math; the Locals panel shows `a`, `b`,
+//      `multiplier`, `sum`, and `total` updating live.
+//
+// ## JetBrains
+//   1. Install the Mighty plugin (tools/jetbrains).
+//   2. Open this file.
+//   3. Run → Edit Configurations… → + → Mighty Debug. Point it at
+//      this file; save.
+//   4. Hit the Debug toolbar button. `mty dap` boots; LSP-gutter
+//      breakpoints fire as expected.
+//
+// ## Trace integration
+//   Pass `recordTrace: "${workspaceFolder}/trace.bin"` in the launch
+//   config to capture a full execution trace as you debug. Replay it
+//   later with `mty replay trace.bin --step`.
+
+// Underscore-prefixed helper fns stay out of the wasm Component
+// world export list (same convention as 06_for_while_loop.mty).
+fn _add(a: I32, b: I32) -> I32 {
+  let sum = a + b
+  sum
+}
+
+fn _multiply(x: I32, factor: I32) -> I32 {
+  let product = x * factor
+  product
+}
+
+fn main() {
+  let a = 10
+  let b = 32
+  let multiplier = 2
+  let sum = _add(a, b)
+  let total = _multiply(sum, multiplier)
+  log("debug demo total:")
+  log("(answer should be 84)")
+}

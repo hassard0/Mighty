@@ -12,9 +12,43 @@ language itself.
 | Syntax highlighting | Hand-rolled TextMate grammar covering keywords (hard + soft), agents, protocols, decorators (`@tool`, `@computer_use`, `@eval`, …), capabilities, effect rows, taint markers, numeric literals (incl. `Duration` / `Size`), HTML literals, and raw strings. |
 | LSP client | Spawns `mty lsp` over stdio and wires it to the VS Code language client (`vscode-languageclient` 9.x). Picks up the server's semantic-token + inlay-hint + rename + code-action + signature-help providers automatically. |
 | Snippets | 40+ snippets — `agent`, `protocol`, `tool`, `computer-use`, `swarm`, `eval-suite`, `cap`, `arena`, `budget`, `effect`, `sandbox`, `match`, `try`, `iflet`, plus declaration scaffolds (`struct`, `enum`, `trait`, `impl`) and supervisor patterns. |
-| Palette commands | `Mighty: Run current file`, `Check current file`, `Build`, `Format`, `Inspect cost`, `Test --eval`, `Explain diagnostic`, `Restart Language Server`. |
+| Palette commands | `Mighty: Run current file`, `Check current file`, `Build`, `Format`, `Inspect cost`, `Test --eval`, `Explain diagnostic`, `Restart Language Server`, `Debug current file`. |
 | Status bar | A status-bar item shows today's LLM spend ($X.XX), refreshed every 30s from `~/.mty/observations.sqlite` via `mty inspect --cost --json`. Click to open the full breakdown. |
-| Keybindings | `Ctrl+F5` (run current file) and `Ctrl+Shift+B` (check current file) when a Mighty editor is focused. |
+| Keybindings | `Ctrl+F5` (run current file), `Ctrl+Shift+B` (check current file), and `F5` (debug current file) when a Mighty editor is focused. |
+| Debugger (v0.32) | Native DAP integration via `mty dap`. Hit `F5` on any `.mty` file — VS Code's built-in debug UI handles breakpoints, step-in / step-over / step-out, the variables view (showing each `let` binding + Track-F structured `tool_uses` for LLM calls), and the call stack. |
+
+## Debugging (v0.32)
+
+Press `F5` on any open `.mty` file — the extension synthesises a default
+launch config and shells out to `mty dap` over stdio. You don't have to
+write a launch.json to get started.
+
+To customise (e.g. to walk a recorded trace) drop a `.vscode/launch.json`
+with:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "mighty",
+      "request": "launch",
+      "name": "Mighty: Debug current file",
+      "program": "${file}",
+      "stopOnEntry": false,
+      "args": [],
+      "replayTrace": "${workspaceFolder}/trace.bin",
+      "recordTrace": "${workspaceFolder}/trace.bin"
+    }
+  ]
+}
+```
+
+`replayTrace` and `recordTrace` are both optional. Setting `recordTrace`
+flips on `MTY_RECORD_TRACE` for the launched process — every event the
+runtime emits gets appended to the file as the program runs. Setting
+`replayTrace` drives the program through `ReplayDriver` instead of
+executing live (the v0.32 Track F deliverable).
 
 ## Install (from VSIX)
 
@@ -22,7 +56,7 @@ language itself.
 cd tools/vscode
 npm install
 npm run package
-code --install-extension mighty-language-0.31.0.vsix
+code --install-extension mighty-language-0.32.0.vsix
 ```
 
 The extension targets VS Code ≥ 1.85. The `mty` binary must be on `PATH`

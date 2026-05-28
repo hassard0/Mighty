@@ -39,6 +39,14 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>0.32.0 — debugger ground floor.</h3>
+        <ul>
+          <li>New "Mighty Debug" run configuration type (Run → Edit
+              Configurations…). Spawns the new <code>mty dap</code>
+              Debug Adapter Protocol server and forwards stdio.</li>
+          <li>Per-configuration program path, optional replay/record
+              trace paths, argv, stop-on-entry toggle.</li>
+        </ul>
         <h3>0.31.0 — initial JetBrains release.</h3>
         <ul>
           <li>LSP integration over stdio.</li>
@@ -103,6 +111,18 @@
             id="Mighty"
             displayType="BALLOON"
             isLogByDefault="true" />
+
+        <!--
+          v0.32 Track A — Mighty Debug run configuration type. Surfaces
+          a "Mighty Debug" entry in the Run/Debug Configurations dialog
+          (Run → Edit Configurations…). Each configuration spawns
+          `mty dap` over stdio with the configured program + optional
+          replay / record trace + argv. The full DAP <-> XDebugger
+          frontend is the v0.33 follow-up; today we ship the run
+          target plumbing + console mode.
+        -->
+        <configurationType
+            implementation="dev.mighty.jetbrains.debug.MightyDebugConfigurationType" />
     </extensions>
 
     <actions>

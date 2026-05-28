@@ -3,6 +3,7 @@
 use super::host::Host;
 use super::value::*;
 use crate::ir::*;
+use mty_hir::SourceSpan;
 use mty_types::IntKind;
 
 /// Default step budget — each stmt + each terminator counts as one step.
@@ -239,33 +240,33 @@ fn initial_locals_for(f: &Function, args: &[Value]) -> Vec<Value> {
     locals
 }
 
-struct Interp<'a> {
-    prog: &'a Program,
-    stack: Vec<Frame>,
+pub(crate) struct Interp<'a> {
+    pub(crate) prog: &'a Program,
+    pub(crate) stack: Vec<Frame>,
     /// Synthesized agent state values (by AgentHandle.state_idx).
-    agent_states: Vec<Value>,
+    pub(crate) agent_states: Vec<Value>,
     /// Counter for `Frame::scope` (monotonic).
-    next_scope: u64,
+    pub(crate) next_scope: u64,
     /// Counter for agent handles.
-    next_agent: u64,
+    pub(crate) next_agent: u64,
     /// Last value returned (for `run_fn_by_name`).
-    last_return: Value,
+    pub(crate) last_return: Value,
     /// Step budget remaining.
-    budget: u64,
+    pub(crate) budget: u64,
     /// v0.5 Gap-4: cumulative bytes of "allocation-shape" rvalues
     /// (Struct / Tuple / Array / Str literal payload) charged so far.
-    mem_used: u64,
+    pub(crate) mem_used: u64,
     /// v0.5 Gap-4: ceiling for `mem_used`. `0` = unlimited.
-    mem_budget: u64,
+    pub(crate) mem_budget: u64,
     /// Slice-7 hook: snapshot of the outermost frame's locals at the
     /// moment it returns. Used by [`run_handler_isolated`] to recover
     /// the post-handler state value out of the synthesized state-holder
     /// local without disturbing the slice-6 single-frame contract.
-    last_frame_locals: Option<Vec<Value>>,
+    pub(crate) last_frame_locals: Option<Vec<Value>>,
 }
 
 impl<'a> Interp<'a> {
-    fn new(prog: &'a Program, budget: u64) -> Self {
+    pub(crate) fn new(prog: &'a Program, budget: u64) -> Self {
         Self {
             prog,
             stack: Vec::new(),
@@ -361,7 +362,7 @@ impl<'a> Interp<'a> {
         RunResult::Ok { exit: 0 }
     }
 
-    fn step(&mut self, host: &mut dyn Host) -> StepOutcome {
+    pub(crate) fn step(&mut self, host: &mut dyn Host) -> StepOutcome {
         // Peek the current frame's block / pc.
         let (fn_id, block_id, pc) = {
             let f = self.stack.last().unwrap();
@@ -378,6 +379,41 @@ impl<'a> Interp<'a> {
             let term = block.terminator.clone();
             self.exec_term(host, term)
         }
+    }
+
+    /// v0.32 Track A — peek the position the next [`Self::step`] will
+    /// execute. Returns `None` if the stack is empty (the program is
+    /// done). Used by the DAP server to materialise per-step DAP
+    /// `stoppedEvent`s.
+    pub(crate) fn peek_position(&self) -> Option<super::breakpoints::StepPosition> {
+        let f = self.stack.last()?;
+        let func = self.prog.fn_by_id(f.fn_id);
+        let block = func.block(f.block);
+        let span = if f.pc < block.stmts.len() {
+            self.prog
+                .span_table
+                .get(&f.fn_id)
+                .and_then(|t| t.stmt_span(f.block.0, f.pc))
+                .cloned()
+                .unwrap_or(SourceSpan { start: 0, end: 0 })
+        } else {
+            self.prog
+                .span_table
+                .get(&f.fn_id)
+                .and_then(|t| t.terminator_span(f.block.0))
+                .cloned()
+                .unwrap_or(SourceSpan { start: 0, end: 0 })
+        };
+        Some(super::breakpoints::StepPosition {
+            fn_id: f.fn_id,
+            block: f.block,
+            stmt_idx: if f.pc < block.stmts.len() {
+                Some(f.pc)
+            } else {
+                None
+            },
+            span,
+        })
     }
 
     fn exec_stmt(&mut self, host: &mut dyn Host, s: &Stmt) -> StepOutcome {
@@ -1071,7 +1107,7 @@ impl<'a> Interp<'a> {
     }
 }
 
-enum StepOutcome {
+pub(crate) enum StepOutcome {
     Continue,
     FrameReturned(Value),
     Trap(&'static str, String),
@@ -2037,7 +2073,7 @@ fn eval_cast(v: Value, ty: &IrTy) -> Value {
     }
 }
 
-fn main_exit_for_value(v: &Value) -> RunResult {
+pub(crate) fn main_exit_for_value(v: &Value) -> RunResult {
     // If main returned a Result::Err, exit code 1; otherwise 0.
     match v {
         Value::Enum { variant: 1, .. } => RunResult::Ok { exit: 1 },
