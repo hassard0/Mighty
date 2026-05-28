@@ -1,0 +1,36 @@
+// 04_eval_suite.mty — std.eval regression harness.
+//
+// Typed eval cases + a comparator family that the panel runs against
+// every Member. Replay-driven: each Case can come from a literal
+// input string or a recorded `.mty-trace` from an earlier run.
+//
+// See examples/31_eval_agent.mty for the v0.28 canonical version
+// and `crates/mty-stdlib/src/eval/` for the matrix coverage tests.
+
+package eval_demo
+
+use std.eval.Case
+use std.eval.Compare
+use std.eval.Member
+use std.eval.Suite
+
+fn _build_suite() -> Suite {
+  let suite = Suite.new("research-agent")
+    .case(Case.from_input("What's the population of France?"))
+    .case(Case.from_input("Capital of Australia?"))
+    .run_with(Member.mock("baseline", "Paris", 1))
+    .run_with(Member.mock("challenger", "Paris", 1))
+  suite
+}
+
+fn _comparator_equal() -> Compare {
+  Compare.equal()
+}
+
+fn _comparator_semantic() -> Compare {
+  Compare.semantic_similarity(0.85)
+}
+
+fn main() {
+  log("04_eval_suite: typed suite constructed")
+}

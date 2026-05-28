@@ -1,0 +1,23 @@
+// 06_observability.mty — std.observe + mty inspect --cost.
+//
+// `std.observe` auto-records every LLM call when MTY_OBSERVE=1; the
+// schema lives in `~/.mty/observations.sqlite` (override with
+// MTY_OBSERVE_DB). `mty inspect --cost` rolls it up:
+//
+//   mty inspect --cost
+//   mty inspect --cost --since 7d --by model --top 5
+//
+// Phase 2 routes the same records to an OTLP/HTTP collector via
+// MTY_OBSERVE_OTEL=http://otel-collector:4318. See
+// `docs/internals/observability.md` for the full env surface.
+
+package observability_demo
+
+fn _simulate_five_llm_turns() -> Str {
+  "ran 5 turns under MTY_OBSERVE=1; check ~/.mty/observations.sqlite"
+}
+
+fn main() {
+  let _summary = _simulate_five_llm_turns()
+  log("06_observability: see mty inspect --cost")
+}

@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "playgroundBase": "https://hassard0.github.io/Mighty/playground/",
+  "examples": [
+    {
+      "id": "01_hello_agent",
+      "title": "01 — Hello, Mighty",
+      "summary": "A one-line program. Parses, type-checks, runs.",
+      "capabilities": ["parse", "run"],
+      "source": "examples/01_hello_agent/main.mty",
+      "permalinkPayload": "Ly8gMDFfaGVsbG9fYWdlbnQubXR5IOKAlCB0aGUgc21hbGxlc3QgTWlnaHR5IHByb2dyYW0uCi8vCi8vIE9uZSBmbiwgb25lIGNhbGwuIFBhcnNlcywgdHlwZS1jaGVja3MsIHJ1bnMuIFRoZSBwbGF5Z3JvdW5kJ3MKLy8gMzAtc2Vjb25kIHNtb2tlIHRlc3QuCmZuIG1haW4oKSB7CiAgbG9nKCJoZWxsbywgTWlnaHR5IikKfQo"
+    },
+    {
+      "id": "02_tool_calling",
+      "title": "02 — @tool decorator",
+      "summary": "Tag a fn as an MCP tool; the compiler generates the descriptor.",
+      "capabilities": ["macros", "mcp"],
+      "source": "examples/02_tool_calling/main.mty",
+      "permalinkPayload": "Ly8gMDJfdG9vbF9jYWxsaW5nLm10eSDigJQgYEB0b29sKC4uLilgIGRlY29yYXRvciBvbiBhIHBsYWluIGZuLgovLwovLyBUaGUgY29tcGlsZXIgc3ludGhlc2lzZXMgYSBKU09OLXNjaGVtYSBkZXNjcmlwdG9yICsgaW52b2tlIHNoaW0sCi8vIGFuZCB0aGUgcnVudGltZSByZWdpc3RlcnMgdGhlIHRvb2wgd2l0aCB0aGUgTUNQIHNlcnZlciBvbiBmaXJzdAovLyBjYWxsLiBGcm9tIHRoZSBMTE0ncyBzaWRlIGl0IGxvb2tzIGxpa2UgYW55IG90aGVyIHRvb2wgZW50cnkuCi8vCi8vIFNlZSBleGFtcGxlcy8yN190b29sX2F0dHIubXR5IGZvciB0aGUgY2Fub25pY2FsIGluLXRyZWUgdmVyc2lvbgovLyBhbmQgYGRvY3MvaW50ZXJuYWxzL3Rvb2wtbWFjcm8ubWRgIGZvciB0aGUgc2NoZW1hIGdlbmVyYXRpb24gcnVsZXMuCgpAdG9vbCgiRWNobyBhIHNob3J0IGdyZWV0aW5nIGJhY2sgdG8gdGhlIGNhbGxlciIsIGNhcDogZnMucmVhZCkKZm4gZ3JlZXQobmFtZTogU3RyKSAtPiBTdHIgewogIG5hbWUKfQoKZm4gbWFpbigpIHsKICBsZXQgZyA9IGdyZWV0KCJ3b3JsZCIpCiAgbG9nKGcpCn0K"
+    },
+    {
+      "id": "03_swarm_review",
+      "title": "03 — Multi-LLM swarm review",
+      "summary": "Build a Panel of three providers behind one interface.",
+      "capabilities": ["swarm", "llm"],
+      "source": "examples/03_swarm_review/main.mty",
+      "permalinkPayload": "Ly8gMDNfc3dhcm1fcmV2aWV3Lm10eSDigJQgbXVsdGktTExNIHJldmlldyBwYW5lbC4KLy8KLy8gYE1lbWJlcmAgYW5kIGBQYW5lbGAgZnJvbSBgc3RkLnN3YXJtYCBrZWVwIHByb3ZpZGVyIGRpZmZlcmVuY2VzCi8vIGJlaGluZCBvbmUgaW50ZXJmYWNlOiBBbnRocm9waWMsIE9wZW5BSSwgR2VtaW5pLCBCZWRyb2NrLCBhbmQgYQovLyBkZXRlcm1pbmlzdGljIE1vY2sgYWxsIGV4cG9zZSB0aGUgc2FtZSBgLmFzayguLi4pYCBzaGFwZS4KLy8KLy8gVGhlIHBhdHRlcm46IGRlY2xhcmUgdGhlIHBhbmVsIG9uY2UgYXQgdGhlIHBhY2thZ2UgbGV2ZWwsIHRoZW4KLy8gYC5yZXZpZXcoLi4uKWAgYSBwaWVjZSBvZiB3b3JrLiBFYWNoIE1lbWJlciB2b3RlczsgdGhlIHBhbmVsCi8vIHJldHVybnMgYSBgVmVyZGljdGAgd2l0aCB0aGUgcGVyLW1lbWJlciBicmVha2Rvd24uCgpwYWNrYWdlIHN3YXJtX3JldmlldwoKdXNlIHN0ZC5zd2FybS5NZW1iZXIKdXNlIHN0ZC5zd2FybS5QYW5lbAoKZm4gX3BhbmVsKCkgLT4gUGFuZWwgewogIFBhbmVsLm5ldygicmV2aWV3IikKICAgIC53aXRoKE1lbWJlci5hbnRocm9waWMoImNsYXVkZS1vcHVzLTQtNyIpKQogICAgLndpdGgoTWVtYmVyLm9wZW5haSgiZ3B0LTUiKSkKICAgIC53aXRoKE1lbWJlci5nZW1pbmkoImdlbWluaS0yLjUtcHJvIikpCn0KCmZuIG1haW4oKSB7CiAgbG9nKCIwM19zd2FybV9yZXZpZXc6IHBhbmVsIGNvbnN0cnVjdGVkIikKfQo"
+    },
+    {
+      "id": "04_eval_suite",
+      "title": "04 — std.eval regression suite",
+      "summary": "Typed eval cases + comparators across providers.",
+      "capabilities": ["eval", "llm"],
+      "source": "examples/04_eval_suite/main.mty",
+      "permalinkPayload": "Ly8gMDRfZXZhbF9zdWl0ZS5tdHkg4oCUIHN0ZC5ldmFsIHJlZ3Jlc3Npb24gaGFybmVzcy4KLy8KLy8gVHlwZWQgZXZhbCBjYXNlcyArIGEgY29tcGFyYXRvciBmYW1pbHkgdGhhdCB0aGUgcGFuZWwgcnVucyBhZ2FpbnN0Ci8vIGV2ZXJ5IE1lbWJlci4gUmVwbGF5LWRyaXZlbjogZWFjaCBDYXNlIGNhbiBjb21lIGZyb20gYSBsaXRlcmFsCi8vIGlucHV0IHN0cmluZyBvciBhIHJlY29yZGVkIGAubXR5LXRyYWNlYCBmcm9tIGFuIGVhcmxpZXIgcnVuLgovLwovLyBTZWUgZXhhbXBsZXMvMzFfZXZhbF9hZ2VudC5tdHkgZm9yIHRoZSB2MC4yOCBjYW5vbmljYWwgdmVyc2lvbgovLyBhbmQgYGNyYXRlcy9tdHktc3RkbGliL3NyYy9ldmFsL2AgZm9yIHRoZSBtYXRyaXggY292ZXJhZ2UgdGVzdHMuCgpwYWNrYWdlIGV2YWxfZGVtbwoKdXNlIHN0ZC5ldmFsLkNhc2UKdXNlIHN0ZC5ldmFsLkNvbXBhcmUKdXNlIHN0ZC5ldmFsLk1lbWJlcgp1c2Ugc3RkLmV2YWwuU3VpdGUKCmZuIF9idWlsZF9zdWl0ZSgpIC0-IFN1aXRlIHsKICBsZXQgc3VpdGUgPSBTdWl0ZS5uZXcoInJlc2VhcmNoLWFnZW50IikKICAgIC5jYXNlKENhc2UuZnJvbV9pbnB1dCgiV2hhdCdzIHRoZSBwb3B1bGF0aW9uIG9mIEZyYW5jZT8iKSkKICAgIC5jYXNlKENhc2UuZnJvbV9pbnB1dCgiQ2FwaXRhbCBvZiBBdXN0cmFsaWE_IikpCiAgICAucnVuX3dpdGgoTWVtYmVyLm1vY2soImJhc2VsaW5lIiwgIlBhcmlzIiwgMSkpCiAgICAucnVuX3dpdGgoTWVtYmVyLm1vY2soImNoYWxsZW5nZXIiLCAiUGFyaXMiLCAxKSkKICBzdWl0ZQp9CgpmbiBfY29tcGFyYXRvcl9lcXVhbCgpIC0-IENvbXBhcmUgewogIENvbXBhcmUuZXF1YWwoKQp9CgpmbiBfY29tcGFyYXRvcl9zZW1hbnRpYygpIC0-IENvbXBhcmUgewogIENvbXBhcmUuc2VtYW50aWNfc2ltaWxhcml0eSgwLjg1KQp9CgpmbiBtYWluKCkgewogIGxvZygiMDRfZXZhbF9zdWl0ZTogdHlwZWQgc3VpdGUgY29uc3RydWN0ZWQiKQp9Cg"
+    },
+    {
+      "id": "05_taint_safety",
+      "title": "05 — Tainted[T] compile error",
+      "summary": "Prompt injection caught at compile time. Hit Check.",
+      "capabilities": ["taint", "compile-error"],
+      "source": "examples/05_taint_safety/main.mty",
+      "permalinkPayload": "Ly8gMDVfdGFpbnRfc2FmZXR5Lm10eSDigJQgcHJvbXB0IGluamVjdGlvbiBjYXVnaHQgYXQgY29tcGlsZSB0aW1lLgovLwovLyBAY29tcGlsZS1lcnJvciDigJQgdGhpcyBleGFtcGxlIGlzIElOVEVOREVEIHRvIGZhaWwgd2l0aCBNVDQwOTkuCi8vCi8vIGBNZW1iZXIuYXNrKC4uLilgIHJldHVybnMgYFRhaW50ZWRbU3RyXWAuIGBzdGQuZnMud3JpdGVgIHJlcXVpcmVzCi8vIGl0cyBgY29udGVudHNgIGFyZ3VtZW50IHRvIGJlIHVudGFpbnRlZC4gVGhlIGNvbXBpbGVyIGVtaXRzIE1UNDA5OQovLyBhdCB0aGUgc2luayBjYWxsIHdpdGggYSBmaXgtZW52ZWxvcGUgcG9pbnRpbmcgYXQgdGhlIHRocmVlCi8vIHVudGFpbnRpbmcgcGF0aHM6IGAubWF0Y2hlc19yZWdleCguLi4pYCwgYC5pbl9hbGxvd2xpc3RbRW51bV0oKWAsCi8vIG9yIGAuc2FuaXRpemVfd2l0aChIdG1sRXNjYXBlIHwgU2hlbGxFc2NhcGUgfCBTcWxFc2NhcGUgfCBQYXRoQm91bmRhcnkoLi4uKSlgLgovLwovLyBTZWUgZXhhbXBsZXMvMzNfdGFpbnRfYmFzaWNzLm10eSBmb3IgdGhlIGluLXRyZWUgdmVyc2lvbiArIE1UNDA5OQovLyByZWZlcmVuY2UgZG9jcyBhdCBgZG9jcy9pbnRlcm5hbHMvdGFpbnQtdHlwZXMubWRgLgoKcGFja2FnZSB0YWludF9iYXNpY3MKCnVzZSBzdGQuZnMKdXNlIHN0ZC5zd2FybS5NZW1iZXIKCmZuIG1haW4oKSB7CiAgbGV0IG0gPSBNZW1iZXIuYW50aHJvcGljKCJjbGF1ZGUtb3B1cy00LTciKQogIGxldCB1c2VyX2lucHV0ID0gbS5hc2soIlN1bW1hcmlzZSB0aGUgZGF5IikKICAvLyDihpMgQ29tcGlsZSBlcnJvciDigJQgdGFpbnRlZCB2YWx1ZSBmbG93aW5nIGludG8gdGhlIGNvbnRlbnRzIGFyZy4KICBzdGQuZnMud3JpdGUoImxvZy50eHQiLCB1c2VyX2lucHV0KQp9Cg"
+    },
+    {
+      "id": "06_observability",
+      "title": "06 — std.observe + mty inspect --cost",
+      "summary": "Auto-record LLM cost/latency to local SQLite.",
+      "capabilities": ["observability"],
+      "source": "examples/06_observability/main.mty",
+      "permalinkPayload": "Ly8gMDZfb2JzZXJ2YWJpbGl0eS5tdHkg4oCUIHN0ZC5vYnNlcnZlICsgbXR5IGluc3BlY3QgLS1jb3N0LgovLwovLyBgc3RkLm9ic2VydmVgIGF1dG8tcmVjb3JkcyBldmVyeSBMTE0gY2FsbCB3aGVuIE1UWV9PQlNFUlZFPTE7IHRoZQovLyBzY2hlbWEgbGl2ZXMgaW4gYH4vLm10eS9vYnNlcnZhdGlvbnMuc3FsaXRlYCAob3ZlcnJpZGUgd2l0aAovLyBNVFlfT0JTRVJWRV9EQikuIGBtdHkgaW5zcGVjdCAtLWNvc3RgIHJvbGxzIGl0IHVwOgovLwovLyAgIG10eSBpbnNwZWN0IC0tY29zdAovLyAgIG10eSBpbnNwZWN0IC0tY29zdCAtLXNpbmNlIDdkIC0tYnkgbW9kZWwgLS10b3AgNQovLwovLyBQaGFzZSAyIHJvdXRlcyB0aGUgc2FtZSByZWNvcmRzIHRvIGFuIE9UTFAvSFRUUCBjb2xsZWN0b3IgdmlhCi8vIE1UWV9PQlNFUlZFX09URUw9aHR0cDovL290ZWwtY29sbGVjdG9yOjQzMTguIFNlZQovLyBgZG9jcy9pbnRlcm5hbHMvb2JzZXJ2YWJpbGl0eS5tZGAgZm9yIHRoZSBmdWxsIGVudiBzdXJmYWNlLgoKcGFja2FnZSBvYnNlcnZhYmlsaXR5X2RlbW8KCmZuIF9zaW11bGF0ZV9maXZlX2xsbV90dXJucygpIC0-IFN0ciB7CiAgInJhbiA1IHR1cm5zIHVuZGVyIE1UWV9PQlNFUlZFPTE7IGNoZWNrIH4vLm10eS9vYnNlcnZhdGlvbnMuc3FsaXRlIgp9CgpmbiBtYWluKCkgewogIGxldCBfc3VtbWFyeSA9IF9zaW11bGF0ZV9maXZlX2xsbV90dXJucygpCiAgbG9nKCIwNl9vYnNlcnZhYmlsaXR5OiBzZWUgbXR5IGluc3BlY3QgLS1jb3N0IikKfQo"
+    },
+    {
+      "id": "07_computer_use",
+      "title": "07 — Computer-use browser operator",
+      "summary": "Drive a real browser from a typed agent.",
+      "capabilities": ["computer-use", "browser"],
+      "source": "examples/07_computer_use/main.mty",
+      "permalinkPayload": "Ly8gMDdfY29tcHV0ZXJfdXNlLm10eSDigJQgYnJvd3NlciBvcGVyYXRvciBhZ2VudC4KLy8KLy8gYHN0ZC5jb21wdXRlci5Ccm93c2VyYCBpcyB0aGUgdHlwZWQgc3VyZmFjZSBmb3IgYSBQbGF5d3JpZ2h0LWJhY2tlZAovLyBDaHJvbWUuIEV2ZXJ5IGFjdGlvbiBpcyBmYWxsaWJsZSBhbmQgdHJhY2tlZCB0aHJvdWdoIHRoZSBzdGQub2JzZXJ2ZQovLyBwaXBlbGluZSwgYW5kIHRoZSB1bmRlcmx5aW5nIHRhYiBpcyBzYW5kYm94ZWQgcGVyLWFnZW50IHNvIHR3bwovLyBjb25jdXJyZW50IG9wZXJhdG9ycyBkb24ndCBzaGFyZSBzZXNzaW9uIHN0YXRlLgovLwovLyBJbiBhIHJlYWwgZGVtbywgdGhpcyBmbiB3b3VsZCBiZSB0aGUgYnVkZ2V0LWJvdW5kIGxvb3AgdGhlIExMTQovLyBkcml2ZXMuIFRoZSBleGFtcGxlIG9ubHkgbG9ja3MgaW4gdGhlIGNhbGwgc2hhcGUg4oCUIHNlZQovLyBleGFtcGxlcy8zNl9jb21wdXRlcl91c2UubXR5IGZvciB0aGUgdjAuMzAgY2Fub25pY2FsIHZlcnNpb24uCgpwYWNrYWdlIGNvbXB1dGVyX3VzZV9kZW1vCgp1c2Ugc3RkLmNvbXB1dGVyLkJyb3dzZXIKdXNlIHN0ZC5zd2FybS5NZW1iZXIKCmZuIF9kb19yZXNlYXJjaChiOiBCcm93c2VyLCBxdWVyeTogU3RyKSAtPiBTdHIgewogIGxldCBfID0gYi5nb3RvKCJodHRwczovL2R1Y2tkdWNrZ28uY29tIikKICBsZXQgXyA9IGIudHlwZV90ZXh0KCJpbnB1dFtuYW1lPXFdIiwgcXVlcnkpCiAgbGV0IF8gPSBiLmNsaWNrKCJidXR0b25bdHlwZT1zdWJtaXRdIikKICBiLnJlYWRfdGV4dCgibWFpbiIpCn0KCmZuIG1haW4oKSB7CiAgbG9nKCIwN19jb21wdXRlcl91c2U6IGJyb3dzZXIgb3BlcmF0b3Igc3VyZmFjZSIpCn0K"
+    }
+  ]
+}

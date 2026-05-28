@@ -1,0 +1,12 @@
+node_modules/
+build/
+dist/
+.vite/
+*.log
+
+# Generated wasm artifact + JS shim — produced by `wasm-pack build`.
+# See README "WASM build" section.
+public/mty_playground.js
+public/mty_playground_bg.wasm
+public/mty_playground.d.ts
+public/package.json

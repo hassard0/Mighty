@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="./public/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Mighty playground — try the agent-first language in your browser. No install."
+    />
+    <title>Mighty Playground</title>
+    <link rel="stylesheet" href="./styles/playground.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__brand">
+        <span class="topbar__logo" aria-hidden="true">m</span>
+        <span class="topbar__title">Mighty Playground</span>
+        <span class="topbar__version" id="version-pill">v0.33</span>
+      </div>
+      <nav class="topbar__nav">
+        <select id="example-picker" aria-label="Load example">
+          <option value="" disabled selected>Load example…</option>
+        </select>
+        <button id="btn-run" class="btn btn--primary" type="button">
+          <span aria-hidden="true">▶</span> Run
+        </button>
+        <button id="btn-check" class="btn" type="button">Check</button>
+        <button id="btn-share" class="btn" type="button">Save &amp; Share</button>
+        <button id="btn-format" class="btn" type="button">Format</button>
+      </nav>
+    </header>
+
+    <main class="layout">
+      <section class="layout__editor">
+        <div class="panel-head">
+          <h2 class="panel-head__title">main.mty</h2>
+          <span class="panel-head__hint" id="editor-hint">
+            Ctrl/Cmd+Enter to run
+          </span>
+        </div>
+        <div id="editor" class="editor-host"></div>
+      </section>
+
+      <section class="layout__output">
+        <div class="panel-head">
+          <h2 class="panel-head__title">Output</h2>
+          <span
+            class="panel-head__status"
+            id="status-pill"
+            data-state="idle"
+          >ready</span>
+        </div>
+        <div class="output-tabs" role="tablist">
+          <button
+            class="output-tabs__tab"
+            role="tab"
+            data-tab="stdout"
+            aria-selected="true"
+          >stdout</button>
+          <button
+            class="output-tabs__tab"
+            role="tab"
+            data-tab="diagnostics"
+            aria-selected="false"
+          >diagnostics</button>
+          <button
+            class="output-tabs__tab"
+            role="tab"
+            data-tab="trace"
+            aria-selected="false"
+          >trace</button>
+        </div>
+        <div class="output-body">
+          <pre id="output-stdout" class="output-pane" data-tab="stdout"></pre>
+          <div
+            id="output-diagnostics"
+            class="output-pane output-pane--diag"
+            data-tab="diagnostics"
+            hidden
+          ></div>
+          <pre id="output-trace" class="output-pane" data-tab="trace" hidden></pre>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>
+        Backend:
+        <code id="backend-mode">mock</code>
+        — the real wasm target is built from
+        <code>crates/mty-cli</code> via <code>wasm-pack</code>.
+      </span>
+      <span class="footer__right">
+        <a
+          href="https://github.com/hassard0/Mighty"
+          target="_blank"
+          rel="noopener"
+        >GitHub</a>
+        &middot;
+        <a href="./gallery.html">Gallery</a>
+      </span>
+    </footer>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

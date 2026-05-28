@@ -11,7 +11,39 @@ authors.workspace = true
 name = "mty"
 path = "src/main.rs"
 
+# v0.33 T3 — browser playground target.
+#
+# `mty-playground` is a wasm-bindgen entry point that exposes
+# `init() / check(src) / run(src)` for `tools/playground/`. It pulls
+# only the host-friendly compiler subset (parser, HIR, types, borrow,
+# IR, tree-walker interpreter) so it can compile under
+# `wasm32-unknown-unknown` — the JIT/LLVM/cranelift/runtime-tokio
+# crates that the native `mty` binary depends on are NOT reachable
+# from this entry point.
+#
+# The current Cargo manifest has those host-only deps as
+# *unconditional* path dependencies of `mty-cli`. v0.33 T3 ships the
+# source + the [[bin]] entry + the `playground-wasm` feature gate.
+# v0.34 follow-up: split the heavy deps behind an off-by-default
+# `host-toolchain` feature so this binary can actually be built with
+# `wasm-pack`. Until then, the entry point exists and is documented;
+# the playground UI runs against the mock backend.
+[[bin]]
+name = "mty-playground"
+path = "src/playground_main.rs"
+required-features = ["playground-wasm"]
+
+[features]
+# Off by default — opting in implies wasm32 target + no native
+# JIT/runtime/codegen reachable from the binary.
+playground-wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen"]
+
 [dependencies]
+# v0.33 T3 — wasm-bindgen ships the JS glue for the playground
+# binary. Optional + behind the `playground-wasm` feature so the
+# native CLI build doesn't pull it in.
+wasm-bindgen = { version = "0.2", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
 clap.workspace = true
 ariadne.workspace = true
 mty-driver = { path = "../mty-driver" }

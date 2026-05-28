@@ -1,0 +1,7 @@
+// 01_hello_agent.mty — the smallest Mighty program.
+//
+// One fn, one call. Parses, type-checks, runs. The playground's
+// 30-second smoke test.
+fn main() {
+  log("hello, Mighty")
+}

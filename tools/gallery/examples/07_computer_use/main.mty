@@ -1,0 +1,26 @@
+// 07_computer_use.mty — browser operator agent.
+//
+// `std.computer.Browser` is the typed surface for a Playwright-backed
+// Chrome. Every action is fallible and tracked through the std.observe
+// pipeline, and the underlying tab is sandboxed per-agent so two
+// concurrent operators don't share session state.
+//
+// In a real demo, this fn would be the budget-bound loop the LLM
+// drives. The example only locks in the call shape — see
+// examples/36_computer_use.mty for the v0.30 canonical version.
+
+package computer_use_demo
+
+use std.computer.Browser
+use std.swarm.Member
+
+fn _do_research(b: Browser, query: Str) -> Str {
+  let _ = b.goto("https://duckduckgo.com")
+  let _ = b.type_text("input[name=q]", query)
+  let _ = b.click("button[type=submit]")
+  b.read_text("main")
+}
+
+fn main() {
+  log("07_computer_use: browser operator surface")
+}
