@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Mighty Cost tool-window icon (13x13, IntelliJ Platform convention for
+     tool window stripe icons). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 13 13" width="13" height="13">
+  <path d="M 2 11 L 2 7 L 4 7 L 4 11 Z" fill="#7C4DFF" />
+  <path d="M 6 11 L 6 4 L 8 4 L 8 11 Z" fill="#7C4DFF" />
+  <path d="M 10 11 L 10 1 L 12 1 L 12 11 Z" fill="#00BFA5" />
+  <line x1="1" y1="12" x2="13" y2="12" stroke="#7C4DFF" stroke-width="0.5" />
+</svg>

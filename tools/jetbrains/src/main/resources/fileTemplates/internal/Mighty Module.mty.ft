@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: MIT
+//
+// ${NAME} — Mighty module.
+//
+// A module bundles agents, types, and helpers under a single namespace.
+// Anything declared `pub` here is visible to other modules in the workspace.
+
+module ${NAME} {
+    // Module-level documentation, types, and agents go here.
+}

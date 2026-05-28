@@ -1,0 +1,21 @@
+# Gradle build outputs
+.gradle/
+build/
+out/
+
+# IntelliJ project files (we ship gradle, not .iml)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# IntelliJ Platform Gradle Plugin caches
+.intellijPlatform/
+
+# Kotlin / Java
+*.class
+hs_err_pid*
+
+# OS junk
+.DS_Store
+Thumbs.db

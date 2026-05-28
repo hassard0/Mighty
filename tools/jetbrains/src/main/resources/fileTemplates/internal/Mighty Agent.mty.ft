@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: MIT
+// ${NAME}.mty — Mighty agent.
+
+agent ${NAME} {
+    intent: "Describe what this agent should accomplish.",
+
+    inputs {
+        // Declare typed inputs the agent needs from its caller.
+    }
+
+    outputs {
+        // Declare typed outputs the agent will produce.
+    }
+
+    body {
+        // Implementation goes here.
+    }
+}
