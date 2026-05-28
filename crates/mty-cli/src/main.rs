@@ -587,15 +587,12 @@ fn main() {
             port,
             socket,
         } => {
-            let transport_parsed = match cmd::agent::Transport::parse(&transport) {
-                Some(t) => t,
-                None => {
-                    eprintln!(
-                        "mty agent: unknown --transport `{}` (expected stdio, http, unix)",
-                        transport
-                    );
-                    std::process::exit(2);
-                }
+            let Some(transport_parsed) = cmd::agent::Transport::parse(&transport) else {
+                eprintln!(
+                    "mty agent: unknown --transport `{}` (expected stdio, http, unix)",
+                    transport
+                );
+                std::process::exit(2);
             };
             cmd::agent::run(cmd::agent::AgentArgs {
                 single_shot,

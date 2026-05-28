@@ -9,54 +9,120 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-v0.33 candidates (rolled up from all 6 v0.32 tracks):
+v0.34 candidates (rolled up from all 6 v0.33 tracks):
 
-- **Track A — debugger** — JetBrains XDebugger frontend over the
-  DAP run-target plumbing (today the configuration spawns `mty dap`
-  + forwards stdio in console mode; the full step-in / step-over UI
-  in the JetBrains debug panel is still v0.33); per-line breakpoint
-  serialization across IDE restarts; DAP `attach` request for
-  long-running agent processes.
-- **Track B — VS Code** — finish the tree-sitter semantic-token
-  provider (ship the WASM grammar artifact and fill in
-  `provideDocumentSemanticTokens` per the checklist at the bottom
-  of `src/tree-sitter.ts`); per-span CodeLens granularity once
-  `mty inspect` exposes a `--by span` flag; ship the cost-panel
-  JS bundle for interactive drill-down (toggle time-window + drill
-  into a provider/model bar); trace replay UI for `.mty-trace`
-  files.
-- **Track C — JetBrains** — extract a single canonical TextMate
-  grammar at `tools/grammars/mighty.tmLanguage.json` shared by
-  both VS Code + JetBrains (today the file is duplicated between
-  the two trees); tree-sitter grammar binding via the IntelliJ
-  Platform Tree-Sitter API; cost tool window graph view.
-- **Track D — distribution** — fire a real release on the new
-  5-platform matrix (Linux x86_64 + aarch64, macOS arm64 + x86_64,
-  Windows x86_64) so the two placeholder SHAs in
-  `tools/distribution/homebrew/mty.rb` get pinned to real binaries;
-  flip `vars.PUBLISH_DOCKER` once Docker push lands in
-  `release.yml` to enable the cosign + SBOM gate; spin up
-  `hassard0/asdf-mty` from the in-tree plugin skeleton; submit
-  `mty` to homebrew-core; strict-mode snap.
-- **Track E — GH Actions** — `cost-delta` polish (replace the
-  bash-only diff with a typed JSON walker once `mty inspect` gains
-  `--diff`); `mty-explain` Slack/Discord webhook example;
-  `error_code` output documentation in the action reference once
-  CHANGELOG settles.
-- **Track F — replay** — drop the legacy `RecorderConfig::JsonLines`
-  variant entirely now that native binary recording is the
-  documented path (the v0.32 deprecation shim stays for one cycle);
-  expose `MTY_RECORD_TRACE` as a CLI flag (`mty run --record-trace`)
-  so users don't need to set an env var; surface recorded
-  `tool_uses` in `mty inspect --cost --explain`.
+- **T1 — PGO + benchmarks** — wire `release-pgo` into
+  `.github/workflows/release.yml` (two-phase instrument / train /
+  rebuild); refresh Go + C++ comparator numbers on vulcan; fix the
+  `http-server-throughput-rust-hyper` comparator's E0790
+  (`BodyExt::collect`); add a Wasm size-budget gate.
+- **T2 — RAG + multi-modal** — stream multi-modal responses (today
+  Image input ships end-to-end but vision-turn streaming is
+  provider-stub); plug a real cross-encoder model behind
+  `std.rag::Reranker` (today: BM25 + cosine heuristic); pin the
+  `std.rag::Index` binary schema; expand the demo 10 corpus to 20+
+  docs exercising every chunking strategy.
+- **T3 — Playground + gallery** — ship the real `wasm32-web` `mty`
+  runtime artifact (the marquee v0.34 item — v0.33's playground UI
+  works against a mock-compile stub); persistent share-URL
+  shortener; run telemetry to prioritise the next gallery
+  examples; mobile responsive (Monaco hides below 720 px today).
+- **T4 — Structured diagnostics** — backfill the remaining ~30
+  MTxxxx codes (v0.33 ships 31 of ~61); reach 100% MT4xxx
+  coverage (taint codes are the highest-leverage); calibrate
+  confidence scores against a labelled fix-success-rate corpus;
+  flip `--include-source` to on-by-default for `--format json`.
+- **T5 — `mty agent`** — finish HTTP + Unix transports (v0.33
+  ships stdio + non-stdio stubs); Bearer-token auth surface for
+  HTTP transport; streaming responses for long ops (compile, eval,
+  swarm); `mty agent --resume`; concurrency cap + worker pool.
+- **T6 — LSP hover** — backfill hover examples for the remaining
+  ~80 stdlib items (v0.33: 58 of ~140 public items); SVG/PNG
+  attachment support in `///` doc comments; hover code-action chips
+  for See-also `MTxxxx` links.
+- **T7 — `mty find`** — index user-workspace symbols (v0.33: stdlib
+  only); semantic-search hook via `std.memory::VectorStore` for
+  users with API keys; `mty find --watch <query>` LSP path;
+  system-wide stdlib index shared across workspaces.
 - **Cross-cutting** — single `tools/` README indexing all six
-  subfolders.
+  subfolders (carryover from v0.32); vulcan disk hygiene
+  pre-commit (vulcan filled up twice during v0.33); fix or `#[cfg]`-
+  out the Windows-only `mty-runtime::work_stealing` flake; add a
+  pre-merge fmt gate to swarm worktrees so future merges don't
+  introduce drift.
 
 The v1.0 freeze-gate is unchanged: 8 RFC comment windows opened
 2026-05-26, earliest close 2026-06-09 (RFC-005), latest close
 2026-07-25 (RFC-002 + RFC-006). Proposed v1.0 freeze date
 2026-09-01; earliest tag 2026-07-26. There is **no remaining
 Post-v1.0 backlog**.
+
+## [0.33.0] - 2026-05-28
+
+**Mighty v0.33 — the agent-first release. Structured auto-fix
+diagnostics make Mighty the language with the highest agent
+first-shot success rate. Plus `mty agent` JSON CLI, `std.rag`,
+multi-modal vision-language, `mty find`, LSP hover with examples,
+web playground + agent gallery, and v0.33 benchmarks published.**
+Six tracks (T2-T7) merge in parallel; T1 is the integrator's
+housekeeping. All 10 demos pass `smoke.sh` pre and post; clippy /
+fmt / audit green.
+
+### Added — Agent-first
+- **T2** — `std.rag` (RAG-as-stdlib: `Index` + `Retriever` +
+  `Reranker` + `Pipeline`) + multi-modal vision-language `Image`
+  input across all 4 LLM providers (Anthropic, OpenAI, Gemini,
+  Bedrock) + demo 10 (vision RAG) + tour 21. `+59 tests`.
+- **T3** — Web playground at `tools/playground/` (Vite + Monaco +
+  WASM `mty` target stub) + agent gallery at `tools/gallery/` with
+  7 starter examples. (WASM artifact stubbed; real
+  compile-and-run is v0.34.)
+- **T4** — Structured agent-actionable diagnostics: 31 MTxxxx
+  codes emit JSON envelopes carrying machine-readable auto-fix
+  proposals; MT4099 (taint) ships 3 first-class untaint strategies
+  as alternatives. `mty check --format json --include-source`.
+  `+50 tests`.
+- **T5** — `mty agent`: NDJSON-over-stdio CLI protocol with 9 ops
+  (`check`, `fix`, `run`, `build`, `find`, `explain`, `inspect`,
+  `lsp_hover`, `version`) so LLM agents drive every other `mty`
+  subcommand without scraping human output. HTTP + Unix
+  transports stubbed for v0.34. `+60 tests`.
+- **T6** — LSP hover surfaces 58 stdlib `///` examples +
+  capability hints + See-also inference. `+20 tests`.
+- **T7** — `mty find`: capability-tagged stdlib search ("write
+  files" → `fs.write` APIs); `--by-capability` inverse;
+  `pretty` / `json` / `short` formats. `+18 tests`.
+- **T1** — `[profile.release-pgo]` (already added v0.22) inherited
+  through v0.33; v0.33 benchmark rerun on vulcan replaces the v0.6
+  baseline numbers on the docs site. (PGO wiring into
+  `release.yml` is v0.34.)
+
+### Changed
+- README updated in-place to mention agent-first marketing,
+  `std.rag`, multi-modal, `mty find`, `mty agent`, playground,
+  LSP hover examples. Test count 2559 → ~2766. Example count
+  37 → 38. Demo count 9 → 10.
+- Six v0.32-track follow-ups remain open and have been re-promoted
+  into the v0.34 unreleased section under their owning v0.32 track
+  letters (debugger UI, VS Code polish, JetBrains TextMate, the
+  Docker publish flip, the GH Actions polish, and the legacy
+  JSON-lines recorder drop).
+- `docs/benchmarks/*` refreshed with v0.33 numbers from vulcan;
+  Mighty + Rust comparator rows updated for parse,
+  agent-send-latency, mailbox; Go + C++ retain v0.6 (vulcan has no
+  Go installed, and the Rust hyper http-server comparator hit
+  E0790 on the new toolchain — both tracked for v0.34).
+
+### Fixed
+- 7 clippy errors in `mty-diagnostics` (format_collect,
+  format-in-format args, identical replace-line, redundant
+  lifetime, and 2× OR-pattern → range) introduced by T4's diff
+  envelope code.
+- 3 clippy errors in `mty-stdlib` (manual `div_ceil`, derivable
+  `Default`, `skip_while(_).next()` → `find(!_)` ) introduced by
+  T2's chunker + base64 vendor.
+- 13 files of fmt drift introduced by parallel-merge of T2/T4/T5/T6
+  swarm branches.
 
 ## [0.32.1] - 2026-05-28
 

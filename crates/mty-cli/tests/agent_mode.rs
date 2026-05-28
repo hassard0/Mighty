@@ -88,7 +88,7 @@ fn last_done(lines: &[String]) -> Option<i32> {
         })
 }
 
-fn find_kind<'a>(lines: &'a [String], kind: &str) -> Vec<serde_json::Value> {
+fn find_kind(lines: &[String], kind: &str) -> Vec<serde_json::Value> {
     lines
         .iter()
         .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
@@ -103,7 +103,7 @@ fn write_tmp(name: &str, body: &str) -> (tempfile::TempDir, PathBuf) {
     (tmp, p)
 }
 
-fn path_json(p: &PathBuf) -> String {
+fn path_json(p: &std::path::Path) -> String {
     p.display().to_string().replace('\\', "\\\\")
 }
 

@@ -56,17 +56,12 @@ pub struct AgentArgs {
     pub unix_socket: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Transport {
+    #[default]
     Stdio,
     Http,
     Unix,
-}
-
-impl Default for Transport {
-    fn default() -> Self {
-        Transport::Stdio
-    }
 }
 
 impl Transport {
@@ -755,21 +750,18 @@ impl Session {
         let write = req.bool("write");
 
         // Allow `path` override; otherwise use the last-checked path.
-        let path_buf = match req
+        let Some(path_buf) = req
             .str("path")
             .map(PathBuf::from)
             .or_else(|| self.last_path.clone())
-        {
-            Some(p) => p,
-            None => {
-                emit(
-                    out,
-                    &Response::Error {
-                        message: "fix: no `path` and no prior check; pass `path`".into(),
-                    },
-                );
-                return 2;
-            }
+        else {
+            emit(
+                out,
+                &Response::Error {
+                    message: "fix: no `path` and no prior check; pass `path`".into(),
+                },
+            );
+            return 2;
         };
 
         // Always re-check before applying. We don't want a stale
@@ -932,9 +924,8 @@ fn apply_unified_diff(src: &str, diff: &str) -> Option<String> {
             old_body.push(rest.to_string());
         } else if let Some(rest) = l.strip_prefix('+') {
             new_body.push(rest.to_string());
-        } else if l.starts_with(' ') {
+        } else if let Some(rest) = l.strip_prefix(' ') {
             // Context line; T4 doesn't emit these, but tolerate.
-            let rest = &l[1..];
             old_body.push(rest.to_string());
             new_body.push(rest.to_string());
         }
@@ -1065,9 +1056,8 @@ fn find_hits(root: &Path, query: &str, top: usize) -> Vec<FindHit> {
 /// emits, but as a `Vec<DiagnosticEnvelope>`.
 #[allow(dead_code)]
 pub fn envelopes_for(path: &Path) -> (Vec<DiagnosticEnvelope>, i32) {
-    let src = match fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(_) => return (Vec::new(), 1),
+    let Ok(src) = fs::read_to_string(path) else {
+        return (Vec::new(), 1);
     };
     let parsed = parse_source(src.clone(), path.display().to_string());
     let (pkg, mut diags) = lower(&parsed);
