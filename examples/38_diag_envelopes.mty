@@ -40,7 +40,6 @@
 // sit above the v0.33 0.5 emit-floor.
 //
 // Reference: docs/internals/taint-types.md, mty explain MT4099.
-
 package diag_envelopes
 
 use std.fs
