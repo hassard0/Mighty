@@ -1,0 +1,32 @@
+//! eval: swarm-review
+//! threshold: tool_call_set_equal >= 0.0
+//! members:
+//!   - mock:reviewer-1
+//!   - mock:reviewer-2
+//!   - mock:reviewer-3
+//! cases:
+//!   - from_input: "Should we ship this PR?"
+//!   - from_input: "Does this diff cover the regression cited in issue #421?"
+
+// v0.30 Track E — swarm-review three-member panel eval. Mirrors the
+// shape of demo 08 (swarm-state agent): a panel of reviewers all
+// answer the same question, and the eval asserts they agree on the
+// *set of tools* invoked (`tool_call_set_equal` is order- and
+// argument-independent so reviewers can pull the same tool in any
+// order). The threshold field is a no-op for this comparator (the
+// strategy is set-equality, not a score) but kept for consistency
+// with semantic-similarity suites.
+//
+// Pairs with examples/32_eval_native.mty.
+
+use std.eval.{Suite, Case, Member, Compare}
+
+pub fn eval() -> Report {
+  Suite::new("swarm-review")
+    .case(Case::from_input("Should we ship this PR?"))
+    .case(Case::from_input("Does this diff cover the regression cited in issue #421?"))
+    .run_with(Member::mock("reviewer-1", "let me check_tests() then approve()", 1))
+    .run_with(Member::mock("reviewer-2", "running check_tests() and approve()", 1))
+    .run_with(Member::mock("reviewer-3", "I'll approve() after check_tests()", 1))
+    .compare(Compare::tool_call_set_equal())
+}

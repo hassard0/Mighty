@@ -1,0 +1,27 @@
+//! eval: research-agent
+//! threshold: semantic_similarity >= 0.5
+//! members:
+//!   - mock:baseline
+//!   - mock:challenger
+//! cases:
+//!   - from_input: "What's the population of France?"
+//!   - from_input: "What's the capital of Australia?"
+
+// v0.30 Track E — research-agent regression eval. Pinned to two
+// `mock` members so the suite is hermetic + dispatch-free under CI;
+// flip to `anthropic:claude-opus-4-7` / `openai:gpt-5` via the
+// `[eval.ci]` override block in `mighty.toml` to run against real
+// providers.
+//
+// Pairs with examples/31_eval_agent.mty (the agent under test).
+
+use std.eval.{Suite, Case, Member, Compare}
+
+pub fn eval() -> Report {
+  Suite::new("research-agent")
+    .case(Case::from_input("What's the population of France?"))
+    .case(Case::from_input("What's the capital of Australia?"))
+    .run_with(Member::mock("baseline", "Paris and 67M", 1))
+    .run_with(Member::mock("challenger", "Paris and 67M", 1))
+    .compare(Compare::semantic_similarity(threshold: 0.5))
+}

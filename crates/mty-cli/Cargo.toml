@@ -30,10 +30,14 @@ mty-doc = { path = "../mty-doc" }
 mty-pkg = { path = "../mty-pkg" }
 # v0.3 Task 1: install the stdlib host dispatcher at CLI startup so
 # `mty run` programs that call `std.*` get the real implementations
-# (json/fs/time/http) instead of `Value::Unit`. We disable the `runner`
-# feature here to avoid the mty-stdlib → mty-driver dep cycle that
-# blocked v0.2 (see STDLIB_V0_2_NOTES.md).
-mty-stdlib = { path = "../mty-stdlib", default-features = false }
+# (json/fs/time/http) instead of `Value::Unit`.
+#
+# v0.30 Track E flips the `runner` feature back on so the new
+# `mty test` subcommand can call `mty_stdlib::test::run_dir` — the
+# v0.2-era cycle that originally motivated `default-features = false`
+# no longer exists (mty-driver doesn't pull stdlib, so the path
+# is clean). See STDLIB_V0_2_NOTES.md for the original constraint.
+mty-stdlib = { path = "../mty-stdlib", default-features = false, features = ["runner"] }
 mty-runtime = { path = "../mty-runtime" }
 # v0.16 `mty inspect` subcommand: JSON over the runtime control socket.
 serde.workspace = true
@@ -49,6 +53,9 @@ hyper.workspace = true
 hyper-util.workspace = true
 http-body-util.workspace = true
 notify = "6"
+# v0.30 Track E — `mty test --eval`: thiserror for the frontmatter
+# parse error enum.
+thiserror.workspace = true
 
 [dev-dependencies]
 # v0.23 Track C — `cmd_serve.rs` smoke tests hit the dev server with a
@@ -56,6 +63,9 @@ notify = "6"
 # here (which would add rustls + ring transitively); the tests use the
 # same tokio runtime they spawn the server under.
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "net", "io-util"] }
+# v0.30 Track E — `cmd::test` discovery + frontmatter parser tests
+# spin up temp directories full of `*.eval.mty` fixtures.
+tempfile = "3"
 
 [lints]
 workspace = true

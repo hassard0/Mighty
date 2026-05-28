@@ -17,3 +17,7 @@ pub mod run;
 // v0.23 Track C — `mty serve [--port N] [--watch]` (built-in dev
 // server + websocket-driven reload for the web-game template).
 pub mod serve;
+// v0.30 Track E — `mty test [--eval]`: discover *.test.mty and
+// *.eval.mty files; run them through the v0.2 std.test runner +
+// the v0.28-onwards std.eval suite driver. See cmd/test.rs.
+pub mod test;
