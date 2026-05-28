@@ -3101,6 +3101,8 @@ name = "mty-diagnostics"
 version = "0.1.0"
 dependencies = [
  "ariadne",
+ "serde",
+ "serde_json",
  "thiserror 1.0.69",
 ]
 
@@ -3138,6 +3140,7 @@ dependencies = [
  "mty-types",
  "rowan",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror 1.0.69",
  "toml",
