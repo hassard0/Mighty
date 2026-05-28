@@ -49,14 +49,17 @@ jobs:
             artifact: mty
             asset: mty-x86_64-unknown-linux-gnu.tar.gz
             use_cross: false
-          # v0.32 (Track D): Intel macOS is back on the matrix.
-          # GitHub's `macos-13` runner pool has stabilized (queue
-          # times measured at <15min through Apr 2026) and Intel
-          # Macs are still ~30% of the macOS install base. This
-          # binary is also a hard requirement for homebrew-core
-          # submission (the upstream tap audits formulas that only
-          # ship arm64 macOS).
-          - os: macos-13
+          # v0.32 (Track D): Intel macOS via cross-compile on Apple
+          # Silicon runner. v0.32.1 pivoted from `macos-13` to
+          # `macos-14` because GitHub Actions' free Intel runner
+          # pool went indefinitely-queued in late May 2026 (jobs
+          # sat >30min without allocation, blocking all v* tag
+          # releases). Apple Silicon Xcode ships the x86_64-darwin
+          # SDK; `cargo build --target x86_64-apple-darwin` works
+          # fine on macos-14. Intel Macs still ~30% of macOS base;
+          # this binary remains a hard requirement for the
+          # homebrew-core submission.
+          - os: macos-14
             target: x86_64-apple-darwin
             artifact: mty
             asset: mty-x86_64-apple-darwin.tar.gz

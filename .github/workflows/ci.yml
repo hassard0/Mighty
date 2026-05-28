@@ -215,7 +215,13 @@ jobs:
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             use_cross: true
-          - os: macos-13
+          # v0.32.1: x86_64-apple-darwin cross-compiles on
+          # macos-14 (Apple Silicon). The Intel `macos-13` runner
+          # pool is indefinitely-queued for free public repos as
+          # of late May 2026 — cross-compile via target triple
+          # avoids the queue entirely. See release.yml for the
+          # matching rationale.
+          - os: macos-14
             target: x86_64-apple-darwin
             use_cross: false
           - os: macos-14
