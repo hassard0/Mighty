@@ -186,6 +186,89 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
   # ----------------------------------------------------------------
+  # v0.32 (Track D): multi-arch dry-run release build.
+  #
+  # `release.yml` cross-compiles the `mty` binary for 5 platforms
+  # on every `v*` tag. A real release tag isn't the right moment to
+  # discover that a cargo dep regressed on `aarch64-unknown-linux-gnu`
+  # cross-compilation, so we replay the same build matrix on every
+  # push to main (build only, no packaging, no upload).
+  #
+  # Job is intentionally non-blocking on PRs (push-only) to keep PR
+  # latency under the cross-compile install budget. A failure here
+  # is a release-blocker for the next tag but not a PR-merge blocker.
+  # The `Swatinem/rust-cache` action keeps the cross-compile
+  # toolchain primed across runs so the steady-state cost is one
+  # `cross build` per platform per main push.
+  # ----------------------------------------------------------------
+  multi-arch-dry-run:
+    name: multi-arch dry-run (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    if: github.event_name == 'push'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            use_cross: false
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            use_cross: true
+          - os: macos-13
+            target: x86_64-apple-darwin
+            use_cross: false
+          - os: macos-14
+            target: aarch64-apple-darwin
+            use_cross: false
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            use_cross: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+          targets: ${{ matrix.target }}
+
+      - name: Cargo cache (shared with release.yml key shape)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-dryrun-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-dryrun-
+            ${{ runner.os }}-${{ matrix.target }}-cargo-release-
+
+      - name: Install cross (aarch64 Linux only)
+        if: matrix.use_cross == true
+        # Pin matches release.yml — bumping here without bumping
+        # release.yml would diverge the dry-run from the real build.
+        run: cargo install cross --version 0.2.5 --locked
+
+      - name: cargo build --release (native)
+        if: matrix.use_cross == false
+        env:
+          # Multi-arch dry-run is a build-only smoke; we don't want
+          # `RUSTFLAGS=-D warnings` from the workflow env turning a
+          # benign new-lint into a release-blocker. The `test` job
+          # above is the source of truth for warning policy.
+          RUSTFLAGS: ""
+        run: cargo build --release --bin mty -p mty-cli --target ${{ matrix.target }}
+
+      - name: cross build --release (aarch64 Linux)
+        if: matrix.use_cross == true
+        env:
+          RUSTFLAGS: ""
+        run: cross build --release --bin mty -p mty-cli --target ${{ matrix.target }}
+
+  # ----------------------------------------------------------------
   # MSRV gate — the documented minimum supported Rust version is
   # 1.85.0 (edition 2024 / indexmap 2.14). Bumping this is a
   # breaking change and requires a release note in RELEASE-v*.md.

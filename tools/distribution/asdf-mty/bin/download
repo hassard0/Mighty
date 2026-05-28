@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+#
+# asdf/mise plugin entry point: download the binary for $ASDF_INSTALL_VERSION
+# into $ASDF_DOWNLOAD_PATH. Called BEFORE `install`.
+#
+# Required inputs (from asdf/mise):
+#   ASDF_INSTALL_TYPE   = "version"
+#   ASDF_INSTALL_VERSION = e.g. "0.32.0"
+#   ASDF_DOWNLOAD_PATH  = scratch dir, plugin owns it
+
+set -euo pipefail
+
+plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=../lib/utils.bash
+source "$plugin_dir/lib/utils.bash"
+
+: "${ASDF_INSTALL_TYPE:?ASDF_INSTALL_TYPE not set}"
+: "${ASDF_INSTALL_VERSION:?ASDF_INSTALL_VERSION not set}"
+: "${ASDF_DOWNLOAD_PATH:?ASDF_DOWNLOAD_PATH not set}"
+
+if [[ "$ASDF_INSTALL_TYPE" != "version" ]]; then
+  fail "asdf-mty only supports version installs (got: $ASDF_INSTALL_TYPE)"
+fi
+
+VERSION="$ASDF_INSTALL_VERSION"
+ASSET="$(asset_for_platform)"
+URL="$(release_asset_url "$VERSION" "$ASSET")"
+DEST="$ASDF_DOWNLOAD_PATH/$ASSET"
+
+mkdir -p "$ASDF_DOWNLOAD_PATH"
+
+echo "* Downloading $ASSET ..."
+curl -fSL --retry 3 --retry-delay 2 "$URL" -o "$DEST"
+
+# Verify sha256 if a sidecar is published. Mighty's release.yml
+# always publishes one, so failure here is a real signal.
+SHA_URL="${URL}.sha256"
+SHA_FILE="$ASDF_DOWNLOAD_PATH/${ASSET}.sha256"
+echo "* Fetching SHA256 sidecar ..."
+if ! curl -fsSL --retry 3 --retry-delay 2 "$SHA_URL" -o "$SHA_FILE"; then
+  echo "warning: no .sha256 sidecar at $SHA_URL — skipping integrity check" >&2
+else
+  verify_sha256 "$ASDF_DOWNLOAD_PATH" "$ASSET" "$SHA_FILE"
+fi

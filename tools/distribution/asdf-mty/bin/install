@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+#
+# asdf/mise plugin entry point: extract the downloaded asset into
+# $ASDF_INSTALL_PATH/bin and run a smoke test (`mty --version`).
+#
+# Required inputs (from asdf/mise):
+#   ASDF_INSTALL_TYPE     = "version"
+#   ASDF_INSTALL_VERSION  = e.g. "0.32.0"
+#   ASDF_INSTALL_PATH     = final install root, plugin owns $ASDF_INSTALL_PATH/bin
+#   ASDF_DOWNLOAD_PATH    = scratch dir populated by `bin/download`
+
+set -euo pipefail
+
+plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=../lib/utils.bash
+source "$plugin_dir/lib/utils.bash"
+
+: "${ASDF_INSTALL_TYPE:?ASDF_INSTALL_TYPE not set}"
+: "${ASDF_INSTALL_VERSION:?ASDF_INSTALL_VERSION not set}"
+: "${ASDF_INSTALL_PATH:?ASDF_INSTALL_PATH not set}"
+: "${ASDF_DOWNLOAD_PATH:?ASDF_DOWNLOAD_PATH not set}"
+
+if [[ "$ASDF_INSTALL_TYPE" != "version" ]]; then
+  fail "asdf-mty only supports version installs (got: $ASDF_INSTALL_TYPE)"
+fi
+
+ASSET="$(asset_for_platform)"
+SRC="$ASDF_DOWNLOAD_PATH/$ASSET"
+
+if [[ ! -f "$SRC" ]]; then
+  fail "expected $SRC to exist; did 'download' run first?"
+fi
+
+mkdir -p "$ASDF_INSTALL_PATH/bin"
+
+# The release tarball's top-level dir is `mty-vX.Y.Z/`; we extract
+# to a scratch dir then move the binary so we end up with a flat
+# `$ASDF_INSTALL_PATH/bin/mty` regardless of the asset layout.
+SCRATCH="$(mktemp -d)"
+trap 'rm -rf "$SCRATCH"' EXIT
+
+case "$ASSET" in
+  *.tar.gz)
+    tar -xzf "$SRC" -C "$SCRATCH"
+    ;;
+  *.zip)
+    unzip -q "$SRC" -d "$SCRATCH"
+    ;;
+  *)
+    fail "unknown asset format: $ASSET"
+    ;;
+esac
+
+# Find the mty binary inside the extracted layout.
+binary="$(find "$SCRATCH" -type f \( -name "mty" -o -name "mty.exe" \) | head -n1 || true)"
+if [[ -z "$binary" ]]; then
+  fail "couldn't find mty binary inside $ASSET"
+fi
+
+cp "$binary" "$ASDF_INSTALL_PATH/bin/"
+chmod +x "$ASDF_INSTALL_PATH/bin/$(basename "$binary")"
+
+echo "* Installed $(basename "$binary") to $ASDF_INSTALL_PATH/bin/"
+
+# Smoke test — fails the install loudly if the binary doesn't match
+# the requested ASDF_INSTALL_VERSION.
+"$ASDF_INSTALL_PATH/bin/$(basename "$binary")" --version

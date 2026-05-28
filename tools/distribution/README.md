@@ -16,12 +16,12 @@ channel.
 
 | Target       | Path                            | Publish destination                                     |
 |--------------|---------------------------------|--------------------------------------------------------|
-| Homebrew     | `homebrew/mty.rb`               | `hassard0/homebrew-mighty` tap repo (`Formula/mty.rb`)  |
+| Homebrew     | `homebrew/mty.rb`               | `hassard0/homebrew-mighty` tap repo, then `homebrew-core` (see `homebrew/HOMEBREW_CORE_SUBMISSION.md`) |
 | Scoop        | `scoop/mty.json`                | `hassard0/scoop-mighty` bucket repo (`bucket/mty.json`) |
 | winget       | `winget/manifests/h/hassard/mty/0.31.0/` | PR to `microsoft/winget-pkgs`                   |
-| Docker       | `docker/Dockerfile`             | `docker.io/mighty-lang/mty` and/or `ghcr.io/hassard0/mty` |
+| Docker       | `docker/Dockerfile`             | `ghcr.io/hassard0/mty` (cosign-signed, SBOM + provenance attached when `vars.PUBLISH_DOCKER=true`) |
 | Devcontainer | `devcontainer/`                 | `docker.io/mighty-lang/devcontainer`                    |
-| mise / asdf  | `mise/plugin-stub.md`           | New repo `hassard0/asdf-mty` (instructions only)        |
+| mise / asdf  | `asdf-mty/` (full plugin skeleton) + `mise/plugin-stub.md` (legacy docs) | Extract to new repo `hassard0/asdf-mty`        |
 | snap         | `snap/snapcraft.yaml`           | Snap Store via `snapcraft upload`                       |
 
 ## Release pin
@@ -40,12 +40,25 @@ Current SHA256 pins (verified at write-time against the release page):
 | `mty-x86_64-pc-windows-msvc.zip`               | `0f40621640d7b2298e3463caaeb693eb623496fe21960731ed2a03a1cd9f50bb`  |
 | `mty-conformance-kit-v0.30.1.tar.gz`           | `fc35df4bea82a90c4514f0945b0c6502f0e1106c335c2853d96cfb2b9ce51512`  |
 
-Gaps in release.yml (no binaries published yet):
-- `x86_64-apple-darwin` (Intel Mac)
-- `aarch64-unknown-linux-gnu` (Raspberry Pi / Ampere / Graviton)
+## Supported binary platforms (v0.32+)
 
-Until those land, Homebrew documents Rosetta + source-build for Intel
-Mac, and Docker / Snap / Scoop are amd64-only.
+v0.32 (Track D) extended `release.yml`'s build matrix from 3 to 5
+binaries. The next release tag publishes:
+
+| Platform                    | Asset                                          | Notes                                |
+|-----------------------------|------------------------------------------------|--------------------------------------|
+| Linux x86_64                | `mty-x86_64-unknown-linux-gnu.tar.gz`          | native (`ubuntu-latest`)             |
+| Linux aarch64               | `mty-aarch64-unknown-linux-gnu.tar.gz`         | cross-compiled (`cross 0.2.5`)       |
+| macOS arm64                 | `mty-aarch64-apple-darwin.tar.gz`              | native (`macos-14`)                  |
+| macOS x86_64 (Intel)        | `mty-x86_64-apple-darwin.tar.gz`              | native (`macos-13`)                  |
+| Windows x86_64              | `mty-x86_64-pc-windows-msvc.zip`               | native (`windows-latest`)            |
+
+That count goes from 7 release artifacts to 11 (5 binaries × 2 files
+[tarball + .sha256] + 1 conformance kit).
+
+A multi-arch dry-run job in `ci.yml` exercises the same 5-target
+build matrix on every push to main so a cross-compile regression
+shows up before a real release tag, not after.
 
 ## Per-release publish runbook
 
@@ -166,14 +179,29 @@ into their project's `.devcontainer/` and **Reopen in Container**.
 
 ### 6. mise / asdf
 
-A real plugin lives in its own repo. Follow the skeleton in
-`mise/plugin-stub.md` to set up `hassard0/asdf-mty`. End users then:
+v0.32 (Track D) shipped a fully-fleshed-out plugin skeleton at
+`tools/distribution/asdf-mty/`. It must be extracted into its own
+GitHub repo before `mise plugin add` can consume it — see
+`asdf-mty/README.md` for the full publish flow. Short version:
+
+```bash
+cp -r tools/distribution/asdf-mty /tmp/asdf-mty
+cd /tmp/asdf-mty
+git init && git add . && git commit -m "asdf-mty 0.1.0"
+git remote add origin git@github.com:hassard0/asdf-mty.git
+git push -u origin main
+```
+
+End users:
 
 ```bash
 mise plugin add mty https://github.com/hassard0/asdf-mty
-mise install mty@0.30.1
-mise use -g mty@0.30.1
+mise install mty@0.32.0
+mise use -g mty@0.32.0
 ```
+
+The older `mise/plugin-stub.md` is kept for context but the
+`asdf-mty/` skeleton is the source of truth.
 
 ### 7. Snap (optional)
 
@@ -203,16 +231,36 @@ End users: `sudo snap install mty --classic`.
 | GHCR          | a GitHub PAT with `write:packages`                      |
 | Snap Store    | `snapcraft login` (Ubuntu One)                          |
 
-## v0.32 follow-ups
+## v0.32 status (Track D)
+
+- DONE: `release.yml` builds `x86_64-apple-darwin` and
+  `aarch64-unknown-linux-gnu` alongside the existing three targets,
+  so the Homebrew formula, Snap, and Docker can finally be
+  multi-arch.
+- DONE: `ci.yml` runs a 5-target build dry-run on every push to
+  main so cross-compile regressions surface before a real release
+  tag.
+- DONE: full `hassard0/asdf-mty` plugin skeleton extracted to
+  `asdf-mty/` — just needs `git push -u origin main` to publish.
+- DONE: Homebrew formula rewired for all four supported `(os, arch)`
+  blocks; `homebrew/HOMEBREW_CORE_SUBMISSION.md` documents the
+  audit checklist + PR steps for submitting to homebrew-core.
+- DONE: Cosign + SBOM step added to `release.yml`, gated on
+  `vars.PUBLISH_DOCKER == 'true'` because Docker push itself isn't
+  in `release.yml` yet — flip the variable when it lands and the
+  step activates with no further edits.
+
+## v0.33 follow-ups
 
 - Add a release-time workflow that re-templates every manifest with
   the new version + freshly fetched SHAs and opens the publish PRs
   automatically (one job per channel, gated on the release-binaries
   job completing).
-- Publish `x86_64-apple-darwin` and `aarch64-unknown-linux-gnu`
-  binaries from `release.yml` so the Homebrew formula, Snap, and
-  Docker can be multi-arch.
-- Spin up `hassard0/asdf-mty` so the mise instructions become a real
-  one-liner.
-- Submit `mty` to homebrew-core (drops the `brew tap` step).
-- Cosign-sign Docker images; publish SBOMs.
+- Fold the Docker push itself into `release.yml` (cosign + SBOM
+  step is wired and waiting).
+- Auto-sync `tools/distribution/asdf-mty/` to `hassard0/asdf-mty`
+  on every change so the plugin repo doesn't drift.
+- Land the homebrew-core PR once v0.32.0 binaries publish (refresh
+  the two placeholder SHAs in `mty.rb` first).
+- Add a Linuxbrew CI job that runs `brew audit --strict --online`
+  against the formula before every release.
