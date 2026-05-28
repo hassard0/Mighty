@@ -1,6 +1,11 @@
 use clap::{Args, Parser, Subcommand};
 
-mod cmd;
+// v0.33 T7: the binary used to own `mod cmd;` directly. We now route
+// through the crate's library face (`src/lib.rs`) so integration tests
+// can reach helpers like `mty_cli::cmd::find::parse_source_for_tests`
+// without re-listing every cmd module here. The binary itself just
+// re-imports the `cmd` tree under a local alias.
+use mty_cli::cmd;
 
 #[derive(Parser)]
 #[command(name = "mty", version, about = "Mighty compiler CLI")]
@@ -145,6 +150,36 @@ enum Cmd {
     Explain {
         /// e.g. MT0001, sd0001, 0001, 1
         code: String,
+    },
+    /// v0.33 T7 — Capability-tagged search across the Mighty stdlib.
+    ///
+    /// Examples:
+    ///
+    ///   mty find "write files"
+    ///   mty find "send http" --format json
+    ///   mty find --by-capability fs.write
+    ///   mty find "vector store" --explain
+    ///
+    /// See `docs/reference/find.md` for the query DSL + ranking spec.
+    Find {
+        /// Free-form query, e.g. `"write files"` or `"vector store"`.
+        query: Option<String>,
+        /// List every item that requires this capability instead of
+        /// running a query. Inverse of "I want to write files".
+        #[arg(long)]
+        by_capability: Option<String>,
+        /// Output format: `pretty` (default), `json` (NDJSON), `short`.
+        #[arg(long, default_value = "pretty")]
+        format: String,
+        /// Append capability + minimal usage example to each result.
+        #[arg(long)]
+        explain: bool,
+        /// Number of top results to surface. Defaults to 5.
+        #[arg(long, default_value_t = 5)]
+        top: usize,
+        /// Force a fresh index rebuild (ignores `~/.mty/find-index.json`).
+        #[arg(long)]
+        rebuild: bool,
     },
     /// Run the Mighty Language Server (LSP 3.17) over stdio.
     Lsp,
@@ -468,6 +503,23 @@ fn main() {
             db,
         }),
         Cmd::Explain { code } => cmd::explain::run(&code),
+        Cmd::Find {
+            query,
+            by_capability,
+            format,
+            explain,
+            top,
+            rebuild,
+        } => cmd::find::run(cmd::find::FindArgs {
+            query,
+            by_capability,
+            format,
+            explain,
+            top,
+            rebuild,
+            stdlib_root: None,
+            index_path: None,
+        }),
         Cmd::Lsp => cmd::lsp::run(),
         Cmd::Dap => cmd::dap::run(),
         Cmd::Pkg {
