@@ -58,6 +58,16 @@ The v1.0 freeze-gate is unchanged: 8 RFC comment windows opened
 2026-09-01; earliest tag 2026-07-26. There is **no remaining
 Post-v1.0 backlog**.
 
+## [0.32.1] - 2026-05-28
+
+### Fixed
+- `examples/37_debug_demo.mty` stripped a trailing blank line in its
+  head comment block that `mty fmt --check` rejected on Linux runners.
+  Caught at v0.32.0 tag time when the CI fmt gate flagged the file;
+  retagged as v0.32.1 with the fix rather than amending v0.32.0.
+  No source / API changes; binaries identical apart from the example
+  file.
+
 ## [0.32.0] - 2026-05-28
 
 **Mighty v0.32 — debugger + multi-arch + replay closure. `mty dap`
