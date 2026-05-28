@@ -1,0 +1,32 @@
+{
+  "version": "0.30.1",
+  "description": "Mighty - agent-first systems programming language",
+  "homepage": "https://hassard0.github.io/Mighty/",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/hassard0/Mighty/releases/download/v0.30.1/mty-x86_64-pc-windows-msvc.zip",
+      "hash": "0f40621640d7b2298e3463caaeb693eb623496fe21960731ed2a03a1cd9f50bb"
+    }
+  },
+  "bin": "mty.exe",
+  "checkver": {
+    "github": "https://github.com/hassard0/Mighty"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/hassard0/Mighty/releases/download/v$version/mty-x86_64-pc-windows-msvc.zip"
+      }
+    },
+    "hash": {
+      "url": "$url.sha256"
+    }
+  },
+  "notes": [
+    "Mighty's agent-first toolchain. Quick start:",
+    "  mty --version",
+    "  mty new my-agent",
+    "  mty check src/main.mty"
+  ]
+}
