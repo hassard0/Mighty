@@ -109,6 +109,123 @@ fn hover_on_unknown_identifier_still_returns_something() {
     );
 }
 
+// v0.33 T6: stdlib examples-index extensions.
+
+/// Hovering the bare `log` builtin should produce the curated stdlib
+/// payload (Example + See also, no capability section because `log`
+/// has no required cap).
+#[test]
+fn hover_on_log_shows_example_and_see_also() {
+    let src = "fn main() { log(\"hi\") }\n";
+    let doc = analyze(src);
+    let pos = locate(src, "log(").unwrap();
+    let h = hover(&doc, pos).expect("hover returns Some");
+    let HoverContents::Markup(m) = h.contents else {
+        panic!("expected markup hover")
+    };
+    assert!(
+        m.value.contains("Example:"),
+        "expected Example section, got:\n{}",
+        m.value
+    );
+    assert!(
+        m.value.contains("See also:"),
+        "expected See also section, got:\n{}",
+        m.value
+    );
+    assert!(
+        !m.value.contains("Required capability"),
+        "log has no required capability; got:\n{}",
+        m.value
+    );
+}
+
+/// Hovering on a method invoked on a literal type name (`Member.ask`)
+/// must resolve via the qualified lookup path.
+#[test]
+fn hover_on_member_ask_returns_stdlib_payload() {
+    // The exact body doesn't need to typecheck for the hover token
+    // walker to fire — hover is a CST-level concern.
+    let src = "fn main() { let r = Member.anthropic(\"x\").ask(\"hi\") }\n";
+    let doc = analyze(src);
+    let pos = locate(src, ".ask(").map(|p| Position {
+        line: p.line,
+        character: p.character + 1,
+    })
+    .unwrap();
+    let h = hover(&doc, pos).expect("hover returns Some");
+    let HoverContents::Markup(m) = h.contents else {
+        panic!("expected markup hover")
+    };
+    assert!(
+        m.value.contains("fn Member.ask") || m.value.contains("Member.ask"),
+        "expected Member.ask signature, got:\n{}",
+        m.value
+    );
+    assert!(
+        m.value.contains("Example:"),
+        "expected Example section, got:\n{}",
+        m.value
+    );
+    assert!(
+        m.value.contains("See also:"),
+        "expected See also section, got:\n{}",
+        m.value
+    );
+    assert!(
+        m.value.contains("Required capability"),
+        "Member.ask should declare a capability, got:\n{}",
+        m.value
+    );
+}
+
+/// Hover on a path-form constructor (`Member.anthropic`) must resolve
+/// via the qualified PATH walker.
+#[test]
+fn hover_on_member_anthropic_path_returns_stdlib_payload() {
+    let src = "fn main() { let _ = Member.anthropic(\"claude-opus-4-7\") }\n";
+    let doc = analyze(src);
+    let pos = locate(src, "anthropic").unwrap();
+    let h = hover(&doc, pos).expect("hover returns Some");
+    let HoverContents::Markup(m) = h.contents else {
+        panic!("expected markup hover")
+    };
+    assert!(
+        m.value.contains("Member.anthropic"),
+        "expected Member.anthropic to surface, got:\n{}",
+        m.value
+    );
+    assert!(
+        m.value.contains("ANTHROPIC") || m.value.contains("Anthropic"),
+        "expected description to mention Anthropic, got:\n{}",
+        m.value
+    );
+    assert!(m.value.contains("See also:"));
+}
+
+/// Hover on the bare `swarm` builtin should include the consensus
+/// example body.
+#[test]
+fn hover_on_swarm_includes_consensus_example() {
+    let src = "fn main() { swarm() }\n";
+    let doc = analyze(src);
+    let pos = locate(src, "swarm(").unwrap();
+    let h = hover(&doc, pos).expect("hover returns Some");
+    let HoverContents::Markup(m) = h.contents else {
+        panic!("expected markup hover")
+    };
+    assert!(
+        m.value.contains("Example:"),
+        "expected Example section, got:\n{}",
+        m.value
+    );
+    assert!(
+        m.value.contains("ConsensusStrategy") || m.value.contains("DollarBudget"),
+        "expected related symbols to surface, got:\n{}",
+        m.value
+    );
+}
+
 // ---------------------------------------------------------------------
 // definition
 // ---------------------------------------------------------------------

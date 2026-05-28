@@ -18,10 +18,16 @@
 //!
 //! See `docs/internals/doc-generator.md` for design notes.
 
+pub mod examples;
 pub mod extract;
 pub mod ir;
 pub mod render;
 
+pub use examples::{
+    examples_count, examples_to_json, infer_see_also, lookup as lookup_stdlib_example,
+    lookup_method as lookup_stdlib_method, persist_examples_index, render_hover_markdown,
+    stdlib_examples_hash, symbols as stdlib_example_symbols, StdlibExample, STDLIB_EXAMPLES,
+};
 pub use extract::build_doc_package;
 pub use ir::{
     DocExample, DocItem, DocItemKind, DocModule, DocPackage, DocVisibility, ItemSignature,

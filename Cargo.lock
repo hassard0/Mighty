@@ -3188,6 +3188,7 @@ dependencies = [
  "dashmap",
  "mty-ast",
  "mty-diagnostics",
+ "mty-doc",
  "mty-driver",
  "mty-fmt",
  "mty-hir",
