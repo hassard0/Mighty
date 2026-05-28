@@ -66,9 +66,19 @@ jobs:
           # parser-level surface syntax (e.g. RFC-008 effect rows in
           # examples/22_effect_row.mty) whose typeck wiring lands in a
           # later version. `fmt --check` still runs on every file.
+          # v0.30 (Track A): also honor `// @compile-error` for
+          # examples that demonstrate intentional MTxxxx diagnostics
+          # (e.g. examples/33_taint_basics.mty's MT4099). `mty check`
+          # is expected to FAIL on those — fmt still runs.
           for f in examples/*.mty; do
             if grep -q '@typeck-pending' "$f"; then
               echo "skip (typeck-pending): $f"
+            elif grep -q '@compile-error' "$f"; then
+              echo "expect-fail (compile-error): $f"
+              if cargo run -q -p mty-cli -- check "$f" 2>/dev/null; then
+                echo "ERROR: $f passed mty check but is marked @compile-error" >&2
+                exit 1
+              fi
             else
               cargo run -q -p mty-cli -- check "$f"
             fi
@@ -128,9 +138,17 @@ jobs:
           # `@typeck-pending` skip-list rules are the same — fmt is
           # checked in the default job so we only re-check syntax /
           # typeck here.
+          # v0.30 (Track A): `@compile-error` examples are expected to
+          # fail `mty check` — we assert the failure rather than blocking.
           for f in examples/*.mty; do
             if grep -q '@typeck-pending' "$f"; then
               echo "skip (typeck-pending): $f"
+            elif grep -q '@compile-error' "$f"; then
+              echo "expect-fail (compile-error): $f"
+              if cargo run -q --no-default-features -p mty-cli -- check "$f" 2>/dev/null; then
+                echo "ERROR: $f passed mty check but is marked @compile-error" >&2
+                exit 1
+              fi
             else
               cargo run -q --no-default-features -p mty-cli -- check "$f"
             fi
