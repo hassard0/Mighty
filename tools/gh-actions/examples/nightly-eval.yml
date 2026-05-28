@@ -1,0 +1,70 @@
+# tools/gh-actions/examples/nightly-eval.yml
+#
+# Nightly real-LLM eval + SWE-bench smoke. Gated on the
+# `ANTHROPIC_API_KEY` repo secret — fork PRs won't get the secret
+# injected, so the gated steps no-op there. Set the schedule below to
+# whatever cadence you can afford ($5-$20/run for the bench-smoke,
+# eval costs depend on your suite's panel + size).
+#
+# Drop at `.github/workflows/mighty-nightly.yml` in your project.
+name: Mighty nightly
+
+on:
+  schedule:
+    # 03:17 UTC daily. Off-peak relative to most timezones, and an odd
+    # minute spreads cron load on GitHub's scheduler.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  eval-live:
+    name: mty test --eval (live LLM calls)
+    runs-on: ubuntu-latest
+    # Job-level env: surface the secret as a regular env var so the
+    # step-level `if:` can compare against it. GitHub refuses
+    # `secrets.*` references inside `if:` directly.
+    env:
+      HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' && 'yes' || 'no' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mty
+        uses: hassard0/Mighty/tools/gh-actions/setup-mty@v0.31.0
+        with:
+          version: "0.31.0"
+
+      - name: mty test --eval (live)
+        if: env.HAS_KEY == 'yes'
+        uses: hassard0/Mighty/tools/gh-actions/mty-test-eval@v0.31.0
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        with:
+          replay-only: "false"
+          strict: "true"
+
+  bench-smoke:
+    name: SWE-bench Verified smoke (10 problems)
+    runs-on: ubuntu-latest
+    # Mty's bench-smoke harness compiles a Rust workspace; cache cargo
+    # to keep the second run quick.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install mty
+        uses: hassard0/Mighty/tools/gh-actions/setup-mty@v0.31.0
+        with:
+          version: "0.31.0"
+
+      - name: bench-smoke (gated on secret)
+        uses: hassard0/Mighty/tools/gh-actions/mty-bench-smoke@v0.31.0
+        with:
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          num-problems: "10"

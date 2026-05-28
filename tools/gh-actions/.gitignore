@@ -1,0 +1,7 @@
+# Reusable composite actions — no build artifacts live here.
+# This file exists so future contributors don't accidentally check in
+# editor turds or cached `actions.zip` downloads.
+*.zip
+*.tar.gz
+*.swp
+.DS_Store

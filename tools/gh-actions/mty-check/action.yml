@@ -1,0 +1,89 @@
+name: "Mighty check"
+description: >-
+  Run `mty check` on every `.mty` source file matching a glob, and
+  optionally `mty fmt --check` to enforce formatting. Honors the
+  Mighty convention markers `// @typeck-pending` (skip check) and
+  `// @compile-error` (assert check FAILS), mirroring the upstream
+  CI sweep in `.github/workflows/ci.yml`. Requires the `mty` binary
+  on `$PATH` — pair with `hassard0/Mighty/tools/gh-actions/setup-mty`.
+author: "Mighty"
+branding:
+  icon: "check-circle"
+  color: "purple"
+
+inputs:
+  glob:
+    description: >-
+      Glob (bash `**` extended-glob, evaluated with `shopt -s globstar
+      nullglob`) of files to check. Default: `**/*.mty`. Excluded by
+      default: anything under `target/`, `node_modules/`, and `.git/`.
+    required: false
+    default: "**/*.mty"
+  fmt-check:
+    description: >-
+      When `true` (default), also run `mty fmt --check` on each file.
+      Set `false` if you don't want a fmt gate in this job.
+    required: false
+    default: "true"
+  honor-markers:
+    description: >-
+      When `true` (default), `// @typeck-pending` files are skipped and
+      `// @compile-error` files are EXPECTED to fail. Set `false` to
+      treat every file uniformly.
+    required: false
+    default: "true"
+  working-directory:
+    description: "Run the sweep from this directory. Default: repo root."
+    required: false
+    default: "."
+
+runs:
+  using: "composite"
+  steps:
+    - name: mty check sweep
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        MTY_GLOB: ${{ inputs.glob }}
+        MTY_FMT_CHECK: ${{ inputs.fmt-check }}
+        MTY_HONOR_MARKERS: ${{ inputs.honor-markers }}
+      run: |
+        set -euo pipefail
+        shopt -s globstar nullglob
+        # shellcheck disable=SC2206
+        FILES=( $MTY_GLOB )
+        if [ "${#FILES[@]}" -eq 0 ]; then
+          echo "no files matched glob: ${MTY_GLOB}" >&2
+          exit 0
+        fi
+        FAIL=0
+        for f in "${FILES[@]}"; do
+          # Skip the obvious non-source paths even if the glob would
+          # otherwise admit them.
+          case "$f" in
+            target/*|*/target/*|node_modules/*|*/node_modules/*|.git/*|*/.git/*)
+              continue ;;
+          esac
+          if [ "${MTY_HONOR_MARKERS}" = "true" ] && grep -q '@typeck-pending' "$f"; then
+            echo "skip (typeck-pending): $f"
+            continue
+          fi
+          if [ "${MTY_HONOR_MARKERS}" = "true" ] && grep -q '@compile-error' "$f"; then
+            echo "expect-fail (compile-error): $f"
+            if mty check "$f" >/dev/null 2>&1; then
+              echo "  ERROR: $f passed mty check but is marked @compile-error" >&2
+              FAIL=1
+            fi
+          else
+            echo "check: $f"
+            if ! mty check "$f"; then
+              FAIL=1
+            fi
+          fi
+          if [ "${MTY_FMT_CHECK}" = "true" ]; then
+            if ! mty fmt --check "$f"; then
+              FAIL=1
+            fi
+          fi
+        done
+        exit "${FAIL}"

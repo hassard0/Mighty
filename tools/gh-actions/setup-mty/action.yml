@@ -1,0 +1,184 @@
+name: "Setup Mighty (mty)"
+description: >-
+  Download a prebuilt `mty` binary from the Mighty release page, verify
+  its SHA-256 checksum, extract it, and add the install directory to
+  `$GITHUB_PATH`. Caches the downloaded archive so subsequent runs are
+  free of network round-trips. Linux x86_64, macOS arm64, and Windows
+  x86_64 are supported — these are the three platforms the upstream
+  `release.yml` ships binaries for.
+author: "Mighty"
+branding:
+  icon: "download"
+  color: "purple"
+
+inputs:
+  version:
+    description: >-
+      Mighty release tag without the leading `v`, e.g. `0.31.0`. The
+      action will fetch `https://github.com/hassard0/Mighty/releases/
+      download/v<version>/...`. Default `0.31.0`.
+    required: false
+    default: "0.31.0"
+  target:
+    description: >-
+      Rust target triple. When unset (default), the action picks
+      `x86_64-unknown-linux-gnu` on Linux, `aarch64-apple-darwin` on
+      macOS, and `x86_64-pc-windows-msvc` on Windows. Pass an explicit
+      triple if you're cross-running on a non-default host.
+    required: false
+    default: ""
+  github-token:
+    description: >-
+      Optional `GITHUB_TOKEN` to bump release-asset download rate
+      limits on busy runners. The default `GITHUB_TOKEN` works.
+    required: false
+    default: ""
+
+outputs:
+  version:
+    description: "The resolved version that was installed."
+    value: ${{ steps.resolve.outputs.version }}
+  target:
+    description: "The resolved target triple that was installed."
+    value: ${{ steps.resolve.outputs.target }}
+  bindir:
+    description: "Directory the `mty` binary was unpacked into."
+    value: ${{ steps.resolve.outputs.bindir }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: resolve
+      name: Resolve version + target
+      shell: bash
+      run: |
+        set -euo pipefail
+        VERSION="${{ inputs.version }}"
+        TARGET="${{ inputs.target }}"
+        if [ -z "$TARGET" ]; then
+          case "${RUNNER_OS}" in
+            Linux)   TARGET="x86_64-unknown-linux-gnu" ;;
+            macOS)   TARGET="aarch64-apple-darwin" ;;
+            Windows) TARGET="x86_64-pc-windows-msvc" ;;
+            *) echo "unsupported RUNNER_OS=${RUNNER_OS}"; exit 1 ;;
+          esac
+        fi
+        # The release artifact is a .zip on Windows, .tar.gz everywhere else.
+        if [ "${RUNNER_OS}" = "Windows" ]; then
+          EXT="zip"
+        else
+          EXT="tar.gz"
+        fi
+        ASSET="mty-${TARGET}.${EXT}"
+        BINDIR="${RUNNER_TEMP}/mty-${VERSION}-${TARGET}"
+        echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+        echo "target=${TARGET}" >> "$GITHUB_OUTPUT"
+        echo "asset=${ASSET}" >> "$GITHUB_OUTPUT"
+        echo "ext=${EXT}" >> "$GITHUB_OUTPUT"
+        echo "bindir=${BINDIR}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore cached mty archive
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/${{ steps.resolve.outputs.asset }}
+        key: mty-${{ steps.resolve.outputs.version }}-${{ steps.resolve.outputs.target }}
+
+    - name: Download mty release archive
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+        VERSION="${{ steps.resolve.outputs.version }}"
+        ASSET="${{ steps.resolve.outputs.asset }}"
+        URL="https://github.com/hassard0/Mighty/releases/download/v${VERSION}/${ASSET}"
+        SHA_URL="${URL}.sha256"
+        OUT="${RUNNER_TEMP}/${ASSET}"
+        SHA_OUT="${OUT}.sha256"
+        AUTH=()
+        if [ -n "${GH_TOKEN}" ]; then
+          AUTH=(-H "Authorization: Bearer ${GH_TOKEN}")
+        fi
+        echo "downloading ${URL}"
+        curl -fsSL "${AUTH[@]}" -o "${OUT}" "${URL}"
+        echo "downloading ${SHA_URL}"
+        curl -fsSL "${AUTH[@]}" -o "${SHA_OUT}" "${SHA_URL}"
+
+    - name: Verify SHA-256
+      shell: bash
+      run: |
+        set -euo pipefail
+        ASSET="${{ steps.resolve.outputs.asset }}"
+        OUT="${RUNNER_TEMP}/${ASSET}"
+        SHA_OUT="${OUT}.sha256"
+        # The sidecar `.sha256` is `shasum -a 256` format on Unix and
+        # `"<hex>  <name>"` on Windows. Extract just the hex digest and
+        # compute the file's digest with whichever tool the runner has.
+        EXPECTED="$(awk '{print $1}' "${SHA_OUT}" | head -n1)"
+        if command -v sha256sum >/dev/null 2>&1; then
+          ACTUAL="$(sha256sum "${OUT}" | awk '{print $1}')"
+        else
+          ACTUAL="$(shasum -a 256 "${OUT}" | awk '{print $1}')"
+        fi
+        if [ "${EXPECTED}" != "${ACTUAL}" ]; then
+          echo "SHA-256 mismatch for ${ASSET}" >&2
+          echo "  expected: ${EXPECTED}" >&2
+          echo "  actual:   ${ACTUAL}" >&2
+          exit 1
+        fi
+        echo "sha256 ok: ${ACTUAL}"
+
+    - name: Extract archive
+      shell: bash
+      run: |
+        set -euo pipefail
+        VERSION="${{ steps.resolve.outputs.version }}"
+        ASSET="${{ steps.resolve.outputs.asset }}"
+        EXT="${{ steps.resolve.outputs.ext }}"
+        BINDIR="${{ steps.resolve.outputs.bindir }}"
+        OUT="${RUNNER_TEMP}/${ASSET}"
+        mkdir -p "${BINDIR}"
+        STAGE="${RUNNER_TEMP}/mty-stage-${VERSION}"
+        rm -rf "${STAGE}"
+        mkdir -p "${STAGE}"
+        if [ "${EXT}" = "zip" ]; then
+          # Windows ships a .zip; use unzip on Unix-y bash on the
+          # windows-latest runner (Git-Bash has it).
+          unzip -q "${OUT}" -d "${STAGE}"
+        else
+          tar -xzf "${OUT}" -C "${STAGE}"
+        fi
+        # Both archive shapes nest the binary inside `mty-v<version>/`.
+        # Copy *just* the binary into BINDIR so $GITHUB_PATH points at
+        # a small directory.
+        SRC_DIR="${STAGE}/mty-v${VERSION}"
+        if [ ! -d "${SRC_DIR}" ]; then
+          # Fall back to any single top-level directory in the archive.
+          SRC_DIR="$(find "${STAGE}" -mindepth 1 -maxdepth 1 -type d | head -n1)"
+        fi
+        if [ -f "${SRC_DIR}/mty.exe" ]; then
+          cp "${SRC_DIR}/mty.exe" "${BINDIR}/"
+        elif [ -f "${SRC_DIR}/mty" ]; then
+          cp "${SRC_DIR}/mty" "${BINDIR}/"
+          chmod +x "${BINDIR}/mty"
+        else
+          echo "binary not found in ${SRC_DIR}" >&2
+          ls -la "${SRC_DIR}" >&2 || true
+          exit 1
+        fi
+        echo "${BINDIR}" >> "$GITHUB_PATH"
+
+    - name: Confirm install
+      shell: bash
+      run: |
+        set -euo pipefail
+        # `$GITHUB_PATH` doesn't take effect inside the step that wrote
+        # to it; reference the directory explicitly.
+        BINDIR="${{ steps.resolve.outputs.bindir }}"
+        if [ -x "${BINDIR}/mty.exe" ]; then
+          "${BINDIR}/mty.exe" --version
+        else
+          "${BINDIR}/mty" --version
+        fi

@@ -1,0 +1,39 @@
+# tools/gh-actions/examples/full-ci.yml
+#
+# Full Mighty CI: check + unit tests + replay-only eval. Still free
+# (no live LLM calls). This is the recommended gate for every PR — it
+# catches type errors, formatting drift, broken `mty test` cases, AND
+# regressed `*.eval.mty` recordings without spending API credits.
+#
+# Drop at `.github/workflows/mighty-ci.yml` in your project.
+name: Mighty CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  mighty:
+    name: mty check + test + eval (replay)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mty
+        uses: hassard0/Mighty/tools/gh-actions/setup-mty@v0.31.0
+        with:
+          version: "0.31.0"
+
+      - name: mty check
+        uses: hassard0/Mighty/tools/gh-actions/mty-check@v0.31.0
+
+      - name: mty test (unit)
+        uses: hassard0/Mighty/tools/gh-actions/mty-test@v0.31.0
+
+      - name: mty test --eval --replay-only
+        uses: hassard0/Mighty/tools/gh-actions/mty-test-eval@v0.31.0
+        with:
+          replay-only: "true"
+          strict: "true"
