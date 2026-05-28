@@ -12,7 +12,7 @@ microbenchmarks** that put Mighty's performance in context against
 idiomatic C++, Rust, and Go.
 
 For the **agentic LLM benchmark** (SWE-bench Verified end-to-end
-issue-resolution harness), see [`bench/swe/`](../../bench/swe/README.md)
+issue-resolution harness), see [`bench/swe/`](https://github.com/hassard0/Mighty/blob/main/bench/swe/README.md)
 instead — that's a different concern with a different cadence.
 
 ## Categories
@@ -128,6 +128,6 @@ v0.8 interpretation log: `BENCHMARKS_V0_8_NOTES.md`.
 
 ## Related benchmarks
 
-- [`bench/swe/`](../../bench/swe/README.md) — Mighty SWE-bench
+- [`bench/swe/`](https://github.com/hassard0/Mighty/blob/main/bench/swe/README.md) — Mighty SWE-bench
   Verified harness. End-to-end issue-resolution benchmark for the
   agent framework, completely separate from these microbenchmarks.

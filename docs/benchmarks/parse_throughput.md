@@ -2,9 +2,9 @@
 
 > **Baseline from Mighty v0.6 (recorded 2026-05-24).** These numbers
 > have not been refreshed against v0.31. To run current measurements,
-> see [`benches/README.md`](../../benches/README.md) and the
+> see [`benches/README.md`](https://github.com/hassard0/Mighty/blob/main/benches/README.md) and the
 > per-impl build steps in
-> [`benches/parse_throughput/README.md`](../../benches/parse_throughput/README.md).
+> [`benches/parse_throughput/README.md`](https://github.com/hassard0/Mighty/blob/main/benches/parse_throughput/README.md).
 
 **Workload:** lex + parse a 10 002-line synthetic Mighty source
 (~130 KB; deterministic — see `crates/mty-bench/src/fixtures.rs`).

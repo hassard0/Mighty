@@ -2,9 +2,9 @@
 
 > **Baseline from Mighty v0.6 (recorded 2026-05-24).** These numbers
 > have not been refreshed against v0.31. To run current measurements,
-> see [`benches/README.md`](../../benches/README.md) and the
+> see [`benches/README.md`](https://github.com/hassard0/Mighty/blob/main/benches/README.md) and the
 > per-impl build steps in
-> [`benches/mailbox_throughput/README.md`](../../benches/mailbox_throughput/README.md).
+> [`benches/mailbox_throughput/README.md`](https://github.com/hassard0/Mighty/blob/main/benches/mailbox_throughput/README.md).
 
 **Workload:** one producer task, one consumer task, drain 1 000 (CLI)
 or 10 000 (criterion) `MessageFrame`s through a bounded mailbox.

@@ -2,9 +2,9 @@
 
 > **Baseline from Mighty v0.6 (recorded 2026-05-24).** These numbers
 > have not been refreshed against v0.31. To run current measurements,
-> see [`benches/README.md`](../../benches/README.md) and the
+> see [`benches/README.md`](https://github.com/hassard0/Mighty/blob/main/benches/README.md) and the
 > per-impl build steps in
-> [`benches/http_server_throughput/README.md`](../../benches/http_server_throughput/README.md).
+> [`benches/http_server_throughput/README.md`](https://github.com/hassard0/Mighty/blob/main/benches/http_server_throughput/README.md).
 
 **Workload:** HTTP/1.1 GET round-trip on the in-process `std.http`
 server (`sdust_runtime::http::serve_in_memory`). Connection per
