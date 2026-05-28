@@ -2,7 +2,7 @@
   "name": "mighty-language",
   "displayName": "Mighty Language",
   "description": "First-class Mighty language support for VS Code: syntax highlighting, LSP client, snippets, palette commands, and a live cost status bar.",
-  "version": "0.31.0",
+  "version": "0.32.0",
   "publisher": "hassard0",
   "license": "MIT",
   "icon": "icons/mighty.png",
@@ -97,6 +97,11 @@
         "category": "Mighty"
       },
       {
+        "command": "mighty.inspectCostTerminal",
+        "title": "Mighty: Inspect cost (terminal)",
+        "category": "Mighty"
+      },
+      {
         "command": "mighty.testEval",
         "title": "Mighty: Test --eval",
         "category": "Mighty"
@@ -183,6 +188,11 @@
           "default": 30,
           "minimum": 5,
           "description": "Seconds between cost-status refreshes."
+        },
+        "mighty.costCodeLens.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a CodeLens above @tool / swarm / Member.* / .ask() call sites with today's cumulative cost + call count for the file."
         },
         "mighty.test.replayOnly": {
           "type": "boolean",

@@ -93,7 +93,11 @@ export function registerCommands(context: vscode.ExtensionContext): void {
       runInTerminal("Mighty Format", `${mtyBinary()} fmt ${quote(path)}`);
     }),
 
-    vscode.commands.registerCommand("mighty.inspectCost", () => {
+    // Power-user variant: dumps `mty inspect --cost` straight into an
+    // integrated terminal. The "Mighty: Inspect cost" command (without
+    // the `(terminal)` suffix) now opens the side-panel webview —
+    // registered in extension.ts.
+    vscode.commands.registerCommand("mighty.inspectCostTerminal", () => {
       runInTerminal(
         "Mighty Cost",
         `${mtyBinary()} inspect --cost --since 24h --by provider`,
