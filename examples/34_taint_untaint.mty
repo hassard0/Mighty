@@ -1,0 +1,103 @@
+// 34_taint_untaint.mty — v0.30 Track A: untainting via the three
+// sanctioned strategies.
+//
+// Companion to 33_taint_basics.mty. Where that file shows the negative
+// (compile error) case, this file shows the positive: how to untaint
+// a `Tainted[T]` value and use it at a sink WITHOUT tripping MT4099.
+//
+// The three sanctioned untainting strategies:
+//
+//   1. `.matches_regex(pattern)` — returns `Option[Str]` of an
+//      untainted match (provably constrained by the regex shape).
+//   2. `.in_allowlist[Enum]()` — returns `Option[Enum]` if the value
+//      parses as one of the enum's variant names.
+//   3. `.sanitize_with(Sanitizer)` — applies a provably-correct
+//      sanitiser. Default sanitisers: `HtmlEscape`, `ShellEscape`,
+//      `SqlEscape`, `PathBoundary`.
+//
+// There is NO `Tainted::unwrap_unchecked()` — the only way out of
+// the `Tainted[T]` wrapper is through one of the three sanctioned
+// strategies.
+//
+// Build:
+//   mty check examples/34_taint_untaint.mty
+//   # Expected: clean — no MT4099.
+//
+// Reference:
+//   - docs/internals/taint-types.md
+//   - mty explain MT4099
+package taint_untaint
+
+use std.env
+use std.fs
+use std.swarm
+
+fn main() {
+  // ----- Source: env var (always tainted) --------------------------
+  let raw_username = std.env.var("USERNAME")
+
+  // ----- Strategy 1: matches_regex --------------------------------
+  //
+  // Only accept the value if it matches `^[a-zA-Z0-9_]+$` — a
+  // conservative shape that rules out shell metacharacters, NUL
+  // bytes, newlines, and most prompt-injection payloads. The match
+  // result is untainted because the regex *constrains* it to a
+  // safe subset of strings.
+  let username = raw_username
+    .matches_regex("^[a-zA-Z0-9_]+$")
+    .unwrap_or("anon")
+
+  // Now `username` is plain `Str` (not `Tainted[Str]`), so it can
+  // flow into `std.fs.write` freely.
+  std.fs.write("/tmp/user.txt", username)
+
+  // ----- Strategy 2: in_allowlist ---------------------------------
+  //
+  // The user supplies a value that MUST be one of a fixed set of
+  // verdict strings ("SAFE", "UNSAFE", "UNCLEAR"). `in_allowlist`
+  // returns `Option[Verdict]` — `Some(_)` if the value parsed,
+  // `None` otherwise. The unwrapped variant is provably safe.
+  let raw_verdict = std.env.var("VERDICT")
+  let verdict = raw_verdict
+    .in_allowlist()
+    .unwrap_or("UNCLEAR")
+  std.fs.write("/tmp/verdict.txt", verdict)
+
+  // ----- Strategy 3: sanitize_with --------------------------------
+  //
+  // Pluggable sanitisers escape (rather than reject) the dangerous
+  // characters. The four default sanitisers cover the common cases:
+  //
+  //   - HtmlEscape     — escapes `<`, `>`, `&`, `"`, `'`
+  //   - ShellEscape    — wraps in single quotes + escapes internal `'`
+  //   - SqlEscape      — escapes `'`, `\`, doubles backslashes
+  //   - PathBoundary   — strips `..`, leading `/`, NULs
+  //
+  // User code can add new sanitisers by implementing the
+  // `Sanitizer` trait (see docs/internals/taint-types.md).
+  let raw_html = std.env.var("WELCOME_HTML")
+  let safe_html = raw_html.sanitize_with(HtmlEscape)
+  std.fs.write("/tmp/welcome.html", safe_html)
+
+  // ----- LLM output through a sanitiser ---------------------------
+  //
+  // Combine all three: a swarm member's reply is tainted, then
+  // sanitised through `HtmlEscape` before being written to a file
+  // that gets served as HTML.
+  let m = Member.anthropic("claude-opus-4-7")
+  let reply = m.ask("Summarise today's news in HTML")
+  let safe_reply = reply.sanitize_with(HtmlEscape)
+  std.fs.write("/tmp/news.html", safe_reply)
+
+  // ----- log() is an implicit untaint -----------------------------
+  //
+  // Printing a tainted value is fine — it doesn't *execute* the
+  // value, it only displays it. The taint pass implicitly untaints
+  // arguments to `log()`, `print()`, and `eprintln()`. The tests in
+  // `crates/mty-types/tests/taint_basics.rs::log_is_implicit_untaint`
+  // exercise this pin; we don't show it in source here because the
+  // current codegen only lowers literal-string arguments to `log()`
+  // (a v0.31 follow-up).
+
+  log("34_taint_untaint: all sanitised paths are clean — MT4099 silent")
+}

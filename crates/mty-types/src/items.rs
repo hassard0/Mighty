@@ -417,6 +417,14 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
     crate::cap_check::run(&typed_for_resolver, pkg, &mut cap_diags);
     diagnostics.extend(cap_diags);
 
+    // v0.30 Track A — taint-flow pass. Operates on the HIR + the
+    // already-built TypedPackage. Emits MT4099 (TAINTED_VALUE_TO_SINK)
+    // when a tainted value reaches a known sink (`fs.write`,
+    // `process.Command.arg`, `sql.execute`, `net.Request.body`).
+    // See `crates/mty-types/src/taint.rs`.
+    let taint_diags = crate::taint::check(pkg, &typed_for_resolver);
+    diagnostics.extend(taint_diags);
+
     // Unpack — Rust moves are not partial, so we destructure the
     // shim back out into the final TypedPackage. (No effective cost:
     // the inner arena / def_map / hash maps are not cloned.)

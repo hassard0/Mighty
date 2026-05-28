@@ -71,6 +71,14 @@ pub const PROTOCOL_EXTRA_HANDLER: DiagCode = DiagCode::new(4033);
 pub const DERIVE_COPY_FIELD_NOT_COPY: DiagCode = DiagCode::new(4040);
 pub const DERIVE_UNKNOWN: DiagCode = DiagCode::new(4041);
 
+// v0.30 Track A — compiler-checked prompt injection prevention.
+// Tainted value reached a sensitive sink (fs.write, process.arg, sql.execute,
+// net.request body, etc.) without being untainted first. Reserved code slot
+// MT4099 sits at the top of the MT40xx family so the marketing line "the
+// only language where prompt injection is a compile error" has a stable
+// number to point at.
+pub const TAINTED_VALUE_TO_SINK: DiagCode = DiagCode::new(4099);
+
 // v0.15 — RFC-008 row-machinery diagnostics for stdlib HOF dispatch.
 //
 // RFC-008 reserved MT4020..MT4025 in `dev/history/notes/RFC-008-…` but
@@ -830,6 +838,28 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  family does not accept — for example `ReadOnly` on \
                  `Net`, an empty host allowlist, or a path \
                  constraint on `Clock`."
+        }
+        4099 => {
+            "MT4099: Tainted value flows to a sensitive sink.\n\
+             \n\
+             Cause:   A `Tainted[T]` value (originating from an LLM \
+             response, MCP tool result, HTTP body, environment variable, \
+             or other untrusted source) reached a sink (`fs.write`, \
+             `process.Command.arg`, `sql.execute`, `net.Request.body`) \
+             that requires plain `T`. Mighty's taint type system \
+             tracks untrusted data through the type system to prevent \
+             prompt-injection attacks at compile time.\n\
+             Example: `let user_input = agent.ask(\"hi\")  // Tainted[Str]`\n\
+                      `fs.write(\"log.txt\", user_input)   // MT4099`\n\
+             Fix:     Untaint the value through one of:\n\
+                      - `.matches_regex(r\"^[a-zA-Z0-9 ]+$\")` — extract \
+             only if it matches a known-safe pattern (`Option[Str]`).\n\
+                      - `.in_allowlist[Verdict]()` — parse against an \
+             enum allowlist (`Option[Verdict]`).\n\
+                      - `.sanitize_with(HtmlEscape)` / `ShellEscape` / \
+             `SqlEscape` / `PathBoundary(\"/safe/\")` — apply a \
+             provably-correct sanitizer.\n\
+             Spec:    docs/internals/taint-types.md (v0.30)."
         }
         5001 => {
             "MT5001: Runtime panic. The program executed `panic(msg)` \

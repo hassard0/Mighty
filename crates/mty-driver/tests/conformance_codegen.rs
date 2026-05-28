@@ -214,8 +214,15 @@ fn monomorphization_compiles_wasm() {
 /// demonstrates a parser-level surface form whose typeck wiring lands
 /// in a later version (RFC-008 effect-row syntax from v0.15 is the
 /// first user).
+///
+/// `// @compile-error` is the v0.30 Track A analogue for examples
+/// that DEMONSTRATE a static-error path (e.g. example 33 shows the
+/// MT4099 prompt-injection diagnostic). The codegen sweeps skip
+/// these because they intentionally do not type-check; the
+/// negative-shape pinning lives in dedicated `tests/taint_*.rs`
+/// suites.
 fn is_typeck_pending(src: &str) -> bool {
-    src.contains("@typeck-pending")
+    src.contains("@typeck-pending") || src.contains("@compile-error")
 }
 
 /// Sweep all ship examples through the cranelift JIT path. Each
