@@ -9,21 +9,85 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- v0.30 candidates (Track F follow-ups + demo 09 deferred polish):
-  - `Member::ask` returns structured `tool_uses` so `swarm(...)`
-    consumers can see which tools each panel member invoked.
-  - `ReplayDriver::replay_all` interleaved with `with_provider`
-    so a single recorded trace fans across the panel simultaneously
-    (needed for the "replay the cluster hop" pattern documented in
-    demo 09's README).
-  - Recorder integration into `Member::ask` via the `LlmProvider`
-    trait — captures per-member calls at the trait boundary rather
-    than at the runtime boundary.
-  - Explicit `AgentAddr` source-side surface (peer node + agent
-    type + agent id) so demos can shape-test routing failures.
-  - Live cross-node migration (Tier 4.3 from the cluster roadmap).
+- v0.31 candidates (rolled up from all 5 v0.30 tracks):
+  - **Track A** — `Tainted[T]` in trait-impl dispatch (per-trait
+    `#[taint_transparent]` opt-in); MT4099 ariadne label
+    improvements pointing at the first propagation site through
+    third-party-crate struct fields; `@untainted` decorator for
+    exhaustively-analysed fn returns.
+  - **Track B** — fire the SMOKE run against `ANTHROPIC_API_KEY`
+    and publish the real numbers; multi-model rerun
+    (`openai:gpt-5` + `gemini:gemini-2.0-flash`); full Verified
+    set under `make bench-full`; token-efficiency targets for
+    high-cost PASS rows.
+  - **Track C** — Demo 10 (browser operator) with cross-platform
+    headless display treated as the real problem; OpenAI
+    `computer_use` tool-block mirror; `Sandbox::deny_files`
+    file-level deny rules.
+  - **Track D** — OTel Collector pipeline hardening (sampling,
+    batching, retries); per-trace budget alerting hook;
+    `mty inspect --cost --by-agent`.
+  - **Track E** — `mty test --eval --watch` for inner-loop work;
+    suite-level cost cap via frontmatter `max_cost_usd`; score
+    histogram on `min_score` failure.
+  - **Cross-cutting** — tainted-flow through `std.observe` so the
+    local SQLite store can redact sensitive fields per-observation.
+  - v0.30 carry-overs from v0.29 Track F still relevant:
+    `Member::ask` structured `tool_uses` return; `ReplayDriver::replay_all`
+    interleaved with `with_provider`; recorder integration into
+    `Member::ask` via `LlmProvider` trait at the trait boundary.
   There is **no remaining Post-v1.0 backlog** — only RFC comment
   windows stand between current main and v1.0 GA.
+
+## [0.30.0] - 2026-05-27
+
+**Mighty v0.30 ships the *differentiator release* — compiler-checked
+prompt-injection prevention (`Tainted[T]`), first-class Anthropic
+Computer Use with a capability-typed sandbox, native cost/latency
+observability, `mty test --eval` as a CI verb, and a SWE-bench
+Verified harness ready to publish numbers.** Five tracks land in
+parallel under isolated-worktree discipline. Rust test count grows
+**2289 → 2502** (+213). Nine demos all green; the new examples
+33–36 (taint basics, taint untaint, observability demo, computer
+use) cover the source-level surface. No source-level breaking
+changes — `Tainted[T]` is additive: stdlib sources that previously
+returned `Str` now return `Tainted[Str]`, and the compiler rejects
+unsanitised flow at the sink. Programs that already routed LLM
+output through a sanitiser continue to compile.
+
+### Added
+- **Track A** — `Tainted[T]` type for compiler-checked
+  prompt-injection prevention; MT4099 fires when tainted data
+  reaches a sink (`fs.write`, `process.exec`, `sql.execute`,
+  `net.request`); untaint via `matches_regex` / `in_allowlist` /
+  `sanitize_with`. Design departure (opaque-ADT + post-typeck
+  pass rather than `TyData::Tainted` variant) documented in
+  `docs/internals/taint-types.md`.
+- **Track B** — SWE-bench Verified harness (`bench/swe/`
+  standalone crate + `Makefile` `bench-smoke`/`bench-full`
+  targets); 10-problem smoke ready to fire via `make bench-smoke`
+  with `ANTHROPIC_API_KEY` set.
+- **Track C** — `std.computer` (screen capture + mouse/keyboard,
+  3 platform shims) + `@computer_use` decorator; Anthropic
+  Computer Use first-class with capability-typed sandbox
+  (`Sandbox::screen_region` / `Sandbox::input_only_in_app` /
+  `Sandbox::deny_keys`).
+- **Track D** — `std.observe` auto-wraps every LLM call with
+  cost + latency in `~/.mty/observe.db`; `mty inspect --cost`
+  reads the SQLite; OTel exporter stub.
+- **Track E** — `mty test --eval` discovers `*.eval.mty` suites,
+  pass/fails on score thresholds, `--replay-only` runs against
+  recorded traces for free CI smoke.
+
+### Notes
+- README is at ~270 lines post-v0.30. Cut-not-bloat discipline held.
+- Track B's smoke run has **not** been executed on this branch
+  (no API key in the build agent's environment). The harness is
+  green; the user runs `make bench-smoke` and the results file
+  `dev/history/benchmarks/swe-bench-smoke-v0.30.md` is updated
+  in place.
+- Track C's deferred demo 10 (browser operator) is queued as the
+  first v0.31 candidate.
 
 ## [0.29.0] - 2026-05-27
 

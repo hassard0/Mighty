@@ -22,6 +22,9 @@ Mighty is the first compiler-backed agent language with
 frameworks reinvent these badly in Python/TS; Mighty bakes them into
 the type system:
 
+- Tainted LLM/MCP/HTTP data can't reach `fs.write`, `process.exec`,
+  `sql.execute`, `net.request` without a sanitiser — **prompt
+  injection is a compile error**.
 - `@tool(cap: fs.read("./data/**"))` is **enforced by the runtime**,
   not the prompt. A misbehaving LLM cannot escape its capability set.
 - Every agent run is byte-identically replayable from the recorded
@@ -102,10 +105,14 @@ mty run   src/main.mty
   deterministic snapshots fold into the replay machinery
 - `std.swarm` — votes consensus across providers under a shared
   dollar budget; `Majority` / `Plurality` / `Unanimous` / `Weighted`
-- `std.eval` — typed `Suite` / `Case` / `Member` / `Compare` regression
-  harness on top of byte-identical replay; cosine + tool-call-set comparators
-- `mty replay --diff` — divergence reporter for `std.eval` traces;
-  walks two traces and points at the first divergent recorded turn
+- `std.eval` — typed `Suite` / `Case` / `Member` / `Compare`
+  regression harness on top of byte-identical replay
+- `std.observe` + `mty inspect --cost` — every LLM call's cost +
+  latency auto-recorded in local SQLite
+- `std.computer` + `@computer_use` — Anthropic Computer Use as a
+  capability with typed sandbox bounds
+- `mty replay --diff` — divergence reporter, points at the first
+  divergent recorded turn across two traces
 
 **Web** *(canvas + keyboard agents)*
 - `std.web.Canvas` + `std.web.Input` WIT interfaces
@@ -176,11 +183,11 @@ Live docs site: <https://hassard0.github.io/Mighty/>
 | `mty-macros` | declarative macros + `format!` + `@tool` builtin attributes |
 | `mty-cli` | the `mty` binary |
 
-Adjacent trees: `examples/` (32 canonical programs), `demos/`
-(9 end-to-end runnable apps with `smoke.sh`), `benches/` (criterion),
-`selfhost/` (the bootstrap compiler written in Mighty),
-`tests/conformance/` (159-case normative kit), `tests/web-smoke/`
-(headless-browser visual smoke).
+Adjacent trees: `examples/` (36 canonical programs), `demos/`
+(9 runnable apps with `smoke.sh`), `benches/` + `bench/swe/`
+(criterion + SWE-bench Verified harness), `selfhost/` (bootstrap
+in Mighty), `tests/conformance/` + `tests/web-smoke/` (159-case
+normative kit + headless-browser visual smoke).
 
 ## Roadmap
 
@@ -216,11 +223,11 @@ current state of the language, not its history.
 
 ## Status
 
-Mighty is **pre-alpha**. Internal milestones tagged through v0.29.
-The toolchain is exercised by **2289 Rust tests** across 20 crates
+Mighty is **pre-alpha**. Internal milestones tagged through v0.30.
+The toolchain is exercised by **2502 Rust tests** across 20 crates
 plus **490 Python 2nd-impl tests** plus **159 normative conformance
 cases** plus **23 self-host driver codegen tests** — combined
-**2961 tests, 0 failing**. All four LLM providers are full;
+**3174 tests, 0 failing**. All four LLM providers are full;
 `std.swarm` votes consensus across them under a shared dollar
 budget; `std.eval` regression-tests agents against provider panels
 under byte-identical replay. All 9 demos pass `smoke.sh`; 3 web
