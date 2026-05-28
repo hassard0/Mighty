@@ -1,0 +1,18 @@
+<!--
+  Mighty TextMate fallback wiring — loaded only when the host IDE provides
+  `org.jetbrains.plugins.textmate` (the bundled TextMate plugin, which
+  ships in nearly every JetBrains IDE but is technically optional). Pulled
+  in by the optional `<depends>` in plugin.xml.
+
+  The application listener registered here extracts the bundled grammar
+  out of the plugin JAR and registers it with `TextMateService` so .mty
+  files get syntax highlighting on Community editions without the user
+  having to manually import the bundle.
+-->
+<idea-plugin>
+    <applicationListeners>
+        <listener
+            class="dev.mighty.jetbrains.textmate.MightyTextMateRegistrar"
+            topic="com.intellij.ide.AppLifecycleListener" />
+    </applicationListeners>
+</idea-plugin>

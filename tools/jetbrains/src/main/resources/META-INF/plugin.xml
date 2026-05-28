@@ -5,11 +5,19 @@
   <idea-version>, <vendor>, and <description> from gradle.properties +
   build.gradle.kts at build time, but we include sensible defaults so the
   manifest is readable in source control.
+
+  v0.32: split into a base manifest + `mighty-lsp.xml` config-file. The LSP
+  integration is now declared via `<depends optional="true"
+  config-file="mighty-lsp.xml">com.intellij.modules.lsp</depends>`, which
+  loads the LSP-only extensions on Ultimate/paid IDEs and silently skips
+  them on Community editions. Community users still get TextMate-grammar
+  highlighting, file-type registration, file templates, the CLI actions,
+  the settings page, and the cost tool window.
 -->
 <idea-plugin>
     <id>dev.mighty.jetbrains</id>
     <name>Mighty</name>
-    <version>0.31.0</version>
+    <version>0.32.0</version>
     <vendor email="ihassard@gmail.com" url="https://hassard0.github.io/Mighty/">Hassard</vendor>
 
     <description><![CDATA[
@@ -17,21 +25,31 @@
         <p>
           Adds first-class support for the <a href="https://hassard0.github.io/Mighty/">Mighty</a>
           agent-first programming language across the entire IntelliJ Platform family:
-          IntelliJ IDEA, RustRover, PyCharm, WebStorm, GoLand, PhpStorm, RubyMine, CLion,
-          AppCode, DataGrip, and Rider.
+          IntelliJ IDEA (Community + Ultimate), RustRover, PyCharm (Community + Pro),
+          WebStorm, GoLand, PhpStorm, RubyMine, CLion, AppCode, DataGrip, and Rider.
         </p>
+        <h3>What works everywhere (incl. Community editions)</h3>
         <ul>
           <li>File-type association for <code>.mty</code> files with a syntax-aware icon.</li>
-          <li>LSP-backed editor features (diagnostics, hover, go-to-definition, completion,
-              rename, formatting, inlay hints, semantic highlighting) via the bundled
-              <code>mty lsp</code> server.</li>
+          <li>TextMate-grammar-driven syntax highlighting (bundled grammar).</li>
           <li>Run / check / inspect-cost / test-eval actions for the current Mighty file,
               available from the editor context menu and the <em>Mighty</em> top-level menu.</li>
           <li>Cost dashboard tool window that polls <code>mty inspect --cost --json</code>
-              and visualises agent budgets.</li>
+              and renders parsed JSON in a sortable TreeTable.</li>
           <li>New-file templates for Mighty agents and modules.</li>
           <li>Color settings page so users can customise highlighting per Mighty token type.</li>
+          <li>Settings &gt; Tools &gt; Mighty for binary path + cost cadence.</li>
         </ul>
+        <h3>Ultimate / paid IDEs only (via LSP API)</h3>
+        <ul>
+          <li>LSP-backed completion, hover, go-to-definition, rename, formatting,
+              inlay hints, semantic highlighting (via the bundled <code>mty lsp</code> server).</li>
+        </ul>
+        <p>
+          Community editions of IDEA / PyCharm don't ship JetBrains' LSP API, so those
+          LSP-driven features are unavailable there. The plugin still loads and the
+          TextMate-grammar highlighting + CLI actions are fully functional.
+        </p>
         <p>
           Requires the <code>mty</code> CLI on <code>$PATH</code> (or a configured absolute path
           in <em>Settings &gt; Tools &gt; Mighty</em>).
@@ -39,6 +57,20 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>0.32.0 — JetBrains Community-edition fallback.</h3>
+        <ul>
+          <li><b>TextMate fallback:</b> bundled <code>mighty.tmLanguage.json</code>
+              registered via the platform's TextMate bundle facility so syntax
+              highlighting works on Community editions that lack the LSP API.</li>
+          <li><b>Adaptive LSP load:</b> LSP-dependent extensions moved behind
+              <code>&lt;depends optional="true" config-file="mighty-lsp.xml"&gt;com.intellij.modules.lsp&lt;/depends&gt;</code>
+              so the plugin loads cleanly on Community.</li>
+          <li><b>since-build 232:</b> broader compat (IDEA 2023.2+ Community + Ultimate).</li>
+          <li><b>Cost TreeTable:</b> the cost tool window now renders a proper
+              sortable TreeTable with Date / Provider:Model / Calls / Cost columns
+              and a right-click "Copy as JSON" action. (Replaces the v0.31 HTML
+              pre-block stub.)</li>
+        </ul>
         <h3>0.31.0 — initial JetBrains release.</h3>
         <ul>
           <li>LSP integration over stdio.</li>
@@ -49,16 +81,34 @@
         </ul>
     ]]></change-notes>
 
-    <idea-version since-build="241" />
+    <idea-version since-build="232" />
 
     <!--
-      The platform/core module is enough for the LSP integration. We do NOT
-      depend on com.intellij.modules.lang because that's a transitive of
-      platform; an explicit dependency on com.intellij.modules.platform
-      makes this plugin "IDE-agnostic" and installable in every JetBrains
-      product, including DataGrip and Rider (which don't pull in lang).
+      Platform module: every JetBrains IDE provides this, so the plugin
+      installs in DataGrip, Rider, and Community editions equally.
     -->
     <depends>com.intellij.modules.platform</depends>
+
+    <!--
+      TextMate bundle support is shipped as a bundled plugin in nearly
+      every JetBrains IDE, Community and Ultimate alike, via the
+      `org.jetbrains.plugins.textmate` plugin. We mark this dependency
+      `optional` so the Mighty plugin still installs on the rare IDEs
+      that don't ship TextMate (in which case the fallback highlighting
+      is unavailable, but file-type detection, file templates, settings,
+      and CLI actions all continue to work).
+    -->
+    <depends optional="true" config-file="mighty-textmate.xml">org.jetbrains.plugins.textmate</depends>
+
+    <!--
+      LSP integration. The `com.intellij.modules.lsp` module only exists on
+      paid JetBrains IDEs (Ultimate, RustRover, PyCharm Pro, etc.). Marking
+      this dependency `optional="true"` with a `config-file` means the
+      LSP-only extensions are loaded if-and-only-if the host IDE ships the
+      LSP module, so the plugin still installs and runs on Community
+      editions — they just don't get the LSP-driven editor features.
+    -->
+    <depends optional="true" config-file="mighty-lsp.xml">com.intellij.modules.lsp</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <!-- File-type association. -->
@@ -68,10 +118,6 @@
             fieldName="INSTANCE"
             language="Mighty"
             extensions="mty" />
-
-        <!-- LSP backbone. Requires IntelliJ Platform >= 232 (2023.2). -->
-        <platform.lsp.serverSupportProvider
-            implementation="dev.mighty.jetbrains.MightyLspServerSupportProvider" />
 
         <!-- Settings panel. -->
         <applicationConfigurable

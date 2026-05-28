@@ -1,0 +1,20 @@
+<!--
+  Mighty LSP integration — loaded only when the host IDE provides
+  `com.intellij.modules.lsp` (paid JetBrains IDEs only). Pulled in by the
+  optional `<depends>` in plugin.xml.
+
+  Why split? The `platform.lsp.serverSupportProvider` extension point and
+  the `LspServerSupportProvider` / `ProjectWideLspServerDescriptor` symbols
+  these reference live in the LSP API. Loading them on Community editions
+  (which lack the LSP module) would fail with NoClassDefFoundError. Hiding
+  them behind a config-file means the platform's plugin loader skips them
+  entirely on Community.
+-->
+<idea-plugin>
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- LSP backbone. Requires IntelliJ Platform >= 232 (2023.2) AND
+             `com.intellij.modules.lsp` (only on paid IDEs). -->
+        <platform.lsp.serverSupportProvider
+            implementation="dev.mighty.jetbrains.MightyLspServerSupportProvider" />
+    </extensions>
+</idea-plugin>
