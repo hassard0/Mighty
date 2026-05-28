@@ -54,6 +54,7 @@ use tokio_rustls::TlsConnector;
 use crate::llm::budget::{DollarBudget, TokenBudget};
 use crate::llm::error::{BudgetExhausted, LlmError, RateLimitError};
 use crate::llm::message::{ContentBlock, Message, MessageDelta, Role, ToolUse};
+use crate::llm::observe_record;
 use crate::llm::provider::{CompletionRequest, LlmProvider};
 use crate::llm::streaming::MessageStream;
 use crate::llm::tools::{Tool, ToolChoice};
@@ -384,6 +385,9 @@ fn tool_choice_to_bedrock(c: &ToolChoice) -> Option<serde_json::Value> {
 #[async_trait::async_trait]
 impl LlmProvider for BedrockClient {
     async fn complete(&self, req: CompletionRequest) -> Result<Message, LlmError> {
+        // v0.30 Track D — std.observe hook (see anthropic.rs).
+        let observe_started = std::time::Instant::now();
+        let observe_started_at_ms = crate::observe::observation::now_ms();
         Self::check_budgets_pre(&req)?;
         let url = self.converse_endpoint(&req.model, false);
         let body = self.build_body(&req);
@@ -399,11 +403,34 @@ impl LlmProvider for BedrockClient {
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect();
 
-        let resp = http_post(&url, &header_refs, body_bytes).await?;
+        let resp = match http_post(&url, &header_refs, body_bytes).await {
+            Ok(r) => r,
+            Err(e) => {
+                observe_record(
+                    "bedrock",
+                    &req.model,
+                    0,
+                    0,
+                    observe_started.elapsed().as_millis() as u64,
+                    observe_started_at_ms,
+                    Some("transport"),
+                );
+                return Err(e);
+            }
+        };
 
         match resp.status {
             200 => {}
             401 | 403 => {
+                observe_record(
+                    "bedrock",
+                    &req.model,
+                    0,
+                    0,
+                    observe_started.elapsed().as_millis() as u64,
+                    observe_started_at_ms,
+                    Some("auth"),
+                );
                 return Err(LlmError::Auth(format!(
                     "bedrock rejected credentials ({})",
                     resp.status
@@ -416,10 +443,28 @@ impl LlmProvider for BedrockClient {
                     .find(|(k, _)| k.eq_ignore_ascii_case("retry-after"))
                     .and_then(|(_, v)| v.parse::<u64>().ok());
                 let msg = String::from_utf8_lossy(&resp.body).to_string();
+                observe_record(
+                    "bedrock",
+                    &req.model,
+                    0,
+                    0,
+                    observe_started.elapsed().as_millis() as u64,
+                    observe_started_at_ms,
+                    Some("rate_limit"),
+                );
                 return Err(LlmError::RateLimit(RateLimitError::new(retry, msg)));
             }
             other => {
                 let body = String::from_utf8_lossy(&resp.body).to_string();
+                observe_record(
+                    "bedrock",
+                    &req.model,
+                    0,
+                    0,
+                    observe_started.elapsed().as_millis() as u64,
+                    observe_started_at_ms,
+                    Some("provider"),
+                );
                 return Err(LlmError::Provider {
                     status: other,
                     body,
@@ -441,6 +486,16 @@ impl LlmProvider for BedrockClient {
             role: Role::Assistant,
             content: blocks,
         };
+
+        observe_record(
+            "bedrock",
+            &req.model,
+            input_tokens,
+            output_tokens,
+            observe_started.elapsed().as_millis() as u64,
+            observe_started_at_ms,
+            None,
+        );
 
         Self::account_usage(&req, input_tokens, output_tokens)?;
 

@@ -33,7 +33,11 @@ mty-pkg = { path = "../mty-pkg" }
 # (json/fs/time/http) instead of `Value::Unit`. We disable the `runner`
 # feature here to avoid the mty-stdlib → mty-driver dep cycle that
 # blocked v0.2 (see STDLIB_V0_2_NOTES.md).
-mty-stdlib = { path = "../mty-stdlib", default-features = false }
+#
+# v0.30 Track D — `observe-sqlite` powers `mty inspect --cost`. Pulls
+# the rusqlite dep into the CLI binary, but the alternative (a copy of
+# the storage layer here) is worse.
+mty-stdlib = { path = "../mty-stdlib", default-features = false, features = ["observe-sqlite"] }
 mty-runtime = { path = "../mty-runtime" }
 # v0.16 `mty inspect` subcommand: JSON over the runtime control socket.
 serde.workspace = true

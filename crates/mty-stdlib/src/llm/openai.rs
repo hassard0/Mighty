@@ -55,6 +55,7 @@ use tokio_rustls::TlsConnector;
 use crate::llm::budget::{DollarBudget, TokenBudget};
 use crate::llm::error::{BudgetExhausted, LlmError, RateLimitError};
 use crate::llm::message::{ContentBlock, Message, MessageDelta, Role, ToolUse};
+use crate::llm::observe_record;
 use crate::llm::provider::{CompletionRequest, LlmProvider};
 use crate::llm::streaming::MessageStream;
 use crate::llm::tools::{Tool, ToolChoice};
@@ -263,6 +264,9 @@ fn tool_choice_to_openai(c: &ToolChoice) -> serde_json::Value {
 #[async_trait::async_trait]
 impl LlmProvider for OpenAiClient {
     async fn complete(&self, req: CompletionRequest) -> Result<Message, LlmError> {
+        // v0.30 Track D — see anthropic.rs for the rationale.
+        let observe_started = std::time::Instant::now();
+        let observe_started_at_ms = crate::observe::observation::now_ms();
         Self::check_budgets_pre(&req)?;
         if self.api_key.is_empty() {
             return Err(LlmError::Auth("OpenAI api key empty".into()));
@@ -274,7 +278,7 @@ impl LlmProvider for OpenAiClient {
         });
         let body_bytes = serde_json::to_vec(&body)?;
         let auth = format!("Bearer {}", self.api_key);
-        let resp = http_post(
+        let resp = match http_post(
             &url,
             &[
                 ("authorization", auth.as_str()),
@@ -282,11 +286,35 @@ impl LlmProvider for OpenAiClient {
             ],
             body_bytes,
         )
-        .await?;
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                observe_record(
+                    "openai",
+                    &req.model,
+                    0,
+                    0,
+                    observe_started.elapsed().as_millis() as u64,
+                    observe_started_at_ms,
+                    Some("transport"),
+                );
+                return Err(e);
+            }
+        };
 
         match resp.status {
             200 => {}
             401 | 403 => {
+                observe_record(
+                    "openai",
+                    &req.model,
+                    0,
+                    0,
+                    observe_started.elapsed().as_millis() as u64,
+                    observe_started_at_ms,
+                    Some("auth"),
+                );
                 return Err(LlmError::Auth(format!(
                     "openai rejected api key ({})",
                     resp.status
@@ -299,10 +327,28 @@ impl LlmProvider for OpenAiClient {
                     .find(|(k, _)| k.eq_ignore_ascii_case("retry-after"))
                     .and_then(|(_, v)| v.parse::<u64>().ok());
                 let msg = String::from_utf8_lossy(&resp.body).to_string();
+                observe_record(
+                    "openai",
+                    &req.model,
+                    0,
+                    0,
+                    observe_started.elapsed().as_millis() as u64,
+                    observe_started_at_ms,
+                    Some("rate_limit"),
+                );
                 return Err(LlmError::RateLimit(RateLimitError::new(retry, msg)));
             }
             other => {
                 let body = String::from_utf8_lossy(&resp.body).to_string();
+                observe_record(
+                    "openai",
+                    &req.model,
+                    0,
+                    0,
+                    observe_started.elapsed().as_millis() as u64,
+                    observe_started_at_ms,
+                    Some("provider"),
+                );
                 return Err(LlmError::Provider {
                     status: other,
                     body,
@@ -324,6 +370,16 @@ impl LlmProvider for OpenAiClient {
             role: Role::Assistant,
             content: blocks,
         };
+
+        observe_record(
+            "openai",
+            &req.model,
+            input_tokens,
+            output_tokens,
+            observe_started.elapsed().as_millis() as u64,
+            observe_started_at_ms,
+            None,
+        );
 
         Self::account_usage(&req, input_tokens, output_tokens)?;
 

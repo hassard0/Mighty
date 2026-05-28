@@ -96,6 +96,38 @@ pub mod tools;
 /// Empty strings count as unset (typically the result of `EnvVar=` with
 /// nothing on the right). This keeps a stray empty env var from
 /// silently redirecting traffic to `""/v1/messages`.
+/// v0.30 Track D: shared observation-record helper invoked by every
+/// provider's `complete()` on both success and error paths.
+///
+/// Cheap when `MTY_OBSERVE` is unset (one env lookup + early return);
+/// the recording is fire-and-forget so a SQLite hiccup never breaks
+/// the user's program.
+pub(crate) fn observe_record(
+    provider: &str,
+    model: &str,
+    input_tokens: u64,
+    output_tokens: u64,
+    latency_ms: u64,
+    started_at_ms: u64,
+    error_kind: Option<&str>,
+) {
+    if !crate::observe::is_recording_enabled() {
+        return;
+    }
+    let mut obs = crate::observe::LlmObservation::new(
+        provider,
+        model,
+        input_tokens,
+        output_tokens,
+        latency_ms,
+    )
+    .with_started_at_ms(started_at_ms);
+    if let Some(k) = error_kind {
+        obs = obs.with_error_kind(k);
+    }
+    crate::observe::record_if_enabled(&obs);
+}
+
 pub(crate) fn resolve_base_url(provider_var: &str, default_url: &str) -> String {
     if let Ok(v) = std::env::var(provider_var) {
         if !v.is_empty() {

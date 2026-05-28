@@ -1,0 +1,86 @@
+// 35_observability_demo.mty — v0.30 Track D: std.observe + mty inspect --cost.
+//
+// Production agent development is mostly "why is this slow / expensive".
+// v0.30 Track D answers it with two pieces:
+//
+//   1. `std.observe` auto-wraps every `Member.ask(...)` / LLM call when
+//      `MTY_OBSERVE=1`. Each call records a `LlmObservation` row into
+//      `~/.mty/observations.sqlite` (override via `MTY_OBSERVE_DB`).
+//      The schema captures provider, model, prompt/completion tokens,
+//      integer-cents cost, latency_ms, started_at, agent_id, and a
+//      `tool_calls` JSON column.
+//
+//   2. `mty inspect --cost` reads the same SQLite back and prints an
+//      ASCII rollup: total $$, per-provider breakdown, p50/p95/p99
+//      latency. Sub-flags:
+//        --since 7d         flexible window (ms/s/m/h/d, or `all`)
+//        --by model         group by provider/model/agent/none
+//        --top 10           most-expensive single calls
+//        --json             raw machine-readable output
+//
+// ## End-to-end workflow
+//
+//   # 1. Run anything that hits an LLM under the observe env flag.
+//   MTY_OBSERVE=1 mty run examples/28_agent_with_llm_field.mty
+//
+//   # 2. Read it back.
+//   mty inspect --cost
+//   mty inspect --cost --since 7d --by model --top 5
+//
+//   # 3. Override pricing for a contracted rate.
+//   MTY_PRICING_OVERRIDE=./pricing.toml mty inspect --cost
+//
+//   # 4. Phase 2 — route to an OTLP/HTTP collector instead of SQLite.
+//   MTY_OBSERVE_OTEL=http://otel-collector:4318 mty run my-agent.mty
+//
+// ## Cost-table snapshot (2026-05)
+//
+// Anthropic Opus 4.7 .... $15 in / $75 out per million tokens
+// Anthropic Sonnet 4.6 ..  $3 in / $15 out
+// Anthropic Haiku 4.5 ...  $1 in /  $5 out
+// OpenAI GPT-5 .........  $5 in / $15 out  (placeholder; override recommended)
+// Google Gemini 2.5 Pro . $1.25 in / $5 out
+// Bedrock-hosted models . same rate as upstream
+//
+// Pricing drifts; pass `MTY_PRICING_OVERRIDE=path/to/pricing.toml` to
+// pin a contracted rate. See `docs/internals/observability.md` for
+// the override file format.
+//
+// ## Manual instrumentation
+//
+// For non-LLM hot paths (tool dispatch, vector lookups), `std.observe`
+// also exposes a `span("name")` guard that records elapsed time into
+// the same DB so `mty inspect --cost` rollups stay consistent.
+//
+// Build:
+//   mty fmt examples/35_observability_demo.mty
+//   mty check examples/35_observability_demo.mty
+//
+// The example deliberately keeps the Mighty source minimal — the
+// runtime semantics (auto-record, env-var gating, SQLite persistence)
+// live in the Rust stdlib + CLI, and the test suite
+// (`tests/observe_auto_record.rs` + `cmd::inspect::cost::tests::*`)
+// pins the end-to-end shape.
+package observability_demo
+
+// ----- Pretend agent that does 5 LLM turns ----------------------------------
+//
+// In a real demo this would be the v0.26-Track-A LLM client + a
+// budget-bound loop; here we stub at the source level so the example
+// parses + checks without a network round-trip. The integration test
+// `tests/observe_auto_record.rs` exercises the real provider hook
+// against a wiremock-backed Anthropic stub.
+fn _simulate_five_llm_turns() -> Str {
+  "ran 5 turns under MTY_OBSERVE=1; check ~/.mty/observations.sqlite"
+}
+
+// ----- Entry point ----------------------------------------------------------
+//
+// The hot loop is intentionally trivial — this is a docs/example file,
+// not a benchmark. The reader's takeaway is the four-line shell
+// workflow at the top, not what this `fn main` does.
+fn main() {
+  let _summary = _simulate_five_llm_turns()
+  log("35_observability_demo: std.observe + mty inspect --cost (v0.30 Track D)")
+  log("  next: MTY_OBSERVE=1 mty run <your-agent>.mty && mty inspect --cost")
+}
