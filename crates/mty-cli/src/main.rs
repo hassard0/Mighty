@@ -57,7 +57,23 @@ enum Cmd {
         check: bool,
     },
     /// Parse + HIR-lower; emit diagnostics; exit nonzero on error.
-    Check { path: std::path::PathBuf },
+    ///
+    /// v0.33 T4 — structured agent-actionable diagnostics. With
+    /// `--format json`, emits one NDJSON envelope per diagnostic
+    /// (schema: `docs/internals/diagnostic-envelopes.md`). Add
+    /// `--include-source` to embed a 3-line source snippet in every
+    /// envelope. The default `pretty` output (ariadne-rendered) is
+    /// unchanged from previous releases.
+    Check {
+        path: std::path::PathBuf,
+        /// `pretty` (default) or `json`.
+        #[arg(long, default_value = "pretty")]
+        format: String,
+        /// Only meaningful with `--format json`: embed a 3-line source
+        /// snippet around each diagnostic's primary span.
+        #[arg(long)]
+        include_source: bool,
+    },
     /// Dump intermediate representations.
     Dump {
         path: std::path::PathBuf,
@@ -256,6 +272,27 @@ enum Cmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// v0.33 T5 — `mty agent`: structured JSON-over-stdio protocol
+    /// that lets LLM agents drive every other `mty` subcommand
+    /// without scraping human-rendered output. See
+    /// `docs/internals/agent-mode-protocol.md` for the wire format
+    /// and `docs/reference/cli/mty-agent.md` for human-facing CLI
+    /// knobs.
+    Agent {
+        /// Read exactly one JSON request from stdin, run it, exit.
+        #[arg(long)]
+        single_shot: bool,
+        /// Transport: `stdio` (default), `http` (v0.34 stub), `unix`
+        /// (v0.34 stub).
+        #[arg(long, default_value = "stdio")]
+        transport: String,
+        /// HTTP transport: bind port. Defaults to 8889.
+        #[arg(long, default_value_t = 8889)]
+        port: u16,
+        /// Unix transport: socket path.
+        #[arg(long)]
+        socket: Option<std::path::PathBuf>,
+    },
     /// Mighty test runner. Discovers `tests/*.test.mty` (legacy bare
     /// `tests/*.mty` is still accepted) and dispatches each through
     /// the slice-6 SIR interpreter, the same shape the standalone
@@ -370,7 +407,14 @@ fn main() {
             stdin,
             check,
         } => cmd::fmt::run(paths, stdin, check),
-        Cmd::Check { path } => cmd::check::run(&path),
+        Cmd::Check {
+            path,
+            format,
+            include_source,
+        } => {
+            let fmt = cmd::check::CheckFormat::parse(&format);
+            cmd::check::run_with(&path, fmt, include_source)
+        }
         Cmd::Dump {
             path,
             ast,
@@ -483,6 +527,29 @@ fn main() {
                 replay_only,
                 ci,
                 format: fmt,
+            })
+        }
+        Cmd::Agent {
+            single_shot,
+            transport,
+            port,
+            socket,
+        } => {
+            let transport_parsed = match cmd::agent::Transport::parse(&transport) {
+                Some(t) => t,
+                None => {
+                    eprintln!(
+                        "mty agent: unknown --transport `{}` (expected stdio, http, unix)",
+                        transport
+                    );
+                    std::process::exit(2);
+                }
+            };
+            cmd::agent::run(cmd::agent::AgentArgs {
+                single_shot,
+                transport: transport_parsed,
+                http_port: port,
+                unix_socket: socket,
             })
         }
         Cmd::Reload {

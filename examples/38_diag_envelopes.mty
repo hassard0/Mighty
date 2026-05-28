@@ -1,0 +1,82 @@
+// 38_diag_envelopes.mty — v0.33 T4: structured agent-actionable diagnostics.
+//
+// @compile-error — this example is INTENDED to fail with MT4099. The
+// codegen-sweep conformance tests skip files carrying this marker.
+//
+// What this file demonstrates
+// ---------------------------
+//
+// Every `MTxxxx` Mighty emits now ships with a structured JSON
+// envelope an agent can read and act on. The envelope carries
+//
+//   - the stable `MTxxxx` code,
+//   - a 1-indexed span (file / line / col / byte_start / byte_end),
+//   - the human title + multi-sentence prose,
+//   - an optional `fix` block with one or more alternatives (each
+//     with a unified-diff patch + rationale + confidence score),
+//   - related codes and doc paths under `see_also`.
+//
+// The schema is documented at docs/internals/diagnostic-envelopes.md.
+//
+// Try it
+// ------
+//
+//   # The classic pretty (ariadne) renderer — unchanged from v0.32:
+//   mty check examples/38_diag_envelopes.mty
+//
+//   # The new structured envelope — one NDJSON line per diagnostic:
+//   mty check examples/38_diag_envelopes.mty --format json
+//
+//   # Include a 3-line source snippet around each diagnostic:
+//   mty check examples/38_diag_envelopes.mty --format json --include-source
+//
+// Marquee fix
+// -----------
+//
+// The MT4099 envelope below ships THREE untaint alternatives — the
+// regex-match strategy (highest confidence), the typed sanitizer
+// strategy, and the enum allowlist strategy — letting the agent pick
+// whichever fits the surrounding context. All three confidence values
+// sit above the v0.33 0.5 emit-floor.
+//
+// Reference: docs/internals/taint-types.md, mty explain MT4099.
+
+package diag_envelopes
+
+use std.fs
+use std.swarm
+
+fn main() {
+  let m = Member.anthropic("claude-opus-4-7")
+
+  // ----- The tainted source ----------------------------------------
+  //
+  // `Member.ask(...)` is a documented tainted source. The compiler
+  // tracks the binding through the rest of the function.
+  let user_input = m.ask("What is the weather today?")
+
+  // ----- The MT4099 compile-error site -----------------------------
+  //
+  // `std.fs.write` requires an untainted Str. Passing `user_input`
+  // (which the type system tracks as Tainted[Str]) triggers MT4099.
+  // The structured envelope an agent receives looks like:
+  //
+  //   {
+  //     "code": "MT4099",
+  //     "severity": "error",
+  //     "span": {"file": "...", "line": 64, "col": 23, "len": 10, ...},
+  //     "title": "tainted value flows to `std.fs.write` (arg #1) ...",
+  //     "prose": "MT4099: Tainted value flows to a sensitive sink. ...",
+  //     "fix": {
+  //       "kind": "untaint",
+  //       "confidence": 0.92,
+  //       "alternatives": [
+  //         {"label": "Constrain via a known-safe regex", ...},
+  //         {"label": "Apply a provably-correct sanitizer", ...},
+  //         {"label": "Parse against an enum allowlist", ...}
+  //       ]
+  //     },
+  //     "see_also": ["MT4001", "docs/internals/taint-types.md"]
+  //   }
+  std.fs.write("log.txt", user_input)
+}
