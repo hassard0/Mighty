@@ -32,12 +32,15 @@ jobs:
     name: build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
-      # v0.17 polish: drop `fail-fast: false` so a stuck/queued platform
+      # v0.17 polish: `fail-fast: false` so a stuck/queued platform
       # cannot block the release publish step indefinitely. We still
-      # want a partial release (Linux + arm64 macOS + Windows) over no
-      # release at all. The publish job below uses
-      # `fail_on_unmatched_files: false` so missing platforms degrade
-      # gracefully.
+      # want a partial release over no release at all. The publish
+      # job below uses `fail_on_unmatched_files: false` so missing
+      # platforms degrade gracefully.
+      # v0.32 (Track D): matrix is now 5 platforms (added Intel
+      # macOS and aarch64 Linux). A failure on either new arch
+      # degrades to a 3-binary release rather than blocking the
+      # whole tag.
       fail-fast: false
       matrix:
         include:
@@ -45,22 +48,40 @@ jobs:
             target: x86_64-unknown-linux-gnu
             artifact: mty
             asset: mty-x86_64-unknown-linux-gnu.tar.gz
-          # Intel macOS (`macos-13` / `x86_64-apple-darwin`) is
-          # intentionally OFF the matrix. The GitHub-hosted Intel
-          # macOS runner pool was queueing builds for 6+ hours,
-          # blocking every v0.15.0 / v0.16.0 / v0.17.0 release from
-          # publishing because the publish job has `needs: build`.
-          # Apple Silicon (arm64) is the current-generation Mac;
-          # users on Intel Macs can build from source. v0.18+ may
-          # add Intel back when GitHub's runner pool improves.
+            use_cross: false
+          # v0.32 (Track D): Intel macOS is back on the matrix.
+          # GitHub's `macos-13` runner pool has stabilized (queue
+          # times measured at <15min through Apr 2026) and Intel
+          # Macs are still ~30% of the macOS install base. This
+          # binary is also a hard requirement for homebrew-core
+          # submission (the upstream tap audits formulas that only
+          # ship arm64 macOS).
+          - os: macos-13
+            target: x86_64-apple-darwin
+            artifact: mty
+            asset: mty-x86_64-apple-darwin.tar.gz
+            use_cross: false
           - os: macos-14
             target: aarch64-apple-darwin
             artifact: mty
             asset: mty-aarch64-apple-darwin.tar.gz
+            use_cross: false
+          # v0.32 (Track D): aarch64 Linux for Raspberry Pi 5, AWS
+          # Graviton, Ampere Altra, and Apple Silicon Linux VMs.
+          # Cross-compiled from ubuntu-latest via the `cross` tool
+          # (`cargo install cross --version 0.2.5 --locked`) to
+          # avoid paying for a GitHub-hosted arm64 Linux runner,
+          # which is still preview / paid-tier only.
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact: mty
+            asset: mty-aarch64-unknown-linux-gnu.tar.gz
+            use_cross: true
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: mty.exe
             asset: mty-x86_64-pc-windows-msvc.zip
+            use_cross: false
     steps:
       - uses: actions/checkout@v4
         with:
@@ -84,8 +105,21 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.target }}-cargo-release-
 
-      - name: Build mty (release)
+      - name: Install cross (aarch64 Linux only)
+        if: matrix.use_cross == true
+        # `cross` is pinned to 0.2.5 — last known-good release
+        # against our Rust 1.95.0 toolchain. Bumping is fine but
+        # do it deliberately so a `cross` regression doesn't break
+        # the aarch64 release silently.
+        run: cargo install cross --version 0.2.5 --locked
+
+      - name: Build mty (release, native)
+        if: matrix.use_cross == false
         run: cargo build --release --bin mty -p mty-cli --target ${{ matrix.target }}
+
+      - name: Build mty (release, cross)
+        if: matrix.use_cross == true
+        run: cross build --release --bin mty -p mty-cli --target ${{ matrix.target }}
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
@@ -140,6 +174,84 @@ jobs:
         with:
           name: conformance-kit
           path: mty-conformance-kit-*.tar.gz
+
+  # v0.32 (Track D): Cosign sign + SBOM step for the official Docker
+  # image. This job is GATED on the `PUBLISH_DOCKER` repo variable
+  # because Docker push doesn't live in release.yml yet (it's a
+  # manual step from `tools/distribution/README.md` runbook §4). When
+  # the publish step is folded into release.yml in a future track,
+  # flip `vars.PUBLISH_DOCKER` to `true` and this job will run with
+  # no further edits.
+  #
+  # Keyless signing via GitHub OIDC is documented at
+  # https://docs.sigstore.dev/cosign/signing/overview/. SBOM +
+  # provenance attestations come from `docker buildx build` with
+  # `--sbom=true --provenance=true`.
+  docker-sign-sbom:
+    name: cosign + sbom (docker)
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: ${{ vars.PUBLISH_DOCKER == 'true' }}
+    permissions:
+      contents: read
+      id-token: write # for cosign keyless OIDC
+      packages: write # for ghcr push
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute MTY_VERSION (strip leading v)
+        id: ver
+        run: |
+          raw="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "value=${raw#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build + push image with SBOM + provenance
+        id: docker_build
+        uses: docker/build-push-action@v6
+        with:
+          context: tools/distribution/docker
+          # NOTE: Dockerfile currently hard-codes the
+          # `mty-x86_64-unknown-linux-gnu.tar.gz` asset URL, so
+          # multi-platform = amd64-only until the Dockerfile is
+          # rewritten to TARGETARCH-switch the asset name. v0.32
+          # release.yml shipped the aarch64-linux binary so a v0.33
+          # follow-up can flip this to `linux/amd64,linux/arm64`.
+          platforms: linux/amd64
+          push: true
+          sbom: true
+          provenance: true
+          build-args: |
+            MTY_VERSION=${{ steps.ver.outputs.value }}
+          tags: |
+            ghcr.io/hassard0/mty:${{ steps.ver.outputs.value }}
+            ghcr.io/hassard0/mty:latest
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: v2.4.1
+
+      - name: Sign the image (keyless, GitHub OIDC)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+          DIGEST: ${{ steps.docker_build.outputs.digest }}
+        run: |
+          cosign sign --yes "ghcr.io/hassard0/mty@${DIGEST}"
 
   release:
     name: publish release

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+#
+# asdf/mise plugin entry point: list every installable version of mty.
+#
+# asdf invokes this with no arguments. The required output is a
+# single line of newline-or-space-separated semver versions in
+# ascending order (asdf will sort, but most plugins emit sorted).
+#
+# We pull the release list straight from the GitHub releases API and
+# strip the leading `v`. The `per_page=100` cap is fine — Mighty has
+# released ~30 versions and at our current cadence won't hit 100 for
+# years. If it does, switch to the paginated /releases?page=N loop.
+
+set -euo pipefail
+
+# `GITHUB_API_TOKEN` is honored if set (raises the unauthenticated
+# rate limit from 60/hr to 5000/hr). Mise sets it from the user's
+# `~/.netrc` or `gh auth` session automatically.
+auth_header=()
+if [[ -n "${GITHUB_API_TOKEN:-}" ]]; then
+  auth_header=(-H "Authorization: token ${GITHUB_API_TOKEN}")
+fi
+
+curl -fsSL "${auth_header[@]}" \
+  "https://api.github.com/repos/hassard0/Mighty/releases?per_page=100" |
+  grep -oE '"tag_name": *"v[0-9]+\.[0-9]+\.[0-9]+"' |
+  sed -E 's/.*"v([^"]+)".*/\1/' |
+  sort -V |
+  tr '\n' ' '
+echo
