@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: hassard.mty
+PackageVersion: 0.30.1
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: mty.exe
+    PortableCommandAlias: mty
+Commands:
+  - mty
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/hassard0/Mighty/releases/download/v0.30.1/mty-x86_64-pc-windows-msvc.zip
+    InstallerSha256: 0F40621640D7B2298E3463CAAEB693EB623496FE21960731ED2A03A1CD9F50BB
+ReleaseDate: 2026-04-15
+ReleaseNotesUrl: https://github.com/hassard0/Mighty/releases/tag/v0.30.1
+ManifestType: installer
+ManifestVersion: 1.6.0

@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: hassard.mty
+PackageVersion: 0.30.1
+PackageLocale: en-US
+Publisher: Ian Hassard
+PublisherUrl: https://github.com/hassard0
+PublisherSupportUrl: https://github.com/hassard0/Mighty/issues
+Author: Ian Hassard
+PackageName: Mighty
+PackageUrl: https://github.com/hassard0/Mighty
+License: MIT
+LicenseUrl: https://github.com/hassard0/Mighty/blob/main/LICENSE
+Copyright: Copyright (c) 2026 Ian Hassard
+ShortDescription: Mighty - agent-first systems programming language.
+Description: |-
+  Mighty is a statically-typed, agent-first systems language. Agents,
+  protocols, capabilities, effects, arenas, and budgets are first-class.
+  The mty toolchain targets native code (Cranelift JIT + AOT) and
+  WebAssembly (Component Model) from a single Rust workspace.
+
+  Mighty makes prompt injection a compile error: tainted LLM/MCP/HTTP
+  data cannot reach fs.write, process.exec, sql.execute, or net.request
+  without a sanitiser. Every agent run is byte-identically replayable
+  from the recorded transcript.
+Moniker: mty
+Tags:
+  - agent
+  - ai
+  - compiler
+  - llm
+  - mcp
+  - programming-language
+  - rust
+  - systems
+  - wasm
+ReleaseNotesUrl: https://github.com/hassard0/Mighty/releases/tag/v0.30.1
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

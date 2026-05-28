@@ -1,0 +1,31 @@
+# Example docker-compose for local Mighty development.
+#
+# Drop this in the root of your Mighty project. Then:
+#
+#   docker compose run --rm mty check src/main.mty
+#   docker compose run --rm mty test
+#   docker compose run --rm mty run src/main.mty
+#
+# To open an interactive shell with mty on PATH:
+#
+#   docker compose run --rm --entrypoint bash mty
+#
+# Set MTY_VERSION in your shell or .env to pin a different toolchain.
+
+services:
+  mty:
+    image: mighty-lang/mty:${MTY_VERSION:-0.30.1}
+    working_dir: /work
+    volumes:
+      - .:/work
+      # Cache mty's downloaded packages across runs so `mty install`
+      # doesn't refetch every container start.
+      - mty-cache:/home/mighty/.cache/mty
+    environment:
+      MTY_LOG: ${MTY_LOG:-info}
+    # Uncomment to expose an mty-served port (e.g. `mty serve --port 8080`):
+    # ports:
+    #   - "8080:8080"
+
+volumes:
+  mty-cache:

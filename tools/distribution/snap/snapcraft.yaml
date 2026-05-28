@@ -1,0 +1,49 @@
+name: mty
+title: Mighty
+base: core22
+version: '0.30.1'
+summary: Agent-first systems programming language
+description: |
+  Mighty is a statically-typed, agent-first systems language. Agents,
+  protocols, capabilities, effects, arenas, and budgets are first-class.
+
+  The mty toolchain compiles Mighty to native code (Cranelift JIT + AOT)
+  and WebAssembly (Component Model). Mighty makes prompt injection a
+  compile error: tainted LLM/MCP/HTTP data cannot reach fs.write,
+  process.exec, sql.execute, or net.request without a sanitiser.
+  Every agent run is byte-identically replayable.
+
+  Project: https://github.com/hassard0/Mighty
+  Docs: https://hassard0.github.io/Mighty/
+
+license: MIT
+source-code: https://github.com/hassard0/Mighty
+issues: https://github.com/hassard0/Mighty/issues
+website: https://hassard0.github.io/Mighty/
+
+grade: stable
+confinement: classic   # mty needs to read/write user source trees and
+                       # spawn subprocesses; revisit once strict mode
+                       # is feasible.
+
+architectures:
+  - build-on: amd64
+    build-for: amd64
+
+apps:
+  mty:
+    command: bin/mty
+    environment:
+      MTY_LOG: info
+
+parts:
+  mty:
+    plugin: dump
+    source: https://github.com/hassard0/Mighty/releases/download/v0.30.1/mty-x86_64-unknown-linux-gnu.tar.gz
+    source-checksum: sha256/c5bb431ea6d3e57c0952ecde6d9943281d00d513d388ae6f55722e810031c602
+    organize:
+      mty: bin/mty
+    stage:
+      - bin/mty
+    prime:
+      - bin/mty
