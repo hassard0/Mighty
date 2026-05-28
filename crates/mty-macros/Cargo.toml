@@ -14,6 +14,10 @@ mty-diagnostics = { path = "../mty-diagnostics" }
 
 [dev-dependencies]
 mty-syntax = { path = "../mty-syntax" }
+# v0.30 Track C — `computer_use_macro.rs` round-trips the macro's
+# hand-rolled spec JSON through `serde_json::from_str` so any escape
+# regression in the emitter is caught by the test.
+serde_json.workspace = true
 
 [lints]
 workspace = true

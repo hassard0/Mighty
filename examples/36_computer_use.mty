@@ -1,0 +1,64 @@
+// 36_computer_use.mty -- v0.30 Track C: Anthropic Computer Use as a
+// first-class Mighty capability.
+//
+// Before this slice, calling Anthropic's `computer_20241022` tool
+// family required hand-rolling the JSON request body + a parser for
+// the model's `tool_use` blocks + a click/keyboard dispatcher + a
+// click-bounds safety net. v0.30 Track C lifts every piece into stdlib
+// (`std.computer`) plus a `@computer_use` decorator that types the
+// capability requirement and synthesises the agent harness.
+//
+// The example deliberately exercises every surface -- sandbox builder,
+// dispatcher construction, agent decorator -- without firing real OS
+// events: the dispatcher's default `MockScreen` + `MockMouse` +
+// `MockKeyboard` backends keep `mty check examples/36_computer_use.mty`
+// CI-safe on every OS, including headless Linux.
+//
+// Build:
+//   mty fmt examples/36_computer_use.mty
+//   mty check examples/36_computer_use.mty
+//
+// LF-only, no trailing whitespace. Last-line newline.
+package computer_use
+
+use std.computer.ComputerCap
+use std.computer.Dispatcher
+
+protocol BrowserOp {
+  Run(goal: Str) -> Str
+}
+
+// `_build_cap` shows the canonical sandbox shape: explicit screen +
+// input permissions, an opt-in bounding rectangle, and an opt-in
+// deny-list of OS-level chords. Defaults (no bounds, no deny-list)
+// work but are explicitly documented as unsafe in
+// `docs/internals/computer-use.md` -- every example opts in to safety.
+fn _build_cap() -> ComputerCap {
+  ComputerCap.screen_and_input()
+}
+
+// `@computer_use(width:..., height:..., cap:...)` declares an agent
+// whose handler can call `std.computer.run(goal)` against a dispatcher
+// built from the supplied cap. The macro generates the spec fn
+// `__computer_use_spec_BrowserOperator()` that the runtime reads at
+// spawn time to wire the dispatcher + capability into the agent's
+// scope.
+//
+// `cap: computer.screen + computer.input` is the canonical "drive the
+// browser" capability bundle. Read-only assistants use
+// `cap: computer.screen` instead.
+@computer_use(width: 1280, height: 800, cap: computer.screen + computer.input)
+agent BrowserOperator: BrowserOp {
+  on Run(goal) {
+    goal
+  }
+}
+
+// Entry point exercises only the parser/checker surface -- no live
+// LLM dispatch. The macro expansion is what we want CI to validate;
+// the dispatcher's wire shape is covered by the Rust-side tests in
+// `crates/mty-stdlib/tests/computer_use_anthropic.rs`.
+fn main() {
+  let _cap = _build_cap()
+  log("36_computer_use: @computer_use + std.computer surface")
+}

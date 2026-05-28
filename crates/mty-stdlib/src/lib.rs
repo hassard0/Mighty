@@ -40,6 +40,7 @@
 //! - [`host`]  — single entry point invoked from `mty-runtime`'s
 //!   `host_std` to dispatch `std.*` generic calls.
 
+pub mod computer;
 pub mod env;
 pub mod eval;
 pub mod fmt;

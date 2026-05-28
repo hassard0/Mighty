@@ -150,6 +150,99 @@ impl AnthropicClient {
         body
     }
 
+    /// v0.30 Track C — issue a request with the Anthropic
+    /// `computer_20241022` tool family enabled.
+    ///
+    /// This is `complete()` plus:
+    ///
+    /// - The `tools` array carries the `computer_20241022` spec
+    ///   (`{ type, display_width_px, display_height_px,
+    ///   display_number }`) instead of the generic `{ name,
+    ///   description, input_schema }` triple.
+    /// - The `anthropic-beta` header opts into the computer-use beta
+    ///   gate so older keys without the beta access bit are rejected
+    ///   with a clear 403 rather than a generic 400.
+    ///
+    /// The reply shape is unchanged — `Message::tool_uses()` returns
+    /// the model's computer-use `tool_use` blocks for the dispatcher
+    /// to parse via
+    /// [`mty_stdlib::computer::dispatcher::ComputerAction::parse`](crate::computer::dispatcher::ComputerAction::parse).
+    pub async fn ask_with_computer(
+        &self,
+        req: CompletionRequest,
+        screen_size: (u32, u32),
+    ) -> Result<Message, LlmError> {
+        Self::check_budgets_pre(&req)?;
+        let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
+        // Build the body, then swap the tools entry for the computer-
+        // use spec. We start from the standard build so all the other
+        // fields (system, temperature, max_tokens, …) are populated
+        // consistently.
+        let mut body = self.build_body(&CompletionRequest {
+            stream: false,
+            tools: vec![],
+            ..req.clone()
+        });
+        body["tools"] = computer_tool_array(screen_size.0, screen_size.1);
+
+        let body_bytes = serde_json::to_vec(&body)?;
+        let resp = http_post(
+            &url,
+            &[
+                ("x-api-key", self.api_key.as_str()),
+                ("anthropic-version", self.api_version.as_str()),
+                ("anthropic-beta", "computer-use-2024-10-22"),
+                ("content-type", "application/json"),
+            ],
+            body_bytes,
+        )
+        .await?;
+
+        match resp.status {
+            200 => {}
+            401 | 403 => {
+                return Err(LlmError::Auth(format!(
+                    "anthropic rejected api key ({})",
+                    resp.status
+                )));
+            }
+            429 => {
+                let retry = resp
+                    .headers
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case("retry-after"))
+                    .and_then(|(_, v)| v.parse::<u64>().ok());
+                let msg = String::from_utf8_lossy(&resp.body).to_string();
+                return Err(LlmError::RateLimit(RateLimitError::new(retry, msg)));
+            }
+            other => {
+                let body = String::from_utf8_lossy(&resp.body).to_string();
+                return Err(LlmError::Provider {
+                    status: other,
+                    body,
+                });
+            }
+        }
+
+        let parsed: MessagesResponse =
+            serde_json::from_slice(&resp.body).map_err(|e| LlmError::Decode(e.to_string()))?;
+        let blocks: Vec<ContentBlock> = parsed
+            .content
+            .into_iter()
+            .map(RawContent::into_typed)
+            .collect();
+        let msg = Message {
+            role: Role::Assistant,
+            content: blocks,
+        };
+        Self::account_usage(
+            &req,
+            parsed.usage.as_ref().map(|u| u.input_tokens).unwrap_or(0),
+            parsed.usage.as_ref().map(|u| u.output_tokens).unwrap_or(0),
+        )?;
+        Ok(msg)
+    }
+
     fn check_budgets_pre(req: &CompletionRequest) -> Result<(), LlmError> {
         if let Some(b) = &req.token_budget {
             if b.is_exhausted() {
@@ -437,6 +530,22 @@ fn tool_choice_to_anthropic(c: &ToolChoice) -> serde_json::Value {
         ToolChoice::Tool { name } => serde_json::json!({"type": "tool", "name": name}),
         ToolChoice::None => serde_json::json!({"type": "none"}),
     }
+}
+
+/// Serialise the Anthropic `computer_20241022` tool entry. The wire
+/// shape is intentionally NOT `{ name, description, input_schema }` —
+/// computer-use is a provider-typed tool that Anthropic identifies by
+/// its `type` discriminator, with the display dimensions inline.
+pub(crate) fn computer_tool_array(width: u32, height: u32) -> serde_json::Value {
+    serde_json::json!([
+        {
+            "type": "computer_20241022",
+            "name": "computer",
+            "display_width_px": width,
+            "display_height_px": height,
+            "display_number": 1
+        }
+    ])
 }
 
 // ---------------------------------------------------------------
