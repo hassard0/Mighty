@@ -1,0 +1,88 @@
+name: "Mighty SWE-bench smoke"
+description: >-
+  Run the 10-problem SWE-bench Verified smoke harness (Track B,
+  v0.30). Spends roughly $5-$20 in Anthropic credits and takes ~15-40
+  minutes, so it's gated on the `anthropic-api-key` input — the action
+  no-ops when the key isn't provided. Designed for nightly /
+  release-gate workflows, not per-PR CI.
+author: "Mighty"
+branding:
+  icon: "activity"
+  color: "purple"
+
+inputs:
+  anthropic-api-key:
+    description: >-
+      Anthropic API key. **REQUIRED.** Pass via repo/org secrets, e.g.
+      `${{ secrets.ANTHROPIC_API_KEY }}`. When empty the action skips
+      the harness entirely (so the same workflow can run safely on
+      forks that don't have access to the secret).
+    required: false
+    default: ""
+  member:
+    description: >-
+      Model identifier passed to the harness, e.g.
+      `anthropic:claude-opus-4-7`. Default tracks the Makefile.
+    required: false
+    default: "anthropic:claude-opus-4-7"
+  output:
+    description: >-
+      Override the JSON results path. Default: a timestamped file
+      under `bench/swe/results/` (matches the Makefile behavior).
+    required: false
+    default: ""
+  num-problems:
+    description: "Number of SWE-bench problems to attempt. Default: 10."
+    required: false
+    default: "10"
+  working-directory:
+    description: "Run the harness from this directory. Default: repo root."
+    required: false
+    default: "."
+
+outputs:
+  results-path:
+    description: >-
+      Path to the JSON results file the harness emitted (only set when
+      the harness actually ran — i.e. an API key was provided).
+    value: ${{ steps.run.outputs.results-path }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check API key
+      shell: bash
+      run: |
+        if [ -z "${{ inputs.anthropic-api-key }}" ]; then
+          echo "::notice::ANTHROPIC_API_KEY not provided — skipping bench-smoke (this is the safe default for fork PRs)."
+        fi
+
+    - name: bench-smoke
+      id: run
+      if: ${{ inputs.anthropic-api-key != '' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        # Smoke mode never trips the full-run guard, but pin it
+        # explicitly so an upstream Makefile change can't surprise CI.
+        MTY_BENCH_FULL_CONFIRM: "0"
+        MTY_BENCH_MEMBER: ${{ inputs.member }}
+        MTY_BENCH_NUMPROB: ${{ inputs.num-problems }}
+        MTY_BENCH_OUTPUT: ${{ inputs.output }}
+      run: |
+        set -euo pipefail
+        SWE_DIR="bench/swe"
+        if [ -n "${MTY_BENCH_OUTPUT}" ]; then
+          OUT="${MTY_BENCH_OUTPUT}"
+        else
+          TS="$(date -u +%Y%m%d_%H%M%S)"
+          OUT="${SWE_DIR}/results/smoke_${TS}.json"
+        fi
+        mkdir -p "$(dirname "${OUT}")"
+        echo "+ cd ${SWE_DIR} && cargo run --release -- --num-problems ${MTY_BENCH_NUMPROB} --member ${MTY_BENCH_MEMBER} --output ../../${OUT}"
+        ( cd "${SWE_DIR}" && cargo run --release -- \
+            --num-problems "${MTY_BENCH_NUMPROB}" \
+            --member "${MTY_BENCH_MEMBER}" \
+            --output "../../${OUT}" )
+        echo "results-path=${OUT}" >> "$GITHUB_OUTPUT"

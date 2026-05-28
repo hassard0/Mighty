@@ -1,0 +1,33 @@
+# tools/gh-actions/examples/basic-check.yml
+#
+# Minimal example: install Mighty and run `mty check` + `mty fmt --check`
+# on every `.mty` source file in the repo. Drop this file at
+# `.github/workflows/mighty-check.yml` in your project and you're done.
+#
+# Cost: free (no LLM calls, ~30s on linux-latest including the cached
+# binary download).
+name: Mighty check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: mty check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mty
+        uses: hassard0/Mighty/tools/gh-actions/setup-mty@v0.31.0
+        with:
+          version: "0.31.0"
+
+      - name: Run mty check + fmt --check
+        uses: hassard0/Mighty/tools/gh-actions/mty-check@v0.31.0
+        with:
+          glob: "**/*.mty"
+          fmt-check: "true"

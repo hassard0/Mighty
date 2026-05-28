@@ -1,0 +1,80 @@
+name: "Mighty test (eval)"
+description: >-
+  Run Mighty's LLM-eval suites: `mty test --eval` discovers
+  `**/*.eval.mty` from the configured root and dispatches each cell
+  through the pinned provider panel. By default `replay-only` is `true`
+  so the action exercises the recorded-trace equivalence check and
+  needs no API keys — perfect for free-tier CI. Pair with the
+  `setup-mty` composite action.
+author: "Mighty"
+branding:
+  icon: "compass"
+  color: "purple"
+
+inputs:
+  manifest-dir:
+    description: >-
+      Override the discovery root passed to `mty test --eval
+      --manifest-dir`. Default empty (uses the working directory).
+    required: false
+    default: ""
+  replay-only:
+    description: >-
+      When `true` (default), skip the live-dispatch path and run only
+      against previously recorded traces. Deterministic and free —
+      the right default for CI without an `ANTHROPIC_API_KEY`.
+    required: false
+    default: "true"
+  strict:
+    description: >-
+      When `true` (default), fail the run if any cell errors. Set to
+      `false` to log errors but pass the job — useful for nightly
+      experiments where a missing key shouldn't tank the workflow.
+    required: false
+    default: "true"
+  ci:
+    description: >-
+      When `true`, read provider-set + threshold from `[eval.ci]` in
+      `mighty.toml` instead of the per-file frontmatter. Mirrors the
+      `mty test --eval --ci` flag.
+    required: false
+    default: "false"
+  format:
+    description: "Output format: `pretty` (default) or `json`."
+    required: false
+    default: "pretty"
+  working-directory:
+    description: "Run `mty test --eval` from this directory. Default: repo root."
+    required: false
+    default: "."
+
+runs:
+  using: "composite"
+  steps:
+    - name: mty test --eval
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        MTY_MANIFEST_DIR: ${{ inputs.manifest-dir }}
+        MTY_REPLAY_ONLY: ${{ inputs.replay-only }}
+        MTY_STRICT: ${{ inputs.strict }}
+        MTY_CI: ${{ inputs.ci }}
+        MTY_FORMAT: ${{ inputs.format }}
+      run: |
+        set -euo pipefail
+        ARGS=("test" "--eval" "--format" "${MTY_FORMAT}")
+        if [ -n "${MTY_MANIFEST_DIR}" ]; then
+          ARGS+=("--manifest-dir" "${MTY_MANIFEST_DIR}")
+        fi
+        if [ "${MTY_REPLAY_ONLY}" = "true" ]; then
+          ARGS+=("--replay-only")
+        fi
+        # `--strict` is the default; only flip when the input is false.
+        if [ "${MTY_STRICT}" != "true" ]; then
+          ARGS+=("--no-strict")
+        fi
+        if [ "${MTY_CI}" = "true" ]; then
+          ARGS+=("--ci")
+        fi
+        echo "+ mty ${ARGS[*]}"
+        mty "${ARGS[@]}"
