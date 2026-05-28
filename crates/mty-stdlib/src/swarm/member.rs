@@ -31,7 +31,7 @@ use crate::llm::anthropic::AnthropicClient;
 use crate::llm::bedrock::BedrockClient;
 use crate::llm::error::LlmError;
 use crate::llm::gemini::GeminiClient;
-use crate::llm::message::Message;
+use crate::llm::message::{Message, ToolUse};
 use crate::llm::openai::OpenAiClient;
 use crate::llm::provider::{CompletionRequest, LlmProvider};
 use crate::swarm::budget::SharedDollarBudget;
@@ -89,6 +89,11 @@ pub struct MockMember {
     /// Optional error to surface instead of a reply. Lets tests
     /// drive the "one member errored, others agreed" path.
     pub forced_error: Option<String>,
+    /// v0.32 Track F: canned tool-use blocks the mock surfaces on
+    /// [`MemberReply::tool_uses`]. Lets eval + replay tests drive
+    /// `Compare::tool_call_set_equal` and the structural-recorder
+    /// path without spinning a real LLM provider.
+    pub forced_tool_uses: Vec<ToolUse>,
     /// Counter shared across clones so tests can assert how many
     /// times this member was actually asked (i.e. that the
     /// `FirstAgreed` strategy short-circuited the rest).
@@ -195,6 +200,7 @@ impl Member {
             output_tokens: 20,
             forced_cost_cents: Some(cost_cents),
             forced_error: None,
+            forced_tool_uses: Vec::new(),
             call_count: Arc::new(Mutex::new(0)),
         })
     }
@@ -209,6 +215,30 @@ impl Member {
             output_tokens: 0,
             forced_cost_cents: Some(0),
             forced_error: Some(body.into()),
+            forced_tool_uses: Vec::new(),
+            call_count: Arc::new(Mutex::new(0)),
+        })
+    }
+
+    /// v0.32 Track F: build a mock that surfaces structured tool-use
+    /// blocks alongside its reply text. Mirrors [`Member::mock`] but
+    /// pre-seeds [`MockMember::forced_tool_uses`] so eval tests can
+    /// drive `Compare::tool_call_set_equal` against a deterministic
+    /// shape.
+    pub fn mock_with_tool_uses(
+        name: impl Into<String>,
+        reply_body: impl Into<String>,
+        cost_cents: u64,
+        tool_uses: Vec<ToolUse>,
+    ) -> Self {
+        Self::Mock(MockMember {
+            name: name.into(),
+            reply_body: reply_body.into(),
+            input_tokens: 10,
+            output_tokens: 20,
+            forced_cost_cents: Some(cost_cents),
+            forced_error: None,
+            forced_tool_uses: tool_uses,
             call_count: Arc::new(Mutex::new(0)),
         })
     }
@@ -275,12 +305,19 @@ impl Member {
             // that overshoots mid-flight surfaces `budget_exhausted:
             // true` on the consensus.
             let _ = budget.try_charge(cost);
-            return Ok(MemberReply {
+            let reply = MemberReply {
                 member: m.name.clone(),
                 body: m.reply_body.clone(),
                 tokens_used: (m.input_tokens + m.output_tokens) as u32,
                 cost_cents: cost,
-            });
+                tool_uses: m.forced_tool_uses.clone(),
+            };
+            // v0.32 Track F: surface mock turns to the global trace
+            // recorder when `MTY_RECORD_TRACE` is set so eval +
+            // replay tests that drive mocks see the same recording
+            // shape they'd get from the real providers.
+            record_member_turn(self, prompt, &reply);
+            return Ok(reply);
         }
 
         let req = CompletionRequest::new(self.model(), vec![Message::user_text(prompt)]);
@@ -305,12 +342,21 @@ impl Member {
         let cost = approx_token_cost_cents(self.model(), approx_tokens);
         let _ = budget.try_charge(cost);
 
-        Ok(MemberReply {
+        // v0.32 Track F: lift every tool-use block the provider
+        // emitted onto `MemberReply.tool_uses` so eval comparators
+        // and the structural recorder can see them.
+        let tool_uses: Vec<ToolUse> = reply.tool_uses().into_iter().cloned().collect();
+        let body = reply.text();
+
+        let member_reply = MemberReply {
             member: self.label(),
-            body: reply.text(),
+            body,
             tokens_used: approx_tokens as u32,
             cost_cents: cost,
-        })
+            tool_uses,
+        };
+        record_member_turn(self, prompt, &member_reply);
+        Ok(member_reply)
     }
 }
 
@@ -330,6 +376,20 @@ pub struct MemberReply {
     /// Per-call cost in cents (always integer to avoid fractional-cent
     /// drift on a shared budget).
     pub cost_cents: u64,
+    /// v0.32 Track F: tool-use blocks the assistant emitted in this
+    /// turn. Lifted verbatim from the provider's typed
+    /// [`Message::tool_uses`]; mirrors the wire-v3
+    /// [`mty_runtime::replay::LlmToolUse`] shape so eval comparators
+    /// + the structural recorder can hand them through unchanged.
+    ///
+    /// Empty `Vec` when:
+    /// * the model returned no tool uses (the most common case),
+    /// * the member is a [`Member::Mock`] without `forced_tool_uses` set,
+    /// * a test or older caller constructed `MemberReply` via struct
+    ///   literal (the field defaults to `Vec::new()` via the typed
+    ///   constructor below).
+    #[doc(alias = "tool_calls")]
+    pub tool_uses: Vec<ToolUse>,
 }
 
 impl MemberReply {
@@ -337,6 +397,21 @@ impl MemberReply {
     /// `cost_cents` remains the source of truth.
     pub fn cost(&self) -> f64 {
         self.cost_cents as f64 / 100.0
+    }
+
+    /// v0.32 Track F: borrowed accessor for the structured tool-use
+    /// blocks the assistant emitted on this turn. Returns an empty
+    /// slice when the reply carried no tool uses.
+    pub fn tool_uses(&self) -> &[ToolUse] {
+        &self.tool_uses
+    }
+
+    /// Convenience: collect the names of every tool the assistant
+    /// invoked, in order. Used by `Compare::ToolCallSetEqual` +
+    /// the divergence reporter to render `tool: search_web, calc`
+    /// in human-readable diffs.
+    pub fn tool_names(&self) -> Vec<String> {
+        self.tool_uses.iter().map(|t| t.name.clone()).collect()
     }
 }
 
@@ -354,6 +429,59 @@ fn approx_token_cost_cents(model: &str, total_tokens: u64) -> u64 {
     // the underlying client.
     let avg = u64::midpoint(in_rate, out_rate);
     total_tokens.saturating_mul(avg) / 1_000_000
+}
+
+/// v0.32 Track F: record one `Member::ask` turn into the global trace
+/// recorder when `MTY_RECORD_TRACE` is set.
+///
+/// The hook is **zero-overhead** when no recorder is installed —
+/// [`mty_runtime::replay::recording_enabled`] takes a single
+/// `RwLock::read` + `Option::is_none` check before we walk the typed
+/// reply. When a recorder *is* installed, every call to
+/// [`Member::ask`] surfaces one [`mty_runtime::replay::TraceEvent::LlmCall`]
+/// event with the prompt + reply + tool_uses + cost so `std.eval` can
+/// replay the recording structurally against a fresh provider.
+///
+/// `agent` is the synthetic `0` ("CLI / driver" id) because
+/// `Member::ask` doesn't know which agent (if any) invoked it. v0.33
+/// can plumb the spawning agent's id through if user code asks for
+/// it.
+fn record_member_turn(member: &Member, prompt: &str, reply: &MemberReply) {
+    use mty_runtime::replay::{recording_enabled, with_recorder, LlmToolUse};
+
+    if !recording_enabled() {
+        return;
+    }
+
+    // Convert our typed `ToolUse` shapes into the wire-v3 record.
+    let tool_uses: Vec<LlmToolUse> = reply
+        .tool_uses
+        .iter()
+        .map(|t| LlmToolUse {
+            name: t.name.clone(),
+            id: t.id.clone(),
+            input_json: serde_json::to_string(&t.input).unwrap_or_else(|_| "{}".to_string()),
+        })
+        .collect();
+
+    let model = member.model().to_string();
+    with_recorder(|rec| {
+        rec.record_llm_call(
+            0,
+            None,
+            prompt,
+            None,
+            // Tool list (the *advertised* tools, not the called ones);
+            // `Member::ask` today only ships a single-prompt request
+            // with no tools, so we emit empty. v0.33 lifts the
+            // configured-tools list through `Member::ask` so this
+            // mirrors the request shape exactly.
+            vec![model.clone()],
+            &reply.body,
+            tool_uses.clone(),
+            reply.cost_cents,
+        );
+    });
 }
 
 #[cfg(test)]
@@ -410,5 +538,169 @@ mod tests {
         let c = approx_token_cost_cents("claude-opus-4-7", 1_000_000);
         // (1500 + 7500) / 2 = 4500 cents/M tokens
         assert_eq!(c, 4500);
+    }
+
+    // -------------------------------------------------------------------------
+    // v0.32 Track F: structural tool_uses on MemberReply + recorder
+    // integration for Member::ask.
+
+    #[tokio::test]
+    async fn mock_with_tool_uses_surfaces_them_on_member_reply() {
+        let canned = vec![ToolUse {
+            id: "tu_01".into(),
+            name: "search_web".into(),
+            input: serde_json::json!({"q": "rust"}),
+        }];
+        let m = Member::mock_with_tool_uses("alpha", "let me search", 3, canned.clone());
+        let b = SharedDollarBudget::new(100);
+        let r = m.ask("anything", &b).await.unwrap();
+        assert_eq!(r.body, "let me search");
+        assert_eq!(r.tool_uses.len(), 1);
+        assert_eq!(r.tool_uses[0].name, "search_web");
+        assert_eq!(r.tool_uses[0].id, "tu_01");
+        // Backward-compat: the named accessor returns the same slice.
+        assert_eq!(r.tool_uses().len(), 1);
+        assert_eq!(r.tool_names(), vec!["search_web".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn member_reply_tool_uses_defaults_to_empty_for_plain_mock() {
+        let m = Member::mock("alpha", "yes", 1);
+        let b = SharedDollarBudget::new(100);
+        let r = m.ask("anything", &b).await.unwrap();
+        assert!(r.tool_uses.is_empty());
+        assert!(r.tool_names().is_empty());
+    }
+
+    // Tests below serialise on the process-wide recorder slot to
+    // avoid racing with each other when run in parallel — the
+    // recorder is a global. `tokio::sync::Mutex` is the async-aware
+    // mutex (its guard is fine across `await`s under clippy's
+    // `await_holding_lock` lint); fine for tests because the
+    // critical section is short.
+    fn recorder_lock() -> &'static tokio::sync::Mutex<()> {
+        use std::sync::OnceLock;
+        static M: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+        M.get_or_init(|| tokio::sync::Mutex::new(()))
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn member_ask_records_turn_into_global_recorder_when_installed() {
+        use mty_runtime::replay::{install, uninstall, Recorder};
+        use std::sync::Arc;
+
+        let _g = recorder_lock().lock().await;
+        let _ = uninstall();
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rec.mty-trace");
+        let rec = Arc::new(Recorder::new(&path, 0, 1));
+        install(rec.clone());
+
+        let m = Member::mock("alpha", "hello world", 2);
+        let b = SharedDollarBudget::new(100);
+        let _ = m.ask("greet?", &b).await.unwrap();
+
+        // Confirm one LlmCall event landed in the recorder buffer.
+        let events = rec.events_snapshot();
+        let llm_count = events
+            .iter()
+            .filter(|e| matches!(e, mty_runtime::replay::TraceEvent::LlmCall { .. }))
+            .count();
+        assert_eq!(llm_count, 1, "expected exactly one recorded LlmCall");
+
+        let _ = uninstall();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn member_ask_records_no_event_when_recorder_uninstalled() {
+        use mty_runtime::replay::{recording_enabled, uninstall};
+        let _g = recorder_lock().lock().await;
+        let _ = uninstall();
+        assert!(!recording_enabled());
+
+        let m = Member::mock("alpha", "hello world", 2);
+        let b = SharedDollarBudget::new(100);
+        let _ = m.ask("greet?", &b).await.unwrap();
+        // No recorder → no event. Just confirm `recording_enabled`
+        // remains false (i.e. ask() didn't sneak-install one).
+        assert!(!recording_enabled());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn member_ask_recorder_carries_structural_tool_uses() {
+        use mty_runtime::replay::{install, uninstall, Recorder, TraceEvent};
+        use std::sync::Arc;
+
+        let _g = recorder_lock().lock().await;
+        let _ = uninstall();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rec_tu.mty-trace");
+        let rec = Arc::new(Recorder::new(&path, 0, 1));
+        install(rec.clone());
+
+        let canned = vec![ToolUse {
+            id: "tu_xx".into(),
+            name: "calc".into(),
+            input: serde_json::json!({"x": 7}),
+        }];
+        let m = Member::mock_with_tool_uses("alpha", "computing", 1, canned);
+        let b = SharedDollarBudget::new(100);
+        let _ = m.ask("2+2?", &b).await.unwrap();
+
+        let events = rec.events_snapshot();
+        let mut found = false;
+        for ev in &events {
+            if let TraceEvent::LlmCall {
+                prompt,
+                reply,
+                tool_uses,
+                cost_cents,
+                ..
+            } = ev
+            {
+                assert_eq!(prompt, "2+2?");
+                assert_eq!(reply, "computing");
+                assert_eq!(tool_uses.len(), 1);
+                assert_eq!(tool_uses[0].name, "calc");
+                assert_eq!(tool_uses[0].id, "tu_xx");
+                // input is stored as JSON-string in the wire shape.
+                assert!(tool_uses[0].input_json.contains("\"x\""));
+                assert_eq!(*cost_cents, 1);
+                found = true;
+            }
+        }
+        assert!(found, "expected an LlmCall event in the recorder buffer");
+        let _ = uninstall();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn member_ask_records_multi_turn_in_buffer_order() {
+        use mty_runtime::replay::{install, uninstall, Recorder, TraceEvent};
+        use std::sync::Arc;
+
+        let _g = recorder_lock().lock().await;
+        let _ = uninstall();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rec_multi.mty-trace");
+        let rec = Arc::new(Recorder::new(&path, 0, 1));
+        install(rec.clone());
+
+        let m = Member::mock("alpha", "reply-a", 1);
+        let b = SharedDollarBudget::new(100);
+        let _ = m.ask("q1", &b).await.unwrap();
+        let _ = m.ask("q2", &b).await.unwrap();
+        let _ = m.ask("q3", &b).await.unwrap();
+
+        let events = rec.events_snapshot();
+        let prompts: Vec<String> = events
+            .iter()
+            .filter_map(|e| match e {
+                TraceEvent::LlmCall { prompt, .. } => Some(prompt.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(prompts, vec!["q1", "q2", "q3"]);
+        let _ = uninstall();
     }
 }

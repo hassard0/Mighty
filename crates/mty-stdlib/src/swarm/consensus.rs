@@ -308,6 +308,7 @@ mod tests {
             body: body.into(),
             tokens_used: 1,
             cost_cents: 1,
+            tool_uses: Vec::new(),
         }
     }
 
