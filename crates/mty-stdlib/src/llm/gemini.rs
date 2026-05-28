@@ -50,6 +50,7 @@ use tokio_rustls::TlsConnector;
 use crate::llm::budget::{DollarBudget, TokenBudget};
 use crate::llm::error::{BudgetExhausted, LlmError, RateLimitError};
 use crate::llm::message::{ContentBlock, Message, MessageDelta, Role, ToolUse};
+use crate::llm::observe_record;
 use crate::llm::provider::{CompletionRequest, LlmProvider};
 use crate::llm::streaming::MessageStream;
 use crate::llm::tools::{Tool, ToolChoice};
@@ -276,6 +277,9 @@ fn tool_choice_to_gemini(c: &ToolChoice) -> serde_json::Value {
 #[async_trait::async_trait]
 impl LlmProvider for GeminiClient {
     async fn complete(&self, req: CompletionRequest) -> Result<Message, LlmError> {
+        // v0.30 Track D — std.observe hook (see anthropic.rs).
+        let observe_started = std::time::Instant::now();
+        let observe_started_at_ms = crate::observe::observation::now_ms();
         Self::check_budgets_pre(&req)?;
         if self.api_key.is_empty() {
             return Err(LlmError::Auth("Gemini api key empty".into()));
@@ -284,11 +288,35 @@ impl LlmProvider for GeminiClient {
         let body = self.build_body(&req);
         let body_bytes = serde_json::to_vec(&body)?;
 
-        let resp = http_post(&url, &[("content-type", "application/json")], body_bytes).await?;
+        let resp = match http_post(&url, &[("content-type", "application/json")], body_bytes).await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                observe_record(
+                    "gemini",
+                    &req.model,
+                    0,
+                    0,
+                    observe_started.elapsed().as_millis() as u64,
+                    observe_started_at_ms,
+                    Some("transport"),
+                );
+                return Err(e);
+            }
+        };
 
         match resp.status {
             200 => {}
             401 | 403 => {
+                observe_record(
+                    "gemini",
+                    &req.model,
+                    0,
+                    0,
+                    observe_started.elapsed().as_millis() as u64,
+                    observe_started_at_ms,
+                    Some("auth"),
+                );
                 return Err(LlmError::Auth(format!(
                     "gemini rejected api key ({})",
                     resp.status
@@ -301,10 +329,28 @@ impl LlmProvider for GeminiClient {
                     .find(|(k, _)| k.eq_ignore_ascii_case("retry-after"))
                     .and_then(|(_, v)| v.parse::<u64>().ok());
                 let msg = String::from_utf8_lossy(&resp.body).to_string();
+                observe_record(
+                    "gemini",
+                    &req.model,
+                    0,
+                    0,
+                    observe_started.elapsed().as_millis() as u64,
+                    observe_started_at_ms,
+                    Some("rate_limit"),
+                );
                 return Err(LlmError::RateLimit(RateLimitError::new(retry, msg)));
             }
             other => {
                 let body = String::from_utf8_lossy(&resp.body).to_string();
+                observe_record(
+                    "gemini",
+                    &req.model,
+                    0,
+                    0,
+                    observe_started.elapsed().as_millis() as u64,
+                    observe_started_at_ms,
+                    Some("provider"),
+                );
                 return Err(LlmError::Provider {
                     status: other,
                     body,
@@ -326,6 +372,16 @@ impl LlmProvider for GeminiClient {
             role: Role::Assistant,
             content: blocks,
         };
+
+        observe_record(
+            "gemini",
+            &req.model,
+            input_tokens,
+            output_tokens,
+            observe_started.elapsed().as_millis() as u64,
+            observe_started_at_ms,
+            None,
+        );
 
         Self::account_usage(&req, input_tokens, output_tokens)?;
 

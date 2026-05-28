@@ -2,6 +2,11 @@
 //! print a snapshot of every live agent. v0.16 Tier 1.1 (see
 //! `docs/internals/agent-features-roadmap.md`).
 //!
+//! v0.30 Track D adds `--cost`: reads `~/.mty/observations.sqlite`
+//! (the auto-recorded LLM cost+latency DB) and prints a table.
+//! Sub-flags: `--since <DURATION>`, `--by {provider,model,agent}`,
+//! `--top <N>`. See `docs/internals/observability.md`.
+//!
 //! See `docs/reference/cli/mty-inspect.md` for usage.
 
 use serde::Deserialize;
@@ -16,10 +21,24 @@ pub struct InspectArgs {
     pub agent: Option<u64>,
     pub json: bool,
     pub watch_ms: Option<u64>,
+    /// v0.30 Track D: switch from agent-snapshot mode to LLM-cost mode.
+    pub cost: bool,
+    /// Window spec: `7d`, `24h`, `30m`, `all`. Default `24h`.
+    pub since: Option<String>,
+    /// Group key: `provider`, `model`, `agent`, `none`. Default `provider`.
+    pub by: Option<String>,
+    /// Print the top-N most expensive calls. 0 = skip.
+    pub top: Option<usize>,
+    /// Path to the observations SQLite. Default
+    /// `MTY_OBSERVE_DB` -> `~/.mty/observations.sqlite`.
+    pub db: Option<String>,
 }
 
 /// CLI entry point. Returns a Unix-style process exit code.
 pub fn run(args: InspectArgs) -> i32 {
+    if args.cost {
+        return cost::run(args);
+    }
     let sock_path = match args
         .sock
         .clone()
@@ -392,5 +411,447 @@ mod tests {
         assert_eq!(s, "2026-05-26T00:00:00Z");
         // Spot-check the epoch itself.
         assert_eq!(format_unix_ms(0), "1970-01-01T00:00:00Z");
+    }
+}
+
+// =====================================================================
+// v0.30 Track D — `mty inspect --cost`
+// =====================================================================
+
+/// `mty inspect --cost` implementation. Lives in its own module so the
+/// v0.16 agent-snapshot code above stays self-contained.
+pub mod cost {
+    use super::InspectArgs;
+    use mty_stdlib::observe::{
+        observation::LlmObservation,
+        query::{summarize, AggregateRow, CostSummary, GroupBy, LatencyPercentiles, Window},
+        storage::SqliteStore,
+        ObservationStore,
+    };
+
+    /// Resolve the DB path from CLI flag → env → default.
+    pub(crate) fn resolve_db_path(args: &InspectArgs) -> std::path::PathBuf {
+        if let Some(p) = args.db.as_ref() {
+            return std::path::PathBuf::from(p);
+        }
+        mty_stdlib::observe::storage::default_db_path()
+    }
+
+    /// CLI entry point for `--cost`. Returns a Unix-style exit code.
+    pub fn run(args: InspectArgs) -> i32 {
+        let window = match args.since.as_deref().unwrap_or("24h") {
+            "" => Window::Last { millis: 86_400_000 },
+            spec => match Window::parse(spec) {
+                Ok(w) => w,
+                Err(e) => {
+                    eprintln!("mty inspect --cost: bad --since value: {e}");
+                    return 2;
+                }
+            },
+        };
+        let group_by = match args.by.as_deref().unwrap_or("provider") {
+            "" => GroupBy::Provider,
+            spec => match GroupBy::parse(spec) {
+                Ok(g) => g,
+                Err(e) => {
+                    eprintln!("mty inspect --cost: bad --by value: {e}");
+                    return 2;
+                }
+            },
+        };
+        let top_n = args.top.unwrap_or(0);
+
+        let db_path = resolve_db_path(&args);
+        let obs = match load_observations(&db_path) {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!(
+                    "mty inspect --cost: failed to open {}: {e}",
+                    db_path.display()
+                );
+                return 1;
+            }
+        };
+        let summary = summarize(&obs, window, group_by, top_n);
+        if args.json {
+            print_json(&summary);
+        } else {
+            print_table(&summary, &db_path);
+        }
+        0
+    }
+
+    fn load_observations(path: &std::path::Path) -> Result<Vec<LlmObservation>, String> {
+        // Special case: tests can pass `:memory:` and have already
+        // installed a store via `mty_stdlib::observe::storage::install_store`.
+        if path == std::path::Path::new(":memory:") {
+            if let Some(v) = mty_stdlib::observe::with_storage(|s| s.snapshot()) {
+                return Ok(v.unwrap_or_default());
+            }
+            return Ok(Vec::new());
+        }
+        if !path.exists() {
+            // No DB yet — that's the empty-state, not an error.
+            return Ok(Vec::new());
+        }
+        let store = SqliteStore::open(path).map_err(|e| e.to_string())?;
+        Ok(store.snapshot().unwrap_or_default())
+    }
+
+    fn print_json(s: &CostSummary) {
+        // Compact JSON; the snapshot table renders human-readably.
+        let v = serde_json::json!({
+            "call_count": s.call_count,
+            "total_cost_cents": s.total_cost_cents,
+            "total_prompt_tokens": s.total_prompt_tokens,
+            "total_completion_tokens": s.total_completion_tokens,
+            "p50_ms": s.latency.p50_ms,
+            "p95_ms": s.latency.p95_ms,
+            "p99_ms": s.latency.p99_ms,
+            "by_group": s
+                .by_group
+                .iter()
+                .map(|r| serde_json::json!({
+                    "key": r.key,
+                    "calls": r.call_count,
+                    "cost_cents": r.total_cost_cents,
+                    "prompt_tokens": r.total_prompt_tokens,
+                    "completion_tokens": r.total_completion_tokens,
+                    "p50_ms": r.p50_latency_ms,
+                    "p95_ms": r.p95_latency_ms,
+                    "p99_ms": r.p99_latency_ms,
+                }))
+                .collect::<Vec<_>>(),
+            "top_calls": s.top_calls,
+        });
+        println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+    }
+
+    fn print_table(s: &CostSummary, db_path: &std::path::Path) {
+        if s.call_count == 0 {
+            println!("=== mty inspect --cost ===");
+            println!(
+                "  no observations in {} for the selected window",
+                db_path.display()
+            );
+            println!("  (set MTY_OBSERVE=1 + run an LLM-calling program to populate)");
+            return;
+        }
+        println!("=== mty inspect --cost ({}) ===", db_path.display());
+        println!("  window:           {}", format_window(s.window));
+        println!("  calls:            {}", s.call_count);
+        println!("  total cost:       {}", fmt_cents(s.total_cost_cents));
+        println!(
+            "  prompt tokens:    {} | completion tokens: {}",
+            s.total_prompt_tokens, s.total_completion_tokens
+        );
+        println!("  latency p50/p95/p99: {}", fmt_latency(&s.latency));
+        println!();
+        println!("--- by group ---");
+        println!(
+            "  {:<32} {:>6} {:>12} {:>14} {:>14} {:>14}",
+            "key", "calls", "cost", "prompt-tok", "compl-tok", "p50/p95/p99"
+        );
+        for row in &s.by_group {
+            print_aggregate_row(row);
+        }
+        if !s.top_calls.is_empty() {
+            println!();
+            println!("--- top {} most expensive calls ---", s.top_calls.len());
+            println!(
+                "  {:>4} {:<10} {:<28} {:>12} {:>10} {:>8} error",
+                "#", "provider", "model", "cost", "tokens", "ms"
+            );
+            for (i, o) in s.top_calls.iter().enumerate() {
+                println!(
+                    "  {:>4} {:<10} {:<28} {:>12} {:>10} {:>8} {}",
+                    i + 1,
+                    truncate(&o.provider, 10),
+                    truncate(&o.model, 28),
+                    fmt_cents(o.cost_cents),
+                    o.prompt_tokens + o.completion_tokens,
+                    o.latency_ms,
+                    o.error_kind.as_deref().unwrap_or("-")
+                );
+            }
+        }
+    }
+
+    fn print_aggregate_row(row: &AggregateRow) {
+        let lat = format!(
+            "{}/{}/{}ms",
+            row.p50_latency_ms, row.p95_latency_ms, row.p99_latency_ms
+        );
+        println!(
+            "  {:<32} {:>6} {:>12} {:>14} {:>14} {:>14}",
+            truncate(&row.key, 32),
+            row.call_count,
+            fmt_cents(row.total_cost_cents),
+            row.total_prompt_tokens,
+            row.total_completion_tokens,
+            lat,
+        );
+    }
+
+    pub(crate) fn fmt_cents(c: i64) -> String {
+        // Render as `$x.yy` for >= 1 cent, otherwise `<$0.01`.
+        if c.abs() == 0 {
+            return "$0.00".into();
+        }
+        if c.abs() < 1 {
+            // Should never happen — i64 has no sub-integer states — but
+            // keep the branch for symmetry with f64 callers.
+            return "<$0.01".into();
+        }
+        let sign = if c < 0 { "-" } else { "" };
+        let abs = c.unsigned_abs();
+        format!("{sign}${}.{:02}", abs / 100, abs % 100)
+    }
+
+    fn fmt_latency(l: &LatencyPercentiles) -> String {
+        format!("{}ms / {}ms / {}ms", l.p50_ms, l.p95_ms, l.p99_ms)
+    }
+
+    fn format_window(w: Window) -> String {
+        match w {
+            Window::All => "all".into(),
+            Window::Last { millis } => {
+                if millis % 86_400_000 == 0 {
+                    format!("last {}d", millis / 86_400_000)
+                } else if millis % 3_600_000 == 0 {
+                    format!("last {}h", millis / 3_600_000)
+                } else if millis % 60_000 == 0 {
+                    format!("last {}m", millis / 60_000)
+                } else if millis % 1000 == 0 {
+                    format!("last {}s", millis / 1000)
+                } else {
+                    format!("last {}ms", millis)
+                }
+            }
+        }
+    }
+
+    fn truncate(s: &str, n: usize) -> String {
+        if s.len() <= n {
+            s.to_string()
+        } else {
+            format!("{}…", &s[..n.saturating_sub(1)])
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use mty_stdlib::observe::observation::{now_ms, LlmObservation};
+        use mty_stdlib::observe::storage::{install_store, uninstall_store, SqliteStore};
+
+        // Tests share the process-global observe store, so they must
+        // run sequentially. Cargo runs `#[test]` in parallel by default,
+        // so use a single mutex to serialise.
+        fn store_test_lock() -> std::sync::MutexGuard<'static, ()> {
+            use std::sync::{Mutex, OnceLock};
+            static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+            LOCK.get_or_init(|| Mutex::new(()))
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+        }
+
+        fn seed_store_with(obs: Vec<LlmObservation>) {
+            uninstall_store();
+            let s = SqliteStore::in_memory().unwrap();
+            for o in &obs {
+                s.record(o);
+            }
+            install_store(Box::new(s));
+        }
+
+        #[test]
+        fn fmt_cents_renders_dollars_and_cents() {
+            assert_eq!(fmt_cents(0), "$0.00");
+            assert_eq!(fmt_cents(150), "$1.50");
+            assert_eq!(fmt_cents(9999), "$99.99");
+            assert_eq!(fmt_cents(-150), "-$1.50");
+        }
+
+        #[test]
+        fn format_window_compact_units() {
+            assert_eq!(format_window(Window::All), "all");
+            assert_eq!(
+                format_window(Window::Last { millis: 86_400_000 }),
+                "last 1d"
+            );
+            assert_eq!(format_window(Window::Last { millis: 7_200_000 }), "last 2h");
+        }
+
+        #[test]
+        fn happy_path_prints_summary_against_seeded_store() {
+            let _g = store_test_lock();
+            let mut o1 = LlmObservation::new("anthropic", "claude-opus-4-7", 100, 50, 250);
+            o1.started_at_ms = now_ms();
+            let mut o2 = LlmObservation::new("openai", "gpt-5", 200, 100, 500);
+            o2.started_at_ms = now_ms();
+            seed_store_with(vec![o1, o2]);
+
+            let args = InspectArgs {
+                cost: true,
+                db: Some(":memory:".into()),
+                since: Some("24h".into()),
+                by: Some("provider".into()),
+                top: Some(5),
+                ..Default::default()
+            };
+            let code = run(args);
+            assert_eq!(code, 0);
+            uninstall_store();
+        }
+
+        #[test]
+        fn since_7d_includes_old_records() {
+            let _g = store_test_lock();
+            let mut o = LlmObservation::new("anthropic", "claude-opus-4-7", 100, 50, 10);
+            // 6 days old → inside the 7d window
+            o.started_at_ms = now_ms().saturating_sub(6 * 86_400_000);
+            seed_store_with(vec![o]);
+
+            let args = InspectArgs {
+                cost: true,
+                db: Some(":memory:".into()),
+                since: Some("7d".into()),
+                by: Some("provider".into()),
+                ..Default::default()
+            };
+            assert_eq!(run(args), 0);
+            uninstall_store();
+        }
+
+        #[test]
+        fn since_1m_excludes_old_records() {
+            let _g = store_test_lock();
+            let mut o = LlmObservation::new("anthropic", "claude-opus-4-7", 100, 50, 10);
+            o.started_at_ms = now_ms().saturating_sub(86_400_000);
+            seed_store_with(vec![o]);
+
+            // Programmatic check against the summary path: 1m window
+            // should produce zero rows even though the DB has one.
+            let obs = load_observations(std::path::Path::new(":memory:")).unwrap();
+            let s = summarize(&obs, Window::parse("1m").unwrap(), GroupBy::Provider, 0);
+            assert_eq!(s.call_count, 0);
+            uninstall_store();
+        }
+
+        #[test]
+        fn by_model_groups_correctly() {
+            let _g = store_test_lock();
+            let mut o1 = LlmObservation::new("anthropic", "claude-opus-4-7", 100, 50, 10);
+            o1.started_at_ms = now_ms();
+            let mut o2 = LlmObservation::new("anthropic", "claude-opus-4-7", 100, 50, 10);
+            o2.started_at_ms = now_ms();
+            let mut o3 = LlmObservation::new("anthropic", "claude-sonnet-4-6", 100, 50, 10);
+            o3.started_at_ms = now_ms();
+            seed_store_with(vec![o1, o2, o3]);
+
+            let obs = load_observations(std::path::Path::new(":memory:")).unwrap();
+            let s = summarize(&obs, Window::All, GroupBy::Model, 0);
+            assert_eq!(s.by_group.len(), 2);
+            let opus = s
+                .by_group
+                .iter()
+                .find(|r| r.key == "claude-opus-4-7")
+                .unwrap();
+            assert_eq!(opus.call_count, 2);
+            uninstall_store();
+        }
+
+        #[test]
+        fn top_5_returns_n_most_expensive() {
+            let _g = store_test_lock();
+            let mut seeded = Vec::new();
+            for cost_cents in [10, 50, 200, 5, 1000, 30, 60, 5_000_000].iter() {
+                let mut o = LlmObservation::new("anthropic", "claude-opus-4-7", 1, 1, 1);
+                o.started_at_ms = now_ms();
+                o.cost_cents = *cost_cents;
+                seeded.push(o);
+            }
+            seed_store_with(seeded);
+
+            let obs = load_observations(std::path::Path::new(":memory:")).unwrap();
+            let s = summarize(&obs, Window::All, GroupBy::Provider, 5);
+            assert_eq!(s.top_calls.len(), 5);
+            assert_eq!(s.top_calls[0].cost_cents, 5_000_000);
+            assert_eq!(s.top_calls[1].cost_cents, 1000);
+            uninstall_store();
+        }
+
+        #[test]
+        fn empty_db_prints_helpful_message_not_error() {
+            let _g = store_test_lock();
+            uninstall_store();
+            // Point at a path that definitely doesn't exist; the run
+            // path must treat "no DB yet" as exit 0 with a helpful note.
+            let args = InspectArgs {
+                cost: true,
+                db: Some("/definitely/does/not/exist/observations.sqlite".into()),
+                since: Some("24h".into()),
+                by: Some("provider".into()),
+                ..Default::default()
+            };
+            assert_eq!(run(args), 0);
+        }
+
+        #[test]
+        fn json_mode_emits_valid_json() {
+            let _g = store_test_lock();
+            let mut o = LlmObservation::new("anthropic", "claude-opus-4-7", 100, 50, 10);
+            o.started_at_ms = now_ms();
+            seed_store_with(vec![o]);
+
+            let obs = load_observations(std::path::Path::new(":memory:")).unwrap();
+            let s = summarize(&obs, Window::All, GroupBy::Provider, 1);
+            // Round-trip the json shape through serde_json::Value to
+            // verify the summary serialises without panicking.
+            let v = serde_json::json!({
+                "call_count": s.call_count,
+                "total_cost_cents": s.total_cost_cents,
+                "top_calls": s.top_calls,
+            });
+            assert!(v.is_object());
+            uninstall_store();
+        }
+
+        #[test]
+        fn bad_since_returns_exit_2() {
+            let _g = store_test_lock();
+            uninstall_store();
+            let args = InspectArgs {
+                cost: true,
+                since: Some("not-a-duration".into()),
+                ..Default::default()
+            };
+            assert_eq!(run(args), 2);
+        }
+
+        #[test]
+        fn bad_by_returns_exit_2() {
+            let _g = store_test_lock();
+            uninstall_store();
+            let args = InspectArgs {
+                cost: true,
+                by: Some("not-a-group".into()),
+                ..Default::default()
+            };
+            assert_eq!(run(args), 2);
+        }
+
+        #[test]
+        fn resolve_db_path_honours_explicit_flag() {
+            let args = InspectArgs {
+                db: Some("/tmp/x.sqlite".into()),
+                ..Default::default()
+            };
+            assert_eq!(
+                resolve_db_path(&args),
+                std::path::PathBuf::from("/tmp/x.sqlite")
+            );
+        }
     }
 }

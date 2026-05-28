@@ -144,6 +144,12 @@ enum Cmd {
     /// print a snapshot of every live agent. Requires the runtime
     /// to have been started with `MTY_RUNTIME_CONTROL_SOCK=<path>`.
     /// See `docs/reference/cli/mty-inspect.md`.
+    ///
+    /// v0.30 Track D: pass `--cost` to switch to LLM-cost mode —
+    /// reads `~/.mty/observations.sqlite` and prints total $$, per-
+    /// {provider,model,agent} breakdown, p50/p95/p99 latency, and
+    /// (optionally) top-N most expensive calls. See
+    /// `docs/internals/observability.md`.
     Inspect {
         /// Socket path (overrides `MTY_RUNTIME_CONTROL_SOCK`).
         #[arg(long)]
@@ -157,6 +163,24 @@ enum Cmd {
         /// Poll every N milliseconds until interrupted.
         #[arg(long, value_name = "MS")]
         watch: Option<u64>,
+        /// v0.30 Track D: switch to LLM-cost mode.
+        #[arg(long)]
+        cost: bool,
+        /// v0.30 Track D: window spec for `--cost`. `7d`, `12h`,
+        /// `30m`, `45s`, `500ms`, or `all`. Default `24h`.
+        #[arg(long, value_name = "DURATION")]
+        since: Option<String>,
+        /// v0.30 Track D: group key for `--cost`. One of
+        /// `provider`, `model`, `agent`, `none`. Default `provider`.
+        #[arg(long, value_name = "KEY")]
+        by: Option<String>,
+        /// v0.30 Track D: print the top-N most expensive single calls.
+        #[arg(long, value_name = "N")]
+        top: Option<usize>,
+        /// v0.30 Track D: observations DB path (overrides
+        /// `MTY_OBSERVE_DB`; default `~/.mty/observations.sqlite`).
+        #[arg(long, value_name = "PATH")]
+        db: Option<String>,
     },
     /// Load a recorded runtime trace (`mty-trace-*.bin`) and either
     /// summarize it, dump every event as JSON, or step-replay it.
@@ -376,11 +400,21 @@ fn main() {
             agent,
             json,
             watch,
+            cost,
+            since,
+            by,
+            top,
+            db,
         } => cmd::inspect::run(cmd::inspect::InspectArgs {
             sock,
             agent,
             json,
             watch_ms: watch,
+            cost,
+            since,
+            by,
+            top,
+            db,
         }),
         Cmd::Explain { code } => cmd::explain::run(&code),
         Cmd::Lsp => cmd::lsp::run(),

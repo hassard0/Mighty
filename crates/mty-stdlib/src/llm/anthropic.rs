@@ -45,6 +45,7 @@ use tokio_rustls::TlsConnector;
 
 use crate::llm::error::{BudgetExhausted, LlmError, RateLimitError};
 use crate::llm::message::{ContentBlock, Message, MessageDelta, Role, ToolUse};
+use crate::llm::observe_record;
 // Re-exported for the impl-level docs above (not all paths use both).
 #[allow(unused_imports)]
 use crate::llm::budget::{DollarBudget, TokenBudget};
@@ -191,6 +192,12 @@ impl AnthropicClient {
 #[async_trait::async_trait]
 impl LlmProvider for AnthropicClient {
     async fn complete(&self, req: CompletionRequest) -> Result<Message, LlmError> {
+        // v0.30 Track D: clock the call so std.observe can record
+        // latency_ms even on the error paths. `started_at_ms` is
+        // captured here so the record is sortable by call-start
+        // across distributed runs.
+        let observe_started = std::time::Instant::now();
+        let observe_started_at_ms = crate::observe::observation::now_ms();
         Self::check_budgets_pre(&req)?;
         let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
         let body = self.build_body(&CompletionRequest {
@@ -199,7 +206,7 @@ impl LlmProvider for AnthropicClient {
         });
         let body_bytes = serde_json::to_vec(&body)?;
 
-        let resp = http_post(
+        let resp = match http_post(
             &url,
             &[
                 ("x-api-key", self.api_key.as_str()),
@@ -208,11 +215,35 @@ impl LlmProvider for AnthropicClient {
             ],
             body_bytes,
         )
-        .await?;
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                observe_record(
+                    "anthropic",
+                    &req.model,
+                    0,
+                    0,
+                    observe_started.elapsed().as_millis() as u64,
+                    observe_started_at_ms,
+                    Some("transport"),
+                );
+                return Err(e);
+            }
+        };
 
         match resp.status {
             200 => {}
             401 | 403 => {
+                observe_record(
+                    "anthropic",
+                    &req.model,
+                    0,
+                    0,
+                    observe_started.elapsed().as_millis() as u64,
+                    observe_started_at_ms,
+                    Some("auth"),
+                );
                 return Err(LlmError::Auth(format!(
                     "anthropic rejected api key ({})",
                     resp.status
@@ -225,10 +256,28 @@ impl LlmProvider for AnthropicClient {
                     .find(|(k, _)| k.eq_ignore_ascii_case("retry-after"))
                     .and_then(|(_, v)| v.parse::<u64>().ok());
                 let msg = String::from_utf8_lossy(&resp.body).to_string();
+                observe_record(
+                    "anthropic",
+                    &req.model,
+                    0,
+                    0,
+                    observe_started.elapsed().as_millis() as u64,
+                    observe_started_at_ms,
+                    Some("rate_limit"),
+                );
                 return Err(LlmError::RateLimit(RateLimitError::new(retry, msg)));
             }
             other => {
                 let body = String::from_utf8_lossy(&resp.body).to_string();
+                observe_record(
+                    "anthropic",
+                    &req.model,
+                    0,
+                    0,
+                    observe_started.elapsed().as_millis() as u64,
+                    observe_started_at_ms,
+                    Some("provider"),
+                );
                 return Err(LlmError::Provider {
                     status: other,
                     body,
@@ -249,13 +298,25 @@ impl LlmProvider for AnthropicClient {
             content: blocks,
         };
 
+        let input_tokens = parsed.usage.as_ref().map(|u| u.input_tokens).unwrap_or(0);
+        let output_tokens = parsed.usage.as_ref().map(|u| u.output_tokens).unwrap_or(0);
+
+        // v0.30 Track D: record the successful turn before
+        // `account_usage` so even if a tight per-turn dollar budget
+        // trips, the call shows up in `mty inspect --cost`.
+        observe_record(
+            "anthropic",
+            &req.model,
+            input_tokens,
+            output_tokens,
+            observe_started.elapsed().as_millis() as u64,
+            observe_started_at_ms,
+            None,
+        );
+
         // Account usage after the call so partial successes still hit
         // observability.
-        Self::account_usage(
-            &req,
-            parsed.usage.as_ref().map(|u| u.input_tokens).unwrap_or(0),
-            parsed.usage.as_ref().map(|u| u.output_tokens).unwrap_or(0),
-        )?;
+        Self::account_usage(&req, input_tokens, output_tokens)?;
 
         Ok(msg)
     }

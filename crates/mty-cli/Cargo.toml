@@ -37,7 +37,11 @@ mty-pkg = { path = "../mty-pkg" }
 # v0.2-era cycle that originally motivated `default-features = false`
 # no longer exists (mty-driver doesn't pull stdlib, so the path
 # is clean). See STDLIB_V0_2_NOTES.md for the original constraint.
-mty-stdlib = { path = "../mty-stdlib", default-features = false, features = ["runner"] }
+#
+# v0.30 Track D — `observe-sqlite` powers `mty inspect --cost`. Pulls
+# the rusqlite dep into the CLI binary, but the alternative (a copy of
+# the storage layer here) is worse.
+mty-stdlib = { path = "../mty-stdlib", default-features = false, features = ["runner", "observe-sqlite"] }
 mty-runtime = { path = "../mty-runtime" }
 # v0.16 `mty inspect` subcommand: JSON over the runtime control socket.
 serde.workspace = true

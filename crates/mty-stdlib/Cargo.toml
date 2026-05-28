@@ -71,12 +71,17 @@ hex.workspace = true
 # can lower + run Mighty source files. Default-on; downstream
 # crates that only need json/tls/http/fs/time can disable it via
 # `default-features = false` to keep their build small.
-default = ["runner", "memory-sqlite"]
+default = ["runner", "memory-sqlite", "observe-sqlite"]
 runner = ["dep:mty-driver", "dep:mty-diagnostics"]
 # v0.26 Track C feature flags.
 memory-sqlite = ["dep:rusqlite"]
 memory-openai = []
 memory-qdrant = []
+# v0.30 Track D: std.observe — auto-wrap LLM calls with cost/latency
+# tracking. SQLite is the v0.30 must-ship backend; gate it behind a
+# feature so `default-features = false` builds (CLI, codegen) stay
+# slim. Shares the `rusqlite` dep with `memory-sqlite`.
+observe-sqlite = ["dep:rusqlite"]
 
 [dev-dependencies]
 tempfile = "3"

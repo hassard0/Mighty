@@ -52,6 +52,7 @@ pub mod llm;
 pub mod log;
 pub mod mcp;
 pub mod memory;
+pub mod observe;
 pub mod random;
 pub mod string;
 pub mod swarm;
