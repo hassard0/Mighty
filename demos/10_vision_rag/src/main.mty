@@ -1,0 +1,147 @@
+// demo 10_vision_rag — v0.33 Track T2 forcing-function demo for
+// `std.rag` + multi-modal image input.
+//
+// One Mighty program ties every v0.33 surface together:
+//
+//   * `Index.new(...)` + `add_text(...)` + `add_file(...)` + `build()`
+//     stage a tiny corpus into a `VectorStore`-backed RAG index.
+//
+//   * `Rag.new().with_index(...).with_retriever_top_k(...).with_member(...)`
+//     wires the end-to-end pipeline behind one chained constructor.
+//
+//   * `Image.from_file(path)` reads a PNG/JPG/GIF/WebP off disk and
+//     base64-encodes it for the provider's wire shape. The runtime
+//     dispatches `Rag.ask_with_image` through the answering Member's
+//     provider-specific image content block — Anthropic / OpenAI /
+//     Gemini / Bedrock are all wired in `mty_stdlib::rag::pipeline`.
+//
+//   * `@tool("...", cap: fs.read)` on `attach_diagram` keeps the v0.27
+//     Track A `@tool` macro pinned: the tool descriptor is what an MCP
+//     client sees when the vision-RAG agent is exposed as a tool.
+//
+// Build:
+//   mty check demos/10_vision_rag/src/main.mty
+//   ANTHROPIC_API_KEY=sk-ant-... mty run \
+//       demos/10_vision_rag/src/main.mty -- ./tools/sample_corpus/intro.md
+//
+// Smoke (parse + fmt + corpus + tool fn markers — no LLM call):
+//   bash demos/10_vision_rag/smoke.sh
+//
+// The smoke script also pins every v0.33 surface marker the demo
+// exercises (`Index.new`, `Rag.new`, `Image.from_file`, etc.) so a
+// future refactor can't silently drop one.
+package vision_rag
+
+use std.llm
+use std.rag
+use std.swarm
+use std.memory
+use std.fs
+use std.env
+
+// ---------------------------------------------------------------------
+// @tool("...", cap: fs.read) — keeps Track A's macro coverage alive.
+//
+// `attach_diagram` is the tool the vision-RAG agent calls to pull a
+// diagram off disk; the macro pass synthesises the
+// `__tool_descriptor_attach_diagram` companion fn that an MCP client
+// surfaces. `cap: fs.read` narrows the runtime cap to the bundled
+// `tools/sample_diagrams/**` subtree.
+// ---------------------------------------------------------------------
+
+@tool("Attach a diagram image to the next vision-RAG turn", cap: fs.read)
+fn attach_diagram(path: Str) -> Str {
+  let _peek = std.fs.read_to_string(path)
+  path
+}
+
+// ---------------------------------------------------------------------
+// VisionResearcher protocol — one message, two inputs.
+//
+// `Ask(question, diagram_path)` runs the question through a RAG
+// pipeline backed by the sample corpus AND attaches the diagram image
+// so the answering LLM grounds in both retrieval context + the visual
+// input. Reply shape is the rendered answer body so `main()` can
+// `log()` it directly.
+// ---------------------------------------------------------------------
+
+protocol VisionInput {
+  Ask(question: Str, diagram_path: Str) -> Str
+}
+
+// ---------------------------------------------------------------------
+// The vision-RAG agent. Builds an in-memory RAG index over the bundled
+// corpus on the first turn (cached by the handler scope per agent
+// lifetime), then asks the answering Member with the diagram image.
+//
+// `Index.new(...)` / `Rag.new()` / `Image.from_file(...)` all sit on
+// the v0.33 Track T2 handler-safe carve-out so they can be constructed
+// directly inside the handler — no ctor-arg threading needed.
+// ---------------------------------------------------------------------
+agent VisionResearcher: VisionInput {
+  on Ask(question, diagram_path) {
+    log("evt:vision:ask")
+
+    // Stage the corpus. The chunker is paragraph-based by default with
+    // a 1024-token cap; perfect for the tiny intro+spec corpus.
+    let mut index = Index.new("./demos/10_vision_rag/tools/sample_corpus")
+    index.add_text(
+      "Mighty's capability typing tags every value with effects (net, fs, model). The compiler refuses unsafe combinations at the call site.",
+      {source: "intro"}
+    )
+    index.add_text(
+      "Vision-RAG attaches an image to the answering turn so the LLM grounds in both retrieved text context and the visual input.",
+      {source: "spec"}
+    )
+    let _ = index.build()
+
+    log("evt:vision:index-built")
+
+    // Wire the end-to-end pipeline behind one chained constructor.
+    let rag = Rag.new()
+      .with_index(index)
+      .with_retriever_top_k(3)
+      .with_member(Member.anthropic("claude-opus-4-7"))
+
+    // Load the diagram. `Image.from_file` infers the mime from the
+    // extension and base64-encodes the bytes for the provider's wire
+    // shape. `cap: fs.read` is enforced at the runtime call site.
+    let diagram = Image.from_file(diagram_path)
+
+    log("evt:vision:image-loaded")
+
+    // Ask. The pipeline runs:
+    //   1. Embed `question` via the index's embedder.
+    //   2. Retrieve top-3 hits.
+    //   3. (Optional rerank — disabled here for cost.)
+    //   4. Build the augmented prompt with the retrieved context.
+    //   5. Dispatch to the answering Member with the augmented prompt
+    //      + the image content block.
+    //   6. Return the answer body.
+    let answer: Str = rag.ask_with_image(question, diagram)
+
+    log("evt:vision:answered")
+    answer
+  }
+}
+
+// ---------------------------------------------------------------------
+// `main` — boot the demo. Spawns one VisionResearcher (zero ctor
+// args; the index + pipeline live inside the handler per v0.33 Track
+// T2 carve-out), reads the diagram path from the `--`-tail positional
+// argv, asks the agent the canonical question, logs the rendered
+// answer.
+// ---------------------------------------------------------------------
+fn main() {
+  let researcher = spawn VisionResearcher()
+
+  let argv = std.env.args()
+  let diagram_path = argv.get(0).unwrap_or("./demos/10_vision_rag/tools/sample_diagrams/architecture.png")
+  let question = argv.get(1).unwrap_or("Summarise this architecture diagram against the corpus.")
+
+  // Typed bang-send: `answer` is `Str` directly at the call site.
+  let answer: Str = researcher ! Ask(question, diagram_path)
+
+  log("vision_rag: answer follows")
+  log(answer)
+}

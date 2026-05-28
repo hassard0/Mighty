@@ -113,7 +113,7 @@ impl AnthropicClient {
         self
     }
 
-    fn build_body(&self, req: &CompletionRequest) -> serde_json::Value {
+    pub fn build_body(&self, req: &CompletionRequest) -> serde_json::Value {
         let messages: Vec<serde_json::Value> = req
             .messages
             .iter()

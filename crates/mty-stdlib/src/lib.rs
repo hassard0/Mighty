@@ -32,6 +32,10 @@
 //!   prompt → N panel members → consensus (Majority/Unanimous/
 //!   WeightedVote/FirstAgreed) with shared dollar budget. See
 //!   `docs/reference/stdlib/swarm.md`.
+//! - [`rag`]   — v0.33 Track T2: RAG-as-stdlib. `Index` + `Doc` +
+//!   `Chunker` + `Retriever` + `Reranker` + `Rag` pipeline. Built on
+//!   `std.memory.VectorStore` (v0.26 Track C) + `std.swarm.Member`
+//!   (v0.27 Track D). See `docs/internals/rag.md`.
 //! - [`eval`]  — v0.28 Track G: replay-driven LLM eval harness.
 //!   Suite + Case + Member + Compare; runs a recorded trace (or raw
 //!   prompt) against multiple model variants and stamps a verdict
@@ -54,6 +58,7 @@ pub mod log;
 pub mod mcp;
 pub mod memory;
 pub mod observe;
+pub mod rag;
 pub mod random;
 pub mod string;
 pub mod swarm;

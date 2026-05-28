@@ -108,6 +108,11 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         // impl lives in `mty_stdlib::swarm`. See
         // `docs/reference/stdlib/swarm.md`.
         "std.swarm",
+        // v0.33 Track T2 — RAG-as-stdlib. `Index` / `Doc` / `Chunker` /
+        // `Retriever` / `Reranker` / `Rag` pipeline built on
+        // `std.memory.VectorStore` + `std.swarm.Member`. Real impl in
+        // `mty_stdlib::rag`. See `docs/internals/rag.md`.
+        "std.rag",
     ];
     for m in std_mods {
         let id = defs.alloc_module(m);
@@ -416,6 +421,19 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         "DollarBudget",
         "ConsensusStrategy",
         "Consensus",
+        // v0.33 Track T2 — std.rag carve-out. `Index` / `Doc` / `Rag` /
+        // `Chunker` / `Retriever` / `Reranker` are handler-safe so an
+        // agent can `let idx = Index.new("...")` inside `on Ask(...)`.
+        // The companion `Image` type (std.llm multi-modal) lands here too.
+        //
+        // Real impls live in `mty_stdlib::rag::*` and `mty_stdlib::llm::image`.
+        "Index",
+        "Doc",
+        "Rag",
+        "Chunker",
+        "Retriever",
+        "Reranker",
+        "Image",
     ];
     for name in handler_safe_opaque_names {
         // If already defined (e.g. via the `opaque_names` block above
@@ -767,6 +785,46 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         "matches_regex",
         "in_allowlist",
         "sanitize_with",
+        // v0.33 Track T2 — std.rag surface. Rust impls live in
+        // `mty_stdlib::rag::{index,doc,pipeline,chunking,retriever,reranker}`
+        // + `mty_stdlib::llm::image`. Mighty source uses:
+        //   `Index.new(...)`, `idx.add_text(...)`, `idx.add_file(...)`,
+        //   `idx.build()`, `idx.search(...)`,
+        //   `Rag.new().with_index(...).with_retriever_top_k(...).with_member(...).ask(...)`,
+        //   `Image.from_file(...)`, `Image.from_url(...)`, `Image.from_bytes(...)`.
+        "add_text",
+        "add_file",
+        "add_doc",
+        "retrieve",
+        "with_index",
+        "with_retriever_top_k",
+        "with_retriever_min_score",
+        "with_mmr",
+        "with_reranker",
+        "with_member",
+        "with_system",
+        "with_budget",
+        "with_budget_cents",
+        "with_chunker",
+        "with_strategy",
+        "with_embedder",
+        "with_top_k",
+        "with_min_score",
+        "with_max_tokens",
+        "with_overlap_tokens",
+        "with_token_counter",
+        "with_meta",
+        "with_metadata",
+        "from_file",
+        "from_url",
+        "from_bytes",
+        "ask_with_image",
+        "ask_with_images",
+        "chunk_count",
+        "doc_count",
+        "pending_count",
+        "media_type",
+        "byte_len",
     ];
     for m in permissive_methods {
         defs.builtin_methods.insert(
