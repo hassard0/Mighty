@@ -27,6 +27,7 @@ mty-ast = { path = "../mty-ast" }
 mty-hir = { path = "../mty-hir" }
 mty-types = { path = "../mty-types" }
 mty-fmt = { path = "../mty-fmt" }
+mty-doc = { path = "../mty-doc" }
 
 [dev-dependencies]
 serde_json = "1"
