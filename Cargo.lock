@@ -3203,6 +3203,7 @@ dependencies = [
  "mty-ast",
  "mty-diagnostics",
  "mty-syntax",
+ "serde_json",
 ]
 
 [[package]]

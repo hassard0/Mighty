@@ -27,6 +27,7 @@
 //! [`PackageMacros`] instance, and [`is_builtin_macro`] /
 //! [`expand_builtin_macro`] to check + expand the builtin set.
 
+pub mod computer_use;
 pub mod format;
 pub mod tool;
 
@@ -87,7 +88,13 @@ pub fn expand_builtin_macro(
 /// auto-generates the MCP descriptor + invoke + register companion
 /// fns. See [`tool::expand_tool_attribute`] and
 /// `docs/reference/macros/tool.md`.
-pub const BUILTIN_ATTRIBUTE_NAMES: &[&str] = &["tool"];
+///
+/// v0.30 Track C adds `computer_use` — the
+/// `@computer_use(width:..., height:..., cap:...)` decorator for
+/// agents driven by Anthropic's Computer Use tool family. The
+/// preprocessor invokes [`computer_use::expand_computer_use_attribute`]
+/// when the decorated item is an `agent` rather than a `fn`.
+pub const BUILTIN_ATTRIBUTE_NAMES: &[&str] = &["tool", "computer_use"];
 
 /// True if `name` is the name of a code-driven builtin attribute
 /// macro shipped with the compiler.
@@ -111,6 +118,28 @@ pub fn expand_builtin_attribute(
 ) -> Option<Result<tool::ToolExpansion, tool::ToolMacroError>> {
     match name {
         "tool" => Some(tool::expand_tool_attribute(attr_args, func)),
+        _ => None,
+    }
+}
+
+/// v0.30 Track C — expand a builtin attribute macro on a parsed
+/// `agent` decl. Mirrors [`expand_builtin_attribute`] but takes
+/// [`computer_use::ParsedAgent`] instead of [`tool::ParsedFn`] because
+/// the `@computer_use` decorator targets agent items, not fns.
+///
+/// Returns `Some(expansion)` on success, `Some(Err(...))` when the
+/// attribute is known but the call is malformed, and `None` if the
+/// attribute is not an agent-shaped builtin (caller falls back to the
+/// fn-shaped path or raises MT6001).
+pub fn expand_builtin_agent_attribute(
+    name: &str,
+    attr_args: &[&str],
+    agent: &computer_use::ParsedAgent,
+) -> Option<Result<computer_use::ComputerUseExpansion, computer_use::ComputerUseMacroError>> {
+    match name {
+        "computer_use" => Some(computer_use::expand_computer_use_attribute(
+            attr_args, agent,
+        )),
         _ => None,
     }
 }

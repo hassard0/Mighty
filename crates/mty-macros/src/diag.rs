@@ -66,6 +66,18 @@ pub const MACRO_FORMAT_BAD_WIDTH: u16 = codes::MACRO_FORMAT_BAD_WIDTH.0;
 /// or missing digits after `.`). v0.25 Track D.
 pub const MACRO_FORMAT_BAD_PRECISION: u16 = codes::MACRO_FORMAT_BAD_PRECISION.0;
 
+/// MT6017 — `@computer_use(...)` missing required `cap:`. v0.30 Track C.
+pub const COMPUTER_USE_MISSING_CAP: u16 = codes::COMPUTER_USE_MISSING_CAP.0;
+
+/// MT6018 — `@computer_use(cap: ...)` is malformed. v0.30 Track C.
+pub const COMPUTER_USE_MALFORMED_CAP: u16 = codes::COMPUTER_USE_MALFORMED_CAP.0;
+
+/// MT6019 — `@computer_use(width|height: ...)` is malformed. v0.30 Track C.
+pub const COMPUTER_USE_MALFORMED_DIMENSION: u16 = codes::COMPUTER_USE_MALFORMED_DIMENSION.0;
+
+/// MT6020 — `@computer_use` decorated non-agent item. v0.30 Track C.
+pub const COMPUTER_USE_NOT_AN_AGENT: u16 = codes::COMPUTER_USE_NOT_AN_AGENT.0;
+
 /// Human-readable explanation for an SD6xxx code. v0.6: delegates to
 /// `mty_diagnostics::codes::explain` so the catalog stays
 /// single-sourced. Returns `None` for codes outside the macro band.
@@ -96,5 +108,13 @@ mod tests {
     fn format_v0_25_codes_are_explainable() {
         assert!(explain(MACRO_FORMAT_BAD_WIDTH).is_some());
         assert!(explain(MACRO_FORMAT_BAD_PRECISION).is_some());
+    }
+
+    #[test]
+    fn computer_use_codes_are_explainable() {
+        assert!(explain(COMPUTER_USE_MISSING_CAP).is_some());
+        assert!(explain(COMPUTER_USE_MALFORMED_CAP).is_some());
+        assert!(explain(COMPUTER_USE_MALFORMED_DIMENSION).is_some());
+        assert!(explain(COMPUTER_USE_NOT_AN_AGENT).is_some());
     }
 }

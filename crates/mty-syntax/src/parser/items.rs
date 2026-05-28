@@ -289,14 +289,15 @@ fn attr_at(p: &mut Parser) -> (usize, usize, String) {
     };
     p.finish_node(); // TOOL_ATTR
     p.skip_trivia();
-    // v0.27 Track A: unknown-attribute diagnostic. v0.27 accepts ONLY
-    // `@tool`; anything else (`@bogus`, `@route`, ...) is a clean
-    // MT1003 at the attribute-name span.
-    if attr_name != "tool" && !attr_name.is_empty() {
+    // v0.27 Track A: unknown-attribute diagnostic. v0.27 accepted ONLY
+    // `@tool`; v0.30 Track C extends this to `@computer_use` for
+    // Anthropic Computer Use agents. Anything else (`@bogus`,
+    // `@route`, ...) is a clean MT1003 at the attribute-name span.
+    if attr_name != "tool" && attr_name != "computer_use" && !attr_name.is_empty() {
         p.error_at_code(
             1003,
             format!(
-                "unknown attribute `@{}` (v0.27 accepts only `@tool`)",
+                "unknown attribute `@{}` (v0.30 accepts `@tool`, `@computer_use`)",
                 attr_name
             ),
             attr_start,

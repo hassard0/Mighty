@@ -243,6 +243,23 @@ pub const MACRO_FORMAT_BAD_WIDTH: DiagCode = DiagCode::new(6011);
 /// Precision must be a small unsigned integer literal. v0.25 Track D.
 pub const MACRO_FORMAT_BAD_PRECISION: DiagCode = DiagCode::new(6012);
 
+/// MT6017 — `@computer_use(...)` was missing the required `cap:`
+/// argument. Computer Use without a capability is never safe.
+/// v0.30 Track C.
+pub const COMPUTER_USE_MISSING_CAP: DiagCode = DiagCode::new(6017);
+
+/// MT6018 — `@computer_use(cap: ...)` argument is not a dotted
+/// capability path or sum of paths. v0.30 Track C.
+pub const COMPUTER_USE_MALFORMED_CAP: DiagCode = DiagCode::new(6018);
+
+/// MT6019 — `@computer_use(width: ... | height: ...)` argument is
+/// not a positive integer literal. v0.30 Track C.
+pub const COMPUTER_USE_MALFORMED_DIMENSION: DiagCode = DiagCode::new(6019);
+
+/// MT6020 — `@computer_use` decorated something other than an
+/// `agent` item. v0.30 Track C.
+pub const COMPUTER_USE_NOT_AN_AGENT: DiagCode = DiagCode::new(6020);
+
 // Borrow checker: MT3001..MT3099
 pub const USE_AFTER_MOVE: DiagCode = DiagCode::new(3001);
 pub const MOVE_OUT_OF_BORROW: DiagCode = DiagCode::new(3002);
@@ -1106,6 +1123,55 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
              precision under u32 range. Dynamic precision via an argument \
              (`{:.0$}`, `{:.*}`) lands in v0.26.\n\
              Tracked: dev/history/notes/FORMAT_EXTENDED_V0_25_NOTES.md."
+        }
+        6017 => {
+            "MT6017: `@computer_use(...)` requires a `cap:` argument.\n\
+             \n\
+             Cause:   Computer Use without a capability is never safe — \
+             the model can emit arbitrary clicks/keystrokes and the cap is \
+             the only thing that bounds the damage. The macro refuses to \
+             expand without it.\n\
+             Example: `@computer_use(width: 1280, height: 800)`          // missing cap\n\
+             Fix:     Add `cap: computer.screen + computer.input` (or \
+             whichever permissions the agent actually needs) and ideally \
+             chain `.with_bounds(...)` + `.deny_keys(...)` on the \
+             dispatcher.\n\
+             Spec:    `docs/internals/computer-use.md` (sandbox model)."
+        }
+        6018 => {
+            "MT6018: `@computer_use(cap: ...)` argument is malformed.\n\
+             \n\
+             Cause:   The `cap:` value must be a dotted capability path or \
+             a sum of dotted paths (e.g. `computer.screen`, \
+             `computer.screen + computer.input`). The parser rejected the \
+             argument because it contains invalid characters.\n\
+             Example: `@computer_use(cap: 123bad)`                       // bad\n\
+             Fix:     Use only ASCII alphanumeric segments separated by \
+             `.` and joined with `+` for sums.\n\
+             Spec:    `docs/internals/computer-use.md`."
+        }
+        6019 => {
+            "MT6019: `@computer_use(width|height: ...)` is malformed.\n\
+             \n\
+             Cause:   The dimension argument must be a positive integer \
+             literal that fits in u32. Negative, zero, or non-integer \
+             values are rejected so that callers don't accidentally hand \
+             the dispatcher a degenerate display size.\n\
+             Example: `@computer_use(width: 0, ...)`                     // zero\n\
+                      `@computer_use(width: twelve, ...)`                // non-int\n\
+             Fix:     Use a plain decimal integer between 1 and 4294967295.\n\
+             Spec:    `docs/internals/computer-use.md`."
+        }
+        6020 => {
+            "MT6020: `@computer_use` only decorates `agent` items.\n\
+             \n\
+             Cause:   The macro generates an agent-shaped spec; attaching \
+             it to a `fn` / `struct` / `enum` is meaningless and would \
+             produce broken Mighty source.\n\
+             Example: `@computer_use(cap: computer.screen) fn run() {}`   // bad\n\
+             Fix:     Move the decorator onto the agent declaration that \
+             owns the on-message handler.\n\
+             Spec:    `docs/internals/computer-use.md`."
         }
         _ => return None,
     })
