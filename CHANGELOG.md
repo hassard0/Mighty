@@ -9,40 +9,47 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-v0.32 candidates (rolled up from all 5 v0.31 tracks):
+v0.33 candidates (rolled up from all 6 v0.32 tracks):
 
-- **Track 1 — tree-sitter** — `injections.scm` recognises
-  `// LANG: <name>` hint comments; `locals.scm` covers
-  protocol-method scopes + agent state field references;
-  `tags.scm` splits `impl Foo for Bar` blocks per-method;
-  format-string interpolation sub-grammar for `{name}` /
-  `{name:fmt}`; external scanner emitting virtual
-  newline-as-separator for match-arm bodies without trailing
-  commas; coordinate `@type.builtin.tainted` capture with theme
-  authors.
-- **Track 2 — VS Code** — DAP debug adapter (`mty dap`);
-  tree-sitter highlights layered in via semantic-token channel;
-  inline `mty inspect --cost` side-panel webview; per-file cost
-  overlay via CodeLens at `@tool` / `swarm(...)` sites; trace
-  replay UI for `.mty-trace` files.
-- **Track 3 — JetBrains** — TextMate-grammar fallback for
-  Community editions (LSP-less fallback for non-Ultimate IDEs);
-  tree-sitter grammar binding via the IntelliJ Platform Tree-Sitter
-  API; cost tool window graph view.
-- **Track 4 — distribution** — release-time workflow that
-  re-templates every manifest with the new version + SHAs and
-  opens publish PRs (one job per channel); publish
-  `x86_64-apple-darwin` + `aarch64-unknown-linux-gnu` binaries
-  from `release.yml`; spin up `hassard0/asdf-mty`; submit `mty`
-  to homebrew-core; cosign-sign Docker images + SBOMs; strict-mode
-  snap.
-- **Track 5 — GH Actions** — PR auto-comment with cost delta from
-  `bench-smoke`; `mty-explain` action wrapping `mty explain
-  MTxxxx`; native binary cache simplification once `release.yml`
-  switches to a flat-layout archive; add `arm64` Linux +
-  `x86_64` macOS when those targets ship again; auto-pin
-  example via `dependabot.yml`.
-- **Cross-cutting** — single `tools/` README indexing all five
+- **Track A — debugger** — JetBrains XDebugger frontend over the
+  DAP run-target plumbing (today the configuration spawns `mty dap`
+  + forwards stdio in console mode; the full step-in / step-over UI
+  in the JetBrains debug panel is still v0.33); per-line breakpoint
+  serialization across IDE restarts; DAP `attach` request for
+  long-running agent processes.
+- **Track B — VS Code** — finish the tree-sitter semantic-token
+  provider (ship the WASM grammar artifact and fill in
+  `provideDocumentSemanticTokens` per the checklist at the bottom
+  of `src/tree-sitter.ts`); per-span CodeLens granularity once
+  `mty inspect` exposes a `--by span` flag; ship the cost-panel
+  JS bundle for interactive drill-down (toggle time-window + drill
+  into a provider/model bar); trace replay UI for `.mty-trace`
+  files.
+- **Track C — JetBrains** — extract a single canonical TextMate
+  grammar at `tools/grammars/mighty.tmLanguage.json` shared by
+  both VS Code + JetBrains (today the file is duplicated between
+  the two trees); tree-sitter grammar binding via the IntelliJ
+  Platform Tree-Sitter API; cost tool window graph view.
+- **Track D — distribution** — fire a real release on the new
+  5-platform matrix (Linux x86_64 + aarch64, macOS arm64 + x86_64,
+  Windows x86_64) so the two placeholder SHAs in
+  `tools/distribution/homebrew/mty.rb` get pinned to real binaries;
+  flip `vars.PUBLISH_DOCKER` once Docker push lands in
+  `release.yml` to enable the cosign + SBOM gate; spin up
+  `hassard0/asdf-mty` from the in-tree plugin skeleton; submit
+  `mty` to homebrew-core; strict-mode snap.
+- **Track E — GH Actions** — `cost-delta` polish (replace the
+  bash-only diff with a typed JSON walker once `mty inspect` gains
+  `--diff`); `mty-explain` Slack/Discord webhook example;
+  `error_code` output documentation in the action reference once
+  CHANGELOG settles.
+- **Track F — replay** — drop the legacy `RecorderConfig::JsonLines`
+  variant entirely now that native binary recording is the
+  documented path (the v0.32 deprecation shim stays for one cycle);
+  expose `MTY_RECORD_TRACE` as a CLI flag (`mty run --record-trace`)
+  so users don't need to set an env var; surface recorded
+  `tool_uses` in `mty inspect --cost --explain`.
+- **Cross-cutting** — single `tools/` README indexing all six
   subfolders.
 
 The v1.0 freeze-gate is unchanged: 8 RFC comment windows opened
@@ -50,6 +57,90 @@ The v1.0 freeze-gate is unchanged: 8 RFC comment windows opened
 2026-07-25 (RFC-002 + RFC-006). Proposed v1.0 freeze date
 2026-09-01; earliest tag 2026-07-26. There is **no remaining
 Post-v1.0 backlog**.
+
+## [0.32.0] - 2026-05-28
+
+**Mighty v0.32 — debugger + multi-arch + replay closure. `mty dap`
+ships across VS Code + JetBrains (Community + Ultimate), 2 new
+release targets (macOS x86_64 + Linux aarch64), and the 3 v0.29
+replay backlog items are all closed.** Six tracks merge in parallel.
+All 9 demos pass `smoke.sh` pre and post; clippy / fmt / audit
+green.
+
+### Added — Debugger + Replay
+- **Track A** — DAP debug adapter via `mty dap`; VS Code launcher
+  (F5 on any `.mty` file synthesises a default launch config) +
+  JetBrains "Mighty Debug" run configuration type (works in both
+  Community + Ultimate IDEs). `+33 tests`.
+- **Track F** — `MemberReply.tool_uses` structural payload (closes
+  v0.29 replay backlog item 1); `ReplayDriver::replay_all`
+  interleaved with `with_provider` (item 2); `MTY_RECORD_TRACE`
+  env auto-captures via the recorder integration (item 3). `+24
+  tests`.
+
+### Added — Editor surfaces
+- **Track B** — VS Code cost CodeLens above every `@tool(`,
+  `swarm(`, `Member.<vendor>(`, and `.ask(` site (today's per-file
+  cost + call count, refreshed every 60s and on save); cost
+  side-panel webview with theme-aware summary cards / per-provider
+  bars / top-10 table (replaces the terminal `mty inspect`
+  command); tree-sitter semantic-tokens **stub** registering a
+  forward-compatible token legend incl. our custom `taintedType`
+  token (full grammar integration is v0.33).
+- **Track C** — JetBrains **Community-edition fallback** —
+  TextMate grammar registered via the platform's TextMate bundle
+  facility so highlighting works on IDEs without the LSP API;
+  adaptive LSP load via `<depends optional="true"
+  config-file="mighty-lsp.xml">com.intellij.modules.lsp</depends>`;
+  `since-build` 232 (IDEA 2023.2+ Community + Ultimate); cost
+  tool window upgraded from HTML pre-block to a sortable TreeTable
+  with Date / Provider:Model / Calls / Cost columns + "Copy as
+  JSON" action.
+
+### Added — Distribution + CI
+- **Track D** — `release.yml` extended from 3 → **5 platforms**
+  (added macOS x86_64 + Linux aarch64); Homebrew formula
+  audit-clean + `tools/distribution/homebrew/HOMEBREW_CORE_SUBMISSION.md`
+  runbook; `tools/distribution/asdf-mty/` plugin skeleton; multi-arch
+  dry-run in CI; cosign + SBOM gated behind
+  `vars.PUBLISH_DOCKER == 'true'`.
+- **Track E** — `cost-delta` composite action (PR comment with
+  per-provider spend delta vs base); `mty-explain` composite
+  action (wraps `mty explain MTxxxx` and pastes the rendered
+  diagnostic into a PR comment); `mty-check` now emits an
+  `error_code` output for downstream conditionals;
+  `tools/gh-actions/examples/dependabot.yml` example.
+
+### Documentation
+- README: Editor support bullet for `mty dap`; example count
+  36 → 37 (Track A added `examples/37_debug_demo.mty`); Install
+  section now lists all 5 binary targets; Status section bumps
+  test count to reflect the +57 Rust-side tests from Tracks A+F.
+
+### v0.29 replay backlog — closed
+1. ~~structural `MemberReply.tool_uses`~~ — shipped Track F
+2. ~~`ReplayDriver::replay_all` interleaved with provider swaps~~ —
+   shipped Track F
+3. ~~`MTY_RECORD_TRACE` auto-capture via recorder integration~~ —
+   shipped Track F
+
+### Constraints honoured
+- **Track A** — JetBrains debug config uses run-target plumbing +
+  console mode; the full XDebugger UI integration (step-in /
+  step-over / variables panel in the JetBrains debug tool window)
+  is the v0.33 follow-up.
+- **Track B** — tree-sitter semantic tokens is a **stub** (no
+  WASM grammar artifact yet); CodeLens + webview are real.
+- **Track C** — TextMate grammar duplicated between
+  `tools/vscode/syntaxes/` and `tools/jetbrains/src/main/resources/textmate/`
+  (canonical extraction is v0.33).
+- **Track D** — cosign + SBOM gated on `vars.PUBLISH_DOCKER ==
+  'true'` (off by default until Docker push lands in
+  `release.yml`); 2 placeholder SHAs in the Homebrew formula until
+  v0.32.0 binaries publish.
+- **Track F** — native-only `Case::from_trace` (JSON-lines
+  auto-route retired; the JSON-lines recorder variant ships with
+  a deprecation shim for one cycle).
 
 ## [0.31.0] - 2026-05-28
 

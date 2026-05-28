@@ -34,8 +34,9 @@ the type system:
 
 ## Install
 
-Pre-built binaries (Linux x86_64, macOS arm64, Windows x86_64) on
-the [Releases page](https://github.com/hassard0/Mighty/releases).
+Pre-built binaries (Linux x86_64/aarch64, macOS arm64/x86_64,
+Windows x86_64) on the
+[Releases page](https://github.com/hassard0/Mighty/releases).
 Or from source (MSRV: Rust 1.85):
 
 ```bash
@@ -154,10 +155,11 @@ Live docs site: <https://hassard0.github.io/Mighty/>
 
 ## Editor support
 
-- **VS Code** — extension at [`tools/vscode/`](tools/vscode/) (LSP + 44 snippets + cost status bar)
-- **JetBrains** (IntelliJ / RustRover / PyCharm / WebStorm / …) — plugin at [`tools/jetbrains/`](tools/jetbrains/)
+- **VS Code** — extension at [`tools/vscode/`](tools/vscode/) (LSP + 44 snippets + cost status bar + cost CodeLens + cost webview)
+- **JetBrains** (IntelliJ / RustRover / PyCharm / WebStorm / …) — plugin at [`tools/jetbrains/`](tools/jetbrains/) (Community + Ultimate; TextMate fallback for CE)
 - **Neovim / Helix / Zed** — tree-sitter grammar at [`tools/tree-sitter/`](tools/tree-sitter/)
 - **GitHub Actions** — reusable composite actions at [`tools/gh-actions/`](tools/gh-actions/)
+- **Debugging** — `mty dap` debug adapter wired into both VS Code and JetBrains
 
 ## Project layout
 
@@ -186,7 +188,7 @@ Live docs site: <https://hassard0.github.io/Mighty/>
 | `mty-macros` | declarative macros + `format!` + `@tool` builtin attributes |
 | `mty-cli` | the `mty` binary |
 
-Adjacent trees: `examples/` (36 canonical programs), `demos/`
+Adjacent trees: `examples/` (37 canonical programs), `demos/`
 (9 runnable apps with `smoke.sh`), `benches/` + `bench/swe/`
 (criterion + SWE-bench Verified harness), `selfhost/` (bootstrap
 in Mighty), `tests/conformance/` + `tests/web-smoke/` (159-case
@@ -227,9 +229,9 @@ current state of the language, not its history.
 ## Status
 
 Mighty is **pre-alpha**. Internal milestones tagged through v0.31.
-The toolchain is exercised by **2502 Rust tests** across 20 crates
+The toolchain is exercised by **2560 Rust tests** across 20 crates
 plus **490 Python 2nd-impl tests** plus **159 normative conformance
-cases** plus **23 self-host driver codegen tests** — combined **3174
+cases** plus **23 self-host driver codegen tests** — combined **3232
 tests, 0 failing**. All four LLM providers full; `std.swarm` votes
 consensus across them; `std.eval` regression-tests agents under
 byte-identical replay. All 9 demos pass `smoke.sh`; 3 web demos opt
