@@ -43,13 +43,9 @@ git clone https://github.com/hassard0/Mighty && cd Mighty
 cargo install --path crates/mty-cli
 ```
 
-Scaffold a new project:
+Or via package manager: `brew install hassard0/mighty/mty` (taps coming v0.32; see [`tools/distribution/`](tools/distribution/)).
 
-```bash
-mty new --template web-game my-game     # canvas-driven web game
-mty new my-cli                          # plain CLI binary
-mty serve --watch                       # dev server + hot reload
-```
+Scaffold a new project: `mty new <name>` (CLI), `mty new --template web-game <name>` (canvas), `mty serve --watch` (dev server + hot reload).
 
 ## Hello, Mighty
 
@@ -156,6 +152,13 @@ Live docs site: <https://hassard0.github.io/Mighty/>
 - [FAQ](docs/faq.md)
 - [Contributing](docs/contributing.md)
 
+## Editor support
+
+- **VS Code** — extension at [`tools/vscode/`](tools/vscode/) (LSP + 44 snippets + cost status bar)
+- **JetBrains** (IntelliJ / RustRover / PyCharm / WebStorm / …) — plugin at [`tools/jetbrains/`](tools/jetbrains/)
+- **Neovim / Helix / Zed** — tree-sitter grammar at [`tools/tree-sitter/`](tools/tree-sitter/)
+- **GitHub Actions** — reusable composite actions at [`tools/gh-actions/`](tools/gh-actions/)
+
 ## Project layout
 
 20-crate Rust workspace:
@@ -223,23 +226,18 @@ current state of the language, not its history.
 
 ## Status
 
-Mighty is **pre-alpha**. Internal milestones tagged through v0.30.
+Mighty is **pre-alpha**. Internal milestones tagged through v0.31.
 The toolchain is exercised by **2502 Rust tests** across 20 crates
 plus **490 Python 2nd-impl tests** plus **159 normative conformance
-cases** plus **23 self-host driver codegen tests** — combined
-**3174 tests, 0 failing**. All four LLM providers are full;
-`std.swarm` votes consensus across them under a shared dollar
-budget; `std.eval` regression-tests agents against provider panels
-under byte-identical replay. All 9 demos pass `smoke.sh`; 3 web
-demos opt-in to a headless-browser visual smoke; 2 agent demos
-opt-in to a mock-LLM end-to-end smoke. All KNOWN_ISSUES P1 are closed; P2 holds one open
-entry (#9 — demo 06 RAF-mid-frame phash flake; 4-of-5 success, no
-required-gate impact). Six CI jobs are
-required gates: `test` (cross-OS matrix), `test-minimal`, `msrv`,
-`clippy-strict` (pedantic + `-D warnings`), `bench`, `security`
-(`cargo audit --deny warnings`). Coverage at 63% direct / 99%
-any-harness (only `MT3012 DROP_IN_CONST_CONTEXT` uncovered, pending
-HIR `CONST_DECL` lowering).
+cases** plus **23 self-host driver codegen tests** — combined **3174
+tests, 0 failing**. All four LLM providers full; `std.swarm` votes
+consensus across them; `std.eval` regression-tests agents under
+byte-identical replay. All 9 demos pass `smoke.sh`; 3 web demos opt
+into headless-browser visual smoke; 2 agent demos into mock-LLM
+end-to-end smoke. KNOWN_ISSUES P1 closed; P2 holds one entry (#9 demo
+06 RAF-mid-frame phash flake; 4-of-5 success). Six required CI gates:
+`test`, `test-minimal`, `msrv`, `clippy-strict`, `bench`, `security`.
+Coverage 63% direct / 99% any-harness (only `MT3012` uncovered).
 
 **There is no released GA binary yet.** Pre-built tagged binaries
 ship on every release; treat the language as unstable; please file

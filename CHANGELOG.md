@@ -9,35 +9,98 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- v0.31 candidates (rolled up from all 5 v0.30 tracks):
-  - **Track A** — `Tainted[T]` in trait-impl dispatch (per-trait
-    `#[taint_transparent]` opt-in); MT4099 ariadne label
-    improvements pointing at the first propagation site through
-    third-party-crate struct fields; `@untainted` decorator for
-    exhaustively-analysed fn returns.
-  - **Track B** — fire the SMOKE run against `ANTHROPIC_API_KEY`
-    and publish the real numbers; multi-model rerun
-    (`openai:gpt-5` + `gemini:gemini-2.0-flash`); full Verified
-    set under `make bench-full`; token-efficiency targets for
-    high-cost PASS rows.
-  - **Track C** — Demo 10 (browser operator) with cross-platform
-    headless display treated as the real problem; OpenAI
-    `computer_use` tool-block mirror; `Sandbox::deny_files`
-    file-level deny rules.
-  - **Track D** — OTel Collector pipeline hardening (sampling,
-    batching, retries); per-trace budget alerting hook;
-    `mty inspect --cost --by-agent`.
-  - **Track E** — `mty test --eval --watch` for inner-loop work;
-    suite-level cost cap via frontmatter `max_cost_usd`; score
-    histogram on `min_score` failure.
-  - **Cross-cutting** — tainted-flow through `std.observe` so the
-    local SQLite store can redact sensitive fields per-observation.
-  - v0.30 carry-overs from v0.29 Track F still relevant:
-    `Member::ask` structured `tool_uses` return; `ReplayDriver::replay_all`
-    interleaved with `with_provider`; recorder integration into
-    `Member::ask` via `LlmProvider` trait at the trait boundary.
-  There is **no remaining Post-v1.0 backlog** — only RFC comment
-  windows stand between current main and v1.0 GA.
+v0.32 candidates (rolled up from all 5 v0.31 tracks):
+
+- **Track 1 — tree-sitter** — `injections.scm` recognises
+  `// LANG: <name>` hint comments; `locals.scm` covers
+  protocol-method scopes + agent state field references;
+  `tags.scm` splits `impl Foo for Bar` blocks per-method;
+  format-string interpolation sub-grammar for `{name}` /
+  `{name:fmt}`; external scanner emitting virtual
+  newline-as-separator for match-arm bodies without trailing
+  commas; coordinate `@type.builtin.tainted` capture with theme
+  authors.
+- **Track 2 — VS Code** — DAP debug adapter (`mty dap`);
+  tree-sitter highlights layered in via semantic-token channel;
+  inline `mty inspect --cost` side-panel webview; per-file cost
+  overlay via CodeLens at `@tool` / `swarm(...)` sites; trace
+  replay UI for `.mty-trace` files.
+- **Track 3 — JetBrains** — TextMate-grammar fallback for
+  Community editions (LSP-less fallback for non-Ultimate IDEs);
+  tree-sitter grammar binding via the IntelliJ Platform Tree-Sitter
+  API; cost tool window graph view.
+- **Track 4 — distribution** — release-time workflow that
+  re-templates every manifest with the new version + SHAs and
+  opens publish PRs (one job per channel); publish
+  `x86_64-apple-darwin` + `aarch64-unknown-linux-gnu` binaries
+  from `release.yml`; spin up `hassard0/asdf-mty`; submit `mty`
+  to homebrew-core; cosign-sign Docker images + SBOMs; strict-mode
+  snap.
+- **Track 5 — GH Actions** — PR auto-comment with cost delta from
+  `bench-smoke`; `mty-explain` action wrapping `mty explain
+  MTxxxx`; native binary cache simplification once `release.yml`
+  switches to a flat-layout archive; add `arm64` Linux +
+  `x86_64` macOS when those targets ship again; auto-pin
+  example via `dependabot.yml`.
+- **Cross-cutting** — single `tools/` README indexing all five
+  subfolders.
+
+The v1.0 freeze-gate is unchanged: 8 RFC comment windows opened
+2026-05-26, earliest close 2026-06-09 (RFC-005), latest close
+2026-07-25 (RFC-002 + RFC-006). Proposed v1.0 freeze date
+2026-09-01; earliest tag 2026-07-26. There is **no remaining
+Post-v1.0 backlog**.
+
+## [0.31.0] - 2026-05-28
+
+**Mighty v0.31 — the DX release. A tree-sitter grammar that
+cascades into Neovim/Helix/Zed/GitHub linguist, a VS Code
+extension with a real cost status bar, a JetBrains plugin
+covering 11 IDEs, every install path templated (Homebrew + Scoop
++ winget + Docker + devcontainer + mise + snap), and a reusable
+GitHub Actions library that drops Mighty into anyone's CI in
+three lines.** Five tracks land in parallel under disjoint
+subfolders of the new `tools/` tree. Zero Rust source changes —
+`cargo test` count holds at 2502; conformance + clippy + fmt +
+audit + the 9-demo smoke sweep are all green pre and post.
+
+### Added — Developer Experience
+- **Track 1** — tree-sitter grammar under `tools/tree-sitter/`
+  (highlights + locals + indents + injections + tags;
+  36/36 corpus examples parse); cascades into Neovim, Helix,
+  Zed, GitHub linguist.
+- **Track 2** — VS Code extension under `tools/vscode/` (LSP
+  wiring, 44 snippets, 8 palette commands, real cost status bar
+  reading the v0.30 `std.observe` SQLite; `.vsix` builds via
+  `npm run compile && vsce package`).
+- **Track 3** — JetBrains plugin under `tools/jetbrains/`
+  (gradle wrapper bundled; 4 actions; Mighty Cost tool window;
+  11 IDE compatibility entries; LSP features require Ultimate-tier
+  IDEs — Community editions get the plugin without LSP-driven
+  features, with a TextMate fallback queued for v0.32).
+- **Track 4** — distribution manifests under
+  `tools/distribution/` (Homebrew formula, Scoop manifest,
+  winget manifests, Dockerfile + docker-compose example,
+  devcontainer.json, mise plugin stub, snap snapcraft.yaml — all
+  SHA256-pinned to the v0.31.0 binaries).
+- **Track 5** — reusable GitHub Actions under
+  `tools/gh-actions/` (5 composite actions:
+  `setup-mty` / `mty-check` / `mty-test` / `mty-test-eval` /
+  `mty-bench-smoke`; 3 example workflows:
+  `basic-check.yml` / `full-ci.yml` / `nightly-eval.yml`).
+
+### Documentation
+- README gains an "Editor support" section linking the new
+  `tools/{vscode,jetbrains,tree-sitter,gh-actions}/` subfolders
+  and a one-line Homebrew install hint.
+
+### Unchanged
+- Cargo workspace tests: **2502** (identical to v0.30.1, no Rust
+  source changes).
+- All 9 demos pass `smoke.sh`; 2 demos additionally pass the
+  mock-LLM end-to-end smoke under `MTY_AGENT_SMOKE=1`.
+- All 6 CI workflows continue to gate: `test`, `test-minimal`,
+  `msrv`, `clippy-strict`, `bench`, `security`.
 
 ## [0.30.0] - 2026-05-27
 
