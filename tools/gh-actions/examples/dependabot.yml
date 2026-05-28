@@ -1,0 +1,31 @@
+# tools/gh-actions/examples/dependabot.yml
+#
+# Drop this at `.github/dependabot.yml` in your project to have
+# Dependabot auto-bump the `hassard0/Mighty/tools/gh-actions/*` action
+# refs to the latest Mighty release tag every week. GitHub Actions
+# doesn't have a built-in pinning protocol, so Dependabot is the
+# closest thing to a renovate-bot-style auto-bump.
+#
+# This config narrows Dependabot to JUST the Mighty actions; if your
+# repo also wants the standard "bump everything weekly" behaviour, add
+# a second `- package-ecosystem: github-actions` entry without the
+# `allow:` filter (Dependabot evaluates each entry independently).
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    # Workflow files live in `.github/workflows/`; `/` is the
+    # documented directory value Dependabot expects for GH Actions.
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Only auto-bump action refs that point at the Mighty composite
+    # library — leaves your other action refs (actions/checkout,
+    # dtolnay/rust-toolchain, etc.) untouched.
+    allow:
+      - dependency-name: "hassard0/Mighty/tools/gh-actions/*"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "mighty"

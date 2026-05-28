@@ -1,0 +1,379 @@
+name: "Mighty cost delta"
+description: >-
+  Compute the LLM cost delta between the PR branch and the base
+  branch and post a sticky comment with a per-provider breakdown.
+  Runs `mty test --eval --replay-only` (default) on each ref to
+  populate `~/.mty/observations.sqlite`, then diffs `mty inspect
+  --cost --json --since 1h` snapshots. In replay-only mode the
+  cost numbers are derived from RECORDED traces — they're a useful
+  regression signal, not a real-money spend delta. The comment makes
+  that distinction explicit so reviewers don't confuse them.
+  Requires the `mty` binary on `$PATH` — pair with
+  `hassard0/Mighty/tools/gh-actions/setup-mty`.
+author: "Mighty"
+branding:
+  icon: "dollar-sign"
+  color: "purple"
+
+inputs:
+  base-ref:
+    description: >-
+      Git ref to use as the cost baseline. Defaults to the pull
+      request's base ref. Set explicitly if you want to compare
+      against a custom branch (e.g. `release/v0.32`).
+    required: false
+    default: ${{ github.event.pull_request.base.ref }}
+  pr-ref:
+    description: >-
+      Git ref the PR is on. Defaults to `github.head_ref` (the PR's
+      branch). The workflow's checkout already has this ref; we
+      checkout `base-ref` separately and replay on both.
+    required: false
+    default: ${{ github.head_ref }}
+  replay-only:
+    description: >-
+      When `true` (default), runs the eval suite with `--replay-only`
+      — deterministic and free, but cost numbers are from recorded
+      traces. Set `false` to make real LLM calls on both refs
+      (expensive; requires an API key).
+    required: false
+    default: "true"
+  manifest-dir:
+    description: >-
+      Override the `--manifest-dir` passed to `mty test --eval`.
+      Default empty (auto-discover from the working directory).
+    required: false
+    default: ""
+  comment-style:
+    description: >-
+      `sticky` (default) updates a single PR comment in-place by
+      matching the `Mighty cost delta` marker (via
+      `peter-evans/create-or-update-comment@v4`). `new-comment`
+      posts a fresh comment every run.
+    required: false
+    default: "sticky"
+  fail-on-increase-percent:
+    description: >-
+      When non-empty, fail the action if the total cost grew by more
+      than this percent (e.g. `50` => fail when delta > +50%). Empty
+      string (default) never fails on cost grounds — comment-only.
+    required: false
+    default: ""
+  github-token:
+    description: >-
+      Token for posting the PR comment. Defaults to the auto-injected
+      `GITHUB_TOKEN`. Forks won't have `pull-requests: write`; on
+      `pull_request_target` you get a writable token.
+    required: false
+    default: ${{ github.token }}
+  working-directory:
+    description: "Run from this directory. Default: repo root."
+    required: false
+    default: "."
+
+outputs:
+  base-cost-cents:
+    description: "Total cost on the base ref, in cents (integer)."
+    value: ${{ steps.diff.outputs.base_cents }}
+  pr-cost-cents:
+    description: "Total cost on the PR ref, in cents (integer)."
+    value: ${{ steps.diff.outputs.pr_cents }}
+  delta-cents:
+    description: "Cost delta (PR - base) in cents. Can be negative."
+    value: ${{ steps.diff.outputs.delta_cents }}
+  delta-percent:
+    description: >-
+      Percent change `(pr - base) / base * 100`, rounded to one
+      decimal. Empty string when base cost is zero.
+    value: ${{ steps.diff.outputs.delta_percent }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Sanity check tools
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        if ! command -v mty >/dev/null 2>&1; then
+          echo "mty not found on PATH — install setup-mty first" >&2
+          exit 1
+        fi
+        if ! command -v jq >/dev/null 2>&1; then
+          echo "jq not found on PATH — required for cost-delta JSON math" >&2
+          exit 1
+        fi
+        mty --version
+
+    - name: Resolve refs
+      id: refs
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        BASE_REF: ${{ inputs.base-ref }}
+        PR_REF: ${{ inputs.pr-ref }}
+      run: |
+        set -euo pipefail
+        if [ -z "${BASE_REF}" ]; then
+          echo "base-ref is empty — only valid in pull_request events" >&2
+          exit 1
+        fi
+        if [ -z "${PR_REF}" ]; then
+          PR_REF="$(git rev-parse --abbrev-ref HEAD)"
+        fi
+        # Remember the current ref so we can return to it later.
+        CURRENT="$(git rev-parse --abbrev-ref HEAD)"
+        if [ "${CURRENT}" = "HEAD" ]; then
+          CURRENT="$(git rev-parse HEAD)"
+        fi
+        echo "base_ref=${BASE_REF}" >> "$GITHUB_OUTPUT"
+        echo "pr_ref=${PR_REF}" >> "$GITHUB_OUTPUT"
+        echo "current_ref=${CURRENT}" >> "$GITHUB_OUTPUT"
+
+    - name: Replay on PR ref
+      id: pr_snapshot
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PR_REF: ${{ steps.refs.outputs.pr_ref }}
+        REPLAY_ONLY: ${{ inputs.replay-only }}
+        MANIFEST_DIR: ${{ inputs.manifest-dir }}
+      run: |
+        set -euo pipefail
+        echo "::group::PR ref (${PR_REF})"
+        git checkout "${PR_REF}" 2>/dev/null || git checkout -B "${PR_REF}" "origin/${PR_REF}"
+        # Use an isolated DB so the two replays don't bleed into each other.
+        DB="${RUNNER_TEMP}/mty-cost-pr.sqlite"
+        rm -f "${DB}"
+        export MTY_OBSERVE=1
+        export MTY_OBSERVE_DB="${DB}"
+        ARGS=("test" "--eval")
+        if [ -n "${MANIFEST_DIR}" ]; then
+          ARGS+=("--manifest-dir" "${MANIFEST_DIR}")
+        fi
+        if [ "${REPLAY_ONLY}" = "true" ]; then
+          ARGS+=("--replay-only")
+        fi
+        # Don't fail the cost-delta job if the eval suite itself errors;
+        # we still want to surface what cost data did make it into the DB.
+        ARGS+=("--no-strict")
+        echo "+ mty ${ARGS[*]}"
+        mty "${ARGS[@]}" || echo "(eval suite returned non-zero; continuing for cost snapshot)"
+        SNAP="${RUNNER_TEMP}/mty-cost-pr.json"
+        mty inspect --cost --json --since 1h --by provider --db "${DB}" > "${SNAP}"
+        echo "snapshot=${SNAP}" >> "$GITHUB_OUTPUT"
+        echo "::endgroup::"
+
+    - name: Replay on base ref
+      id: base_snapshot
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        BASE_REF: ${{ steps.refs.outputs.base_ref }}
+        REPLAY_ONLY: ${{ inputs.replay-only }}
+        MANIFEST_DIR: ${{ inputs.manifest-dir }}
+      run: |
+        set -euo pipefail
+        echo "::group::base ref (${BASE_REF})"
+        # Fetch + checkout the base ref. `actions/checkout` may have done
+        # a shallow clone; deepen if the rev isn't present locally.
+        if ! git rev-parse --verify "${BASE_REF}" >/dev/null 2>&1; then
+          git fetch --depth=1 origin "${BASE_REF}:${BASE_REF}" || \
+            git fetch origin "${BASE_REF}"
+        fi
+        git checkout "${BASE_REF}" 2>/dev/null || git checkout -B "${BASE_REF}" "origin/${BASE_REF}"
+        DB="${RUNNER_TEMP}/mty-cost-base.sqlite"
+        rm -f "${DB}"
+        export MTY_OBSERVE=1
+        export MTY_OBSERVE_DB="${DB}"
+        ARGS=("test" "--eval")
+        if [ -n "${MANIFEST_DIR}" ]; then
+          ARGS+=("--manifest-dir" "${MANIFEST_DIR}")
+        fi
+        if [ "${REPLAY_ONLY}" = "true" ]; then
+          ARGS+=("--replay-only")
+        fi
+        ARGS+=("--no-strict")
+        echo "+ mty ${ARGS[*]}"
+        mty "${ARGS[@]}" || echo "(eval suite returned non-zero; continuing for cost snapshot)"
+        SNAP="${RUNNER_TEMP}/mty-cost-base.json"
+        mty inspect --cost --json --since 1h --by provider --db "${DB}" > "${SNAP}"
+        echo "snapshot=${SNAP}" >> "$GITHUB_OUTPUT"
+        echo "::endgroup::"
+
+    - name: Restore PR ref
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PR_REF: ${{ steps.refs.outputs.pr_ref }}
+      run: |
+        set -euo pipefail
+        # Leave the workspace on the PR ref so any subsequent steps in
+        # the job operate on the PR's tree, not the base's.
+        git checkout "${PR_REF}" 2>/dev/null || git checkout -B "${PR_REF}" "origin/${PR_REF}"
+
+    - name: Compute delta
+      id: diff
+      shell: bash
+      env:
+        BASE_SNAP: ${{ steps.base_snapshot.outputs.snapshot }}
+        PR_SNAP: ${{ steps.pr_snapshot.outputs.snapshot }}
+        REPLAY_ONLY: ${{ inputs.replay-only }}
+      run: |
+        set -euo pipefail
+        # Join the two by-group arrays on `key` (provider:model), then
+        # compute per-row deltas + a totals row. Emit:
+        #   * `markdown` — the body of the PR comment
+        #   * `base_cents`, `pr_cents`, `delta_cents`, `delta_percent` —
+        #     step outputs for downstream gating
+        BODY="$(jq -nr \
+          --slurpfile base "${BASE_SNAP}" \
+          --slurpfile pr "${PR_SNAP}" \
+          --arg replay "${REPLAY_ONLY}" '
+          def fmt_cents(c): if c == 0 then "$0.00" else
+            (if c < 0 then "-" else "" end) +
+            "$" + (((c|fabs) / 100) | floor | tostring) +
+            "." + (((c|fabs) % 100) | tostring | if length == 1 then "0" + . else . end)
+          end;
+          def pct(b; p):
+            if b == 0 then "n/a" else
+              ((p - b) * 1000 / b | floor / 10 | tostring) + "%"
+            end;
+          def sign(c): if c >= 0 then "+" else "" end;
+          ($base[0] // {by_group: [], total_cost_cents: 0, call_count: 0}) as $B |
+          ($pr[0]   // {by_group: [], total_cost_cents: 0, call_count: 0}) as $P |
+          ([$B.by_group[]?  | {key, base: .cost_cents}] +
+           [$P.by_group[]?  | {key, pr: .cost_cents}])
+          | group_by(.key)
+          | map({
+              key: .[0].key,
+              base: ((map(.base // empty) | add) // 0),
+              pr:   ((map(.pr   // empty) | add) // 0)
+            })
+          | sort_by(.key)
+          | . as $rows |
+          ($B.total_cost_cents // 0) as $bt |
+          ($P.total_cost_cents // 0) as $pt |
+          ($pt - $bt) as $dt |
+          "## Mighty cost delta\n\n" +
+          "| Provider | Base | PR | Δ |\n" +
+          "|----------|------|----|----|\n" +
+          (
+            $rows | map(
+              "| `" + .key + "` | " + fmt_cents(.base) + " | " + fmt_cents(.pr) + " | "
+              + sign(.pr - .base) + fmt_cents(.pr - .base)
+              + " (" + sign(.pr - .base) + pct(.base; .pr) + ") |"
+            ) | join("\n")
+          ) +
+          "\n| **Total** | **" + fmt_cents($bt) + "** | **" + fmt_cents($pt)
+          + "** | **" + sign($dt) + fmt_cents($dt) + " (" + sign($dt) + pct($bt; $pt) + ")** |\n\n" +
+          (if $replay == "true" then
+            "_Cost figures are derived from **recorded traces** (`--replay-only`), not real LLM spend. " +
+            "Use them as a regression signal: a 20% jump means the recorded prompts grew, " +
+            "not that the merge will cost $X more in production._\n\n"
+          else
+            "_Cost figures are from **live LLM calls** on both refs. Real spend, real numbers._\n\n"
+          end) +
+          "Run details: `mty test --eval" +
+          (if $replay == "true" then " --replay-only" else "" end) +
+          "` then `mty inspect --cost --json --since 1h`. " +
+          "Base: " + ($B.call_count | tostring) + " call(s); " +
+          "PR: " + ($P.call_count | tostring) + " call(s)."
+        ')"
+        # Persist body to a file so the comment step can pass it via path.
+        BODY_FILE="${RUNNER_TEMP}/mty-cost-comment.md"
+        printf '%s\n' "${BODY}" > "${BODY_FILE}"
+        echo "body_file=${BODY_FILE}" >> "$GITHUB_OUTPUT"
+        # Totals + delta in cents (integers; safe for shell arithmetic).
+        BASE_CENTS="$(jq -r '.total_cost_cents // 0' "${BASE_SNAP}")"
+        PR_CENTS="$(jq -r '.total_cost_cents // 0' "${PR_SNAP}")"
+        DELTA_CENTS=$(( PR_CENTS - BASE_CENTS ))
+        if [ "${BASE_CENTS}" -eq 0 ]; then
+          DELTA_PCT=""
+        else
+          # one-decimal percent without bc (bc isn't on all runners).
+          DELTA_PCT="$(awk -v p="${PR_CENTS}" -v b="${BASE_CENTS}" \
+            'BEGIN { printf("%.1f", (p - b) * 100 / b) }')"
+        fi
+        echo "base_cents=${BASE_CENTS}" >> "$GITHUB_OUTPUT"
+        echo "pr_cents=${PR_CENTS}" >> "$GITHUB_OUTPUT"
+        echo "delta_cents=${DELTA_CENTS}" >> "$GITHUB_OUTPUT"
+        echo "delta_percent=${DELTA_PCT}" >> "$GITHUB_OUTPUT"
+        # Echo to job log too — handy when comments don't get posted (forks).
+        echo "::group::Cost delta comment body"
+        cat "${BODY_FILE}"
+        echo "::endgroup::"
+
+    - name: Read comment body
+      id: body
+      if: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_target' }}
+      shell: bash
+      env:
+        BODY_FILE: ${{ steps.diff.outputs.body_file }}
+      run: |
+        set -euo pipefail
+        # Multi-line outputs need a unique delimiter — see GH Actions docs.
+        DELIM="EOF_$(date +%s)_$RANDOM"
+        {
+          echo "body<<${DELIM}"
+          cat "${BODY_FILE}"
+          echo "${DELIM}"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Find existing sticky comment
+      id: find_sticky
+      if: >-
+        inputs.comment-style == 'sticky' &&
+        (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+      uses: peter-evans/find-comment@v3
+      with:
+        issue-number: ${{ github.event.pull_request.number }}
+        comment-author: "github-actions[bot]"
+        body-includes: "Mighty cost delta"
+        token: ${{ inputs.github-token }}
+
+    - name: Upsert sticky comment
+      if: >-
+        inputs.comment-style == 'sticky' &&
+        (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+      uses: peter-evans/create-or-update-comment@v4
+      with:
+        comment-id: ${{ steps.find_sticky.outputs.comment-id }}
+        issue-number: ${{ github.event.pull_request.number }}
+        body: ${{ steps.body.outputs.body }}
+        edit-mode: replace
+        token: ${{ inputs.github-token }}
+
+    - name: Post new comment
+      if: >-
+        inputs.comment-style == 'new-comment' &&
+        (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+      uses: peter-evans/create-or-update-comment@v4
+      with:
+        issue-number: ${{ github.event.pull_request.number }}
+        body: ${{ steps.body.outputs.body }}
+        token: ${{ inputs.github-token }}
+
+    - name: Gate on cost increase
+      shell: bash
+      env:
+        DELTA_PCT: ${{ steps.diff.outputs.delta_percent }}
+        THRESHOLD: ${{ inputs.fail-on-increase-percent }}
+      run: |
+        set -euo pipefail
+        if [ -z "${THRESHOLD}" ]; then
+          echo "fail-on-increase-percent unset; not gating."
+          exit 0
+        fi
+        if [ -z "${DELTA_PCT}" ]; then
+          echo "base cost was zero; can't compute percent. Not gating."
+          exit 0
+        fi
+        # awk does float compare without needing bc.
+        OVER="$(awk -v d="${DELTA_PCT}" -v t="${THRESHOLD}" \
+          'BEGIN { print (d > t) ? "1" : "0" }')"
+        if [ "${OVER}" = "1" ]; then
+          echo "::error::Cost grew by ${DELTA_PCT}% (> ${THRESHOLD}% threshold)" >&2
+          exit 1
+        fi
+        echo "Cost delta ${DELTA_PCT}% within ${THRESHOLD}% threshold."
