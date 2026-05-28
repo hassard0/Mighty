@@ -1,5 +1,11 @@
 # compile_to_native
 
+> **Baseline from Mighty v0.6 (recorded 2026-05-24).** These numbers
+> have not been refreshed against v0.31. To run current measurements,
+> see [`benches/README.md`](../../benches/README.md) and the
+> per-impl build steps in
+> [`benches/compile_to_native/README.md`](../../benches/compile_to_native/README.md).
+
 **Workload:** end-to-end compile of a 1 002-line synthetic Mighty
 source (`synth_source(100)`) to a wasm-core module (release mode).
 We use the wasm-core backend, not native cranelift, because:

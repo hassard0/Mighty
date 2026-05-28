@@ -1,9 +1,14 @@
-# Methodology — Mighty v0.6 benchmarks
+# Methodology — Mighty cross-language microbenchmarks
 
-This document describes **how** the v0.6 benchmark numbers were
-collected and **what** the comparison rules are. It is the
-authoritative reference if you find a number on another page and want
-to know whether it's apples-to-apples.
+This document describes **how** the benchmark numbers under
+[`docs/benchmarks/`](index.md) were collected and **what** the
+comparison rules are. It is the authoritative reference if you find a
+number on another page and want to know whether it's apples-to-apples.
+
+The currently published numbers are a **v0.6 baseline** (see the
+callout at the top of each result page). The methodology itself —
+sample counts, statistics, comparator rules — is current and applies
+to any future rerun.
 
 ## What's measured
 
@@ -67,12 +72,14 @@ that mimics `sdust_runtime::Mailbox`. This means:
 
 | Tool | Version |
 |---|---|
-| Mighty | v0.6, this PR |
-| Rust | 1.95.0 (stable) |
+| Mighty | v0.6 (recorded baseline) |
+| Rust | 1.95.0 (pinned in `rust-toolchain.toml`, floor 1.85 for edition2024) |
 | Go | 1.22 (reference env) |
 | C++ | g++ 13 or clang++ 17 with `-O3 -std=c++20` |
 
 Pinned in each comparator's `Cargo.toml` / `go.mod` / `Makefile`.
+The Rust pin tracks the workspace's `rust-toolchain.toml`; bumping
+the workspace pin is the trigger to consider rerunning the suite.
 
 ### Where comparators ran
 

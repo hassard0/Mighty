@@ -1,5 +1,11 @@
 # wasm_size
 
+> **Baseline from Mighty v0.6 (recorded 2026-05-24).** These numbers
+> have not been refreshed against v0.31. To run current measurements,
+> see [`benches/README.md`](../../benches/README.md) and the
+> per-impl build steps in
+> [`benches/wasm_size/README.md`](../../benches/wasm_size/README.md).
+
 **Workload:** emit a 50-unit (~500-line) synthetic Mighty source as
 a wasm-core module, release mode, no Component-Model wrapper, no
 debug info. Record the byte size.

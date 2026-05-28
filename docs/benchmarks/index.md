@@ -1,14 +1,19 @@
-# Mighty v0.6 benchmarks
+# Mighty cross-language microbenchmark results
 
-This page is the canonical landing for the first **honest** measurement
-of Mighty performance against idiomatic C++, Rust, and Go. It
-addresses spec §0's headline claim — "faster than idiomatic C++ in
-targeted agent/backend/frontend workloads" — by putting real numbers
-behind every category.
+> **Last refreshed: v0.6 baseline (2026-05-24).** The recorded numbers
+> below were collected against Mighty v0.6 and have **not** been
+> rerun against the current release (v0.31). The comparator code in
+> `benches/` is current and ready to run on any host; the numbers
+> themselves are stale. To collect current measurements, see
+> [How to rerun](#how-to-rerun) below.
 
-The numbers below were recorded on `2026-05-24` on the host described
-under **Environment**. They are reproducible via the commands in
-**Reproducing**.
+This page is the canonical landing for the **language-level
+microbenchmarks** that put Mighty's performance in context against
+idiomatic C++, Rust, and Go.
+
+For the **agentic LLM benchmark** (SWE-bench Verified end-to-end
+issue-resolution harness), see [`bench/swe/`](../../bench/swe/README.md)
+instead — that's a different concern with a different cadence.
 
 ## Categories
 
@@ -21,9 +26,10 @@ under **Environment**. They are reproducible via the commands in
 | Compile to native | Build time for ~1 KLOC Mighty → wasm | [compile_to_native.md](compile_to_native.md) |
 | Wasm size | Output size for a 50-unit fixture | [wasm_size.md](wasm_size.md) |
 
-## Headline summary
+## Headline summary (v0.6 baseline)
 
-(all numbers are median over 20–30 runs on the host described below)
+(all numbers are median over 20–30 runs on the host described below;
+**not refreshed for v0.31**)
 
 | Category | Mighty v0.6 | Notes |
 |---|---|---|
@@ -34,54 +40,78 @@ under **Environment**. They are reproducible via the commands in
 | Compile 1 KLOC → wasm | 7.9 ms | wasm-core release |
 | Wasm size (50 units) | 2068 bytes | core module, no debug info |
 
-These are first-cut numbers. They are not yet a claim of being **faster
-than** C++/Rust/Go on every workload — see each category page for the
-honest interpretation against the cross-language comparators.
+These were first-cut numbers in v0.6. They are **not** a claim of
+being faster than C++/Rust/Go on every workload — see each category
+page for the honest interpretation against the cross-language
+comparators.
 
-## Environment
+## Environment (v0.6 baseline recording)
 
 | | |
 |---|---|
 | Host | Windows 11 Home 10.0.26200 |
 | CPU | (host's default, captured at bench time) |
 | RAM | (host's default, captured at bench time) |
-| Mighty | v0.6 prep, commit `a678e41+` (this PR) |
+| Mighty | v0.6 prep, commit `a678e41+` |
 | Toolchain | rustc 1.95.0 (cargo 1.95.0) |
 | Bench harness | criterion 0.5 + `mty-bench-runner` |
 
-C++/Go comparators were **not run** on this host (the toolchains are
-not installed). Their impls ship as code; their numbers come from the
-reference environment recorded in `methodology.md`.
+C++/Go comparators were **not run** on this host (the toolchains were
+not installed at v0.6 recording time). Their impls ship as code; the
+methodology page describes the reference environment.
 
-## Reproducing
+## How to rerun
+
+The comparator code in `benches/` is **current** — it builds and
+runs against today's toolchains. Only the recorded numbers on this
+page are stale.
+
+To run on your own hardware:
 
 ```bash
-# Mighty impl, criterion harness (full HTML report):
+# Cross-language comparators (auto-detects available toolchains):
+./benches/run.sh
+
+# Rust comparators only (no Go or C++ toolchain required):
+./benches/run.sh --rust
+
+# Everything (requires rust + go + clang + emcc):
+./benches/run.sh --all
+```
+
+And the Mighty side:
+
+```bash
+# Criterion harness (full HTML report under target/criterion/):
 cargo bench -p mty-bench
 
-# Mighty impl, lightweight CLI summary + JSON:
+# Lightweight CLI summary + JSON for downstream tooling:
 cargo build --release -p mty-bench
 ./target/release/mty-bench-runner --all --iters 30 \
     --out target/bench-results.json
-
-# Cross-language comparators (auto-detect what's installed):
-./benches/run.sh
 ```
 
 See [methodology.md](methodology.md) for what's measured, what's
 *not* measured (warmup, cold caches, etc.), and how the comparator
 impls were chosen.
 
+The per-category READMEs under `benches/<category>/README.md`
+describe each impl's build command in detail.
+
 ## Honesty contract
 
 - If Mighty loses, the category page says so explicitly.
-- Each loss is tagged with a v0.7+ optimisation issue.
+- Each loss was tagged with an optimisation issue at recording time.
 - Comparator numbers from a reference environment are clearly
   labelled "(Reference env)" so they're never confused with on-host
   numbers.
+- We do **not** retroactively edit recorded numbers to flatter a
+  later release. The v0.6 baseline stays as v0.6 until somebody
+  reruns the suite on a documented host and publishes a refresh.
 
 Interpretation calls (why we picked each comparator, what's included
-vs excluded) are in `BENCHMARKS_V0_6_NOTES.md` at the repo root.
+vs excluded) for the original baseline are in
+`BENCHMARKS_V0_6_NOTES.md` at the repo root.
 
 ## v0.8 update — performance backlog status
 
@@ -95,3 +125,9 @@ vs excluded) are in `BENCHMARKS_V0_6_NOTES.md` at the repo root.
 | Wasm size               | OUT-OF-SCOPE | (no perf-swarm optimisations in v0.8)                    |
 
 v0.8 interpretation log: `BENCHMARKS_V0_8_NOTES.md`.
+
+## Related benchmarks
+
+- [`bench/swe/`](../../bench/swe/README.md) — Mighty SWE-bench
+  Verified harness. End-to-end issue-resolution benchmark for the
+  agent framework, completely separate from these microbenchmarks.

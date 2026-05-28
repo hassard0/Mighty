@@ -1,5 +1,11 @@
 # agent_send_latency
 
+> **Baseline from Mighty v0.6 (recorded 2026-05-24).** These numbers
+> have not been refreshed against v0.31. To run current measurements,
+> see [`benches/README.md`](../../benches/README.md) and the
+> per-impl build steps in
+> [`benches/agent_send_latency/README.md`](../../benches/agent_send_latency/README.md).
+
 **Workload:** one fire-and-forget message between sender and receiver
 on the same tokio runtime, mailbox capacity 8. Excludes mailbox setup
 cost (measured *inside* the timed region; same for all comparators).
