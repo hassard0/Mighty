@@ -24,6 +24,12 @@ members = [
     "crates/mty-cli",
 ]
 
+# v0.30 Track B: the SWE-bench harness is its own crate with heavy
+# deps (reqwest, parquet readers) that would slow every workspace
+# build. It lives at `bench/swe/` and is built independently:
+#   cd bench/swe && cargo build --release
+exclude = ["bench/swe"]
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"

@@ -1,0 +1,15 @@
+# Per-run raw JSON reports — the published summary lives at
+# `dev/history/benchmarks/swe-bench-smoke-v0.30.md` and IS committed.
+results/*.json
+
+# Cached dataset rows fetched from HuggingFace.
+data/instances/
+
+# Ephemeral git checkouts created during a run.
+.swe-work/
+checkouts/
+
+# Cargo
+target/
+# Cargo.lock IS committed — this is a binary crate and we want
+# reproducible benchmark runs across machines.

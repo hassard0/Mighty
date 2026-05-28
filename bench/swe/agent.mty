@@ -1,0 +1,125 @@
+// bench/swe/agent.mty — SWE-bench Mighty agent (v0.30 source spec).
+//
+// This is the **Mighty source-of-truth** for the SWE-bench harness's
+// agent. The actual run-time driver lives in `src/agent.rs` because
+// the harness ships as a standalone Rust crate (so it can build
+// without the full Mighty workspace). When the v0.31 attribute-macro
+// pass lifts `@tool` into auto-generated companions, the Rust loop
+// becomes a thin shim around the lowered `.mty`.
+//
+// What this file documents:
+//
+//   * The six capability-typed tools the agent exposes to Claude.
+//   * The ReAct loop shape: receive `Solve(problem, failing_tests)`,
+//     iterate tool calls until `submit` or budget exhaustion.
+//   * The capability narrowing (every `@tool` declares its cap; the
+//     runtime narrows on workspace-root + selector).
+//
+// Cross-references:
+//
+//   * `src/agent.rs`   — Rust driver that runs in v0.30.
+//   * `src/tools.rs`   — Rust impls of every tool body.
+//   * `src/main.rs`    — harness entry point.
+//   * `SMOKE_PROBLEMS.md` — the 10-problem curated subset.
+//   * `docs/internals/benchmarks.md` — methodology.
+
+package swe_agent
+
+use std.fs
+use std.process
+
+// ---------------------------------------------------------------------
+// Tool surface.
+//
+// v0.30: the `@tool("desc", cap: <cap>)` attribute is parser-wired but
+// the macro-pass companion-generation lands in v0.31 — until then
+// these fns serve as the source-spec the Rust driver mirrors 1:1.
+// ---------------------------------------------------------------------
+
+// @tool("Read a file relative to the repo root", cap: fs.read)
+// cap narrowed at run time to `fs.read(<workspace_root>)`.
+fn read_file(path: Str) -> Str {
+  std.fs.read_to_string(path)
+}
+
+// @tool("Write a file relative to the repo root", cap: fs.write)
+// cap narrowed at run time to `fs.write(<workspace_root>)`.
+fn write_file(path: Str, content: Str) -> Str {
+  std.fs.write(path, content)
+  format!("wrote {} bytes to {}", content.len(), path)
+}
+
+// @tool("List a directory relative to the repo root", cap: fs.read)
+fn list_dir(path: Str) -> Str {
+  let entries = std.fs.read_dir(path)
+  entries.join("\n")
+}
+
+// @tool("Apply a unified-diff patch to the workspace", cap: fs.write)
+// Equivalent to `git apply` — confined to `<workspace_root>`.
+fn apply_patch(patch: Str) -> Str {
+  std.fs.write(".mty-patch.diff", patch)
+  let r = std.process.run("git", ["apply", "--whitespace=nowarn", ".mty-patch.diff"])
+  std.fs.remove_file(".mty-patch.diff")
+  if r.status == 0 {
+    "patch applied"
+  } else {
+    format!("git apply failed: {}", r.stderr)
+  }
+}
+
+// @tool("Run pytest with a selector and return its output",
+//       cap: cmd.exec("pytest"))
+// Time-capped at 90s by the runtime; selectors are pytest expressions
+// or paths — the cap forbids any other binary.
+fn run_tests(selector: Str) -> Str {
+  let r = std.process.run("python", ["-m", "pytest", "-x", "--tb=short", selector])
+  format!("exit: {}\n{}", r.status, r.stdout)
+}
+
+// @tool("Signal the agent believes the patch is complete")
+// Pure marker — no capability needed.
+fn submit(summary: Str) -> Str {
+  format!("submission: {}", summary)
+}
+
+// ---------------------------------------------------------------------
+// Protocol the agent answers.
+// ---------------------------------------------------------------------
+
+// `failing_tests` is a newline-joined `Str` (the v0.30 parser doesn't
+// accept `Vec<Str>` inside protocol arg lists yet — v0.31 follow-up).
+// The Rust driver splits on `\n` before passing it down.
+protocol SweAgentInput {
+  Solve(problem: Str, failing_tests: Str) -> Str
+}
+
+// ---------------------------------------------------------------------
+// The agent. Receives an LLM client handle as a capability-style ctor
+// arg; the ReAct loop is the Rust driver's responsibility for v0.30.
+// This file pins the surface shape so the v0.31 macro-pass + parser
+// changes have a stable contract to lower against.
+// ---------------------------------------------------------------------
+
+agent SweAgent(client): SweAgentInput {
+  on Solve(problem, failing_tests) {
+    // The v0.30 Rust driver implements this loop verbatim. See
+    // `bench/swe/src/agent.rs::run_agent` for the line-by-line port.
+    //
+    // Pseudocode:
+    //
+    //   let history = [user(problem + failing_tests)]
+    //   loop {
+    //     let resp = client.messages(model, system_prompt, history, tools)
+    //     history.push(assistant(resp.content))
+    //     for tool_use in resp.tool_uses() {
+    //       let result = dispatch(tool_use)        // capability-checked
+    //       history.push(user(tool_result(result)))
+    //       if tool_use.name == "submit" { return result.summary }
+    //     }
+    //     if budget_exhausted() { return "BUDGET_EXHAUSTED" }
+    //   }
+    log("evt:swe_agent:solve")
+    "delegated to Rust driver in v0.30"
+  }
+}
