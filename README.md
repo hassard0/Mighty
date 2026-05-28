@@ -67,6 +67,7 @@ mty run   src/main.mty
 | `mty inspect`    | live agent snapshot via the runtime control socket                 |
 | `mty replay`     | re-run a recorded trace; `--byte-identical` strict mode            |
 | `mty reload`     | swap an agent's wasm without losing its state                      |
+| `mty test`       | run unit tests; `--eval` runs `*.eval.mty` suites against a panel  |
 | `mty explain`    | one-paragraph explanation of any `MTxxxx` diagnostic code          |
 
 ## Features

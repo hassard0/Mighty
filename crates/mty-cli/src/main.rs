@@ -225,6 +225,46 @@ enum Cmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Mighty test runner. Discovers `tests/*.test.mty` (legacy bare
+    /// `tests/*.mty` is still accepted) and dispatches each through
+    /// the slice-6 SIR interpreter, the same shape the standalone
+    /// `mty-test` binary has served since v0.2.
+    ///
+    /// v0.30 Track E: pass `--eval` to discover `**/*.eval.mty`
+    /// instead — frontmatter-driven LLM-eval suites that pin a panel
+    /// of providers and assert per-cell scores against a configurable
+    /// threshold. See `docs/internals/eval.md`.
+    Test {
+        /// Override the discovery root. Defaults to the cwd.
+        #[arg(long)]
+        manifest_dir: Option<std::path::PathBuf>,
+        /// Run eval suites (`**/*.eval.mty`) instead of unit tests.
+        #[arg(long)]
+        eval: bool,
+        /// Eval mode: fail the run if any cell errored (default).
+        #[arg(long)]
+        strict: bool,
+        /// Eval mode: opposite of `--strict` — error cells are logged
+        /// but don't fail the run. Useful for offline / no-API-key
+        /// dev so a missing `ANTHROPIC_API_KEY` doesn't break the
+        /// inner loop.
+        #[arg(long, conflicts_with = "strict")]
+        no_strict: bool,
+        /// Eval mode: skip the live-dispatch path; run only against
+        /// previously recorded traces (deterministic-replay
+        /// equivalence check — free + fast for CI).
+        #[arg(long)]
+        replay_only: bool,
+        /// Eval mode: read provider-set + threshold from `[eval.ci]`
+        /// in `mighty.toml` instead of the per-file frontmatter.
+        #[arg(long)]
+        ci: bool,
+        /// Output format: `pretty` (default) or `json`. JSON emits one
+        /// object per suite + a summary object on its own line so CI
+        /// dashboards can read incrementally.
+        #[arg(long, default_value = "pretty")]
+        format: String,
+    },
     /// Render package documentation extracted from `///` doc comments.
     ///
     /// With no flags, prints a Go-style summary of the package's public
@@ -377,6 +417,32 @@ fn main() {
             diff,
             turn,
         }),
+        Cmd::Test {
+            manifest_dir,
+            eval,
+            strict,
+            no_strict,
+            replay_only,
+            ci,
+            format,
+        } => {
+            let fmt =
+                cmd::test::OutputFormat::parse(&format).unwrap_or(cmd::test::OutputFormat::Pretty);
+            // `--strict` is the default; only flip when --no-strict
+            // was passed. (Both flags conflict in clap above so we
+            // never see both set at once.) `strict` is accepted as a
+            // no-op flag for explicit/scripted invocations.
+            let _ = strict;
+            let strict_flag = !no_strict;
+            cmd::test::run(cmd::test::TestArgs {
+                manifest_dir,
+                eval,
+                strict: strict_flag,
+                replay_only,
+                ci,
+                format: fmt,
+            })
+        }
         Cmd::Reload {
             agent_type,
             from,
