@@ -272,6 +272,27 @@ enum Cmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// v0.33 T5 — `mty agent`: structured JSON-over-stdio protocol
+    /// that lets LLM agents drive every other `mty` subcommand
+    /// without scraping human-rendered output. See
+    /// `docs/internals/agent-mode-protocol.md` for the wire format
+    /// and `docs/reference/cli/mty-agent.md` for human-facing CLI
+    /// knobs.
+    Agent {
+        /// Read exactly one JSON request from stdin, run it, exit.
+        #[arg(long)]
+        single_shot: bool,
+        /// Transport: `stdio` (default), `http` (v0.34 stub), `unix`
+        /// (v0.34 stub).
+        #[arg(long, default_value = "stdio")]
+        transport: String,
+        /// HTTP transport: bind port. Defaults to 8889.
+        #[arg(long, default_value_t = 8889)]
+        port: u16,
+        /// Unix transport: socket path.
+        #[arg(long)]
+        socket: Option<std::path::PathBuf>,
+    },
     /// Mighty test runner. Discovers `tests/*.test.mty` (legacy bare
     /// `tests/*.mty` is still accepted) and dispatches each through
     /// the slice-6 SIR interpreter, the same shape the standalone
@@ -506,6 +527,29 @@ fn main() {
                 replay_only,
                 ci,
                 format: fmt,
+            })
+        }
+        Cmd::Agent {
+            single_shot,
+            transport,
+            port,
+            socket,
+        } => {
+            let transport_parsed = match cmd::agent::Transport::parse(&transport) {
+                Some(t) => t,
+                None => {
+                    eprintln!(
+                        "mty agent: unknown --transport `{}` (expected stdio, http, unix)",
+                        transport
+                    );
+                    std::process::exit(2);
+                }
+            };
+            cmd::agent::run(cmd::agent::AgentArgs {
+                single_shot,
+                transport: transport_parsed,
+                http_port: port,
+                unix_socket: socket,
             })
         }
         Cmd::Reload {

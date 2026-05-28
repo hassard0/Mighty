@@ -104,6 +104,68 @@ burning real API tokens.
 | B — `@tool` + `std.mcp` | `@tool("desc", cap: fs.read) fn read_doc(...)` | tool fns at the top of the file; cap-set enforced by `mty_stdlib::mcp::CapabilitySet` |
 | C — `std.memory` | `VectorStore.local`, `Episodic.in_memory`, `Working.new` | constructed in `main`, passed to the agent as ctor args |
 
+## Agent-mode usage (v0.33 T5)
+
+The v0.33 T5 `mty agent` CLI exposes every other `mty` subcommand
+over a structured JSON-over-stdio protocol. Once you've poked at the
+research agent by hand, this is how an LLM agent (or CI script,
+or VS Code panel) would drive it without scraping human output.
+
+### One-shot check
+
+```bash
+echo '{"op":"check","path":"demos/07_research_agent/src/main.mty"}' \
+  | ./target/debug/mty agent --single-shot
+```
+
+Streams one `kind:"envelope"` per diagnostic + a `kind:"result"`
+summary + a `kind:"done"` terminator.
+
+### One-shot explain a code
+
+```bash
+echo '{"op":"explain","code":"MT4099"}' \
+  | ./target/debug/mty agent --single-shot
+```
+
+### Interactive session — check then fix
+
+```bash
+./target/debug/mty agent <<'EOF'
+{"op":"check","path":"demos/07_research_agent/src/main.mty"}
+{"op":"fix","code":"MT4099","alternative":0,"write":false}
+{"op":"halt"}
+EOF
+```
+
+The loop maintains in-memory state: after the `check` op, the next
+`fix` op already knows which file + which envelope to target.
+`write:false` (the default) previews the diff via `kind:"patch"`
+without mutating the file; flip to `write:true` to apply.
+
+### Substring search
+
+```bash
+echo '{"op":"find","query":"VectorStore","root":"demos/07_research_agent","top":5}' \
+  | ./target/debug/mty agent --single-shot
+```
+
+Returns up to 5 `(file, line, text)` hits in `result.hits`. v0.34
+wires this to the v0.33 T1 RAG index.
+
+### Run the program
+
+```bash
+echo '{"op":"run","path":"demos/07_research_agent/src/main.mty"}' \
+  | ./target/debug/mty agent --single-shot
+```
+
+### Spec + reference
+
+* Wire format: `docs/internals/agent-mode-protocol.md`
+* Human-facing CLI: `docs/reference/cli/mty-agent.md`
+* Structured-diagnostics foundation (T4): `docs/internals/diagnostic-envelopes.md`
+
 ## Prior demos for context
 
 | Demo | Theme | What it proved |

@@ -1,3 +1,7 @@
+// v0.33 T5 — `mty agent`: structured JSON-over-stdio protocol for
+// LLM-agent consumption of every other mty subcommand. See
+// `docs/internals/agent-mode-protocol.md`.
+pub mod agent;
 pub mod build;
 pub mod check;
 // v0.32 Track A — `mty dap`: Debug Adapter Protocol server over stdio.
