@@ -1,21 +1,36 @@
 # Getting Started
 
-This page walks through installing the Mighty compiler, scaffolding a
-package, running your first program, writing your first agent, and
-running your first test.
+This page walks through installing the Mighty compiler, scaffolding
+a package, running your first program, writing your first agent,
+running your first test, and pointing you at the next read.
 
-> **Pre-alpha warning.** Mighty is at **v0.10** (toolchain) tracking
-> spec **v1.0-RC2**. The language surface is frozen for v1.0 but
-> there is no binary release yet, no stability guarantee on internal
-> APIs, and several DEFER-V1.1 amendments (RFCs 001..006) are still
-> open. Treat it as "ready to play with", **not** "ready for
-> production".
+> **Pre-alpha status.** Mighty is at **v0.30.1** (toolchain)
+> tracking spec **v1.0-RC5**. The language surface is feature-
+> complete for v1.0 and frozen pending the eight open RFC comment
+> windows. Pre-built binaries ship on every release; treat the
+> language as unstable and please file issues for everything that
+> surprises you.
 
 ## 1. Install
 
-Build the compiler from source with a recent Rust toolchain.
+### Pre-built binaries
 
-- **MSRV:** Rust 1.85 (slice 8 bumped the MSRV).
+The fastest path. Releases page:
+<https://github.com/hassard0/Mighty/releases>. Tarballs for Linux
+x86_64, macOS arm64, and Windows x86_64.
+
+```bash
+# Linux / macOS — replace <v> with the latest tag (e.g. v0.30.1).
+curl -L https://github.com/hassard0/Mighty/releases/download/<v>/mty-<v>-linux-x86_64.tar.gz | tar xz
+sudo mv mty /usr/local/bin/
+mty --version
+```
+
+### From source
+
+For contributors or platforms without a binary release.
+
+- **MSRV:** Rust 1.85.
 - **Platforms:** Linux, macOS (Intel + Apple Silicon), Windows.
 - **Dependencies:** a C linker (`clang` / `gcc` on \*nix, MSVC's
   `link.exe` on Windows) only if you plan to use `mty build` with
@@ -25,24 +40,13 @@ Build the compiler from source with a recent Rust toolchain.
 git clone https://github.com/hassard0/Mighty
 cd Mighty
 cargo install --path crates/mty-cli
-```
-
-This places `mty` on your `PATH`. Verify with:
-
-```bash
 mty --version
 ```
 
-Expected output:
-
-```
-mty 0.10.0
-```
-
-On Windows, if `cargo install` fails with a linker error, see the
+If `cargo install` fails on Windows with a linker error, see the
 [FAQ entry on the Windows DLL gotcha](faq.md#why-does-mty-fail-to-link-on-windows).
-On macOS, if your build fails with a `LC_BUILD_VERSION` warning, see
-the [macOS note](faq.md#what-is-the-macos-lc_build_version-fix).
+If your build fails on macOS with a `LC_BUILD_VERSION` warning,
+see the [macOS note](faq.md#what-is-the-macos-lc_build_version-fix).
 
 ## 2. Scaffold a package
 
@@ -59,7 +63,8 @@ hello/
     └── main.mty
 ```
 
-`mighty.toml` is the package manifest. The generated file is minimal:
+`mighty.toml` is the package manifest. The generated file is
+minimal:
 
 ```toml
 [package]
@@ -71,6 +76,10 @@ profile = "host"
 [deps]
 ```
 
+See [reference/manifest.md](reference/manifest.md) for the full
+manifest schema (workspaces, dependencies, `[wit]`, `[cluster]`,
+build profiles).
+
 `src/main.mty` is the entry point:
 
 ```mty
@@ -79,9 +88,16 @@ fn main() {
 }
 ```
 
-See [reference/manifest.md](reference/manifest.md) for the full
-manifest schema. The default profile is `host`; for embedded-style
-work see the FAQ entry on the `core` profile.
+For canvas-driven web games, scaffold with the `web-game`
+template:
+
+```bash
+mty new --template web-game my-game     # canvas-driven web game
+```
+
+The default `blank` template is what `mty new <name>` produces;
+`web-game` is the only specialised template shipped today. The
+`cli` and `agent` templates are on the v0.31 roadmap.
 
 ## 3. Check it
 
@@ -91,9 +107,9 @@ mty check src/main.mty
 ```
 
 `mty check` parses the source, builds the CST and HIR, runs the
-type checker, the effect / capability checker, and the borrow
-checker, and prints any diagnostics. On success it prints `ok:
-<path>` and exits 0.
+type checker, the effect / capability / taint checker, and the
+borrow checker, and prints any diagnostics. On success it prints
+`ok: <path>` and exits 0.
 
 ```
 ok: src/main.mty
@@ -101,8 +117,7 @@ ok: src/main.mty
 
 If anything fails, the diagnostic prints with file, line, column,
 and a stable diagnostic code (`MTxxxx`). Run `mty explain MTxxxx`
-for a Cause/Example/Fix/Spec block for that specific code. For
-example:
+for a Cause/Example/Fix/Spec block. For example:
 
 ```bash
 mty explain MT2001
@@ -117,7 +132,7 @@ Cause:   An expression's type does not match the type required by
 Example: `fn f() -> I32 { "hello" }`  // returns Str, not I32
 Fix:     Convert the value (`.to_string()`, `.parse()`, an
          explicit constructor), or change the annotation. ...
-Spec:    §7.2 (unification) of v1.0-RC2.
+Spec:    §7.2 (unification) of v1.0-RC5.
 ```
 
 ## 4. Run it
@@ -129,15 +144,16 @@ mty run src/main.mty
 `mty run` runs the full `check` pipeline, lowers the program to
 MtyIR, JIT-compiles via Cranelift, and invokes `main`. Programs
 whose MtyIR the native backend can't yet lower fall back to the
-v0.7 interpreter (tokio executor + per-turn evaluator)
-transparently. The above program prints:
+tree-walking interpreter transparently. The above program prints:
 
 ```
 hello, Mighty
 ```
 
-and exits 0. See [reference/cli/mty-run.md](reference/cli/mty-run.md)
-for details on exit codes, traps, and the effect-handling model.
+and exits 0. See
+[reference/cli/mty-run.md](reference/cli/mty-run.md) for exit
+codes, traps, the effect-handling model, and the `-- <argv>`
+positional-passthrough.
 
 ## 5. Build it
 
@@ -145,21 +161,25 @@ for details on exit codes, traps, and the effect-handling model.
 mty build src/main.mty
 # → wrote target/hello   (or hello.exe on Windows)
 
+mty build --target wasm32-web src/main.mty
+# → wrote target/hello.wasm   (Component Model component)
+
 mty build --target wasm32-wasi src/main.mty
-# → wrote target/hello.wasm
+# → wrote target/hello.wasm   (WASI Preview 2)
 ```
 
-`mty build` produces a real, runnable artifact. The native target
+`mty build` produces a real, runnable artefact. The native target
 uses Cranelift to emit a host-format `.o`, then links via the
-platform C linker (`clang` / `gcc` / `cc` / `link.exe`). If no
-linker is on PATH, the `.o` is left in `target/` and a helpful
-message tells you how to link manually (see `MT8008`).
+platform C linker. If no linker is on PATH, the `.o` is left in
+`target/` and a helpful message tells you how to link manually
+(see `MT8008`).
 
-The Wasm target produces a core Wasm module runnable under
-`wasmtime` / `wasmer` or any browser host.
+The Wasm targets produce a Component-Model component (for the web
+target) or a core Wasm module with Preview 2 imports (for WASI),
+runnable under `wasmtime` / `wasmer` or any browser host.
 
-See [reference/cli/mty-build.md](reference/cli/mty-build.md) for the
-full flag list and current backend coverage matrix.
+See [reference/cli/mty-build.md](reference/cli/mty-build.md) for
+the full flag list and current backend coverage matrix.
 
 ## 6. Your first agent
 
@@ -189,8 +209,9 @@ ok: src/echo.mty
 ```
 
 `protocol` declares a typed message contract. `agent` declares a
-unit of state, concurrency, and failure that implements one or more
-protocols. The `on Ping(msg) -> msg` handler is the compact form of:
+unit of state, concurrency, and failure that implements one or
+more protocols. The `on Ping(msg) -> msg` handler is the compact
+form of:
 
 ```mty
 on Ping(msg) {
@@ -200,12 +221,15 @@ on Ping(msg) {
 
 To see agents *running*, look at
 [`examples/19_backend_service.mty`](https://github.com/hassard0/Mighty/blob/main/examples/19_backend_service.mty)
-— it wires Echoer into a supervisor, sends it traffic, and runs
+— it wires `Echoer` into a supervisor, sends it traffic, and runs
 under a CPU budget.
 
 For the full agent walkthrough see
 [tour chapter 6](tour/06-agents.md) and
-[tour chapter 7](tour/07-send-ask.md).
+[tour chapter 7](tour/07-send-ask.md). For LLM-driven agents jump
+to [Demo 07](https://github.com/hassard0/Mighty/blob/main/demos/07_research_agent/README.md)
+and the `@tool` example
+[`examples/27_tool_attr.mty`](https://github.com/hassard0/Mighty/blob/main/examples/27_tool_attr.mty).
 
 ## 7. Your first test
 
@@ -238,13 +262,15 @@ test result: ok. 1 passed; 0 failed; finished in 0.01s
 
 `mty test` walks `tests/` in the current package, runs every
 `fn test_*` it finds, and prints a `cargo test`-style report. Exit
-code: 0 on all-pass, 1 on any failure. Pass `--dir <path>` to test a
-directory other than `tests/`. See
+code: 0 on all-pass, 1 on any failure. Pass `--dir <path>` to
+test a directory other than `tests/`. See
 [reference/stdlib/test.md](reference/stdlib/test.md) for the full
 discovery + execution model.
 
-(In v0.2 this was a separate `mty-test` binary; the v0.3 release
-folded it into the main `mty` CLI as `mty test`.)
+For LLM-agent regression testing with `*.eval.mty` suites that
+compare against a panel of providers under byte-identical replay,
+run `mty test --eval` — see
+[`docs/internals/std-eval.md`](internals/std-eval.md).
 
 ## 8. Format
 
@@ -252,9 +278,9 @@ folded it into the main `mty` CLI as `mty test`.)
 mty fmt src/main.mty
 ```
 
-The formatter is a stable per-node rewriter (slice 2). Pass
-`--check` to verify formatting without writing, or `--stdin` to
-read from standard input.
+The formatter is a stable per-node rewriter (canonical
+Wadler/Lindig pretty-printer). Pass `--check` to verify formatting
+without writing, or `--stdin` to read from standard input.
 
 ## 9. Inspect intermediate forms
 
@@ -265,36 +291,47 @@ mty dump --hir src/main.mty
 mty dump --sir src/main.mty   # post-typeck; only valid if check passes
 ```
 
-Use these to debug parser / lowering behavior or to write your own
-tooling against the compiler. See
+Use these to debug parser / lowering behaviour or to write your
+own tooling against the compiler. See
 [reference/cli/mty-dump.md](reference/cli/mty-dump.md).
+
+For live agent introspection, see `mty inspect` — it queries a
+running runtime's control socket for agent snapshots, mailbox
+backlogs, and (with `--cost`) per-LLM-call cost + latency from
+the local SQLite observe store.
 
 ## 10. Explain a diagnostic
 
 The diagnostic-code registry is stable: `MTxxxx` codes are
-permanent, and the explain text is shipped inside the binary. After
-hitting any error, run:
+permanent, and the explain text is shipped inside the binary.
+After hitting any error, run:
 
 ```bash
 mty explain MT3001
 ```
 
 to see the full Cause / Example / Fix / Spec block for that code.
-Fifteen of the most-hit codes have been polished to that level of
-detail; the rest are 2–4 sentence paragraphs.
 
-The historical `SD####` prefix (pre-v0.7) is still recognised as an
-alias — `mty explain SD0001` is equivalent to `mty explain MT0001`.
+The historical `SD####` prefix (pre-v0.7) is still recognised as
+an alias — `mty explain SD0001` is equivalent to
+`mty explain MT0001`.
 
 ## What's next
 
-- Work through the [tour](tour/README.md) chapter by chapter — it
-  walks the 20 canonical examples one feature at a time.
-- Read the [language specification](spec/v1.0-rc.md) (v1.0-RC2)
+- Work through the [tour](tour/README.md) — pedagogical walk
+  through the canonical examples 01–20.
+- Skim the [examples index](https://github.com/hassard0/Mighty/blob/main/examples/README.md)
+  — 36 one-file examples grouped by feature; the v0.27–v0.30
+  LLM-agent surface starts at example 27.
+- Read the nine [demos](https://github.com/hassard0/Mighty/blob/main/demos/README.md)
+  — end-to-end apps showcasing real composed surfaces.
+- Read the [language specification](spec/v1.0-rc.md) (v1.0-RC5)
   when you want the normative answer.
 - Browse the [CLI reference](reference/cli/mty.md) for every flag.
 - Skim the [FAQ](faq.md) for the most common questions and the
   installation gotchas.
+- For the SWE-bench Verified marquee page see
+  [`dev/history/benchmarks/swe-bench-smoke-v0.30.md`](https://github.com/hassard0/Mighty/blob/main/dev/history/benchmarks/swe-bench-smoke-v0.30.md).
 - Open an issue on
   [github.com/hassard0/Mighty](https://github.com/hassard0/Mighty)
   if anything surprises you. Bug reports are very welcome.

@@ -1,14 +1,14 @@
 # A Tour of Mighty
 
-The tour walks through the twenty canonical example programs that ship
+The tour walks through the canonical example programs that ship
 with the compiler. Each chapter introduces one or two language
-features, shows the source, explains what is interesting about it, and
-tells you how to feed it to `mty check`.
+features, shows the source, explains what is interesting about it,
+and tells you how to feed it to `mty check`.
 
 If you have not installed the compiler yet, see
 [../getting-started.md](../getting-started.md).
 
-## Contents
+## Contents (chapters 1–15 — language fundamentals)
 
 1. [Hello, Mighty](01-hello.md) — the smallest program.
 2. [Types](02-types.md) — structs, enums, type aliases, pattern matching.
@@ -28,10 +28,25 @@ If you have not installed the compiler yet, see
 15. [Traits](15-traits.md) — declaration, impls, dispatch, `dyn Trait`,
     derive(Copy/Hash/Eq).
 
-After chapter 15, examples 16–20 show macros, sandboxes, and complete
-backend and frontend programs. They are not yet split into individual
-tour chapters; read them directly under
-[`examples/`](https://github.com/hassard0/Mighty/tree/main/examples).
+## Contents (chapters 16–20 — LLM-agent surface, v0.26–v0.30)
+
+16. [Tools and LLM providers](16-tools-and-llm.md) — `@tool`
+    decorator, typed providers, streaming.
+17. [Swarm consensus and `std.eval`](17-swarm-and-eval.md) —
+    multi-provider voting + regression harness.
+18. [Taint types](18-taint-types.md) — `Tainted[T]` and the three
+    approved exits; prompt injection as a compile error.
+19. [Observability](19-observability.md) — `std.observe` +
+    `mty inspect --cost`.
+20. [Computer use](20-computer-use.md) — Anthropic Computer Use as
+    a capability with a typed sandbox.
+
+Examples 16–24 (macros, sandboxes, end-to-end backend / frontend
+services, effect rows, agent fields) sit outside the tour
+chapters because they are direct references for surfaces already
+covered in earlier chapters. They live under
+[`examples/`](https://github.com/hassard0/Mighty/blob/main/examples/README.md)
+grouped by topic.
 
 ## Running every example
 
@@ -45,23 +60,27 @@ On Windows PowerShell:
 Get-ChildItem examples/*.mty | ForEach-Object { mty check $_.FullName }
 ```
 
-All twenty shipped examples parse, format-roundtrip, type-check,
-borrow-check, effect-check, and run cleanly as of **v0.10**. If you
-see anything other than `ok: <path>` (or the documented MT2026 warning
-on `13_capabilities.mty`), open an issue.
+All 36 shipped examples parse, format-roundtrip, type-check,
+borrow-check, effect-check, taint-check, and run cleanly as of
+**v0.30.1**. If you see anything other than `ok: <path>` (or the
+documented MT2026 warning on `13_capabilities.mty`), open an
+issue.
 
 ## Reading order
 
-Start at chapter 1 and work forward. The order follows the example
-files (`01_*.mty` through `20_*.mty`), and later chapters assume the
-syntax introduced earlier. Each chapter ends with a `Try it:` block
-that runs the corresponding example through `mty check` and (where it
-makes sense) `mty run`.
+For first-time readers: start at chapter 1 and work forward. The
+order follows the example files (`01_*.mty` through `15_*.mty`),
+and later chapters assume the syntax introduced earlier.
+
+For experienced systems programmers who want the agent stuff: read
+chapters 6–7 (agents + send/ask), 10 (capabilities), then jump to
+the agent-stdlib examples 27–36 via the
+[examples README](https://github.com/hassard0/Mighty/blob/main/examples/README.md).
 
 ## Spec cross-references
 
 Section numbers in this tour reference the current normative spec,
-[`docs/spec/v1.0-rc.md`](../spec/v1.0-rc.md) (v1.0-RC2). The
+[`docs/spec/v1.0-rc.md`](../spec/v1.0-rc.md) (v1.0-RC5). The
 historical v0.1 spec stub at
-[`docs/spec/v0.1.md`](../spec/v0.1.md) is preserved for archaeology;
-do not author against it.
+[`docs/spec/v0.1.md`](../spec/v0.1.md) is preserved for
+archaeology; do not author against it.

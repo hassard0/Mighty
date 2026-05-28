@@ -1,24 +1,55 @@
-# Mighty v0.4 dogfood demos
+# Mighty Demos
 
-Three end-to-end demos that exercise the v0.4 compiler + runtime
-surface as an external user would. Each demo lives in its own
-directory with a `mighty.toml`, source, a smoke script (bash +
-PowerShell), and a step-by-step `README.md`.
+Nine end-to-end demos that exercise the Mighty compiler + runtime
+the way an external adopter would. Each demo lives in its own
+directory with a `mighty.toml`, source under `src/`, a smoke script
+(bash + PowerShell where it makes sense), and a per-demo `README.md`.
 
-Per spec §31.8 the alpha exit criterion is:
+The demos are the **forcing function** for every Mighty release —
+each maps to a specific milestone, and each shipped only after the
+underlying compiler / runtime surface compiled the source end-to-end.
+The order roughly tracks Mighty's history: backend → frontend →
+sandboxes → stateful → web → agents → swarms → distributed.
 
-> external users can install compiler; examples compile from scratch;
-> benchmarks published honestly; issue tracker and RFC process active.
+## The matrix
 
-These demos cover the first two points.
+| # | Demo | Theme | Featured surfaces |
+|---|------|-------|-------------------|
+| 01 | [`01_search_api`](01_search_api/) | HTTP backend service | protocols + agents + per-handler state |
+| 02 | [`02_counter_web`](02_counter_web/) | Browser counter | `mty build --target wasm32-web` + Component Model |
+| 03 | [`03_extract_tool`](03_extract_tool/) | CLI extractor | `sandbox` block + capability allow-lists |
+| 04 | [`04_kvstore`](04_kvstore/) | Sharded KV store | 5 agents + supervisor tree + crash-recovery |
+| 05 | [`05_notetris_web`](05_notetris_web/) | Browser game (log-driven) | `mty:web/log` import + JS host parsing |
+| 06 | [`06_canvas_game`](06_canvas_game/) | Browser game (canvas-direct) | `mty:web/canvas@0.1` WIT bindings + RAF callbacks |
+| 07 | [`07_research_agent`](07_research_agent/) | LLM research agent | `std.llm` + `std.memory` + `@tool` decorator |
+| 08 | [`08_swarm_review`](08_swarm_review/) | Multi-LLM code review | `std.swarm` consensus + capability-typed tools |
+| 09 | [`09_distributed_swarm`](09_distributed_swarm/) | Cross-node swarm | cluster mesh + typed bang-send returns + `std.eval` |
 
-| # | Demo | Surface exercised | How it runs |
-|---|------|-------------------|-------------|
-| 01 | [`01_search_api`](01_search_api/) | HTTP service shape: protocol + agent + per-handler state | `mty run` drives every endpoint; `smoke.sh` golden-checks the stdout |
-| 02 | [`02_counter_web`](02_counter_web/) | Wasm Component Model output; browser host parses the imported `log` calls | `mty build --target wasm32-web` → component validated by `smoke.sh`; `web/serve.sh` serves the HTML loader |
-| 03 | [`03_extract_tool`](03_extract_tool/) | Top-level `sandbox` with cpu/wall/mem/mailbox + cap allow-lists; agent-driven token classifier | `mty run` exercises the extractor; `smoke.sh` diffs against `expected_output.txt` |
+Demos 5–8 are the agent-heavy ones — they exercise the
+**v0.27–v0.30 marketing claims** (capability-typed tools,
+`std.swarm`, `std.eval`, taint types, computer use). Demo 09
+demonstrates the v0.29 cluster surface; the v0.30 differentiators
+(`Tainted[T]`, `std.observe`, `std.computer`) ship as canonical
+examples in [`examples/`](../examples/) (33–36).
 
-## Run all smoke scripts
+## How each demo lays out
+
+```
+demos/<NN>_<name>/
+├── README.md          # what it does, what surfaces it exercises, how to run
+├── mighty.toml        # package manifest
+├── src/               # `.mty` source
+├── smoke.sh           # bash smoke test (golden output / artefact shape)
+├── smoke.ps1          # PowerShell equivalent (where applicable)
+├── web/               # browser-side host glue (demos 02, 05, 06 only)
+└── tools/             # mock LLM + sample inputs (demos 07, 08 only)
+```
+
+The smoke script for each demo is the same kind of test the per-PR
+CI runs — `bash smoke.sh` (or `pwsh smoke.ps1`) exits 0 on the
+expected outcome and prints `<demo>: PASS` on success.
+
+## Run every demo
 
 ```bash
 cargo build -p mty-cli
@@ -32,33 +63,76 @@ PowerShell:
 ```powershell
 cargo build -p mty-cli
 Get-ChildItem demos\0*\ -Directory | ForEach-Object {
-    pwsh (Join-Path $_ "smoke.ps1")
-    if ($LASTEXITCODE -ne 0) { throw "$($_.Name) FAILED" }
+    $smoke = Join-Path $_.FullName "smoke.ps1"
+    if (Test-Path $smoke) {
+        pwsh $smoke
+        if ($LASTEXITCODE -ne 0) { throw "$($_.Name) FAILED" }
+    }
 }
 ```
 
-All three should print `<demo>: PASS`.
+All nine print `<demo>: PASS` when the run succeeds.
 
-## v0.4 caveats summary
+## Opt-in extras
 
-Each demo's README spells out its specific caveats. The shared themes
-are tracked in [`DEMOS_V0_4_NOTES.md`](../DEMOS_V0_4_NOTES.md) at the
-repo root:
+A few demos carry expensive end-to-end stages behind an env var so
+the default smoke stays fast:
 
-* **`std.http.serve` host bridge**: shipped as a real hyper-backed
-  Rust API but not yet routed by the v0.3 generic-call dispatcher, so
-  Demo 01 drives the handler bodies directly inside `main()` rather
-  than binding a real TCP socket.
-* **wasm32-web DOM bindings**: WIT stubs exist (`get-element-by-id`,
-  `set-text`) but the slice-8 lowerer hasn't filled them in — Demo 02
-  routes UI updates through the working `log` import instead.
-* **Sandbox + budget enforcement scope**: caps parse and are recorded
-  by the runtime, but the cpu/wall/mem/path checks trip only when a
-  capability-marked call yields back to the runtime — Demo 03's
-  `breach.sd` documents the v0.4 frontier.
-* **Slice-6 interpreter string API**: `len`/`to_str`/`is_empty` are
-  bound; `contains`/`find`/`char_at`/`slice` return permissive stubs
-  today. Demos pick shapes that avoid these stubs.
+| Env var | Demo(s) | What it enables |
+|---|---|---|
+| `MTY_AGENT_SMOKE=1` | 07, 08 | Spins up a stdlib-Python mock LLM server, points the demo's `AnthropicClient` at it, asserts the full pipeline markers fire. No real API tokens spent. |
+| `MTY_CLUSTER_SMOKE=1` | 09 | Spawns a two-process cluster (node-a + node-b), exercises the cross-node bang-send, asserts the hop verification. No API key required. |
+| `MTY_WEB_SMOKE=1` | 02, 05, 06 | Drives the wasm32-web artefact through a headless-browser perceptual-hash smoke (Chromium via `headless_shell`). |
 
-None of these caveats stop the demos from running end-to-end; they
-document where v0.5 + v0.6 will sharpen the surface.
+Every opt-in is documented in the demo's own `README.md`.
+
+## What each demo proves
+
+The demos exist to **prove the marketing claims compile**. The
+mapping from claim to demo:
+
+| Claim | Proven by |
+|---|---|
+| "Agents are first-class" | Demos 01, 04 — multi-agent supervised systems running end-to-end |
+| "Web is a target, not a port" | Demos 02, 05, 06 — Mighty source compiles to a Component-Model wasm and runs in a browser |
+| "Sandboxes are capability-typed" | Demo 03 — top-level `sandbox` block with `cpu` / `wall` / `mem` / `mailbox` caps |
+| "Tools are capability-typed" | Demos 07, 08 — `@tool(cap: fs.read)` enforced by the runtime, not the prompt |
+| "Multi-LLM consensus is stdlib" | Demo 08 — `std.swarm` votes Majority across 3 providers under a $0.50 shared budget |
+| "Cluster is in-language" | Demo 09 — cross-node `?Review(snippet)` over framed CBOR + mTLS |
+
+When a demo's pitch line drifts away from its README's claims, the
+release that ships the drift updates the demo first.
+
+## Per-demo release history
+
+Each demo's README has a "What this demonstrates" section pointing
+at the specific Mighty version that brought the demo to its current
+shape. The short version:
+
+| Demo | Brought-to-shape by |
+|---|---|
+| 01 | v0.5 (HTTP host bridge) |
+| 02 | v0.5 (DOM imports through WIT) |
+| 03 | v0.5 (string methods + budget enforcement) |
+| 04 | v0.12 (supervisor restart wiring) |
+| 05 | v0.22 (`mty:web/canvas@0.1` WIT stubs) |
+| 06 | v0.25 (canvas-direct emit path + agent array fields) |
+| 07 | v0.26 (std.llm + std.memory + @tool) |
+| 08 | v0.27 (std.swarm + handler-safe ADTs + `mty run -- argv`) |
+| 09 | v0.29 (BuiltinId::Swarm + typed bang-send + cluster routing) |
+
+The v0.30 differentiator surface (`Tainted[T]`, `std.observe`,
+`std.computer`, `mty test --eval`) ships as examples 33–36 rather
+than as a Demo 10 — those surfaces compose more naturally as
+focused vignettes than as a tenth full app. A Demo 10 (browser
+operator using `@computer_use` end-to-end) is on the v0.31
+roadmap.
+
+## See also
+
+- [`examples/README.md`](../examples/README.md) — 36 canonical
+  one-file examples, one per language / stdlib feature.
+- [`bench/swe/README.md`](../bench/swe/README.md) — SWE-bench
+  Verified harness.
+- [`docs/getting-started.md`](../docs/getting-started.md) — your
+  first agent in five minutes.

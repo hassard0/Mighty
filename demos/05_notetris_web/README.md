@@ -1,9 +1,27 @@
-# 05 — Notetris (web)
+# Demo 05 — Notetris (log-driven web)
 
-Notetris as a localhost web app. The Mighty agent in `src/main.mty`
-owns the game state through the `NotetrisInput` protocol; every input
-emits a `log("evt:…")` line the JS host parses. The renderer is a
-`<canvas>` driven by the host shim.
+Notetris as a localhost web app. The Mighty agent in
+[`src/main.mty`](src/main.mty) owns the game state through the
+`NotetrisInput` protocol; every input emits a `log("evt:…")` line
+that the JS host parses to drive a `<canvas>` renderer.
+
+This is the **log-driven** web-game pattern. Demo 06 is the same
+game rebuilt around the canvas-direct emit path — the side-by-side
+makes the v0.22 → v0.25 web-emitter evolution concrete.
+
+## What this demonstrates
+
+| Surface | What this demo does |
+|---|---|
+| `mty build --target wasm32-web` | Emits a Component-Model component the JS host instantiates. |
+| `package` / `protocol` / `agent` / `export fn` | All four surface shapes on a wasm-targeted compilation unit. |
+| `mighty:web/log` WIT import | Host imports `mighty.log(ptr, len)` and parses `evt:…` lines. |
+| `requestAnimationFrame` callbacks | JS host calls the wasm exports on every input + frame; round-trip is real. |
+| Full game loop in source | Score / level / lines / hard drop / line clearing / gravity-by-level all live in `.mty`. |
+
+Brought to its current shape by **v0.22** (`mty:web/canvas@0.1`
+WIT stubs landed in this release; demo 05 keeps the log-driven
+path; demo 06 switches to canvas-direct).
 
 ## Run it
 
@@ -21,33 +39,43 @@ bash demos/05_notetris_web/web/serve.sh
 
 Open <http://localhost:8000> and play with:
 
-| key | action |
-|-----|--------|
-| ← → | move |
-| ↑   | rotate (CW) |
-| ↓   | soft drop |
+| key   | action |
+|-------|--------|
+| ← →   | move |
+| ↑     | rotate (CW) |
+| ↓     | soft drop |
 | Space | hard drop |
-| R   | reset (also after Game Over) |
+| R     | reset (also after Game Over) |
 
-## What this demo exercises
+## Architecture (log-driven)
 
-- `mty build --target wasm32-web` produces a Component Model component
-- `package` / `protocol` / `agent` / `export fn` on a wasm-targeted unit
-- The host imports `mighty.log(ptr, len)` and parses `evt:…` lines
-- Game loop in the JS host (`requestAnimationFrame`) calls the wasm
-  exports on every input so the round-trip is real
+```
+src/main.mty
+   │
+   │  log("evt:left") / log("evt:rotate") / log("evt:reset") …
+   │  log("state:score=12,lines=3,level=1") …
+   ▼
+target/main.wasm (Component Model)
+   │
+   │  imports: mty:web/log#log
+   │  exports: start, on_input, frame
+   ▼
+web/dom-shim.js
+   │
+   │  parses "evt:…" / "state:…" lines, mirrors state, paints canvas
+   ▼
+<canvas id="board"> + keyboard listeners
+```
 
-## What's stub vs real today
+The agent is the source of truth for game logic; the JS shim
+mirrors state by parsing log lines and paints the canvas. Demo 06
+inverts that — the agent paints directly through `mty:web/canvas`
+imports, and the shim shrinks to pure host glue.
 
-- **Real**: `mty check`, `mty fmt --check`, `mty build --target wasm32-web`,
-  the Component artifact, the `log()` round-trip, the canonical Notetris
-  rendering on `<canvas>`, keyboard input, score / level / lines, hard
-  drop, line clearing, gravity by level.
-- **Stub**: the rich canvas binding lives in the JS host because the
-  `mty:web/canvas` WIT interface is on the post-v0.22 polish list; the
-  Mighty agent emits state-change events as log lines today.
-  When the canvas binding ships, the JS shim shrinks to ~30 lines and
-  the agent owns the draw calls directly.
+## What this demo deliberately keeps
 
-See `docs/internals/codegen-wasm.md` for the wasm backend's current
-binding surface.
+The log-driven pattern is the lowest-friction way to land Mighty
+in a browser today: it works against any wasm host that can
+satisfy a `log(ptr, len)` import. When you need to render against
+a real Canvas2D context with no parsing in the middle, see Demo 06
+(canvas-direct).

@@ -2,58 +2,56 @@
 
 A small "AI extraction" CLI built around a top-level `sandbox` with
 budget and capability caps. The agent classifies candidate tokens
-against an in-process entity vocabulary; the sandbox header records
-the policy the runtime would enforce in a production deployment.
+against an in-process entity vocabulary; the sandbox header
+declares the policy the runtime enforces.
 
-> **v0.5 dogfood update.** Two enforcement gaps are now closed:
->
-> 1. **Str method table** (`crates/mty-sir/src/interp/run.rs::eval_method`)
->    now implements real `contains`, `starts_with`, `ends_with`,
->    `find`, `char_at`, `slice`, `to_lower`, `to_upper`, `trim`,
->    `split`, etc. The per-token `==` workaround in this demo can
->    be lifted; see `crates/mty-sir/tests/string_methods.rs`.
-> 2. **CPU + memory budgets** auto-trip via a new
->    `RunResult::MemBudgetExceeded` variant and an MT5009 trap when
->    a sandboxed run exceeds its `cpu` / `memory` ceiling. The
->    companion `breach.sd` now actually trips — see
->    `crates/mty-sir/tests/budget_charges.rs`.
-> 3. **FsCap allowlist enforcement** (`crates/mty-stdlib/src/fs.rs`)
->    consults a process-wide default cap installed from the sandbox
->    manifest, so `std.fs.read("./outside")` returns
->    `Result::Err(forbidden:...)` instead of silently reading the
->    file.
+## What this demonstrates
+
+| Surface | What this demo does |
+|---|---|
+| Top-level `sandbox` block | `cpu` / `wall` / `mem` / `mailbox` budgets + `fs.read` / `fs.write` capability allow-lists. |
+| `BudgetTracker` runtime enforcement | The `breach.mty` companion deliberately trips the budget; the runtime returns `RunResult::MemBudgetExceeded` / `MT5009 budget_exceeded`. |
+| `FsCap` allowlist | `std.fs.read("./outside")` outside the allowlist returns `Result::Err(forbidden:...)` instead of reading the file. |
+| Real `Str` method table | `contains`, `find`, `char_at`, `slice`, `to_lower`, `split`, etc — the v0.5 string-methods enforcement landed via `crates/mty-sir/tests/string_methods.rs`. |
+| `BudgetBreach::Path` trip | Any out-of-allowlist filesystem call fires the typed breach. |
+
+Brought to its current shape by **v0.5** (closed three v0.4
+enforcement gaps: full string method table, real CPU/memory budget
+trips, FsCap allowlist consultation from the sandbox manifest).
 
 ## Layout
 
 ```
 03_extract_tool/
-  mighty.toml                # package manifest (host profile)
-  src/
-    main.sd                # Extractor agent + sandbox-wrapped driver
-    breach.sd              # companion: deliberately impossible caps
-  inputs/sample.json       # fixture (text + tokens)
-  expected_output.txt      # golden output for main.sd
-  smoke.sh / smoke.ps1     # diff against the golden output
-  README.md                # this file
+├── README.md
+├── mighty.toml             # host-profile package
+├── src/
+│   ├── main.mty            # Extractor agent + sandbox-wrapped driver
+│   └── breach.mty          # companion: deliberately impossible caps
+├── inputs/sample.json      # fixture (text + tokens)
+├── expected_output.txt     # golden output for main.mty
+└── smoke.sh / smoke.ps1    # diff against the golden output
 ```
 
 ## Build / run
 
 ```bash
 cargo build -p mty-cli
-./target/debug/mty check demos/03_extract_tool/src/main.sd
-./target/debug/mty run   demos/03_extract_tool/src/main.sd
+./target/debug/mty check demos/03_extract_tool/src/main.mty
+./target/debug/mty run   demos/03_extract_tool/src/main.mty
 ```
 
 PowerShell:
 
 ```powershell
 cargo build -p mty-cli
-.\target\debug\mty.exe check demos\03_extract_tool\src\main.sd
-.\target\debug\mty.exe run   demos\03_extract_tool\src\main.sd
+.\target\debug\mty.exe check demos\03_extract_tool\src\main.mty
+.\target\debug\mty.exe run   demos\03_extract_tool\src\main.mty
 ```
 
-Expected stdout (also in `expected_output.txt`):
+## Expected output
+
+Also pinned in `expected_output.txt`:
 
 ```
 == sample-1 ==
@@ -92,49 +90,36 @@ pwsh demos\03_extract_tool\smoke.ps1
 ```
 
 The script diffs the captured stdout against `expected_output.txt`
-and additionally runs `breach.sd` (the deliberately impossible
-sandbox) to make sure that path doesn't corrupt the runtime.
+and additionally runs `breach.mty` (the deliberately impossible
+sandbox) to confirm the breach path traps cleanly without
+corrupting the runtime.
 
-## What this demo does NOT (yet) do
+## Reading the sandbox header
 
-Two v0.4 limitations show up:
+```mty
+sandbox extract_session {
+  cpu     = 100ms
+  wall    = 3s
+  mem     = 16MiB
+  mailbox = 64
 
-1. **Path-based capability checks are recorded, not enforced.** The
-   `fs.read = ["./inputs"]` and `fs.write = ["./outputs"]` entries in
-   the sandbox block parse into the `Budget` struct
-   (`crates/mty-runtime/src/budget.rs`), but the v0.3 `std.fs`
-   host bridge (`crates/mty-stdlib/src/host.rs::fs_read`) uses an
-   unrestricted `FsCap`. A real deployment that wired `Fs` as a
-   genuine capability handle would see `BudgetBreach::Path` fire on
-   any out-of-allowlist access; that wiring is post-v0.4. The
-   demo therefore reads its fixture **out-of-band** (the smoke
-   script feeds the tokens in via `main_body()` directly rather than
-   via `fs.read`), but the sandbox header still demonstrates the
-   shape a future enforcement pass will check against.
-2. **Cpu / wall / memory budgets need a capability-marked call to
-   trip.** The slice-6 MtyIR interpreter is synchronous (see A35), so
-   the `wall = 3s` budget is checked the next time a capability call
-   yields back to the runtime. A pure-compute loop never trips it
-   today. The cpu/mem trackers are charged only by explicit
-   `BudgetTracker::record_*` calls (see A37 / A50). The included
-   `breach.sd` runs against `cpu = 1ns / wall = 1ns / memory = 1B /
-   mailbox = 1` — under v0.4 it completes cleanly; once
-   enforcement lands it will trap with `MT5009 budget_exceeded`
-   without changes to the source.
+  caps {
+    fs.read  = ["./inputs"]
+    fs.write = ["./outputs"]
+  }
+}
+```
 
-A third limitation tilts the implementation more than the surface:
+Every cap line is consulted by the runtime on the corresponding
+host call. `std.fs.read("./inputs/sample.json")` succeeds (in the
+allowlist); `std.fs.read("./outside")` returns
+`Result::Err(forbidden: ...)`. `cpu`, `wall`, `mem`, `mailbox` are
+checked by the `BudgetTracker` on every yield to the runtime;
+`breach.mty` deliberately trips them.
 
-3. **String-pattern stdlib is stubbed.** The slice-6 `eval_method`
-   table only binds `len`, `to_str`, `is_empty`, plus a handful of
-   Result helpers (see `crates/mty-sir/src/interp/run.rs`). String
-   pattern methods (`contains`, `find`, `char_at`, `slice`) return
-   permissive defaults. The extractor therefore drives off `==`
-   on whole tokens against a small inlined vocabulary instead of
-   tokenising character-by-character. The shape of the agent —
-   protocol, per-message handler, state — is exactly what a
-   "real-LLM"-backed extractor will use; we expect the body to
-   sharpen to `model.invoke(text)` once the model bridge lands.
+## What this demo does NOT do
 
-The companion `breach.sd` is the v0.4 smoke for the budget surface.
-When enforcement ships, swap one of the helper test assertions to
-expect a non-zero exit code and the demo will document the change.
+The token vocabulary in `main.mty` is hand-coded — the extraction
+shape is the demo's focus, not a real LLM call. Demo 07
+(`07_research_agent`) wires the same protocol to a real `std.llm`
+provider for the LLM-driven extraction story.

@@ -1,32 +1,38 @@
 # Demo 01 — `search_api`
 
-A minimal HTTP-shaped search service written in Mighty. Demonstrates:
+A minimal HTTP-shaped search service written in Mighty. The
+`Searcher` agent owns a per-handler counter and answers three
+endpoints — `/health`, `/search`, `/metrics` — over an ask-style
+protocol. The demo's deterministic output drives the smoke; the
+shape is the same one `std.http.serve` routes to in production.
 
-> **v0.5 dogfood update.** `std.http.serve(addr)` now binds a real
-> socket. The host dispatcher routes `std.http.serve` /
-> `std.http.shutdown` through the new
-> `mty-stdlib::http_server` registry, which spins up a tokio
-> runtime and a hyper accept loop. A default dispatcher returns
-> `200 OK` JSON describing the request; the runtime's agent-binding
-> hook (post-v0.5) will replace that with a real `?Request(req)`
-> ask into the owning agent. See
-> `crates/mty-stdlib/tests/http_serve_real.rs` for the
-> bound-socket roundtrip smoke test.
+## What this demonstrates
 
-- `package` + `use std.*` imports
-- A protocol with three messages and a backing agent
-- Per-handler state mutation (running counters)
-- Ask-style messaging (`agent?Msg(args)`)
-- Hand-rolled JSON response shaping
+The first "backend service in Mighty" forcing function. The
+demo exercises:
+
+| Surface | What this demo does |
+|---|---|
+| `package` + `use std.*` | Standard manifest-driven package layout. |
+| `protocol` + typed message contract | Three messages (`Health`, `Search`, `Metrics`) on one protocol. |
+| `agent` + per-handler state mutation | Running counters update on every dispatch. |
+| `agent?Msg(args)` ask-style messaging | Each endpoint roundtrips through a typed mailbox ask. |
+| Hand-rolled JSON response shaping | `format!()` builds the wire reply; no allocator needed at this scale. |
+
+Brought to its current shape by **v0.5** (real
+`std.http.serve` host bridge — `crates/mty-stdlib/src/http.rs`
+binds a hyper accept loop today; demo runs the same handler
+bodies via `mty run` for deterministic smoke output).
 
 ## Layout
 
 ```
 01_search_api/
-  mighty.toml           # package manifest (host profile, no deps)
-  src/main.sd         # the search service
-  smoke.sh / smoke.ps1 # cross-platform behavioural test
-  README.md           # this file
+├── README.md
+├── mighty.toml            # host-profile package, no deps
+├── src/main.mty           # protocol + Searcher agent + driver
+├── smoke.sh / smoke.ps1   # cross-platform behavioural test
+└── Dockerfile             # optional multi-stage container
 ```
 
 ## Build / run
@@ -34,25 +40,20 @@ A minimal HTTP-shaped search service written in Mighty. Demonstrates:
 From the Mighty repo root:
 
 ```bash
-# build the compiler (once)
 cargo build -p mty-cli
-
-# type-check
-./target/debug/mty check demos/01_search_api/src/main.sd
-
-# run — exercises every endpoint, prints golden output
-./target/debug/mty run   demos/01_search_api/src/main.sd
+./target/debug/mty check demos/01_search_api/src/main.mty
+./target/debug/mty run   demos/01_search_api/src/main.mty
 ```
 
 PowerShell:
 
 ```powershell
 cargo build -p mty-cli
-.\target\debug\mty.exe check demos\01_search_api\src\main.sd
-.\target\debug\mty.exe run   demos\01_search_api\src\main.sd
+.\target\debug\mty.exe check demos\01_search_api\src\main.mty
+.\target\debug\mty.exe run   demos\01_search_api\src\main.mty
 ```
 
-Expected output:
+## Expected output
 
 ```
 == health ==
@@ -69,10 +70,6 @@ Expected output:
 
 ## Smoke test
 
-The `smoke.sh` (bash) and `smoke.ps1` (PowerShell) scripts spawn the
-compiler in `run` mode and assert that each endpoint's expected line
-appears in the captured output:
-
 ```bash
 bash demos/01_search_api/smoke.sh
 ```
@@ -81,44 +78,38 @@ bash demos/01_search_api/smoke.sh
 pwsh demos\01_search_api\smoke.ps1
 ```
 
-Either prints `01_search_api: PASS` on success.
+Either prints `01_search_api: PASS` on success. The script spawns
+the compiler in `run` mode and asserts every endpoint's expected
+line appears in the captured output.
 
-## What this demo does NOT (yet) do
+## How HTTP wiring works today
 
-The Mighty standard library's `std.http.serve` is a real
-`hyper`-backed Rust API (see `crates/mty-stdlib/src/http.rs`), but
-the v0.3 generic-call dispatcher in
-`crates/mty-stdlib/src/host.rs::dispatch` only routes `get` and `post`
-calls today — there is no host shim that lets a Mighty agent be
-*invoked* by an inbound HTTP request inside the MtyIR interpreter. The
-spec calls this out under amendment A36 / A47.
+`std.http.serve` binds a real hyper-backed socket via
+`crates/mty-stdlib/src/http.rs`; the v0.5 host dispatcher routes
+the `serve` and `shutdown` calls through `mty-stdlib::http_server`.
+The runtime's *agent-binding hook* — the path that lets an
+`?Request(req)` ask reach an agent's mailbox from an inbound HTTP
+frame — is still on the post-v0.30 roadmap, so the demo drives the
+handler bodies directly inside `main()` rather than letting hyper
+deliver them.
 
-That means: this demo **does not bind a TCP socket** when run under
-`mty run`. Instead, `main()` drives the handler bodies directly so
-the demo's behaviour is observable on stdout (and exercisable by the
-smoke scripts). The shape of the agent — protocol, state, handler
-bodies — is exactly what would back a real `http.serve` once the bridge
-ships.
-
-Tracking item: see `DEMOS_V0_4_NOTES.md` in the repo root.
-
-### A note on HTTPS
-
-HTTPS over the `std.http` client is also a v0.3 follow-up; today only
-`http://` URLs work (see `STDLIB_V0_2_NOTES.md`). The demo would
-therefore serve plain HTTP behind a TLS-terminating proxy in
-production.
+The shape of the agent — protocol, state, handler bodies — is
+exactly what a wired-up `http.serve(addr)` will route to once the
+bridge ships. When that lands, the demo replaces its inline driver
+with `let _ = std.http.serve("0.0.0.0:8080", Searcher::new())` and
+the smoke output is identical.
 
 ## Optional: Docker
 
-A simple multi-stage Dockerfile is provided. It builds the compiler in
-a `rust:1` stage and copies both the compiler and the demo source into
-a slim runtime image. Run with:
+A simple multi-stage Dockerfile is provided. It builds the compiler
+in a `rust:1` stage and copies both the compiler and the demo
+source into a slim runtime image. Run with:
 
 ```bash
 docker build -t mighty-search-api -f demos/01_search_api/Dockerfile .
 docker run --rm mighty-search-api
 ```
 
-The container's entrypoint runs `mty run src/main.sd`, which prints
-the same deterministic golden output the smoke script checks against.
+The container's entrypoint runs `mty run src/main.mty`, which
+prints the same deterministic golden output the smoke script
+checks against.
