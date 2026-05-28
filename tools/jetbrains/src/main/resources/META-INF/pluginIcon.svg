@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Mighty plugin icon — 40x40 SVG per JetBrains Marketplace spec. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7C4DFF" />
+      <stop offset="1" stop-color="#00BFA5" />
+    </linearGradient>
+  </defs>
+  <rect width="40" height="40" rx="8" fill="url(#g)" />
+  <!-- Stylised "M" carved out of the badge. -->
+  <path
+    d="M 8 30 L 8 10 L 14 10 L 20 22 L 26 10 L 32 10 L 32 30 L 27 30 L 27 18 L 22 28 L 18 28 L 13 18 L 13 30 Z"
+    fill="#ffffff" />
+</svg>

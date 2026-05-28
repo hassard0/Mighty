@@ -1,0 +1,149 @@
+<!--
+  Mighty JetBrains IDE plugin manifest.
+
+  The IntelliJ Platform Gradle Plugin 2.x rewrites <id>, <name>, <version>,
+  <idea-version>, <vendor>, and <description> from gradle.properties +
+  build.gradle.kts at build time, but we include sensible defaults so the
+  manifest is readable in source control.
+-->
+<idea-plugin>
+    <id>dev.mighty.jetbrains</id>
+    <name>Mighty</name>
+    <version>0.31.0</version>
+    <vendor email="ihassard@gmail.com" url="https://hassard0.github.io/Mighty/">Hassard</vendor>
+
+    <description><![CDATA[
+        <h2>Mighty language support for JetBrains IDEs.</h2>
+        <p>
+          Adds first-class support for the <a href="https://hassard0.github.io/Mighty/">Mighty</a>
+          agent-first programming language across the entire IntelliJ Platform family:
+          IntelliJ IDEA, RustRover, PyCharm, WebStorm, GoLand, PhpStorm, RubyMine, CLion,
+          AppCode, DataGrip, and Rider.
+        </p>
+        <ul>
+          <li>File-type association for <code>.mty</code> files with a syntax-aware icon.</li>
+          <li>LSP-backed editor features (diagnostics, hover, go-to-definition, completion,
+              rename, formatting, inlay hints, semantic highlighting) via the bundled
+              <code>mty lsp</code> server.</li>
+          <li>Run / check / inspect-cost / test-eval actions for the current Mighty file,
+              available from the editor context menu and the <em>Mighty</em> top-level menu.</li>
+          <li>Cost dashboard tool window that polls <code>mty inspect --cost --json</code>
+              and visualises agent budgets.</li>
+          <li>New-file templates for Mighty agents and modules.</li>
+          <li>Color settings page so users can customise highlighting per Mighty token type.</li>
+        </ul>
+        <p>
+          Requires the <code>mty</code> CLI on <code>$PATH</code> (or a configured absolute path
+          in <em>Settings &gt; Tools &gt; Mighty</em>).
+        </p>
+    ]]></description>
+
+    <change-notes><![CDATA[
+        <h3>0.31.0 — initial JetBrains release.</h3>
+        <ul>
+          <li>LSP integration over stdio.</li>
+          <li>Run/Check/Inspect-Cost/Test-Eval actions.</li>
+          <li>Cost tool window (stub, polls every 30s).</li>
+          <li>New-file templates for agent + module.</li>
+          <li>Color settings page.</li>
+        </ul>
+    ]]></change-notes>
+
+    <idea-version since-build="241" />
+
+    <!--
+      The platform/core module is enough for the LSP integration. We do NOT
+      depend on com.intellij.modules.lang because that's a transitive of
+      platform; an explicit dependency on com.intellij.modules.platform
+      makes this plugin "IDE-agnostic" and installable in every JetBrains
+      product, including DataGrip and Rider (which don't pull in lang).
+    -->
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- File-type association. -->
+        <fileType
+            name="Mighty File"
+            implementationClass="dev.mighty.jetbrains.MightyFileType"
+            fieldName="INSTANCE"
+            language="Mighty"
+            extensions="mty" />
+
+        <!-- LSP backbone. Requires IntelliJ Platform >= 232 (2023.2). -->
+        <platform.lsp.serverSupportProvider
+            implementation="dev.mighty.jetbrains.MightyLspServerSupportProvider" />
+
+        <!-- Settings panel. -->
+        <applicationConfigurable
+            parentId="tools"
+            instance="dev.mighty.jetbrains.settings.MightySettingsConfigurable"
+            id="dev.mighty.jetbrains.settings"
+            displayName="Mighty" />
+        <applicationService
+            serviceImplementation="dev.mighty.jetbrains.settings.MightySettingsState" />
+
+        <!-- Color customisation. -->
+        <colorSettingsPage
+            implementation="dev.mighty.jetbrains.MightyColorSettingsPage" />
+
+        <!-- Cost dashboard tool window, docked bottom-right. -->
+        <toolWindow
+            id="Mighty Cost"
+            anchor="bottom"
+            secondary="true"
+            icon="dev.mighty.jetbrains.MightyIcons.ToolWindow"
+            factoryClass="dev.mighty.jetbrains.toolwindow.MightyCostToolWindowFactory" />
+
+        <!-- File templates: surface them under "New > Mighty File > ...". -->
+        <internalFileTemplate name="Mighty Agent" />
+        <internalFileTemplate name="Mighty Module" />
+
+        <!-- Notification group so actions can show balloons. -->
+        <notificationGroup
+            id="Mighty"
+            displayType="BALLOON"
+            isLogByDefault="true" />
+    </extensions>
+
+    <actions>
+        <!-- Top-level "Mighty" menu next to "Help". -->
+        <group
+            id="dev.mighty.jetbrains.MainMenu"
+            text="_Mighty"
+            description="Mighty language actions">
+            <add-to-group group-id="MainMenu" anchor="before" relative-to-action="HelpMenu" />
+
+            <action
+                id="dev.mighty.jetbrains.RunMightyFile"
+                class="dev.mighty.jetbrains.actions.RunMightyFileAction"
+                text="_Run Current Mighty File"
+                description="Run the active .mty file with `mty run`.">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift M" />
+            </action>
+            <action
+                id="dev.mighty.jetbrains.CheckMightyFile"
+                class="dev.mighty.jetbrains.actions.CheckMightyFileAction"
+                text="_Check Current Mighty File"
+                description="Type-check the active .mty file with `mty check`." />
+            <action
+                id="dev.mighty.jetbrains.InspectCost"
+                class="dev.mighty.jetbrains.actions.InspectCostAction"
+                text="_Inspect Cost"
+                description="Run `mty inspect --cost` against the active file or project." />
+            <action
+                id="dev.mighty.jetbrains.TestEval"
+                class="dev.mighty.jetbrains.actions.TestEvalAction"
+                text="_Test Eval"
+                description="Run `mty test --eval` to evaluate Mighty test suites." />
+        </group>
+
+        <!-- Also expose them on the editor context menu for .mty files. -->
+        <group id="dev.mighty.jetbrains.EditorPopupGroup" text="Mighty" popup="true">
+            <add-to-group group-id="EditorPopupMenu" anchor="last" />
+            <reference ref="dev.mighty.jetbrains.RunMightyFile" />
+            <reference ref="dev.mighty.jetbrains.CheckMightyFile" />
+            <reference ref="dev.mighty.jetbrains.InspectCost" />
+            <reference ref="dev.mighty.jetbrains.TestEval" />
+        </group>
+    </actions>
+</idea-plugin>
