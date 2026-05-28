@@ -46,22 +46,17 @@ pub struct Chunk {
 }
 
 /// Which strategy [`Chunker`] uses to split a doc.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ChunkStrategy {
     /// Fixed approximate-token windows. See module docs.
     ByTokens,
     /// Split on blank lines, merge under the soft cap. **Default.**
+    #[default]
     ByParagraph,
     /// Split on Markdown `#`, `##`, `###` headings.
     BySection,
     /// Split on triple-backtick fences (`” ``` ”`).
     ByCodeFence,
-}
-
-impl Default for ChunkStrategy {
-    fn default() -> Self {
-        Self::ByParagraph
-    }
 }
 
 /// Pluggable token counter — given a string, return an approximate
@@ -239,8 +234,7 @@ impl Chunker {
             let is_heading = trimmed.starts_with('#')
                 && trimmed
                     .chars()
-                    .skip_while(|c| *c == '#')
-                    .next()
+                    .find(|c| *c != '#')
                     .map(|c| c == ' ')
                     .unwrap_or(false);
             if is_heading && !buf.is_empty() {
