@@ -1,0 +1,419 @@
+{
+  "Agent declaration": {
+    "prefix": "agent",
+    "body": [
+      "agent ${1:Name}: ${2:Protocol} {",
+      "\ton ${3:Message}(${4:arg}: ${5:Str}) -> ${6:Str} {",
+      "\t\t$0",
+      "\t}",
+      "}"
+    ],
+    "description": "Define a Mighty agent that implements a protocol."
+  },
+  "Agent with state": {
+    "prefix": "agent-state",
+    "body": [
+      "agent ${1:Name}: ${2:Protocol} {",
+      "\tstate ${3:counter}: ${4:I64} = ${5:0}",
+      "",
+      "\ton ${6:Tick}() -> ${7:I64} {",
+      "\t\tself.${3:counter} += 1",
+      "\t\tself.${3:counter}",
+      "\t}",
+      "}"
+    ],
+    "description": "Agent with persistent state."
+  },
+  "Protocol declaration": {
+    "prefix": "protocol",
+    "body": [
+      "protocol ${1:Name} {",
+      "\t${2:Message}(${3:arg}: ${4:Str}) -> ${5:Str}",
+      "\t$0",
+      "}"
+    ],
+    "description": "Define a typed message protocol."
+  },
+  "Supervisor (one_for_one)": {
+    "prefix": "supervisor",
+    "body": [
+      "supervisor ${1:Name}(strategy: ${2|one_for_one,one_for_all,rest_for_one|}) {",
+      "\tchild ${3:planner} = spawn ${4:Planner}()",
+      "\tchild ${5:fetcher} = spawn ${6:Fetcher}(net)",
+      "",
+      "\ton_fail(${3:planner}) { restart up_to ${7:3} in ${8:30s} }",
+      "\ton_fail(${5:fetcher}) { backoff ${9:100ms}..${10:2s}; restart }",
+      "}"
+    ],
+    "description": "Supervisor with restart policy."
+  },
+  "@tool decorator": {
+    "prefix": "tool",
+    "body": [
+      "@tool(\"${1:Short description}\", cap: ${2:fs.read})",
+      "fn ${3:name}(${4:arg}: ${5:Str}) -> ${6:Str} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Define a callable @tool that MCP clients can discover."
+  },
+  "@computer_use agent": {
+    "prefix": "computer-use",
+    "body": [
+      "@computer_use",
+      "agent ${1:Name}: ${2:ComputerUse} {",
+      "\ton ${3:Click}(x: I64, y: I64) -> Unit {",
+      "\t\t$0",
+      "\t}",
+      "}"
+    ],
+    "description": "Agent gated by the computer-use capability."
+  },
+  "std.swarm panel + dispatch": {
+    "prefix": "swarm",
+    "body": [
+      "let panel = [",
+      "\tMember.anthropic(\"${1:claude-opus-4-7}\"),",
+      "\tMember.openai(\"${2:gpt-5}\"),",
+      "\tMember.gemini(\"${3:gemini-pro}\"),",
+      "]",
+      "let budget = DollarBudget.new(${4:0.50})",
+      "let strategy = ConsensusStrategy.${5|Majority,FirstAgreed,All|}",
+      "let consensus = swarm(${6:prompt}, panel, budget, strategy).await",
+      "$0"
+    ],
+    "description": "Dispatch a prompt to a swarm panel and collect consensus."
+  },
+  "std.eval suite": {
+    "prefix": "eval-suite",
+    "body": [
+      "Suite.new(\"${1:suite-name}\")",
+      "\t.case(Case.from_input(\"${2:What is 2+2?}\"))",
+      "\t.case(Case.from_trace(\"${3:traces/case-001.mty-trace}\"))",
+      "\t.run_with(Member.${4|anthropic,openai,gemini,bedrock,mock|}(\"${5:model-id}\"))",
+      "\t.compare(Compare.${6|equal,semantic_similarity,tool_call_set_equal|}(${7:0.85}))",
+      "\t.await"
+    ],
+    "description": "Build a std.eval Suite chain."
+  },
+  "Capability block": {
+    "prefix": "cap",
+    "body": [
+      "cap ${1:fs}.${2:read}(${3:\"./data/**\"})$0"
+    ],
+    "description": "Capability reference (path-narrowed)."
+  },
+  "Capability decl": {
+    "prefix": "capability",
+    "body": [
+      "capability ${1:Name} {",
+      "\t${2:method}(${3:arg}: ${4:Str}) -> ${5:Unit}",
+      "}"
+    ],
+    "description": "Declare a typed capability surface."
+  },
+  "Arena block": {
+    "prefix": "arena",
+    "body": [
+      "arena ${1:turn} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Scoped arena allocation block."
+  },
+  "Arena one-shot": {
+    "prefix": "arena-short",
+    "body": [
+      "arena ${1:turn}: ${2:expression}$0"
+    ],
+    "description": "Single-expression arena."
+  },
+  "Budget block": {
+    "prefix": "budget",
+    "body": [
+      "budget {",
+      "\tcpu ${1:150ms}",
+      "\twall ${2:2s}",
+      "\tmem ${3:128MiB}",
+      "\tmb ${4:1k}",
+      "} run {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Bounded execution: cpu/wall/mem/mb caps."
+  },
+  "Effect row": {
+    "prefix": "effect",
+    "body": [
+      "fn ${1:name}(${2}) -> ${3:Result}[${4:String}, ${5:Error}] !{${6:fs, net}} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Function with an explicit effect row."
+  },
+  "Sandbox block": {
+    "prefix": "sandbox",
+    "body": [
+      "sandbox {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Run code in a denied-by-default sandbox."
+  },
+  "Match expression": {
+    "prefix": "match",
+    "body": [
+      "match ${1:value} {",
+      "\t${2:Pattern} => ${3:result},",
+      "\t_ => ${4:default},",
+      "}"
+    ],
+    "description": "Pattern-match expression."
+  },
+  "Result propagation": {
+    "prefix": "try",
+    "body": [
+      "let ${1:value} = ${2:expr}?",
+      "$0"
+    ],
+    "description": "Try-propagate a Result with `?`."
+  },
+  "if-let": {
+    "prefix": "iflet",
+    "body": [
+      "if let ${1:Some}(${2:value}) = ${3:expr} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Conditional binding for Option/Result."
+  },
+  "for loop": {
+    "prefix": "for",
+    "body": [
+      "for ${1:item} in ${2:collection} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Iterate a collection."
+  },
+  "while loop": {
+    "prefix": "while",
+    "body": [
+      "while ${1:condition} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "While loop."
+  },
+  "Struct decl": {
+    "prefix": "struct",
+    "body": [
+      "struct ${1:Name} {",
+      "\t${2:field}: ${3:Type},",
+      "\t$0",
+      "}"
+    ],
+    "description": "Struct declaration."
+  },
+  "Enum decl": {
+    "prefix": "enum",
+    "body": [
+      "enum ${1:Name} {",
+      "\t${2:Variant}(${3:Type}),",
+      "\t$0",
+      "}"
+    ],
+    "description": "Enum (tagged union)."
+  },
+  "Trait decl": {
+    "prefix": "trait",
+    "body": [
+      "trait ${1:Name} {",
+      "\tfn ${2:method}(&self, ${3:arg}: ${4:Type}) -> ${5:Output}",
+      "}"
+    ],
+    "description": "Trait definition."
+  },
+  "Impl block": {
+    "prefix": "impl",
+    "body": [
+      "impl ${1:Trait} for ${2:Type} {",
+      "\tfn ${3:method}(&self) -> ${4:Output} {",
+      "\t\t$0",
+      "\t}",
+      "}"
+    ],
+    "description": "Trait implementation."
+  },
+  "Function decl": {
+    "prefix": "fn",
+    "body": [
+      "fn ${1:name}(${2:arg}: ${3:Type}) -> ${4:Output} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Function declaration."
+  },
+  "Public function": {
+    "prefix": "pubfn",
+    "body": [
+      "pub fn ${1:name}(${2:arg}: ${3:Type}) -> ${4:Output} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Public function."
+  },
+  "main entry point": {
+    "prefix": "main",
+    "body": [
+      "fn main() {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Program entry point."
+  },
+  "Spawn task": {
+    "prefix": "spawn",
+    "body": [
+      "let ${1:handle} = spawn ${2:Agent}(${3})$0"
+    ],
+    "description": "Spawn an agent."
+  },
+  "Send (fire-and-forget)": {
+    "prefix": "send",
+    "body": [
+      "${1:agent} ! ${2:Message}(${3})$0"
+    ],
+    "description": "Send a message without awaiting a reply."
+  },
+  "Ask (request/reply)": {
+    "prefix": "ask",
+    "body": [
+      "let ${1:reply} = ${2:agent} ? ${3:Message}(${4}).await$0"
+    ],
+    "description": "Ask an agent and await its reply."
+  },
+  "Package declaration": {
+    "prefix": "package",
+    "body": [
+      "package ${1:name}",
+      "",
+      "$0"
+    ],
+    "description": "Package declaration (top-of-file)."
+  },
+  "use std import": {
+    "prefix": "use",
+    "body": [
+      "use std.${1|fs,net,llm,swarm,eval,memory,env,time,mcp|}$0"
+    ],
+    "description": "Import a stdlib module."
+  },
+  "Test function": {
+    "prefix": "test",
+    "body": [
+      "#[test]",
+      "fn ${1:test_name}() {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Test function."
+  },
+  "Eval test": {
+    "prefix": "eval-test",
+    "body": [
+      "@eval",
+      "fn ${1:test_name}() {",
+      "\tSuite.new(\"${1}\")",
+      "\t\t.case(Case.from_input(\"${2:prompt}\"))",
+      "\t\t.run_with(Member.mock(\"baseline\", \"${3:expected}\", 1))",
+      "\t\t.compare(Compare.equal())",
+      "\t\t.await",
+      "}"
+    ],
+    "description": "@eval-decorated test using mock providers."
+  },
+  "Doc comment": {
+    "prefix": "///",
+    "body": [
+      "/// ${1:Summary.}",
+      "///",
+      "/// ${2:Detailed description.}",
+      "$0"
+    ],
+    "description": "Documentation comment."
+  },
+  "log call": {
+    "prefix": "log",
+    "body": [
+      "log(\"${1:message}\")$0"
+    ],
+    "description": "Built-in log helper."
+  },
+  "println-style": {
+    "prefix": "println",
+    "body": [
+      "log(\"${1:message}: ${2:\\$value}\")$0"
+    ],
+    "description": "Format-and-log helper."
+  },
+  "@policy gate": {
+    "prefix": "policy",
+    "body": [
+      "@policy(${1|strict,loose,deny,allow|})",
+      "fn ${2:name}(${3}) -> ${4:Unit} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Policy-gated function."
+  },
+  "Taint marker": {
+    "prefix": "taint",
+    "body": [
+      "let ${1:value}: #tainted ${2:Str} = ${3:source}$0"
+    ],
+    "description": "Annotate a value as tainted (LLM/user-input origin)."
+  },
+  "Untaint check": {
+    "prefix": "untaint",
+    "body": [
+      "let ${1:clean} = untaint(${2:value}, ${3:validator})?$0"
+    ],
+    "description": "Explicit untaint with a validator."
+  },
+  "Macro definition": {
+    "prefix": "macro",
+    "body": [
+      "macro ${1:name}(${2:tokens}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Hygienic macro definition."
+  },
+  "extern block": {
+    "prefix": "extern",
+    "body": [
+      "extern {",
+      "\tfn ${1:name}(${2:arg}: ${3:Type}) -> ${4:Output}",
+      "\t$0",
+      "}"
+    ],
+    "description": "Extern function declaration."
+  },
+  "MCP server registration": {
+    "prefix": "mcp",
+    "body": [
+      "std.mcp.register_tool(${1:read_snippet})$0"
+    ],
+    "description": "Register a tool with the MCP server."
+  },
+  "Region marker": {
+    "prefix": "region",
+    "body": [
+      "// #region ${1:label}",
+      "$0",
+      "// #endregion"
+    ],
+    "description": "Foldable region."
+  }
+}

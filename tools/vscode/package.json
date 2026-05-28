@@ -1,0 +1,217 @@
+{
+  "name": "mighty-language",
+  "displayName": "Mighty Language",
+  "description": "First-class Mighty language support for VS Code: syntax highlighting, LSP client, snippets, palette commands, and a live cost status bar.",
+  "version": "0.31.0",
+  "publisher": "hassard0",
+  "license": "MIT",
+  "icon": "icons/mighty.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hassard0/Mighty.git",
+    "directory": "tools/vscode"
+  },
+  "homepage": "https://github.com/hassard0/Mighty",
+  "bugs": {
+    "url": "https://github.com/hassard0/Mighty/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets",
+    "Debuggers",
+    "Formatters",
+    "Linters"
+  ],
+  "keywords": [
+    "mighty",
+    "mty",
+    "agents",
+    "lsp",
+    "language-server"
+  ],
+  "activationEvents": [
+    "onLanguage:mighty",
+    "workspaceContains:**/*.mty",
+    "workspaceContains:**/mighty.toml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "mighty",
+        "aliases": [
+          "Mighty",
+          "mty"
+        ],
+        "extensions": [
+          ".mty",
+          ".eval.mty"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "icons/mighty.png",
+          "dark": "icons/mighty.png"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "mighty",
+        "scopeName": "source.mty",
+        "path": "./syntaxes/mighty.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "mighty",
+        "path": "./snippets/mighty.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "mighty.run",
+        "title": "Mighty: Run current file",
+        "category": "Mighty"
+      },
+      {
+        "command": "mighty.check",
+        "title": "Mighty: Check current file",
+        "category": "Mighty"
+      },
+      {
+        "command": "mighty.build",
+        "title": "Mighty: Build",
+        "category": "Mighty"
+      },
+      {
+        "command": "mighty.fmt",
+        "title": "Mighty: Format",
+        "category": "Mighty"
+      },
+      {
+        "command": "mighty.inspectCost",
+        "title": "Mighty: Inspect cost",
+        "category": "Mighty"
+      },
+      {
+        "command": "mighty.testEval",
+        "title": "Mighty: Test --eval",
+        "category": "Mighty"
+      },
+      {
+        "command": "mighty.explainDiagnostic",
+        "title": "Mighty: Explain diagnostic",
+        "category": "Mighty"
+      },
+      {
+        "command": "mighty.restartServer",
+        "title": "Mighty: Restart Language Server",
+        "category": "Mighty"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "mighty.run",
+        "key": "ctrl+f5",
+        "mac": "cmd+f5",
+        "when": "editorTextFocus && editorLangId == mighty"
+      },
+      {
+        "command": "mighty.check",
+        "key": "ctrl+shift+b",
+        "mac": "cmd+shift+b",
+        "when": "editorTextFocus && editorLangId == mighty"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "mighty.run",
+          "when": "editorLangId == mighty",
+          "group": "mighty@1"
+        },
+        {
+          "command": "mighty.check",
+          "when": "editorLangId == mighty",
+          "group": "mighty@2"
+        },
+        {
+          "command": "mighty.fmt",
+          "when": "editorLangId == mighty",
+          "group": "mighty@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Mighty",
+      "properties": {
+        "mighty.server.path": {
+          "type": "string",
+          "default": "mty",
+          "description": "Path to the `mty` binary. The extension launches `<path> lsp` over stdio."
+        },
+        "mighty.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Trace the communication between VS Code and the Mighty LSP."
+        },
+        "mighty.inlayHints.enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show inferred-type hints next to `let` bindings and fn parameters."
+        },
+        "mighty.semanticTokens.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use the LSP's semantic-token classifier to highlight identifiers more precisely than the TextMate grammar can."
+        },
+        "mighty.costStatusBar.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a status-bar item with today's LLM spend, sourced from ~/.mty/observations.sqlite."
+        },
+        "mighty.costStatusBar.refreshSeconds": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "description": "Seconds between cost-status refreshes."
+        },
+        "mighty.test.replayOnly": {
+          "type": "boolean",
+          "default": true,
+          "description": "Default `Mighty: Test --eval` to --replay-only (no live LLM calls)."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[mighty]": {
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "editor.formatOnSave": false
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0",
+    "@vscode/vsce": "^2.24.0"
+  }
+}
