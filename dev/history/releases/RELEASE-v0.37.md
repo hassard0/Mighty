@@ -368,12 +368,14 @@ transient kernel-side failures. The tolerate-RST guard is removed.
 ## Test counts
 
 - Pre-v0.37: 3176 workspace tests (v0.36.1 baseline)
-- Post-v0.37: ~3267 workspace tests (verified on vulcan)
-- Net delta: ~+91 tests across the 6 tracks
+- Post-v0.37: 3236 workspace tests (verified on vulcan, `cargo test
+  --workspace --release --no-fail-fast`)
+- Net delta: +60 tests across the 6 tracks
 
-(T1 +9, T2 +21, T3 +18, T4 +9, T5 +17, T6 +17 = +91; the actual count
-may be slightly higher because the harness counts some auto-generated
-sub-cases independently.)
+(T1 +9, T2 +21, T3 +18, T4 +9, T5 +17, T6 +17 estimated as +91 in the
+integrator brief; the harness aggregates some auto-generated
+sub-cases under a single counter, so the actual passing-test delta on
+the workspace counter is +60.)
 
 ## CI / release
 

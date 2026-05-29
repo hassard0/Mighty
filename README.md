@@ -261,9 +261,9 @@ current state of the language, not its history.
 ## Status
 
 Mighty is **pre-alpha**. Internal milestones tagged through v0.37.
-The toolchain is exercised by **~3267 Rust tests** across 20 crates
+The toolchain is exercised by **3236 Rust tests** across 20 crates
 plus **490 Python 2nd-impl tests** plus **159 normative conformance
-cases** plus **23 self-host driver codegen tests** — combined **~3939
+cases** plus **23 self-host driver codegen tests** — combined **~3908
 tests, 0 failing**. All four LLM providers full (with multi-modal
 vision-language Image input); `std.swarm` votes consensus across
 them; `std.eval` regression-tests agents under byte-identical
