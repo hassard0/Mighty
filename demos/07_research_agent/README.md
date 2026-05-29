@@ -189,6 +189,54 @@ echo '{"op":"run","path":"demos/07_research_agent/src/main.mty"}' \
 * Human-facing CLI: `docs/reference/cli/mty-agent.md`
 * Structured-diagnostics foundation (T4): `docs/internals/diagnostic-envelopes.md`
 
+## Self-correcting via `mty fix --apply` (v0.35 T3)
+
+v0.35 closes the loop on agent first-shot → zero-shot. v0.33 / v0.34
+gave us structured fix envelopes; v0.35 lets an agent (or a human)
+roll the fixes forward from the CLI without an editor in the loop:
+
+```bash
+# One-shot: read every envelope from `mty check`, pick the best
+# alternative ≥ 0.85 confidence, apply, write back, exit 0.
+mty check --format json demos/07_research_agent/src/main.mty \
+  | mty fix --apply --from-stdin
+```
+
+When the demo's `main.mty` accidentally pipes a tainted LLM response
+into `std.fs.write` (the MT4099 marquee case from `examples/33_taint_basics.mty`),
+the pipe above untaints the call automatically:
+
+```
+applied MT4099 — Constrain via a known-safe regex
+Applied 1 fix (MT4099 ×1)
+```
+
+### Common knobs
+
+```bash
+# Preview without writing.
+mty check --format json src/main.mty | mty fix --apply --from-stdin --dry-run
+
+# Apply only one code family at a time (CI gating).
+mty check --format json src/main.mty | mty fix --apply --from-stdin --code MT4099
+
+# Always pick the second alternative (e.g. sanitizer over regex).
+mty check --format json src/main.mty | mty fix --apply --from-stdin --alternative 1
+
+# Lower the confidence floor.
+mty check --format json src/main.mty | mty fix --apply --from-stdin --threshold 0.7
+```
+
+### LSP-side equivalent
+
+Editors that bind to `source.fixAll.mighty` get the same bulk-apply
+semantics via a single `textDocument/codeAction` request — see
+`docs/internals/lsp.md` ("Bulk apply — `source.fixAll.mighty`").
+
+### Full CLI reference
+
+See [`docs/reference/cli/mty-fix.md`](../../docs/reference/cli/mty-fix.md).
+
 ## Prior demos for context
 
 | Demo | Theme | What it proved |

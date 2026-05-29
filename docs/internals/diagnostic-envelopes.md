@@ -250,11 +250,67 @@ The envelope shape is stable for the entire v0.33 line. v0.34 will:
 Until then, agents should treat the schema as additive — unknown fields
 must be ignored, present fields must keep their documented shape.
 
+## Consuming fix envelopes (v0.35 T3)
+
+Once an agent has parsed an envelope, it has two CLI-side surfaces for
+applying the fix:
+
+1. **`mty fix --apply <path>`** — bulk-applies envelopes to a single
+   file. Default policy: highest-confidence alternative per diagnostic,
+   `confidence >= 0.85`, splice highest-line-first to keep anchors
+   stable. See [`docs/reference/cli/mty-fix.md`](../reference/cli/mty-fix.md)
+   for every flag.
+2. **`mty check --format json <path> | mty fix --apply --from-stdin`** —
+   the canonical zero-shot loop. An LLM agent runs `mty check`, reads
+   the envelopes, optionally filters with `--code` / `--alternative`,
+   and pipes them straight back without re-checking inside `mty fix`.
+
+The applier lives in `crates/mty-diagnostics/src/apply.rs` and is
+shared between the CLI (`crates/mty-cli/src/cmd/fix.rs`) and the LSP's
+bulk-apply path (`source.fixAll.mighty`). Both surfaces honour the
+same conflict-resolution rules:
+
+- Apply highest source line first so earlier edits stay anchored.
+- Validate each hunk's OLD lines verbatim against the buffer; refuse
+  to apply when they don't match (envelope drift / stale diff).
+- Tally skipped envelopes as `unapplied` so the agent can decide
+  whether to re-run.
+
+### Agent loop example
+
+```bash
+# First-shot → zero-shot.
+mty check --format json src/main.mty \
+  | mty fix --apply --from-stdin --threshold 0.85
+# stderr: applied MT4099 — Constrain via a known-safe regex
+# stderr: Applied 1 fix (MT4099 ×1)
+```
+
+### Filtering by code or alternative
+
+```bash
+# Only apply taint fixes; use the second alternative each time.
+mty check --format json src/main.mty \
+  | mty fix --apply --from-stdin --code MT4099 --alternative 1
+```
+
+### LSP equivalent
+
+Editors that bind to `source.fixAll.mighty` get the same bulk-apply
+semantics via a single `textDocument/codeAction` request with
+`context.only = ["source.fixAll.mighty"]`. The returned action is
+the only one in the response and carries every preferred fix in a
+single atomic `WorkspaceEdit`.
+
 ## Implementation pointers
 
 - Envelope types: `crates/mty-diagnostics/src/fix.rs`.
 - Per-code fix engines: `crates/mty-diagnostics/src/codes_fix.rs`.
-- CLI integration: `crates/mty-cli/src/cmd/check.rs` (`--format json`).
+- Source-string applier: `crates/mty-diagnostics/src/apply.rs` (v0.35 T3).
+- CLI integration: `crates/mty-cli/src/cmd/check.rs` (`--format json`)
+  and `crates/mty-cli/src/cmd/fix.rs` (`--apply`).
+- LSP integration: `crates/mty-lsp/src/code_actions.rs`
+  (`fix_all_mighty_action`).
 - Example with the marquee MT4099 envelope:
   `examples/38_diag_envelopes.mty`.
 
@@ -262,4 +318,6 @@ must be ignored, present fields must keep their documented shape.
 
 - `docs/internals/taint-types.md` — MT4099 background.
 - `docs/internals/diagnostics.md` — the human-renderer architecture.
-- `docs/reference/cli/mty-check.md` — CLI reference.
+- `docs/reference/cli/mty-check.md` — `mty check` CLI reference.
+- `docs/reference/cli/mty-fix.md` — `mty fix --apply` CLI reference.
+- `docs/internals/lsp.md` — LSP `source.fixAll.mighty` notes.

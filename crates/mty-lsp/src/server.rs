@@ -339,11 +339,14 @@ impl LanguageServer for Backend {
             .read()
             .map(|g| *g)
             .unwrap_or_default();
-        Ok(Some(code_actions::code_actions_with_config(
+        // v0.35 T3 — honor `context.only` so editors that send a
+        // `source.fixAll.mighty` filter get the bulk-apply action.
+        Ok(Some(code_actions::code_actions_with_filter(
             &uri,
             &doc,
             params.range,
             &params.context.diagnostics,
+            params.context.only.as_deref(),
             cfg,
         )))
     }
