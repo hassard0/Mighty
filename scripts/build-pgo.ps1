@@ -51,6 +51,14 @@ llvm-profdata not found.
 }
 Write-Host "Using llvm-profdata: $LlvmProfdata"
 
+# v0.35.1 fix: rustc resolves `-Cprofile-use=<path>` at compile
+# time from each build script's own CWD (package dir), not the
+# workspace root. A relative path works for `-Cprofile-generate`
+# (resolved at runtime CWD) but blows up at `-Cprofile-use`.
+# Promote $ProfDir to absolute before any rustc sees it.
+New-Item -ItemType Directory -Force -Path $ProfDir | Out-Null
+$ProfDir = (Resolve-Path $ProfDir).Path
+
 # ----------------------------------------------------------------
 # Phase 0: prepare profile dir.
 # ----------------------------------------------------------------

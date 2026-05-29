@@ -55,6 +55,21 @@ freeze-gate items into "ready": real WASM playground (T1), `mty
 agent` production transports (T2), and the agent-first-shot →
 zero-shot loop (T3).
 
+## [0.35.1] - 2026-05-29
+
+### Fixed
+- **PGO release pipeline** — `scripts/build-pgo.{sh,ps1}` promote
+  `$PROFDIR` / `$ProfDir` to absolute before any `rustc`
+  invocation. v0.35.0's Release workflow failed on all three PGO
+  platforms (`linux-x86_64`, `darwin-arm64`, `windows-x86_64`)
+  with `file 'target/pgo-profiles/merged.profdata' passed to
+  '-C profile-use' does not exist` because `rustc` resolved
+  `-Cprofile-use=<relative-path>` from each build script's own
+  CWD (package dir), not the workspace root.
+  `-Cprofile-generate` was unaffected (the path is resolved at the
+  instrumented binary's runtime CWD, which is the workspace root).
+  Source artefacts are otherwise identical to v0.35.0.
+
 ## [0.35.0] - 2026-05-28
 
 **Mighty v0.35 — closing the v0.33 stubs. Real WASM mty in the

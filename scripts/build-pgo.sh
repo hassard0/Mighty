@@ -31,6 +31,17 @@ set -euo pipefail
 PROFDIR="${PROFDIR:-target/pgo-profiles}"
 TOOLCHAIN="${TOOLCHAIN:-1.95.0}"
 
+# v0.35.1 fix: rustc resolves `-Cprofile-use=<path>` at compile
+# time from each build script's own CWD (package dir), not the
+# workspace root. A relative `target/pgo-profiles/merged.profdata`
+# works for `-Cprofile-generate` (registered into the binary and
+# resolved at *runtime* CWD) but blows up at `-Cprofile-use` for
+# every build script: "file `target/pgo-profiles/merged.profdata`
+# ... does not exist". Promote PROFDIR to absolute before any rustc
+# sees it.
+mkdir -p "$PROFDIR"
+PROFDIR="$(cd "$PROFDIR" && pwd)"
+
 # ----------------------------------------------------------------
 # Sanity: locate llvm-profdata. We try, in order:
 #   1. `llvm-profdata` on PATH (system LLVM).

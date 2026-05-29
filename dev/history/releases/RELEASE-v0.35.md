@@ -1,7 +1,8 @@
 # Mighty v0.35 — Release Notes
 
-**Tag:** `v0.35.0`
-**Date:** 2026-05-28
+**Tag:** `v0.35.1` (v0.35.0 had a PGO release-pipeline bug — see
+"Integrator notes")
+**Date:** 2026-05-29
 **Status:** SHIPPED — closing the v0.33 stubs.
 
 **Headline:** **Mighty v0.35 — closing the v0.33 stubs.** Real WASM
@@ -256,6 +257,23 @@ stable at `~/.cargo/bin/cargo`). All green.
 (filled in by integrator at tag time — see end of file.)
 
 ## Integrator notes
+
+**v0.35.0 → v0.35.1 PGO fix.** The v0.35.0 tag pushed at 03:56
+UTC. The Release workflow's PGO leg failed on all three PGO
+platforms (`linux-x86_64`, `darwin-arm64`, `windows-x86_64`) at
+Phase 4 (optimised rebuild) with `file
+'target/pgo-profiles/merged.profdata' passed to '-C profile-use'
+does not exist`. Root cause: `rustc` resolves
+`-Cprofile-use=<path>` at compile time from each build script's
+own CWD (package dir), not the workspace root.
+`-Cprofile-generate=<path>` works with the same relative path
+because that path is registered into the instrumented binary and
+resolved at *runtime* CWD (the sweep is driven from workspace
+root). The fix promotes `$PROFDIR` / `$ProfDir` to absolute
+*before* any `rustc` invocation, in both `scripts/build-pgo.sh`
+and `scripts/build-pgo.ps1`. Retagged as `v0.35.1`. No source
+changes between v0.35.0 and v0.35.1 outside the two release
+scripts.
 
 The five merges were mechanical despite three tracks touching
 `crates/mty-cli/src/main.rs` — each new subcommand variant extends
