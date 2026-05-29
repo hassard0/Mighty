@@ -92,3 +92,111 @@ let s = format!("score: {}, level: {}", 42, 7);
 log(s);
 ##end
 
+##sym String.find
+##sig fn String.find(&self, needle: Str) -> Option[USize]
+##desc Byte index of the first occurrence of `needle`, or `None`. Mirrors `str::find`.
+##see String.rfind, String.position, String.contains
+##example
+let s = "Hello, Mighty";
+let pos = s.find("Mighty");
+assert_eq(pos, Some(7));
+##end
+
+##sym String.rfind
+##sig fn String.rfind(&self, needle: Str) -> Option[USize]
+##desc Byte index of the last occurrence of `needle`, or `None`.
+##see String.find, String.position
+##example
+let pos = "ababab".rfind("ab");
+assert_eq(pos, Some(4));
+##end
+
+##sym String.position
+##sig fn String.position(&self, c: Char) -> Option[USize]
+##desc Byte index of the first occurrence of code-point `c`, or `None`. Cheaper than `find(&c.to_string())` for single-`Char` lookups.
+##see String.find, String.chars
+##example
+let p = "h©llo".position('©');
+assert_eq(p, Some(1));
+##end
+
+##sym String.insert_at
+##sig fn String.insert_at(&self, idx: USize, t: Str) -> Option[Str]
+##desc Splice `t` into this string at byte position `idx`. Returns `None` (MT5080) when `idx` is past the end or is not a UTF-8 code-point boundary.
+##see String.remove_range, String.replace_range, String.is_char_boundary
+##example
+let s = "Hello, Mighty";
+let r = s.insert_at(7, "the ");
+assert_eq(r, Some("Hello, the Mighty"));
+##end
+
+##sym String.remove_range
+##sig fn String.remove_range(&self, start: USize, end: USize) -> Option[Str]
+##desc Delete the byte range `start..end`. Returns `None` (MT5080) when bounds are inverted, out of range, or not on UTF-8 boundaries.
+##see String.replace_range, String.insert_at, String.is_char_boundary
+##example
+let s = "Hello, the Mighty";
+let r = s.remove_range(7, 11);
+assert_eq(r, Some("Hello, Mighty"));
+##end
+
+##sym String.replace_range
+##sig fn String.replace_range(&self, start: USize, end: USize, t: Str) -> Option[Str]
+##desc Replace the byte range `start..end` with `t`. Returns `None` (MT5080) on bad bounds.
+##see String.remove_range, String.insert_at, String.replace
+##example
+let s = "Hello, the Mighty";
+let r = s.replace_range(7, 11, "a ");
+assert_eq(r, Some("Hello, a Mighty"));
+##end
+
+##sym String.is_char_boundary
+##sig fn String.is_char_boundary(&self, idx: USize) -> Bool
+##desc True iff `idx` is a UTF-8 code-point boundary (including `0` and `byte_len()`). False inside multi-byte sequences and past the end.
+##see String.next_char_boundary, String.prev_char_boundary
+##example
+assert(!"é".is_char_boundary(1));
+##end
+
+##sym String.next_char_boundary
+##sig fn String.next_char_boundary(&self, idx: USize) -> Option[USize]
+##desc Smallest UTF-8 code-point boundary strictly greater than `idx`, or `None` if `idx >= byte_len()`.
+##see String.is_char_boundary, String.prev_char_boundary
+##example
+assert_eq("a©b".next_char_boundary(2), Some(3));
+##end
+
+##sym String.prev_char_boundary
+##sig fn String.prev_char_boundary(&self, idx: USize) -> Option[USize]
+##desc Largest UTF-8 code-point boundary strictly less than `idx`, or `None` if `idx == 0`.
+##see String.is_char_boundary, String.next_char_boundary
+##example
+assert_eq("a©b".prev_char_boundary(2), Some(1));
+##end
+
+##sym String.chars
+##sig fn String.chars(&self) -> Iterator[Char]
+##desc Iterator over Unicode code points. Lazy: no intermediate `Vec<Char>` allocation.
+##see String.char_indices, String.bytes
+##example
+let n = "a©🦀".chars().len();
+assert_eq(n, 3);
+##end
+
+##sym String.char_indices
+##sig fn String.char_indices(&self) -> Iterator[(USize, Char)]
+##desc Iterator over `(byte_index, char)` pairs.
+##see String.chars, String.as_bytes
+##example
+let pairs = "a©b".char_indices();
+assert_eq(pairs.len(), 3);
+##end
+
+##sym String.byte_len
+##sig fn String.byte_len(&self) -> USize
+##desc Documented byte-length alias of `len`. Spells out "I want bytes" at the call site.
+##see String.len, String.as_bytes
+##example
+assert_eq("a©".byte_len(), 3);
+##end
+

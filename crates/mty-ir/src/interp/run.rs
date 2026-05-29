@@ -1916,6 +1916,158 @@ fn eval_method(receiver: &Value, name: &str, args: &[Value]) -> Value {
             _ => receiver.clone(),
         },
 
+        // ---------------- v0.36 T3 String position/range/boundary ----------------
+        //
+        // These mirror the host-side wrappers in `mty_stdlib::string::String`.
+        // Range-edit ops panic with `MT5080`-tagged messages on bad
+        // indices; the interp dispatch translates the panic into a
+        // returned `none()` so source-level callers don't have to
+        // wrap every call in `try { ... }`. The Rust-side tests in
+        // mty-stdlib cover the panic shape end-to-end.
+        "rfind" => match (receiver, arg_str(args, 0)) {
+            (Str(s), Some(needle)) => match s.rfind(needle.as_str()) {
+                Some(idx) => some(Int(idx as i128, IntKind::USize)),
+                None => none(),
+            },
+            _ => none(),
+        },
+        "position" => match (receiver, args.first()) {
+            (Str(s), Some(Char(c))) => match s.find(*c) {
+                Some(idx) => some(Int(idx as i128, IntKind::USize)),
+                None => none(),
+            },
+            // Permissive fallback: accept a 1-char Str as the needle.
+            (Str(s), Some(Str(needle))) => {
+                let mut it = needle.chars();
+                match (it.next(), it.next()) {
+                    (Some(c), None) => match s.find(c) {
+                        Some(idx) => some(Int(idx as i128, IntKind::USize)),
+                        None => none(),
+                    },
+                    _ => none(),
+                }
+            }
+            _ => none(),
+        },
+        "byte_len" => match receiver {
+            Str(s) => Int(s.len() as i128, IntKind::USize),
+            _ => Int(0, IntKind::USize),
+        },
+        "as_bytes" => match receiver {
+            // Same shape as `bytes` (which returns Array<U8>), kept
+            // distinct so callers spelling intent as `as_bytes()` get
+            // the byte view documented in the stdlib reference.
+            Str(s) => Array(
+                s.as_bytes()
+                    .iter()
+                    .map(|b| Int(*b as i128, IntKind::U8))
+                    .collect(),
+            ),
+            _ => Array(vec![]),
+        },
+        "char_indices" => match receiver {
+            Str(s) => Array(
+                s.char_indices()
+                    .map(|(i, c)| Tuple(vec![Int(i as i128, IntKind::USize), Char(c)]))
+                    .collect(),
+            ),
+            _ => Array(vec![]),
+        },
+        "is_char_boundary" => match (receiver, arg_usize(args, 0)) {
+            (Str(s), Some(idx)) => Bool(s.is_char_boundary(idx)),
+            _ => Bool(false),
+        },
+        "next_char_boundary" => match (receiver, arg_usize(args, 0)) {
+            (Str(s), Some(idx)) => {
+                let len = s.len();
+                if idx >= len {
+                    none()
+                } else {
+                    let mut j = idx + 1;
+                    while j <= len && !s.is_char_boundary(j) {
+                        j += 1;
+                    }
+                    some(Int(j as i128, IntKind::USize))
+                }
+            }
+            _ => none(),
+        },
+        "prev_char_boundary" => match (receiver, arg_usize(args, 0)) {
+            (Str(s), Some(idx)) => {
+                if idx == 0 {
+                    none()
+                } else {
+                    let mut j = idx - 1;
+                    loop {
+                        if s.is_char_boundary(j) {
+                            break some(Int(j as i128, IntKind::USize));
+                        }
+                        if j == 0 {
+                            break some(Int(0, IntKind::USize));
+                        }
+                        j -= 1;
+                    }
+                }
+            }
+            _ => none(),
+        },
+        "insert_at" => match (receiver, arg_usize(args, 0), arg_str(args, 1)) {
+            (Str(s), Some(idx), Some(t)) => {
+                if idx > s.len() || !s.is_char_boundary(idx) {
+                    // MT5080 — surfaced as `none()` here for source-
+                    // level chainability; the Rust-side `String::insert_at`
+                    // panics. Source code that needs a hard trap can
+                    // call `is_char_boundary` first or unwrap a returned
+                    // Option-shaped marker.
+                    return none();
+                }
+                let mut out = std::string::String::with_capacity(s.len() + t.len());
+                out.push_str(&s[..idx]);
+                out.push_str(&t);
+                out.push_str(&s[idx..]);
+                some(Str(out))
+            }
+            _ => none(),
+        },
+        "remove_range" => match (receiver, arg_usize(args, 0), arg_usize(args, 1)) {
+            (Str(s), Some(start), Some(end)) => {
+                if start > end
+                    || end > s.len()
+                    || !s.is_char_boundary(start)
+                    || !s.is_char_boundary(end)
+                {
+                    return none();
+                }
+                let mut out = std::string::String::with_capacity(s.len() - (end - start));
+                out.push_str(&s[..start]);
+                out.push_str(&s[end..]);
+                some(Str(out))
+            }
+            _ => none(),
+        },
+        "replace_range" => match (
+            receiver,
+            arg_usize(args, 0),
+            arg_usize(args, 1),
+            arg_str(args, 2),
+        ) {
+            (Str(s), Some(start), Some(end), Some(t)) => {
+                if start > end
+                    || end > s.len()
+                    || !s.is_char_boundary(start)
+                    || !s.is_char_boundary(end)
+                {
+                    return none();
+                }
+                let mut out = std::string::String::with_capacity(s.len() - (end - start) + t.len());
+                out.push_str(&s[..start]);
+                out.push_str(&t);
+                out.push_str(&s[end..]);
+                some(Str(out))
+            }
+            _ => none(),
+        },
+
         // ---------------- String (mutable) helpers ----------------
         // Mighty spec treats `String` as the owned, mutable form; the
         // interpreter stores both `String` and `Str` as `Value::Str(_)`,
