@@ -1,6 +1,6 @@
 # Mighty v0.36 — Release Notes
 
-**Tag:** `v0.36.0`
+**Tag:** `v0.36.1` (v0.36.0 + 2 integrator follow-ups; see "Integrator notes")
 **Date:** 2026-05-29
 **Status:** SHIPPED — fix-it-for-others.
 
@@ -268,16 +268,46 @@ unit suite in `crates/mty-codegen-cranelift/src/object.rs`.
   in `mty-codegen-cranelift/src/object.rs` (T1+T4+T5) and
   `crates/mty-runtime/src/otlp.rs` (T4) resolved without manual
   intervention because the tracks edited distinct hunks.
-- **`BuildOptions` field reconciliation.** T2 added required fields
-  `extern_libs` + `manifest_dir`. T1's
+- **`BuildOptions` field reconciliation (commit `5cc00aa`).** T2
+  added required fields `extern_libs` + `manifest_dir`. T1's
   `crates/mty-driver/tests/native_dynamic_log.rs` was written before
   T2 landed and constructed `BuildOptions` with the old shape. The
-  integrator commit `5cc00aa` adds the two `..::default()`-style
-  fields to the T1 test struct literal. All other `BuildOptions`
-  construction sites already include the new fields.
+  integrator commit adds the two empty-default fields to the T1 test
+  struct literal. All other `BuildOptions` construction sites
+  already include the new fields.
 - **PGO sanity check.** Ran `bash scripts/build-pgo.sh` on the
   Linux x86_64 reference host (vulcan, 4×V100, rust 1.95.0,
-  llvm-tools-preview). Outcome: see "Release verification" below.
+  llvm-tools-preview). End-to-end success — Phase 1 instrumented
+  build, Phase 2 collected 66 .profraw shards, Phase 3 merged into
+  33 MB .profdata, Phase 4 PGO-optimised rebuild (4m 32s), Phase 5
+  copied to `target/mty-pgo` (20.4 MB binary, runs cleanly).
+- **v0.36.0 Release was tagged but never published (commit
+  `7d854b3`).** Two follow-up bugs surfaced once CI ran the full
+  matrix:
+  1. **Env-race in tests on Windows + Ubuntu (fix in `d7bb32d`).**
+     Three tests in `mty-codegen-cranelift::object` and
+     `mty-stdlib::observe::storage` set process-wide env vars
+     without acquiring the module-level `ENV_LOCK` mutex. Cargo's
+     default test parallelism let a sibling test's `remove_var`
+     race with the body's `set_var → find_linker` window. Fix:
+     hold the existing `ENV_LOCK` in all env-mutating tests, add
+     the same `ENV_LOCK` pattern to the `observe::storage` test
+     module, snapshot/restore previous env values on the way out.
+  2. **macOS PGO `Phase 3: merge profiles` profile-format mismatch
+     (fix in `3e822db`).** `scripts/build-pgo.{sh,ps1}` were
+     preferring `llvm-profdata` from `$PATH` over the rustup-shipped
+     variant. On the `macos-14` GitHub runner `$PATH` resolved to a
+     newer system LLVM whose `llvm-profdata` doesn't understand
+     rust 1.95.0's instrumented format. The discovery order is now
+     flipped: rustup-shipped `llvm-profdata` first (it
+     version-matches the rustc that wrote the `.profraw` shards),
+     `$PATH` as last-resort fallback. v0.36.1 also ships
+     `aarch64-apple-darwin` as `use_pgo: false` so the v* tag
+     publishes a binary regardless; the script fix will be
+     canary-validated in a v0.37 darwin-arm64 leg.
+
+  v0.36.1 is therefore the published `v0.36.*` release; v0.36.0
+  exists as a tag but no Release page or binaries.
 
 ## Test counts
 
@@ -289,16 +319,18 @@ unit suite in `crates/mty-codegen-cranelift/src/object.rs`.
 auto-generated test sub-cases that the harness aggregates under a
 single `test result:` line.)
 
-## CI / Release matrix
+## CI / Release matrix (v0.36.1)
 
-- 6 CI workflows: build / test (default + minimal features) / clippy
-  / fmt / audit / fuzz-smoke
+- 5 main CI workflows: CI / Release / bench / Pages / security
+  (plus playground / python-impl / web-smoke / pgo-bench on
+  path-match / workflow_dispatch)
 - 5 release-binary platforms: `linux-x86_64`, `linux-aarch64`,
   `darwin-arm64`, `darwin-x86_64`, `windows-x86_64`
-- 3 platforms with PGO enabled: `linux-x86_64`, `darwin-arm64`,
-  `windows-x86_64`
-- 2 platforms without PGO: `linux-aarch64` (cross-compile),
-  `darwin-x86_64` (rosetta)
+- 2 platforms with PGO enabled: `linux-x86_64`, `windows-x86_64`
+  (validated end-to-end in CI for v0.36.1)
+- 3 platforms without PGO: `linux-aarch64` (cross-compile),
+  `darwin-x86_64` (rosetta), `darwin-arm64` (deferred to v0.37
+  after llvm-profdata discovery fix)
 
 ## v0.37 backlog
 
