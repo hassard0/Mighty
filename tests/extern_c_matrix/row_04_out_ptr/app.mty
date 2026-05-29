@@ -1,0 +1,14 @@
+// Row 4: out-param via pointer.
+//
+// Wrapper pattern — the C side allocates the slot and passes its
+// address into a real `*mut i32`-taking helper. See the matrix doc
+// for the upcoming "Mighty-side address-of for FFI locals" v0.37
+// follow-up.
+
+extern c {
+  fn mty_row04() -> I32
+}
+
+fn main() {
+  let _ = mty_row04()
+}

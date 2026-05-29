@@ -34,6 +34,19 @@ pub type JitMain = extern "C" fn();
 /// Variant used when the program declared a `-> Int` main.
 pub type JitMainI64 = extern "C" fn() -> i64;
 
+/// v0.36 Track T2 — default no-op resolver for extern fns the JIT
+/// caller didn't provide. Returns 0 so callers that read the i64
+/// return value see a deterministic placeholder.
+///
+/// This is the JIT-side analogue of an empty stub body: the AOT path
+/// resolves these from the manifest's `[[extern_lib]]` archives, but
+/// JIT can't link archives so we provide a synthetic body instead.
+/// Variadic signatures don't reach this path — the extern_c_matrix
+/// doc lists them as v0.37 follow-up.
+extern "C" fn jit_extern_default_trap() -> i64 {
+    0
+}
+
 /// Build a JIT module and lower every function in `prog`. The runtime
 /// symbol table is registered via `symbols`; pass the runtime's
 /// `register_with` helper to populate it.
@@ -49,6 +62,21 @@ pub fn build_jit(prog: &Program, symbols: &[(String, *const u8)]) -> CompileResu
     let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
     for (name, addr) in symbols {
         builder.symbol(name.clone(), *addr);
+    }
+    // v0.36 Track T2 — extern c fns now get `Linkage::Import` (so the
+    // AOT linker can resolve them from a vendored archive). The JIT
+    // path has no archive to consult; any extern fn the user actually
+    // calls would fail with "can't resolve symbol". Provide a default
+    // no-op trap for every extern binding so JIT execution stays
+    // tolerant — same behaviour as the pre-v0.36 stub path. Callers
+    // who want a real implementation can override by passing the
+    // symbol through `symbols`.
+    for binding in prog.extern_bindings.values() {
+        // Skip if the caller already provided a real impl.
+        if symbols.iter().any(|(n, _)| n == &binding.name) {
+            continue;
+        }
+        builder.symbol(binding.name.clone(), jit_extern_default_trap as *const u8);
     }
     let mut module = JITModule::new(builder);
 

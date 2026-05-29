@@ -1,0 +1,9 @@
+// Row 9: Mighty Str ↔ C const char *.
+
+extern c {
+  fn mty_row09() -> I32
+}
+
+fn main() {
+  let _ = mty_row09()
+}

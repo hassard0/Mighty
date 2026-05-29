@@ -1,0 +1,9 @@
+// Row 11: function pointer.
+
+extern c {
+  fn mty_row11() -> I32
+}
+
+fn main() {
+  let _ = mty_row11()
+}

@@ -44,6 +44,7 @@ host-toolchain = [
 tempfile = "3"
 wasmparser = { workspace = true }
 serde_json = { workspace = true }
+target-lexicon = { workspace = true }
 
 [lints]
 workspace = true

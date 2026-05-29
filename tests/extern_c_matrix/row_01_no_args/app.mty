@@ -1,0 +1,15 @@
+// Row 1: extern c fn foo() -> i32 (no args).
+//
+// The simplest possible FFI shape: a zero-arg C function returning an
+// I32. Pins that the Cranelift backend declares the symbol with
+// Linkage::Import (so the host linker resolves it from
+// `vendor/libmtyrow.a`) and that the calling-convention signature
+// matches between Mighty and C.
+
+extern c {
+  fn mty_row01() -> I32
+}
+
+fn main() {
+  let _ = mty_row01()
+}

@@ -22,6 +22,7 @@ fn happy_path_single_registry_dep() {
         deps,
         build: None,
         cluster: None,
+        extern_libs: Vec::new(),
     };
     let dir = tempfile::tempdir().unwrap();
     let lock = Resolver::new(dir.path()).resolve(&m).unwrap();
@@ -79,6 +80,7 @@ subsub = { path = "../subsub" }
         deps,
         build: None,
         cluster: None,
+        extern_libs: Vec::new(),
     };
 
     let lock = Resolver::new(root.path()).resolve(&m).unwrap();
@@ -165,6 +167,7 @@ leaf = { path = "../leaf_b" }
         deps,
         build: None,
         cluster: None,
+        extern_libs: Vec::new(),
     };
     let err = Resolver::new(root.path()).resolve(&m).unwrap_err();
     let msg = err.to_string();

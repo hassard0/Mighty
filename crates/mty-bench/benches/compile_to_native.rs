@@ -32,6 +32,10 @@ fn bench_compile(c: &mut Criterion) {
                 no_component: true,
                 wasi_preview: mty_driver::build::WasiPreview::P1,
                 user_wit: None,
+
+                extern_libs: Vec::new(),
+
+                manifest_dir: None,
             };
             let outcome = build_wasm(src.clone(), "compile.mty".into(), &opts, WasmTarget::Wasi);
             black_box(outcome);

@@ -1,0 +1,14 @@
+// Row 5: struct by-value.
+//
+// Wrapper-pattern: the Mighty source invokes a zero-arg helper, the C
+// side builds a `Point` literal and forwards it to a real
+// struct-taking fn. Matrix doc captures the v0.37 follow-up: ABI
+// struct-by-value crossing the language boundary directly.
+
+extern c {
+  fn mty_row05() -> I32
+}
+
+fn main() {
+  let _ = mty_row05()
+}

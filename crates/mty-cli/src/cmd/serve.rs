@@ -255,6 +255,10 @@ fn build_once(pkg_root: &Path) -> Result<PathBuf, BuildErr> {
         no_component: false,
         wasi_preview: WasiPreview::default(),
         user_wit: None,
+
+        extern_libs: Vec::new(),
+
+        manifest_dir: None,
     };
 
     match build_wasm(src, source_id, &opts, WasmTarget::Web) {

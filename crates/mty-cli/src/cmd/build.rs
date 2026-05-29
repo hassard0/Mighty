@@ -1,6 +1,7 @@
 use mty_codegen_cranelift::artifact::BuildMode;
 use mty_codegen_wasm::{UserWit, WasmTarget};
 use mty_driver::build::WasiPreview;
+use mty_driver::manifest::ExternLib;
 use mty_driver::{build_native, build_wasm, BuildOptions, BuildOutcome, BuildTarget};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -85,6 +86,17 @@ pub fn run(
         }
     };
 
+    // v0.36 Track T2: read `[[extern_lib]]` blocks from `mighty.toml`.
+    // Missing manifest is fine — single-file programs that don't use
+    // extern c just see an empty list. Failure to parse a manifest
+    // that *does* exist is fatal so the error is loud.
+    let (extern_libs, manifest_dir) = match load_extern_libs(path) {
+        Ok((libs, dir)) => (libs, dir),
+        Err(e) => {
+            eprintln!("manifest error: {e}");
+            return 2;
+        }
+    };
     let opts = BuildOptions {
         target: build_target,
         mode,
@@ -93,6 +105,8 @@ pub fn run(
         no_component,
         wasi_preview,
         user_wit,
+        extern_libs,
+        manifest_dir,
     };
 
     let outcome = match build_target {
@@ -144,6 +158,20 @@ fn load_user_wit(
         world: l.world,
         source_label: l.source_label,
     }))
+}
+
+/// v0.36 Track T2: load the manifest's `[[extern_lib]]` set for the
+/// build driver. Returns the list plus the manifest's directory so the
+/// driver can resolve relative `path` entries. `Ok((vec![], None))`
+/// when the source file isn't anchored to a `mighty.toml`.
+fn load_extern_libs(src_path: &Path) -> Result<(Vec<ExternLib>, Option<PathBuf>), String> {
+    let Some(pkg_root) = find_manifest_root(src_path) else {
+        return Ok((Vec::new(), None));
+    };
+    let manifest_path = pkg_root.join("mighty.toml");
+    let m = mty_driver::manifest::load(&manifest_path)
+        .map_err(|e| format!("{}: {e}", manifest_path.display()))?;
+    Ok((m.extern_libs, Some(pkg_root)))
 }
 
 /// Walk upward from `src` looking for a directory containing

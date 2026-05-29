@@ -5,12 +5,13 @@
 //! pipeline as `pipeline::run_file_with_runtime`, then hands the SIR
 //! to either the Cranelift backend (native) or the Wasm backend.
 
+use crate::manifest::{ExternLib, HostOs};
 use crate::pipeline::{lower, parse_source, type_and_borrow_check};
 use mty_codegen_cranelift::{
     artifact::BuildMode,
     error::CodegenError,
     jit::{build_jit, symbols_from},
-    object::{compile_object, compile_object_with_debug, find_linker, link_executable},
+    object::{compile_object, compile_object_with_debug, find_linker, link_executable_with_libs},
     Monomorphizer,
 };
 use mty_codegen_wasm::{
@@ -51,6 +52,20 @@ pub struct BuildOptions {
     /// driver crate itself doesn't load files — the CLI does the
     /// load and hands the text down.
     pub user_wit: Option<UserWit>,
+    /// v0.36 Track T2 — native FFI library set. Populated from the
+    /// manifest's `[[extern_lib]]` blocks (see
+    /// [`crate::manifest::ExternLib`]) by the CLI. The native build
+    /// path threads each entry into the linker invocation; Wasm builds
+    /// ignore the field.
+    ///
+    /// Paths are relative to `manifest_dir` so the driver can resolve
+    /// them without re-walking up to the manifest from `out_dir`.
+    pub extern_libs: Vec<ExternLib>,
+    /// Directory the manifest lives in. Used to resolve relative
+    /// `extern_lib.path` entries. `None` means the source file
+    /// wasn't anchored to a manifest (single-file `mty run` flow);
+    /// in that case `extern_libs` is expected to be empty.
+    pub manifest_dir: Option<PathBuf>,
 }
 
 /// Which WASI preview to target for Wasm builds.
@@ -99,6 +114,8 @@ impl BuildOptions {
             no_component: false,
             wasi_preview: WasiPreview::default(),
             user_wit: None,
+            extern_libs: Vec::new(),
+            manifest_dir: None,
         }
     }
     pub fn native_release(out_dir: PathBuf, name: impl Into<String>) -> Self {
@@ -110,8 +127,58 @@ impl BuildOptions {
             no_component: false,
             wasi_preview: WasiPreview::default(),
             user_wit: None,
+            extern_libs: Vec::new(),
+            manifest_dir: None,
         }
     }
+
+    /// Attach an `[[extern_lib]]` set to a `BuildOptions` instance.
+    /// Returns `self` so the call can be chained on top of a
+    /// `native_debug(...)` constructor.
+    pub fn with_extern_libs(mut self, libs: Vec<ExternLib>, manifest_dir: Option<PathBuf>) -> Self {
+        self.extern_libs = libs;
+        self.manifest_dir = manifest_dir;
+        self
+    }
+}
+
+/// Translate a manifest `[[extern_lib]]` set + the manifest dir into the
+/// flat linker-arg vector understood by `link_executable_with_libs`.
+///
+/// The output is built in the order:
+/// 1. For each lib: `path` or `-l<name>` (linker-search fallback)
+/// 2. For each lib: cross-platform `link_args`
+/// 3. For each lib: host-specific `link_args_*`
+///
+/// Paths are resolved against `manifest_dir`. Missing `manifest_dir`
+/// (single-file flow) means relative paths are interpreted relative to
+/// the current working directory — same as `link_executable` itself.
+pub fn build_linker_args(libs: &[ExternLib], manifest_dir: Option<&Path>) -> Vec<String> {
+    let host = HostOs::current();
+    let mut out: Vec<String> = Vec::with_capacity(libs.len() * 4);
+    for lib in libs {
+        if let Some(p) = &lib.path {
+            let resolved = match manifest_dir {
+                Some(root) => root.join(p),
+                None => PathBuf::from(p),
+            };
+            // Static archives pass through as bare path arguments;
+            // every C linker (clang, gcc, cc, link.exe) accepts an
+            // archive as a positional input. Dynamic libs do the same:
+            // most linkers happily honour `.so`/`.dll`/`.dylib` paths
+            // as positional inputs.
+            out.push(resolved.to_string_lossy().into_owned());
+        } else {
+            // No explicit path → fall back to the system search path
+            // via `-l<name>`. MSVC accepts `<name>.lib`; we emit the
+            // GNU form because the linker auto-detection picks clang
+            // / gcc / cc on Windows by default. Callers on MSVC can
+            // override via `link_args_windows = ["mylib.lib"]`.
+            out.push(format!("-l{}", lib.name));
+        }
+        out.extend(lib.resolved_link_args(host));
+    }
+    out
 }
 
 #[derive(Debug)]
@@ -153,7 +220,11 @@ pub fn build_native(src: String, source_id: String, opts: &BuildOptions) -> Buil
         return BuildOutcome::NativeOkNoLinker(obj.object_path);
     }
     let exe_path = exe_path_for(&opts.out_dir, &opts.binary_name);
-    match link_executable(&obj, &exe_path, opts.mode) {
+    // v0.36 T2: translate the manifest's [[extern_lib]] set into raw
+    // linker arguments. The flat string list keeps codegen-crate code
+    // free of manifest schema dependencies.
+    let extra_link_args = build_linker_args(&opts.extern_libs, opts.manifest_dir.as_deref());
+    match link_executable_with_libs(&obj, &exe_path, opts.mode, &extra_link_args) {
         Ok(a) => BuildOutcome::NativeOk(a.binary_path),
         // The object emitted cleanly but the linker rejected it
         // (e.g. Windows link.exe LNK1120 on missing C-runtime
@@ -385,6 +456,8 @@ mod tests {
             no_component: false,
             wasi_preview: WasiPreview::P1,
             user_wit: None,
+            extern_libs: Vec::new(),
+            manifest_dir: None,
         };
         let outcome = build_wasm(
             "fn main() {}\n".into(),
@@ -421,6 +494,8 @@ mod tests {
             no_component: true,
             wasi_preview: WasiPreview::P1,
             user_wit: None,
+            extern_libs: Vec::new(),
+            manifest_dir: None,
         };
         let outcome = build_wasm(
             "fn main() {}\n".into(),
@@ -453,6 +528,8 @@ mod tests {
             no_component: false,
             wasi_preview: WasiPreview::P2,
             user_wit: None,
+            extern_libs: Vec::new(),
+            manifest_dir: None,
         };
         let outcome = build_wasm(
             "fn main() {}\n".into(),

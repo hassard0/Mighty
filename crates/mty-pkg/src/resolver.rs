@@ -359,6 +359,7 @@ mod tests {
             deps,
             build: None,
             cluster: None,
+            extern_libs: Vec::new(),
         };
         let dir = tempfile::tempdir().unwrap();
         let lock = Resolver::new(dir.path()).resolve(&m).unwrap();
@@ -381,6 +382,7 @@ mod tests {
             deps,
             build: None,
             cluster: None,
+            extern_libs: Vec::new(),
         };
         let dir = tempfile::tempdir().unwrap();
         let err = Resolver::new(dir.path()).resolve(&m).unwrap_err();
@@ -396,6 +398,7 @@ mod tests {
             deps,
             build: None,
             cluster: None,
+            extern_libs: Vec::new(),
         };
         let dir = tempfile::tempdir().unwrap();
         let mut r = Resolver::with_registry_config(
@@ -425,6 +428,7 @@ mod tests {
             deps,
             build: None,
             cluster: None,
+            extern_libs: Vec::new(),
         };
         let dir = tempfile::tempdir().unwrap();
         let mut r = Resolver::with_registry_config(
@@ -457,6 +461,7 @@ mod tests {
             deps,
             build: None,
             cluster: None,
+            extern_libs: Vec::new(),
         };
         let dir = tempfile::tempdir().unwrap();
         let lock = Resolver::new(dir.path()).resolve(&m).unwrap();

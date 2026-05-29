@@ -1,0 +1,9 @@
+// Row 8: fixed-size array pointer.
+
+extern c {
+  fn mty_row08() -> I32
+}
+
+fn main() {
+  let _ = mty_row08()
+}

@@ -150,6 +150,10 @@ fn run_synth_compile(mode: Mode) {
         no_component: true,
         wasi_preview: mty_driver::build::WasiPreview::P1,
         user_wit: None,
+
+        extern_libs: Vec::new(),
+
+        manifest_dir: None,
     };
     let t0 = Instant::now();
     let _ = build_wasm(src, "pgo_synth.mty".into(), &opts, WasmTarget::Wasi);

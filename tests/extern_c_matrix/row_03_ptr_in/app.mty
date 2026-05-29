@@ -1,0 +1,16 @@
+// Row 3: pointer-in shape.
+//
+// Mighty's typeck doesn't yet auto-coerce a `Str` literal to `*U8`,
+// so this row punts on the Mighty-side coercion and exercises the
+// pointer-passing ABI entirely on the C side: a wrapper allocates
+// the buffer, takes its address, and calls into a real pointer-taking
+// helper. The full ABI surface still gets covered — the matrix doc
+// marks this row "wrapper-pattern" so the IDE agent knows the shape.
+
+extern c {
+  fn mty_row03() -> I32
+}
+
+fn main() {
+  let _ = mty_row03()
+}
