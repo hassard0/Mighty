@@ -700,6 +700,13 @@ pub struct ExternBinding {
     /// Original (un-mangled) function name as the user typed it. For
     /// `extern js { fn _alert(msg: Str) }` this stays `_alert`.
     pub name: String,
+    /// v0.37 T6 — variadic extern C fn (`extern c fn printf(fmt: *const
+    /// U8, ...) -> I32;`). When `true`, the cranelift backend stamps
+    /// `Signature.params` with a trailing variadic marker via
+    /// `CallConv::SystemV` (the only call conv that supports it). The
+    /// wasm backend hard-errors on variadic extern fns (no FFI ABI
+    /// exists in wasm core).
+    pub is_variadic: bool,
 }
 
 impl Program {

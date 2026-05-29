@@ -486,7 +486,7 @@ pub(crate) fn fn_params(p: &mut Parser) {
     p.skip_trivia();
 }
 
-fn param(p: &mut Parser) {
+pub(crate) fn param(p: &mut Parser) {
     p.start_node(FN_PARAM);
     if p.at(SELF_KW) {
         // `self` parameter in trait/impl methods; no type annotation required.

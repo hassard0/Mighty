@@ -287,6 +287,7 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
                     body: hf.body,
                     hir_fn: Some(*mfid),
                     extern_abi: None,
+                    is_variadic: false,
                 };
                 let id = defs.alloc_fn(fdef);
                 defs.hir_fn_to_def.insert(*mfid, id);
@@ -400,6 +401,7 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
                     body: hf.body,
                     hir_fn: Some(*mfid),
                     extern_abi: None,
+                    is_variadic: false,
                 });
                 defs.hir_fn_to_def.insert(*mfid, fdef_id);
                 if let Some(aid) = self_adt {
@@ -609,6 +611,7 @@ fn declare_item(
                 body: hf.body,
                 hir_fn: Some(*fid),
                 extern_abi: None,
+                is_variadic: false,
             });
             defs.by_name.insert(hf.name.clone(), DefRef::Fn(fdef_id));
             fn_ids.push((*fid, fdef_id));
@@ -632,6 +635,11 @@ fn declare_item(
                     // gates FFI coercions (Str → *U8, &x for *U8 out-params,
                     // struct literals as args) on `extern_abi == Some("c")`.
                     extern_abi: Some(abi.clone().unwrap_or_else(|| "c".to_string())),
+                    // v0.37 T6 — forward the parser-detected variadic
+                    // marker from the HIR. This is the only place where
+                    // FnDef.is_variadic can be `true`; all other FnDef
+                    // constructors hard-code `false`.
+                    is_variadic: hf.is_variadic,
                 });
                 defs.by_name
                     .entry(hf.name.clone())

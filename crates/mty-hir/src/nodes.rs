@@ -72,6 +72,12 @@ pub struct HirFn {
     /// (`mty-types` schema check, `mty-stdlib::mcp::register_tool`) can
     /// look up the registered tool without re-walking the CST.
     pub tool_attr: Option<HirToolAttr>,
+    /// v0.37 T6 — `true` iff the source declared a trailing `...` in
+    /// the parameter list of an extern C fn (`extern c fn printf(fmt:
+    /// *const U8, ...) -> I32;`). Only ever `true` for fns lowered out
+    /// of an `EXTERN_FN` node; ordinary fn decls reject the `...` token
+    /// at parse time, so the flag stays `false` for them.
+    pub is_variadic: bool,
     pub span: SourceSpan,
 }
 

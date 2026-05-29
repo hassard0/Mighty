@@ -69,6 +69,12 @@ pub struct FnDef {
     /// regular Mighty fns and built-ins. Drives the FFI call-site
     /// coercions in `synth_call` (Str → *U8, address-of, etc.).
     pub extern_abi: Option<String>,
+    /// v0.37 T6 — variadic extern C fn (`extern c fn printf(fmt: *const
+    /// U8, ...) -> I32;`). When `true`, [`crate::check::synth_call`]
+    /// accepts any number of trailing args beyond `params.len()` (each
+    /// typechecked independently as a fresh inference var) instead of
+    /// emitting MT2005 (WRONG_ARG_COUNT).
+    pub is_variadic: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

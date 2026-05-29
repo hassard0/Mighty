@@ -1310,6 +1310,24 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit(&mut self) -> CompileResult<Vec<u8>> {
+        // v0.37 T6 — variadic extern C fns (`extern c fn printf(fmt:
+        // *const U8, ...) -> I32;`) have no wasm representation: core
+        // wasm function types are fully-typed and the Component Model
+        // FFI surface forbids varargs. Surface a clean error here so
+        // the user gets a single line pointing at the matrix doc
+        // instead of a downstream invalid-fn-sig validation failure.
+        for f in &self.prog.fns {
+            if let Some(b) = self.prog.extern_bindings.get(&f.id) {
+                if b.is_variadic {
+                    return Err(crate::error::WasmError::Unsupported(format!(
+                        "variadic extern fn `{}` (declared in `extern {} {{ ... }}`) cannot \
+                         be lowered to wasm: core wasm has no varargs ABI. See \
+                         docs/internals/extern-c-matrix.md.",
+                        f.name, b.abi
+                    )));
+                }
+            }
+        }
         self.declare_imports()?;
         // v0.16 — pre-declare every P2 direct import the program will
         // need BEFORE `declare_fns`. Function indices in core Wasm

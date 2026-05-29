@@ -2,8 +2,16 @@
 //! v0.23 Track C — `mty serve` integration tests.
 //!
 //! Spawns `mty serve --port 0` as a child process pointed at a
-//! scaffolded web-game package, then hits the resulting HTTP
-//! server with a tiny hand-rolled GET helper.
+//! scaffolded web-game package, then hits the resulting HTTP server
+//! with [`ureq`].
+//!
+//! v0.37 T6 — switched from a hand-rolled raw-TCP `http_get()` to
+//! `ureq::get(...)`. The previous implementation needed an explicit
+//! `ConnectionReset && !raw.is_empty()` carve-out to work on GHA Ubuntu
+//! runners (see commit 19e2163 in v0.36.1) because Linux servers
+//! sometimes close the socket with RST before the client has finished
+//! draining the response. ureq folds that case into a clean EOF so the
+//! workaround is gone.
 //!
 //! We pin the bound port via `--port` (port 0 would be ideal but
 //! `mty serve` doesn't expose the OS-assigned port back out yet).
@@ -12,7 +20,7 @@
 //!
 //! See `dev/history/notes/MTY_SERVE_V0_23_NOTES.md`.
 
-use std::io::{Read, Write};
+use std::io::Read;
 use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -91,50 +99,40 @@ fn wait_for_listen(port: u16, deadline: Duration) -> bool {
     false
 }
 
-/// Minimal blocking HTTP/1.0 GET. Returns `(status, headers, body)`.
-fn http_get(port: u16, path: &str) -> (u16, String, Vec<u8>) {
-    let mut stream = TcpStream::connect(format!("127.0.0.1:{port}")).expect("connect");
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .unwrap();
-    let req = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
-    stream.write_all(req.as_bytes()).expect("write req");
-    // GHA Ubuntu runners occasionally see ConnectionReset before EOF
-    // when the server sends a small 404 response and closes the socket
-    // quickly. Tolerate RST when we already have a valid HTTP head.
-    // Passes locally + on vulcan; only flakes on GHA Ubuntu. v0.37
-    // should switch the test to a real HTTP client (reqwest/ureq).
-    let mut raw = Vec::new();
-    match stream.read_to_end(&mut raw) {
-        Ok(_) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset && !raw.is_empty() => {}
-        Err(e) => panic!("read resp: {e:?}"),
-    }
-
-    // Parse the start-line + headers.
-    let split = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap_or(0);
-    let head = String::from_utf8_lossy(&raw[..split]).into_owned();
-    let body = raw[split + 4..].to_vec();
-    let mut lines = head.split("\r\n");
-    let status_line = lines.next().unwrap_or("");
-    let status = status_line
-        .split_whitespace()
-        .nth(1)
-        .and_then(|s| s.parse::<u16>().ok())
-        .unwrap_or(0);
-    (status, head, body)
+/// Bundled response object — keeps the test surface a 3-tuple while
+/// hiding ureq's typed response from per-test code.
+struct HttpResp {
+    status: u16,
+    content_type: Option<String>,
+    body: Vec<u8>,
 }
 
-fn header_value<'a>(headers: &'a str, name: &str) -> Option<&'a str> {
-    let needle = name.to_ascii_lowercase();
-    for line in headers.split("\r\n").skip(1) {
-        if let Some((k, v)) = line.split_once(':') {
-            if k.trim().to_ascii_lowercase() == needle {
-                return Some(v.trim());
-            }
-        }
+/// Blocking HTTP GET via [`ureq`]. ureq closes the connection cleanly
+/// regardless of how the server shuts down (RST vs FIN), which is the
+/// whole reason this exists — the v0.36.1 hand-rolled `read_to_end`
+/// path needed a `ConnectionReset` carve-out to work on GHA Ubuntu.
+fn http_get(port: u16, path: &str) -> HttpResp {
+    let url = format!("http://127.0.0.1:{port}{path}");
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(2))
+        .timeout(Duration::from_secs(5))
+        .build();
+    let resp = match agent.get(&url).call() {
+        Ok(r) => r,
+        Err(ureq::Error::Status(_, r)) => r,
+        Err(e) => panic!("ureq GET {url} failed: {e:?}"),
+    };
+    let status = resp.status();
+    let content_type = resp.header("content-type").map(|s| s.to_string());
+    let mut body = Vec::new();
+    resp.into_reader()
+        .read_to_end(&mut body)
+        .expect("read body");
+    HttpResp {
+        status,
+        content_type,
+        body,
     }
-    None
 }
 
 /// Scaffold a fresh web-game package and return its root.
@@ -176,15 +174,17 @@ fn serve_starts_and_returns_index_html() {
         drain_stderr(&mut guard.0)
     );
 
-    let (status, headers, body) = http_get(port, "/");
-    assert_eq!(status, 200, "headers={headers}");
+    let resp = http_get(port, "/");
+    assert_eq!(resp.status, 200, "content-type={:?}", resp.content_type);
     assert!(
-        header_value(&headers, "content-type")
+        resp.content_type
+            .as_deref()
             .unwrap_or("")
             .starts_with("text/html"),
-        "content-type wasn't text/html: {headers}"
+        "content-type wasn't text/html: {:?}",
+        resp.content_type
     );
-    let body_s = String::from_utf8_lossy(&body);
+    let body_s = String::from_utf8_lossy(&resp.body);
     assert!(
         body_s.contains("<canvas") && body_s.contains("dom-shim.js"),
         "body didn't look like the web-game template: {body_s}"
@@ -205,17 +205,22 @@ fn serve_serves_wasm() {
         drain_stderr(&mut guard.0)
     );
 
-    let (status, headers, body) = http_get(port, "/main.wasm");
-    assert_eq!(status, 200, "headers={headers}");
+    let resp = http_get(port, "/main.wasm");
+    assert_eq!(resp.status, 200, "content-type={:?}", resp.content_type);
     assert_eq!(
-        header_value(&headers, "content-type"),
+        resp.content_type.as_deref(),
         Some("application/wasm"),
-        "headers={headers}"
+        "content-type={:?}",
+        resp.content_type
     );
     // Component preamble (\0asm followed by 0x0d for components,
     // 0x01 for core modules). Either is fine; we just want non-empty.
-    assert!(body.len() > 8, "wasm body too short ({} bytes)", body.len());
-    assert_eq!(&body[..4], b"\0asm", "missing wasm preamble");
+    assert!(
+        resp.body.len() > 8,
+        "wasm body too short ({} bytes)",
+        resp.body.len()
+    );
+    assert_eq!(&resp.body[..4], b"\0asm", "missing wasm preamble");
 }
 
 #[test]
@@ -232,15 +237,17 @@ fn serve_serves_static_asset() {
         drain_stderr(&mut guard.0)
     );
 
-    let (status, headers, body) = http_get(port, "/dom-shim.js");
-    assert_eq!(status, 200, "headers={headers}");
+    let resp = http_get(port, "/dom-shim.js");
+    assert_eq!(resp.status, 200, "content-type={:?}", resp.content_type);
     assert!(
-        header_value(&headers, "content-type")
+        resp.content_type
+            .as_deref()
             .unwrap_or("")
             .starts_with("application/javascript"),
-        "content-type wasn't application/javascript: {headers}"
+        "content-type wasn't application/javascript: {:?}",
+        resp.content_type
     );
-    let body_s = String::from_utf8_lossy(&body);
+    let body_s = String::from_utf8_lossy(&resp.body);
     assert!(
         body_s.contains("function boot") || body_s.contains("loadWasm"),
         "dom-shim.js didn't look right: first 200 chars={}",
@@ -262,8 +269,8 @@ fn serve_404_for_missing_file() {
         drain_stderr(&mut guard.0)
     );
 
-    let (status, _headers, _body) = http_get(port, "/no-such-file.txt");
-    assert_eq!(status, 404);
+    let resp = http_get(port, "/no-such-file.txt");
+    assert_eq!(resp.status, 404);
 }
 
 #[test]

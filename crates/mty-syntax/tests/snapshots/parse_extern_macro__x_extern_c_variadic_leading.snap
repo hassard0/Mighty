@@ -1,0 +1,36 @@
+---
+source: crates/mty-syntax/tests/parse_extern_macro.rs
+expression: "dump(\"extern c {\\n  fn fff(...) -> I32\\n}\")"
+---
+FILE@0..33
+  EXTERN_BLOCK@0..33
+    EXTERN_KW@0..6 "extern"
+    WHITESPACE@6..7 " "
+    NAME@7..8
+      IDENT@7..8 "c"
+    WHITESPACE@8..9 " "
+    L_BRACE@9..10 "{"
+    WHITESPACE@10..13 "\n  "
+    EXTERN_FN@13..32
+      FN_KW@13..15 "fn"
+      WHITESPACE@15..16 " "
+      NAME@16..19
+        IDENT@16..19 "fff"
+      FN_PARAM_LIST@19..25
+        L_PAREN@19..20 "("
+        VARIADIC_MARKER@20..23
+          DOT_DOT_DOT@20..23 "..."
+        R_PAREN@23..24 ")"
+        WHITESPACE@24..25 " "
+      THIN_ARROW@25..27 "->"
+      WHITESPACE@27..28 " "
+      RET_TYPE@28..32
+        TYPE_PATH@28..32
+          PATH@28..32
+            PATH_SEGMENT@28..31
+              NAME_REF@28..31
+                IDENT@28..31 "I32"
+            WHITESPACE@31..32 "\n"
+    R_BRACE@32..33 "}"
+
+errors: []

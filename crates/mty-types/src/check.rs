@@ -1063,6 +1063,32 @@ fn callee_is_extern_c(cx: &Cx, callee: ExprId) -> bool {
 }
 
 fn synth_call(cx: &mut Cx, callee: ExprId, args: &[HirArg], expr_id: ExprId) -> TyId {
+    // v0.37 T6 — variadic extern fns (`extern c fn printf(fmt, ...) -> I32;`)
+    // need to accept any number of args beyond the declared prefix. The
+    // checker only knows about variadicness via `FnDef.is_variadic`, so
+    // we peek the callee expression: if it's a direct `Path` (or a
+    // `PathGeneric`) resolving to a single `DefRef::Fn(fid)` whose
+    // `FnDef.is_variadic` is `true`, run the variadic call path instead
+    // of emitting MT2005 (WRONG_ARG_COUNT) for the extra args.
+    let is_variadic_callee = match &cx.pkg.exprs[callee] {
+        HirExpr::Path(segs) if segs.len() == 1 => cx
+            .defs
+            .lookup(&segs[0])
+            .and_then(|d| match d {
+                crate::defs::DefRef::Fn(fid) => cx.defs.fn_def(fid).map(|f| f.is_variadic),
+                _ => None,
+            })
+            .unwrap_or(false),
+        HirExpr::PathGeneric { segments, .. } if segments.len() == 1 => cx
+            .defs
+            .lookup(&segments[0])
+            .and_then(|d| match d {
+                crate::defs::DefRef::Fn(fid) => cx.defs.fn_def(fid).map(|f| f.is_variadic),
+                _ => None,
+            })
+            .unwrap_or(false),
+        _ => false,
+    };
     let callee_ty = synth_expr(cx, callee);
     let callee_resolved = cx.subst.resolve(callee_ty, cx.arena);
     let data = cx.arena.get(callee_resolved).clone();
@@ -1070,9 +1096,18 @@ fn synth_call(cx: &mut Cx, callee: ExprId, args: &[HirArg], expr_id: ExprId) -> 
     let is_extern_c = callee_is_extern_c(cx, callee);
     match data {
         TyData::Fn { params, ret, .. } => {
-            if params.len() != args.len() {
+            let fixed = params.len();
+            // Arity check: variadic fns require at least the fixed-arity
+            // prefix; non-variadic fns require exact match (legacy
+            // MT2005 emit).
+            let arity_ok = if is_variadic_callee {
+                args.len() >= fixed
+            } else {
+                args.len() == fixed
+            };
+            if !arity_ok {
                 cx.diag.push(diag::wrong_arg_count(
-                    params.len(),
+                    fixed,
                     args.len(),
                     &cx.span_of_expr(expr_id),
                 ));

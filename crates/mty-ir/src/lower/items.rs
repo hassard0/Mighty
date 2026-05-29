@@ -140,9 +140,9 @@ fn register_fn_shells(ctx: &mut LowerCtx) {
 }
 
 fn record_extern_bindings(ctx: &mut LowerCtx) {
-    // Collect (hir_fn_id, abi, name) triples first so we don't hold a
-    // borrow on `ctx.pkg` while mutating `ctx.prog`.
-    let mut bindings: Vec<(mty_hir::FnId, String, String)> = Vec::new();
+    // Collect (hir_fn_id, abi, name, is_variadic) tuples first so we
+    // don't hold a borrow on `ctx.pkg` while mutating `ctx.prog`.
+    let mut bindings: Vec<(mty_hir::FnId, String, String, bool)> = Vec::new();
     for (_, item) in ctx.pkg.items.iter() {
         if let Item::ExternBlock(eb) = item {
             // Default ABI is "c" when the user wrote a bare `extern { }`;
@@ -151,15 +151,20 @@ fn record_extern_bindings(ctx: &mut LowerCtx) {
             let abi = eb.abi.clone().unwrap_or_else(|| "c".to_string());
             for fid in &eb.fns {
                 let hf = &ctx.pkg.fns[*fid];
-                bindings.push((*fid, abi.clone(), hf.name.clone()));
+                bindings.push((*fid, abi.clone(), hf.name.clone(), hf.is_variadic));
             }
         }
     }
-    for (hir_id, abi, name) in bindings {
+    for (hir_id, abi, name, is_variadic) in bindings {
         if let Some(sirid) = ctx.fn_map.get(&hir_id).copied() {
-            ctx.prog
-                .extern_bindings
-                .insert(sirid, crate::ir::ExternBinding { abi, name });
+            ctx.prog.extern_bindings.insert(
+                sirid,
+                crate::ir::ExternBinding {
+                    abi,
+                    name,
+                    is_variadic,
+                },
+            );
         }
     }
 }

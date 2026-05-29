@@ -1,0 +1,50 @@
+---
+source: crates/mty-syntax/tests/parse_extern_macro.rs
+expression: "dump(\"extern c {\\n  fn printf(fmt: *U8, ...) -> I32\\n}\")"
+---
+FILE@0..46
+  EXTERN_BLOCK@0..46
+    EXTERN_KW@0..6 "extern"
+    WHITESPACE@6..7 " "
+    NAME@7..8
+      IDENT@7..8 "c"
+    WHITESPACE@8..9 " "
+    L_BRACE@9..10 "{"
+    WHITESPACE@10..13 "\n  "
+    EXTERN_FN@13..45
+      FN_KW@13..15 "fn"
+      WHITESPACE@15..16 " "
+      NAME@16..22
+        IDENT@16..22 "printf"
+      FN_PARAM_LIST@22..38
+        L_PAREN@22..23 "("
+        FN_PARAM@23..31
+          NAME@23..26
+            IDENT@23..26 "fmt"
+          COLON@26..27 ":"
+          WHITESPACE@27..28 " "
+          TYPE_BORROW@28..31
+            STAR@28..29 "*"
+            TYPE_PATH@29..31
+              PATH@29..31
+                PATH_SEGMENT@29..31
+                  NAME_REF@29..31
+                    IDENT@29..31 "U8"
+        COMMA@31..32 ","
+        WHITESPACE@32..33 " "
+        VARIADIC_MARKER@33..36
+          DOT_DOT_DOT@33..36 "..."
+        R_PAREN@36..37 ")"
+        WHITESPACE@37..38 " "
+      THIN_ARROW@38..40 "->"
+      WHITESPACE@40..41 " "
+      RET_TYPE@41..45
+        TYPE_PATH@41..45
+          PATH@41..45
+            PATH_SEGMENT@41..44
+              NAME_REF@41..44
+                IDENT@41..44 "I32"
+            WHITESPACE@44..45 "\n"
+    R_BRACE@45..46 "}"
+
+errors: []

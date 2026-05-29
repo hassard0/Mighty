@@ -119,6 +119,7 @@ fn program_with_extern_js(
         ExternBinding {
             abi: "js".into(),
             name: fn_name.into(),
+            is_variadic: false,
         },
     );
 

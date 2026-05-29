@@ -32,12 +32,17 @@ pub fn extern_block(p: &mut Parser, cp: rowan::Checkpoint) {
 }
 
 /// `fn Name FnParams ('->' Type)? EffectClause? ';'?` — extern function signature only.
+///
+/// v0.37 T6 — also accepts a trailing variadic marker (`...`) inside
+/// the parameter list via [`fn_params_with_variadic`]. The variadic
+/// marker is allowed only on extern fns (C interop); ordinary fn decls
+/// keep going through plain [`super::items::fn_params`] and reject `...`.
 fn extern_fn(p: &mut Parser) {
     p.start_node(EXTERN_FN);
     p.expect(FN_KW);
     p.skip_trivia();
     paths::name(p);
-    super::items::fn_params(p);
+    fn_params_with_variadic(p);
     if p.eat(THIN_ARROW) {
         p.start_node(RET_TYPE);
         super::types::type_expr(p);
@@ -89,6 +94,53 @@ fn component_decl(p: &mut Parser) {
     if p.at(L_BRACE) {
         consume_brace_balanced(p);
     }
+}
+
+/// v0.37 T6 — like [`super::items::fn_params`], but also accepts a
+/// trailing variadic marker (`...`) wrapped in a `VARIADIC_MARKER`
+/// node. The marker must come last; any param-shaped token after it
+/// surfaces as a parse error and we stop accepting more params.
+///
+/// Grammar:
+///   FnParams := '(' Params? ')'
+///   Params   := Param (',' Param)* (',' '...')?
+///            |  '...'
+fn fn_params_with_variadic(p: &mut Parser) {
+    p.start_node(FN_PARAM_LIST);
+    p.expect(L_PAREN);
+    p.skip_trivia();
+    if !p.at(R_PAREN) {
+        // Empty / leading-variadic forms first.
+        if p.at(DOT_DOT_DOT) {
+            p.start_node(VARIADIC_MARKER);
+            p.bump(DOT_DOT_DOT);
+            p.finish_node();
+            p.skip_trivia();
+        } else {
+            super::items::param(p);
+            while p.eat(COMMA) {
+                p.skip_trivia();
+                if p.at(R_PAREN) {
+                    break;
+                }
+                if p.at(DOT_DOT_DOT) {
+                    p.start_node(VARIADIC_MARKER);
+                    p.bump(DOT_DOT_DOT);
+                    p.finish_node();
+                    p.skip_trivia();
+                    // Variadic marker must be the last item; anything
+                    // other than `)` here is a parse error. Don't try to
+                    // recover — the EXTERN_FN-level non-progress guard
+                    // will eat the offending token.
+                    break;
+                }
+                super::items::param(p);
+            }
+        }
+    }
+    p.expect(R_PAREN);
+    p.finish_node();
+    p.skip_trivia();
 }
 
 /// Consume `{ ... }` as opaque tokens, tracking brace depth.

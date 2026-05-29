@@ -105,6 +105,7 @@ fn program_with_extern_js(
         ExternBinding {
             abi: "js".into(),
             name: fn_name.into(),
+            is_variadic: false,
         },
     );
 
@@ -386,6 +387,7 @@ fn extern_js_multiple_fns_all_kebab_consistent() {
             ExternBinding {
                 abi: "js".into(),
                 name: (*name).into(),
+                is_variadic: false,
             },
         );
     }

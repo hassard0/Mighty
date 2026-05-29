@@ -221,6 +221,13 @@ pub enum SyntaxKind {
     DOT_DOT,
     #[token("..=")]
     DOT_DOT_EQ,
+    /// v0.37 T6 — variadic-marker token (`...`) used in C extern fn
+    /// signatures (`extern c fn printf(fmt: *const U8, ...) -> I32;`).
+    /// Lex order matters: this rule precedes `..` because Logos picks the
+    /// longest match deterministically (not declaration order), but
+    /// putting it earlier still helps a reader trace precedence.
+    #[token("...")]
+    DOT_DOT_DOT,
     #[token("=>")]
     FAT_ARROW,
     #[token("->")]
@@ -362,6 +369,10 @@ pub enum SyntaxKind {
     JOIN_EXPR,
     EXTERN_BLOCK,
     EXTERN_FN,
+    /// v0.37 T6 — variadic marker (`...`) inside an extern fn's parameter
+    /// list. Sibling of the trailing `FN_PARAM` nodes inside the
+    /// `FN_PARAM_LIST`. Carries the single `DOT_DOT_DOT` token.
+    VARIADIC_MARKER,
     EXPORT_DECL,
     MACRO_DECL,
     UNSAFE_BLOCK,
