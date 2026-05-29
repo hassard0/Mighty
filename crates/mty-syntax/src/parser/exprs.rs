@@ -162,8 +162,8 @@ fn unary_or_primary(p: &mut Parser) -> bool {
 fn primary(p: &mut Parser) -> bool {
     p.skip_trivia();
     match p.peek() {
-        INT_LITERAL | FLOAT_LITERAL | STRING_LITERAL | CHAR_LITERAL | TRUE_KW | FALSE_KW
-        | DURATION_LITERAL | SIZE_LITERAL => {
+        INT_LITERAL | HEX_INT_LITERAL | BIN_INT_LITERAL | OCT_INT_LITERAL | FLOAT_LITERAL
+        | STRING_LITERAL | CHAR_LITERAL | TRUE_KW | FALSE_KW | DURATION_LITERAL | SIZE_LITERAL => {
             p.start_node(LITERAL_EXPR);
             p.bump_any();
             p.finish_node();
@@ -609,6 +609,9 @@ pub fn can_start_expr(k: SyntaxKind) -> bool {
     matches!(
         k,
         INT_LITERAL
+            | HEX_INT_LITERAL
+            | BIN_INT_LITERAL
+            | OCT_INT_LITERAL
             | FLOAT_LITERAL
             | STRING_LITERAL
             | CHAR_LITERAL

@@ -18,6 +18,24 @@ pub enum SyntaxKind {
     DOC_COMMENT,
 
     // ---- Literals (tokens) ----
+    // Hex literals (with optional `_uXX` / `_iXX` / `_usize` / `_isize`
+    // suffix) come first so logos prefers them over the decimal regex
+    // that would otherwise stop at the `x`. v0.36 T1.
+    //
+    // NOTE: float suffixes (`f32` / `f64`) are deliberately disallowed
+    // on hex/bin/oct because `f` is a hex digit and the suffix is
+    // ambiguous (see Rust: hex literals can't have float suffix). Only
+    // `iXX` / `uXX` / `isize` / `usize` are accepted. The optional
+    // leading `_` matches `0xFF_u8` / `0xDEAD_BEEF_u32` while still
+    // accepting the bare `0xFFu8` / `0xFF` forms.
+    #[regex(r"0x[0-9A-Fa-f][0-9A-Fa-f_]*(?:_?[iu](?:8|16|32|64|128|size))?")]
+    HEX_INT_LITERAL,
+    // Binary literals — same suffix shape.
+    #[regex(r"0b[01][01_]*(?:_?[iu](?:8|16|32|64|128|size))?")]
+    BIN_INT_LITERAL,
+    // Octal literals — same suffix shape.
+    #[regex(r"0o[0-7][0-7_]*(?:_?[iu](?:8|16|32|64|128|size))?")]
+    OCT_INT_LITERAL,
     #[regex(r"[0-9][0-9_]*(?:[iuf](?:8|16|32|64|128))?")]
     INT_LITERAL,
     #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*(?:f(?:32|64))?")]

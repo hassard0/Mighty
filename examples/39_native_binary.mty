@@ -1,0 +1,53 @@
+// v0.36 T1 — Real native binary demo.
+//
+// Demonstrates three native-codegen capabilities that landed in
+// v0.36 T1:
+//
+//   1. Hex-with-suffix integer literals (`0xFF_u8`, `0xDEAD_BEEF_u32`,
+//      `0xCAFE_BABE_DEAD_BEEF_u64`, etc.). Decimal `123_u8` was already
+//      accepted; v0.36 T1 adds the hex / binary / octal radix variants.
+//   2. U8 (and U16/U32) values widening *unsigned* through fn return,
+//      fn args, struct field load. Pre-v0.36 the cranelift backend
+//      always sign-extended these, producing `-1` instead of `255` for
+//      `0xFF_u8` cast into an I64 slot.
+//   3. Dynamic `log()` — calling `log(s)` where `s` is a Str local, a
+//      fn return, or any non-literal Str now works on the native
+//      backends (cranelift + LLVM). Previously the cranelift backend
+//      required a string-literal arg.
+//
+// Build natively:
+//   $ mty build --target native examples/39_native_binary.mty
+//   $ ./build/native/39_native_binary
+//
+// Or smoke under the interpreter:
+//   $ mty run examples/39_native_binary.mty
+
+struct Pixel { r: U8, g: U8, b: U8 }
+
+fn _greeting_word() -> Str { "world" }
+
+fn _pixel_summary() -> Str { "pixel-set" }
+
+fn main() {
+  // 1. Hex-with-suffix literals across signed + unsigned widths.
+  let _a: U8 = 0xFF_u8
+  let _b: U16 = 0xCAFE_u16
+  let _c: U32 = 0xDEAD_BEEF_u32
+  let _d: U64 = 0xCAFE_BABE_DEAD_BEEF_u64
+  let _e: I8 = 0x7F_i8
+  let _f: I32 = 0x7FFF_FFFF_i32
+
+  // 2. U8 round-trip through struct + fn call. The codegen lowers
+  //    every load/extend with unsigned semantics so the high bits
+  //    stay zero.
+  let p = Pixel { r: 0xFF_u8, g: 0x80_u8, b: 0x40_u8 }
+  let _r: U8 = p.r
+  let _g: U8 = p.g
+  let _b2: U8 = p.b
+
+  // 3. Dynamic log — literal, then local, then fn-return.
+  log("39_native_binary")
+  let greeting = _greeting_word()
+  log(greeting)
+  log(_pixel_summary())
+}

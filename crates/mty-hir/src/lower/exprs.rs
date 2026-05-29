@@ -985,6 +985,9 @@ fn lower_un_op(n: &SyntaxNode) -> UnOp {
 pub fn lower_literal_token(tok: &SyntaxToken) -> HirLiteral {
     match tok.kind() {
         SyntaxKind::INT_LITERAL => parse_int_literal(tok.text()),
+        SyntaxKind::HEX_INT_LITERAL => parse_radix_int_literal(tok.text(), 16, 2),
+        SyntaxKind::BIN_INT_LITERAL => parse_radix_int_literal(tok.text(), 2, 2),
+        SyntaxKind::OCT_INT_LITERAL => parse_radix_int_literal(tok.text(), 8, 2),
         SyntaxKind::FLOAT_LITERAL => parse_float_literal(tok.text()),
         SyntaxKind::STRING_LITERAL => {
             let raw = tok.text();
@@ -1017,6 +1020,66 @@ fn parse_int_literal(text: &str) -> HirLiteral {
     let cleaned: String = digits.chars().filter(|c| *c != '_').collect();
     let v: i128 = cleaned.parse().unwrap_or(0);
     HirLiteral::Int(v, suffix.map(|s| s.to_string()))
+}
+
+/// Parse a radix-prefixed integer literal (`0x...`, `0b...`, `0o...`).
+///
+/// `radix` is the numeric base (16/2/8); `prefix_len` is the number of
+/// chars to strip from the front (always 2 for our supported prefixes).
+/// Suffix handling mirrors decimal `123_u8`: an optional trailing
+/// `[_]?[iu](8|16|32|64|128|size)` is recognised and surfaces in the
+/// returned [`HirLiteral::Int`] so the typeck pass can pin the int
+/// width. v0.36 T1.
+fn parse_radix_int_literal(text: &str, radix: u32, prefix_len: usize) -> HirLiteral {
+    let body = text.get(prefix_len..).unwrap_or("");
+    let (digits, suffix) = split_radix_suffix(body);
+    let cleaned: String = digits.chars().filter(|c| *c != '_').collect();
+    // u128 first so we don't sign-extend `0xFFFF_FFFF_FFFF_FFFF` to -1.
+    // We then bitcast to i128 (which is the HirLiteral storage type).
+    let v: i128 = match u128::from_str_radix(&cleaned, radix) {
+        Ok(u) => u as i128,
+        // Fall back to i128 in case the value didn't fit u128 (unlikely
+        // for slice-8 widths). Failures decode as 0 to keep the lowerer
+        // total.
+        Err(_) => i128::from_str_radix(&cleaned, radix).unwrap_or(0),
+    };
+    HirLiteral::Int(v, suffix.map(|s| s.to_string()))
+}
+
+/// Split a radix-literal body (digits + optional `_` + optional
+/// `iXX`/`uXX`/`isize`/`usize` suffix). Returns `(digits, Option<suffix>)`
+/// where `digits` retains any internal underscores (caller strips them
+/// before parsing) but the leading `_` of `_u8`-style suffixes is
+/// consumed into the suffix marker.
+fn split_radix_suffix(s: &str) -> (&str, Option<&str>) {
+    // Suffix shape: optional `_` followed by `i` or `u`, then digits
+    // or `size`. We hunt for the suffix marker from the right so that
+    // hex digits like `f` in `0xFf_u8` don't get mistaken for the
+    // marker. For binary/octal there are no hex-vs-suffix collisions,
+    // but the same right-to-left scan is cheap and uniform.
+    for marker in ["_i", "_u", "i", "u"] {
+        if let Some(idx) = s.rfind(marker) {
+            // The suffix tail must be one of the recognised width
+            // forms. If the rfind hit doesn't end in a valid width we
+            // skip it (e.g. `0xFFi` is invalid but won't be emitted
+            // by the lexer anyway).
+            let tail = &s[idx + marker.len()..];
+            let valid = matches!(tail, "8" | "16" | "32" | "64" | "128" | "size");
+            if !valid {
+                continue;
+            }
+            // Skip the leading `_` of `_iXX` suffixes when reporting
+            // the suffix string — the typeck side compares the suffix
+            // against `"u8"`/`"i32"` shapes verbatim.
+            let suffix_start = if marker.starts_with('_') {
+                idx + 1
+            } else {
+                idx
+            };
+            return (&s[..idx], Some(&s[suffix_start..]));
+        }
+    }
+    (s, None)
 }
 
 fn split_int_suffix(s: &str) -> (&str, Option<&str>) {
