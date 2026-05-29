@@ -416,6 +416,14 @@ pub(crate) fn format_unix_ms_iso(ms: u64) -> String {
 mod tests {
     use super::*;
     use crate::observe::observation::LlmObservation;
+    use std::sync::Mutex;
+
+    /// v0.36 integrator: serialise the env-var-mutating tests
+    /// (`is_recording_enabled_respects_falsey_values`,
+    /// `observe_disabled_is_noop`) so cargo's default test
+    /// parallelism can't trample the `MTY_OBSERVE` global mid-call.
+    /// Same pattern as `mty-codegen-cranelift::object::tests::ENV_LOCK`.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[cfg_attr(not(feature = "observe-sqlite"), allow(dead_code))]
     fn fresh_store() -> SqliteStore {
@@ -466,11 +474,16 @@ mod tests {
 
     #[test]
     fn observe_disabled_is_noop() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var("MTY_OBSERVE").ok();
         std::env::remove_var("MTY_OBSERVE");
         // No store installed, recording disabled — must not panic.
         record_if_enabled(&LlmObservation::new("x", "y", 0, 0, 0));
         // Still no store installed.
         assert!(with_storage(|_| ()).is_none());
+        if let Some(v) = prev {
+            std::env::set_var("MTY_OBSERVE", v);
+        }
     }
 
     #[test]
@@ -500,6 +513,8 @@ mod tests {
 
     #[test]
     fn is_recording_enabled_respects_falsey_values() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var("MTY_OBSERVE").ok();
         std::env::set_var("MTY_OBSERVE", "0");
         assert!(!is_recording_enabled());
         std::env::set_var("MTY_OBSERVE", "false");
@@ -508,6 +523,9 @@ mod tests {
         assert!(is_recording_enabled());
         std::env::set_var("MTY_OBSERVE", "on");
         assert!(is_recording_enabled());
-        std::env::remove_var("MTY_OBSERVE");
+        match prev {
+            Some(v) => std::env::set_var("MTY_OBSERVE", v),
+            None => std::env::remove_var("MTY_OBSERVE"),
+        }
     }
 }

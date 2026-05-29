@@ -442,16 +442,31 @@ mod tests {
     /// rely on to bypass an off-PATH clang.
     #[test]
     fn find_linker_honours_stardust_linker_env() {
+        // v0.36 integrator: hold ENV_LOCK so the parallel T4 env-var
+        // tests (`_prefers_mty_over_stardust`, `_falls_back_to_stardust`,
+        // `_is_best_effort`) can't flip our view of the env globals
+        // mid-call. Without the lock, Windows CI races between this
+        // test's set_var("STARDUST_LINKER", ...) and a parallel
+        // remove_var, producing the `Some("clang.exe")` PATH-walk
+        // fallthrough we saw on the integrator commit.
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // Use a synthetic placeholder so the test doesn't depend on
         // any tool actually being installed. The override path is
         // returned verbatim — `find_linker` doesn't validate it.
+        let prev_mty = std::env::var("MTY_LINKER").ok();
         let prev = std::env::var("STARDUST_LINKER").ok();
+        // MTY_LINKER must be unset, else it takes precedence and
+        // shadows the STARDUST_LINKER path we're trying to exercise.
+        std::env::remove_var("MTY_LINKER");
         std::env::set_var("STARDUST_LINKER", "synthetic-linker-for-test");
         let got = find_linker();
         // Restore env first so a panic below doesn't leak state.
         match prev {
             Some(v) => std::env::set_var("STARDUST_LINKER", v),
             None => std::env::remove_var("STARDUST_LINKER"),
+        }
+        if let Some(v) = prev_mty {
+            std::env::set_var("MTY_LINKER", v);
         }
         assert_eq!(got.as_deref(), Some("synthetic-linker-for-test"));
     }
@@ -461,12 +476,18 @@ mod tests {
     /// the documented "set $STARDUST_LINKER" contract).
     #[test]
     fn find_linker_treats_whitespace_override_as_unset() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev_mty = std::env::var("MTY_LINKER").ok();
         let prev = std::env::var("STARDUST_LINKER").ok();
+        std::env::remove_var("MTY_LINKER");
         std::env::set_var("STARDUST_LINKER", "   ");
         let got = find_linker();
         match prev {
             Some(v) => std::env::set_var("STARDUST_LINKER", v),
             None => std::env::remove_var("STARDUST_LINKER"),
+        }
+        if let Some(v) = prev_mty {
+            std::env::set_var("MTY_LINKER", v);
         }
         // We can't assert the PATH-walked result (CI varies), but it
         // must NOT be the whitespace value we passed.
