@@ -9,47 +9,145 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-v0.37 candidates (rolled up across all 5 v0.36 tracks):
+v0.38 candidates (rolled up across the 6 v0.37 tracks):
 
-- **T1 — native codegen** — LLVM-backend signedness-aware widening
-  (uextend vs sextend) to match T1's cranelift fix; broader
-  numeric-suffix promotion edge-cases (e.g. `0xFFu8` literals at
-  pattern positions); MIR-level dynamic-log span pin to remove the
-  remaining stack-slot fast-path branch.
-- **T2 — extern c + manifest** — `cdylib` linkage shape
-  (currently `staticlib` + `dylib` only); per-arch link_args
-  (`x86_64`, `aarch64`) on top of the per-OS matrix; mty bindgen
-  generator (mty → `.h` for the reverse FFI direction); cargo-style
-  `links = "foo"` collision detection across [[extern_lib]]
-  entries.
-- **T3 — string ops** — `String::splitn` / `rsplitn` for the
-  capped-iterator shape; `chars()` + `char_indices()` ergonomic
-  surfaces in stdlib prelude; richer MT5080 quickfix that suggests
-  the nearest valid boundary; `String::byte_slice` window helper.
-- **T4 — stardust→mighty** — final-pass docs sweep for the v0.7
-  REBRAND-NOTES history references; OTLP `mty.legacy_name`
-  attribute removal in v0.40 (one-release deprecation cycle);
-  default registry slug migration messaging for users on
-  `stardust-pkg/registry` URLs.
-- **T5 — infra** — PGO on `darwin-x86_64` (needs native Intel
-  macOS runner that can execute the instrumented binary); PGO on
-  `linux-aarch64` (needs native arm64 GitHub runner); Docker
-  publish toggle (user-driven); Homebrew-core PR (runbook
-  ready, user files); LSP `LazyLock<Vec<…>>` bridge so
-  `STDLIB_EXAMPLES` is `build.rs`-generated.
+- **T1 — pre-push hook** — `mty hooks status` subcommand (report
+  installed hook version vs the in-tree `.git-hooks/pre-push`);
+  `mty hooks repair` (detect drift and re-install); `mty fmt --check`
+  parallel invocation in the hook (60 files serial ≈ 2s → parallel ≈
+  200ms); pre-push hook in CI redundancy.
+- **T2 — cast surface** — MT2027 LSP quickfix (`expr as I32` where
+  Bool was intended suggests `if b { 1 } else { 0 }`); `as`-cast in
+  const context (typechecks but const-eval doesn't fold);
+  `f32 as transmute<I32>` bitcast surface; `mty inspect
+  --cast-coverage`; span-underlines on both type halves in MT2027.
+- **T3 — FFI follow-ups** — returned-struct binding for FFI
+  (matrix row 7); function pointer surface (row 11); mutable
+  Str / caller-owned buffer ergonomics (row 10); `#[ffi_nul_ok]`
+  fast path for already-null-terminated Str → *U8; `extern system`,
+  `extern aapcs`, `extern sysv` ABIs sharing T3's call-site coercion
+  gate.
+- **T4 — PGO** — `darwin-x86_64` PGO via rosetta-host sniff;
+  `linux-aarch64` PGO via qemu-user emulation; profile-merge
+  throughput improvement via cached path resolution
+  (`.pgo-config`).
+- **T5 — LLVM backend** — feature parity sweep (extern_lib
+  linking, dynamic log, observe-sqlite) that cranelift backend
+  already ships; LLVM 17 vs LLVM 20 build matrix to confirm the
+  helper API still resolves the same way on both.
+- **T6 — variadic** — cranelift variadic-call extension (per-call
+  `Signature` + `Function::import_signature` + `call_indirect`
+  via `func_addr`); stricter variadic typeck (when the format
+  string is statically known, constrain the trailing arg types);
+  WASM Component Model FFI for `funcref` / resource types.
 - **Cross-cutting / integrator** — `SCHEMA_VERSION` crate-root
   re-export; vulcan disk hygiene + automated `/tmp/v0XX-*` GC;
   multi-modal streaming hover; Go/C++ comparator refresh;
   `mty find` semantic search; `mty-runtime::work_stealing`
-  Windows-only flake.
+  Windows-only flake; Homebrew-core PR (runbook ready, user
+  files); Docker publish toggle.
 
 The v1.0 freeze-gate is unchanged: 8 RFC comment windows opened
 2026-05-26, earliest close 2026-06-09 (RFC-005), latest close
 2026-07-25 (RFC-002 + RFC-006). Proposed v1.0 freeze date
-2026-09-01; earliest tag 2026-07-26. v0.36 lands the four
-fix-it-for-others items the external reviewer called out
-(native codegen, extern c, string editing, stardust rename)
-plus the long-deferred Windows install + PGO re-enable.
+2026-09-01; earliest tag 2026-07-26. v0.37 stops the v0.35/v0.36.1
+fmt-drift retag loop with a third pre-push gate and ships the
+FFI ergonomics the parallel IDE work needs.
+
+## [0.37.0] - 2026-05-29
+
+### Added — Stopping the loop
+- **T1 — mty fmt --check in pre-push hook.** `.git-hooks/pre-push`
+  gains a third gate that builds `mty-cli` in release mode (cached
+  after first call) and runs `mty fmt --check` on every `.mty` file
+  under `examples/`, `demos/*/src/`, and
+  `tools/gallery/examples/*/main.mty` (60 files on main today).
+  Failure prints the offending path + the exact `mty fmt …` command.
+  `MTY_PRE_PUSH_SKIP=1` still bypasses the whole hook. Caught two
+  pre-existing demo drifts (`demos/03_extract_tool/src/breach.mty`,
+  `demos/11_ffi_winit_stub/src/main.mty`) on its first run; fixed
+  in the T1 commit. `mty hooks install` is idempotent so the hook
+  script body can evolve in subsequent releases without changing
+  the install surface. (+9 tests)
+- **T2 — Parser cast surface (`expr as Ty`).** Parser emits a real
+  `CAST_EXPR` CST node carrying source expression + parsed target
+  type. Type checker classifies legal vs illegal cast pairs
+  (integer ↔ integer with truncation/extension, integer ↔ float,
+  pointer ↔ pointer of same pointee or `*U8`); illegal pairs emit
+  new **MT2027 INVALID_CAST** with source type, target type, and a
+  hint pointing at the legal alternative. IR lowering fix: the
+  cast target type is now the real `TyId` instead of the
+  `IrTy::Error` stub the old AST shape forced. Cranelift backend's
+  cast path now emits the correct widening/truncation instruction.
+  (+21 tests)
+- **T3 — FFI ergonomics (IDE unblocker).** Three call-site coercions
+  gated on `FnDef.extern_abi == Some("c")`: (1) **Str → *U8
+  auto-coercion** — Mighty Str literals are interned
+  null-terminated UTF-8; typeck reads the ptr-half of the (ptr, len)
+  aggregate at extern-c arg positions whose declared type is `*U8`.
+  (2) **`&local` / `&mut local`** at `*T` / `*mut T` parameter
+  positions; existing `HirExpr::Borrow` lowering allocates a
+  Ref-typed temp whose slot holds the place address. Borrow check
+  rules unchanged. (3) **Struct literal at extern-c call site** —
+  `ffi_draw_rect(Rect { x: 0, y: 0, w: 100, h: 50 })` typechecks
+  directly. New `Rvalue::StrPtr` SIR variant + `FnDef.extern_abi`
+  marker. Rows 03, 04, 05, 06, 08, 09 of the v0.36 T2 extern-c matrix
+  are now "v0.37 direct" — the wrapper-pattern stays in the test
+  fixtures for ABI coverage but real user code calls directly.
+  **Unblocks the parallel IDE agent at C:\\Users\\ihass\\mighty-ide.**
+  (+18 tests)
+- **T4 — darwin-arm64 PGO + 6-path llvm-profdata fallback.**
+  `scripts/build-pgo.{sh,ps1}` discover `llvm-profdata` by walking
+  six fallback paths in order: host-tuple-specific rustup dir →
+  explicit arm64/x86_64 darwin → wildcard rustup glob → any
+  installed toolchain → system `$PATH`. First version-matching hit
+  wins. Phase 1 logs the chosen path. `release.yml` flips
+  `aarch64-apple-darwin` back to `use_pgo: true`. A new `pgo-paths`
+  CI job exercises the fallback table on ubuntu-latest. **PGO is
+  back to 3 of 5 platforms** (linux-x86_64, windows-x86_64,
+  darwin-arm64); `darwin-x86_64` + `linux-aarch64` stay non-PGO
+  with the documented "no native runner" rationale. (+9 tests)
+- **T5 — LLVM backend signedness threading.** Eight LLVM IR-builder
+  call sites swapped to sign-aware variants:
+  `build_int_cast` → `build_int_cast_sign_flag`,
+  `build_int_signed_div` / `build_int_signed_rem` → unsigned variants
+  for unsigned types, `ICMP SLT/SGT/SLE/SGE` → `ICMP ULT/UGT/ULE/UGE`
+  for unsigned, `lshr` (logical) for unsigned right-shift. Two
+  helpers (`mty_int_cast`, `mty_int_pred`) centralise the dispatch.
+  Mirror of v0.36 T1's cranelift-side fix; brings LLVM backend
+  unsigned-integer correctness up to par. Tests gate on
+  `--features llvm`. (+17 tests)
+- **T6 — Variadic extern declarations + cmd_serve uses ureq.**
+  Parser accepts trailing `...` in extern-c fn signatures (wrapped
+  in `VARIADIC_MARKER` CST node); `HirFn.is_variadic` /
+  `FnDef.is_variadic` / SIR `ExternBinding.is_variadic` thread the
+  flag through. Typeck relaxes the strict arity check for variadic
+  fns; below-fixed-arity calls still emit MT2005. Cranelift backend
+  lowers fixed-arity prefix calls (e.g. `printf(fmt)`) end-to-end;
+  calls passing extra varargs surface a clean
+  `CodegenError::Unsupported` pointing at
+  `docs/internals/extern-c-matrix.md` (cranelift 0.132 has no vararg
+  `Signature` flag — fix is per-call `import_signature` +
+  `call_indirect`, tracked for v0.38). Wasm backend rejects any
+  variadic extern fn unconditionally. cmd_serve test rewritten to
+  use `ureq` (dev-dep), removing the v0.36.1 tolerate-RST workaround.
+  (+17 tests)
+
+### Changed
+- `FnDef` gains `extern_abi: Option<String>` (T3) and
+  `is_variadic: bool` (T6); built-ins / regular Mighty fns / agent
+  methods leave both at `None` / `false`.
+- `HirFn` and SIR `ExternBinding` gain `is_variadic: bool` (T6).
+- New SIR `Rvalue::StrPtr(arg)` (T3) for the Str → *U8 coercion.
+- New diagnostic code MT2027 INVALID_CAST (T2).
+- Pre-push hook now runs 3 gates instead of 2 (T1).
+- `release.yml` `aarch64-apple-darwin` leg `use_pgo: true` (T4).
+
+### Fixed
+- IR lowering for `expr as Ty` no longer emits `IrTy::Error` for the
+  cast target type (T2).
+- `cmd_serve` test flake under GHA Ubuntu connection-reset race
+  removed by switching the test client to `ureq` (T6).
 
 ## [0.36.1] - 2026-05-29
 

@@ -144,10 +144,12 @@ mty run   src/main.mty
   `std.random` / `std.time` / `log()` emit direct versioned P2 imports
 - DWARF v5 with per-instruction line program (opt-in via `MTY_DWARF5=1`)
 - PGO + ThinLTO via `release-pgo` profile + `scripts/build-pgo.sh`
-- FFI — extern c signature matrix (11 documented shapes covering
-  scalars, structs by value / ptr, arrays, strings, callbacks) and
-  `[[extern_lib]]` manifest entries with per-platform `link_args`
-  for static + dynamic library linking
+- FFI — extern c signature matrix (12 documented shapes incl.
+  variadic decls; rows 3/4/5/6/8/9 lifted from wrapper-pattern to
+  direct call-site coercion in v0.37 — Str→*U8 auto-coercion,
+  `&local`/`&mut local` for `*T`/`*mut T`, struct literals at
+  extern-c arg positions) and `[[extern_lib]]` manifest entries with
+  per-platform `link_args` for static + dynamic library linking
   (see [`docs/internals/extern-c-matrix.md`](docs/internals/extern-c-matrix.md))
 
 **Tooling**
@@ -258,10 +260,10 @@ current state of the language, not its history.
 
 ## Status
 
-Mighty is **pre-alpha**. Internal milestones tagged through v0.36.
-The toolchain is exercised by **~3176 Rust tests** across 20 crates
+Mighty is **pre-alpha**. Internal milestones tagged through v0.37.
+The toolchain is exercised by **~3267 Rust tests** across 20 crates
 plus **490 Python 2nd-impl tests** plus **159 normative conformance
-cases** plus **23 self-host driver codegen tests** — combined **~3848
+cases** plus **23 self-host driver codegen tests** — combined **~3939
 tests, 0 failing**. All four LLM providers full (with multi-modal
 vision-language Image input); `std.swarm` votes consensus across
 them; `std.eval` regression-tests agents under byte-identical
