@@ -112,3 +112,88 @@ fn line_comment_is_trivia() {
     assert_eq!(toks[1].kind, WHITESPACE);
     assert_eq!(toks[2].kind, FN_KW);
 }
+
+// ---- v0.36 T1: radix-prefixed integer literals -----------------------
+
+#[test]
+fn hex_bare() {
+    let toks = lex("0xFF 0xdeadbeef 0xABCDEF");
+    assert_eq!(toks[0].kind, HEX_INT_LITERAL);
+    assert_eq!(toks[0].text, "0xFF");
+    assert_eq!(toks[2].kind, HEX_INT_LITERAL);
+    assert_eq!(toks[2].text, "0xdeadbeef");
+    assert_eq!(toks[4].kind, HEX_INT_LITERAL);
+}
+
+#[test]
+fn hex_with_underscores() {
+    let toks = lex("0xDEAD_BEEF 0xFF_FF_FF_FF");
+    assert_eq!(toks[0].kind, HEX_INT_LITERAL);
+    assert_eq!(toks[0].text, "0xDEAD_BEEF");
+    assert_eq!(toks[2].kind, HEX_INT_LITERAL);
+    assert_eq!(toks[2].text, "0xFF_FF_FF_FF");
+}
+
+#[test]
+fn hex_with_typed_suffix_u8() {
+    let toks = lex("0xFF_u8");
+    assert_eq!(toks[0].kind, HEX_INT_LITERAL);
+    assert_eq!(toks[0].text, "0xFF_u8");
+}
+
+#[test]
+fn hex_with_typed_suffix_no_underscore() {
+    let toks = lex("0xFFu8 0xFFu16 0xFFFFu32 0xFFu64");
+    assert_eq!(toks[0].kind, HEX_INT_LITERAL);
+    assert_eq!(toks[0].text, "0xFFu8");
+    assert_eq!(toks[2].kind, HEX_INT_LITERAL);
+    assert_eq!(toks[2].text, "0xFFu16");
+}
+
+#[test]
+fn hex_with_all_int_suffixes() {
+    // Every signed + unsigned width + sized variant lexes as HEX_INT_LITERAL.
+    for (src, expected) in [
+        ("0xFF_u8", "0xFF_u8"),
+        ("0xFF_u16", "0xFF_u16"),
+        ("0xDEADBEEF_u32", "0xDEADBEEF_u32"),
+        ("0xFF_u64", "0xFF_u64"),
+        ("0xFF_u128", "0xFF_u128"),
+        ("0xFF_i8", "0xFF_i8"),
+        ("0xFF_i16", "0xFF_i16"),
+        ("0xFF_i32", "0xFF_i32"),
+        ("0xFF_i64", "0xFF_i64"),
+        ("0xFF_i128", "0xFF_i128"),
+        ("0xFF_usize", "0xFF_usize"),
+        ("0xFF_isize", "0xFF_isize"),
+    ] {
+        let toks = lex(src);
+        assert_eq!(
+            toks[0].kind, HEX_INT_LITERAL,
+            "expected HEX_INT_LITERAL for {src}, got {:?}",
+            toks[0].kind
+        );
+        assert_eq!(toks[0].text, expected, "text mismatch for {src}");
+    }
+}
+
+#[test]
+fn binary_and_octal_with_suffix() {
+    let toks = lex("0b1010_u8 0o777_u32");
+    assert_eq!(toks[0].kind, BIN_INT_LITERAL);
+    assert_eq!(toks[0].text, "0b1010_u8");
+    assert_eq!(toks[2].kind, OCT_INT_LITERAL);
+    assert_eq!(toks[2].text, "0o777_u32");
+}
+
+#[test]
+fn radix_literals_in_expr_position() {
+    // Each radix literal should parse as the head of its own LITERAL_EXPR.
+    let toks = lex("let x = 0xFF_u8;");
+    let kinds: Vec<_> = toks
+        .iter()
+        .map(|t| t.kind)
+        .filter(|k| !k.is_trivia())
+        .collect();
+    assert_eq!(kinds, vec![LET_KW, IDENT, EQ, HEX_INT_LITERAL, SEMI, EOF]);
+}

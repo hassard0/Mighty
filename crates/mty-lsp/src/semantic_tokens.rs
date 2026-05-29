@@ -171,6 +171,9 @@ fn classify(token: &SyntaxToken, doc: &DocAnalysis) -> Option<AbsToken> {
             (T_COMMENT, 0)
         }
         SyntaxKind::INT_LITERAL
+        | SyntaxKind::HEX_INT_LITERAL
+        | SyntaxKind::BIN_INT_LITERAL
+        | SyntaxKind::OCT_INT_LITERAL
         | SyntaxKind::FLOAT_LITERAL
         | SyntaxKind::DURATION_LITERAL
         | SyntaxKind::SIZE_LITERAL => (T_NUMBER, 0),

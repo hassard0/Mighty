@@ -32,7 +32,8 @@ pub fn pattern(p: &mut Parser) -> bool {
             binding(p);
             true
         }
-        INT_LITERAL | FLOAT_LITERAL | STRING_LITERAL | CHAR_LITERAL | TRUE_KW | FALSE_KW => {
+        INT_LITERAL | HEX_INT_LITERAL | BIN_INT_LITERAL | OCT_INT_LITERAL | FLOAT_LITERAL
+        | STRING_LITERAL | CHAR_LITERAL | TRUE_KW | FALSE_KW => {
             literal(p);
             true
         }

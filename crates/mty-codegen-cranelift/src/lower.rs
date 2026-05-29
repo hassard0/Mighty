@@ -891,7 +891,11 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                     } else {
                         cl_ty_for(&self.f.ret_ty)
                     };
-                    let v = self.coerce_to(v, want);
+                    // v0.36 T1: pass the source SIR type so the coerce
+                    // path can pick `uextend` for unsigned widening
+                    // (was always sign-extending, breaking U8 returns).
+                    let src_ty = self.operand_ir_ty(op);
+                    let v = self.coerce_to_with_src(v, want, src_ty.as_ref());
                     self.b.ins().return_(&[v]);
                 }
                 Ok(())
@@ -1141,7 +1145,16 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         } else {
             cl_ty_for(&local_ty)
         };
-        let val = self.coerce_to(val, want);
+        // v0.36 T1: prefer `uextend` for Rvalue::Use(unsigned) → wider
+        // local. For other rvalue shapes (BinOp/Cast/Call) we delegate
+        // to the typed coerce path with the local's own type — that
+        // covers BinOp results (which already widen internally) and
+        // Cast (which knows its own src type via eval_rvalue).
+        let src_ty = match rv {
+            Rvalue::Use(op) => self.operand_ir_ty(op),
+            _ => None,
+        };
+        let val = self.coerce_to_with_src(val, want, src_ty.as_ref());
         self.b.def_var(var, val);
         Ok(())
     }
@@ -1194,6 +1207,129 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
             }
         }
         Ok(())
+    }
+
+    /// SIR → Cranelift IR type for an [`Operand`]. Returns `None` when
+    /// the operand is a constant whose declared type doesn't pin a SIR
+    /// type (rare — `Const::Unit` etc.). v0.36 T1: used by the binop /
+    /// coerce_to paths to choose signed vs unsigned widening.
+    fn operand_ir_ty(&self, op: &Operand) -> Option<IrTy> {
+        match op {
+            Operand::Copy(p) | Operand::Move(p) => {
+                let mut ty = self.f.locals[p.local.0 as usize].ty.clone();
+                for proj in &p.proj {
+                    match proj {
+                        Projection::Field(i) => {
+                            if let IrTy::Adt(id, _) = &ty {
+                                if let Some(adt) = self.prog.adt_by_id(*id) {
+                                    if let Some(v) = adt.variants.first() {
+                                        if let Some(f) = v.fields.get(*i) {
+                                            ty = f.ty.clone();
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+                            return None;
+                        }
+                        Projection::TupleIndex(i) => {
+                            if let IrTy::Tuple(elems) = &ty {
+                                if let Some(t) = elems.get(*i) {
+                                    ty = t.clone();
+                                    continue;
+                                }
+                            }
+                            return None;
+                        }
+                        Projection::Deref => {
+                            if let IrTy::Ref { inner, .. } = &ty {
+                                ty = (**inner).clone();
+                                continue;
+                            }
+                            return None;
+                        }
+                        Projection::Index(_) => {
+                            if let IrTy::Array { elem, .. } = &ty {
+                                ty = (**elem).clone();
+                                continue;
+                            }
+                            return None;
+                        }
+                        Projection::VariantField(v, f) => {
+                            if let IrTy::Adt(id, _) = &ty {
+                                if let Some(adt) = self.prog.adt_by_id(*id) {
+                                    if let Some(var) = adt.variants.get(*v) {
+                                        if let Some(field) = var.fields.get(*f) {
+                                            ty = field.ty.clone();
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+                            return None;
+                        }
+                    }
+                }
+                Some(ty)
+            }
+            Operand::Const(c) => match c {
+                Const::Int(_, k) => Some(IrTy::Int(*k)),
+                Const::Float(_, k) => Some(IrTy::Float(*k)),
+                Const::Bool(_) => Some(IrTy::Bool),
+                Const::Char(_) => Some(IrTy::Char),
+                Const::Str(_) => Some(IrTy::Str),
+                Const::Duration { .. } => Some(IrTy::Duration),
+                Const::Size { .. } => Some(IrTy::Size),
+                Const::Unit => Some(IrTy::Unit),
+                _ => None,
+            },
+        }
+    }
+
+    /// True iff `ty` is an unsigned integer (u8/u16/u32/u64/u128/usize).
+    /// Returns false for signed ints, bools, chars, and non-integer
+    /// types. v0.36 T1: used to pick `uextend` vs `sextend`.
+    fn is_unsigned_int_ty(ty: &IrTy) -> bool {
+        matches!(
+            ty,
+            IrTy::Int(
+                IntKind::U8
+                    | IntKind::U16
+                    | IntKind::U32
+                    | IntKind::U64
+                    | IntKind::U128
+                    | IntKind::USize
+            )
+        )
+    }
+
+    /// Variant of [`Self::coerce_to`] that knows the SIR type of the
+    /// source value, so it can pick `uextend` for unsigned widening
+    /// instead of the default `sextend`. v0.36 T1 — fix for the U8 →
+    /// wider-int arithmetic / fn-arg / return widening bug.
+    fn coerce_to_with_src(
+        &mut self,
+        val: cranelift_codegen::ir::Value,
+        want: cranelift_codegen::ir::Type,
+        src_ty: Option<&IrTy>,
+    ) -> cranelift_codegen::ir::Value {
+        let have = self.b.func.dfg.value_type(val);
+        if have == want {
+            return val;
+        }
+        if have.is_int() && want.is_int() {
+            if have.bits() < want.bits() {
+                let unsigned = src_ty.is_some_and(Self::is_unsigned_int_ty);
+                if unsigned {
+                    return self.b.ins().uextend(want, val);
+                }
+                return self.b.ins().sextend(want, val);
+            }
+            if have.bits() > want.bits() {
+                return self.b.ins().ireduce(want, val);
+            }
+        }
+        self.coerce_to(val, want)
     }
 
     fn coerce_to(
@@ -1270,7 +1406,9 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
             Rvalue::BinOp(op, a, b) => {
                 let av = self.eval_operand(a)?;
                 let bv = self.eval_operand(b)?;
-                self.lower_binop(*op, av, bv)
+                let sa = self.operand_ir_ty(a);
+                let sb = self.operand_ir_ty(b);
+                self.lower_binop_typed(*op, av, bv, sa.as_ref(), sb.as_ref())
             }
             Rvalue::UnOp(op, a) => {
                 let av = self.eval_operand(a)?;
@@ -1280,7 +1418,8 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
             Rvalue::Cast { src, ty } => {
                 let v = self.eval_operand(src)?;
                 let want = cl_ty_for(ty);
-                Ok(self.coerce_to(v, want))
+                let src_ty = self.operand_ir_ty(src);
+                Ok(self.coerce_to_with_src(v, want, src_ty.as_ref()))
             }
             Rvalue::FieldRead { receiver, field } => {
                 let mut p = receiver.clone();
@@ -1453,9 +1592,29 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
             },
             Const::Char(c) => self.b.ins().iconst(ct::I32, *c as i64),
             Const::Str(s) => {
+                // v0.36 T1: strings are aggregates (ptr, len) — emit a
+                // fresh 16-byte stack slot, write ptr at +0 and len at
+                // +8, return the slot address. This lets dynamic-log
+                // (`log(local_str)`) read both halves from a stable
+                // address, while still cheaply representing literal
+                // strings.
                 let id = self.mod_ctx.intern_string(s)?;
                 let gv = self.mod_ctx.module.declare_data_in_func(id, self.b.func);
-                self.b.ins().symbol_value(ct::I64, gv)
+                let ptr = self.b.ins().symbol_value(ct::I64, gv);
+                let len = self.b.ins().iconst(ct::I64, s.len() as i64);
+                let slot = self.b.create_sized_stack_slot(StackSlotData::new(
+                    StackSlotKind::ExplicitSlot,
+                    16,
+                    3, // log2(8) = 3
+                ));
+                let addr = self.b.ins().stack_addr(ct::I64, slot, 0);
+                self.b
+                    .ins()
+                    .store(cranelift_codegen::ir::MemFlags::trusted(), ptr, addr, 0);
+                self.b
+                    .ins()
+                    .store(cranelift_codegen::ir::MemFlags::trusted(), len, addr, 8);
+                addr
             }
             Const::Duration { value, .. } | Const::Size { value, .. } => {
                 self.b.ins().iconst(ct::I64, *value as i64)
@@ -1485,11 +1644,24 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         }
     }
 
-    fn lower_binop(
+    /// Lower a SIR `BinOp` to a Cranelift instruction sequence. Knows
+    /// the SIR types of the two operands and uses them to pick:
+    /// - unsigned vs signed widening (`uextend` vs `sextend`) when the
+    ///   operands have different cranelift widths,
+    /// - unsigned vs signed division / remainder (`udiv`/`urem` vs
+    ///   `sdiv`/`srem`),
+    /// - unsigned vs signed comparisons,
+    /// - logical vs arithmetic right shift (`ushr` vs `sshr`).
+    ///
+    /// v0.36 T1 — fix for the U8 widening bug + downstream unsigned
+    /// op-semantics on cranelift.
+    fn lower_binop_typed(
         &mut self,
         op: BinOp,
         a: cranelift_codegen::ir::Value,
         b: cranelift_codegen::ir::Value,
+        sa: Option<&IrTy>,
+        sb: Option<&IrTy>,
     ) -> CompileResult<cranelift_codegen::ir::Value> {
         use cranelift_codegen::ir::condcodes::{FloatCC, IntCC::*};
         let ta = self.b.func.dfg.value_type(a);
@@ -1528,31 +1700,98 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 }
             });
         }
-        // Integer path: widen narrower side to the wider.
+        let ua = sa.is_some_and(Self::is_unsigned_int_ty);
+        let ub = sb.is_some_and(Self::is_unsigned_int_ty);
+        // If *either* operand is known unsigned, treat the op as
+        // unsigned. (Mixing signed + unsigned is itself a typeck error
+        // upstream; this fallback is just defensive.)
+        let unsigned = ua || ub;
+        // Integer path: widen narrower side to the wider, using the
+        // *narrower* side's signedness for the extend choice.
         let (a, b) = if ta.bits() == tb.bits() {
             (a, b)
         } else if ta.bits() < tb.bits() {
-            (self.b.ins().sextend(tb, a), b)
+            let widened = if ua {
+                self.b.ins().uextend(tb, a)
+            } else {
+                self.b.ins().sextend(tb, a)
+            };
+            (widened, b)
         } else {
-            (a, self.b.ins().sextend(ta, b))
+            let widened = if ub {
+                self.b.ins().uextend(ta, b)
+            } else {
+                self.b.ins().sextend(ta, b)
+            };
+            (a, widened)
         };
         Ok(match op {
             BinOp::Add => self.b.ins().iadd(a, b),
             BinOp::Sub => self.b.ins().isub(a, b),
             BinOp::Mul => self.b.ins().imul(a, b),
-            BinOp::Div => self.b.ins().sdiv(a, b),
-            BinOp::Rem => self.b.ins().srem(a, b),
+            BinOp::Div => {
+                if unsigned {
+                    self.b.ins().udiv(a, b)
+                } else {
+                    self.b.ins().sdiv(a, b)
+                }
+            }
+            BinOp::Rem => {
+                if unsigned {
+                    self.b.ins().urem(a, b)
+                } else {
+                    self.b.ins().srem(a, b)
+                }
+            }
             BinOp::BitAnd | BinOp::And => self.b.ins().band(a, b),
             BinOp::BitOr | BinOp::Or => self.b.ins().bor(a, b),
             BinOp::BitXor => self.b.ins().bxor(a, b),
             BinOp::Shl => self.b.ins().ishl(a, b),
-            BinOp::Shr => self.b.ins().sshr(a, b),
+            BinOp::Shr => {
+                if unsigned {
+                    self.b.ins().ushr(a, b)
+                } else {
+                    self.b.ins().sshr(a, b)
+                }
+            }
             BinOp::Eq => self.b.ins().icmp(Equal, a, b),
             BinOp::Ne => self.b.ins().icmp(NotEqual, a, b),
-            BinOp::Lt => self.b.ins().icmp(SignedLessThan, a, b),
-            BinOp::Le => self.b.ins().icmp(SignedLessThanOrEqual, a, b),
-            BinOp::Gt => self.b.ins().icmp(SignedGreaterThan, a, b),
-            BinOp::Ge => self.b.ins().icmp(SignedGreaterThanOrEqual, a, b),
+            BinOp::Lt => self.b.ins().icmp(
+                if unsigned {
+                    UnsignedLessThan
+                } else {
+                    SignedLessThan
+                },
+                a,
+                b,
+            ),
+            BinOp::Le => self.b.ins().icmp(
+                if unsigned {
+                    UnsignedLessThanOrEqual
+                } else {
+                    SignedLessThanOrEqual
+                },
+                a,
+                b,
+            ),
+            BinOp::Gt => self.b.ins().icmp(
+                if unsigned {
+                    UnsignedGreaterThan
+                } else {
+                    SignedGreaterThan
+                },
+                a,
+                b,
+            ),
+            BinOp::Ge => self.b.ins().icmp(
+                if unsigned {
+                    UnsignedGreaterThanOrEqual
+                } else {
+                    SignedGreaterThanOrEqual
+                },
+                a,
+                b,
+            ),
         })
     }
 
@@ -1649,6 +1888,10 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                         }
                     }
                     let v = self.eval_operand(a)?;
+                    // v0.36 T1: capture the operand's SIR type so the
+                    // coerce path can pick `uextend` for unsigned
+                    // widening (U8 → U32/U64 fn args were wrong).
+                    let src_ty = self.operand_ir_ty(a);
                     let want_ty = if !callee_param_tys.is_empty() {
                         Some(callee_param_tys.remove(0))
                     } else {
@@ -1660,7 +1903,7 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                         } else {
                             cl_ty_for(t)
                         };
-                        self.coerce_to(v, want)
+                        self.coerce_to_with_src(v, want, src_ty.as_ref())
                     } else {
                         v
                     };
@@ -1803,23 +2046,46 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         }
     }
 
-    /// Extract the (ptr, len) pair for a string operand. Slice-8 only
-    /// supports `Const::Str` literals here — locals carrying String
-    /// values aren't yet representable.
+    /// Extract the (ptr, len) pair for a string operand.
+    ///
+    /// v0.36 T1: supports both literal `Const::Str` (writes a fresh
+    /// (ptr,len) pair to a stack slot, reads it back) and locals/places
+    /// of `Str`/`String`/`Bytes` type (reads (ptr,len) from the
+    /// aggregate-backing stack slot). This unblocks `log(s)` where `s`
+    /// is the result of `format!()`, a function-call return, or any
+    /// other dynamic string.
     fn string_pair(
         &mut self,
         op: &Operand,
     ) -> CompileResult<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)> {
         match op {
             Operand::Const(Const::Str(s)) => {
+                // Fast path: skip the round-trip through a stack slot
+                // for pure literals; we already have the ptr and the
+                // exact len. (Saves an alloc + store/load per literal.)
                 let id = self.mod_ctx.intern_string(s)?;
                 let gv = self.mod_ctx.module.declare_data_in_func(id, self.b.func);
                 let ptr = self.b.ins().symbol_value(ct::I64, gv);
                 let len = self.b.ins().iconst(ct::I64, s.len() as i64);
                 Ok((ptr, len))
             }
-            _ => Err(CodegenError::Unsupported(
-                "non-literal string in log/print".into(),
+            Operand::Copy(_) | Operand::Move(_) => {
+                // Dynamic case: locals of Str type now live in 16-byte
+                // stack slots holding (ptr@+0, len@+8). Load both
+                // halves through the place's address.
+                let addr = self.eval_operand(op)?;
+                let ptr =
+                    self.b
+                        .ins()
+                        .load(ct::I64, cranelift_codegen::ir::MemFlags::trusted(), addr, 0);
+                let len =
+                    self.b
+                        .ins()
+                        .load(ct::I64, cranelift_codegen::ir::MemFlags::trusted(), addr, 8);
+                Ok((ptr, len))
+            }
+            Operand::Const(_) => Err(CodegenError::Unsupported(
+                "non-string constant in log/print".into(),
             )),
         }
     }

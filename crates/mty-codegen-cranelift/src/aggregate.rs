@@ -35,8 +35,22 @@ pub const TAG_SIZE: u32 = 4;
 
 /// True if a SIR type should be passed by *pointer* (i64 address) instead
 /// of by value. Anything aggregate, plus strings (`(ptr, len)`).
+///
+/// v0.36 T1: `Str` / `String` / `Bytes` are now treated as aggregates
+/// so they get a stack slot holding (ptr, len). This unblocks
+/// dynamic-log of locally-bound strings (`let s = format!(...)` →
+/// `log(s)`) in the cranelift backend; previously a Str local was
+/// modelled as a single `i64` register and the `len` half was lost.
 pub fn is_aggregate(t: &IrTy) -> bool {
-    matches!(t, IrTy::Tuple(_) | IrTy::Array { .. } | IrTy::Adt(_, _))
+    matches!(
+        t,
+        IrTy::Tuple(_)
+            | IrTy::Array { .. }
+            | IrTy::Adt(_, _)
+            | IrTy::Str
+            | IrTy::String
+            | IrTy::Bytes
+    )
 }
 
 /// Compute layout for a SIR type (delegates to `layout_with_adts` for

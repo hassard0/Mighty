@@ -427,6 +427,9 @@ fn is_interesting(k: SyntaxKind) -> bool {
         k,
         SyntaxKind::IDENT
             | SyntaxKind::INT_LITERAL
+            | SyntaxKind::HEX_INT_LITERAL
+            | SyntaxKind::BIN_INT_LITERAL
+            | SyntaxKind::OCT_INT_LITERAL
             | SyntaxKind::FLOAT_LITERAL
             | SyntaxKind::STRING_LITERAL
             | SyntaxKind::CHAR_LITERAL
