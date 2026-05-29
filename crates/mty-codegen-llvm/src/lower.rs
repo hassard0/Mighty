@@ -484,7 +484,13 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                 } else {
                     let v = self.eval_operand(op)?;
                     let want = self.pl.llvm_ty(&self.f.ret_ty);
-                    let v = self.coerce(v, want);
+                    // v0.37 T5: pass the source SIR type so the coerce
+                    // path can pick `zext` (unsigned widening) for U8 /
+                    // U16 / U32 / U64 returns. Pre-fix the LLVM backend
+                    // unconditionally used `build_int_cast` (signed) —
+                    // same bug v0.36 T1 fixed for cranelift.
+                    let src_ty = self.operand_ir_ty(op);
+                    let v = self.coerce_with_src(v, want, src_ty.as_ref());
                     self.pl.builder.build_return(Some(&v)).unwrap();
                 }
                 Ok(())
@@ -590,7 +596,15 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
         let v = self.eval_rvalue(rv)?;
         let slot = self.ensure_local(place.local);
         let want = self.pl.llvm_ty(&self.f.locals[place.local.0 as usize].ty);
-        let v = self.coerce(v, want);
+        // v0.37 T5: prefer unsigned widening (`zext`) when the rvalue's
+        // source SIR type is an unsigned integer. For non-Use rvalues
+        // (BinOp/Cast/Call results) we don't try to thread further —
+        // those paths already pick the right signedness internally.
+        let src_ty = match rv {
+            Rvalue::Use(op) => self.operand_ir_ty(op),
+            _ => None,
+        };
+        let v = self.coerce_with_src(v, want, src_ty.as_ref());
         self.pl.builder.build_store(slot, v).unwrap();
         Ok(())
     }
@@ -602,7 +616,9 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
             Rvalue::BinOp(op, a, b) => {
                 let av = self.eval_operand(a)?;
                 let bv = self.eval_operand(b)?;
-                self.lower_binop(*op, av, bv)
+                let sa = self.operand_ir_ty(a);
+                let sb = self.operand_ir_ty(b);
+                self.lower_binop_typed(*op, av, bv, sa.as_ref(), sb.as_ref())
             }
             Rvalue::UnOp(op, a) => {
                 let av = self.eval_operand(a)?;
@@ -612,7 +628,8 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
             Rvalue::Cast { src, ty } => {
                 let v = self.eval_operand(src)?;
                 let want = self.pl.llvm_ty(ty);
-                Ok(self.coerce(v, want))
+                let src_ty = self.operand_ir_ty(src);
+                Ok(self.coerce_with_src(v, want, src_ty.as_ref()))
             }
             // v0.37 Track T3 — LLVM backend doesn't model Str's
             // (ptr,len) split; treat StrPtr as a pass-through, mirroring
@@ -670,11 +687,27 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
         })
     }
 
-    fn lower_binop(
+    /// Lower a SIR `BinOp` to an LLVM instruction sequence. Knows the
+    /// SIR types of the two operands and uses them to pick:
+    /// - unsigned vs signed widening (`zext` vs `sext`) when the
+    ///   operands have different LLVM bit widths,
+    /// - unsigned vs signed division / remainder
+    ///   (`build_int_unsigned_div/rem` vs `build_int_signed_div/rem`),
+    /// - unsigned vs signed comparisons (`ULT/ULE/UGT/UGE` vs
+    ///   `SLT/SLE/SGT/SGE`),
+    /// - logical vs arithmetic right shift (`build_right_shift` with
+    ///   `sign_extend = false` vs `true`).
+    ///
+    /// v0.37 T5 — fix for the U8 widening bug + downstream unsigned
+    /// op-semantics on the LLVM backend. Mirrors v0.36 T1's cranelift
+    /// `lower_binop_typed`.
+    fn lower_binop_typed(
         &mut self,
         op: BinOp,
         a: BasicValueEnum<'ctx>,
         b: BasicValueEnum<'ctx>,
+        sa: Option<&IrTy>,
+        sb: Option<&IrTy>,
     ) -> CompileResult<BasicValueEnum<'ctx>> {
         use inkwell::FloatPredicate;
         // Float path.
@@ -752,26 +785,54 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                 _ => return Err(LlvmError::Unsupported(format!("float binop {:?}", op))),
             });
         }
-        // Integer path — widen narrower to wider via sext.
+        let ua = sa.is_some_and(Self::is_unsigned_int_ty);
+        let ub = sb.is_some_and(Self::is_unsigned_int_ty);
+        // If *either* operand is known unsigned, treat the op as
+        // unsigned. (Mixing signed + unsigned is itself a typeck error
+        // upstream; this fallback is just defensive.)
+        let unsigned = ua || ub;
+        // Integer path — widen both sides to i64, using each side's
+        // own signedness for the extend choice. (The cranelift path
+        // widens to the wider of the two; here we always widen to i64
+        // because the existing LLVM lowering normalises arithmetic at
+        // i64 — preserving that contract while threading signedness.)
         let i64t = self.pl.i64_ty();
-        let a = self.coerce(a, i64t.into()).into_int_value();
-        let b = self.coerce(b, i64t.into()).into_int_value();
+        let a = self.coerce_with_src(a, i64t.into(), sa).into_int_value();
+        let b = self.coerce_with_src(b, i64t.into(), sb).into_int_value();
         Ok(match op {
             BinOp::Add => self.pl.builder.build_int_add(a, b, "iadd").unwrap().into(),
             BinOp::Sub => self.pl.builder.build_int_sub(a, b, "isub").unwrap().into(),
             BinOp::Mul => self.pl.builder.build_int_mul(a, b, "imul").unwrap().into(),
-            BinOp::Div => self
-                .pl
-                .builder
-                .build_int_signed_div(a, b, "isdiv")
-                .unwrap()
-                .into(),
-            BinOp::Rem => self
-                .pl
-                .builder
-                .build_int_signed_rem(a, b, "isrem")
-                .unwrap()
-                .into(),
+            BinOp::Div => {
+                if unsigned {
+                    self.pl
+                        .builder
+                        .build_int_unsigned_div(a, b, "iudiv")
+                        .unwrap()
+                        .into()
+                } else {
+                    self.pl
+                        .builder
+                        .build_int_signed_div(a, b, "isdiv")
+                        .unwrap()
+                        .into()
+                }
+            }
+            BinOp::Rem => {
+                if unsigned {
+                    self.pl
+                        .builder
+                        .build_int_unsigned_rem(a, b, "iurem")
+                        .unwrap()
+                        .into()
+                } else {
+                    self.pl
+                        .builder
+                        .build_int_signed_rem(a, b, "isrem")
+                        .unwrap()
+                        .into()
+                }
+            }
             BinOp::BitAnd | BinOp::And => self.pl.builder.build_and(a, b, "iand").unwrap().into(),
             BinOp::BitOr | BinOp::Or => self.pl.builder.build_or(a, b, "ior").unwrap().into(),
             BinOp::BitXor => self.pl.builder.build_xor(a, b, "ixor").unwrap().into(),
@@ -784,7 +845,11 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
             BinOp::Shr => self
                 .pl
                 .builder
-                .build_right_shift(a, b, true, "isshr")
+                // `sign_extend = true` → arithmetic shift (ashr);
+                // `false` → logical shift (lshr). Unsigned operands
+                // want lshr so the high bits zero out instead of
+                // propagating the sign bit.
+                .build_right_shift(a, b, !unsigned, "ishr")
                 .unwrap()
                 .into(),
             BinOp::Eq => self
@@ -802,25 +867,61 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
             BinOp::Lt => self
                 .pl
                 .builder
-                .build_int_compare(IntPredicate::SLT, a, b, "ilt")
+                .build_int_compare(
+                    if unsigned {
+                        IntPredicate::ULT
+                    } else {
+                        IntPredicate::SLT
+                    },
+                    a,
+                    b,
+                    "ilt",
+                )
                 .unwrap()
                 .into(),
             BinOp::Le => self
                 .pl
                 .builder
-                .build_int_compare(IntPredicate::SLE, a, b, "ile")
+                .build_int_compare(
+                    if unsigned {
+                        IntPredicate::ULE
+                    } else {
+                        IntPredicate::SLE
+                    },
+                    a,
+                    b,
+                    "ile",
+                )
                 .unwrap()
                 .into(),
             BinOp::Gt => self
                 .pl
                 .builder
-                .build_int_compare(IntPredicate::SGT, a, b, "igt")
+                .build_int_compare(
+                    if unsigned {
+                        IntPredicate::UGT
+                    } else {
+                        IntPredicate::SGT
+                    },
+                    a,
+                    b,
+                    "igt",
+                )
                 .unwrap()
                 .into(),
             BinOp::Ge => self
                 .pl
                 .builder
-                .build_int_compare(IntPredicate::SGE, a, b, "ige")
+                .build_int_compare(
+                    if unsigned {
+                        IntPredicate::UGE
+                    } else {
+                        IntPredicate::SGE
+                    },
+                    a,
+                    b,
+                    "ige",
+                )
                 .unwrap()
                 .into(),
         })
@@ -909,6 +1010,10 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                         continue;
                     }
                     let v = self.eval_operand(a)?;
+                    // v0.37 T5: capture the operand's SIR type so the
+                    // coerce path picks `zext` for unsigned widening
+                    // (U8 → U32/U64 fn args were wrong pre-fix).
+                    let src_ty = self.operand_ir_ty(a);
                     let want_ty = if !callee_param_tys.is_empty() {
                         Some(callee_param_tys.remove(0))
                     } else {
@@ -916,7 +1021,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                     };
                     let coerced = if let Some(t) = &want_ty {
                         let lt = self.pl.llvm_ty(t);
-                        self.coerce(v, lt)
+                        self.coerce_with_src(v, lt, src_ty.as_ref())
                     } else {
                         v
                     };
@@ -962,9 +1067,136 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
         }
     }
 
+    /// SIR → LLVM type for an [`Operand`]. Returns `None` when the
+    /// operand is a constant whose declared type doesn't pin a SIR
+    /// type (rare — `Const::Unit` etc.). v0.37 T5: used by the binop /
+    /// coerce_with_src paths to choose signed vs unsigned widening.
+    fn operand_ir_ty(&self, op: &Operand) -> Option<IrTy> {
+        match op {
+            Operand::Copy(p) | Operand::Move(p) => {
+                let mut ty = self.f.locals[p.local.0 as usize].ty.clone();
+                for proj in &p.proj {
+                    match proj {
+                        Projection::Field(i) => {
+                            if let IrTy::Adt(id, _) = &ty {
+                                if let Some(adt) = self.pl.prog.adt_by_id(*id) {
+                                    if let Some(v) = adt.variants.first() {
+                                        if let Some(f) = v.fields.get(*i) {
+                                            ty = f.ty.clone();
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+                            return None;
+                        }
+                        Projection::TupleIndex(i) => {
+                            if let IrTy::Tuple(elems) = &ty {
+                                if let Some(t) = elems.get(*i) {
+                                    ty = t.clone();
+                                    continue;
+                                }
+                            }
+                            return None;
+                        }
+                        Projection::Deref => {
+                            if let IrTy::Ref { inner, .. } = &ty {
+                                ty = (**inner).clone();
+                                continue;
+                            }
+                            return None;
+                        }
+                        Projection::Index(_) => {
+                            if let IrTy::Array { elem, .. } = &ty {
+                                ty = (**elem).clone();
+                                continue;
+                            }
+                            return None;
+                        }
+                        Projection::VariantField(v, f) => {
+                            if let IrTy::Adt(id, _) = &ty {
+                                if let Some(adt) = self.pl.prog.adt_by_id(*id) {
+                                    if let Some(var) = adt.variants.get(*v) {
+                                        if let Some(field) = var.fields.get(*f) {
+                                            ty = field.ty.clone();
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+                            return None;
+                        }
+                    }
+                }
+                Some(ty)
+            }
+            Operand::Const(c) => match c {
+                Const::Int(_, k) => Some(IrTy::Int(*k)),
+                Const::Float(_, k) => Some(IrTy::Float(*k)),
+                Const::Bool(_) => Some(IrTy::Bool),
+                Const::Char(_) => Some(IrTy::Char),
+                Const::Str(_) => Some(IrTy::Str),
+                Const::Duration { .. } => Some(IrTy::Duration),
+                Const::Size { .. } => Some(IrTy::Size),
+                Const::Unit => Some(IrTy::Unit),
+                _ => None,
+            },
+        }
+    }
+
+    /// True iff `ty` is an unsigned integer (u8/u16/u32/u64/u128/usize).
+    /// Returns false for signed ints, bools, chars, and non-integer
+    /// types. v0.37 T5: used to pick `zext` vs `sext` (and unsigned vs
+    /// signed div/rem/cmp/shr).
+    fn is_unsigned_int_ty(ty: &IrTy) -> bool {
+        matches!(
+            ty,
+            IrTy::Int(
+                IntKind::U8
+                    | IntKind::U16
+                    | IntKind::U32
+                    | IntKind::U64
+                    | IntKind::U128
+                    | IntKind::USize
+            )
+        )
+    }
+
+    /// Variant of [`Self::coerce`] that knows the SIR type of the source
+    /// value, so it can pick `zext` (unsigned widening) for unsigned
+    /// sources instead of the default `sext`. v0.37 T5 — fix for the
+    /// LLVM-backend U8 → wider-int arithmetic / fn-arg / return widening
+    /// bug, mirroring v0.36 T1's cranelift fix.
+    fn coerce_with_src(
+        &mut self,
+        v: BasicValueEnum<'ctx>,
+        want: BasicTypeEnum<'ctx>,
+        src_ty: Option<&IrTy>,
+    ) -> BasicValueEnum<'ctx> {
+        if v.get_type() == want {
+            return v;
+        }
+        if let (BasicTypeEnum::IntType(_), BasicTypeEnum::IntType(it)) = (v.get_type(), want) {
+            let is_signed = !src_ty.is_some_and(Self::is_unsigned_int_ty);
+            return self
+                .pl
+                .builder
+                .build_int_cast_sign_flag(v.into_int_value(), it, is_signed, "icast")
+                .unwrap()
+                .into();
+        }
+        // Non-int-to-int paths fall through to the legacy coerce.
+        self.coerce(v, want)
+    }
+
     /// Coerce a value into the wanted type; handles int<->int, float<->float
     /// and bitcast for size-equal int<->float pairs. Pointer<->int via
     /// ptrtoint/inttoptr.
+    ///
+    /// Note: the int-to-int path here defaults to **signed** widening
+    /// via `build_int_cast` (which is just `LLVMBuildIntCast` =
+    /// `LLVMBuildSExtOrBitCast` for widening). Callers that know the
+    /// source is unsigned should use [`Self::coerce_with_src`] instead.
     fn coerce(
         &mut self,
         v: BasicValueEnum<'ctx>,
