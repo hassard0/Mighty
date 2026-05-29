@@ -487,19 +487,88 @@ fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
         }
         HirExpr::Run(inner) => synth_expr(cx, inner),
         HirExpr::Cast { lhs, ty } => {
-            let _ = synth_expr(cx, lhs);
-            crate::resolve::resolve_hir_type(
+            let lhs_ty = synth_expr(cx, lhs);
+            let target = crate::resolve::resolve_hir_type(
                 ty,
                 cx.pkg,
                 cx.defs,
                 cx.arena,
                 &cx.param_scope,
                 cx.diag,
-            )
+            );
+            // v0.37 T2 (MT2027 emit-site): `expr as Ty` is only valid for
+            // a fixed set of scalar conversions. Anything else (e.g.
+            // `Str as I32`, `Bool as Str`, tuple/array/Adt casts) has no
+            // defined scalar lowering and would silently fall through to
+            // `IrTy::Error` in the back-end, so we reject it here.
+            // We deliberately keep `Error` / `Var` / `Param` permissive so
+            // upstream errors don't cascade into MT2027.
+            if !is_valid_cast(cx, lhs_ty, target) {
+                cx.diag.push(diag::invalid_cast(
+                    lhs_ty,
+                    target,
+                    &cx.span_of_expr(expr_id),
+                    cx.arena,
+                    cx.subst,
+                    cx.defs,
+                ));
+            }
+            target
         }
         HirExpr::Lambda { params, ret, body } => synth_lambda(cx, &params, ret, body),
         HirExpr::Error => cx.arena.error,
     }
+}
+
+/// v0.37 T2 (MT2027): is `src as dst` a recognised scalar conversion?
+///
+/// Accepted shapes:
+///   - int  ↔ int   (widen / narrow / sign change)
+///   - int  ↔ float (truncate / round)
+///   - float↔ float (widen / narrow)
+///   - bool → int   (false→0, true→1)
+///   - char → int (codepoint), int → char (the back-end already permits
+///     U8/U32 → Char in the cranelift coerce path; keep parity here)
+///
+/// Anything else (Str, Bytes, Tuple, Array, Adt, Ref, Fn) is rejected.
+/// `Error`/`Var`/`Param` are *permitted* on either side so upstream
+/// errors don't cascade.
+fn is_valid_cast(cx: &mut Cx, src: TyId, dst: TyId) -> bool {
+    let s = cx.subst.resolve(src, cx.arena);
+    let d = cx.subst.resolve(dst, cx.arena);
+    let sd = cx.arena.get(s).clone();
+    let dd = cx.arena.get(d).clone();
+    // Permissive on poisoned / unresolved sides so we don't cascade
+    // MT2027 onto cases the user already knows about.
+    if matches!(sd, TyData::Error | TyData::Var(_) | TyData::Param(_))
+        || matches!(dd, TyData::Error | TyData::Var(_) | TyData::Param(_))
+    {
+        return true;
+    }
+    // Trivial identity: int as same-int / float as same-float.
+    if s == d {
+        return true;
+    }
+    let s_is_int = matches!(sd, TyData::Int(_));
+    let s_is_float = matches!(sd, TyData::Float(_));
+    let s_is_bool = matches!(sd, TyData::Bool);
+    let s_is_char = matches!(sd, TyData::Char);
+    let d_is_int = matches!(dd, TyData::Int(_));
+    let d_is_float = matches!(dd, TyData::Float(_));
+    let d_is_char = matches!(dd, TyData::Char);
+    if (s_is_int || s_is_float) && (d_is_int || d_is_float) {
+        return true;
+    }
+    if s_is_bool && d_is_int {
+        return true;
+    }
+    if s_is_char && d_is_int {
+        return true;
+    }
+    if s_is_int && d_is_char {
+        return true;
+    }
+    false
 }
 
 /// v0.12 (Gap B / MT2025): true iff `e` is a "place" (l-value) — the only

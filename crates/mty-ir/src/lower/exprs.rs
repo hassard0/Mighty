@@ -7,7 +7,7 @@ use super::pats;
 use super::stmts;
 use crate::ir::*;
 use mty_hir::{BinOp as HirBinOp, ExprId, HirArg, HirBlock, HirExpr, HirLiteral, UnOp as HirUnOp};
-use mty_types::{AdtId, CapFamily, DefRef, IntKind, TyData};
+use mty_types::{AdtId, CapFamily, DefRef, FloatKind, IntKind, TyData};
 
 /// Lower a block expression. Returns the operand carrying the block's
 /// tail value (or `Const::Unit` if no tail).
@@ -406,10 +406,7 @@ pub fn lower_expr(ctx: &mut LowerCtx, fb: &mut FnBuilder, eid: ExprId) -> Operan
         }
         HirExpr::Cast { lhs, ty } => {
             let lhs_op = lower_expr(ctx, fb, lhs);
-            let sir_ty = match &ctx.pkg.types[ty] {
-                mty_hir::HirType::Unit => IrTy::Unit,
-                _ => IrTy::Error,
-            };
+            let sir_ty = lower_cast_target_ty(ctx, ty);
             let temp = fb.fresh_temp(sir_ty.clone());
             fb.push_stmt(Stmt::Assign(
                 Place::local(temp),
@@ -1620,5 +1617,41 @@ fn const_duration_ms(o: &Operand) -> Option<u64> {
         Some(ms)
     } else {
         None
+    }
+}
+
+/// v0.37 T2: map the HIR type that appears on the RHS of `expr as Ty`
+/// into an `IrTy`. Slice 6's generic `lookup_hir_type` only knew about
+/// `Unit` and collapsed everything else to `IrTy::Error`, which left the
+/// cranelift back-end unable to widen `U8 as I64`. We special-case the
+/// scalar shapes that `expr as Ty` is allowed to target — every other
+/// shape still falls through to `IrTy::Error` (typeck already emitted
+/// MT2027, so we just need to keep the IR total).
+fn lower_cast_target_ty(ctx: &LowerCtx, ty: mty_hir::TypeId) -> IrTy {
+    use mty_hir::HirType;
+    match &ctx.pkg.types[ty] {
+        HirType::Unit => IrTy::Unit,
+        HirType::Path { segments, .. } if segments.len() == 1 => match segments[0].as_str() {
+            "Bool" => IrTy::Bool,
+            "Char" => IrTy::Char,
+            "Str" => IrTy::Str,
+            "String" => IrTy::String,
+            "I8" => IrTy::Int(IntKind::I8),
+            "I16" => IrTy::Int(IntKind::I16),
+            "I32" => IrTy::Int(IntKind::I32),
+            "I64" => IrTy::Int(IntKind::I64),
+            "I128" => IrTy::Int(IntKind::I128),
+            "U8" => IrTy::Int(IntKind::U8),
+            "U16" => IrTy::Int(IntKind::U16),
+            "U32" => IrTy::Int(IntKind::U32),
+            "U64" => IrTy::Int(IntKind::U64),
+            "U128" => IrTy::Int(IntKind::U128),
+            "ISize" => IrTy::Int(IntKind::ISize),
+            "USize" => IrTy::Int(IntKind::USize),
+            "F32" => IrTy::Float(FloatKind::F32),
+            "F64" => IrTy::Float(FloatKind::F64),
+            _ => IrTy::Error,
+        },
+        _ => IrTy::Error,
     }
 }

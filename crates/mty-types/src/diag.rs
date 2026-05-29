@@ -368,6 +368,32 @@ pub fn unresolved_value_strict(name: &str, scope: &str, span: &SourceSpan) -> Di
     d
 }
 
+/// v0.37 T2 (MT2027 emit-site): `expr as Ty` between two types that have
+/// no defined scalar-conversion path. The parser used to silently
+/// degrade these into `BinOp::Add`; now the parser emits a real
+/// `CAST_EXPR` and the type checker rejects unsupported shapes here.
+pub fn invalid_cast(
+    src: TyId,
+    dst: TyId,
+    span: &SourceSpan,
+    arena: &TyArena,
+    subst: &Substitution,
+    defs: &DefMap,
+) -> Diagnostic {
+    let s = crate::ty::pretty_ty(src, arena, Some(subst), Some(defs));
+    let d = crate::ty::pretty_ty(dst, arena, Some(subst), Some(defs));
+    Diagnostic::error(
+        INVALID_CAST,
+        label(
+            span,
+            format!(
+                "invalid cast: `{}` as `{}` is not a recognised scalar conversion",
+                s, d
+            ),
+        ),
+    )
+}
+
 /// v0.12 (Gap B / MT2025 emit-site): a borrow expression's inner term is
 /// not a place (l-value), so `&expr` cannot apply. Pre-v0.12 the synth
 /// path silently constructed a `Ref` over the synthesised type.

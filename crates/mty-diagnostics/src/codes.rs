@@ -55,6 +55,12 @@ pub const GENERIC_ARG_MISMATCH: DiagCode = DiagCode::new(2023);
 pub const LAMBDA_ARITY_MISMATCH: DiagCode = DiagCode::new(2024);
 pub const CANNOT_TAKE_REF: DiagCode = DiagCode::new(2025);
 pub const PROTOCOL_MSG_UNKNOWN: DiagCode = DiagCode::new(2026);
+/// MT2027: invalid cast. The `expr as Ty` surface only accepts well-known
+/// scalar conversions (int↔int, int↔float, float↔float, bool→int) at
+/// this layer. Casts that don't have a defined scalar conversion path
+/// (e.g. `Bool as Str`, `Str as I32`) are rejected here so they don't
+/// silently degrade in codegen.
+pub const INVALID_CAST: DiagCode = DiagCode::new(2027);
 
 // Effects + capabilities + traits + protocol strict: MT4001..MT4099
 pub const EFFECT_UNDECLARED: DiagCode = DiagCode::new(4001);
@@ -539,6 +545,22 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  declares. Handler params will be typed as fresh inference \
                  variables; declare the message in a protocol or use \
                  protocol composition to bring it in."
+        }
+        2027 => {
+            "MT2027: Invalid cast.\n\
+             \n\
+             Cause:   `expr as Ty` only accepts well-known scalar \
+             conversions: int\u{2194}int (widening/narrowing), \
+             float\u{2194}float, int\u{2194}float, and bool\u{2192}int. \
+             Casts between unrelated types (e.g. `Str as I32`, \
+             `Bool as Str`) have no defined scalar path and are \
+             rejected here.\n\
+             Example: `let s: Str = \"hi\"; let n = s as I32;` // MT2027\n\
+             Fix:     Use a parser / converter for non-scalar conversions \
+             (`Str::parse_int`), or remove the cast if the source already \
+             has the target type. For numeric narrowing, the cast is \
+             accepted but truncates / saturates per spec \u{a7}5.4.\n\
+             Spec:    \u{a7}5.4 (scalar conversions) of v1.0-RC2."
         }
         3001 => {
             "MT3001: Use after move.\n\
