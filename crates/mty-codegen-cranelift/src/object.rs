@@ -98,10 +98,28 @@ fn compile_object_inner(
     let mut product = module.finish();
 
     // macOS ld refuses Mach-O objects that lack LC_BUILD_VERSION
-    // ("ld: unknown platform in '...o'"). cranelift-object doesn't
-    // emit it by default; stamp a conservative macOS 11.0 / SDK 11.0
-    // build-version so `clang -o` / `ld` accepts the object on every
-    // currently-supported macOS host.
+    // ("ld: unknown platform in '...o'"). cranelift-object 0.132+
+    // *does* emit one, but for `OperatingSystem::Darwin(_)` (the
+    // value `target_lexicon::Triple::host()` returns on macOS) it
+    // sets `platform = PLATFORM_UNKNOWN (0)` and zero versions —
+    // which trips a fresh batch of Xcode 15+ ld warnings:
+    //
+    //   ld: warning: object file (...) was built for an unsupported
+    //   file format
+    //   ld: warning: object file (...) has malformed LC_BUILD_VERSION
+    //   load command (platform=0)
+    //
+    // Override with a sensible PLATFORM_MACOS + minos + sdk so the
+    // linker accepts the object cleanly on every currently-supported
+    // macOS host.
+    //
+    // v0.36 T5: tightened version pack. Apple's ld64 packs version
+    // X.Y.Z into nibbles as `(X << 16) | (Y << 8) | Z` per the
+    // Mach-O `build_version_command` spec (loader.h). Read
+    // MACOSX_DEPLOYMENT_TARGET if set (rustc honors it for the same
+    // purpose); otherwise default `minos = 11.0` (Apple's minimum
+    // for arm64 binaries) and `sdk = 14.0` to match a recent SDK
+    // (Sonoma) so the linker doesn't warn about a too-old SDK.
     if matches!(
         triple.operating_system,
         OperatingSystem::MacOSX(_) | OperatingSystem::Darwin(_) | OperatingSystem::IOS(_)
@@ -110,13 +128,16 @@ fn compile_object_inner(
             OperatingSystem::IOS(_) => object::macho::PLATFORM_IOS,
             _ => object::macho::PLATFORM_MACOS,
         };
-        // Pack 11.0.0 as the conventional 32-bit X.Y.Z layout
-        // ((X << 16) | (Y << 8) | Z). Minor + patch are 0.
-        let v: u32 = 11 << 16;
+        let minos = parse_macos_version_env("MACOSX_DEPLOYMENT_TARGET")
+            .unwrap_or(pack_macos_version(11, 0, 0));
+        // SDK version: use the host SDK if we can guess it; otherwise
+        // a recent default that current ld64 accepts without warning.
+        let sdk = parse_macos_version_env("MTY_MACOSX_SDK_VERSION")
+            .unwrap_or(pack_macos_version(14, 0, 0));
         let mut bv = MachOBuildVersion::default();
         bv.platform = platform;
-        bv.minos = v;
-        bv.sdk = v;
+        bv.minos = minos;
+        bv.sdk = sdk;
         product.object.set_macho_build_version(bv);
     }
 
@@ -141,6 +162,34 @@ fn compile_object_inner(
         object_path: out_obj.to_path_buf(),
         triple,
     })
+}
+
+/// Pack X.Y.Z into the 32-bit nibble layout Mach-O's
+/// `LC_BUILD_VERSION` expects (`(X << 16) | (Y << 8) | Z`). See the
+/// `build_version_command` definition in Apple's `loader.h`.
+fn pack_macos_version(major: u32, minor: u32, patch: u32) -> u32 {
+    (major << 16) | ((minor & 0xff) << 8) | (patch & 0xff)
+}
+
+/// Parse "X.Y" or "X.Y.Z" out of `env_var` (used for
+/// `MACOSX_DEPLOYMENT_TARGET` discovery — rustc honors the same env
+/// var when picking its own LC_BUILD_VERSION). Returns `None` if the
+/// var is unset, empty, or malformed.
+fn parse_macos_version_env(env_var: &str) -> Option<u32> {
+    let raw = std::env::var(env_var).ok()?;
+    parse_macos_version(&raw)
+}
+
+fn parse_macos_version(s: &str) -> Option<u32> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let mut parts = s.split('.');
+    let major: u32 = parts.next()?.parse().ok()?;
+    let minor: u32 = parts.next().map(|p| p.parse().ok()).unwrap_or(Some(0))?;
+    let patch: u32 = parts.next().map(|p| p.parse().ok()).unwrap_or(Some(0))?;
+    Some(pack_macos_version(major, minor, patch))
 }
 
 /// Append each encoded DWARF section to the object as a fresh
@@ -455,5 +504,78 @@ mod tests {
         let lib_idx = argv.iter().position(|s| s == "-lz").unwrap();
         assert!(obj_idx < foo_idx, "object must precede first extra arg");
         assert!(foo_idx < lib_idx, "extras keep manifest order");
+    }
+
+    // v0.36 T5: LC_BUILD_VERSION nibble pack must match Apple's
+    // `build_version_command` layout in loader.h. Spot-check the
+    // common deployment-target values rustc honors.
+
+    #[test]
+    fn pack_macos_version_matches_loader_h_layout() {
+        // 11.0.0 → 0x000B0000
+        assert_eq!(pack_macos_version(11, 0, 0), 0x000B_0000);
+        // 14.5.0 → 0x000E0500
+        assert_eq!(pack_macos_version(14, 5, 0), 0x000E_0500);
+        // 10.15.7 → 0x000A0F07 (Catalina, last MACOSX_DEPLOYMENT_TARGET
+        // before Big Sur)
+        assert_eq!(pack_macos_version(10, 15, 7), 0x000A_0F07);
+        // Patch + minor clamp at 0xff (the field is one byte each).
+        assert_eq!(pack_macos_version(0, 0xff, 0xff), 0x0000_FFFF);
+    }
+
+    #[test]
+    fn parse_macos_version_accepts_common_shapes() {
+        assert_eq!(parse_macos_version("11"), Some(0x000B_0000));
+        assert_eq!(parse_macos_version("11.0"), Some(0x000B_0000));
+        assert_eq!(parse_macos_version("11.0.0"), Some(0x000B_0000));
+        assert_eq!(parse_macos_version("14.5"), Some(0x000E_0500));
+        assert_eq!(parse_macos_version("14.5.1"), Some(0x000E_0501));
+        // Whitespace tolerated.
+        assert_eq!(parse_macos_version("  14.5  "), Some(0x000E_0500));
+    }
+
+    #[test]
+    fn parse_macos_version_rejects_bad_input() {
+        assert_eq!(parse_macos_version(""), None);
+        assert_eq!(parse_macos_version("  "), None);
+        assert_eq!(parse_macos_version("abc"), None);
+        assert_eq!(parse_macos_version("14.x"), None);
+        assert_eq!(parse_macos_version("14.5.x"), None);
+    }
+
+    #[test]
+    fn parse_macos_version_env_returns_none_when_unset() {
+        // Use a deliberately weird name so we don't collide with the
+        // host env. Std env mutation is unsafe for parallel tests, so
+        // we test only the negative path (unset → None).
+        let key = "MTY_TEST_DOES_NOT_EXIST_LC_BUILD_VERSION_PROBE";
+        std::env::remove_var(key);
+        assert_eq!(parse_macos_version_env(key), None);
+    }
+
+    /// On Linux/Windows hosts `triple.operating_system` doesn't match
+    /// the macOS arms, so the LC_BUILD_VERSION block is skipped and
+    /// `compile_object` produces an ELF/COFF without surprise. This
+    /// test asserts the no-op shape: the helper functions exist and
+    /// can be called without compiling a real Mach-O.
+    #[test]
+    fn pack_helpers_are_pure() {
+        // No side effects, no panics — purely a smoke check that
+        // the helper module is stable.
+        let _ = pack_macos_version(11, 0, 0);
+        let _ = parse_macos_version("11.0");
+    }
+
+    /// Smoke: when MACOSX_DEPLOYMENT_TARGET is unset the macOS code
+    /// path uses the 11.0.0 default. We can't directly observe the
+    /// emitted LC_BUILD_VERSION without compiling on macOS, but we
+    /// can verify the default packing matches what we document.
+    #[test]
+    fn default_minos_matches_documented_floor() {
+        // The override block uses `pack_macos_version(11, 0, 0)` as
+        // the floor. Make sure that's exactly 0x000B0000 (11.0.0).
+        assert_eq!(pack_macos_version(11, 0, 0), 0x000B_0000);
+        // And the SDK default of 14.0.0 packs to 0x000E0000.
+        assert_eq!(pack_macos_version(14, 0, 0), 0x000E_0000);
     }
 }

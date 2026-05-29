@@ -72,16 +72,26 @@ jobs:
             artifact: mty
             asset: mty-x86_64-unknown-linux-gnu.tar.gz
             use_cross: false
-            # v0.35.2: PGO temporarily disabled. v0.35.1 fixed the
-            # absolute-path bug at Phase 4 but the PGO+linker-plugin-LTO
-            # combo blows up on linux-x86_64 with
-            # `LLVM ERROR: Broken module found, module flag identifiers
-            # must be unique !"CG Profile"`, and the macOS+windows legs
-            # hit a profile-format version mismatch (raw=8 vs expected
-            # =10) on cached `target/` artifacts. v0.36 owns the deeper
-            # fix (likely: drop `-Clinker-plugin-lto`, scope cache key
-            # away from `target/pgo-profiles/`).
-            use_pgo: false
+            # v0.36 T5: PGO RE-ENABLED. v0.35.2 disabled it across the
+            # three native-PGO platforms because:
+            #   1. linux-x86_64 hit `LLVM ERROR: Broken module found,
+            #      module flag identifiers must be unique !"CG Profile"`
+            #   2. macOS+Windows hit a profile-format mismatch
+            #      (raw=8 vs expected=10) on cached target artifacts
+            # T5 fixed both:
+            #   - Phase 4 now drops `-Clinker-plugin-lto`. Fat LTO is
+            #     already on via `[profile.release-pgo]`; the linker-
+            #     plugin flag was the source of the CG Profile clash.
+            #   - Phase 0 now wipes
+            #     `target/release-pgo/{build,deps,incremental,
+            #     .fingerprint}` so a fresh codegen runs every time
+            #     and stale `-Cprofile-use` artifacts don't survive
+            #     across runs.
+            #   - The cargo cache key below now segregates the PGO
+            #     artifacts under a `release-pgo` suffix so the
+            #     restore-keys can't pull in a stale `target/release-pgo`
+            #     from a prior workflow.
+            use_pgo: true
           # v0.32 (Track D): Intel macOS via cross-compile on Apple
           # Silicon runner. v0.32.1 pivoted from `macos-13` to
           # `macos-14` because GitHub Actions' free Intel runner
@@ -105,8 +115,11 @@ jobs:
             artifact: mty
             asset: mty-aarch64-apple-darwin.tar.gz
             use_cross: false
-            # v0.35.2: PGO temporarily disabled (see linux-x86_64 entry).
-            use_pgo: false
+            # v0.36 T5: PGO re-enabled (see linux-x86_64 entry for fix
+            # details). darwin-arm64 was a profile-format mismatch
+            # symptom of the stale `target/release-pgo` cache, fixed
+            # by Phase 0's wipe.
+            use_pgo: true
           # v0.32 (Track D): aarch64 Linux for Raspberry Pi 5, AWS
           # Graviton, Ampere Altra, and Apple Silicon Linux VMs.
           # Cross-compiled from ubuntu-latest via the `cross` tool
@@ -126,8 +139,11 @@ jobs:
             artifact: mty.exe
             asset: mty-x86_64-pc-windows-msvc.zip
             use_cross: false
-            # v0.35.2: PGO temporarily disabled (see linux-x86_64 entry).
-            use_pgo: false
+            # v0.36 T5: PGO re-enabled (see linux-x86_64 entry for fix
+            # details). windows-x86_64 was a profile-format mismatch
+            # symptom of the stale `target/release-pgo` cache, fixed
+            # by Phase 0's wipe in build-pgo.ps1.
+            use_pgo: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -145,17 +161,51 @@ jobs:
           # script auto-discovers it via `rustc --print sysroot`.
           components: ${{ matrix.use_pgo && 'llvm-tools-preview' || '' }}
 
-      - name: Cache cargo registry + target
+      # v0.36 T5: cache key now segregates PGO and non-PGO targets.
+      # The previous unified key let a stale `target/release-pgo/`
+      # from a prior workflow run leak into the next instrumented
+      # build, which is exactly how the profile-format mismatch
+      # (raw=8 vs expected=10) survived across runs even with Phase 0
+      # wiping the profile dir. Splitting the key by `use_pgo` means
+      # the PGO leg always restores from a PGO-only cache, and the
+      # restore-keys fallback can't cross-contaminate.
+      #
+      # We also exclude `target/release-pgo` from the cached paths on
+      # the non-PGO legs (they don't produce that directory anyway,
+      # but listing only the directories we do produce keeps the
+      # cache lean).
+      - name: Cache cargo registry + target (non-PGO legs)
+        if: matrix.use_pgo == false
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
-            target
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-${{ hashFiles('Cargo.lock') }}
+            target/${{ matrix.target }}
+            target/debug
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-noPGO-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.target }}-cargo-release-
+            ${{ runner.os }}-${{ matrix.target }}-cargo-release-noPGO-
+
+      # PGO legs cache `target/release-pgo` under its own key. The
+      # `cargo-release-pgo` discriminator + the `build-pgo.{sh,ps1}`
+      # version hash in the key means any change to the PGO scripts
+      # (e.g. a new Phase 0 wipe) invalidates the cache and forces a
+      # fresh build — exactly what we want.
+      - name: Cache cargo registry + target (PGO legs)
+        if: matrix.use_pgo == true
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target/release-pgo/build
+            target/release-pgo/deps
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-pgo-${{ hashFiles('Cargo.lock', 'scripts/build-pgo.sh', 'scripts/build-pgo.ps1') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-release-pgo-
 
       # v0.35 (Track T4): Three build paths now —
       #   1. native + PGO   → scripts/build-pgo.{sh,ps1}

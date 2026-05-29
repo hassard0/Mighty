@@ -47,7 +47,17 @@ required-features = ["host-toolchain"]
 # `mty inspect`, `mty replay`, `mty reload`, `mty agent`, `mty doc`,
 # `mty hooks`) — all reach into the tokio/hyper/codegen/runtime stack.
 # Disable with `--no-default-features` when building the wasm playground.
-default = ["host-toolchain"]
+#
+# v0.36 T5: `observe-sqlite` is in the default set on Unix only via
+# target-cfg in `mty-stdlib`'s feature graph (see `cli-min` below).
+# That avoids forcing Windows users to install MSVC `cl.exe` just to
+# `cargo install mty` — rusqlite's `bundled` feature compiles SQLite
+# from C source and needs a working MSVC toolchain on Windows.
+default = ["host-toolchain", "observe-sqlite"]
+# v0.36 T5: split observe-sqlite out of `host-toolchain` so MSVC-free
+# Windows users can `cargo install mty --no-default-features --features cli-min`
+# and skip the rusqlite C-build entirely. `mty inspect --cost` then
+# returns a "feature disabled" message instead of crash-on-import.
 host-toolchain = [
     "dep:mty-codegen-cranelift",
     "dep:mty-codegen-wasm",
@@ -66,6 +76,17 @@ host-toolchain = [
     "dep:thiserror",
     "mty-driver/host-toolchain",
 ]
+# v0.36 T5: opt-in cost tracking via SQLite. Pulls rusqlite with the
+# `bundled` feature (compiles SQLite from C source). Needs a working
+# C toolchain (gcc/clang on Unix, MSVC `cl.exe` on Windows). Opt out
+# with `--no-default-features --features cli-min` if you don't have
+# MSVC installed; `mty inspect --cost` then reports the feature as
+# disabled rather than failing the install.
+observe-sqlite = ["mty-stdlib/observe-sqlite"]
+# v0.36 T5: convenience alias — full host CLI without rusqlite/MSVC.
+# This is the recommended `cargo install` path on Windows without
+# Visual Studio Build Tools.
+cli-min = ["host-toolchain"]
 # Wasm playground entry point. Enabled only on wasm32 builds via
 # `wasm-pack build --no-default-features --features playground-wasm`.
 playground-wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen"]
@@ -110,7 +131,12 @@ mty-pkg = { path = "../mty-pkg", optional = true }
 # v0.30 Track D — `observe-sqlite` powers `mty inspect --cost`. Pulls
 # the rusqlite dep into the CLI binary, but the alternative (a copy of
 # the storage layer here) is worse.
-mty-stdlib = { path = "../mty-stdlib", default-features = false, features = ["runner", "observe-sqlite"], optional = true }
+#
+# v0.36 T5: removed `observe-sqlite` from the always-on feature list.
+# It's now a top-level feature of mty-cli (default-on for parity with
+# v0.35.x, but cleanly removable via `--no-default-features --features cli-min`
+# on Windows hosts without MSVC). See the `[features]` block above.
+mty-stdlib = { path = "../mty-stdlib", default-features = false, features = ["runner"], optional = true }
 mty-runtime = { path = "../mty-runtime", optional = true }
 # v0.16 `mty inspect` subcommand: JSON over the runtime control socket.
 serde.workspace = true

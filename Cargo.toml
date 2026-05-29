@@ -121,14 +121,20 @@ codegen-units = 1
 #      check workloads against the bundled examples.
 #   3. Merges the .profraw shards into a single .profdata using
 #      `llvm-profdata merge`.
-#   4. Rebuilds with `RUSTFLAGS="-Cprofile-use=… -Clinker-plugin-lto"`
+#   4. Rebuilds with `RUSTFLAGS="-Cprofile-use=…"`
 #      which is what eventually ships as the optimised `mty` binary.
+#      (v0.36 T5 dropped the extra `-Clinker-plugin-lto` flag — fat
+#      LTO is already on via `lto = "fat"` below, and the extra flag
+#      collided with PGO's `CG Profile` module metadata on
+#      linux-x86_64. See `scripts/build-pgo.sh` Phase 4.)
 #
 # The profile inherits from `release` and turns up the dials that are
 # only worth paying for in a release+PGO build (fat LTO, single
-# codegen unit, debuginfo stripped). It is **not** wired into
-# `release.yml` yet — v0.22 ships the manual `pgo-bench.yml` workflow
-# for measurement only. See `docs/internals/pgo.md` and
+# codegen unit, debuginfo stripped). v0.35 T4 wired it into the
+# release matrix on the 3 native-PGO platforms (linux-x86_64,
+# darwin-arm64, windows-x86_64); v0.35.2 disabled it after two real
+# bugs (see release.yml comments); v0.36 T5 re-enabled it with the
+# script fixes above. See `docs/internals/pgo.md` and
 # `dev/history/notes/PGO_V0_22_NOTES.md`.
 # ----------------------------------------------------------------
 [profile.release-pgo]

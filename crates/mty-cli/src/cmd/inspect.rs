@@ -643,7 +643,14 @@ pub mod cost {
     mod tests {
         use super::*;
         use mty_stdlib::observe::observation::{now_ms, LlmObservation};
+        #[cfg(feature = "observe-sqlite")]
         use mty_stdlib::observe::storage::{install_store, uninstall_store, SqliteStore};
+        // v0.36 T5: when SQLite is off (cli-min build) the install_store/
+        // uninstall_store helpers still exist as no-ops in the stdlib, so
+        // the negative-path tests (bad_since, bad_by, empty_db) compile
+        // and pass. Only the seed-based tests need cfg-gating below.
+        #[cfg(not(feature = "observe-sqlite"))]
+        use mty_stdlib::observe::storage::uninstall_store;
 
         // Tests share the process-global observe store, so they must
         // run sequentially. Cargo runs `#[test]` in parallel by default,
@@ -656,6 +663,10 @@ pub mod cost {
                 .unwrap_or_else(|p| p.into_inner())
         }
 
+        // SQLite-backed test fixtures. Gated on `observe-sqlite` because
+        // `SqliteStore::in_memory()` is a `FeatureDisabled` stub when the
+        // feature is off (cli-min / Windows-without-MSVC install).
+        #[cfg(feature = "observe-sqlite")]
         fn seed_store_with(obs: Vec<LlmObservation>) {
             uninstall_store();
             let s = SqliteStore::in_memory().unwrap();
@@ -683,6 +694,12 @@ pub mod cost {
             assert_eq!(format_window(Window::Last { millis: 7_200_000 }), "last 2h");
         }
 
+        // v0.36 T5: the 6 seed-store-based tests below need
+        // `SqliteStore::in_memory()` (the in-memory cost-tracking DB).
+        // When `observe-sqlite` is off (cli-min build) the in_memory()
+        // constructor returns `FeatureDisabled` and `seed_store_with`
+        // doesn't compile. Gate them so the cli-min CI lane stays green.
+        #[cfg(feature = "observe-sqlite")]
         #[test]
         fn happy_path_prints_summary_against_seeded_store() {
             let _g = store_test_lock();
@@ -705,6 +722,7 @@ pub mod cost {
             uninstall_store();
         }
 
+        #[cfg(feature = "observe-sqlite")]
         #[test]
         fn since_7d_includes_old_records() {
             let _g = store_test_lock();
@@ -724,6 +742,7 @@ pub mod cost {
             uninstall_store();
         }
 
+        #[cfg(feature = "observe-sqlite")]
         #[test]
         fn since_1m_excludes_old_records() {
             let _g = store_test_lock();
@@ -739,6 +758,7 @@ pub mod cost {
             uninstall_store();
         }
 
+        #[cfg(feature = "observe-sqlite")]
         #[test]
         fn by_model_groups_correctly() {
             let _g = store_test_lock();
@@ -762,6 +782,7 @@ pub mod cost {
             uninstall_store();
         }
 
+        #[cfg(feature = "observe-sqlite")]
         #[test]
         fn top_5_returns_n_most_expensive() {
             let _g = store_test_lock();
@@ -798,6 +819,7 @@ pub mod cost {
             assert_eq!(run(args), 0);
         }
 
+        #[cfg(feature = "observe-sqlite")]
         #[test]
         fn json_mode_emits_valid_json() {
             let _g = store_test_lock();
