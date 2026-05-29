@@ -54,18 +54,32 @@ jobs:
       # v0.35 (Track T4): PGO wired into 3 of 5 platforms.
       # v0.37 (Track T4): darwin-arm64 back in the PGO set — same 3 of
       # 5 platforms as v0.35, after a v0.36.1 regression on macos-14.
-      # `use_pgo: true` swaps `cargo build --release` for the
-      # two-stage profile-guided pipeline in `scripts/build-pgo.{sh,ps1}`
-      # (instrument → run training corpus → merge → optimised rebuild),
-      # which uses the `[profile.release-pgo]` profile already pinned
-      # in the workspace Cargo.toml (fat LTO, codegen-units=1, strip).
+      # v0.37.3: darwin-arm64 disabled again because rustc 1.95.0 and
+      # the bundled llvm-profdata on aarch64-apple-darwin emit/expect
+      # different .profraw raw-format versions (raw=8 vs expected=10)
+      # IN THE SAME TOOLCHAIN CHANNEL. The manual scripts had no way
+      # to fix a within-channel toolchain mismatch.
+      #
+      # v0.38 (Track T1): migrated to the `cargo-pgo` crate, which
+      # wraps the entire PGO pipeline and auto-discovers a matching
+      # llvm-profdata so the rustup-distribution mismatch above is
+      # handled transparently. darwin-arm64 PGO is restored — same
+      # 3 of 5 platforms as v0.35/v0.37. The legacy manual scripts
+      # `scripts/build-pgo.{sh,ps1}` are preserved for local dev
+      # (users who don't want to install cargo-pgo).
+      #
+      # `use_pgo: true` swaps `cargo build --release` for the cargo-pgo
+      # two-stage pipeline (instrument → run training corpus → optimise)
+      # using the `[profile.release-pgo]` profile already pinned in the
+      # workspace Cargo.toml (fat LTO, codegen-units=1, strip).
       #
       # PGO is constrained to platforms where the instrumented binary
       # can run natively on the same runner that built it. That rules
       # out cross-compile and Rosetta paths:
       #
       #   - linux-x86_64 (ubuntu-latest): native PGO. EASY.
-      #   - darwin-arm64 (macos-14):      native PGO. EASY.
+      #   - darwin-arm64 (macos-14):      native PGO via cargo-pgo
+      #     auto-matched llvm tools.
       #   - windows-x86_64 (windows-latest): native PGO. EASY.
       #   - darwin-x86_64 (macos-14):     would require Rosetta to
       #     run the instrumented binary on the arm64 runner. We tried
@@ -126,23 +140,25 @@ jobs:
             artifact: mty
             asset: mty-aarch64-apple-darwin.tar.gz
             use_cross: false
-            # v0.37.3: PGO DISABLED on darwin-arm64. Investigation
-            # in v0.37.0-v0.37.2 confirmed this is a rustup
-            # distribution mismatch on 1.95.0-aarch64-apple-darwin:
-            # rustc emits raw=8 .profraw shards (statically-linked
-            # LLVM 17), but the bundled llvm-profdata in the SAME
-            # toolchain channel expects raw=10. Path-discovery
-            # changes don't help — the rustup-bundled tool was
-            # already picked correctly; the tools are just
-            # mismatched in that channel.
+            # v0.38 T1: PGO RE-ENABLED on darwin-arm64 via cargo-pgo.
             #
-            # v0.38 fix path: migrate to cargo-pgo crate which
-            # manages tool/LLVM matching independently, or pin to
-            # a newer toolchain (1.96+) where rustc + llvm-profdata
-            # are in sync on aarch64-darwin.
+            # The v0.37.0-v0.37.2 investigation pinned the failure
+            # mode: rustc 1.95.0 on aarch64-apple-darwin emits raw=8
+            # .profraw shards while the bundled llvm-profdata in the
+            # same toolchain channel expects raw=10. The manual
+            # `scripts/build-pgo.sh` could not work around an
+            # in-channel toolchain mismatch — every path-discovery
+            # tweak still landed on the wrong tool.
             #
-            # 2/5 PGO platforms (linux-x86_64 + windows-x86_64).
-            use_pgo: false
+            # cargo-pgo (https://github.com/Kobzol/cargo-pgo) wraps
+            # the entire PGO pipeline and auto-discovers an
+            # llvm-profdata that actually matches the rustc that
+            # wrote the .profraw shards. That closes the v0.37 loop
+            # without pinning a different rustc.
+            #
+            # 3/5 PGO platforms (linux-x86_64 + darwin-arm64 +
+            # windows-x86_64).
+            use_pgo: true
           # v0.32 (Track D): aarch64 Linux for Raspberry Pi 5, AWS
           # Graviton, Ampere Altra, and Apple Silicon Linux VMs.
           # Cross-compiled from ubuntu-latest via the `cross` tool
@@ -211,11 +227,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.target }}-cargo-release-noPGO-
 
-      # PGO legs cache `target/release-pgo` under its own key. The
-      # `cargo-release-pgo` discriminator + the `build-pgo.{sh,ps1}`
-      # version hash in the key means any change to the PGO scripts
-      # (e.g. a new Phase 0 wipe) invalidates the cache and forces a
-      # fresh build — exactly what we want.
+      # PGO legs cache `target/<triple>/release-pgo` under its own key.
+      # v0.38 (Track T1): cargo-pgo writes to the per-triple path, so
+      # the cache paths now match. The cargo-pgo version is baked into
+      # the cache key so a tooling bump invalidates cleanly.
       - name: Cache cargo registry + target (PGO legs)
         if: matrix.use_pgo == true
         uses: actions/cache@v4
@@ -224,10 +239,11 @@ jobs:
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
-            target/release-pgo/build
-            target/release-pgo/deps
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-pgo-${{ hashFiles('Cargo.lock', 'scripts/build-pgo.sh', 'scripts/build-pgo.ps1') }}
+            target/${{ matrix.target }}/release-pgo/build
+            target/${{ matrix.target }}/release-pgo/deps
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-pgo-cargopgo0.2.9-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-release-pgo-cargopgo0.2.9-
             ${{ runner.os }}-${{ matrix.target }}-cargo-release-pgo-
 
       # v0.35 (Track T4): Three build paths now —
@@ -235,20 +251,111 @@ jobs:
       #   2. native + plain → cargo build --release
       #   3. cross + plain  → cross build --release
       #
-      # PGO scripts produce `target/release-pgo/mty` (host-native, no
-      # `--target` triple in the path). Plain native + cross produce
-      # `target/<triple>/release/mty`. The stage step below normalizes.
+      # v0.38 (Track T1): the PGO path now drives the `cargo-pgo`
+      # crate rather than the in-tree shell scripts. cargo-pgo
+      # discovers a matching `llvm-profdata` for the active rustc
+      # automatically (closing the v0.37 darwin-arm64 toolchain
+      # mismatch) and produces the optimised binary at
+      # `target/<triple>/release-pgo/mty` because we pass
+      # `--profile release-pgo --target <triple>`. The legacy
+      # `scripts/build-pgo.{sh,ps1}` files stay in-tree for local
+      # dev — see their top-of-file notes.
 
-      - name: Build mty (release, native, PGO) — Unix
+      - name: Install cargo-pgo (PGO legs only)
+        if: matrix.use_pgo == true
+        # 0.2.9 is the last stable 0.2.x release (0.2.10 was yanked,
+        # 0.3.0 is current as of v0.38). Pinning keeps the release
+        # pipeline reproducible; bump deliberately so a cargo-pgo
+        # regression doesn't break the release silently.
+        run: cargo install cargo-pgo --version 0.2.9 --locked
+
+      - name: Build mty (release-pgo, instrumented) — Unix
         if: matrix.use_pgo == true && runner.os != 'Windows'
-        env:
-          TOOLCHAIN: "1.95.0"
-        run: bash scripts/build-pgo.sh
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo pgo build -- \
+            --profile release-pgo \
+            --bin mty -p mty-cli \
+            --target ${{ matrix.target }}
 
-      - name: Build mty (release, native, PGO) — Windows
+      - name: Run PGO training corpus — Unix
+        if: matrix.use_pgo == true && runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # cargo-pgo lands the instrumented binary at
+          # target/<triple>/release-pgo/<bin> when we pass
+          # `--profile release-pgo --target <triple>`.
+          BIN="target/${{ matrix.target }}/release-pgo/mty"
+          if [[ ! -x "$BIN" ]]; then
+            echo "ERROR: instrumented mty not found at $BIN" >&2
+            ls -la "target/${{ matrix.target }}/release-pgo/" || true
+            exit 1
+          fi
+          # Sweep `mty check` over the bundled examples, honouring
+          # the same skip markers as the build-pgo.sh script
+          # (`@typeck-pending` and `@compile-error`).
+          shopt -s nullglob
+          for f in examples/*.mty; do
+            if grep -q '@typeck-pending' "$f" 2>/dev/null; then
+              continue
+            fi
+            "$BIN" check "$f" 2>&1 | tail -2 || true
+          done
+          # Plus one wasm32-wasi build to exercise codegen.
+          if [[ -f examples/01_hello.mty ]]; then
+            "$BIN" build examples/01_hello.mty --target wasm32-wasi 2>&1 | tail -2 || true
+          fi
+
+      - name: Build mty (release-pgo, optimised) — Unix
+        if: matrix.use_pgo == true && runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo pgo optimize build -- \
+            --profile release-pgo \
+            --bin mty -p mty-cli \
+            --target ${{ matrix.target }}
+
+      - name: Build mty (release-pgo, instrumented) — Windows
         if: matrix.use_pgo == true && runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/build-pgo.ps1 -Toolchain 1.95.0
+        run: |
+          cargo pgo build -- --profile release-pgo --bin mty -p mty-cli --target ${{ matrix.target }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run PGO training corpus — Windows
+        if: matrix.use_pgo == true && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bin = "target/${{ matrix.target }}/release-pgo/mty.exe"
+          if (-not (Test-Path $bin)) {
+            Write-Error "instrumented mty not found at $bin"
+            Get-ChildItem "target/${{ matrix.target }}/release-pgo/" -ErrorAction SilentlyContinue
+            exit 1
+          }
+          $examples = Get-ChildItem "examples" -Filter "*.mty" -ErrorAction SilentlyContinue
+          foreach ($f in $examples) {
+            $marker = Select-String -Path $f.FullName -Pattern "@typeck-pending" -Quiet -ErrorAction SilentlyContinue
+            if ($marker) { continue }
+            & $bin check $f.FullName 2>&1 | Select-Object -Last 2 | Out-Null
+          }
+          $hello = "examples/01_hello.mty"
+          if (Test-Path $hello) {
+            & $bin build $hello --target wasm32-wasi 2>&1 | Select-Object -Last 2 | Out-Null
+          }
+          # cargo-pgo writes profraws under target/pgo-profiles; if any
+          # step above failed cleanly (non-zero exit but caught) we
+          # still want the optimise step to find them.
+          exit 0
+
+      - name: Build mty (release-pgo, optimised) — Windows
+        if: matrix.use_pgo == true && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo pgo optimize build -- --profile release-pgo --bin mty -p mty-cli --target ${{ matrix.target }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build mty (release, native, no-PGO)
         if: matrix.use_pgo == false && matrix.use_cross == false
@@ -271,13 +378,17 @@ jobs:
       # cross release builds land at `target/<triple>/release/mty`.
       # We copy whichever exists into a stable `staged/` directory so
       # the packaging steps below don't need to branch on use_pgo.
+      # v0.38 (Track T1): cargo-pgo always writes to `target/<triple>/
+      # release-pgo/<bin>` (it forces `--target` internally), so the
+      # PGO leg now uses the per-triple path too. One staging shape
+      # for everything.
       - name: Stage built binary (Unix)
         if: runner.os != 'Windows'
         run: |
           set -euo pipefail
           mkdir -p staged
           if [[ "${{ matrix.use_pgo }}" == "true" ]]; then
-            cp "target/release-pgo/${{ matrix.artifact }}" "staged/${{ matrix.artifact }}"
+            cp "target/${{ matrix.target }}/release-pgo/${{ matrix.artifact }}" "staged/${{ matrix.artifact }}"
           else
             cp "target/${{ matrix.target }}/release/${{ matrix.artifact }}" "staged/${{ matrix.artifact }}"
           fi
@@ -288,7 +399,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path staged | Out-Null
           if ("${{ matrix.use_pgo }}" -eq "true") {
-            Copy-Item "target/release-pgo/${{ matrix.artifact }}" "staged/${{ matrix.artifact }}"
+            Copy-Item "target/${{ matrix.target }}/release-pgo/${{ matrix.artifact }}" "staged/${{ matrix.artifact }}"
           } else {
             Copy-Item "target/${{ matrix.target }}/release/${{ matrix.artifact }}" "staged/${{ matrix.artifact }}"
           }

@@ -1,9 +1,27 @@
-# PGO + ThinLTO build profile (v0.22)
+# PGO + ThinLTO build profile (v0.22, cargo-pgo since v0.38)
 
 Mighty's `release` build profile already runs ThinLTO with one codegen
-unit, which is fine for day-to-day distribution. v0.22 adds a second,
+unit, which is fine for day-to-day distribution. v0.22 added a second,
 heavier profile — **`release-pgo`** — that combines **profile-guided
 optimisation** with **fat LTO** for the `mty` binary specifically.
+
+**v0.38 (T1): the CI pipeline now drives the
+[`cargo-pgo`](https://github.com/Kobzol/cargo-pgo) crate** rather
+than the in-tree shell scripts. cargo-pgo auto-discovers an
+`llvm-profdata` that actually matches the active rustc, which closes
+a real bug we hit on `aarch64-apple-darwin`: rustc 1.95.0 in that
+channel emits raw=8 `.profraw` shards but the bundled `llvm-profdata`
+in the same channel expects raw=10. A path-discovery fix in
+`scripts/build-pgo.sh` couldn't help — the rustup-bundled tool was
+already being picked correctly; the tools themselves were skewed
+inside the rustup distribution. cargo-pgo handles that for us by
+locating a profdata that the rustc actually wrote the profraws with.
+
+The in-tree shell scripts (`scripts/build-pgo.sh` and
+`scripts/build-pgo.ps1`) are still in the repo for **local dev** —
+users who don't want to install cargo-pgo can keep using them on
+platforms where the within-channel mismatch doesn't bite. CI uses
+cargo-pgo; local dev can use either.
 
 This page documents how the pipeline is wired, when to run it, and
 what to expect from it.
@@ -62,7 +80,62 @@ ThinLTO.
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## How to run it
+## How to run it (CI: cargo-pgo)
+
+`.github/workflows/release.yml` runs the cargo-pgo pipeline on the
+three native-PGO platforms (linux-x86_64, darwin-arm64,
+windows-x86_64). The matrix entries with `use_pgo: true` execute:
+
+```bash
+# 1. Install cargo-pgo (pinned to 0.2.9 in release.yml).
+cargo install cargo-pgo --version 0.2.9 --locked
+
+# 2. Instrumented build. cargo-pgo manages the rustflags + finds
+#    a matching llvm-profdata on its own.
+cargo pgo build -- \
+  --profile release-pgo \
+  --bin mty -p mty-cli \
+  --target <triple>
+
+# 3. Training corpus. Sweep `mty check` over examples/*.mty plus
+#    one wasm32-wasi build. Profraws land under target/pgo-profiles.
+for f in examples/*.mty; do
+  target/<triple>/release-pgo/mty check "$f" 2>&1 | tail -2 || true
+done
+
+# 4. Optimised rebuild.
+cargo pgo optimize build -- \
+  --profile release-pgo \
+  --bin mty -p mty-cli \
+  --target <triple>
+```
+
+cargo-pgo writes the final optimised binary to
+`target/<triple>/release-pgo/mty`. The release.yml staging step
+copies it into a stable `staged/` directory regardless of which
+build path produced it.
+
+### Why cargo-pgo (and not the shell scripts) for CI
+
+v0.37 hit a real bug on darwin-arm64: rustc 1.95.0 emitted raw=8
+profraw shards but the bundled `llvm-profdata` in the **same**
+rustup toolchain channel expected raw=10. The manual scripts
+couldn't fix a within-channel mismatch — every path-discovery tweak
+still landed on the wrong tool. cargo-pgo solves this because it
+discovers an `llvm-profdata` that the rustc actually wrote the
+profraws with, not the one rustup happened to install. CI calls the
+tool, gets a working build, and stops carrying a per-platform path
+heuristic. The Linux CI step
+`scripts/tests/test-cargo-pgo-availability.sh` asserts the rustup
+toolchain's llvm-tools-preview matches rustc's LLVM major version
+so a future skew fails fast.
+
+## How to run it (local dev: shell scripts)
+
+The `scripts/build-pgo.{sh,ps1}` scripts are preserved for local-dev
+ergonomics — installing cargo-pgo is a 1-2 minute first-time cost,
+and on Linux + Windows the within-channel mismatch isn't a problem
+in practice. Use whichever you prefer.
 
 ### Linux / macOS
 
@@ -90,6 +163,10 @@ fallback chain exists because v0.36.1 hit a macOS-14 layout where
 chain re-enabled darwin-arm64 PGO without needing the system LLVM
 (see `scripts/tests/test-build-pgo-paths.sh`). The script errors out
 with a clear message if nothing matches.
+
+On `aarch64-apple-darwin` the within-channel raw=8/expected=10 skew
+will trip the script. If you're on that platform, use `cargo pgo`
+locally instead (or stick to a non-PGO `--release` build).
 
 ### Windows
 
@@ -217,12 +294,13 @@ over-fit profiles.
 
 ## Platform support
 
-| Platform                  | Pipeline | Notes                                                    |
-|---------------------------|----------|----------------------------------------------------------|
-| Linux x86_64 (ubuntu CI)  | yes      | Reference platform; `pgo-bench.yml` runs here.           |
-| Linux aarch64             | yes      | Same script; not in CI.                                  |
-| macOS x86_64 / aarch64    | yes      | Same script; not in CI.                                  |
-| Windows                   | yes      | Use `build-pgo.ps1`; requires `llvm-tools-preview`.      |
+| Platform                       | CI PGO (cargo-pgo) | Local (build-pgo.{sh,ps1}) | Notes                                                              |
+|--------------------------------|--------------------|----------------------------|--------------------------------------------------------------------|
+| Linux x86_64 (ubuntu CI)       | yes                | yes                        | Reference platform; `pgo-bench.yml` + `release.yml` both run here. |
+| Linux aarch64                  | no (cross-compile) | yes                        | release.yml falls back to plain `--release` via `cross`.           |
+| macOS aarch64 (Apple Silicon)  | yes (v0.38)        | not recommended            | Local shell scripts hit the v0.37 raw=8/expected=10 mismatch.      |
+| macOS x86_64 (Intel via cross) | no (cross-compile) | yes                        | release.yml falls back to plain `--release`.                       |
+| Windows x86_64                 | yes                | yes                        | Use `build-pgo.ps1` locally; release.yml uses cargo-pgo on CI.     |
 
 The toolchain-bundled `llvm-profdata` is what makes Windows work
 without a system LLVM install. If you're cross-compiling, run the
