@@ -42,12 +42,14 @@ the type system:
 
 Pre-built binaries (Linux x86_64/aarch64, macOS arm64/x86_64,
 Windows x86_64) on the
-[Releases page](https://github.com/hassard0/Mighty/releases).
-Or from source (MSRV: Rust 1.85):
+[Releases page](https://github.com/hassard0/Mighty/releases) —
+three platforms ship PGO-optimised (linux-x86_64, darwin-arm64,
+windows-x86_64). Or from source (MSRV: Rust 1.85):
 
 ```bash
 git clone https://github.com/hassard0/Mighty && cd Mighty
-cargo install --path crates/mty-cli
+cargo install --path crates/mty-cli                            # Linux + macOS
+cargo install mty --no-default-features --features cli-min     # Windows (skips rusqlite C build)
 ```
 
 Or via package manager: `brew install hassard0/mighty/mty` (taps coming v0.32; see [`tools/distribution/`](tools/distribution/)).
@@ -142,6 +144,11 @@ mty run   src/main.mty
   `std.random` / `std.time` / `log()` emit direct versioned P2 imports
 - DWARF v5 with per-instruction line program (opt-in via `MTY_DWARF5=1`)
 - PGO + ThinLTO via `release-pgo` profile + `scripts/build-pgo.sh`
+- FFI — extern c signature matrix (11 documented shapes covering
+  scalars, structs by value / ptr, arrays, strings, callbacks) and
+  `[[extern_lib]]` manifest entries with per-platform `link_args`
+  for static + dynamic library linking
+  (see [`docs/internals/extern-c-matrix.md`](docs/internals/extern-c-matrix.md))
 
 **Tooling**
 - `mty lsp` — LSP 3.17 (hover ships extracted `///` examples +
@@ -251,10 +258,10 @@ current state of the language, not its history.
 
 ## Status
 
-Mighty is **pre-alpha**. Internal milestones tagged through v0.35.
-The toolchain is exercised by **~3017 Rust tests** across 20 crates
+Mighty is **pre-alpha**. Internal milestones tagged through v0.36.
+The toolchain is exercised by **~3176 Rust tests** across 20 crates
 plus **490 Python 2nd-impl tests** plus **159 normative conformance
-cases** plus **23 self-host driver codegen tests** — combined **~3689
+cases** plus **23 self-host driver codegen tests** — combined **~3848
 tests, 0 failing**. All four LLM providers full (with multi-modal
 vision-language Image input); `std.swarm` votes consensus across
 them; `std.eval` regression-tests agents under byte-identical

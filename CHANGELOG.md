@@ -9,34 +9,139 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-### v0.36 T5 — infra papercuts (landed on track branch)
+v0.37 candidates (rolled up across all 5 v0.36 tracks):
 
-- **Windows `cargo install mty` works without MSVC.** Split
-  `observe-sqlite` out of the always-on `host-toolchain` feature
-  into a top-level mty-cli feature with an `cli-min` alias.
-  `cargo install mty --no-default-features --features cli-min` skips
-  rusqlite's C build (the historical "link.exe not found" path) and
-  produces a fully-functional CLI; `mty inspect --cost` reports the
-  feature as disabled rather than crashing. FAQ entry updated to
-  point at the new flag-set.
-- **macOS `LC_BUILD_VERSION` warning eliminated.** Override
-  cranelift-object's `Darwin(_)` → `PLATFORM_UNKNOWN (0)` default
-  with `PLATFORM_MACOS + minos=11.0 + sdk=14.0` packed in the
-  nibble layout `loader.h` documents. Honors
-  `MACOSX_DEPLOYMENT_TARGET` (same env var rustc uses) and a new
-  `MTY_MACOSX_SDK_VERSION` knob.
-- **PGO re-enabled on linux-x86_64, darwin-arm64, windows-x86_64.**
-  Phase 4 drops `-Clinker-plugin-lto` (collided with PGO's
-  `CG Profile` module metadata on linux-x86_64). Phase 0 wipes
-  `target/release-pgo/{build,deps,incremental,.fingerprint}` so
-  stale `-Cprofile-use` codegen can't survive across runs (root
-  cause of the profile-format raw=8 vs expected=10 mismatch on
-  macOS+Windows). `release.yml` cache keys segregate PGO vs non-PGO
-  so the restore-keys can't cross-contaminate. `darwin-x86_64`
-  and `linux-aarch64` stay `use_pgo: false` (rosetta /
-  cross-compile can't run the instrumented binary).
+- **T1 — native codegen** — LLVM-backend signedness-aware widening
+  (uextend vs sextend) to match T1's cranelift fix; broader
+  numeric-suffix promotion edge-cases (e.g. `0xFFu8` literals at
+  pattern positions); MIR-level dynamic-log span pin to remove the
+  remaining stack-slot fast-path branch.
+- **T2 — extern c + manifest** — `cdylib` linkage shape
+  (currently `staticlib` + `dylib` only); per-arch link_args
+  (`x86_64`, `aarch64`) on top of the per-OS matrix; mty bindgen
+  generator (mty → `.h` for the reverse FFI direction); cargo-style
+  `links = "foo"` collision detection across [[extern_lib]]
+  entries.
+- **T3 — string ops** — `String::splitn` / `rsplitn` for the
+  capped-iterator shape; `chars()` + `char_indices()` ergonomic
+  surfaces in stdlib prelude; richer MT5080 quickfix that suggests
+  the nearest valid boundary; `String::byte_slice` window helper.
+- **T4 — stardust→mighty** — final-pass docs sweep for the v0.7
+  REBRAND-NOTES history references; OTLP `mty.legacy_name`
+  attribute removal in v0.40 (one-release deprecation cycle);
+  default registry slug migration messaging for users on
+  `stardust-pkg/registry` URLs.
+- **T5 — infra** — PGO on `darwin-x86_64` (needs native Intel
+  macOS runner that can execute the instrumented binary); PGO on
+  `linux-aarch64` (needs native arm64 GitHub runner); Docker
+  publish toggle (user-driven); Homebrew-core PR (runbook
+  ready, user files); LSP `LazyLock<Vec<…>>` bridge so
+  `STDLIB_EXAMPLES` is `build.rs`-generated.
+- **Cross-cutting / integrator** — `SCHEMA_VERSION` crate-root
+  re-export; vulcan disk hygiene + automated `/tmp/v0XX-*` GC;
+  multi-modal streaming hover; Go/C++ comparator refresh;
+  `mty find` semantic search; `mty-runtime::work_stealing`
+  Windows-only flake.
 
-v0.36 candidates (rolled up across all 5 v0.35 tracks):
+The v1.0 freeze-gate is unchanged: 8 RFC comment windows opened
+2026-05-26, earliest close 2026-06-09 (RFC-005), latest close
+2026-07-25 (RFC-002 + RFC-006). Proposed v1.0 freeze date
+2026-09-01; earliest tag 2026-07-26. v0.36 lands the four
+fix-it-for-others items the external reviewer called out
+(native codegen, extern c, string editing, stardust rename)
+plus the long-deferred Windows install + PGO re-enable.
+
+## [0.36.0] - 2026-05-29
+
+### Added — fix-it-for-others
+- **T1 — Native codegen fixes.** U8 widening now uses `uextend`
+  (zero-extension) for unsigned types rather than `sextend`,
+  fixing wrong-sign comparisons of high-bit U8 values lowered to
+  Cranelift. Dynamic `log()` lowering allocates a 16-byte
+  ptr+len stack slot so non-literal `Str` arguments
+  (`let g = greet(); log(g)`) no longer trip
+  `CodegenError::Unsupported("non-literal string in log/print")`.
+  Hex / binary / octal literals with explicit type suffixes
+  (`0xFFu8`, `0b1010_u16`, `0o777i32`, …) now parse across all
+  12 integer types. LLVM-backend signedness fix is deferred to
+  v0.37. (+66 tests)
+- **T2 — extern c signature matrix + [[extern_lib]].** All 11
+  signature shapes documented and tested end-to-end against C
+  reference impls: nil/i32/two-i32/ptr-in/out-ptr/struct-by-value/
+  struct-by-ptr/return-struct/array-ptr/str-in/str-out/fn-ptr.
+  `mighty.toml` now accepts `[[extern_lib]]` entries with
+  `name`, `kind = "static" | "dynamic"`, `path`, and per-platform
+  `link_args`. The driver resolves paths against the manifest
+  directory and forwards `-l` / `-L` / `--whole-archive` to the
+  host linker. Surfaces a stable `mty_driver::manifest::ExternLib`
+  + `build_linker_args` for parallel IDE / agent tooling. (+35 tests)
+- **T3 — String position / range ops.** Twelve new `String`
+  methods: `rfind`, `position`, `insert_at`, `remove_range`,
+  `replace_range`, `is_char_boundary`, `next_char_boundary`,
+  `prev_char_boundary`, `char_indices` iterator, plus three
+  char-boundary internal helpers. New diagnostic **MT5080**
+  (`Range edit at non-char-boundary`) with byte-offset + nearest
+  valid boundary in the hint. (+44 tests)
+- **T4 — Stardust → Mighty rename.** `MTY_LINKER`,
+  `MTY_OTLP_ENDPOINT`, `MTY_TRACE`, `MTY_RUNTIME_THREADS`,
+  `MTY_CONF_ONLY`, `MTY_CONF_CASE` are the primary env-var
+  spellings; `STARDUST_*` still resolve via the new
+  `mty_runtime::env_compat` shim with a one-shot stderr
+  deprecation warning per legacy key. WIT package id emitted as
+  `mty:*` (still accepts `stardust:*` imports). Cranelift object
+  segment renamed to `b"mighty"`. OTLP spans renamed `mty.*` and
+  carry an `mty.legacy_name` attribute on the rename hop. Default
+  registry slug `mighty-pkg/registry` (still accepts
+  `stardust-pkg/registry`). 121 references → 60 (45 in
+  dev/history + docs/spec, 23 in legacy-compat code paths). (+18 tests)
+- **T5 — Windows install + macOS LC_BUILD_VERSION + PGO.**
+  `cargo install mty --no-default-features --features cli-min`
+  skips rusqlite's C build (the historical Windows
+  `link.exe not found` path) and produces a fully-functional CLI.
+  Cranelift-object's `Darwin(_)` → `PLATFORM_UNKNOWN (0)` default
+  overridden with `PLATFORM_MACOS + minos=11.0 + sdk=14.0` packed
+  in the nibble layout `loader.h` documents; honors
+  `MACOSX_DEPLOYMENT_TARGET` and a new `MTY_MACOSX_SDK_VERSION`
+  knob. **PGO re-enabled on `linux-x86_64`, `darwin-arm64`,
+  `windows-x86_64`** — Phase 4 drops `-Clinker-plugin-lto` (which
+  collided with PGO's `CG Profile` module metadata on linux), a
+  new Phase 0 wipes `target/release-pgo/{build,deps,incremental,
+  .fingerprint}` so stale `-Cprofile-use` codegen can't survive
+  across runs (root cause of the `raw=8 vs expected=10` mismatch),
+  and `release.yml` cache keys segregate PGO vs non-PGO so
+  restore-keys can't cross-contaminate. `darwin-x86_64` and
+  `linux-aarch64` stay `use_pgo: false` (rosetta / cross-compile
+  can't run the instrumented binary). (+21 tests)
+
+### Changed
+- WIT package namespace emitted as `mty:*` (still accepts
+  `stardust:*` for legacy imports)
+- Cranelift object segment renamed to `b"mighty"` (legacy readers
+  may also accept `b"stardust"` for backward-read)
+- OTLP spans renamed `mty.*` (carry `mty.legacy_name` attribute
+  on the rename hop, one-release deprecation)
+- Default registry slug `mighty-pkg/registry` (still accepts
+  `stardust-pkg/registry`)
+- `BuildOptions` now carries `extern_libs: Vec<ExternLib>` and
+  `manifest_dir: Option<PathBuf>` for [[extern_lib]] resolution
+
+### Deprecated
+- `STARDUST_LINKER`, `STARDUST_OTLP_ENDPOINT`, `STARDUST_TRACE`,
+  `STARDUST_RUNTIME_THREADS`, `STARDUST_CONF_ONLY`,
+  `STARDUST_CONF_CASE` — use `MTY_*` instead; one-shot stderr
+  warning on first lookup per process.
+
+### Fixed
+- Native codegen wrong-sign comparison for U8 values widened via
+  the previously-misused `sextend`.
+- Native codegen `Unsupported` panic on non-literal `Str`
+  arguments to `log()` and `print()`.
+- Stardust → Mighty: 6 env-var paths that previously had no
+  `MTY_*` spelling at all.
+- `BuildOptions` reconciliation between T1's `native_dynamic_log`
+  test and T2's new required fields.
+
+
 
 - **T1 — WASM playground** — Cloudflare Worker proxy deployment
   (runbook ready; `wrangler deploy`); WASM size pass (`wasm-opt -Oz`,
