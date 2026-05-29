@@ -1,0 +1,67 @@
+##module taint
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym HtmlEscape
+##sig const HtmlEscape: Sanitizer
+##desc Escape `<`, `>`, `&`, `"`, `'` for safe interpolation into HTML attributes / bodies.
+##see ShellEscape, SqlEscape, PathBoundary, sanitize_with
+##example
+let safe = raw.sanitize_with(HtmlEscape);
+std.fs.write("out.html", safe);
+##end
+
+##sym ShellEscape
+##sig const ShellEscape: Sanitizer
+##desc Wrap in single quotes and escape internal `'` so the value is safe for `/bin/sh -c "..."`.
+##see HtmlEscape, SqlEscape, PathBoundary, sanitize_with
+##example
+let arg = raw.sanitize_with(ShellEscape);
+std.process.Command.new("ls").arg(arg).spawn()?;
+##end
+
+##sym SqlEscape
+##sig const SqlEscape: Sanitizer
+##desc Escape `'` and `\` (doubling backslashes) for safe interpolation into SQL string literals.
+##see HtmlEscape, ShellEscape, PathBoundary, sanitize_with
+##example
+let safe = raw.sanitize_with(SqlEscape);
+std.sql.execute(format!("SELECT * FROM users WHERE name='{}'", safe))?;
+##end
+
+##sym PathBoundary
+##sig fn PathBoundary(root: Str) -> Sanitizer
+##desc Strip `..`, leading `/`, and NUL bytes; pin the result inside `root`. Defends against path-traversal sinks.
+##see HtmlEscape, ShellEscape, SqlEscape, sanitize_with
+##example
+let safe = user_input.sanitize_with(PathBoundary("/var/uploads"));
+std.fs.write(safe, body);
+##end
+
+##sym sanitize_with
+##sig fn Tainted[Str].sanitize_with(&self, s: Sanitizer) -> Str
+##desc One of the three sanctioned untainting strategies. Applies a provably-correct sanitiser to a tainted value.
+##see matches_regex, in_allowlist, HtmlEscape, ShellEscape, PathBoundary
+##example
+let raw = m.ask("summarise this email");
+let safe = raw.sanitize_with(HtmlEscape);
+std.fs.write("summary.html", safe);
+##end
+
+##sym matches_regex
+##sig fn Tainted[Str].matches_regex(&self, pattern: Str) -> Option[Str]
+##desc Untainting via regex shape constraint. Returns `Some(untainted)` if the value matches; `None` otherwise.
+##see in_allowlist, sanitize_with, HtmlEscape
+##example
+let safe = raw.matches_regex("^[a-zA-Z0-9_]+$").unwrap_or("anon");
+std.fs.write("u.txt", safe);
+##end
+
+##sym in_allowlist
+##sig fn Tainted[Str].in_allowlist[E]() -> Option[E]
+##desc Untainting via enum-variant allowlist. Returns `Some(variant)` if the value parses as one of `E`'s names.
+##see matches_regex, sanitize_with
+##example
+let v = raw.in_allowlist().unwrap_or(Verdict.Unclear);
+std.fs.write("v.txt", format!("{:?}", v));
+##end
+

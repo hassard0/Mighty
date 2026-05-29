@@ -1,0 +1,198 @@
+##module swarm
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym swarm
+##sig fn swarm(prompt: Str, panel: List<Member>, budget: DollarBudget, strategy: ConsensusStrategy) -> Result<Consensus, LlmError>
+##cap net.https (per panel member)
+##desc Runs the prompt across every panel member in parallel and decides a consensus by strategy.
+##see Member.anthropic, ConsensusStrategy.Majority, DollarBudget.from_dollars, Consensus.dissents
+##example
+let panel = [Member.anthropic("claude-opus-4-7"), Member.openai("gpt-4o")];
+let b = DollarBudget.from_dollars(0.50);
+let c = swarm("Is 17 prime?", panel, b, ConsensusStrategy.Majority).await?;
+log(c.body);
+##end
+
+##sym ConsensusStrategy.Majority
+##sig const ConsensusStrategy.Majority: ConsensusStrategy
+##desc Plurality vote across panel replies. Ties resolve to the first agreed reply in source order.
+##see ConsensusStrategy.Unanimous, ConsensusStrategy.WeightedVote, ConsensusStrategy.FirstAgreed, swarm
+##example
+let c = swarm(p, panel, b, ConsensusStrategy.Majority).await?;
+##end
+
+##sym ConsensusStrategy.Unanimous
+##sig const ConsensusStrategy.Unanimous: ConsensusStrategy
+##desc Every member must agree, or `Consensus.body` reports no consensus and dissents lists all.
+##see ConsensusStrategy.Majority, Consensus.dissents, swarm
+##example
+let c = swarm(p, panel, b, ConsensusStrategy.Unanimous).await?;
+##end
+
+##sym ConsensusStrategy.WeightedVote
+##sig fn ConsensusStrategy.WeightedVote(weights: Map<Str, F32>) -> ConsensusStrategy
+##desc Per-member-name weighted vote. Members not in the map default to weight 1.0.
+##see ConsensusStrategy.Majority, swarm
+##example
+let w = {"claude-opus-4-7": 2.0, "gpt-4o": 1.0};
+let c = swarm(p, panel, b, ConsensusStrategy.WeightedVote(w)).await?;
+##end
+
+##sym ConsensusStrategy.FirstAgreed
+##sig const ConsensusStrategy.FirstAgreed: ConsensusStrategy
+##desc Returns as soon as two members agree, short-circuiting remaining calls to save budget.
+##see ConsensusStrategy.Majority, swarm, DollarBudget.from_dollars
+##example
+let c = swarm(p, panel, b, ConsensusStrategy.FirstAgreed).await?;
+log(c.body);
+##end
+
+##sym DollarBudget.from_dollars
+##sig fn DollarBudget.from_dollars(amount: F32) -> DollarBudget
+##desc Caps spending across the swarm at `amount` USD. Exhaustion surfaces via `Consensus.budget_exhausted`.
+##see DollarBudget.unbounded, DollarBudget.total_cost_cents, swarm
+##example
+let b = DollarBudget.from_dollars(0.50);
+##end
+
+##sym DollarBudget.unbounded
+##sig fn DollarBudget.unbounded() -> DollarBudget
+##desc Removes the dollar cap. Use only for tests or local-only providers.
+##see DollarBudget.from_dollars, swarm
+##example
+let b = DollarBudget.unbounded();
+##end
+
+##sym Consensus.body
+##sig field Consensus.body: Str
+##desc Agreed-upon reply text, or empty when no consensus was reached.
+##see Consensus.dissents, Consensus.budget_exhausted, swarm
+##example
+let c = swarm(p, panel, b, ConsensusStrategy.Majority).await?;
+log(c.body);
+##end
+
+##sym Consensus.dissents
+##sig field Consensus.dissents: List<MemberReply>
+##desc Replies that disagreed with the consensus body. Empty when every member agreed.
+##see Consensus.body, Consensus.all_replies, swarm
+##example
+for d in c.dissents { log(format!("{}: {}", d.member, d.body)); }
+##end
+
+##sym Consensus.all_replies
+##sig field Consensus.all_replies: List<MemberReply>
+##desc Every member's reply in panel-declaration order. Useful for auditing.
+##see Consensus.body, Consensus.dissents, swarm
+##example
+for r in c.all_replies { log(r.body); }
+##end
+
+##sym Consensus.budget_exhausted
+##sig field Consensus.budget_exhausted: Bool
+##desc True when the dollar budget tripped before every member returned.
+##see DollarBudget.from_dollars, Consensus.body, swarm
+##example
+if c.budget_exhausted { log("hit cap"); }
+##end
+
+##sym SharedDollarBudget.new
+##sig fn SharedDollarBudget.new(limit_cents: U64) -> SharedDollarBudget
+##desc Shared budget for one swarm panel. Every clone deducts from the same pool atomically.
+##see SharedDollarBudget.from_dollars, SharedDollarBudget.try_charge, swarm
+##example
+let b = SharedDollarBudget.new(50);
+let panel = [Member.anthropic("claude-opus-4-7"), Member.openai("gpt-4o")];
+##end
+
+##sym SharedDollarBudget.from_dollars
+##sig fn SharedDollarBudget.from_dollars(dollars: F64) -> SharedDollarBudget
+##desc Convenience: shared budget capped at `dollars` USD (converted to integer cents).
+##see SharedDollarBudget.new, SharedDollarBudget.unbounded, DollarBudget.from_dollars
+##example
+let b = SharedDollarBudget.from_dollars(0.50);
+##end
+
+##sym SharedDollarBudget.unbounded
+##sig fn SharedDollarBudget.unbounded() -> SharedDollarBudget
+##desc Shared budget with no cap. Useful for observing `consumed_cents` without a ceiling.
+##see SharedDollarBudget.from_dollars, SharedDollarBudget.consumed_cents
+##example
+let b = SharedDollarBudget.unbounded();
+##end
+
+##sym SharedDollarBudget.consumed_cents
+##sig fn SharedDollarBudget.consumed_cents(&self) -> U64
+##desc Total cents charged against the shared pool so far. Atomic across panel members.
+##see SharedDollarBudget.limit_cents, SharedDollarBudget.is_exhausted
+##example
+log(format!("spent {} cents", b.consumed_cents()));
+##end
+
+##sym SharedDollarBudget.is_exhausted
+##sig fn SharedDollarBudget.is_exhausted(&self) -> Bool
+##desc True if any further dispatch would exceed the cap. The swarm loop polls between members.
+##see SharedDollarBudget.consumed_cents, SharedDollarBudget.try_charge, Consensus.budget_exhausted
+##example
+if b.is_exhausted() { log("hit cap, skipping next member"); }
+##end
+
+##sym SharedDollarBudget.try_charge
+##sig fn SharedDollarBudget.try_charge(&self, cents: U64) -> Result<U64, BudgetTripped>
+##desc Charge `cents` against the shared pool. Returns the new total or `BudgetTripped` if it crossed the cap.
+##see SharedDollarBudget.add_tokens, SharedDollarBudget.is_exhausted
+##example
+match b.try_charge(15) {
+  Ok(total) => log(format!("now {} cents", total)),
+  Err(t) => log("tripped"),
+}
+##end
+
+##sym SharedDollarBudget.add_tokens
+##sig fn SharedDollarBudget.add_tokens(&self, model: Str, input_tokens: U64, output_tokens: U64) -> Result<U64, BudgetTripped>
+##desc Charge a token count via the canonical per-million-token rate table for `model`.
+##see SharedDollarBudget.try_charge, MemberReply.tokens_used
+##example
+b.add_tokens("claude-opus-4-7", 1200, 480)?;
+##end
+
+##sym Consensus.has_consensus
+##sig fn Consensus.has_consensus(&self) -> Bool
+##desc True when the strategy landed on a `majority` body. False for Unanimous-with-disagreement and empty panels.
+##see Consensus.body, Consensus.dissent_count, ConsensusStrategy.Unanimous
+##example
+if c.has_consensus() { log("agreed"); } else { log("split panel"); }
+##end
+
+##sym Consensus.dissent_count
+##sig fn Consensus.dissent_count(&self) -> USize
+##desc Number of members who fell outside the winning cluster.
+##see Consensus.dissents, Consensus.has_consensus
+##example
+log(format!("{} dissents", c.dissent_count()));
+##end
+
+##sym Consensus.strategy
+##sig field Consensus.strategy: Str
+##desc Strategy name (`"majority"`, `"unanimous"`, `"weighted"`, `"first_agreed"`) for logging / observability.
+##see ConsensusStrategy.Majority, Consensus.body
+##example
+log(format!("strategy: {}", c.strategy));
+##end
+
+##sym SimilarityMode.Exact
+##sig const SimilarityMode.Exact: SimilarityMode
+##desc Trim, lowercase, strip punctuation, exact-match. Cheap, ideal for yes/no answers.
+##see SimilarityMode.TokenSet, ConsensusStrategy.Majority
+##example
+let clusters = cluster_replies(&bodies, SimilarityMode.Exact, 1.0);
+##end
+
+##sym SimilarityMode.TokenSet
+##sig const SimilarityMode.TokenSet: SimilarityMode
+##desc Normalised token-set Jaccard similarity. Default. Tolerates wording variance in free-form prose.
+##see SimilarityMode.Exact, ConsensusStrategy.Majority
+##example
+let clusters = cluster_replies(&bodies, SimilarityMode.TokenSet, 0.6);
+##end
+

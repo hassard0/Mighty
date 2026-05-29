@@ -1,0 +1,81 @@
+##module json
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym std.json.parse
+##sig fn std.json.parse(s: Str) -> Result<Json, JsonError>
+##desc Parses a JSON string into the dynamic `Json` value type.
+##see std.json.encode, std.json.encode_pretty
+##example
+let j = std.json.parse(body)?;
+log(j["name"].as_str()?);
+##end
+
+##sym std.json.encode
+##sig fn std.json.encode(j: Json) -> Str
+##desc Encodes `j` as a compact JSON string.
+##see std.json.parse, std.json.encode_pretty
+##example
+let s = std.json.encode(j);
+##end
+
+##sym std.json.encode_pretty
+##sig fn std.json.encode_pretty(j: Json) -> Str
+##desc Encodes `j` as JSON with two-space indentation. Use for human-facing dumps.
+##see std.json.encode, std.json.parse
+##example
+log(std.json.encode_pretty(j));
+##end
+
+##sym Json.Null
+##sig const Json.Null: Json
+##desc JSON null literal. Encodes to `null`; matches `null` on parse.
+##see Json.Bool, Json.Num, Json.Str, Json.Arr, Json.Obj
+##example
+let j = Json.Null;
+assert_eq(std.json.encode(&j)?, "null");
+##end
+
+##sym Json.Bool
+##sig variant Json.Bool(Bool)
+##desc JSON boolean wrapper.
+##see Json.Null, Json.Num, std.json.encode
+##example
+let j = Json.Bool(true);
+assert_eq(std.json.encode(&j)?, "true");
+##end
+
+##sym Json.Num
+##sig variant Json.Num(F64)
+##desc JSON numeric value. All numerics flow through `F64` to match Mighty's surface `Num` shape.
+##see Json.Bool, Json.Str, std.json.encode
+##example
+let j = Json.Num(42.0);
+assert_eq(std.json.encode(&j)?, "42.0");
+##end
+
+##sym Json.Str
+##sig variant Json.Str(Str)
+##desc JSON string. Encoded with the standard JSON escape rules.
+##see Json.Num, Json.Arr, std.json.encode
+##example
+let j = Json.Str("hello");
+assert_eq(std.json.encode(&j)?, "\"hello\"");
+##end
+
+##sym Json.Arr
+##sig variant Json.Arr(List<Json>)
+##desc JSON array. Holds an ordered list of `Json` values.
+##see Json.Obj, Json.Num, std.json.encode
+##example
+let j = Json.Arr([Json.Num(1.0), Json.Num(2.0)]);
+assert_eq(std.json.encode(&j)?, "[1.0,2.0]");
+##end
+
+##sym Json.Obj
+##sig variant Json.Obj(Map<Str, Json>)
+##desc JSON object. Backed by a deterministically-ordered map so encoded output is stable across runs.
+##see Json.Arr, std.json.parse, std.json.encode
+##example
+let j = std.json.parse("{\"a\":1}")?;
+##end
+

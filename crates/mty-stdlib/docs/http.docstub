@@ -1,0 +1,31 @@
+##module http
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym std.http.get
+##sig fn std.http.get(url: Str) -> Result<Response, HttpError>
+##cap net.https (the URL host)
+##desc Issues an HTTPS GET. The TLS handshake uses the platform trust roots.
+##see std.http.post, std.http.serve
+##example
+let r = std.http.get("https://example.com").await?;
+log(r.body);
+##end
+
+##sym std.http.post
+##sig fn std.http.post(url: Str, body: Bytes) -> Result<Response, HttpError>
+##cap net.https (the URL host)
+##desc Issues an HTTPS POST with `body` as the request payload.
+##see std.http.get, std.http.serve
+##example
+let r = std.http.post("https://example.com/api", payload).await?;
+##end
+
+##sym std.http.serve
+##sig fn std.http.serve(port: U16, handler: fn(Request) -> Response) -> Unit
+##cap net.listen (port)
+##desc Binds an HTTP server on `port` and dispatches each request through `handler`.
+##see std.http.get, std.http.post
+##example
+std.http.serve(8080, |req| { Response.text("ok") }).await?;
+##end
+

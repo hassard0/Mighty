@@ -1,0 +1,123 @@
+##module vec
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym Vec.new
+##sig fn Vec.new[T]() -> Vec[T]
+##desc Allocates an empty growable vector.
+##see Vec.with_capacity, Vec.push, Vec.iter
+##example
+let mut v: Vec[I32] = Vec.new();
+v.push(1);
+##end
+
+##sym Vec.with_capacity
+##sig fn Vec.with_capacity[T](cap: USize) -> Vec[T]
+##desc Allocates a vector pre-sized for `cap` elements. Avoids re-allocs on the hot path.
+##see Vec.new, Vec.push
+##example
+let v: Vec[I32] = Vec.with_capacity(1024);
+##end
+
+##sym Vec.push
+##sig fn Vec.push[T](&mut self, x: T) -> Unit
+##desc Appends `x` to the back of the vector.
+##see Vec.new, Vec.pop, Vec.iter
+##example
+v.push(42);
+##end
+
+##sym Vec.iter
+##sig fn Vec.iter[T](&self) -> Iterator[T]
+##desc Borrowed iterator over the vector's elements.
+##see Vec.push, Vec.collect
+##example
+for x in v.iter() { log(format!("{}", x)); }
+##end
+
+##sym Vec.pop
+##sig fn Vec.pop[T](&mut self) -> Option[T]
+##desc Remove and return the last element, or `None` if the vector is empty.
+##see Vec.push, Vec.len, Vec.is_empty
+##example
+let mut v = Vec.new();
+v.push(42);
+let x = v.pop();
+assert_eq(x, Some(42));
+##end
+
+##sym Vec.len
+##sig fn Vec.len[T](&self) -> USize
+##desc Number of elements currently in the vector.
+##see Vec.is_empty, Vec.push, Vec.capacity
+##example
+let n = v.len();
+log(format!("len={}", n));
+##end
+
+##sym Vec.is_empty
+##sig fn Vec.is_empty[T](&self) -> Bool
+##desc True if the vector has zero elements. Equivalent to `len() == 0`.
+##see Vec.len, Vec.clear
+##example
+if v.is_empty() { log("empty"); }
+##end
+
+##sym Vec.clear
+##sig fn Vec.clear[T](&mut self)
+##desc Drop every element. Preserves the underlying capacity so reuse is allocation-free.
+##see Vec.pop, Vec.with_capacity, Vec.is_empty
+##example
+v.clear();
+assert(v.is_empty());
+##end
+
+##sym Vec.get
+##sig fn Vec.get[T](&self, idx: USize) -> Option[&T]
+##desc Bounds-checked read. Returns `None` for out-of-range indices instead of panicking.
+##see Vec.get_mut, Vec.iter, Vec.len
+##example
+match v.get(0) {
+  Some(x) => log(format!("{}", x)),
+  None => log("empty"),
+}
+##end
+
+##sym Vec.capacity
+##sig fn Vec.capacity[T](&self) -> USize
+##desc Number of elements the vector can hold before re-allocating.
+##see Vec.with_capacity, Vec.len
+##example
+let v: Vec[I32] = Vec.with_capacity(128);
+assert(v.capacity() >= 128);
+##end
+
+##sym Vec.iter_mut
+##sig fn Vec.iter_mut[T](&mut self) -> Iterator[&mut T]
+##desc Iterator yielding mutable references. Use to update every element in place.
+##see Vec.iter, Vec.get_mut
+##example
+for x in v.iter_mut() { *x = *x + 1; }
+##end
+
+##sym Vec.append
+##sig fn Vec.append[T](&mut self, other: &mut Vec[T])
+##desc Move every element from `other` to the back of `self`. `other` is left empty.
+##see Vec.push, Vec.iter
+##example
+let mut a = Vec.new();
+a.push(1);
+let mut b = Vec.new();
+b.push(2);
+a.append(&mut b);
+assert(b.is_empty());
+##end
+
+##sym Vec.from_elem
+##sig fn Vec.from_elem[T](value: T, n: USize) -> Vec[T]
+##desc Build a vector by cloning `value` `n` times. Useful for fixed-size board / buffer init.
+##see Vec.with_capacity, Vec.new, Vec.push
+##example
+let board = Vec.from_elem(0_u32, 200);
+assert_eq(board.len(), 200);
+##end
+

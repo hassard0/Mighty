@@ -1,0 +1,48 @@
+##module memory
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym VectorStore.new
+##sig fn VectorStore.new(dim: U32) -> VectorStore
+##desc Allocates an in-memory vector store with `dim`-wide embeddings.
+##see VectorStore.upsert, VectorStore.query, std.memory
+##example
+let v = VectorStore.new(1536);
+v.upsert("k", embed);
+##end
+
+##sym VectorStore.upsert
+##sig fn VectorStore.upsert(&mut self, key: Str, vec: List<F32>) -> Unit
+##desc Inserts or updates an embedding under `key`.
+##see VectorStore.new, VectorStore.query
+##example
+v.upsert("doc-1", embed);
+##end
+
+##sym VectorStore.query
+##sig fn VectorStore.query(&self, vec: List<F32>, k: U32) -> List<(Str, F32)>
+##desc Top-k nearest neighbours by cosine similarity.
+##see VectorStore.upsert, VectorStore.new
+##example
+let hits = v.query(q, 5);
+for (k, score) in hits { log(format!("{} -> {}", k, score)); }
+##end
+
+##sym EpisodicMemory
+##sig struct EpisodicMemory { events: List<MemoryEvent> }
+##desc Append-only event log with time-bounded retention. Designed for agent turn history.
+##see VectorStore.new, std.memory
+##example
+let m = EpisodicMemory.new();
+m.append("user: hi");
+let recent = m.last(10);
+##end
+
+##sym WorkingMemory
+##sig struct WorkingMemory { slots: Map<Str, Str> }
+##desc Bounded key/value scratchpad an agent can inspect each turn.
+##see EpisodicMemory, std.memory
+##example
+let w = WorkingMemory.new(16);
+w.set("task", "summarise");
+##end
+

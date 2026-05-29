@@ -1,0 +1,105 @@
+##module fs
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym std.fs.read
+##sig fn std.fs.read(cap: &Fs, path: Str) -> Result<Bytes, IoErr>
+##cap fs.read (path)
+##desc Reads `path` from the filesystem under the read-bound capability `cap`.
+##see std.fs.write, std.fs.open
+##example
+let bytes = std.fs.read(&fs, "input.txt")?;
+##end
+
+##sym std.fs.write
+##sig fn std.fs.write(cap: &mut Fs, path: Str, bytes: Bytes) -> Result<Unit, IoErr>
+##cap fs.write (path)
+##desc Writes `bytes` to `path` under the write-bound capability `cap`.
+##see std.fs.read, std.fs.open
+##example
+std.fs.write(&mut fs, "out.txt", body)?;
+##end
+
+##sym std.fs.open
+##sig fn std.fs.open(cap: &Fs, path: Str, mode: OpenMode) -> Result<File, IoErr>
+##cap fs.read or fs.write (path)
+##desc Opens `path` for streaming reads/writes under `cap`.
+##see std.fs.read, std.fs.write
+##example
+let f = std.fs.open(&fs, "big.bin", OpenMode.Read)?;
+let chunk = f.read(4096)?;
+##end
+
+##sym std.fs.read_to_string
+##sig fn std.fs.read_to_string(cap: &Fs, path: Str) -> Result<Str, IoErr>
+##cap fs.read (path)
+##desc Read `path` as UTF-8 text. Errors on invalid UTF-8 or read failure.
+##see std.fs.read, std.fs.write, std.fs.open
+##example
+let text = std.fs.read_to_string(&fs, "input.txt")?;
+log(text);
+##end
+
+##sym std.fs.stat
+##sig fn std.fs.stat(cap: &Fs, path: Str) -> Result<StatResult, IoErr>
+##cap fs.read (path)
+##desc Return file size + a 3-state file-type discriminator. Mirrors WASI's `descriptor-stat`.
+##see std.fs.read, std.fs.exists, StatResult
+##example
+let st = std.fs.stat(&fs, "input.txt")?;
+log(format!("size={}", st.size));
+##end
+
+##sym std.fs.exists
+##sig fn std.fs.exists(cap: &Fs, path: Str) -> Bool
+##cap fs.read (path)
+##desc True if `path` exists and the cap allows reading it. Never errors — failure becomes `false`.
+##see std.fs.stat, std.fs.read, std.fs.list_dir
+##example
+if std.fs.exists(&fs, "./cache.json") { load_cache()?; }
+##end
+
+##sym std.fs.list_dir
+##sig fn std.fs.list_dir(cap: &Fs, path: Str) -> Result<Vec[Str], IoErr>
+##cap fs.read (path)
+##desc List immediate children of `path`. Returns paths (not bare names) so callers can chain stat/read.
+##see std.fs.read, std.fs.stat, std.fs.exists
+##example
+for entry in std.fs.list_dir(&fs, "./docs")?.iter() { log(entry); }
+##end
+
+##sym std.fs.close
+##sig fn std.fs.close(cap: &Fs, handle: FileHandle) -> Result<Unit, IoErr>
+##desc Close a handle obtained from `std.fs.open`. On wasm32-wasi lowers to the canonical-ABI resource-drop intrinsic.
+##see std.fs.open, std.fs.read
+##example
+let f = std.fs.open(&fs, "big.bin")?;
+std.fs.close(&fs, f)?;
+##end
+
+##sym FsCap.unrestricted
+##sig fn FsCap.unrestricted() -> FsCap
+##desc Capability that allows access to any path. Use only for tests / local-only tooling.
+##see FsCap.rooted, std.fs.read, std.fs.write
+##example
+let fs = FsCap.unrestricted();
+std.fs.read(&fs, "/etc/hostname")?;
+##end
+
+##sym FsCap.rooted
+##sig fn FsCap.rooted(roots: List<Str>) -> FsCap
+##desc Capability constrained to subpaths of `roots`. Reads/writes outside the rooted set fail closed.
+##see FsCap.unrestricted, std.fs.read, std.fs.write
+##example
+let fs = FsCap.rooted(["./data", "./logs"]);
+std.fs.read(&fs, "./data/users.csv")?;
+##end
+
+##sym StatResult
+##sig struct StatResult { size: U64, kind: U8 }
+##desc Metadata returned by `std.fs.stat`. `kind`: 0=file, 1=dir, 2=symlink, 3=other.
+##see std.fs.stat, std.fs.exists
+##example
+let st = std.fs.stat(&fs, p)?;
+if st.kind == 1 { log("dir"); }
+##end
+

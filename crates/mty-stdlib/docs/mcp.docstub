@@ -1,0 +1,33 @@
+##module mcp
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym McpServer
+##sig agent McpServer { on Register(tool: Tool), on Handle(req: ToolCall) -> ToolResult }
+##cap net.listen (when bound to TCP)
+##desc MCP server that exposes `@tool` functions over stdio or a TCP transport.
+##see McpClient, ToolRegistry, std.mcp
+##example
+let s = McpServer.new();
+s.register(my_tool);
+s.serve("stdio").await?;
+##end
+
+##sym McpClient
+##sig fn McpClient.connect(transport: Str) -> Result<McpClient, McpError>
+##cap net.connect (when using TCP)
+##desc Connects to an MCP server over stdio or TCP and yields a client handle for `call`/`list_tools`.
+##see McpServer, ToolRegistry
+##example
+let c = McpClient.connect("stdio:./echo-server")?;
+let tools = c.list_tools().await?;
+##end
+
+##sym ToolRegistry
+##sig struct ToolRegistry { tools: Map<Str, Tool> }
+##desc Holds the `@tool`-annotated functions discovered in the current package.
+##see McpServer, McpClient
+##example
+let r = ToolRegistry.discover();
+for (name, _) in r.tools { log(name); }
+##end
+

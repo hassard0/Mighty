@@ -22,6 +22,7 @@ pub mod examples;
 pub mod extract;
 pub mod ir;
 pub mod render;
+pub mod stdlib_walker;
 
 pub use examples::{
     examples_count, examples_to_json, infer_see_also, lookup as lookup_stdlib_example,
@@ -31,4 +32,8 @@ pub use examples::{
 pub use extract::build_doc_package;
 pub use ir::{
     DocExample, DocItem, DocItemKind, DocModule, DocPackage, DocVisibility, ItemSignature,
+};
+pub use stdlib_walker::{
+    build_extracted_catalog, diff_catalogs, lookup_extracted, parse_docstub, render_drift_report,
+    Drift, DriftKind, ExtractedExample, StdlibExampleRef,
 };
