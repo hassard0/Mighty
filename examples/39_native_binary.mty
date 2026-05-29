@@ -21,7 +21,6 @@
 //
 // Or smoke under the interpreter:
 //   $ mty run examples/39_native_binary.mty
-
 struct Pixel { r: U8, g: U8, b: U8 }
 
 fn _greeting_word() -> Str { "world" }
