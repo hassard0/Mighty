@@ -4,9 +4,16 @@ dist/
 .vite/
 *.log
 
-# Generated wasm artifact + JS shim — produced by `wasm-pack build`.
-# See README "WASM build" section.
-public/mty_playground.js
-public/mty_playground_bg.wasm
-public/mty_playground.d.ts
-public/package.json
+# v0.35 T1 — wasm-pack output. Rebuilt by the GH Pages workflow
+# (.github/workflows/pages.yml) before every deploy, so we don't
+# need it in the source tree. `tools/playground/public/wasm/` is
+# kept as an empty directory via `public/wasm/.gitkeep`.
+public/wasm/mty_cli.js
+public/wasm/mty_cli.d.ts
+public/wasm/mty_cli_bg.wasm
+public/wasm/mty_cli_bg.wasm.d.ts
+public/wasm/package.json
+
+# Playwright test artifacts.
+test-results/
+playwright-report/

@@ -1,0 +1,49 @@
+# v0.35 T1 — Cloudflare Worker that proxies LLM API traffic from the
+# browser playground to Anthropic / OpenAI / Gemini.
+#
+# Why a proxy:
+#   - The browser playground can't carry API keys safely. The Worker
+#     holds them as Cloudflare secrets and signs the upstream request.
+#   - Per-IP rate-limiting keeps a public demo from getting nuked by
+#     a noisy script. v0.35 ships a 10 req/hour default; raise via
+#     `wrangler secret put RATE_LIMIT_PER_HOUR` or by editing this file.
+#   - Optional KV namespace for the rate-limiter (the Worker degrades
+#     to "always allow" if KV isn't bound — handy for local dev).
+#
+# Deploy:
+#   1. wrangler login
+#   2. wrangler kv namespace create RATE_LIMIT_KV  # noted as `id` below
+#   3. wrangler secret put ANTHROPIC_API_KEY
+#      wrangler secret put OPENAI_API_KEY
+#      wrangler secret put GEMINI_API_KEY
+#   4. wrangler deploy
+#
+# The playground points at https://mighty-proxy.<account>.workers.dev/v1/...
+# by default; override via `tools/playground/src/config.ts`.
+
+name = "mighty-proxy"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+
+# Bind a Cloudflare KV namespace for the per-IP rate limiter. Replace
+# `id` with the value emitted by `wrangler kv namespace create
+# RATE_LIMIT_KV`. Leave the binding in place even if KV isn't created
+# yet — the Worker falls back to "always allow" when the binding is
+# absent at runtime.
+# [[kv_namespaces]]
+# binding = "RATE_LIMIT_KV"
+# id = "REPLACE_ME"
+
+[vars]
+# Default per-IP rate cap (requests per hour). Override via secret
+# `RATE_LIMIT_PER_HOUR` to keep it private.
+RATE_LIMIT_PER_HOUR = "10"
+# Comma-separated allowlist for the `Origin` header. Leave empty to
+# accept anything; in production set it to the GH Pages URL so the
+# Worker doesn't double as a generic LLM proxy.
+ALLOWED_ORIGINS = "https://hassard0.github.io,http://localhost:5173,http://127.0.0.1:4173"
+
+# Secrets (set via `wrangler secret put`):
+#   ANTHROPIC_API_KEY
+#   OPENAI_API_KEY
+#   GEMINI_API_KEY

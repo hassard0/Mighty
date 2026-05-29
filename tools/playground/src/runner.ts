@@ -1,19 +1,22 @@
-// v0.33 T3 — runner.
+// v0.33 T3 / v0.35 T1 — runner.
 //
 // Two backends behind one interface:
 //
-//   - MockRunner: pattern-matches the source to produce plausible
-//     diagnostics + stdout. Useful right now (no wasm target shipping
-//     yet) and as the offline fallback once the real backend lands.
+//   - WasmRunner:  dynamically imports the wasm-bindgen JS shim emitted
+//                  by `wasm-pack build --target web --no-default-features
+//                  --features playground-wasm crates/mty-cli` and calls
+//                  into the playground exports defined in
+//                  `crates/mty-cli/src/playground.rs`.
 //
-//   - WasmRunner: dynamically imports the wasm-bindgen JS shim emitted
-//     by `wasm-pack build --target web crates/mty-cli` and calls into
-//     the playground binary defined in
-//     `crates/mty-cli/src/playground_main.rs`.
+//   - MockRunner:  pattern-matches the source to produce plausible
+//                  diagnostics + stdout. Kept as the offline fallback
+//                  for `npm run dev` flows that don't have the wasm
+//                  artifact built yet, and triggered automatically if
+//                  the WASM module fails to load.
 //
 // The switch is `USE_WASM_BACKEND`, a Vite-time `define` (see
-// vite.config.ts). At build time we know whether the wasm artifact
-// shipped; the runtime contract is identical either way.
+// vite.config.ts). v0.33 T3 shipped with this flipped to `false`
+// (mock-backend only). v0.35 T1 flips it on for the GH-Pages build.
 
 import {
   Diagnostic,
@@ -110,14 +113,14 @@ function mockDiagnostics(source: string): Diagnostic[] {
         fixes: [
           {
             title:
-              "wrap `user_input` with `.sanitize_with(PathBoundary(\"./safe/\"))`",
+              'wrap `user_input` with `.sanitize_with(PathBoundary("./safe/"))`',
             span: primarySpan,
             replacement:
               'user_input.sanitize_with(PathBoundary("./safe/"))',
           },
           {
             title:
-              "wrap `user_input` with `.matches_regex(\"^[a-z ]{1,80}$\")`",
+              'wrap `user_input` with `.matches_regex("^[a-z ]{1,80}$")`',
             span: primarySpan,
             replacement: 'user_input.matches_regex("^[a-z ]{1,80}$")',
           },
@@ -127,48 +130,12 @@ function mockDiagnostics(source: string): Diagnostic[] {
   }
 
   // ---- Unknown identifier (very common starter mistake) -------------------
-  //
-  // We deliberately do NOT fire this for `log`, `print`, `Member`, etc. —
-  // anything the bundled examples actually use. The check is "an
-  // identifier that looks like a call but isn't whitelisted".
   const KNOWN = new Set([
-    "log",
-    "print",
-    "println",
-    "Member",
-    "Panel",
-    "Suite",
-    "Case",
-    "Compare",
-    "Browser",
-    "main",
-    "greet",
-    "fn",
-    "let",
-    "if",
-    "else",
-    "match",
-    "for",
-    "while",
-    "return",
-    "use",
-    "package",
-    "struct",
-    "enum",
-    "type",
-    "agent",
-    "protocol",
-    "on",
-    "std",
-    "Result",
-    "Ok",
-    "Err",
-    "Some",
-    "None",
-    "true",
-    "false",
-    "self",
-    "Self",
+    "log", "print", "println", "Member", "Panel", "Suite", "Case",
+    "Compare", "Browser", "main", "greet", "fn", "let", "if", "else",
+    "match", "for", "while", "return", "use", "package", "struct",
+    "enum", "type", "agent", "protocol", "on", "std", "Result", "Ok",
+    "Err", "Some", "None", "true", "false", "self", "Self",
   ]);
   const callRx = /\b([a-z_][a-z0-9_]*)\s*\(/g;
   let m: RegExpExecArray | null;
@@ -176,11 +143,8 @@ function mockDiagnostics(source: string): Diagnostic[] {
   while ((m = callRx.exec(source)) !== null) {
     const name = m[1];
     if (KNOWN.has(name)) continue;
-    // Skip method calls (preceded by `.`).
     if (m.index > 0 && source[m.index - 1] === ".") continue;
-    // Skip our own example fns: prefixed with `_`.
     if (name.startsWith("_")) continue;
-    // Skip if it has a `fn <name>` definition somewhere in the source.
     if (new RegExp(`\\bfn\\s+${name}\\b`).test(source)) continue;
     const span = spanFromOffset(source, m.index, m.index + name.length);
     diags.push({
@@ -203,8 +167,7 @@ function mockDiagnostics(source: string): Diagnostic[] {
 }
 
 /** Produce stdout from a source by extracting every literal string
- *  argument to a `log(...)` call. Good enough to make Hello World
- *  feel real. */
+ *  argument to a `log(...)` call. */
 function mockStdout(source: string): string {
   const out: string[] = [];
   const rx = /\blog\s*\(\s*"((?:[^"\\]|\\.)*)"\s*\)/g;
@@ -225,13 +188,13 @@ class MockRunner implements Runner {
   readonly mode = "mock" as const;
   async init() {}
   async check(source: string): Promise<CheckResult> {
-    await sleep(80);
+    await sleep(60);
     const diagnostics = mockDiagnostics(source);
     const ok = !diagnostics.some(severityIsError);
     return { ok, diagnostics };
   }
   async run(source: string): Promise<RunResult> {
-    await sleep(120);
+    await sleep(80);
     const diagnostics = mockDiagnostics(source);
     const fatal = diagnostics.some(severityIsError);
     if (fatal) {
@@ -262,7 +225,7 @@ function mockTrace(source: string): string {
     "[mock-trace] sir.lower: ok",
     "[mock-trace] interp.run: exit 0",
     "",
-    "// real trace lands when crates/mty-cli wasm target ships (see README)",
+    "// using mock backend — set USE_WASM_BACKEND=true and build the wasm artifact for the real path",
   ].join("\n");
 }
 
@@ -275,7 +238,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Wasm runner (stub — wired up but not loaded until the artifact exists)
+// Wasm runner
 // ---------------------------------------------------------------------------
 
 class WasmRunner implements Runner {
@@ -285,10 +248,23 @@ class WasmRunner implements Runner {
   async init() {
     // The wasm-pack `--target web` shim is an ES module that default-
     // exports an init function. We `import(...)` it dynamically so the
-    // mock build doesn't have to ship the .js.
-    const url = new URL("../public/mty_playground.js", import.meta.url);
-    const mod = (await import(/* @vite-ignore */ url.href)) as WasmModule;
-    await mod.default();
+    // mock build doesn't have to ship the .js. `vite-ignore` tells Vite
+    // to skip its rewrite (the wasm/* dir lives under `public/`, not
+    // under `src/`, so Vite would otherwise try to resolve it at build
+    // time and fail when the artifact isn't present in dev).
+    //
+    // The artifact name comes from wasm-pack: it derives the package /
+    // module name from the Rust lib name (`mty_cli` in our case), so
+    // the files we load are `mty_cli.js` + `mty_cli_bg.wasm`.
+    const baseUrl = (import.meta as { env: { BASE_URL: string } }).env.BASE_URL || "./";
+    const jsUrl = new URL(`wasm/mty_cli.js`, new URL(baseUrl, window.location.href));
+    const mod = (await import(/* @vite-ignore */ jsUrl.href)) as WasmModule;
+    // wasm-pack `--target web`'s default export wants the URL of the
+    // .wasm next to it; we pass our own so the runtime fetch lands on
+    // the same `wasm/` directory we just imported from.
+    const wasmUrl = new URL(`wasm/mty_cli_bg.wasm`, new URL(baseUrl, window.location.href));
+    await mod.default({ module_or_path: wasmUrl });
+    mod.init();
     this.mod = mod;
   }
 
@@ -344,7 +320,8 @@ interface RawRunPayload extends RawDiagPayload {
 }
 
 interface WasmModule {
-  default: () => Promise<unknown>;
+  default: (init?: { module_or_path: URL }) => Promise<unknown>;
+  init: () => void;
   check: (src: string) => unknown;
   run: (src: string) => unknown;
 }
@@ -380,12 +357,39 @@ function hydrateRawDiags(raw: RawDiag[], source: string): Diagnostic[] {
 // ---------------------------------------------------------------------------
 
 // `USE_WASM_BACKEND` is a Vite-time `define` from vite.config.ts.
-// Defaults to `false` so a stock `npm run build` ships a working
-// mock-backend playground. The ambient `ImportMetaEnv` interface is
-// declared in `src/vite-env.d.ts`.
+// v0.35 T1 flips the default to `true` (the wasm artifact ships with
+// the playground). Falls back to the mock automatically if the WASM
+// module fails to load (e.g. `npm run dev` with no wasm artifact built
+// yet) — see `makeRunnerWithFallback`.
 export function makeRunner(): Runner {
   if (import.meta.env.USE_WASM_BACKEND) {
     return new WasmRunner();
   }
   return new MockRunner();
+}
+
+/**
+ * Try to initialise the WASM runner; on failure (typical in dev when
+ * the wasm-pack artifact hasn't been built yet) fall back to the mock
+ * runner. Returns the runner that successfully initialised.
+ */
+export async function makeRunnerWithFallback(): Promise<Runner> {
+  if (!import.meta.env.USE_WASM_BACKEND) {
+    const r = new MockRunner();
+    await r.init();
+    return r;
+  }
+  const wasm = new WasmRunner();
+  try {
+    await wasm.init();
+    return wasm;
+  } catch (e) {
+    console.warn(
+      "[playground] wasm runner failed to initialise — falling back to mock backend.",
+      e,
+    );
+    const mock = new MockRunner();
+    await mock.init();
+    return mock;
+  }
 }

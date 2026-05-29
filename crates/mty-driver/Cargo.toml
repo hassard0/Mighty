@@ -20,9 +20,25 @@ mty-fmt = { path = "../mty-fmt" }
 mty-types = { path = "../mty-types" }
 mty-borrow = { path = "../mty-borrow" }
 mty-ir = { path = "../mty-ir" }
-mty-runtime = { path = "../mty-runtime" }
-mty-codegen-cranelift = { path = "../mty-codegen-cranelift" }
-mty-codegen-wasm = { path = "../mty-codegen-wasm" }
+# v0.35 T1 — host-toolchain feature gates the runtime + codegen deps so
+# the lightweight parse/typeck/borrow surface of `pipeline.rs` can
+# compile to `wasm32-unknown-unknown` for the browser playground. The
+# native `mty` binary keeps `default-features = true` and gets the
+# full pipeline (including `mty build` / `mty run --runtime` paths).
+mty-runtime = { path = "../mty-runtime", optional = true }
+mty-codegen-cranelift = { path = "../mty-codegen-cranelift", optional = true }
+mty-codegen-wasm = { path = "../mty-codegen-wasm", optional = true }
+
+[features]
+# Default-on. Pulls the codegen + runtime deps so `build_native`,
+# `build_wasm`, `jit_run`, and `pipeline::run_file*` compile.
+# Disable with `--no-default-features` for the wasm playground build.
+default = ["host-toolchain"]
+host-toolchain = [
+    "dep:mty-runtime",
+    "dep:mty-codegen-cranelift",
+    "dep:mty-codegen-wasm",
+]
 
 [dev-dependencies]
 tempfile = "3"
