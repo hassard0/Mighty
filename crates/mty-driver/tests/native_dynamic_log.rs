@@ -22,6 +22,8 @@ fn opts(dir: &tempfile::TempDir, name: &str) -> BuildOptions {
         no_component: false,
         wasi_preview: Default::default(),
         user_wit: None,
+        extern_libs: Vec::new(),
+        manifest_dir: None,
     }
 }
 
