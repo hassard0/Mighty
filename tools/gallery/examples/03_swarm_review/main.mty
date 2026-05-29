@@ -7,7 +7,6 @@
 // The pattern: declare the panel once at the package level, then
 // `.review(...)` a piece of work. Each Member votes; the panel
 // returns a `Verdict` with the per-member breakdown.
-
 package swarm_review
 
 use std.swarm.Member

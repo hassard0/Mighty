@@ -6,7 +6,6 @@
 //
 // See examples/27_tool_attr.mty for the canonical in-tree version
 // and `docs/internals/tool-macro.md` for the schema generation rules.
-
 @tool("Echo a short greeting back to the caller", cap: fs.read)
 fn greet(name: Str) -> Str {
   name

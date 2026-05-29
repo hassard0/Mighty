@@ -6,7 +6,6 @@
 //
 // See examples/31_eval_agent.mty for the v0.28 canonical version
 // and `crates/mty-stdlib/src/eval/` for the matrix coverage tests.
-
 package eval_demo
 
 use std.eval.Case

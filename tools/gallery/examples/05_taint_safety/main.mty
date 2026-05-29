@@ -10,7 +10,6 @@
 //
 // See examples/33_taint_basics.mty for the in-tree version + MT4099
 // reference docs at `docs/internals/taint-types.md`.
-
 package taint_basics
 
 use std.fs
