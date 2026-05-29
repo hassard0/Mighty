@@ -335,8 +335,7 @@ enum Cmd {
         /// Read exactly one JSON request from stdin, run it, exit.
         #[arg(long)]
         single_shot: bool,
-        /// Transport: `stdio` (default), `http` (v0.34 stub), `unix`
-        /// (v0.34 stub).
+        /// Transport: `stdio` (default), `http`, `unix`.
         #[arg(long, default_value = "stdio")]
         transport: String,
         /// HTTP transport: bind port. Defaults to 8889.
@@ -345,6 +344,30 @@ enum Cmd {
         /// Unix transport: socket path.
         #[arg(long)]
         socket: Option<std::path::PathBuf>,
+        /// v0.35 T2 — `host:port` to bind for HTTP, or a path for unix.
+        /// Overrides `--port` / `--socket` when set. Accepted shapes:
+        /// `0.0.0.0:9090`, `127.0.0.1:9090`, `[::]:9090`, or a unix
+        /// socket path.
+        #[arg(long)]
+        listen: Option<String>,
+        /// v0.35 T2 — bearer-token required on the `Authorization:
+        /// Bearer <token>` header for every HTTP request. Off by
+        /// default. Ignored under stdio / unix transports.
+        #[arg(long)]
+        auth_token: Option<String>,
+        /// v0.35 T2 — append every `(request, response)` pair to this
+        /// NDJSON file. Useful for regression tests, debugging client
+        /// behaviour, and training/eval traces. Works under any
+        /// transport.
+        #[arg(long, value_name = "PATH")]
+        record: Option<std::path::PathBuf>,
+        /// v0.35 T2 — replay a previously recorded session from this
+        /// NDJSON file. The session reads the recorded requests, runs
+        /// them against the live session, and asserts each response
+        /// stream byte-matches the recorded one. Exit 0 on match, 1 on
+        /// drift.
+        #[arg(long, value_name = "PATH")]
+        replay: Option<std::path::PathBuf>,
     },
     /// Mighty test runner. Discovers `tests/*.test.mty` (legacy bare
     /// `tests/*.mty` is still accepted) and dispatches each through
@@ -612,6 +635,10 @@ fn main() {
             transport,
             port,
             socket,
+            listen,
+            auth_token,
+            record,
+            replay,
         } => {
             let Some(transport_parsed) = cmd::agent::Transport::parse(&transport) else {
                 eprintln!(
@@ -625,6 +652,10 @@ fn main() {
                 transport: transport_parsed,
                 http_port: port,
                 unix_socket: socket,
+                listen,
+                auth_token,
+                record,
+                replay,
             })
         }
         Cmd::Reload {

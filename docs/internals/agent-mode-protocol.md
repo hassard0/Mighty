@@ -32,14 +32,52 @@ mty agent                          # interactive; loops until {"op":"halt"} or E
 mty agent --single-shot < req.json # one request, one response, exit
 ```
 
-Optional transports (v0.34 stubs):
+v0.35 T2 shipped full **HTTP** and **Unix socket** transports.
+
+### HTTP
 
 ```
-mty agent --transport http --port 8888   # POST /v1/agent, NDJSON body
-mty agent --transport unix --socket /tmp/mty-agent.sock
+mty agent --transport http --listen 0.0.0.0:9090
+mty agent --transport http --listen 127.0.0.1:9090 --auth-token s3cret
 ```
 
-These two stubs reject with a `kind:"error"` envelope explaining v0.34.
+Endpoints:
+
+| method | path                  | body              | response               |
+|--------|-----------------------|-------------------|------------------------|
+| `POST` | `/v1/agent`           | one Request JSON  | NDJSON response stream |
+| `POST` | `/v1/agent/batch`     | NDJSON requests   | interleaved NDJSON     |
+| `GET`  | `/v1/agent/version`   | (none)            | `{"mty_version":"…","agent_protocol":"1.0"}` |
+
+* `Content-Type: application/x-ndjson` on the response body for the
+  two `POST` endpoints; `application/json` for `/version`.
+* When `--auth-token <token>` is set, every request must carry
+  `Authorization: Bearer <token>`; unauthorized returns 401 with
+  body `{"kind":"error","message":"unauthorized"}` and a
+  `WWW-Authenticate: Bearer` header. The scheme match is case-insensitive.
+* `--port <N>` is a convenience shortcut for `--listen 127.0.0.1:<N>`;
+  `--listen` wins when both are set.
+* Connections are short-lived: one request → one response stream →
+  connection closed. The session is fresh per connection, so multiple
+  `POST /v1/agent` calls in flight don't share `last_path` /
+  `last_envelopes`. Inside one `POST /v1/agent/batch` body, requests
+  *do* share session state, mirroring stdio's interactive loop.
+* `hyper` HTTP/1.1 only — no h2, no chunked-trailer surprises.
+
+### Unix socket
+
+```
+mty agent --transport unix --listen /tmp/mty-agent.sock
+mty agent --transport unix --socket /tmp/mty-agent.sock  # alias
+```
+
+* Same line-delimited JSON wire format as stdio, framed by the
+  socket. Each accepted connection runs an independent `Session`
+  loop until either `halt` or EOF on the client side.
+* The socket file is unlinked on bind (so a stale socket from a
+  crashed previous run doesn't `EADDRINUSE`) and again on clean exit.
+* On Windows the agent doesn't ship Unix-socket support today. It
+  prints a one-line `kind:"error"` envelope explaining and exits 2.
 
 ## Wire format
 
@@ -311,6 +349,46 @@ Same convention as the underlying `mty <subcommand>`:
 | 1    | normal error (diagnostics, failed test, missing file) |
 | 2    | protocol error (bad JSON, unknown op, transport failure) |
 
+## Recorded sessions
+
+v0.35 T2 — every transport supports `--record <PATH>`. The recorder
+appends one NDJSON line per `(request, response)` pair to the file:
+
+```json
+{"request":"<raw NDJSON request line>","response":"<raw NDJSON response bytes incl. terminating done>"}
+```
+
+* `request` is the literal request line as the agent received it
+  (whitespace-trimmed). For `POST /v1/agent` the body is recorded
+  as-is; for `POST /v1/agent/batch` each line is recorded as a
+  separate pair.
+* `response` is the full bytes the agent wrote back — every
+  `envelope` / `log` / `result` / `error` / `done` line, in order,
+  ending with the terminating `done`.
+* The recorder is best-effort: writes that fail (disk full, perms)
+  log to stderr but never halt the live session.
+* Files are opened in append mode, so re-running with the same path
+  concatenates new sessions to the existing trace.
+
+### Replay
+
+```
+mty agent --replay /path/to/session.ndjson
+```
+
+Reads each recorded pair, runs the request against a fresh in-process
+`Session`, and asserts the live response bytes equal the recorded
+`response` field. Exit codes:
+
+* `0` — every recorded response matches.
+* `1` — at least one response drifted (drift summary on stderr).
+* `2` — IO error reading the file, or a line that isn't a valid JSON
+  pair.
+
+Replay is the v0.35 regression-testing primitive for the agent
+protocol: record a real LLM-agent session, check the trace in, and
+re-run it on every commit to catch any wire-format drift.
+
 ## Forward compatibility
 
 * New op kinds: agents that don't understand `"op":"foo"` MUST still
@@ -322,8 +400,14 @@ Same convention as the underlying `mty <subcommand>`:
 ## Reference implementation
 
 The reference implementation lives at
-`crates/mty-cli/src/cmd/agent.rs`. It is ~700 LOC plus 25+ tests
-under `crates/mty-cli/tests/agent_mode.rs`.
+`crates/mty-cli/src/cmd/agent.rs`. It is ~1700 LOC plus the
+integration test suites under `crates/mty-cli/tests/`:
+
+* `agent_mode.rs` — stdio + single-shot end-to-end (v0.33 T5).
+* `agent_http.rs` — HTTP transport, auth, batch, recorder (v0.35 T2).
+* `agent_unix.rs` — Unix socket transport, with a Windows-fallback
+  smoke test for the platform-not-supported path (v0.35 T2).
+* `agent_recorder.rs` — `--record` + `--replay` round-trip (v0.35 T2).
 
 The CLI wrapper lives in `crates/mty-cli/src/main.rs` (look for
 `Cmd::Agent`).
