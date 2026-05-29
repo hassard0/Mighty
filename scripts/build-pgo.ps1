@@ -22,22 +22,29 @@ $ErrorActionPreference = "Stop"
 function Find-LlvmProfdata {
     param([string]$Toolchain)
 
-    $cmd = Get-Command llvm-profdata -ErrorAction SilentlyContinue
-    if ($cmd) { return $cmd.Source }
+    # v0.36.1: prefer the rustup-shipped llvm-profdata over $PATH —
+    # the version that wrote the .profraw shards is the only one
+    # guaranteed to parse them. See scripts/build-pgo.sh for the
+    # macOS-14 profile-version mismatch this fixes.
 
     # rustup-managed: <sysroot>/lib/rustlib/<host>/bin/llvm-profdata.exe
     $sysroot = & rustc "+$Toolchain" --print sysroot 2>$null
-    if (-not $sysroot) { return $null }
-    $sysroot = $sysroot.Trim()
+    if ($sysroot) {
+        $sysroot = $sysroot.Trim()
+        $vv = & rustc "+$Toolchain" -vV 2>$null
+        # NB: `$host` is a built-in automatic variable in PowerShell — use a
+        # different name for the local.
+        $hostTriple = ($vv | Where-Object { $_ -match '^host:' } | ForEach-Object { ($_ -split '\s+')[1] })
+        if ($hostTriple) {
+            $candidate = Join-Path $sysroot "lib\rustlib\$hostTriple\bin\llvm-profdata.exe"
+            if (Test-Path $candidate) { return $candidate }
+        }
+    }
 
-    $vv = & rustc "+$Toolchain" -vV 2>$null
-    # NB: `$host` is a built-in automatic variable in PowerShell — use a
-    # different name for the local.
-    $hostTriple = ($vv | Where-Object { $_ -match '^host:' } | ForEach-Object { ($_ -split '\s+')[1] })
-    if (-not $hostTriple) { return $null }
+    # Fallback: system LLVM on PATH.
+    $cmd = Get-Command llvm-profdata -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
 
-    $candidate = Join-Path $sysroot "lib\rustlib\$hostTriple\bin\llvm-profdata.exe"
-    if (Test-Path $candidate) { return $candidate }
     return $null
 }
 

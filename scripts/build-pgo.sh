@@ -44,16 +44,22 @@ PROFDIR="$(cd "$PROFDIR" && pwd)"
 
 # ----------------------------------------------------------------
 # Sanity: locate llvm-profdata. We try, in order:
-#   1. `llvm-profdata` on PATH (system LLVM).
-#   2. The rustup-managed one inside the active toolchain's sysroot
-#      under `lib/rustlib/<host>/bin/llvm-profdata`.
+#   1. The rustup-managed one inside the active toolchain's sysroot
+#      under `lib/rustlib/<host>/bin/llvm-profdata` (preferred — it
+#      version-matches the rustc that produced the .profraw shards).
+#   2. `llvm-profdata` on PATH (system LLVM) as a last resort.
 # We need *one* of them — fail loudly otherwise.
+#
+# v0.36.1: order flipped — system LLVM on macOS-14 GitHub runners
+# expects raw profile format v10 while rust 1.95.0 emits v8, which
+# produces:
+#   raw profile version mismatch:
+#   Profile uses raw profile format version = 8; expected version = 10
+# at the Phase 3 merge step. The rustup-shipped llvm-profdata is the
+# version that wrote the .profraw, so it parses them by definition.
+# Falling back to system LLVM only when rustup's variant is missing.
 # ----------------------------------------------------------------
 locate_llvm_profdata() {
-  if command -v llvm-profdata >/dev/null 2>&1; then
-    echo "llvm-profdata"
-    return 0
-  fi
   local sysroot
   sysroot="$(rustc +"$TOOLCHAIN" --print sysroot 2>/dev/null || true)"
   if [[ -n "$sysroot" ]]; then
@@ -65,6 +71,10 @@ locate_llvm_profdata() {
       echo "$candidate"
       return 0
     fi
+  fi
+  if command -v llvm-profdata >/dev/null 2>&1; then
+    echo "llvm-profdata"
+    return 0
   fi
   echo ""
   return 1

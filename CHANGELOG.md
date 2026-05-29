@@ -51,6 +51,38 @@ fix-it-for-others items the external reviewer called out
 (native codegen, extern c, string editing, stardust rename)
 plus the long-deferred Windows install + PGO re-enable.
 
+## [0.36.1] - 2026-05-29
+
+### Fixed
+- **Windows + Ubuntu `cargo test` env-var races.** Three tests
+  (`mty_codegen_cranelift::object::find_linker_honours_stardust_linker_env`,
+  `find_linker_treats_whitespace_override_as_unset`,
+  `mty_stdlib::observe::storage::is_recording_enabled_respects_falsey_values`)
+  set process-wide env vars (`MTY_LINKER`, `STARDUST_LINKER`,
+  `MTY_OBSERVE`) without acquiring the module-level `ENV_LOCK` mutex
+  that the v0.36.0 T4 tests used. Under cargo's default test
+  parallelism a sibling test could `remove_var` between the set and
+  the read, flipping the result. Two fixes: (a) all
+  `mty-codegen-cranelift::object` env-var tests now hold `ENV_LOCK`
+  and snapshot/restore previous values, (b) added the same `ENV_LOCK`
+  pattern to `mty-stdlib::observe::storage` tests.
+- **macOS PGO `Phase 3: merge profiles` profile-format mismatch
+  (`raw=8 vs expected=10`).** `scripts/build-pgo.sh` and
+  `scripts/build-pgo.ps1` were preferring `llvm-profdata` from
+  `$PATH` over the rustup-shipped variant. On the `macos-14`
+  GitHub runner `$PATH` resolved to a newer system LLVM that doesn't
+  understand rust 1.95.0's instrumentation format. The discovery
+  order is now flipped: rustup-shipped `llvm-profdata` first (it
+  version-matches the rustc that emitted the `.profraw` shards),
+  system LLVM as last-resort fallback.
+
+### Changed
+- `aarch64-apple-darwin` release leg returns to `use_pgo: false`
+  pending a v0.37 canary run with the corrected `llvm-profdata`
+  discovery order. v0.36.0's darwin-arm64 PGO leg was the only
+  release platform that failed; linux-x86_64 + windows-x86_64 PGO
+  worked end-to-end.
+
 ## [0.36.0] - 2026-05-29
 
 ### Added — fix-it-for-others
