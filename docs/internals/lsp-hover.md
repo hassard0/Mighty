@@ -1,10 +1,10 @@
-# LSP hover (v0.33 T6)
+# LSP hover (v0.33 T6, v0.34 T3 expansion)
 
 The LSP hover provider returns a Markdown payload that drives the box VS
 Code / JetBrains / Neovim show when the user rests on an identifier. As
-of v0.33 it stitches together signatures from the type-checker with a
+of v0.34 T3 it stitches together signatures from the type-checker with a
 curated **stdlib examples index** so the hover for `Member.ask` (or any
-of the 50+ other seeded stdlib surfaces) renders:
+of the 200+ other seeded stdlib surfaces) renders:
 
 - a fenced signature,
 - a one-line description,
@@ -24,8 +24,21 @@ see `docs/internals/stdlib.md`). The doc generator in `mty-doc` walks
 `std.*` documentation that does **not** depend on a Mighty-side
 declaration.
 
-v0.33 ships that source as a flat compile-time table in
-`crates/mty-doc/src/examples.rs`:
+v0.33 T6 introduced that source as a flat compile-time table in
+`crates/mty-doc/src/examples.rs` seeded with 58 entries; v0.34 T3 grew
+that catalog to 200+ entries spanning `std.rag` (Index/Doc/Retriever/
+Reranker/Rag + the four `ChunkStrategy` variants), `std.computer`
+(Mouse/Keyboard/Screen, every `ComputerAction` variant, `Dispatcher`,
+`ComputerCap` bounds + deny-list), `std.swarm` internals
+(`SharedDollarBudget`, `Consensus` accessors, `SimilarityMode`),
+`std.observe` query API (`Window`, `GroupBy`, `summarize`,
+`percentiles`), the four `std.taint` sanitisers (`HtmlEscape`,
+`ShellEscape`, `SqlEscape`, `PathBoundary`) plus the three untainting
+methods, `std.eval` comparators + `Verdict` variants + `Case` sources,
+`std.web` (`Canvas` drawing surface + `Input`/`Key`), `std.fs`
+read/stat/list/exists + `FsCap`, every `std.json` `Value` variant, and
+the foundational `std.string` + `std.vec` method surface. The same
+shape applies:
 
 ```rust
 pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
@@ -147,11 +160,15 @@ The "See also" list is curated-first, then back-filled by
 ## Tests
 
 - `crates/mty-doc/src/examples.rs` carries a `tests` module asserting
-  that the table has at least 50 entries, that every symbol is unique,
-  that every entry has a signature and example body, that lookup hits
-  for both qualified and bare forms, that the content hash is
-  deterministic, and that the rendered Markdown contains every
-  expected section header.
+  that the table has at least 50 entries (v0.33 T6 floor) and at least
+  140 entries (v0.34 T3 floor), that every symbol is unique, that
+  every entry has a signature and example body, that lookup hits for
+  both qualified and bare forms, that the content hash is
+  deterministic, that the rendered Markdown contains every expected
+  section header, and that the v0.34 T3 module-coverage probe lights
+  up entries for `std.rag`, `std.computer`, `std.swarm`,
+  `std.observe`, `std.taint`, `std.eval`, `std.web`, `std.fs`,
+  `std.json`, `std.string`, and `std.vec`.
 - `crates/mty-lsp/tests/integration.rs` exercises the full hover path
   end-to-end on:
   - `log` (bare builtin, capability-less),
