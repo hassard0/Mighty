@@ -313,10 +313,134 @@ pub fn supported_code_action_kinds() -> Vec<CodeActionKind> {
     ]
 }
 
-/// Bulk apply identifier (v0.35 follow-up). Documented here so
-/// editors that bind to a fixed string don't have to wait for the
-/// implementation to land.
+/// Bulk apply identifier. Editors that bind to a fixed string can
+/// trigger Mighty's "Fix all" by sending a `textDocument/codeAction`
+/// with `context.only = ["source.fixAll.mighty"]`. The handler returns
+/// a single [`CodeAction`] whose `WorkspaceEdit` carries every
+/// preferred-confidence fix for the document, applied in source order
+/// (highest line first, so earlier-in-file anchors stay valid).
 pub const SOURCE_FIX_ALL_MIGHTY: &str = "source.fixAll.mighty";
+
+/// v0.35 T3 — Build the single bulk-apply CodeAction for
+/// `source.fixAll.mighty`. Returns `None` when the document has no
+/// applicable preferred fixes.
+///
+/// "Preferred" = `confidence >= cfg.preferred_threshold` (default 0.85).
+/// For each qualifying diagnostic we pick the highest-confidence
+/// alternative whose diff applies cleanly against the current source.
+/// Multiple alternatives at the same span are NOT applied; the action
+/// chooses one per diagnostic, matching the CLI semantics.
+///
+/// Conflict resolution: the resulting `TextEdit`s share one
+/// `WorkspaceEdit`. LSP guarantees `WorkspaceEdit` text edits are
+/// applied highest-offset first, so our ordering (sorted descending
+/// by line) is preserved end-to-end.
+pub fn fix_all_mighty_action(
+    uri: &Url,
+    doc: &DocAnalysis,
+    cfg: CodeActionConfig,
+) -> Option<CodeAction> {
+    let mut edits: Vec<TextEdit> = Vec::new();
+    let mut diags_touched: Vec<tower_lsp::lsp_types::Diagnostic> = Vec::new();
+
+    // Walk every diagnostic in the document. For each one with a
+    // preferred fix, splice its highest-confidence applicable diff
+    // into the edit list.
+    //
+    // We collect (line, edit) pairs first so we can sort
+    // highest-line-first before merging — LSP applies WorkspaceEdit
+    // edits in descending offset order, so this keeps the source
+    // splice anchors valid.
+    let mut staged: Vec<(u32, TextEdit, tower_lsp::lsp_types::Diagnostic)> = Vec::new();
+
+    for d in &doc.diagnostics {
+        let env = d.to_envelope(uri.as_str(), &doc.source);
+        let Some(fix) = env.fix.as_ref() else {
+            continue;
+        };
+
+        // Pick the best alt that's preferred AND applies cleanly.
+        let mut alts: Vec<&mty_diagnostics::fix::FixAlternative> = fix
+            .alternatives
+            .iter()
+            .filter(|a| a.confidence >= cfg.preferred_threshold)
+            .collect();
+        alts.sort_by(|a, b| {
+            b.confidence
+                .partial_cmp(&a.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        for alt in alts {
+            let new_edits = unified_diff_to_text_edits(&alt.diff, &doc.source);
+            if new_edits.is_empty() {
+                continue;
+            }
+            let lsp_diag = crate::conv::diagnostic_to_lsp(d, &doc.line_index, &doc.source);
+            for e in new_edits {
+                staged.push((env.span.line, e, lsp_diag.clone()));
+            }
+            break; // one alternative per diagnostic
+        }
+    }
+
+    if staged.is_empty() {
+        return None;
+    }
+
+    // Highest source line first.
+    staged.sort_by_key(|s| std::cmp::Reverse(s.0));
+    for (_line, e, d) in staged {
+        edits.push(e);
+        diags_touched.push(d);
+    }
+
+    let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+    changes.insert(uri.clone(), edits);
+    let count = diags_touched.len();
+    Some(CodeAction {
+        title: format!(
+            "Fix all Mighty problems ({} fix{})",
+            count,
+            if count == 1 { "" } else { "es" }
+        ),
+        kind: Some(CodeActionKind::new(SOURCE_FIX_ALL_MIGHTY)),
+        diagnostics: Some(diags_touched),
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }),
+        command: None,
+        is_preferred: Some(true),
+        disabled: None,
+        data: None,
+    })
+}
+
+/// v0.35 T3 — Top-level handler taking the LSP `context.only` filter.
+/// If the client requested `source.fixAll.mighty`, return the bulk
+/// action; otherwise fall through to the per-diagnostic actions.
+pub fn code_actions_with_filter(
+    uri: &Url,
+    doc: &DocAnalysis,
+    cursor_range: Range,
+    diagnostics: &[tower_lsp::lsp_types::Diagnostic],
+    only: Option<&[CodeActionKind]>,
+    cfg: CodeActionConfig,
+) -> CodeActionResponse {
+    // If the client explicitly asked for `source.fixAll.mighty`, emit
+    // only that action (per LSP semantics: `only` is a strict filter).
+    if let Some(kinds) = only {
+        if kinds.iter().any(|k| k.as_str() == SOURCE_FIX_ALL_MIGHTY) {
+            return match fix_all_mighty_action(uri, doc, cfg) {
+                Some(ca) => vec![CodeActionOrCommand::CodeAction(ca)],
+                None => vec![],
+            };
+        }
+    }
+    code_actions_with_config(uri, doc, cursor_range, diagnostics, cfg)
+}
 
 fn actions_for_unknown_macro(
     uri: &Url,

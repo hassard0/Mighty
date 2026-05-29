@@ -12,6 +12,10 @@ pub mod dap;
 pub mod doc;
 pub mod dump;
 pub mod explain;
+// v0.35 T3 — `mty fix --apply <path>`: bulk-apply fix envelopes from
+// the CLI. Closes the loop on agent first-shot → zero-shot. See
+// `docs/reference/cli/mty-fix.md`.
+pub mod fix;
 // v0.33 T7 — `mty find <query>`: capability-tagged stdlib search.
 // Walks `crates/mty-stdlib/src` and builds an index of public items so
 // agents and humans can discover the right API via natural-language

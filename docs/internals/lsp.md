@@ -266,6 +266,40 @@ Each action returns a single-edit `WorkspaceEdit` with
 `is_preferred: Some(true)` so editors can auto-apply on the first
 `auto fix` keystroke.
 
+### Envelope-driven fixes (v0.34 T2)
+
+Every Mighty diagnostic also carries a
+`mty_diagnostics::fix::DiagnosticEnvelope` with one or more
+`FixAlternative`s. `emit_envelope_actions` parses the embedded
+unified diffs into LSP `TextEdit`s (see `diff_apply.rs`) and surfaces
+each surviving alternative as a `CodeAction`. Confidence ≥
+`preferred_threshold` (0.85) flips `is_preferred = true`; ≥
+`visible_threshold` (0.7) is still shown but not preferred; below
+0.7 is hidden from the lightbulb (the CLI's `mty fix --apply` can
+still take them with `--threshold 0.5`).
+
+### Bulk apply — `source.fixAll.mighty` (v0.35 T3)
+
+Editors that bind to the standard `source.fixAll.<dialect>` source
+action get a single Mighty bulk-apply via
+`context.only = ["source.fixAll.mighty"]`. The server's
+`code_action` handler routes the request to
+`fix_all_mighty_action(uri, doc, cfg)` which:
+
+1. Iterates the document's cached diagnostics.
+2. For each one with a `confidence ≥ preferred_threshold` alternative,
+   converts the highest-confidence applicable diff to a `TextEdit`.
+3. Sorts edits highest-source-line first so splicing earlier-in-file
+   edits doesn't invalidate later ones.
+4. Returns a single `CodeAction` whose `WorkspaceEdit` carries every
+   edit atomically. `is_preferred = true`; kind =
+   `source.fixAll.mighty`.
+
+The same string-level applier
+(`mty_diagnostics::apply::apply_unified_diff`) powers the CLI's
+`mty fix --apply`, so behavior matches between the editor and the
+terminal. See [`docs/reference/cli/mty-fix.md`](../reference/cli/mty-fix.md).
+
 ## Signature help (v0.5)
 
 `signature_help::signature_help(doc, pos)`:

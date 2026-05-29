@@ -169,6 +169,43 @@ enum Cmd {
         /// e.g. MT0001, sd0001, 0001, 1
         code: String,
     },
+    /// v0.35 T3 — Bulk-apply fix envelopes to a source file.
+    ///
+    /// Reads the file, runs `mty check` in-process, and for every
+    /// diagnostic that carries a fix envelope: picks the highest-
+    /// confidence alternative (≥ `--threshold`, default 0.85),
+    /// applies it, and writes back to disk. Pipe `mty check
+    /// --format json` into `mty fix --apply --from-stdin` to drive
+    /// the loop without re-checking inside `mty fix`.
+    ///
+    /// See `docs/reference/cli/mty-fix.md` for the full flag matrix.
+    Fix {
+        /// Required when `--apply` is set: source file to fix.
+        path: Option<std::path::PathBuf>,
+        /// Bulk-apply fixes. Without this flag, `mty fix` is a no-op
+        /// (reserved for future read-only commands).
+        #[arg(long)]
+        apply: bool,
+        /// Apply only fixes whose code matches (e.g. `MT4099`).
+        #[arg(long)]
+        code: Option<String>,
+        /// Always pick this 0-indexed alternative instead of the
+        /// highest-confidence one.
+        #[arg(long)]
+        alternative: Option<usize>,
+        /// Confidence floor. Default 0.85.
+        #[arg(long, default_value_t = cmd::fix::DEFAULT_THRESHOLD)]
+        threshold: f32,
+        /// Print the diff to stdout; don't write back.
+        #[arg(long)]
+        dry_run: bool,
+        /// Prompt y/N before each fix. Incompatible with `--from-stdin`.
+        #[arg(long)]
+        interactive: bool,
+        /// Read NDJSON envelopes from stdin (pipe from `mty check --format json`).
+        #[arg(long)]
+        from_stdin: bool,
+    },
     /// v0.33 T7 — Capability-tagged search across the Mighty stdlib.
     ///
     /// Examples:
@@ -570,6 +607,30 @@ fn main() {
             db,
         }),
         Cmd::Explain { code } => cmd::explain::run(&code),
+        Cmd::Fix {
+            path,
+            apply,
+            code,
+            alternative,
+            threshold,
+            dry_run,
+            interactive,
+            from_stdin,
+        } => {
+            if !apply {
+                eprintln!("mty fix: pass --apply to bulk-apply fix envelopes (this command is reserved for read-only operations otherwise; see `mty fix --help`)");
+                std::process::exit(2);
+            }
+            cmd::fix::run(cmd::fix::FixApplyArgs {
+                path,
+                code,
+                alternative,
+                threshold,
+                dry_run,
+                interactive,
+                from_stdin,
+            })
+        }
         Cmd::Find {
             query,
             by_capability,
