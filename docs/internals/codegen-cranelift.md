@@ -215,3 +215,32 @@ which interacts subtly with effect rows and trait dispatch.
   slice-7-via-interpreter per-turn callback)
 - DWARF debug info (cranelift's stub support → useful frames)
 - ThinLTO-style cross-fn optimization (v0.2 LLVM)
+
+## v0.36 T1 — Native codegen fixes
+
+Three correctness fixes landed in v0.36 T1:
+
+- **U8 widening.** Loads of `U8` values into a wider register now
+  zero-extend instead of inheriting cranelift's default sign-extend
+  for `I8`. Previously a `Vec[U8]` element read into a 32-bit register
+  returned a sign-extended negative value for any byte ≥ 0x80.
+- **Dynamic log lowering.** `log(<runtime-string>)` (where the operand
+  is computed rather than a string literal) now emits the
+  three-argument runtime trampoline directly. Previously dynamic-log
+  call sites bailed to the interpreter, which broke `mty build`'s
+  native-binary path for any program using runtime-built log messages.
+  Test coverage: `crates/mty-driver/tests/native_dynamic_log.rs`.
+- **Hex / binary / octal literal suffixes.** `0xFF_u8`, `0b1010_u8`,
+  `0o77_u8` now lower with the correct integer type. The parser had
+  the suffix; the lowering pass was discarding it for non-decimal
+  literals and falling back to `IntInfer`.
+
+See [`docs/reference/cli/mty-build.md`](../reference/cli/mty-build.md)
+for the user-facing surface.
+
+## v0.36 T4 — Cranelift segment rename
+
+The object writer emits a segment named `b"mighty"` in the metadata
+section (renamed from the legacy `b"stardust"`). The legacy spelling
+is still accepted by `accepted_segment_name` for compat with external
+inspectors. See [`rename-compat.md`](rename-compat.md).

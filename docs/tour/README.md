@@ -28,7 +28,7 @@ If you have not installed the compiler yet, see
 15. [Traits](15-traits.md) — declaration, impls, dispatch, `dyn Trait`,
     derive(Copy/Hash/Eq).
 
-## Contents (chapters 16–20 — LLM-agent surface, v0.26–v0.30)
+## Contents (chapters 16–21 — agent surface, v0.26–v0.33)
 
 16. [Tools and LLM providers](16-tools-and-llm.md) — `@tool`
     decorator, typed providers, streaming.
@@ -40,13 +40,18 @@ If you have not installed the compiler yet, see
     `mty inspect --cost`.
 20. [Computer use](20-computer-use.md) — Anthropic Computer Use as
     a capability with a typed sandbox.
+21. [RAG and vision](21-rag-and-vision.md) — `std.rag.Index` +
+    `std.rag.Rag` + `std.llm.Image` multi-modal pipeline (v0.33).
 
 Examples 16–24 (macros, sandboxes, end-to-end backend / frontend
 services, effect rows, agent fields) sit outside the tour
 chapters because they are direct references for surfaces already
 covered in earlier chapters. They live under
 [`examples/`](https://github.com/hassard0/Mighty/blob/main/examples/README.md)
-grouped by topic.
+grouped by topic. Examples 37–40 cover post-v0.30 surfaces
+(`mty dap` debug session in 37, diagnostic envelopes in 38,
+v0.36 native binaries + extern C in 39, v0.36 T3 string editing
+in 40).
 
 ## Running every example
 
@@ -60,9 +65,9 @@ On Windows PowerShell:
 Get-ChildItem examples/*.mty | ForEach-Object { mty check $_.FullName }
 ```
 
-All 36 shipped examples parse, format-roundtrip, type-check,
+All 40 shipped examples parse, format-roundtrip, type-check,
 borrow-check, effect-check, taint-check, and run cleanly as of
-**v0.30.1**. If you see anything other than `ok: <path>` (or the
+**v0.36**. If you see anything other than `ok: <path>` (or the
 documented MT2026 warning on `13_capabilities.mty`), open an
 issue.
 

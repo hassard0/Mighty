@@ -25,6 +25,11 @@ The `mty` binary dispatches to per-command sub-pages:
 - [`mty inspect`](cli/mty-inspect.md) — runtime introspection; `--cost` reads the `std.observe` SQLite store.
 - [`mty replay`](cli/mty-replay.md) — replay traces; `--byte-identical` strict mode; `--diff` divergence reporter.
 - [`mty reload`](cli/mty-reload.md) — hot-swap an agent's wasm without losing its state.
+- [`mty find`](find.md) — capability-tagged search across the stdlib catalog (v0.33).
+- [`mty fix`](cli/mty-fix.md) — bulk-apply fix envelopes from `mty check --format json` (v0.35).
+- [`mty agent`](cli/mty-agent.md) — spawn / list / kill / send-message to running agents from the CLI.
+- [`mty hooks`](cli/mty.md#hooks) — install / uninstall / status of the project's pre-push git hook (v0.34).
+- [`mty doc --check`](cli/mty-doc.md) — Strategy B drift gate: compares per-module docstubs to the curated stdlib catalog (v0.35).
 
 `mty test --eval` runs `*.eval.mty` suites against a provider
 panel under byte-identical replay — covered under

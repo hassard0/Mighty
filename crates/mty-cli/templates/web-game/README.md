@@ -28,7 +28,7 @@ websocket (`/_reload`).
     └── dom-shim.js      # JS host glue + canvas mirror
 ```
 
-## How it works (v0.23)
+## How it works
 
 - `src/main.mty` defines a `Game` agent that owns the score +
   alive flag. Each keystroke maps to a `GameInput` message and a
@@ -38,10 +38,11 @@ websocket (`/_reload`).
   the wasm exports, and mirrors the agent's logged events onto a
   `<canvas>`.
 
-This is the v0.22-era pattern; once the canvas WIT in
-`crates/mty-codegen-wasm/wit/mty-web/canvas.wit` lands the guest
-can draw to the canvas directly and the JS mirror collapses to
-input plumbing.
+The template uses the v0.22-era log-event mirror by default for
+maximum portability. Guests that want to draw directly can switch
+to the canvas-direct path landed in v0.25 — `mty:web/canvas@0.1`
+WIT bindings + RAF callbacks (see demo `06_canvas_game/` for an
+end-to-end example).
 
 ## Build manually
 

@@ -1,7 +1,14 @@
-# Mighty for VS Code
+# Mighty for VS Code (legacy v0.5 extension)
 
-Syntax highlighting plus the official Mighty Language Server (LSP) for
-`.mty` files.
+> **Superseded by [`tools/vscode/`](../../tools/vscode/README.md).**
+> This directory holds the original v0.5 prototype extension. The
+> v0.31+ production extension (with cost CodeLens, DAP debugger,
+> quick-fix lightbulb, cost side-panel, etc.) lives at
+> `tools/vscode/` and is the one published to the marketplace.
+> Keep this directory only for historical reference; new work
+> happens in `tools/vscode/`.
+
+The notes below describe the v0.5 surface as shipped.
 
 ## Features (v0.5)
 

@@ -35,6 +35,22 @@ captured in the notes directory.)
 The unabridged per-release notes; the repo-root
 [`CHANGELOG.md`](../../CHANGELOG.md) summarises each one.
 
+The table below covers v0.1–v0.9 (the slice-driven era). For v0.10
+and later (the track-driven era) consult the individual
+`RELEASE-v0.NN.md` files alongside the
+[CHANGELOG entries](../../CHANGELOG.md). Highlights since v0.9:
+
+- v0.18 — replay (byte-identical) + cluster (Tier 4.1) + cabi_realloc extract
+- v0.26–v0.30 — LLM-agent stack (`std.llm`, `std.swarm`, `std.memory`,
+  taint types, `std.observe`, computer use)
+- v0.31–v0.34 — VS Code v2 (cost CodeLens, DAP debug, quick-fix lightbulb),
+  `mty find`, `mty hooks`, fix engines for 80+ MTxxxx codes
+- v0.35 — PGO release binaries (3 platforms), multi-arch Docker, homebrew
+  runbook, stdlib hover-catalog drift gate
+- v0.36 — native codegen fixes (U8 + dynamic log), `extern c` + extern_libs,
+  String position/range ops, Stardust→Mighty rename compat finished, Windows
+  `cli-min` install + macOS PGO re-enabled
+
 | File | Headline |
 |---|---|
 | `RELEASE-v0.1.md` | First feature-complete release (376 tests) |

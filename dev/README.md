@@ -9,9 +9,10 @@ of how the toolchain got built slice-by-slice.
 
 - [`history/slices/`](history/slices/) — per-slice implementation
   notes (`SLICE*.md`), one per scoped milestone slice from
-  v0.1's eight ladder slices through v0.9.
+  v0.1's eight ladder slices onward (slice-based development was
+  superseded by track-based releases at v0.20).
 - [`history/releases/`](history/releases/) — the full per-release
-  notes (`RELEASE-v0.1.md` .. `RELEASE-v0.9.md`). The repo-root
+  notes (`RELEASE-v0.1.md` .. `RELEASE-v0.36.md`). The repo-root
   [`CHANGELOG.md`](../CHANGELOG.md) summarises each; this directory
   holds the unabridged versions.
 - [`history/notes/`](history/notes/) — agent-level working notes

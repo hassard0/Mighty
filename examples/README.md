@@ -1,6 +1,6 @@
 # Mighty Examples
 
-Thirty-six canonical one-file examples — one per language feature
+Forty canonical one-file examples — one per language feature
 or stdlib surface — that compile cleanly under `mty check` on
 every commit. The examples are the **canonical reference** for
 "what does this surface look like in real source"; the
@@ -11,7 +11,7 @@ mean.
 Every example is exercised by the per-PR CI: `cargo test
 --workspace` runs every `*.mty` file through `mty check` + `mty
 fmt --check` and asserts a clean exit. The CI sweep gates the
-`example sweep green` row — when a release lands, all 36 examples
+`example sweep green` row — when a release lands, all 40 examples
 have to compile.
 
 ## Run every example
@@ -127,12 +127,26 @@ and exercised by the example-error CI lane.
 |---|------|---------|
 | 36 | [`36_computer_use.mty`](36_computer_use.mty) | Anthropic Computer Use as a capability with typed sandbox bounds (v0.30 Track C). |
 
+## Debugging + diagnostics
+
+| # | File | Teaches |
+|---|------|---------|
+| 37 | [`37_debug_demo.mty`](37_debug_demo.mty) | `mty dap` DAP debug session (v0.32 Track A). |
+| 38 | [`38_diag_envelopes.mty`](38_diag_envelopes.mty) | Structured agent-actionable diagnostic envelopes (v0.33 T4). |
+
+## Native binaries + FFI + string editing (v0.36)
+
+| # | File | Teaches |
+|---|------|---------|
+| 39 | [`39_native_binary.mty`](39_native_binary.mty) | Real native-binary `mty build` with U8 widening + dynamic log + hex/binary/octal literal suffixes (v0.36 T1). |
+| 40 | [`40_string_editing.mty`](40_string_editing.mty) | `Str` / `String` position / range-edit / char-boundary helpers + MT5080 (v0.36 T3). |
+
 ## Reading order
 
 For first-time readers, the [tour](../docs/tour/README.md) walks
 examples 01–20 in pedagogical order with a paragraph of context on
 each. After chapter 15, the tour ends and the rest of the examples
-(16–36) live here as a reference grouped by topic.
+(16–40) live here as a reference grouped by topic.
 
 For LLM-agent readers (the v0.26+ stack), start at example 27
 (`@tool`) and read forward through 36 (`@computer_use`) — those
@@ -140,11 +154,11 @@ ten examples are the differentiator surface.
 
 ## See also
 
-- [`demos/README.md`](../demos/README.md) — nine end-to-end apps
+- [`demos/README.md`](../demos/README.md) — eleven end-to-end apps
   exercising the same surfaces composed into real programs.
 - [`bench/swe/README.md`](../bench/swe/README.md) — SWE-bench
   Verified harness using the LLM-agent stack.
 - [`docs/tour/README.md`](../docs/tour/README.md) — pedagogical
-  walk-through of examples 01–20.
+  walk-through of examples 01–21.
 - [`docs/reference/README.md`](../docs/reference/README.md) — CLI
   + manifest + stdlib reference.

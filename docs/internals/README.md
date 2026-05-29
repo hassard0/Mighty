@@ -26,11 +26,17 @@ language, see the [tour](../tour/README.md).
 
 **Codegen + runtime**
 
-- [Codegen (Cranelift)](codegen-cranelift.md) — native JIT/AOT.
+- [Codegen (Cranelift)](codegen-cranelift.md) — native JIT/AOT
+  (U8 widening + dynamic log lowering landed v0.36 T1).
 - [Codegen (LLVM)](codegen-llvm.md) — opt-in LLVM backend.
 - [Codegen (Wasm)](codegen-wasm.md) — wasm32-wasi + Component Model
   + real free-list `cabi_realloc` (v0.18).
+- [Extern C matrix](extern-c-matrix.md) — `extern c { ... }`
+  signature shapes known-good on v0.36 + `[[extern_lib]]` linker
+  contract (v0.36 T2).
 - [Debug Info](debug-info.md) — DWARF v4 + Wasm source maps.
+- [PGO](pgo.md) — profile-guided optimisation pipeline (re-enabled
+  on Linux/macOS-x86_64/Windows in v0.36 T5).
 - [Runtime](runtime.md) — concurrent agent runtime architecture.
 - [Agents](agents.md) — cross-cutting agent overview
   (surface → HIR → typeck → spawn → turn loop).
@@ -45,7 +51,11 @@ language, see the [tour](../tour/README.md).
 - [Telemetry](telemetry.md) — slice-7 JSON-line emitter.
 - [Telemetry Spans](telemetry-spans.md) — OpenTelemetry agent spans
   (Tier 1.2 + 1.3, v0.16).
-- [Telemetry OTLP](telemetry-otlp.md) — OTLP bridge.
+- [Telemetry OTLP](telemetry-otlp.md) — OTLP bridge (span names
+  renamed `stardust.*` → `mty.*` in v0.36 T4 with `legacy_span_name`
+  back-compat).
+- [Observability](observability.md) — `std.observe` cost-tracking
+  SQLite store + `mty inspect --cost` reader.
 - [Introspect](introspect.md) — `mty inspect` + control socket
   (Tier 1.1, v0.16).
 - [Replay](replay.md) — deterministic replay (Tier 1.4, v0.17/18).
@@ -56,14 +66,23 @@ language, see the [tour](../tour/README.md).
 - [Macros](macros.md) — declarative-macro registry + expander
   + set-of-scopes hygiene (RFC-009).
 - [LSP](lsp.md) — LSP 3.17 server.
+- [LSP hover](lsp-hover.md) — hover catalog source-of-truth +
+  drift gate (v0.35 T5).
 - [Doc Generator](doc-generator.md) — markdown / HTML output.
-- [Package Manager](package-manager.md) — `mty pkg`.
+- [Stdlib docs pipeline](stdlib-docs-pipeline.md) — per-module
+  `.docstub` extraction + Strategy B drift gate (`mty doc --check`).
+- [Package Manager](package-manager.md) — `mty pkg`. Legacy
+  `stardust-pkg/registry` slug still resolves via
+  `is_official_registry` (v0.36 T4 compat).
 - [Package Signing](package-signing.md) — real Sigstore keyless
   (v0.18 with `sigstore-real` feature).
 - [Fuzzing](fuzzing.md) — cargo-fuzz across parser / typeck / fmt
   / codegen.
 - [Benchmarking](benchmarking.md) — criterion + the `mty-bench` runner.
 - [Self-hosting](self-hosting.md) — Mighty-in-Mighty bootstrap.
+- [Rename compat](rename-compat.md) — `STARDUST_*` → `MTY_*` env-var
+  precedence + WIT / OTLP / registry / segment legacy-name acceptance
+  (v0.36 T4).
 
 **Spec details**
 
@@ -121,11 +140,12 @@ The internals are exercised by a layered test corpus:
 |---|---|---|
 | Unit + per-crate integration | `crates/*/tests/`, `src/**/tests` | 1300+ Rust |
 | 2nd-impl Python typeck | `impl-py/tests/` | 274 Python |
-| Normative conformance | `tests/conformance/` | 92 cases / 16 categories |
+| Normative conformance | `tests/conformance/` | 159 cases / 24 categories |
 | Self-host driver codegen | `crates/mty-driver/tests/selfhost_*.rs` | 23 |
-| Demo end-to-end | `demos/*/smoke.sh` | 4 |
+| Demo end-to-end | `demos/*/smoke.sh` | 11 |
 | Fuzzing | `fuzz/fuzz_targets/` | 4 targets |
 
-All six CI workflow jobs are required gates: `test (ubuntu)`,
+CI workflow jobs (see `.github/workflows/ci.yml`): `test (ubuntu)`,
 `test (macos)`, `test (windows)`, `test (minimal features)`,
-`clippy (strict)`, `msrv (1.85.0)`.
+`clippy (strict)`, `multi-arch dry-run`. The same checks run
+locally via the `mty hooks install` pre-push hook (v0.34 T4).

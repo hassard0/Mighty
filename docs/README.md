@@ -2,13 +2,15 @@
 
 Mighty is a statically typed, ownership-based, agent-first systems
 language that compiles to native code and to WebAssembly components.
-These docs cover the language at toolchain **v0.10** tracking
-spec **v1.0-RC2**.
+These docs cover the language at toolchain **v0.36** tracking
+spec **v1.0-RC5**.
 
 > **Pre-1.0 warning.** The language surface is frozen for v1.0 but
-> there is no binary release and no semver guarantee yet. Treat
-> Mighty as ready to play with, not yet ready for production. See
-> the [FAQ](faq.md) for the full status breakdown.
+> the binary distribution is still pre-release (cargo-install
+> + PGO release binaries on Linux/macOS-x86_64/Windows; homebrew
+> formula prepared but not yet in `homebrew-core`). Treat Mighty
+> as ready to play with, not yet ready for production. See the
+> [FAQ](faq.md) for the full status breakdown.
 
 ## Learn the language
 
@@ -43,7 +45,8 @@ spec **v1.0-RC2**.
   - [Manifest format](reference/manifest.md) — the `mighty.toml`
     schema.
   - [Diagnostic codes](reference/diagnostics.md) — the `MTxxxx`
-    registry. Run `mty explain MTxxxx` for inline help.
+    registry. Run `mty explain MTxxxx` for inline help (also
+    accepts the legacy `SDxxxx` spelling per amendment A107).
   - [Registry](reference/registry.md) — package index format.
   - [Stdlib reference](reference/stdlib/) —
     [fs](reference/stdlib/fs.md),
@@ -81,30 +84,35 @@ spec **v1.0-RC2**.
 - [Upstream issues](upstream-issues/) — bugs filed against
   Cranelift / wasmtime / etc. that affect Mighty.
 
-## Status snapshot (v0.10)
+## Status snapshot (v0.36)
 
-| Component                            | State                    |
-|--------------------------------------|--------------------------|
-| Lexer, parser, CST                   | shipped                  |
-| Typed AST + HIR + lowering           | shipped                  |
-| Diagnostics engine                   | shipped (977 tests)      |
-| Formatter (per-node)                 | shipped (slice 2)        |
-| Type checker                         | shipped                  |
-| Borrow / move / affine checker       | shipped                  |
-| Effect / capability checker          | shipped                  |
-| Codegen (Cranelift)                  | shipped, narrow subset   |
-| Codegen (Wasm)                       | shipped, narrow subset   |
-| Codegen (LLVM)                       | stub (v0.2 target)       |
-| Runtime (scheduler, mailboxes)       | shipped (v0.7)           |
-| Supervisors + budgets + sandboxes    | shipped (v0.7)           |
-| Macros (decl + sandboxed proc)       | shipped (v0.6 + v0.8)    |
-| LSP                                  | shipped (v0.5+)          |
-| `mty pkg` cross-file resolve         | shipped (v0.10)          |
-| `mty test`                           | shipped (folded in v0.3) |
-| `mty doc`                            | stub                     |
-| `mty bench`                          | stub                     |
-| `mty pkg publish`                    | DEFER-V1.1 (RFC-004)     |
-| Self-host (lexer..min-typeck)        | 40/40 tests passing      |
+| Component                            | State                                            |
+|--------------------------------------|--------------------------------------------------|
+| Lexer, parser, CST                   | shipped                                          |
+| Typed AST + HIR + lowering           | shipped                                          |
+| Diagnostics engine                   | shipped                                          |
+| Formatter (per-node)                 | shipped                                          |
+| Type checker                         | shipped                                          |
+| Borrow / move / affine checker       | shipped                                          |
+| Effect / capability checker          | shipped                                          |
+| Codegen (Cranelift) native           | shipped (v0.36 T1: U8 widening + dynamic log)    |
+| Codegen (Wasm) P2 + cabi_realloc     | shipped (v0.18)                                  |
+| Codegen (LLVM)                       | opt-in backend                                   |
+| Runtime (scheduler, mailboxes)       | shipped                                          |
+| Supervisors + budgets + sandboxes    | shipped                                          |
+| Macros (decl + sandboxed proc)       | shipped                                          |
+| LSP + DAP                            | shipped (LSP v0.5+, DAP v0.32 Track A)           |
+| `mty pkg` (resolve / fetch / publish)| shipped                                          |
+| Hot reload (`mty reload`)            | shipped (v0.17/18)                               |
+| Replay (`mty replay --byte-identical`)| shipped (v0.17/18)                              |
+| Cluster (distributed agents)         | shipped (v0.18 Tier 4.1)                         |
+| LLM-agent stack (std.llm/mcp/memory/swarm) | shipped (v0.26–v0.30)                      |
+| Extern C + `[[extern_lib]]`          | shipped (v0.36 T2)                               |
+| String position/range ops + MT5080   | shipped (v0.36 T3)                               |
+| Stardust→Mighty rebrand compat       | shipped (v0.36 T4 — STARDUST_* env legacy)       |
+| PGO release binaries                 | shipped (v0.36 T5 — Linux + macOS-x86_64 + Win)  |
+| `mty find` / `mty fix` / `mty hooks` | shipped (v0.33/v0.34/v0.35)                      |
+| Self-host (lexer..min-typeck)        | 40/40 tests passing                              |
 
 See
 [`CHANGELOG.md`](https://github.com/hassard0/Mighty/blob/main/CHANGELOG.md)

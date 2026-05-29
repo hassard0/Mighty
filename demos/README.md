@@ -1,6 +1,6 @@
 # Mighty Demos
 
-Nine end-to-end demos that exercise the Mighty compiler + runtime
+Eleven end-to-end demos that exercise the Mighty compiler + runtime
 the way an external adopter would. Each demo lives in its own
 directory with a `mighty.toml`, source under `src/`, a smoke script
 (bash + PowerShell where it makes sense), and a per-demo `README.md`.
@@ -24,13 +24,17 @@ sandboxes → stateful → web → agents → swarms → distributed.
 | 07 | [`07_research_agent`](07_research_agent/) | LLM research agent | `std.llm` + `std.memory` + `@tool` decorator |
 | 08 | [`08_swarm_review`](08_swarm_review/) | Multi-LLM code review | `std.swarm` consensus + capability-typed tools |
 | 09 | [`09_distributed_swarm`](09_distributed_swarm/) | Cross-node swarm | cluster mesh + typed bang-send returns + `std.eval` |
+| 10 | [`10_vision_rag`](10_vision_rag/) | Multi-modal RAG agent | `std.rag.Index` + `std.rag.Rag` + `std.llm.Image` |
+| 11 | [`11_ffi_winit_stub`](11_ffi_winit_stub/) | FFI scaffold | `[[extern_lib]]` static-lib linking + `extern c { ... }` |
 
 Demos 5–8 are the agent-heavy ones — they exercise the
 **v0.27–v0.30 marketing claims** (capability-typed tools,
 `std.swarm`, `std.eval`, taint types, computer use). Demo 09
 demonstrates the v0.29 cluster surface; the v0.30 differentiators
 (`Tainted[T]`, `std.observe`, `std.computer`) ship as canonical
-examples in [`examples/`](../examples/) (33–36).
+examples in [`examples/`](../examples/) (33–36). Demo 10 covers the
+v0.33 `std.rag` + multi-modal pipeline; demo 11 is the v0.36 Track T2
+FFI scaffold (`[[extern_lib]]` + `extern c {}`).
 
 ## How each demo lays out
 
@@ -71,7 +75,7 @@ Get-ChildItem demos\0*\ -Directory | ForEach-Object {
 }
 ```
 
-All nine print `<demo>: PASS` when the run succeeds.
+All eleven print `<demo>: PASS` when the run succeeds.
 
 ## Opt-in extras
 
@@ -120,13 +124,13 @@ shape. The short version:
 | 07 | v0.26 (std.llm + std.memory + @tool) |
 | 08 | v0.27 (std.swarm + handler-safe ADTs + `mty run -- argv`) |
 | 09 | v0.29 (BuiltinId::Swarm + typed bang-send + cluster routing) |
+| 10 | v0.33 (`std.rag` + `std.llm.Image` multi-modal pipeline)     |
+| 11 | v0.36 T2 (`[[extern_lib]]` + `extern c {}` static-lib linking) |
 
 The v0.30 differentiator surface (`Tainted[T]`, `std.observe`,
-`std.computer`, `mty test --eval`) ships as examples 33–36 rather
-than as a Demo 10 — those surfaces compose more naturally as
-focused vignettes than as a tenth full app. A Demo 10 (browser
-operator using `@computer_use` end-to-end) is on the v0.31
-roadmap.
+`std.computer`, `mty test --eval`) ships as canonical examples
+33–36 rather than as a full demo — those surfaces compose more
+naturally as focused vignettes than as full apps.
 
 ## See also
 

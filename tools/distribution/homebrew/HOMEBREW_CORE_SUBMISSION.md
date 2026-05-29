@@ -145,7 +145,9 @@ first-time submission are:
 3. **Drop the formula in.** homebrew-core organizes by first letter:
 
    ```bash
-   cp ~/stardust/tools/distribution/homebrew/mty.rb Formula/m/mty.rb
+   # from your Mighty checkout (set $MIGHTY_REPO if it lives elsewhere):
+   cp "${MIGHTY_REPO:-$HOME/Mighty}/tools/distribution/homebrew/mty.rb" \
+      Formula/m/mty.rb
    ```
 
 4. **Local audit + install (from §"Pre-flight" above):**
