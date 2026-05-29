@@ -2093,10 +2093,7 @@ mod tests {
         assert_eq!(code, 0);
         assert!(body.contains("\"kind\":\"halt\"") || body.contains("\"op\":\"halt\""));
         // Last non-empty line is the `done` terminator.
-        let last = body
-            .lines()
-            .rfind(|l| !l.trim().is_empty())
-            .unwrap();
+        let last = body.lines().rfind(|l| !l.trim().is_empty()).unwrap();
         let v: serde_json::Value = serde_json::from_str(last).unwrap();
         assert_eq!(v["kind"], "done");
         assert_eq!(v["exit_code"], 0);
@@ -2111,10 +2108,7 @@ mod tests {
         };
         let (code, body) = run_one_capturing(&mut s, &req);
         assert_eq!(code, 2);
-        let last = body
-            .lines()
-            .rfind(|l| !l.trim().is_empty())
-            .unwrap();
+        let last = body.lines().rfind(|l| !l.trim().is_empty()).unwrap();
         let v: serde_json::Value = serde_json::from_str(last).unwrap();
         assert_eq!(v["kind"], "done");
         assert_eq!(v["exit_code"], 2);
