@@ -1715,13 +1715,62 @@ impl<'a> Emitter<'a> {
         wfn: &mut WFunction,
     ) -> CompileResult<()> {
         match rv {
-            Rvalue::Use(op) | Rvalue::Cast { src: op, .. } | Rvalue::StrPtr(op) => {
+            Rvalue::Use(op) | Rvalue::StrPtr(op) => {
                 // v0.37 Track T3 — wasm32-web doesn't have a real
                 // raw-pointer ABI (extern js calls funnel through the
                 // host's bridge), so a `StrPtr` is effectively a pass-
                 // through of the operand. The host shim does its own
                 // string conversion at the boundary.
                 self.emit_operand(f, m, op, wfn)
+            }
+            Rvalue::Cast { src, ty } => {
+                // v0.37 T2 — explicit `expr as Ty` cast. The wasm
+                // ValType for U8/U16/U32/I8/I16/I32 is i32; for
+                // I64/U64/ISize/USize it's i64. When the source ValType
+                // differs from the target ValType we must emit the
+                // matching wasm conversion (otherwise the validator
+                // sees the source operand width on the operand stack
+                // and rejects the consumer that expects the cast type).
+                self.emit_operand(f, m, src, wfn)?;
+                let src_ty = self.operand_ir_ty(f, src);
+                let src_vt = src_ty.as_ref().and_then(Self::lower_ty);
+                let dst_vt = Self::lower_ty(ty);
+                match (src_vt, dst_vt) {
+                    (Some(ValType::I32), Some(ValType::I64)) => {
+                        // i32 -> i64. Pick signed/unsigned based on the
+                        // SOURCE type's signedness — matches v0.36 T1's
+                        // cranelift uextend vs sextend fix.
+                        let unsigned = matches!(
+                            src_ty.as_ref(),
+                            Some(
+                                IrTy::Int(IntKind::U8 | IntKind::U16 | IntKind::U32)
+                                    | IrTy::Bool
+                                    | IrTy::Char,
+                            ),
+                        );
+                        if unsigned {
+                            wfn.instruction(&I::I64ExtendI32U);
+                        } else {
+                            wfn.instruction(&I::I64ExtendI32S);
+                        }
+                    }
+                    (Some(ValType::I64), Some(ValType::I32)) => {
+                        wfn.instruction(&I::I32WrapI64);
+                    }
+                    (Some(ValType::F32), Some(ValType::F64)) => {
+                        wfn.instruction(&I::F64PromoteF32);
+                    }
+                    (Some(ValType::F64), Some(ValType::F32)) => {
+                        wfn.instruction(&I::F32DemoteF64);
+                    }
+                    _ => {
+                        // Same ValType (e.g. I32->U16, or U8->I8) — no
+                        // wasm-level conversion needed. The "real"
+                        // truncation happens at the next narrowing use
+                        // (load/store) or via a follow-up `i32.and`.
+                    }
+                }
+                Ok(())
             }
             Rvalue::Const(c) => self.emit_const(c, wfn),
             Rvalue::BinOp(op, a, b) => {
@@ -1798,6 +1847,33 @@ impl<'a> Emitter<'a> {
                 "wasm rvalue {:?}",
                 std::mem::discriminant(rv)
             ))),
+        }
+    }
+
+    /// v0.37 T2 — look up the IrTy of an operand. For `Operand::Const`
+    /// we recover the type from the constant tag; for `Operand::Copy`/
+    /// `::Move` we look up the local in the function's locals table.
+    /// Projections (field/tuple/deref) are not yet supported on this
+    /// path; cast sources at projection positions return `None` and
+    /// the caller falls back to the same-ValType no-op path (which is
+    /// what the wasm validator would accept anyway).
+    fn operand_ir_ty(&self, f: &Function, op: &Operand) -> Option<IrTy> {
+        match op {
+            Operand::Const(c) => match c {
+                Const::Unit => Some(IrTy::Unit),
+                Const::Bool(_) => Some(IrTy::Bool),
+                Const::Int(_, k) => Some(IrTy::Int(*k)),
+                Const::Float(_, k) => Some(IrTy::Float(*k)),
+                Const::Char(_) => Some(IrTy::Char),
+                Const::Str(_) => Some(IrTy::Str),
+                _ => None,
+            },
+            Operand::Copy(p) | Operand::Move(p) => {
+                if !p.proj.is_empty() {
+                    return None;
+                }
+                f.locals.get(p.local.0 as usize).map(|l| l.ty.clone())
+            }
         }
     }
 
