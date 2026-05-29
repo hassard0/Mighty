@@ -131,9 +131,9 @@ surfaces.
 
 - [`docs/spec/v1.0-rc.md`](../spec/v1.0-rc.md) §2693 — the
   REBRAND_NOTES section enumerating each renamed surface.
-- [`dev/history/notes/REBRAND_NOTES.md`](../../dev/history/notes/REBRAND_NOTES.md)
+- [`dev/history/notes/REBRAND_NOTES.md`](https://github.com/hassard0/Mighty/blob/main/dev/history/notes/REBRAND_NOTES.md)
   — the v0.7 rename log.
-- [`dev/history/releases/RELEASE-v0.36.md`](../../dev/history/releases/RELEASE-v0.36.md)
+- [`dev/history/releases/RELEASE-v0.36.md`](https://github.com/hassard0/Mighty/blob/main/dev/history/releases/RELEASE-v0.36.md)
   — the T4 sweep that finished the migration (ref count: 121 → 45).
 - `crates/mty-runtime/src/env_compat.rs` — the precedence helper.
 - `crates/mty-codegen-wasm/src/wit.rs` — `accepted_pkg_namespace`.
