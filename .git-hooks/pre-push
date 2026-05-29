@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+#
+# Mighty pre-push hook — v0.34 T4.
+#
+# Mirrors the two cheapest CI gates on every `git push`, so a
+# Windows-only swarm agent doesn't keep landing branches that fail
+# Linux-side `cargo fmt --check`. CI still runs the full matrix; this
+# hook is an early-warning so a 60-second local check catches the same
+# class of regressions a 12-minute remote rebuild would.
+#
+# Install via `mty hooks install`, which symlinks (or copies, on
+# Windows where symlinks need admin) this file to .git/hooks/pre-push.
+# Direct manual install:
+#
+#     cp .git-hooks/pre-push .git/hooks/pre-push
+#     chmod +x .git/hooks/pre-push
+#
+# Opt-out for one push: `git push --no-verify`.
+#
+# Skip the hook in machine setups that don't have a toolchain
+# (e.g. CI containers that already gate on cargo):
+#
+#     MTY_PRE_PUSH_SKIP=1 git push
+#
+
+set -euo pipefail
+
+if [ "${MTY_PRE_PUSH_SKIP:-0}" = "1" ]; then
+  echo "[mty pre-push] MTY_PRE_PUSH_SKIP=1 — skipping fmt + clippy"
+  exit 0
+fi
+
+# Tooling probe. If cargo isn't on PATH (LSP-only checkout, doc-only
+# branch), don't block the push.
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "[mty pre-push] cargo not found — skipping fmt + clippy"
+  exit 0
+fi
+
+echo "[mty pre-push] cargo fmt --all -- --check"
+if ! cargo fmt --all -- --check; then
+  echo
+  echo "[mty pre-push] fmt drift detected. Run:" >&2
+  echo "    cargo fmt --all" >&2
+  echo "  to auto-format, then re-push." >&2
+  exit 1
+fi
+
+echo "[mty pre-push] cargo clippy --workspace --all-targets -- -D warnings"
+if ! cargo clippy --workspace --all-targets -- -D warnings; then
+  echo
+  echo "[mty pre-push] clippy errors above. Fix and re-push (or use --no-verify to bypass)." >&2
+  exit 1
+fi
+
+echo "[mty pre-push] OK"
+exit 0

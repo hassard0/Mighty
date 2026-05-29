@@ -1,6 +1,7 @@
 use crate::effects::HirEffectRow;
 use crate::ids::*;
 use la_arena::Arena;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct SourceSpan {
@@ -595,4 +596,20 @@ pub struct Package {
     pub blocks: Arena<HirBlock>,
     pub locals: Arena<HirLocal>,
     pub top_level: Vec<ItemId>,
+    /// v0.34 T4 — per-expression source spans. Populated by the
+    /// expression lowerer (`mty-hir::lower::exprs::lower_expr`) at
+    /// the single allocation point so every `ExprId` produced from a
+    /// real CST node carries the byte range of the CST node it was
+    /// lowered from.
+    ///
+    /// Synthesised expressions (the `HirExpr::Error` placeholder, any
+    /// inert filler the lowerer constructs for missing children) are
+    /// intentionally omitted — the absence of an entry means "no real
+    /// span"; callers fall back to whatever surrounding span they
+    /// have.
+    ///
+    /// Consumers (taint pass, diagnostics envelope builder, future
+    /// LSP definition pass) treat this as a best-effort side-table —
+    /// missing entries are not a bug, they just degrade span fidelity.
+    pub expr_spans: HashMap<ExprId, SourceSpan>,
 }

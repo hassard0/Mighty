@@ -229,7 +229,11 @@ impl Request {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Response {
-    Envelope(EnvelopeMsg),
+    // v0.34 T4: boxed because the inlined `EnvelopeMsg` (carrying a
+    // DiagnosticEnvelope with `schema_version`, `code`, `severity`,
+    // span, prose, fix, see_also) is ~300 bytes — bigger than every
+    // other variant — and clippy's large_enum_variant lint fires.
+    Envelope(Box<EnvelopeMsg>),
     Log {
         stream: String,
         text: String,
@@ -382,7 +386,7 @@ impl Session {
                 fix_count += 1;
             }
             envelopes.push(env.clone());
-            emit(out, &Response::Envelope(EnvelopeMsg { env }));
+            emit(out, &Response::Envelope(Box::new(EnvelopeMsg { env })));
         }
 
         self.last_path = Some(path_buf);
@@ -1202,6 +1206,7 @@ mod tests {
     #[test]
     fn response_envelope_serializes_with_kind() {
         let env = DiagnosticEnvelope {
+            schema_version: mty_diagnostics::fix::SCHEMA_VERSION.to_string(),
             code: "MT4099".into(),
             severity: "error".into(),
             span: mty_diagnostics::fix::SpanInfo {
@@ -1218,7 +1223,7 @@ mod tests {
             see_also: vec![],
             source: None,
         };
-        let r = Response::Envelope(EnvelopeMsg { env });
+        let r = Response::Envelope(Box::new(EnvelopeMsg { env }));
         let s = serde_json::to_string(&r).unwrap();
         assert!(s.contains("\"kind\":\"envelope\""));
         assert!(s.contains("\"code\":\"MT4099\""));

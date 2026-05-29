@@ -176,6 +176,18 @@ fn stdlib_hover_for_token(token: &SyntaxToken, token_text: &str) -> Option<Strin
     }
     // Method-call lookup (`receiver.method(...)`).
     if let Some((receiver, method)) = enclosing_method_call(token, token_text) {
+        // v0.34 T4 — when the receiver is a local binding (lower-case
+        // ident), try to resolve its bound type by searching enclosing
+        // scopes for `let <receiver> = <Type>.<ctor>(...)`. This routes
+        // `m.ask(...)` where `let m = Member.anthropic("x")` through
+        // the `Member.ask` stdlib entry instead of falling through to
+        // bare-name `ask` lookup. Mirrors the same ctor-source pattern
+        // used by `mty_types::taint`'s receiver-type dispatch.
+        if let Some(bound_ty) = resolve_local_bound_type(token, &receiver) {
+            if let Some(entry) = lookup_stdlib_method(&bound_ty, &method) {
+                return Some(render_stdlib_entry(entry));
+            }
+        }
         if let Some(entry) = lookup_stdlib_method(&receiver, &method) {
             return Some(render_stdlib_entry(entry));
         }
@@ -183,6 +195,102 @@ fn stdlib_hover_for_token(token: &SyntaxToken, token_text: &str) -> Option<Strin
     // Bare-name lookup as a last resort.
     if let Some(entry) = lookup_stdlib(token_text) {
         return Some(render_stdlib_entry(entry));
+    }
+    None
+}
+
+/// v0.34 T4 — resolve a local binding's "stdlib type" by syntactic
+/// search of the enclosing scopes.
+///
+/// Walks up from `token`'s enclosing block/fn looking for a
+/// `LET_STMT` whose binding name matches `local`. When found, inspects
+/// the initialiser:
+///
+/// 1. `let m = Type.ctor(...)` — extract `Type` (e.g. `Member`).
+/// 2. `let m = pkg.Type.ctor(...)` — extract `pkg.Type`.
+/// 3. `let m = make_thing()` — recurse: look at the called fn's body
+///    for a tail-position `Type.ctor(...)` or known `-> Type` return.
+///    (v0.34 ships the syntactic-fallback path; full type-driven
+///    resolution lands in v0.35.)
+///
+/// Returns the receiver-type name (e.g. `"Member"`) if known,
+/// `None` otherwise.
+fn resolve_local_bound_type(token: &SyntaxToken, local: &str) -> Option<String> {
+    // The "Type." identifier MUST start with an upper-case letter; we
+    // only recognise stdlib-style ctors. Lower-case receivers in
+    // `let m = lowercase.thing()` aren't routable through the stdlib
+    // examples index.
+    let mut node = token.parent()?;
+    // Walk up to a containing BLOCK / fn body, scanning each scope for
+    // a matching LET_STMT.
+    loop {
+        // Inspect statements in any encountered block-ish container.
+        if node.kind() == SyntaxKind::BLOCK
+            || node.kind() == SyntaxKind::FN_DECL
+            || node.kind() == SyntaxKind::ON_HANDLER
+            || node.kind() == SyntaxKind::LAMBDA_EXPR
+        {
+            if let Some(ty) = scan_block_for_let_type(&node, local) {
+                return Some(ty);
+            }
+        }
+        node = node.parent()?;
+    }
+}
+
+/// Walk `block`'s descendants looking for a `LET_STMT` that binds
+/// `local`. Returns the receiver-type name from the initialiser's
+/// constructor call.
+fn scan_block_for_let_type(block: &SyntaxNode, local: &str) -> Option<String> {
+    for desc in block.descendants() {
+        if desc.kind() != SyntaxKind::LET_STMT {
+            continue;
+        }
+        // Pattern child must be a simple ident pattern matching `local`.
+        // Mighty's CST surfaces `let x = ...` as a LET_STMT whose first
+        // direct child is an IDENT_PAT containing one IDENT token.
+        let bound_name = desc
+            .children()
+            .find(|c| c.kind() == SyntaxKind::IDENT_PAT)
+            .and_then(|p| {
+                p.descendants_with_tokens()
+                    .filter_map(|el| el.into_token())
+                    .find(|t| t.kind() == SyntaxKind::IDENT)
+                    .map(|t| t.text().to_string())
+            });
+        if bound_name.as_deref() != Some(local) {
+            continue;
+        }
+        // Find the initialiser expression (a CALL_EXPR whose callee is
+        // a PATH_EXPR of shape `Type.ctor` or `pkg.Type.ctor`).
+        let init = desc
+            .descendants()
+            .find(|c| c.kind() == SyntaxKind::CALL_EXPR);
+        if let Some(call) = init {
+            // The first child of CALL_EXPR is the callee path.
+            if let Some(path_expr) = call
+                .children()
+                .find(|c| c.kind() == SyntaxKind::PATH_EXPR || c.kind() == SyntaxKind::PATH)
+            {
+                let segs: Vec<String> = path_expr
+                    .descendants_with_tokens()
+                    .filter_map(|el| el.into_token())
+                    .filter(|t| t.kind() == SyntaxKind::IDENT)
+                    .map(|t| t.text().to_string())
+                    .collect();
+                if segs.len() >= 2 {
+                    // `Type.ctor` → "Type"; `pkg.Type.ctor` → "pkg.Type".
+                    // Heuristic: the LAST segment is the ctor (e.g.
+                    // `anthropic`), everything before it is the type
+                    // path.
+                    let ty_segs = &segs[..segs.len() - 1];
+                    let ty = ty_segs.join(".");
+                    if !ty.is_empty() {
+                        return Some(ty);
+                    }
+                }
+            }
+        }
     }
     None
 }

@@ -1,8 +1,9 @@
-# Diagnostic envelopes — v0.33 T4
+# Diagnostic envelopes — v0.33 T4 / v0.34 T4
 
-> **Status:** Stable contract for v0.33; supersedes per-diagnostic
-> string parsing for every downstream consumer. v0.34 will lock the
-> schema with a versioned `schema_version` field.
+> **Status:** Stable contract since v0.33; v0.34 T4 locks the wire shape
+> with an explicit `schema_version` field on every envelope. The
+> contract supersedes per-diagnostic string parsing for every
+> downstream consumer.
 
 Every Mighty diagnostic carries an `MTxxxx` code, a primary span, a
 human-readable message, and (where the diagnostic kind admits one) a
@@ -38,6 +39,7 @@ without colliding with `ariadne`'s diagnostic stream.
 
 ```json
 {
+  "schema_version": "1.0",
   "code": "MT4099",
   "severity": "error",
   "span": {
@@ -80,16 +82,51 @@ without colliding with `ariadne`'s diagnostic stream.
 
 ### Field reference
 
-| Field        | Type                | Notes |
-|--------------|---------------------|-------|
-| `code`       | string `MTxxxx`     | Stable diagnostic code. |
-| `severity`   | string              | `"error"`, `"warning"`, `"note"`, `"help"`. |
-| `span`       | object              | See **Span** below. |
-| `title`      | string              | The primary label message. |
-| `prose`      | string              | Multi-sentence explanation. Merges `mty explain <code>` text with any per-site notes/helps the diagnostic carried. |
-| `fix`        | object (optional)   | Absent when no fix passes the 0.5 confidence floor. |
-| `see_also`   | string[] (optional) | Related `MTxxxx` codes and doc paths. |
-| `source`     | object (optional)   | Populated only with `--include-source`. |
+| Field            | Type                | Notes |
+|------------------|---------------------|-------|
+| `schema_version` | string              | v0.34 T4. Currently `"1.0"`. See **Versioning** below. |
+| `code`           | string `MTxxxx`     | Stable diagnostic code. |
+| `severity`       | string              | `"error"`, `"warning"`, `"note"`, `"help"`. |
+| `span`           | object              | See **Span** below. |
+| `title`          | string              | The primary label message. |
+| `prose`          | string              | Multi-sentence explanation. Merges `mty explain <code>` text with any per-site notes/helps the diagnostic carried. |
+| `fix`            | object (optional)   | Absent when no fix passes the 0.5 confidence floor. |
+| `see_also`       | string[] (optional) | Related `MTxxxx` codes and doc paths. |
+| `source`         | object (optional)   | Populated only with `--include-source`. |
+
+### Versioning
+
+The envelope wire shape is identified by the top-level
+`schema_version` string. The compiler always stamps the current
+constant; consumers should read it BEFORE inspecting the rest of the
+envelope.
+
+**Bump policy:**
+
+- **Major bump (e.g. `"1.0"` → `"2.0"`)** — *breaking* change. The
+  shape removed a field, renamed a field, changed a field's type, or
+  repurposed an existing field. Consumers MUST check the major
+  version and adapt (or refuse to parse, falling back to the pretty
+  renderer). A major bump is announced in a `RELEASE-vX.Y.md` note
+  and accompanied by a one-release window where the previous version
+  is still produced under an opt-in flag.
+- **Minor bump (e.g. `"1.0"` → `"1.1"`)** — *additive only*. A new
+  optional field was added. Existing consumers can ignore the new
+  field and keep working. Removing or renaming any pre-existing field
+  is NEVER a minor bump.
+
+**Forward-compatibility rule for consumers:** *accept unknown fields*.
+The envelope deliberately does not use `#[serde(deny_unknown_fields)]`
+so the v1.x line can ship additive minor versions without breaking
+older agents. The compiler also defaults the field to `"1.0"` when
+parsing legacy envelopes that omit it.
+
+**Per-version changelog:**
+
+| Version | Date       | Change |
+|---------|------------|--------|
+| `1.0`   | v0.33 T4   | Initial shape (code, severity, span, title, prose, fix, see_also, source). v0.34 T4 promotes it to an explicit field. |
+
 
 ### Span
 

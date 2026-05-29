@@ -8,6 +8,10 @@ use mty_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 use super::LoweringCtx;
 
 pub fn lower_expr(ctx: &mut LoweringCtx, n: SyntaxNode) -> ExprId {
+    // v0.34 T4 — capture the source span before we consume `n`. We
+    // attach it to the allocated ExprId at the end so taint /
+    // diagnostics / LSP can recover the precise position.
+    let lowered_span = super::span_of(&n);
     let e = match n.kind() {
         SyntaxKind::LITERAL_EXPR => HirExpr::Literal(
             n.first_token()
@@ -648,7 +652,16 @@ pub fn lower_expr(ctx: &mut LoweringCtx, n: SyntaxNode) -> ExprId {
         SyntaxKind::RUN_EXPR => HirExpr::Run(first_child_expr_id(ctx, &n)),
         _ => HirExpr::Error,
     };
-    ctx.alloc_expr(e)
+    let id = ctx.alloc_expr(e);
+    // v0.34 T4 — record the lowered expr's source span so downstream
+    // passes (taint, diagnostics, LSP) can recover precise positions
+    // from an ExprId. Skip the `HirExpr::Error` placeholder: the span
+    // there is meaningless and would point at whatever node we tried
+    // (and failed) to lower.
+    if !matches!(ctx.package.exprs[id], HirExpr::Error) {
+        ctx.package.expr_spans.insert(id, lowered_span);
+    }
+    id
 }
 
 pub fn lower_block(ctx: &mut LoweringCtx, b: mty_ast::Block) -> BlockId {

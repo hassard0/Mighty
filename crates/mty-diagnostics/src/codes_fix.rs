@@ -46,6 +46,7 @@ pub fn build_envelope(diag: &Diagnostic, source_id: &str, source: &str) -> Diagn
     let see_also = see_also_for(diag.code);
 
     DiagnosticEnvelope {
+        schema_version: crate::fix::SCHEMA_VERSION.to_string(),
         code: diag.code.as_str(),
         severity: severity_str(diag.severity).to_string(),
         span,

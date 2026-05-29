@@ -44,11 +44,45 @@ use serde::{Deserialize, Serialize};
 
 use crate::diagnostic::{Diagnostic, Severity};
 
+/// Current envelope schema version. v0.34 T4 introduces an explicit
+/// `schema_version` field on every envelope to lock the wire contract
+/// down. Bump rules:
+///
+/// - **Major** (`2.0`, ...): breaking schema change. Consumers MUST
+///   check the version and adapt. Removing a field, renaming a field,
+///   changing a field's type, or repurposing an existing field all
+///   count as breaking.
+/// - **Minor** (`1.1`, `1.2`, ...): additive only. Adding a new
+///   optional field is a minor bump; existing consumers can ignore it.
+///
+/// Forward-compatibility rule for consumers: **accept unknown fields**.
+/// The envelope is `#[serde(deny_unknown_fields)]`-free precisely so
+/// the v1.x line can ship additive fields without breaking older
+/// agents.
+///
+/// See `docs/internals/diagnostic-envelopes.md` for the full policy
+/// and the per-version changelog.
+pub const SCHEMA_VERSION: &str = "1.0";
+
+fn default_schema_version() -> String {
+    SCHEMA_VERSION.to_string()
+}
+
 /// The structured envelope an agent (or LSP / IDE / CI dashboard)
 /// consumes. Every `Diagnostic` that flows through the v0.33 T4
 /// envelope builder lands as exactly one of these.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DiagnosticEnvelope {
+    /// v0.34 T4 — wire schema version. Always set to [`SCHEMA_VERSION`]
+    /// on emit. Consumers parse this BEFORE looking at the rest of the
+    /// envelope; a major-version mismatch means the consumer should
+    /// either upgrade or fall back to the pretty renderer.
+    ///
+    /// Deserialised envelopes that omit the field default to `"1.0"`
+    /// so back-compat round-trips of pre-v0.34 envelopes continue to
+    /// parse cleanly.
+    #[serde(default = "default_schema_version")]
+    pub schema_version: String,
     /// `MTxxxx` stable code, as a string.
     pub code: String,
     /// Severity. Lowercase: `"error"`, `"warning"`, `"note"`, `"help"`.
@@ -513,6 +547,7 @@ mod tests {
     #[test]
     fn envelope_serializes_with_optional_fix() {
         let env = DiagnosticEnvelope {
+            schema_version: SCHEMA_VERSION.to_string(),
             code: "MT4099".into(),
             severity: "error".into(),
             span: SpanInfo {
@@ -531,6 +566,7 @@ mod tests {
         };
         let j = serde_json::to_string(&env).unwrap();
         assert!(j.contains("\"code\":\"MT4099\""));
+        assert!(j.contains("\"schema_version\":\"1.0\""));
         assert!(!j.contains("\"fix\""));
         assert!(!j.contains("\"see_also\""));
         assert!(!j.contains("\"source\""));
@@ -539,6 +575,7 @@ mod tests {
     #[test]
     fn envelope_round_trip_with_fix() {
         let env = DiagnosticEnvelope {
+            schema_version: SCHEMA_VERSION.to_string(),
             code: "MT1001".into(),
             severity: "error".into(),
             span: SpanInfo {
@@ -567,6 +604,136 @@ mod tests {
         let j = serde_json::to_string(&env).unwrap();
         let back: DiagnosticEnvelope = serde_json::from_str(&j).unwrap();
         assert_eq!(env, back);
+    }
+
+    // ----------------------------------------------------------------
+    // v0.34 T4 — schema_version field tests
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn schema_version_constant_is_one_zero() {
+        // Lock the wire constant. Changing this constant requires a
+        // doc update + a v0.34 changelog note + a coordinated consumer
+        // upgrade per `docs/internals/diagnostic-envelopes.md`.
+        assert_eq!(SCHEMA_VERSION, "1.0");
+    }
+
+    #[test]
+    fn schema_version_appears_in_serialized_envelope() {
+        let env = DiagnosticEnvelope {
+            schema_version: SCHEMA_VERSION.to_string(),
+            code: "MT0001".into(),
+            severity: "error".into(),
+            span: SpanInfo {
+                file: "a.mty".into(),
+                line: 1,
+                col: 1,
+                len: 1,
+                byte_start: 0,
+                byte_end: 1,
+            },
+            title: "t".into(),
+            prose: "p".into(),
+            fix: None,
+            see_also: vec![],
+            source: None,
+        };
+        let j = serde_json::to_string(&env).unwrap();
+        assert!(
+            j.contains("\"schema_version\":\"1.0\""),
+            "serialized envelope must include schema_version, got: {}",
+            j
+        );
+    }
+
+    #[test]
+    fn schema_version_round_trips_through_serde() {
+        // Build → JSON → parse → JSON: schema_version must survive.
+        let env = DiagnosticEnvelope {
+            schema_version: SCHEMA_VERSION.to_string(),
+            code: "MT0001".into(),
+            severity: "error".into(),
+            span: SpanInfo {
+                file: "a.mty".into(),
+                line: 1,
+                col: 1,
+                len: 1,
+                byte_start: 0,
+                byte_end: 1,
+            },
+            title: "t".into(),
+            prose: "p".into(),
+            fix: None,
+            see_also: vec![],
+            source: None,
+        };
+        let j = serde_json::to_string(&env).unwrap();
+        let back: DiagnosticEnvelope = serde_json::from_str(&j).unwrap();
+        assert_eq!(back.schema_version, "1.0");
+        assert_eq!(back, env);
+    }
+
+    #[test]
+    fn schema_version_missing_field_defaults_to_one_zero() {
+        // Back-compat: pre-v0.34 envelopes (no schema_version field)
+        // must still parse, defaulting to "1.0". Documents the
+        // forward-compat rule for consumers in
+        // `docs/internals/diagnostic-envelopes.md`.
+        let legacy = r#"{
+            "code": "MT0001",
+            "severity": "error",
+            "span": {
+                "file": "a.mty", "line": 1, "col": 1, "len": 1,
+                "byte_start": 0, "byte_end": 1
+            },
+            "title": "t",
+            "prose": "p"
+        }"#;
+        let env: DiagnosticEnvelope = serde_json::from_str(legacy).unwrap();
+        assert_eq!(env.schema_version, "1.0");
+    }
+
+    #[test]
+    fn build_envelope_populates_schema_version() {
+        // Driver-style smoke: the build_envelope helper that every CLI
+        // consumer ultimately calls must stamp the field.
+        let d = Diagnostic::error(
+            DiagCode::new(1),
+            crate::diagnostic::Label {
+                start: 0,
+                end: 1,
+                message: "x".into(),
+            },
+        );
+        let env = crate::codes_fix::build_envelope(&d, "f.mty", "abc");
+        assert_eq!(env.schema_version, "1.0");
+    }
+
+    #[test]
+    fn ndjson_emits_schema_version_on_every_line() {
+        let d1 = Diagnostic::error(
+            DiagCode::new(1),
+            crate::diagnostic::Label {
+                start: 0,
+                end: 1,
+                message: "first".into(),
+            },
+        );
+        let d2 = Diagnostic::error(
+            DiagCode::new(1),
+            crate::diagnostic::Label {
+                start: 2,
+                end: 3,
+                message: "second".into(),
+            },
+        );
+        let out = to_ndjson(&[d1, d2], "x.mty", "abc", false);
+        let lines: Vec<&str> = out.trim_end().split('\n').collect();
+        assert_eq!(lines.len(), 2);
+        for l in &lines {
+            let env: DiagnosticEnvelope = serde_json::from_str(l).unwrap();
+            assert_eq!(env.schema_version, "1.0");
+        }
     }
 
     #[test]

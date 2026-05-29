@@ -42,6 +42,50 @@ Six CI jobs are required gates: `test` (cross-OS matrix),
 `test-minimal`, `msrv`, `clippy-strict` (pedantic + `-D warnings`),
 `bench`, `security` (`cargo audit --deny warnings`).
 
+### Pre-push git hook (v0.34 T4)
+
+A pre-push hook lives at `.git-hooks/pre-push`. It mirrors the two
+cheapest CI gates (`cargo fmt --all -- --check` and
+`cargo clippy --workspace --all-targets -- -D warnings`) so you catch
+the recurring Linux-side fmt-drift class of regressions before they
+hit CI.
+
+The hook is opt-in for human contributors. Install it once per clone:
+
+```bash
+mty hooks install
+```
+
+Verify:
+
+```bash
+mty hooks status
+# -> mty hooks status: Mighty pre-push hook installed at ...
+```
+
+Bypass for one push (e.g. a docs-only branch):
+
+```bash
+git push --no-verify
+```
+
+Or skip the hook for the whole session:
+
+```bash
+MTY_PRE_PUSH_SKIP=1 git push
+```
+
+Uninstall: `mty hooks uninstall`.
+
+**REQUIRED for swarm agents.** The v0.27 / v0.30 / v0.32 / v0.33
+retros all surfaced the same failure mode: a swarm agent pushed a
+branch that passed local Windows checks but failed Linux-side
+`cargo fmt --check` in CI, breaking the integrator's merge train.
+Every swarm-agent setup boilerplate MUST run `mty hooks install`
+right after `git worktree add`, alongside `export CARGO_TARGET_DIR`.
+The hook itself is a no-op when `cargo` isn't on PATH (so doc-only
+worktrees still push cleanly).
+
 For docs and example-only PRs, the same fmt + clippy + test gate
 still runs (cargo-fast). The
 [example-sweep job](https://github.com/hassard0/Mighty/blob/main/.github/workflows/ci.yml)
