@@ -1,13 +1,16 @@
 //! v0.34 T4 — `mty hooks install`: install the project's pre-push
 //! hook (`.git-hooks/pre-push`) into `.git/hooks/pre-push`.
 //!
-//! The hook itself mirrors the two cheapest CI gates: `cargo fmt
-//! --all -- --check` and `cargo clippy --workspace --all-targets --
-//! -D warnings`. Running them locally on every `git push` catches the
-//! recurring v0.27/v0.30/v0.32/v0.33 Linux/Windows fmt-drift class of
-//! regressions before they hit CI. See
-//! [`docs/contributing.md`](../../../../docs/contributing.md) — the
-//! hook is documented as REQUIRED for swarm-agent setups.
+//! The hook itself mirrors the three cheapest CI gates: `cargo fmt
+//! --all -- --check`, `cargo clippy --workspace --all-targets -- -D
+//! warnings`, and (v0.37 T1) `mty fmt --check` on the known
+//! `examples/*.mty`, `demos/*/src/*.mty`, and
+//! `tools/gallery/examples/*/main.mty` paths. Running them locally on
+//! every `git push` catches the recurring v0.27/v0.30/v0.32/v0.33
+//! Linux/Windows fmt-drift class of regressions before they hit CI —
+//! and, with the .mty step added, the v0.36.1 retag-cycle class as
+//! well. See [`docs/contributing.md`](../../../../docs/contributing.md)
+//! — the hook is documented as REQUIRED for swarm-agent setups.
 //!
 //! ## Mechanics
 //!
@@ -23,6 +26,13 @@
 //!    +x`. On Windows the file-system has no execute bit; git for
 //!    Windows runs `*.sample`-style files via mingw bash which doesn't
 //!    require the bit anyway.
+//!
+//! Re-running `mty hooks install` is idempotent: the sentinel from
+//! v0.34 T4 still identifies the file as a Mighty-authored hook, and
+//! the copy overwrites the previous contents. So when the script body
+//! changes (e.g. v0.37 T1 added the `mty fmt --check` step), a plain
+//! `mty hooks install` picks up the new script with no `--force`
+//! needed.
 //!
 //! ## Why a copy and not a symlink
 //!

@@ -2,11 +2,12 @@
 #
 # Mighty pre-push hook — v0.34 T4.
 #
-# Mirrors the two cheapest CI gates on every `git push`, so a
+# Mirrors the three cheapest CI gates on every `git push`, so a
 # Windows-only swarm agent doesn't keep landing branches that fail
-# Linux-side `cargo fmt --check`. CI still runs the full matrix; this
-# hook is an early-warning so a 60-second local check catches the same
-# class of regressions a 12-minute remote rebuild would.
+# Linux-side `cargo fmt --check` (or `mty fmt --check`). CI still runs
+# the full matrix; this hook is an early-warning so a 60-second local
+# check catches the same class of regressions a 12-minute remote
+# rebuild would.
 #
 # Install via `mty hooks install`, which symlinks (or copies, on
 # Windows where symlinks need admin) this file to .git/hooks/pre-push.
@@ -22,18 +23,25 @@
 #
 #     MTY_PRE_PUSH_SKIP=1 git push
 #
+# v0.37 T1: also runs `mty fmt --check` on known `.mty` paths
+# (`examples/*.mty`, `demos/*/src/*.mty`, and
+# `tools/gallery/examples/*/main.mty`). v0.36.1 needed two retags + two
+# main fixes because tracks pushed `.mty` drift that only `mty fmt
+# --check` on Linux catches — the cargo-fmt + clippy gate didn't see it.
+# This step bakes that check into the local push.
+#
 
 set -euo pipefail
 
 if [ "${MTY_PRE_PUSH_SKIP:-0}" = "1" ]; then
-  echo "[mty pre-push] MTY_PRE_PUSH_SKIP=1 — skipping fmt + clippy"
+  echo "[mty pre-push] MTY_PRE_PUSH_SKIP=1 — skipping fmt + clippy + mty fmt"
   exit 0
 fi
 
 # Tooling probe. If cargo isn't on PATH (LSP-only checkout, doc-only
 # branch), don't block the push.
 if ! command -v cargo >/dev/null 2>&1; then
-  echo "[mty pre-push] cargo not found — skipping fmt + clippy"
+  echo "[mty pre-push] cargo not found — skipping fmt + clippy + mty fmt"
   exit 0
 fi
 
@@ -51,6 +59,45 @@ if ! cargo clippy --workspace --all-targets -- -D warnings; then
   echo
   echo "[mty pre-push] clippy errors above. Fix and re-push (or use --no-verify to bypass)." >&2
   exit 1
+fi
+
+echo "[mty pre-push] mty fmt --check on .mty files"
+# Build mty-cli (cached after first call) so target/release/mty exists.
+# Funnel stderr to the user only if the build itself failed; otherwise
+# keep the hook output quiet on the happy path.
+if ! cargo build --release -p mty-cli >/dev/null 2>&1; then
+  echo "[mty pre-push] failed to build mty-cli — cannot run mty fmt --check" >&2
+  echo "[mty pre-push] re-run with MTY_PRE_PUSH_SKIP=1 to bypass, or fix the build." >&2
+  exit 1
+fi
+
+MTY_BIN="./target/release/mty"
+if [ ! -x "$MTY_BIN" ] && [ -x "${MTY_BIN}.exe" ]; then
+  MTY_BIN="${MTY_BIN}.exe"
+fi
+
+# Collect .mty files in known docs/examples/demos/gallery paths.
+# Globs that match nothing get skipped via the `-f` test, so missing
+# directories (e.g. doc-only worktree) don't error.
+MTY_FILES=()
+shopt -s nullglob
+for f in examples/*.mty demos/*/src/*.mty tools/gallery/examples/*/main.mty; do
+  [ -f "$f" ] && MTY_FILES+=("$f")
+done
+shopt -u nullglob
+
+if [ ${#MTY_FILES[@]} -gt 0 ]; then
+  for f in "${MTY_FILES[@]}"; do
+    if ! "$MTY_BIN" fmt --check "$f" >/dev/null 2>&1; then
+      echo "[mty pre-push] FAIL: $f needs mty fmt" >&2
+      echo "[mty pre-push] run:  mty fmt $f" >&2
+      echo "[mty pre-push] (or  mty fmt examples demos tools/gallery/examples  for the full sweep)" >&2
+      exit 1
+    fi
+  done
+  echo "[mty pre-push] mty fmt OK (${#MTY_FILES[@]} files)"
+else
+  echo "[mty pre-push] mty fmt OK (no .mty files in known paths)"
 fi
 
 echo "[mty pre-push] OK"
