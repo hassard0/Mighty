@@ -13,6 +13,7 @@
 
 use super::{FetchError, Fetched};
 use crate::lockfile::LockedPackage;
+#[cfg_attr(not(feature = "registry-fetch"), allow(unused_imports))]
 use crate::registry::{self, RegistryIndex, RegistryRelease};
 use std::path::{Path, PathBuf};
 
@@ -300,6 +301,7 @@ fn per_registry_token(slug: &str) -> Option<String> {
     store.token_for(slug)
 }
 
+#[cfg_attr(not(feature = "registry-fetch"), allow(dead_code))]
 fn short_slug(slug: &str) -> String {
     // Used purely for error context — keeps log lines compact when the
     // slug is long.
@@ -310,6 +312,7 @@ fn short_slug(slug: &str) -> String {
     }
 }
 
+#[cfg_attr(not(feature = "registry-fetch"), allow(dead_code))]
 fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -317,6 +320,7 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
+#[cfg_attr(not(feature = "registry-fetch"), allow(dead_code))]
 fn normalise_sha256_line(line: &str) -> String {
     // Accept either a bare hex digest, `sha256:<hex>`, or a coreutils
     // sha256sum line `<hex>  <filename>`.

@@ -1,7 +1,8 @@
 # Mighty v0.35 — Release Notes
 
-**Tag:** `v0.35.2` (v0.35.0 + v0.35.1 had Release-workflow PGO
-bugs — see "Integrator notes")
+**Tag:** `v0.35.3` (v0.35.0 + v0.35.1 hit Release-workflow PGO
+bugs; v0.35.2 disabled PGO; v0.35.3 fixes the CI
+`test (minimal features)` job — see "Integrator notes")
 **Date:** 2026-05-29
 **Status:** SHIPPED — closing the v0.33 stubs. PGO temporarily
 disabled in v0.35.2; queued as v0.36 deeper fix.
@@ -301,6 +302,22 @@ matrix wiring) is preserved for the v0.36 deeper fix (drop
 `target/release-pgo/`). The user-facing UX of v0.35 is unchanged
 — the playground, agent transports, `mty fix --apply`, Strategy B
 hover, and Docker multi-arch all ship as designed.
+
+**v0.35.2 → v0.35.3.** With Release green, the `test (minimal
+features)` CI job stayed red. Root cause: `cargo test --workspace
+--no-default-features` runs under `RUSTFLAGS=-D warnings` and
+turned up 6 latent dead-code / unused-import warnings — 4 in
+`mty-pkg` where helpers are only reachable through
+`git-fetch` / `registry-fetch`-gated fetch fns, 1 in `mty-stdlib`
+where `format_unix_ms_iso` is only reachable through the
+`observe-sqlite`-feature path, and 2 `mty-cli` integration tests
+(`cmd_find`, `cmd_run_argv`) that reach into modules T1's
+`host-toolchain` refactor feature-gates out. v0.34 CI was green
+because v0.34 didn't have T1's host-toolchain split. Fix:
+`#[cfg_attr(not(feature = "…"), allow(dead_code | unused_imports))]`
+on the helpers, `#![cfg(feature = "host-toolchain")]` on the
+two affected mty-cli test files. v0.35.3 ships only these 5
+files changed; no Release-pipeline impact.
 
 The five merges were mechanical despite three tracks touching
 `crates/mty-cli/src/main.rs` — each new subcommand variant extends

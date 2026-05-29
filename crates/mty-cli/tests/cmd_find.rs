@@ -1,3 +1,4 @@
+#![cfg(feature = "host-toolchain")]
 //! v0.33 T7 — tests for `mty find` (capability-tagged stdlib search).
 //!
 //! We test the index-builder + ranker via the `parse_source_for_tests`
@@ -6,6 +7,11 @@
 //! the suite under a second. A small set of integration tests at the
 //! end of the file does spawn the real binary to lock in the CLI shape
 //! (top-level subcommand, `--format` flag, `--by-capability` flag).
+//!
+//! v0.35.3 — gate behind `host-toolchain` so `cargo test
+//! --no-default-features` (CI's `test (minimal features)` job) doesn't
+//! try to reach into `mty_cli::cmd::find::*` when the cmd tree is
+//! feature-gated out by T1's host-toolchain refactor.
 
 use std::path::Path;
 use std::process::Command;

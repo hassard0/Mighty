@@ -60,6 +60,7 @@ pub fn fetch(_locked: &LockedPackage, _slot: &Path) -> Result<Fetched, FetchErro
     ))
 }
 
+#[cfg_attr(not(feature = "git-fetch"), allow(dead_code))]
 fn split_url(source: &str) -> Result<(&str, Option<&str>), FetchError> {
     let rest = source
         .strip_prefix("git+")

@@ -387,6 +387,7 @@ impl ObservationStore for SqliteStore {
 
 /// Format unix ms as ISO-8601 UTC (second precision). Standalone so
 /// the SQLite-feature-off build also compiles.
+#[allow(dead_code)]
 pub(crate) fn format_unix_ms_iso(ms: u64) -> String {
     let secs = ms / 1000;
     let days = secs / 86_400;
@@ -416,6 +417,7 @@ mod tests {
     use super::*;
     use crate::observe::observation::LlmObservation;
 
+    #[cfg_attr(not(feature = "observe-sqlite"), allow(dead_code))]
     fn fresh_store() -> SqliteStore {
         SqliteStore::in_memory().expect("in-memory sqlite open")
     }

@@ -58,6 +58,25 @@ freeze-gate items into "ready": real WASM playground (T1), `mty
 agent` production transports (T2), and the agent-first-shot →
 zero-shot loop (T3).
 
+## [0.35.3] - 2026-05-29
+
+### Fixed
+- **CI `test (minimal features)` job** — `cargo test --workspace
+  --no-default-features` failed under `RUSTFLAGS=-D warnings` with
+  6 dead-code / unused-import errors: 4 in `mty-pkg` (`split_url`,
+  `short_slug`, `now_secs`, `normalise_sha256_line` plus the
+  `registry::self` import) where the helpers are only reachable
+  via the `git-fetch` / `registry-fetch`-feature-gated `fetch`
+  fns, 1 in `mty-stdlib` (`format_unix_ms_iso` only reachable
+  through the `observe-sqlite`-feature path), and 2 `mty-cli`
+  integration tests (`cmd_find`, `cmd_run_argv`) that reach into
+  `mty_cli::cmd::*` and `mty_stdlib::env::*` which T1's
+  `host-toolchain` refactor now feature-gates out. Fix:
+  `#[cfg_attr(not(feature = "…"), allow(dead_code | unused_imports))]`
+  on the helpers, `#![cfg(feature = "host-toolchain")]` on the
+  affected mty-cli test files. No source changes outside these 5
+  files; default builds unchanged.
+
 ## [0.35.2] - 2026-05-29
 
 ### Fixed

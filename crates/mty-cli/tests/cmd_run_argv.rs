@@ -1,5 +1,10 @@
+#![cfg(feature = "host-toolchain")]
 //! v0.27 Track E (QoL gap #3) — `mty run <path> -- <argv>` forwards
 //! positional arguments to the Mighty program as `std.env.args()`.
+//!
+//! v0.35.3 — gate behind `host-toolchain` so `cargo test
+//! --no-default-features` skips this (mty-stdlib isn't reachable
+//! without the host-toolchain feature post-T1).
 //!
 //! Verifies clap's trailing-var-arg parsing + the
 //! `mty_stdlib::env::set_args` → `host::dispatch("std.env", "args")`
