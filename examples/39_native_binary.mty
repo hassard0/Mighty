@@ -1,15 +1,20 @@
-// v0.36 T1 — Real native binary demo.
+// v0.36 T1 + v0.37 T2 — Real native binary demo.
 //
-// Demonstrates three native-codegen capabilities that landed in
-// v0.36 T1:
+// Demonstrates native-codegen capabilities that landed in v0.36 T1
+// (hex-with-suffix literals, U8/U16/U32 unsigned widening, dynamic
+// log) plus the v0.37 T2 cast surface (`expr as Ty` now produces a
+// proper CAST_EXPR; previously `b as I64` silently degraded into
+// `BinOp::Add`).
 //
 //   1. Hex-with-suffix integer literals (`0xFF_u8`, `0xDEAD_BEEF_u32`,
 //      `0xCAFE_BABE_DEAD_BEEF_u64`, etc.). Decimal `123_u8` was already
 //      accepted; v0.36 T1 adds the hex / binary / octal radix variants.
 //   2. U8 (and U16/U32) values widening *unsigned* through fn return,
-//      fn args, struct field load. Pre-v0.36 the cranelift backend
-//      always sign-extended these, producing `-1` instead of `255` for
-//      `0xFF_u8` cast into an I64 slot.
+//      fn args, struct field load, AND explicit `as` casts (v0.37 T2).
+//      Pre-v0.36 the cranelift backend always sign-extended these,
+//      producing `-1` instead of `255` for `0xFF_u8` widened into I64.
+//      Pre-v0.37 the `as` cast couldn't even reach the codegen because
+//      the parser dropped CAST_EXPR.
 //   3. Dynamic `log()` — calling `log(s)` where `s` is a Str local, a
 //      fn return, or any non-literal Str now works on the native
 //      backends (cranelift + LLVM). Previously the cranelift backend
@@ -27,6 +32,14 @@ fn _greeting_word() -> Str { "world" }
 
 fn _pixel_summary() -> Str { "pixel-set" }
 
+// v0.37 T2: explicit `as` cast at the cleanest possible widening
+// surface — U8 input, I64 output, no helper struct, no implicit
+// extend through the return slot. Pre-T2 this fn wouldn't have
+// compiled correctly; the parser would have produced `b + I64`
+// and the lowering would have funnelled through `BinOp::Add` on
+// a type-path RHS.
+fn _widen_u8(b: U8) -> I64 { b as I64 }
+
 fn main() {
   // 1. Hex-with-suffix literals across signed + unsigned widths.
   let _a: U8 = 0xFF_u8
@@ -43,6 +56,16 @@ fn main() {
   let _r: U8 = p.r
   let _g: U8 = p.g
   let _b2: U8 = p.b
+
+  // v0.37 T2: widening via explicit cast. The `as I64` now lowers to
+  // a real CAST_EXPR; combined with the v0.36 T1 uextend fix, the
+  // result is the unsigned value 255 (not -1).
+  let _wide: I64 = _widen_u8(0xFF_u8)
+
+  // v0.37 T2: cast inline at a use-site. Mixing the cast with a
+  // literal in the same expression exercises the precedence rule
+  // (`as` is tighter than `+`).
+  let _sum: I64 = (p.r as I64) + 1_i64
 
   // 3. Dynamic log — literal, then local, then fn-return.
   log("39_native_binary")

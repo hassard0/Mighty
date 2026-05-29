@@ -67,6 +67,22 @@ fn expr_bp(p: &mut Parser, min_bp: u8) -> bool {
         if op_bp < min_bp {
             break;
         }
+        // `expr as Ty` is parsed at the binary-expression precedence
+        // slot but produces a CAST_EXPR whose RHS is a *type expression*,
+        // not a value expression. We special-case it here so a bare
+        // `x as I64` no longer silently degrades into a BINARY_EXPR
+        // with a path on the RHS (which `lower_bin_op` then mistook
+        // for `BinOp::Add`).
+        if p.peek() == AS_KW {
+            p.start_node_at(cp, CAST_EXPR);
+            p.bump(AS_KW);
+            p.skip_trivia();
+            if !super::types::type_expr(p) {
+                p.error("expected type after `as`");
+            }
+            p.finish_node();
+            continue;
+        }
         let right_bp = if infix_right_assoc(p.peek()) {
             op_bp // right-assoc: same level for RHS
         } else {
