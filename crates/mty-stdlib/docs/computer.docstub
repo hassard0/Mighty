@@ -1,0 +1,259 @@
+##module computer
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym ComputerCap.screen_and_input
+##sig fn ComputerCap.screen_and_input() -> ComputerCap
+##cap computer.screen + computer.input
+##desc Build a cap granting BOTH screen capture and input dispatch. The canonical browser-driving cap.
+##see ComputerCap.builder, ComputerCap.with_bounds, ComputerCap.deny_keys, Dispatcher.new
+##example
+let cap = ComputerCap.screen_and_input()
+  .with_bounds(0, 0, 1280, 800)
+  .deny_keys(["ctrl+alt+delete", "cmd+q"]);
+##end
+
+##sym ComputerCap.builder
+##sig fn ComputerCap.builder() -> ComputerCapBuilder
+##desc Start an empty cap builder. Nothing is allowed until `allow_screen` / `allow_input` is set.
+##see ComputerCap.screen_and_input, ComputerCapBuilder.allow_screen, ComputerCapBuilder.allow_input
+##example
+let cap = ComputerCap.builder().allow_screen().with_bounds(0, 0, 1024, 768).build();
+##end
+
+##sym ComputerCap.with_bounds
+##sig fn ComputerCap.with_bounds(self, x_min: U32, y_min: U32, x_max: U32, y_max: U32) -> ComputerCap
+##desc Constrain every click/move to the half-open rectangle `[x_min, x_max) x [y_min, y_max)`.
+##see ComputerCap.screen_and_input, ComputerCap.deny_keys, SandboxViolation.OutOfBounds
+##example
+let cap = ComputerCap.screen_and_input().with_bounds(0, 0, 1280, 800);
+##end
+
+##sym ComputerCap.deny_keys
+##sig fn ComputerCap.deny_keys(self, chords: List<Str>) -> ComputerCap
+##desc Reject the listed key chords regardless of how the model was convinced to press them.
+##see ComputerCap.with_bounds, SandboxViolation.DeniedKey, Keyboard.key_press
+##example
+let cap = ComputerCap.screen_and_input().deny_keys(["ctrl+alt+delete", "meta+q"]);
+##end
+
+##sym ComputerCap.max_actions_per_run
+##sig fn ComputerCap.max_actions_per_run(self, n: U32) -> ComputerCap
+##desc Hard cap on how many actions a single `Dispatcher.run` may execute. Trips `SandboxViolation.RateLimited`.
+##see ComputerCap.screen_and_input, SandboxViolation.RateLimited, Dispatcher.run
+##example
+let cap = ComputerCap.screen_and_input().max_actions_per_run(50);
+##end
+
+##sym Dispatcher.new
+##sig fn Dispatcher.new(llm: LlmProvider, cap: ComputerCap) -> Dispatcher
+##cap net.https (Anthropic) + the cap's permissions
+##desc Build the Anthropic computer-use loop over `llm`. The cap gates every action before it reaches the OS.
+##see Dispatcher.with_screen, Dispatcher.with_mouse, Dispatcher.with_keyboard, Dispatcher.run
+##example
+let d = Dispatcher.new(llm, cap)
+  .with_screen(MockScreen.solid_color(1280, 800, 0));
+let summary = d.run("open the docs and search for taint").await?;
+##end
+
+##sym Dispatcher.with_screen
+##sig fn Dispatcher.with_screen(self, b: ScreenBackend) -> Dispatcher
+##desc Override the screen backend. Defaults to `MockScreen` so CI never grabs a real display.
+##see Dispatcher.new, MockScreen.solid_color, Screen.capture
+##example
+let d = Dispatcher.new(llm, cap).with_screen(MockScreen.solid_color(1024, 768, 0));
+##end
+
+##sym Dispatcher.with_mouse
+##sig fn Dispatcher.with_mouse(self, b: MouseBackend) -> Dispatcher
+##desc Override the mouse backend. Defaults to `MockMouse` which records events instead of firing them.
+##see Dispatcher.new, MockMouse, Mouse.click_at
+##example
+let d = Dispatcher.new(llm, cap).with_mouse(MockMouse.new());
+##end
+
+##sym Dispatcher.with_keyboard
+##sig fn Dispatcher.with_keyboard(self, b: KeyboardBackend) -> Dispatcher
+##desc Override the keyboard backend. Defaults to `MockKeyboard` (event log, no real OS events).
+##see Dispatcher.new, MockKeyboard, Keyboard.type_text
+##example
+let d = Dispatcher.new(llm, cap).with_keyboard(MockKeyboard.new());
+##end
+
+##sym Dispatcher.with_max_turns
+##sig fn Dispatcher.with_max_turns(self, n: U32) -> Dispatcher
+##desc Cap how many model turns the agent loop runs before forcing termination. Default `MAX_TURNS` is 50.
+##see Dispatcher.new, Dispatcher.run, MAX_TURNS
+##example
+let d = Dispatcher.new(llm, cap).with_max_turns(20);
+##end
+
+##sym Dispatcher.run
+##sig fn Dispatcher.run(&self, task: Str) -> Result<Str, ComputerError>
+##cap net.https (Anthropic) + cap's permissions
+##desc Run the Anthropic computer-use loop until the model emits a `stop`/`done` action or `max_turns` trips.
+##see Dispatcher.new, Dispatcher.with_max_turns, ComputerAction, ComputerError
+##example
+let summary = d.run("take a screenshot then summarise it").await?;
+log(summary);
+##end
+
+##sym Mouse.click_at
+##sig fn Mouse.click_at(&self, x: U32, y: U32, button: MouseButton) -> Result<Unit, InputError>
+##cap computer.input
+##desc Click at `(x, y)`. The dispatcher validates the point against the cap's bounds before firing.
+##see Mouse.move_to, Mouse.drag, MouseButton.Left, ComputerCap.with_bounds
+##example
+mouse.click_at(640, 400, MouseButton.Left)?;
+##end
+
+##sym Mouse.move_to
+##sig fn Mouse.move_to(&self, x: U32, y: U32) -> Result<Unit, InputError>
+##cap computer.input
+##desc Move the cursor to `(x, y)` without clicking. Honours the cap's bounding rectangle.
+##see Mouse.click_at, Mouse.drag, Mouse.scroll
+##example
+mouse.move_to(100, 200)?;
+##end
+
+##sym Mouse.drag
+##sig fn Mouse.drag(&self, x1: U32, y1: U32, x2: U32, y2: U32, button: MouseButton) -> Result<Unit, InputError>
+##cap computer.input
+##desc Press at `(x1, y1)`, drag to `(x2, y2)`, release. Both endpoints are checked against bounds.
+##see Mouse.click_at, Mouse.move_to, MouseButton.Left
+##example
+mouse.drag(10, 10, 200, 200, MouseButton.Left)?;
+##end
+
+##sym Mouse.scroll
+##sig fn Mouse.scroll(&self, x: U32, y: U32, dx: I32, dy: I32) -> Result<Unit, InputError>
+##cap computer.input
+##desc Scroll by `(dx, dy)` at the focal point `(x, y)`. Negative dy scrolls down.
+##see Mouse.move_to, Mouse.click_at
+##example
+mouse.scroll(640, 400, 0, -120)?;
+##end
+
+##sym Keyboard.type_text
+##sig fn Keyboard.type_text(&self, text: Str) -> Result<Unit, InputError>
+##cap computer.input
+##desc Type a literal string. Each character is dispatched as a keypress; modifier chords use `key_press`.
+##see Keyboard.key_press, Key.Chord, ComputerCap.deny_keys
+##example
+keyboard.type_text("hello, world")?;
+##end
+
+##sym Keyboard.key_press
+##sig fn Keyboard.key_press(&self, key: &Key) -> Result<Unit, InputError>
+##cap computer.input
+##desc Press a named key (Enter, Escape, F1, chord). Chords are checked against `ComputerCap.deny_keys`.
+##see Keyboard.type_text, Key.Enter, Key.Chord, ComputerCap.deny_keys
+##example
+keyboard.key_press(&Key.Enter)?;
+keyboard.key_press(&Key.Chord("ctrl+l"))?;
+##end
+
+##sym Screen.capture
+##sig fn Screen.capture(&self) -> Result<Screenshot, ScreenError>
+##cap computer.screen
+##desc Capture the full primary display via the underlying backend. Default `MockScreen` returns a canned buffer.
+##see Screen.capture_region, MockScreen.solid_color, Screen.width
+##example
+let shot = screen.capture()?;
+log(format!("{}x{}", shot.width, shot.height));
+##end
+
+##sym Screen.capture_region
+##sig fn Screen.capture_region(&self, x: U32, y: U32, w: U32, h: U32) -> Result<Screenshot, ScreenError>
+##cap computer.screen
+##desc Capture a sub-rectangle of the display. Useful when the model only needs part of the viewport.
+##see Screen.capture, MockScreen, Screenshot
+##example
+let shot = screen.capture_region(0, 0, 640, 480)?;
+##end
+
+##sym MockScreen.solid_color
+##sig fn MockScreen.solid_color(width: U32, height: U32, rgb: U32) -> MockScreen
+##desc CI-safe mock display filled with a single RGB color. The default screen backend on tests + CI.
+##see Screen.capture, Dispatcher.with_screen, MockMouse, MockKeyboard
+##example
+let s = MockScreen.solid_color(1280, 800, 0x000000);
+let d = Dispatcher.new(llm, cap).with_screen(s);
+##end
+
+##sym ComputerAction.Screenshot
+##sig const ComputerAction.Screenshot: ComputerAction
+##desc The model asked for a screenshot. The dispatcher captures via the configured `Screen` and returns the bytes.
+##see Screen.capture, ComputerAction.Click, ComputerAction.Type
+##example
+match action {
+  ComputerAction.Screenshot => screen.capture()?,
+  _ => panic("unhandled"),
+}
+##end
+
+##sym ComputerAction.Click
+##sig variant ComputerAction.Click { x: U32, y: U32, button: MouseButton, count: U8 }
+##desc The model asked to click at `(x, y)`. `count` is 1 or 2 (double-click). Gated by `ComputerCap.with_bounds`.
+##see Mouse.click_at, ComputerAction.Drag, ComputerCap.with_bounds
+##example
+match action {
+  ComputerAction.Click { x, y, button, count } => mouse.click_n(x, y, button, count)?,
+  _ => (),
+}
+##end
+
+##sym ComputerAction.Type
+##sig variant ComputerAction.Type { text: Str }
+##desc The model asked to type a literal string. The dispatcher routes through the keyboard backend.
+##see Keyboard.type_text, ComputerAction.Key, ComputerCap.deny_keys
+##example
+match action {
+  ComputerAction.Type { text } => keyboard.type_text(&text)?,
+  _ => (),
+}
+##end
+
+##sym ComputerAction.Key
+##sig variant ComputerAction.Key { name: Str }
+##desc The model asked to press a named key or chord. Validated against the cap's deny-list.
+##see Keyboard.key_press, ComputerCap.deny_keys, Key.Chord
+##example
+match action {
+  ComputerAction.Key { name } => keyboard.key_press(&Key.from_str_lenient(&name)?)?,
+  _ => (),
+}
+##end
+
+##sym ComputerAction.Done
+##sig variant ComputerAction.Done { summary: Str }
+##desc Terminal action. The dispatcher returns `summary` from `Dispatcher.run`.
+##see Dispatcher.run, ComputerAction.Screenshot
+##example
+match action {
+  ComputerAction.Done { summary } => return Ok(summary),
+  _ => (),
+}
+##end
+
+##sym SandboxViolation.OutOfBounds
+##sig variant SandboxViolation.OutOfBounds { x: U32, y: U32, .. }
+##desc The action's click target was outside the cap's bounding rectangle. The dispatcher fails closed.
+##see ComputerCap.with_bounds, SandboxViolation.Permission, SandboxViolation.DeniedKey
+##example
+match err {
+  SandboxViolation.OutOfBounds { x, y, .. } => log(format!("click at ({},{}) rejected", x, y)),
+  _ => (),
+}
+##end
+
+##sym SandboxViolation.DeniedKey
+##sig variant SandboxViolation.DeniedKey(Str)
+##desc The key chord is on the cap's deny-list. Surfaces before the OS sees the press.
+##see ComputerCap.deny_keys, Keyboard.key_press, SandboxViolation.OutOfBounds
+##example
+match err {
+  SandboxViolation.DeniedKey(chord) => log(format!("denied chord: {}", chord)),
+  _ => (),
+}
+##end
+

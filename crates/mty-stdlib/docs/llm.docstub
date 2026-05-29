@@ -1,0 +1,95 @@
+##module llm
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym Member.anthropic
+##sig fn Member.anthropic(model: Str) -> Member
+##cap net.https (api.anthropic.com)
+##desc Constructs an Anthropic panel member. Reads ANTHROPIC_API_KEY from the environment.
+##see Member.openai, Member.gemini, Member.bedrock, Member.ask, Member.mock
+##example
+let m = Member.anthropic("claude-opus-4-7");
+let r = m.ask("Capital of France?")?;
+log(r.text);
+##end
+
+##sym Member.openai
+##sig fn Member.openai(model: Str) -> Member
+##cap net.https (api.openai.com)
+##desc Constructs an OpenAI panel member. Reads OPENAI_API_KEY from the environment.
+##see Member.anthropic, Member.gemini, Member.bedrock, Member.ask
+##example
+let m = Member.openai("gpt-4o");
+let r = m.ask("List 3 primes")?;
+log(r.text);
+##end
+
+##sym Member.gemini
+##sig fn Member.gemini(model: Str) -> Member
+##cap net.https (generativelanguage.googleapis.com)
+##desc Constructs a Gemini panel member. Reads GOOGLE_API_KEY from the environment.
+##see Member.anthropic, Member.openai, Member.bedrock, Member.ask
+##example
+let m = Member.gemini("gemini-1.5-pro");
+let r = m.ask("Summarise this.")?;
+log(r.text);
+##end
+
+##sym Member.bedrock
+##sig fn Member.bedrock(model: Str) -> Member
+##cap net.https (bedrock-runtime.<region>.amazonaws.com)
+##desc Constructs a Bedrock panel member. Reads AWS_ACCESS_KEY_ID/SECRET from the environment.
+##see Member.anthropic, Member.openai, Member.gemini, Member.ask
+##example
+let m = Member.bedrock("anthropic.claude-3-5-sonnet-20241022-v2:0");
+let r = m.ask("hi")?;
+log(r.text);
+##end
+
+##sym Member.mock
+##sig fn Member.mock(name: Str, reply: Str) -> Member
+##desc Deterministic stand-in for tests. Returns the canned reply without making a network call.
+##see Member.anthropic, Member.ask, swarm
+##example
+let m = Member.mock("unit", "42");
+let r = m.ask("x")?;
+assert_eq(r.text, "42");
+##end
+
+##sym Member.ask
+##sig fn Member.ask(&self, prompt: Str) -> Result<MemberReply, LlmError>
+##cap net.https (for the provider endpoint)
+##desc Sends prompt to the LLM provider and returns the reply.
+##see Member.anthropic, Member.openai, std.swarm, swarm
+##example
+let m = Member.anthropic("claude-opus-4-7");
+let r = m.ask("Capital of France?")?;
+log(r.text);
+##end
+
+##sym MemberReply.text
+##sig field MemberReply.text: Str
+##desc Plain-text body of the assistant reply.
+##see Member.ask, MemberReply.tokens_used, MemberReply.cost_cents
+##example
+let r = m.ask("hi")?;
+log(r.text);
+##end
+
+##sym MemberReply.tokens_used
+##sig field MemberReply.tokens_used: U64
+##desc Total tokens billed for this turn (input + output).
+##see MemberReply.cost_cents, MemberReply.text
+##example
+let r = m.ask("hi")?;
+log(format!("tokens={}", r.tokens_used));
+##end
+
+##sym MemberReply.cost_cents
+##sig field MemberReply.cost_cents: U64
+##desc Provider-reported cost of this turn, in cents.
+##see MemberReply.tokens_used, DollarBudget.from_dollars
+##example
+let r = m.ask("hi")?;
+log(format!("cost_cents={}", r.cost_cents));
+##end
+

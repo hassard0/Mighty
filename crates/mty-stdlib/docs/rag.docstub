@@ -1,0 +1,303 @@
+##module rag
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym Index.new
+##sig fn Index.new(path: Str) -> Index
+##cap fs.write (the index dir)
+##desc Disk-backed RAG index rooted at `path`. The path is created on first `build()` if missing.
+##see Index.in_memory, Index.add_text, Index.add_file, Index.build, Index.search
+##example
+let mut idx = Index.new("./corpus");
+idx.add_text("Mighty is an agent-first language");
+idx.build()?;
+##end
+
+##sym Index.in_memory
+##sig fn Index.in_memory() -> Index
+##desc Pure in-memory RAG index. Useful for tests and ephemeral corpora.
+##see Index.new, Index.add_text, Index.build, Index.search
+##example
+let mut idx = Index.in_memory();
+idx.add_text("alpha beta gamma");
+idx.build()?;
+let hits = idx.search("alpha", 3)?;
+##end
+
+##sym Index.add_text
+##sig fn Index.add_text(&mut self, text: Str) -> &mut Index
+##desc Stage a raw text body. The doc id is auto-generated; `build()` chunks and embeds it.
+##see Index.add_file, Index.add_doc, Index.build
+##example
+idx.add_text("a paragraph about claude");
+idx.add_text("another paragraph about gemini");
+idx.build()?;
+##end
+
+##sym Index.add_file
+##sig fn Index.add_file(&mut self, path: Str) -> Result<&mut Index, IndexErr>
+##cap fs.read (path)
+##desc Stage a file from disk. Equivalent to `add_doc(Doc.from_file(path)?)`.
+##see Index.add_text, Index.add_doc, Doc.from_file, Index.build
+##example
+idx.add_file("./docs/spec.md")?;
+idx.add_file("./docs/rfc.md")?;
+idx.build()?;
+##end
+
+##sym Index.add_doc
+##sig fn Index.add_doc(&mut self, doc: Doc) -> &mut Index
+##desc Stage a fully-formed `Doc` (custom id + metadata). Re-adding the same id replaces prior chunks on `build()`.
+##see Doc.new, Doc.from_file, Index.add_text, Index.build
+##example
+let d = Doc.new("intro", "Mighty is agent-first");
+idx.add_doc(d);
+idx.build()?;
+##end
+
+##sym Index.build
+##sig fn Index.build(&mut self) -> Result<USize, IndexErr>
+##desc Drain every staged doc, chunk it, embed it, upsert into the store. Returns the chunk count.
+##see Index.add_text, Index.add_file, Index.search, Index.chunk_count
+##example
+let n = idx.build()?;
+log(format!("indexed {} chunks", n));
+##end
+
+##sym Index.search
+##sig fn Index.search(&self, query: Str, k: USize) -> Result<Vec[Hit], IndexErr>
+##desc kNN search over the built index. Returns the top-`k` hits by cosine similarity.
+##see Index.build, Retriever.retrieve, Rag.ask
+##example
+let hits = idx.search("how does taint typing work?", 5)?;
+for h in hits.iter() { log(h.text); }
+##end
+
+##sym Index.chunk_count
+##sig fn Index.chunk_count(&self) -> USize
+##desc Number of chunks currently in the underlying store. Counts only built docs, not pending ones.
+##see Index.doc_count, Index.pending_count, Index.build
+##example
+log(format!("chunks indexed: {}", idx.chunk_count()));
+##end
+
+##sym Index.doc_count
+##sig fn Index.doc_count(&self) -> USize
+##desc Number of distinct docs that have been built into the store.
+##see Index.chunk_count, Index.pending_count, Index.build
+##example
+log(format!("docs indexed: {}", idx.doc_count()));
+##end
+
+##sym Index.pending_count
+##sig fn Index.pending_count(&self) -> USize
+##desc Docs staged via `add_*` but not yet built. Drops to zero after `build()`.
+##see Index.add_text, Index.build, Index.doc_count
+##example
+idx.add_text("draft");
+assert_eq(idx.pending_count(), 1);
+idx.build()?;
+assert_eq(idx.pending_count(), 0);
+##end
+
+##sym Index.clear
+##sig fn Index.clear(&mut self) -> Result<Unit, IndexErr>
+##desc Drop every staged + built doc, and clear the underlying store.
+##see Index.build, Index.add_text
+##example
+idx.clear()?;
+assert_eq(idx.chunk_count(), 0);
+##end
+
+##sym Index.with_strategy
+##sig fn Index.with_strategy(self, strategy: ChunkStrategy) -> Index
+##desc Builder that swaps the chunking strategy without reconstructing the chunker.
+##see ChunkStrategy.ByParagraph, ChunkStrategy.BySection, ChunkStrategy.ByTokens, ChunkStrategy.ByCodeFence
+##example
+let idx = Index.new("./corpus").with_strategy(ChunkStrategy.BySection);
+##end
+
+##sym Doc.new
+##sig fn Doc.new(id: Str, text: Str) -> Doc
+##desc Build a `Doc` with a stable id + text body. Metadata starts empty.
+##see Doc.from_file, Doc.with_meta, Index.add_doc
+##example
+let d = Doc.new("intro-1", "Mighty is an agent-first language");
+idx.add_doc(d);
+##end
+
+##sym Doc.from_file
+##sig fn Doc.from_file(path: Str) -> Result<Doc, IoErr>
+##cap fs.read (path)
+##desc Read a file from disk and wrap it in a `Doc`. The id defaults to the path; `source` metadata is set.
+##see Doc.new, Index.add_file
+##example
+let d = Doc.from_file("./docs/spec.md")?;
+log(d.id);
+##end
+
+##sym Doc.with_meta
+##sig fn Doc.with_meta(self, key: Str, value: Json) -> Doc
+##desc Builder: attach one metadata key/value. Values travel through to every chunk + hit.
+##see Doc.new, Doc.from_file
+##example
+let d = Doc.new("intro", "...").with_meta("title", "Intro");
+##end
+
+##sym ChunkStrategy.ByParagraph
+##sig const ChunkStrategy.ByParagraph: ChunkStrategy
+##desc Split on blank lines and merge adjacent paragraphs under a soft token cap. Default for `Chunker`.
+##see ChunkStrategy.ByTokens, ChunkStrategy.BySection, ChunkStrategy.ByCodeFence, Index.with_strategy
+##example
+let idx = Index.new("./c").with_strategy(ChunkStrategy.ByParagraph);
+##end
+
+##sym ChunkStrategy.ByTokens
+##sig const ChunkStrategy.ByTokens: ChunkStrategy
+##desc Fixed approximate-token windows (default 1024 tokens, 64-token overlap). Good catch-all when corpus shape is unknown.
+##see ChunkStrategy.ByParagraph, ChunkStrategy.BySection, ChunkStrategy.ByCodeFence
+##example
+let idx = Index.new("./c").with_strategy(ChunkStrategy.ByTokens);
+##end
+
+##sym ChunkStrategy.BySection
+##sig const ChunkStrategy.BySection: ChunkStrategy
+##desc Split on Markdown `#`, `##`, `###` headings. Best for wikis / technical docs where each section is self-contained.
+##see ChunkStrategy.ByParagraph, ChunkStrategy.ByTokens, ChunkStrategy.ByCodeFence
+##example
+let idx = Index.new("./c").with_strategy(ChunkStrategy.BySection);
+##end
+
+##sym ChunkStrategy.ByCodeFence
+##sig const ChunkStrategy.ByCodeFence: ChunkStrategy
+##desc Split on triple-backtick fences. Best for code-heavy docs where keeping a fence intact matters.
+##see ChunkStrategy.ByParagraph, ChunkStrategy.ByTokens, ChunkStrategy.BySection
+##example
+let idx = Index.new("./c").with_strategy(ChunkStrategy.ByCodeFence);
+##end
+
+##sym Chunker.default
+##sig fn Chunker.default() -> Chunker
+##desc Default chunker: `ByParagraph` strategy, 1024-token soft cap, 64-token overlap.
+##see Chunker.new, ChunkStrategy.ByParagraph, Index.with_strategy
+##example
+let ch = Chunker.default();
+let idx = Index.new("./c").with_chunker(ch);
+##end
+
+##sym Retriever.new
+##sig fn Retriever.new(index: &Index) -> Retriever
+##desc Build a retrieval policy over `index`. Defaults: `top_k=5`, no score floor, MMR off.
+##see Retriever.with_top_k, Retriever.with_min_score, Retriever.with_mmr, Retriever.retrieve
+##example
+let r = Retriever.new(&idx).with_top_k(10).with_min_score(0.6);
+let hits = r.retrieve("agent capabilities")?;
+##end
+
+##sym Retriever.with_top_k
+##sig fn Retriever.with_top_k(self, k: USize) -> Retriever
+##desc Builder: cap the number of returned hits at `k` (minimum 1).
+##see Retriever.new, Retriever.with_min_score, Retriever.retrieve
+##example
+let r = Retriever.new(&idx).with_top_k(20);
+##end
+
+##sym Retriever.with_min_score
+##sig fn Retriever.with_min_score(self, s: F32) -> Retriever
+##desc Builder: drop any hit scoring below `s` (cosine similarity).
+##see Retriever.new, Retriever.with_top_k, Retriever.with_mmr
+##example
+let r = Retriever.new(&idx).with_min_score(0.75);
+##end
+
+##sym Retriever.with_mmr
+##sig fn Retriever.with_mmr(self, on: Bool) -> Retriever
+##desc Builder: enable Maximal Marginal Relevance diversification (greedy, lambda=0.5).
+##see Retriever.new, Retriever.with_top_k, Retriever.retrieve
+##example
+let r = Retriever.new(&idx).with_mmr(true);
+##end
+
+##sym Retriever.retrieve
+##sig fn Retriever.retrieve(&self, query: Str) -> Result<Vec[Hit], IndexErr>
+##desc Run a kNN search through the configured top-k / score floor / MMR pipeline.
+##see Retriever.new, Retriever.with_top_k, Index.search, Rag.ask
+##example
+let hits = r.retrieve("capability typing")?;
+for h in hits.iter() { log(h.text); }
+##end
+
+##sym Reranker.new
+##sig fn Reranker.new(member: Member) -> Reranker
+##cap net.https (the wrapped member's provider)
+##desc LLM-as-reranker over `member`. Re-scores retrieved hits on a 0-100 relevance scale. Default batch 20.
+##see Reranker.with_batch_size, Rag.with_reranker, Member.anthropic
+##example
+let rr = Reranker.new(Member.anthropic("claude-haiku-4-5"));
+let rag = Rag.new().with_reranker(rr);
+##end
+
+##sym Reranker.with_batch_size
+##sig fn Reranker.with_batch_size(self, n: USize) -> Reranker
+##desc Builder: cap how many candidates the reranker is asked to score in one prompt.
+##see Reranker.new, Rag.with_reranker
+##example
+let rr = Reranker.new(m).with_batch_size(40);
+##end
+
+##sym Rag.new
+##sig fn Rag.new() -> Rag
+##desc Empty RAG pipeline. Chain `with_index`, `with_member`, and (optionally) `with_reranker` to drive `ask`.
+##see Rag.with_index, Rag.with_member, Rag.ask, Index.build
+##example
+let rag = Rag.new()
+  .with_index(idx)
+  .with_member(Member.anthropic("claude-opus-4-7"));
+let ans = rag.ask("how does taint work?").await?;
+##end
+
+##sym Rag.with_index
+##sig fn Rag.with_index(self, index: Index) -> Rag
+##desc Attach the index Rag should retrieve from. Required before `ask`.
+##see Rag.new, Rag.with_member, Index.new
+##example
+let rag = Rag.new().with_index(idx);
+##end
+
+##sym Rag.with_member
+##sig fn Rag.with_member(self, m: Member) -> Rag
+##cap net.https (the member's provider)
+##desc Attach the answering LLM. Required before `ask`.
+##see Rag.new, Rag.with_index, Rag.with_reranker, Member.anthropic
+##example
+let rag = Rag.new().with_index(idx).with_member(Member.openai("gpt-4o"));
+##end
+
+##sym Rag.with_reranker
+##sig fn Rag.with_reranker(self, r: Reranker) -> Rag
+##desc Insert an optional reranker between retrieval and the answering call.
+##see Rag.new, Reranker.new, Rag.with_member
+##example
+let rag = Rag.new()
+  .with_index(idx)
+  .with_reranker(Reranker.new(Member.anthropic("claude-haiku-4-5")))
+  .with_member(Member.anthropic("claude-opus-4-7"));
+##end
+
+##sym Rag.with_retriever_top_k
+##sig fn Rag.with_retriever_top_k(self, k: USize) -> Rag
+##desc Shortcut: set the retriever's `top_k` without building a `Retriever` explicitly.
+##see Rag.new, Retriever.with_top_k, Rag.ask
+##example
+let rag = Rag.new().with_index(idx).with_retriever_top_k(10).with_member(m);
+##end
+
+##sym Rag.ask
+##sig fn Rag.ask(&self, q: Str) -> Result<Str, RagErr>
+##cap net.https (the member's provider)
+##desc End-to-end RAG: embed `q`, retrieve top-k hits, (optionally rerank), and ask the answering member.
+##see Rag.new, Rag.with_member, Index.search, Rag.ask_with_image
+##example
+let ans = rag.ask("What is Mighty's capability typing?").await?;
+log(ans);
+##end
+

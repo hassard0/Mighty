@@ -1,0 +1,126 @@
+##module web
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym Canvas.new
+##sig fn Canvas.new(width: U32, height: U32) -> Canvas
+##desc Mighty-side handle to a 2D canvas. Lowers to a WIT import on wasm32-web; no-op on native.
+##see Canvas.fill_rect, Canvas.stroke_rect, Canvas.fill_text, Canvas.clear
+##example
+let c = Canvas.new(800, 600);
+c.fill_rect(10, 10, 50, 50, 0xff0000);
+##end
+
+##sym Canvas.fill_rect
+##sig fn Canvas.fill_rect(&self, x: I32, y: I32, w: U32, h: U32, color: U32)
+##desc Fill a rectangle at `(x, y)` with `color` (RGB packed as 0xRRGGBB).
+##see Canvas.stroke_rect, Canvas.clear, Canvas.set_fill_style
+##example
+canvas.fill_rect(0, 0, 200, 200, 0x00ff00);
+##end
+
+##sym Canvas.stroke_rect
+##sig fn Canvas.stroke_rect(&self, x: I32, y: I32, w: U32, h: U32, color: U32)
+##desc Outline a rectangle. Same shape as `fill_rect` but draws the border only.
+##see Canvas.fill_rect, Canvas.clear
+##example
+canvas.stroke_rect(5, 5, 100, 50, 0x0000ff);
+##end
+
+##sym Canvas.fill_text
+##sig fn Canvas.fill_text(&self, text: Str, x: I32, y: I32, color: U32)
+##desc Draw text at the baseline `(x, y)`. The host uses its current font / size settings.
+##see Canvas.fill_rect, Canvas.set_fill_style
+##example
+canvas.fill_text("score: 42", 10, 30, 0xffffff);
+##end
+
+##sym Canvas.clear
+##sig fn Canvas.clear(&self)
+##desc Clear the entire canvas to transparent. Most game agents call this once at the top of each frame.
+##see Canvas.request_animation_frame, Canvas.fill_rect
+##example
+canvas.clear();
+canvas.fill_rect(0, 0, 800, 600, 0x000000);
+##end
+
+##sym Canvas.request_animation_frame
+##sig fn Canvas.request_animation_frame(&self)
+##desc Ask the host to schedule the next render. The agent's `Frame` handler fires on the next tick.
+##see Canvas.clear, Input.subscribe_keydown
+##example
+on Frame(_) {
+  canvas.clear();
+  draw_world(&canvas);
+  canvas.request_animation_frame();
+}
+##end
+
+##sym Canvas.set_fill_style
+##sig fn Canvas.set_fill_style(&self, color: U32)
+##desc Set the default fill colour. Subsequent `fill_rect` / `fill_text` calls without an explicit color use this.
+##see Canvas.fill_rect, Canvas.fill_text
+##example
+canvas.set_fill_style(0x00ff00);
+canvas.fill_rect(0, 0, 50, 50, 0x00ff00);
+##end
+
+##sym Input.new
+##sig fn Input.new() -> Input
+##desc Mighty-side input subscription. Lowers to the `mty:web/input@0.1` interface on wasm32-web.
+##see Input.subscribe_keydown, Input.subscribe_keyup, Key.ArrowLeft
+##example
+let inp = Input.new();
+inp.subscribe_keydown();
+##end
+
+##sym Input.subscribe_keydown
+##sig fn Input.subscribe_keydown(&self)
+##desc Subscribe to keydown events. The agent's `KeyDown(Key)` handler fires for each key.
+##see Input.subscribe_keyup, Key.ArrowLeft, Key.Space
+##example
+input.subscribe_keydown();
+// elsewhere: on KeyDown(k) { ... }
+##end
+
+##sym Input.subscribe_keyup
+##sig fn Input.subscribe_keyup(&self)
+##desc Subscribe to keyup events. The agent's `KeyUp(Key)` handler fires when the user releases.
+##see Input.subscribe_keydown, Key.ArrowLeft
+##example
+input.subscribe_keyup();
+##end
+
+##sym Key.ArrowLeft
+##sig const Key.ArrowLeft: Key
+##desc Decoded `ArrowLeft` keyboard event. The DOM string `"ArrowLeft"` maps to this variant.
+##see Key.ArrowRight, Key.ArrowUp, Key.ArrowDown, Key.Space
+##example
+match key {
+  Key.ArrowLeft => player.move_left(),
+  Key.ArrowRight => player.move_right(),
+  _ => (),
+}
+##end
+
+##sym Key.Space
+##sig const Key.Space: Key
+##desc Decoded space-bar event. DOM strings `" "`, `"Space"`, `"Spacebar"` all map here.
+##see Key.Enter, Key.Escape, Key.ArrowLeft
+##example
+match key {
+  Key.Space => player.jump(),
+  _ => (),
+}
+##end
+
+##sym Key.Char
+##sig variant Key.Char(Char)
+##desc A single printable character (`"a"`, `"Z"`, `"7"`). Catches all single-char DOM keys.
+##see Key.Other, Key.ArrowLeft, Key.from_dom_string
+##example
+match key {
+  Key.Char(c) => log(format!("typed {}", c)),
+  _ => (),
+}
+##end
+

@@ -1,0 +1,158 @@
+##module eval
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym Suite.new
+##sig fn Suite.new(name: Str) -> Suite
+##desc Creates a named eval suite. Add cases, members, and a comparison strategy before running.
+##see Suite.case, Suite.member, Suite.compare, Suite.run
+##example
+let s = Suite.new("summaries");
+s.case("short", "Summarise this in 10 words.");
+s.member(Member.openai("gpt-4o"));
+s.compare(Compare.contains("summary"));
+let report = s.run().await?;
+##end
+
+##sym Suite.case
+##sig fn Suite.case(&mut self, name: Str, prompt: Str) -> &mut Suite
+##desc Registers an eval case with a prompt. Each member is run against each case.
+##see Suite.new, Suite.member, Suite.compare
+##example
+s.case("capitals", "Capital of France?");
+##end
+
+##sym Suite.member
+##sig fn Suite.member(&mut self, m: Member) -> &mut Suite
+##cap net.https (per member)
+##desc Adds a panel member to the eval grid. Members are run in parallel.
+##see Suite.new, Suite.case, Member.anthropic
+##example
+s.member(Member.anthropic("claude-opus-4-7"));
+##end
+
+##sym Suite.compare
+##sig fn Suite.compare(&mut self, c: Compare) -> &mut Suite
+##desc Sets the comparison strategy used to stamp a verdict per (case, member) cell.
+##see Compare.contains, Compare.tool_call_set_equal, Suite.run
+##example
+s.compare(Compare.contains("Paris"));
+##end
+
+##sym Suite.run
+##sig fn Suite.run(&self) -> Result<EvalReport, LlmError>
+##cap net.https (per member)
+##desc Executes every (case, member) pair and returns the verdict grid.
+##see Suite.new, EvalReport, Compare.contains
+##example
+let report = s.run().await?;
+log(report.summary());
+##end
+
+##sym Compare.contains
+##sig fn Compare.contains(needle: Str) -> Compare
+##desc Verdict-pass when the reply text contains `needle` (case-sensitive substring).
+##see Compare.tool_call_set_equal, Suite.compare
+##example
+let cmp = Compare.contains("Paris");
+##end
+
+##sym Compare.tool_call_set_equal
+##sig fn Compare.tool_call_set_equal(tools: List<Str>) -> Compare
+##desc Verdict-pass when the model invokes exactly `tools` (order-insensitive).
+##see Compare.contains, Suite.compare
+##example
+let cmp = Compare.tool_call_set_equal(["search", "summarise"]);
+##end
+
+##sym Compare.equal
+##sig fn Compare.equal() -> Compare
+##desc Strictest comparator — strings must match after trim + lowercase. Ideal for tool-name verdicts.
+##see Compare.semantic_similarity, Compare.tool_call_set_equal, Suite.compare
+##example
+let cmp = Compare.equal();
+let report = suite.compare(cmp).await?;
+##end
+
+##sym Compare.semantic_similarity
+##sig fn Compare.semantic_similarity(threshold: F32) -> Compare
+##desc Cosine-similarity comparator over the stub embedder. Two replies are equivalent iff similarity >= `threshold`.
+##see Compare.equal, Compare.tool_call_set_equal, Suite.compare
+##example
+let cmp = Compare.semantic_similarity(0.85);
+##end
+
+##sym Compare.semantic_similarity_with
+##sig fn Compare.semantic_similarity_with(threshold: F32, embedder: Embedder) -> Compare
+##desc Cosine comparator with a caller-supplied embedder. Used to swap in OpenAI / qdrant backends.
+##see Compare.semantic_similarity, Embedder
+##example
+let cmp = Compare.semantic_similarity_with(0.85, OpenAiEmbedder.new());
+##end
+
+##sym Verdict.Match
+##sig const Verdict.Match: Verdict
+##desc The reply matched the baseline under the configured comparator.
+##see Verdict.Diverge, Verdict.Error, Verdict.SingleMember, Compare.equal
+##example
+match v {
+  Verdict.Match => log("PASS"),
+  Verdict.Diverge => log("FAIL"),
+  _ => (),
+}
+##end
+
+##sym Verdict.Diverge
+##sig const Verdict.Diverge: Verdict
+##desc The reply did not match the baseline.
+##see Verdict.Match, Verdict.Error, Divergence
+##example
+if v == Verdict.Diverge { log("divergence — see report.divergences"); }
+##end
+
+##sym Verdict.Error
+##sig const Verdict.Error: Verdict
+##desc The member errored before producing a reply (network, parse, budget).
+##see Verdict.Match, Verdict.Diverge, Suite.run
+##example
+if v == Verdict.Error { log("member errored — strict mode fails"); }
+##end
+
+##sym Verdict.SingleMember
+##sig const Verdict.SingleMember: Verdict
+##desc Only one member was registered. Counts as PASS by default; opt-in to fail with `Suite.require_two_members`.
+##see Verdict.Match, Suite.member
+##example
+if v == Verdict.SingleMember { log("add another member for cross-check"); }
+##end
+
+##sym Case.from_input
+##sig fn Case.from_input(prompt: Str) -> Case
+##desc Build a raw-prompt case with no recorded baseline. The runner compares replies member-vs-member.
+##see Case.from_trace, Suite.case, Suite.run_with
+##example
+let c = Case.from_input("Capital of France?");
+suite.case(c);
+##end
+
+##sym Case.from_trace
+##sig fn Case.from_trace(path: Str) -> Case
+##cap fs.read (path)
+##desc Build a recorded-trace case. The runner reads the first user prompt + assistant reply at materialisation time.
+##see Case.from_input, Suite.case
+##example
+let c = Case.from_trace("traces/research-001.mty-trace");
+suite.case(c);
+##end
+
+##sym Suite.run_with
+##sig fn Suite.run_with(&mut self, m: Member) -> &mut Suite
+##cap net.https (per member)
+##desc Register a panel member for the eval grid. Same shape as `Suite.member` — kept for the fluent v0.28 builder.
+##see Suite.case, Suite.compare, Suite.member
+##example
+let suite = Suite.new("summaries")
+  .case(Case.from_input("..."))
+  .run_with(Member.anthropic("claude-opus-4-7"))
+  .run_with(Member.openai("gpt-4o"));
+##end
+

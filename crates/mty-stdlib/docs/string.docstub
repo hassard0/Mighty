@@ -1,0 +1,94 @@
+##module string
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym String.new
+##sig fn String.new() -> String
+##desc Allocates an empty owned UTF-8 string.
+##see String.from_str, String.with_capacity
+##example
+let mut s = String.new();
+s.push_str("hi");
+##end
+
+##sym String.from_str
+##sig fn String.from_str(s: Str) -> String
+##desc Owned copy of the borrowed slice `s`.
+##see String.new, String.push_str
+##example
+let owned = String.from_str("hi");
+##end
+
+##sym String.push_str
+##sig fn String.push_str(&mut self, s: Str) -> Unit
+##desc Appends `s` to the end of this string.
+##see String.new, String.from_str
+##example
+s.push_str(" world");
+##end
+
+##sym String.with_capacity
+##sig fn String.with_capacity(n: USize) -> String
+##desc Pre-allocate a string buffer for `n` bytes. Avoids re-allocs in a hot build loop.
+##see String.new, String.from_str, String.push_str
+##example
+let mut s = String.with_capacity(64);
+s.push_str("hi");
+##end
+
+##sym String.len
+##sig fn String.len(&self) -> USize
+##desc Byte length. NOT the char count — `"a©"` has `len() == 3` because `©` is a 2-byte UTF-8 sequence.
+##see String.is_empty, String.as_bytes
+##example
+let n = String.from_str("hello").len();
+assert_eq(n, 5);
+##end
+
+##sym String.is_empty
+##sig fn String.is_empty(&self) -> Bool
+##desc True if the string has zero bytes. Same as `len() == 0`.
+##see String.len, String.clear
+##example
+let s = String.new();
+assert(s.is_empty());
+##end
+
+##sym String.push
+##sig fn String.push(&mut self, c: Char)
+##desc Append a single character. UTF-8-aware: a single `Char` may add up to 4 bytes.
+##see String.push_str, String.clear
+##example
+let mut s = String.new();
+s.push('h');
+s.push('i');
+##end
+
+##sym String.clear
+##sig fn String.clear(&mut self)
+##desc Reset length to zero without releasing capacity. Build-and-clear loops avoid re-allocations.
+##see String.push_str, String.with_capacity
+##example
+let mut s = String.with_capacity(64);
+s.push_str("draft");
+s.clear();
+##end
+
+##sym String.as_bytes
+##sig fn String.as_bytes(&self) -> &[U8]
+##desc Borrow the raw UTF-8 bytes. Useful for hashing / network framing where you want bytes, not chars.
+##see String.len, String.into_bytes
+##example
+let s = String.from_str("hi");
+let bs = s.as_bytes();
+assert_eq(bs.len(), 2);
+##end
+
+##sym format
+##sig macro format!(fmt: Str, args: ...) -> Str
+##desc `println`-style formatter. Returns a `Str`; non-allocating for the literal-only case.
+##see log, String.push_str
+##example
+let s = format!("score: {}, level: {}", 42, 7);
+log(s);
+##end
+

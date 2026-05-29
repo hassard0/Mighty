@@ -57,6 +57,18 @@ jobs:
       - name: cargo test
         run: cargo test --workspace
 
+      - name: stdlib hover-catalog drift gate (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # v0.35 T5 Strategy B gate: extracted catalog
+          # (`crates/mty-stdlib/docs/*.docstub`) must match the curated
+          # gold-set (`crates/mty-doc/src/examples.rs::STDLIB_EXAMPLES`)
+          # byte-for-byte. Non-zero exit on any drift.
+          # See `docs/internals/stdlib-docs-pipeline.md`.
+          cargo run -q -p mty-cli -- doc --check
+
       - name: example sweep (Linux only)
         if: matrix.os == 'ubuntu-latest'
         shell: bash

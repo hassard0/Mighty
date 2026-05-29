@@ -1,0 +1,21 @@
+##module time
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym std.time.now
+##sig fn std.time.now() -> Instant
+##desc Returns the monotonic instant. Suitable for measuring elapsed durations.
+##see std.time.sleep, std.time.format
+##example
+let t0 = std.time.now();
+do_work();
+log(format!("took {}", std.time.now() - t0));
+##end
+
+##sym std.time.sleep
+##sig fn std.time.sleep(dur: Duration) -> Unit
+##desc Yields the current task for `dur` before resuming.
+##see std.time.now
+##example
+std.time.sleep(1.s).await;
+##end
+

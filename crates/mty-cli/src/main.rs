@@ -400,8 +400,17 @@ enum Cmd {
     /// items to stdout. With `ITEM`, prints the full doc body of one
     /// item. With `--html` or `--markdown`, renders a navigable site
     /// to `target/doc/<package>` (override with `--out`).
+    ///
+    /// v0.35 T5: `--check` (no path) runs the Strategy B drift gate —
+    /// compares the extracted stdlib catalog (per-module docstubs at
+    /// `crates/mty-stdlib/docs/*.docstub`) to the curated gold-set
+    /// (`crates/mty-doc/src/examples.rs::STDLIB_EXAMPLES`) and exits
+    /// non-zero on any divergence. This is the CI gate against
+    /// hover-catalog rot. See `docs/internals/stdlib-docs-pipeline.md`.
     Doc {
-        path: std::path::PathBuf,
+        /// Path to the `.mty` file to document. Optional when `--check`
+        /// is set (the drift gate has no input path).
+        path: Option<std::path::PathBuf>,
         /// Print one item's full doc instead of the package summary.
         item: Option<String>,
         /// Render an HTML site (per-module pages + search index).
@@ -417,6 +426,15 @@ enum Cmd {
         /// (No-op in v0.2; see DOC_V0_2_NOTES.md.)
         #[arg(long)]
         check_examples: bool,
+        /// v0.35 T5: run the stdlib-hover-catalog drift gate. Compares
+        /// the extracted docstub catalog to the curated table and
+        /// exits non-zero on any divergence. No path required.
+        #[arg(long)]
+        check: bool,
+        /// With `--check`, write the drift report to this file in
+        /// addition to stdout. Useful for CI artefact uploads.
+        #[arg(long)]
+        report: Option<std::path::PathBuf>,
     },
 }
 
@@ -559,7 +577,23 @@ fn main() {
             markdown,
             out,
             check_examples,
-        } => cmd::doc::run(&path, item, html, markdown, out, check_examples),
+            check,
+            report,
+        } => {
+            if check {
+                cmd::doc::run_check(report.as_deref())
+            } else {
+                match path {
+                    Some(p) => cmd::doc::run(&p, item, html, markdown, out, check_examples),
+                    None => {
+                        eprintln!(
+                            "mty doc: a PATH is required unless --check is set; run `mty doc --help`"
+                        );
+                        2
+                    }
+                }
+            }
+        }
         Cmd::Replay {
             trace,
             dump_json,

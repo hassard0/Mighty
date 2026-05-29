@@ -1,6 +1,9 @@
 //! `mty doc` — Mighty documentation generator. See
 //! `docs/reference/cli/mty-doc.md` for the user-facing reference and
 //! `docs/internals/doc-generator.md` for the algorithm.
+//!
+//! v0.35 T5 added [`run_check`] — the stdlib-hover-catalog drift gate.
+//! See `docs/internals/stdlib-docs-pipeline.md`.
 
 use std::path::{Path, PathBuf};
 
@@ -78,5 +81,56 @@ pub fn run(
     } else {
         print!("{}", mty_doc::render::text(&doc));
         0
+    }
+}
+
+/// `mty doc --check` — the v0.35 T5 Strategy B drift gate.
+///
+/// Builds the extracted stdlib catalog from the per-module docstubs
+/// at `crates/mty-stdlib/docs/*.docstub` (compile-time embedded), then
+/// compares it to the curated [`mty_doc::STDLIB_EXAMPLES`] gold-set.
+/// Emits a stable Markdown report and returns:
+///
+/// - `0` on zero-drift (extracted ≡ curated).
+/// - `1` on any divergence (missing entry, extra entry, or field
+///   mismatch on a shared symbol).
+///
+/// When `report_path` is set, the same payload is written to that
+/// file in addition to stdout — handy for CI artefact uploads.
+pub fn run_check(report_path: Option<&Path>) -> i32 {
+    let extracted = mty_doc::build_extracted_catalog();
+    let drift = mty_doc::diff_catalogs(&extracted, mty_doc::STDLIB_EXAMPLES);
+
+    let mut payload = String::new();
+    payload.push_str(&format!(
+        "mty doc check (v0.35 T5 Strategy B drift gate)\n\
+         curated entries:   {}\n\
+         extracted entries: {}\n\n",
+        mty_doc::STDLIB_EXAMPLES.len(),
+        extracted.len(),
+    ));
+    if drift.is_empty() {
+        payload.push_str("OK: extracted catalog matches curated table byte-for-byte.\n");
+        print!("{payload}");
+        if let Some(p) = report_path {
+            if let Err(e) = std::fs::write(p, &payload) {
+                eprintln!("mty doc check: write {}: {}", p.display(), e);
+            }
+        }
+        0
+    } else {
+        payload.push_str(&mty_doc::render_drift_report(&drift));
+        payload.push_str(
+            "\nTo fix: edit `crates/mty-stdlib/docs/<module>.docstub` to \
+             match the curated table, OR regenerate it from the curated \
+             gold-set via `cargo run -p mty-doc --bin regen-stdlib-docstubs`.\n",
+        );
+        print!("{payload}");
+        if let Some(p) = report_path {
+            if let Err(e) = std::fs::write(p, &payload) {
+                eprintln!("mty doc check: write {}: {}", p.display(), e);
+            }
+        }
+        1
     }
 }

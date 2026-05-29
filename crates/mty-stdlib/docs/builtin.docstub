@@ -1,0 +1,28 @@
+##module builtin
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym log
+##sig fn log(msg: Str) -> Unit
+##desc Writes `msg` to the host log sink with a newline. Effect `io`.
+##see panic, std.observe.record
+##example
+log("hello, world");
+##end
+
+##sym panic
+##sig fn panic(msg: Str) -> Never
+##desc Aborts the current task with `msg`. Never returns.
+##see log, std.observe.record
+##example
+if !ok { panic("unreachable"); }
+##end
+
+##sym spawn
+##sig fn spawn[T](inner: T) -> AgentRef[T]
+##desc Spawns an agent on the current supervisor and returns a typed handle.
+##see AgentRef.send, AgentRef.ask, std.swarm
+##example
+let h = spawn(Greeter.new());
+h.send(Greet { name: "world" });
+##end
+

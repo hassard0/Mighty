@@ -1,0 +1,121 @@
+##module observe
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym observe.record
+##sig fn observe.record(name: Str, payload: Json) -> Unit
+##desc Append a structured observation to the per-run trace. Sinks decide whether to flush to OTel/file.
+##see observe.query, observe.otel_sink, std.observe
+##example
+observe.record("agent.turn", json({"who": "user", "text": msg}));
+##end
+
+##sym observe.query
+##sig fn observe.query(filter: Str) -> List<Observation>
+##desc Query the in-memory trace store with a dotted-path filter.
+##see observe.record, std.observe
+##example
+let turns = observe.query("agent.turn");
+##end
+
+##sym observe.otel_sink
+##sig fn observe.otel_sink(endpoint: Str) -> Unit
+##cap net.https (the OTLP endpoint)
+##desc Forward every observation to an OTel collector via OTLP/HTTP.
+##see observe.record, std.observe
+##example
+observe.otel_sink("https://otel.example/v1/traces");
+##end
+
+##sym Window.parse
+##sig fn Window.parse(spec: Str) -> Result<Window, Str>
+##desc Parse a Go-style duration spec (`7d`, `12h`, `30m`, `45s`, `500ms`, or `all`). Used by `mty inspect --cost --since`.
+##see Window.Last, Window.All, summarize
+##example
+let w = Window.parse("7d")?;
+let sum = summarize(&obs, w, GroupBy.Model, 5);
+##end
+
+##sym Window.All
+##sig const Window.All: Window
+##desc Window covering every observation in the store.
+##see Window.Last, Window.parse, summarize
+##example
+let sum = summarize(&obs, Window.All, GroupBy.Provider, 0);
+##end
+
+##sym Window.Last
+##sig variant Window.Last { millis: U64 }
+##desc Window covering the last `millis` of wall-clock time before now.
+##see Window.parse, Window.All
+##example
+let w = Window.Last { millis: 86400000 };
+##end
+
+##sym GroupBy.Provider
+##sig const GroupBy.Provider: GroupBy
+##desc Group cost rows by provider (anthropic / openai / gemini / bedrock).
+##see GroupBy.Model, GroupBy.Agent, GroupBy.None, summarize
+##example
+let sum = summarize(&obs, Window.All, GroupBy.Provider, 0);
+for row in sum.by_group.iter() { log(row.key); }
+##end
+
+##sym GroupBy.Model
+##sig const GroupBy.Model: GroupBy
+##desc Group cost rows by model id (e.g. `claude-opus-4-7`).
+##see GroupBy.Provider, GroupBy.Agent, summarize
+##example
+let sum = summarize(&obs, Window.All, GroupBy.Model, 0);
+##end
+
+##sym GroupBy.Agent
+##sig const GroupBy.Agent: GroupBy
+##desc Group cost rows by `agent_id` so you can compare cost across agent handlers.
+##see GroupBy.Provider, GroupBy.Model, summarize
+##example
+let sum = summarize(&obs, Window.All, GroupBy.Agent, 10);
+##end
+
+##sym GroupBy.None
+##sig const GroupBy.None: GroupBy
+##desc Collapse every call into one synthetic group keyed `"all"`. The bare totals row.
+##see GroupBy.Provider, summarize, CostSummary
+##example
+let sum = summarize(&obs, Window.All, GroupBy.None, 0);
+##end
+
+##sym summarize
+##sig fn summarize(obs: &[LlmObservation], window: Window, by: GroupBy, top_n: USize) -> CostSummary
+##desc Canonical `mty inspect --cost` rollup. Filters by `window`, groups by `by`, and surfaces the top-`n` most-expensive calls.
+##see Window.parse, GroupBy.Model, percentiles, aggregate_by
+##example
+let sum = summarize(&obs, Window.Last { millis: 86400000 }, GroupBy.Model, 5);
+log(format!("${:.2}", sum.total_cost_cents as F32 / 100.0));
+##end
+
+##sym percentiles
+##sig fn percentiles(samples: &[U64]) -> LatencyPercentiles
+##desc Compute p50/p95/p99 latency over a slice of millisecond samples. Used by `summarize`.
+##see summarize, LatencyPercentiles
+##example
+let p = percentiles(&latencies);
+log(format!("p50={} p99={}", p.p50_ms, p.p99_ms));
+##end
+
+##sym aggregate_by
+##sig fn aggregate_by(obs: &[&LlmObservation], by: GroupBy) -> Vec[AggregateRow]
+##desc Group an observation slice by the chosen key. Returns one row per distinct group with totals.
+##see summarize, GroupBy.Provider, AggregateRow
+##example
+let rows = aggregate_by(&obs.iter().collect::<Vec<_>>(), GroupBy.Provider);
+##end
+
+##sym CostSummary
+##sig struct CostSummary { window, call_count, total_cost_cents, total_prompt_tokens, total_completion_tokens, latency, by_group, top_calls }
+##desc Top-level cost summary surfaced by `mty inspect --cost`. Plain-data shape — safe to JSON-encode.
+##see summarize, percentiles, GroupBy.Provider
+##example
+let s = summarize(&obs, Window.All, GroupBy.None, 0);
+log(format!("calls={} cost_cents={}", s.call_count, s.total_cost_cents));
+##end
+
