@@ -74,16 +74,22 @@ ThinLTO.
 PROFDIR=/tmp/pgo TOOLCHAIN=1.95.0 ./scripts/build-pgo.sh
 ```
 
-If `llvm-profdata` isn't on `PATH`, the script falls back to the
-rustup-managed copy at
+The script prefers the rustup-managed copy at
 
 ```
 $(rustc +1.95.0 --print sysroot)/lib/rustlib/<host>/bin/llvm-profdata
 ```
 
-which is what `rustup component add llvm-tools-preview --toolchain
-1.95.0` installs. The script errors out with a clear message if it
-can't find one.
+— that's what `rustup component add llvm-tools-preview --toolchain
+1.95.0` installs. If the host tuple doesn't have it, the script
+falls back through a small chain — `aarch64-apple-darwin` →
+`x86_64-apple-darwin` → a wildcard scan of every `lib/rustlib/*/bin`
+directory — and finally a system `llvm-profdata` on `PATH`. The
+fallback chain exists because v0.36.1 hit a macOS-14 layout where
+`llvm-tools-preview` landed under a non-host tuple's `bin/`; the v0.37
+chain re-enabled darwin-arm64 PGO without needing the system LLVM
+(see `scripts/tests/test-build-pgo-paths.sh`). The script errors out
+with a clear message if nothing matches.
 
 ### Windows
 
@@ -159,6 +165,22 @@ for a representative profile.
 It is **not** wired into `release.yml` yet — the v0.22 release ships
 the manual workflow so we can collect numbers across machines before
 deciding whether to gate releases on it.
+
+### Dry-run an existing tag through `release.yml`
+
+`release.yml` accepts a `workflow_dispatch` input so you can rebuild
+the binary set for any existing tag without cutting a new one. This
+is the recommended way to canary a PGO change (e.g. the v0.37 T4
+darwin-arm64 re-enable) before tagging:
+
+```bash
+gh workflow run release.yml -f tag=v0.36.1
+```
+
+The input defaults to the last known-green tag, so omitting `-f tag`
+re-runs the full matrix against it. The workflow will overwrite the
+existing release's assets on success — keep that in mind if you're
+dry-running against a real public release.
 
 ## Why ThinLTO + PGO together
 

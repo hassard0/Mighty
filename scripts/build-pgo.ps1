@@ -26,8 +26,14 @@ function Find-LlvmProfdata {
     # the version that wrote the .profraw shards is the only one
     # guaranteed to parse them. See scripts/build-pgo.sh for the
     # macOS-14 profile-version mismatch this fixes.
+    #
+    # v0.37 T4: expanded to a fallback chain (host tuple → known
+    # Darwin tuples → rustlib wildcard) to mirror build-pgo.sh. The
+    # Windows runner only ever hits the first branch in practice, but
+    # keeping the scripts symmetrical means the same fix lands
+    # everywhere if `rustc -vV | grep host` ever resolves to a tuple
+    # that doesn't have llvm-tools-preview under it.
 
-    # rustup-managed: <sysroot>/lib/rustlib/<host>/bin/llvm-profdata.exe
     $sysroot = & rustc "+$Toolchain" --print sysroot 2>$null
     if ($sysroot) {
         $sysroot = $sysroot.Trim()
@@ -35,9 +41,36 @@ function Find-LlvmProfdata {
         # NB: `$host` is a built-in automatic variable in PowerShell — use a
         # different name for the local.
         $hostTriple = ($vv | Where-Object { $_ -match '^host:' } | ForEach-Object { ($_ -split '\s+')[1] })
-        if ($hostTriple) {
-            $candidate = Join-Path $sysroot "lib\rustlib\$hostTriple\bin\llvm-profdata.exe"
+
+        # Try the host tuple first, then known fallbacks. On Windows
+        # the host tuple is virtually always x86_64-pc-windows-msvc, but
+        # we keep aarch64-pc-windows-msvc and the Darwin tuples in the
+        # chain so the script is portable across runners.
+        $candidates = @()
+        if ($hostTriple) { $candidates += $hostTriple }
+        $candidates += @(
+            "x86_64-pc-windows-msvc",
+            "aarch64-pc-windows-msvc",
+            "aarch64-apple-darwin",
+            "x86_64-apple-darwin"
+        )
+        foreach ($tuple in $candidates) {
+            if (-not $tuple) { continue }
+            $candidate = Join-Path $sysroot "lib\rustlib\$tuple\bin\llvm-profdata.exe"
             if (Test-Path $candidate) { return $candidate }
+            # Some platforms (macOS) don't add .exe, even when this
+            # script runs under cross-platform PowerShell. Be lenient.
+            $candidateNoExt = Join-Path $sysroot "lib\rustlib\$tuple\bin\llvm-profdata"
+            if (Test-Path $candidateNoExt) { return $candidateNoExt }
+        }
+
+        # Last-ditch: any rustlib bin dir that has it.
+        $wildcardRoot = Join-Path $sysroot "lib\rustlib"
+        if (Test-Path $wildcardRoot) {
+            $found = Get-ChildItem -Path $wildcardRoot -Recurse -Filter "llvm-profdata*" -ErrorAction SilentlyContinue |
+                Where-Object { -not $_.PSIsContainer } |
+                Select-Object -First 1
+            if ($found) { return $found.FullName }
         }
     }
 
