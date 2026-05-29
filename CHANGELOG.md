@@ -58,6 +58,21 @@ freeze-gate items into "ready": real WASM playground (T1), `mty
 agent` production transports (T2), and the agent-first-shot →
 zero-shot loop (T3).
 
+## [0.35.5] - 2026-05-29
+
+### Fixed
+- **CI `test (minimal features)` example sweep** — the step
+  `cargo run --no-default-features -p mty-cli -- check <example>`
+  failed with `target 'mty' in package 'mty-cli' requires the
+  features: 'host-toolchain'` because T1's `[[bin]] mty` ships
+  `required-features = ["host-toolchain"]`. The example-sweep
+  step's value is asserting the corpus checks cleanly, not
+  exercising the binary's feature minimality (the `cargo test
+  --workspace --no-default-features` step above is the
+  source-of-truth for that). v0.35.5 drops `--no-default-features`
+  from the sweep cargo-run commands, restoring default features
+  for the `mty check` binary the sweep depends on.
+
 ## [0.35.4] - 2026-05-29
 
 ### Fixed

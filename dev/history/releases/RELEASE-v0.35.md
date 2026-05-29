@@ -1,9 +1,9 @@
 # Mighty v0.35 — Release Notes
 
-**Tag:** `v0.35.4` (v0.35.0 + v0.35.1 hit Release-workflow PGO
-bugs; v0.35.2 disabled PGO; v0.35.3 + v0.35.4 fix the CI
-`test (minimal features)` job in two rounds — see "Integrator
-notes")
+**Tag:** `v0.35.5` (six-tag saga, see "Integrator notes":
+v0.35.0+v0.35.1 hit Release PGO bugs, v0.35.2 disabled PGO,
+v0.35.3+v0.35.4+v0.35.5 fixed the CI `test (minimal features)`
+job in three rounds)
 **Date:** 2026-05-29
 **Status:** SHIPPED — closing the v0.33 stubs. PGO temporarily
 disabled in v0.35.2; queued as v0.36 deeper fix.
@@ -332,6 +332,19 @@ find it. v0.35.4 gates every spawn-binary mty-cli test behind
 `mty-stdlib/tests/observe_auto_record.rs` behind
 `observe-sqlite` (it unwraps `SqliteStore::in_memory()` which
 returns `FeatureDisabled` when the feature is off).
+
+**v0.35.4 → v0.35.5.** v0.35.4's `cargo test` step now passed
+under `--no-default-features` but the job's second step,
+`example sweep (no-default-features)`, kept failing with
+`target 'mty' in package 'mty-cli' requires the features:
+'host-toolchain'`. The sweep called
+`cargo run --no-default-features -p mty-cli -- check <example>`,
+which is incompatible with T1's `required-features` declaration.
+The sweep's purpose is to assert the example corpus checks
+cleanly, not to test the binary's feature minimality (the
+`cargo test --workspace --no-default-features` step above is the
+source-of-truth for that). v0.35.5 drops `--no-default-features`
+from the two sweep cargo-run commands in `.github/workflows/ci.yml`.
 
 The five merges were mechanical despite three tracks touching
 `crates/mty-cli/src/main.rs` — each new subcommand variant extends

@@ -141,13 +141,20 @@ jobs:
       - name: cargo test (no default features)
         run: cargo test --workspace --no-default-features
 
-      - name: example sweep (no-default-features)
+      - name: example sweep (default features — bin requires host-toolchain)
         shell: bash
         run: |
           set -euo pipefail
-          # Mirror the default-features example sweep (see `test` job)
-          # but with `--no-default-features` on the CLI build. The
-          # `@typeck-pending` skip-list rules are the same — fmt is
+          # v0.35.4: `[[bin]] mty` now requires `host-toolchain` (T1's
+          # default-on feature gates the entire cmd/ tree). Running
+          # `cargo run --no-default-features -p mty-cli` errors with
+          # `target `mty` in package `mty-cli` requires the features:
+          # `host-toolchain``. Drop `--no-default-features` for this
+          # sweep — the test/cargo-test step above already exercises
+          # the minimal-features library build; this sweep's value is
+          # asserting the example corpus checks cleanly, not the
+          # binary's feature minimality.
+          # The `@typeck-pending` skip-list rules are the same — fmt is
           # checked in the default job so we only re-check syntax /
           # typeck here.
           # v0.30 (Track A): `@compile-error` examples are expected to
@@ -157,12 +164,12 @@ jobs:
               echo "skip (typeck-pending): $f"
             elif grep -q '@compile-error' "$f"; then
               echo "expect-fail (compile-error): $f"
-              if cargo run -q --no-default-features -p mty-cli -- check "$f" 2>/dev/null; then
+              if cargo run -q -p mty-cli -- check "$f" 2>/dev/null; then
                 echo "ERROR: $f passed mty check but is marked @compile-error" >&2
                 exit 1
               fi
             else
-              cargo run -q --no-default-features -p mty-cli -- check "$f"
+              cargo run -q -p mty-cli -- check "$f"
             fi
           done
 
