@@ -26,5 +26,16 @@ mty-diagnostics = { path = "../mty-diagnostics" }
 thiserror = { workspace = true }
 inkwell = { workspace = true, optional = true }
 
+[dev-dependencies]
+# v0.37 T5 — U8-widening regression suite (feature-gated tests in
+# `tests/u8_widening.rs`). The suite lowers small Mighty programs all
+# the way through HIR → typeck → SIR → LLVM IR text, then greps the
+# emitted IR for the expected unsigned intrinsics (zext / udiv / urem
+# / icmp ult / lshr) — matches the cranelift backend's u8_widening.rs
+# but checks IR shape instead of executing via JIT.
+mty-syntax = { path = "../mty-syntax" }
+mty-ast = { path = "../mty-ast" }
+tempfile = "3"
+
 [lints]
 workspace = true

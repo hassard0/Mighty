@@ -3056,10 +3056,13 @@ name = "mty-codegen-llvm"
 version = "0.1.0"
 dependencies = [
  "inkwell",
+ "mty-ast",
  "mty-diagnostics",
  "mty-hir",
  "mty-ir",
+ "mty-syntax",
  "mty-types",
+ "tempfile",
  "thiserror 1.0.69",
 ]
 
