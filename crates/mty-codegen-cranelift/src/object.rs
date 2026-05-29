@@ -64,9 +64,14 @@ fn compile_object_inner(
         .finish(flags)
         .map_err(|e| CodegenError::Module(format!("isa finish: {e}")))?;
 
+    // v0.36 T4 — emit the object's source-file/segment name as
+    // `mighty` going forward. The legacy `stardust` byte sequence
+    // is no longer produced; any historical reader/grep that
+    // matched on `stardust` should also accept `mighty`. See
+    // [`accepted_segment_name`].
     let builder = ObjectBuilder::new(
         isa,
-        b"stardust".to_vec(),
+        b"mighty".to_vec(),
         cranelift_module::default_libcall_names(),
     )
     .map_err(|e| CodegenError::Module(format!("object builder: {e}")))?;
@@ -190,7 +195,7 @@ pub fn link_executable_with_libs(
     extra_args: &[String],
 ) -> CompileResult<NativeArtifact> {
     let linker = find_linker()
-        .ok_or_else(|| CodegenError::Linker("no linker found (set STARDUST_LINKER)".into()))?;
+        .ok_or_else(|| CodegenError::Linker("no linker found (set MTY_LINKER)".into()))?;
     let mut cmd = Command::new(&linker);
     cmd.arg(&obj.object_path);
     cmd.arg("-o").arg(out_exe);
@@ -230,14 +235,30 @@ pub fn link_executable_with_libs(
 /// Implements A52: env override, then `cc`, `gcc`, `clang`,
 /// `link.exe`. On Windows the bare `link` name is excluded because
 /// it commonly resolves to GNU coreutils' link (hardlink helper),
-/// not the MSVC linker. Users who want MSVC pass STARDUST_LINKER.
+/// not the MSVC linker. Users who want MSVC pass `MTY_LINKER` (or
+/// the legacy `STARDUST_LINKER`; that spelling is still honoured
+/// but emits a one-shot deprecation warning).
 ///
 /// We also reject MSYS/Git-Bash's `/usr/bin/link.exe` (the coreutils
 /// shim) when found at that exact path, since it speaks GNU
 /// arg-syntax, not MSVC's.
 pub fn find_linker() -> Option<String> {
+    // v0.36 T4: prefer MTY_LINKER, fall back to STARDUST_LINKER with
+    // a one-shot deprecation warning. This module is `no_std`-friendly
+    // enough that we can't depend on `mty-runtime`'s env helper, so
+    // we open-code the same precedence locally.
+    if let Ok(env) = std::env::var("MTY_LINKER") {
+        if !env.trim().is_empty() {
+            return Some(env);
+        }
+    }
     if let Ok(env) = std::env::var("STARDUST_LINKER") {
         if !env.trim().is_empty() {
+            use std::sync::atomic::{AtomicBool, Ordering};
+            static WARNED: AtomicBool = AtomicBool::new(false);
+            if !WARNED.swap(true, Ordering::Relaxed) {
+                eprintln!("mighty: warning: STARDUST_LINKER is deprecated; use MTY_LINKER instead");
+            }
             return Some(env);
         }
     }
@@ -295,15 +316,76 @@ mod which {
     }
 }
 
+/// v0.36 T4 — return `true` for both the new emission segment name
+/// (`b"mighty"`) and the legacy `b"stardust"` spelling. Useful for
+/// downstream tools that inspect a Mighty-built object's file/segment
+/// name and want to support objects produced before and after the
+/// v0.36 rename.
+pub fn accepted_segment_name(bytes: &[u8]) -> bool {
+    bytes == b"mighty" || bytes == b"stardust"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// Serialise the env-var-mutating tests: cargo runs tests in
+    /// parallel by default and they all touch the same process
+    /// globals (`MTY_LINKER` + `STARDUST_LINKER`). Hold this mutex
+    /// for the lifetime of each env-var test to keep them from
+    /// trampling each other.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn find_linker_is_best_effort() {
         // We can't assert success — CI hosts vary. But the function
-        // must not panic.
+        // must not panic. Hold ENV_LOCK so a parallel env-var test
+        // can't flip our view of the world mid-call.
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prior_mty = std::env::var("MTY_LINKER").ok();
+        let prior_sd = std::env::var("STARDUST_LINKER").ok();
+        std::env::remove_var("MTY_LINKER");
+        std::env::remove_var("STARDUST_LINKER");
         let _ = find_linker();
+        if let Some(v) = prior_mty {
+            std::env::set_var("MTY_LINKER", v);
+        }
+        if let Some(v) = prior_sd {
+            std::env::set_var("STARDUST_LINKER", v);
+        }
+    }
+
+    #[test]
+    fn find_linker_prefers_mty_over_stardust() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // Set both; MTY_ should win and STARDUST_ shouldn't even be
+        // observed (no deprecation warning fires).
+        std::env::set_var("MTY_LINKER", "/path/to/new-linker");
+        std::env::set_var("STARDUST_LINKER", "/path/to/old-linker");
+        let got = find_linker();
+        std::env::remove_var("MTY_LINKER");
+        std::env::remove_var("STARDUST_LINKER");
+        assert_eq!(got.as_deref(), Some("/path/to/new-linker"));
+    }
+
+    #[test]
+    fn find_linker_falls_back_to_stardust() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // MTY_ unset, STARDUST_ set → fallback path is honoured.
+        std::env::remove_var("MTY_LINKER");
+        std::env::set_var("STARDUST_LINKER", "/path/to/legacy-linker");
+        let got = find_linker();
+        std::env::remove_var("STARDUST_LINKER");
+        assert_eq!(got.as_deref(), Some("/path/to/legacy-linker"));
+    }
+
+    #[test]
+    fn accepted_segment_name_recognises_both_spellings() {
+        assert!(accepted_segment_name(b"mighty"));
+        assert!(accepted_segment_name(b"stardust"));
+        assert!(!accepted_segment_name(b"other"));
+        assert!(!accepted_segment_name(b""));
     }
 
     /// v0.36 Track T2 — `STARDUST_LINKER` must short-circuit the

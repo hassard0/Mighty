@@ -13,8 +13,8 @@
 //! * Outside a handler (e.g. called from `main` or from a unit
 //!   test), the event is written as a single line to stdout. We use
 //!   the same JSON shape as the existing JSON-line sink so log
-//!   tooling already wired up for `STARDUST_TRACE=stderr` keeps
-//!   working without changes.
+//!   tooling already wired up for `MTY_TRACE=stderr` (or the legacy
+//!   `STARDUST_TRACE=stderr`) keeps working without changes.
 
 use super::spans::{current_handler_context, SpanContext};
 

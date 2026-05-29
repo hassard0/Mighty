@@ -254,7 +254,7 @@ These slot into the existing `MT4001..MT4010` effect-checker range.
 1. **Effect subtraction (handlers).** Koka supports `try { ... } catch
    <Exn> { ... }` removing effects from the row. This is a separate
    mechanism (effect *handlers*) and is deferred to a future RFC —
-   stardust's handler/supervisor primitives may already cover the
+   Mighty's handler/supervisor primitives may already cover the
    non-exception cases, so the interaction needs design before
    commitment.
 2. **Effect aliases / unions.** Should `!IO = !{fs, net, time}` be

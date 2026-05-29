@@ -50,11 +50,14 @@ pub enum TelemetrySink {
 
 Selected via `TelemetrySink::from_env()`:
 
-| `STARDUST_TRACE` value | Sink |
-|------------------------|------|
+| `MTY_TRACE` value | Sink |
+|-------------------|------|
 | (unset) or anything not below | `Discard` |
 | `stderr` | `Stderr` |
 | `file:/path/to/log` | `File(/path/to/log)` |
+
+The legacy `STARDUST_TRACE` spelling is honoured when `MTY_TRACE`
+is unset (with a one-shot deprecation warning).
 
 `TelemetrySink::buffer()` returns a buffered sink + a shared `Vec<String>`
 the test can inspect — used by integration tests that want to assert

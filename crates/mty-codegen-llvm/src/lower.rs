@@ -32,7 +32,10 @@ pub fn lower_program<'ctx>(
     prog: &Program,
     opt: LlvmOptLevel,
 ) -> CompileResult<Module<'ctx>> {
-    let module = ctx.create_module("stardust");
+    // v0.36 T4 — LLVM module name is internal (consumed only by our
+    // own `module.verify()` and the JIT/object emitter). Renamed
+    // from `"stardust"` to `"mighty"` to align with the brand.
+    let module = ctx.create_module("mighty");
     let builder = ctx.create_builder();
     let mut lowerer = ProgramLowerer::new(ctx, &module, &builder, prog);
     lowerer.declare_runtime_imports();

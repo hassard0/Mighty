@@ -18,10 +18,15 @@ without an OTLP collector running.
 
 | Precedence | Env var(s)                              | Sink                       |
 |-----------:|-----------------------------------------|----------------------------|
-| 1          | `STARDUST_OTLP_ENDPOINT=<url>` (set)    | `TelemetrySink::Otlp`      |
-| 2          | `STARDUST_TRACE=stderr`                 | `TelemetrySink::Stderr`    |
-| 3          | `STARDUST_TRACE=file:/path/to/log`      | `TelemetrySink::File(p)`   |
+| 1          | `MTY_OTLP_ENDPOINT=<url>` (set)         | `TelemetrySink::Otlp`      |
+| 2          | `MTY_TRACE=stderr`                      | `TelemetrySink::Stderr`    |
+| 3          | `MTY_TRACE=file:/path/to/log`           | `TelemetrySink::File(p)`   |
 | 4          | (none)                                  | `TelemetrySink::Discard`   |
+
+The legacy `STARDUST_*` spellings (`STARDUST_OTLP_ENDPOINT`,
+`STARDUST_TRACE`) are still recognised when the corresponding
+`MTY_*` env var is unset; the first fall-through to a `STARDUST_*`
+name emits a one-shot deprecation warning on stderr.
 
 If OTLP init fails (collector unreachable at startup), the runtime
 silently falls through to the next sink and prints one diagnostic
@@ -60,7 +65,8 @@ Spans are emitted with `SpanKind::Internal` and zero duration
 
 The exporter uses **gRPC over Tonic** (`grpc-tonic` feature of
 `opentelemetry-otlp`). The endpoint URL passed via
-`STARDUST_OTLP_ENDPOINT` should be the collector's gRPC port —
+`MTY_OTLP_ENDPOINT` (or legacy `STARDUST_OTLP_ENDPOINT`) should be
+the collector's gRPC port —
 typically `http://localhost:4317` for an OTLP collector or
 `http://otel-collector:4317` inside a docker-compose stack.
 
@@ -104,7 +110,7 @@ service:
 Run with `otelcol --config=config.yaml`, then:
 
 ```bash
-STARDUST_OTLP_ENDPOINT=http://localhost:4317 mty run examples/07_agent_echo.sd
+MTY_OTLP_ENDPOINT=http://localhost:4317 mty run examples/07_agent_echo.mty
 ```
 
 Each `?Ping` ask should show up as four spans:
@@ -113,7 +119,7 @@ Each `?Ping` ask should show up as four spans:
 
 ## Troubleshooting
 
-- **No spans arrive at the collector**: confirm `STARDUST_OTLP_ENDPOINT`
+- **No spans arrive at the collector**: confirm `MTY_OTLP_ENDPOINT`
   is exported (env, not just the shell), and that the runtime didn't
   fall through to the JSON fallback (stderr prints
   `mighty: OTLP exporter init failed: ...` when init fails).

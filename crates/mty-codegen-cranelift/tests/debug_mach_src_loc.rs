@@ -152,7 +152,7 @@ fn compile_with_debug(prog: &Program) -> mty_codegen_cranelift::lower::FnSrcLocM
     let isa = isa_builder.finish(flags).expect("isa finish");
     let builder = ObjectBuilder::new(
         isa,
-        b"stardust-test".to_vec(),
+        b"mighty-test".to_vec(),
         cranelift_module::default_libcall_names(),
     )
     .expect("object builder");

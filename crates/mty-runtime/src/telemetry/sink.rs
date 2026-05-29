@@ -155,9 +155,9 @@ pub enum TelemetrySink {
     File(std::path::PathBuf),
     Buffer(Arc<Mutex<Vec<String>>>),
     /// OTLP wire-format export (v0.3, A38 closure). Active when the
-    /// `otlp` feature is enabled AND `STARDUST_OTLP_ENDPOINT` is set;
-    /// otherwise we fall back to one of the other sinks at
-    /// construction time.
+    /// `otlp` feature is enabled AND `MTY_OTLP_ENDPOINT` (or the
+    /// legacy `STARDUST_OTLP_ENDPOINT`) is set; otherwise we fall
+    /// back to one of the other sinks at construction time.
     #[cfg(feature = "otlp")]
     Otlp(Arc<crate::otlp::OtlpHandle>),
 }
@@ -170,22 +170,29 @@ impl TelemetrySink {
 
     /// Build the sink from environment variables:
     ///
-    /// - `STARDUST_OTLP_ENDPOINT=<url>` → OTLP exporter (best effort).
-    /// - `STARDUST_TRACE=stderr`        → JSON to stderr.
-    /// - `STARDUST_TRACE=file:<path>`   → JSON appended to file.
-    /// - (anything else)                → Discard.
+    /// - `MTY_OTLP_ENDPOINT=<url>` (or legacy `STARDUST_OTLP_ENDPOINT`)
+    ///   → OTLP exporter (best effort).
+    /// - `MTY_TRACE=stderr` (or legacy `STARDUST_TRACE`)
+    ///   → JSON to stderr.
+    /// - `MTY_TRACE=file:<path>` (or legacy `STARDUST_TRACE`)
+    ///   → JSON appended to file.
+    /// - (anything else) → Discard.
+    ///
+    /// v0.36 T4 — `MTY_*` is the new primary spelling. The legacy
+    /// `STARDUST_*` spelling continues to work but emits a one-shot
+    /// deprecation warning on stderr.
     pub fn from_env() -> Self {
         #[cfg(feature = "otlp")]
         {
-            if let Ok(ep) = std::env::var("STARDUST_OTLP_ENDPOINT") {
+            if let Some(ep) = crate::env_compat::lookup_env("OTLP_ENDPOINT") {
                 if let Some(h) = crate::otlp::OtlpHandle::try_init(&ep) {
                     return TelemetrySink::Otlp(h);
                 }
             }
         }
-        match std::env::var("STARDUST_TRACE").as_deref() {
-            Ok("stderr") => TelemetrySink::Stderr,
-            Ok(v) if v.starts_with("file:") => {
+        match crate::env_compat::lookup_env("TRACE").as_deref() {
+            Some("stderr") => TelemetrySink::Stderr,
+            Some(v) if v.starts_with("file:") => {
                 TelemetrySink::File(std::path::PathBuf::from(&v[5..]))
             }
             _ => TelemetrySink::Discard,

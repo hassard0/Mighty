@@ -923,13 +923,10 @@ fn split_result(s: &str) -> Option<(String, String)> {
 
 fn assert_binding_subset_match(
     src: &str,
-    stardust: &BTreeMap<String, String>,
+    mty: &BTreeMap<String, String>,
     rust: &BTreeMap<String, String>,
 ) {
-    let s: BTreeMap<String, String> = stardust
-        .iter()
-        .map(|(k, v)| (k.clone(), normalize(v)))
-        .collect();
+    let s: BTreeMap<String, String> = mty.iter().map(|(k, v)| (k.clone(), normalize(v))).collect();
     let r: BTreeMap<String, String> = rust
         .iter()
         .map(|(k, v)| (k.clone(), normalize(v)))
@@ -938,18 +935,18 @@ fn assert_binding_subset_match(
     let common_keys: usize = matched.len() + mismatched.len();
     assert!(
         common_keys > 0,
-        "no overlapping bindings between Mighty and Rust typeck for {:?}\n  stardust keys = {:?}\n  rust keys    = {:?}",
+        "no overlapping bindings between Mighty and Rust typeck for {:?}\n  mty keys = {:?}\n  rust keys = {:?}",
         src,
         s.keys().collect::<Vec<_>>(),
         r.keys().collect::<Vec<_>>()
     );
     assert!(
         mismatched.is_empty(),
-        "binding-type mismatch for {:?}:\n  {}\n  matched={}  only_stardust={}  only_rust={}",
+        "binding-type mismatch for {:?}:\n  {}\n  matched={}  only_mty={}  only_rust={}",
         src,
         mismatched
             .iter()
-            .map(|(k, va, vb)| format!("{}: stardust={:?} rust={:?}", k, va, vb))
+            .map(|(k, va, vb)| format!("{}: mty={:?} rust={:?}", k, va, vb))
             .collect::<Vec<_>>()
             .join("\n  "),
         matched.len(),

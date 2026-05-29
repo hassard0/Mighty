@@ -50,5 +50,5 @@ fn core_only_still_emits_wit_alongside_artifact() {
     // tooling can still consume it.
     assert!(art.wit_text.is_some());
     let wit = art.wit_text.unwrap();
-    assert!(wit.contains("package stardust:hello"));
+    assert!(wit.contains("package mty:hello"));
 }

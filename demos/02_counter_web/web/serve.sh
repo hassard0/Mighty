@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # demos/02_counter_web/web/serve.sh — minimal static server for the
-# wasm demo. Uses python3's http.server so there's zero Stardust- or
+# wasm demo. Uses python3's http.server so there's zero Mighty- or
 # node-side dependency. Default port: 8000.
 #
 # After it boots, open http://localhost:8000 and click "+1".
@@ -19,10 +19,10 @@ cp "$HERE/index.html" "$STAGE/index.html"
 WASM="$ROOT/demos/02_counter_web/target/main.wasm"
 if [[ ! -f "$WASM" ]]; then
   echo "serve: $WASM not built yet — run:" >&2
-  echo "       cargo build -p sdust-cli" >&2
-  echo "       ./target/debug/sdust build --target wasm32-web \\" >&2
+  echo "       cargo build -p mty-cli" >&2
+  echo "       ./target/debug/mty build --target wasm32-web \\" >&2
   echo "             --out-dir demos/02_counter_web/target \\" >&2
-  echo "             demos/02_counter_web/src/main.sd" >&2
+  echo "             demos/02_counter_web/src/main.mty" >&2
   exit 2
 fi
 cp "$WASM" "$STAGE/main.wasm"

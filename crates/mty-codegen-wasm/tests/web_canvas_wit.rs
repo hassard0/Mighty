@@ -136,7 +136,7 @@ fn web_world_round_trips_with_canvas_and_input() {
     assert_eq!(world_data.name, "notetris-world");
     // Package id must match the generated header.
     let pkg_data = &resolve.packages[pkg];
-    assert_eq!(pkg_data.name.namespace, "stardust");
+    assert_eq!(pkg_data.name.namespace, "mty");
     assert_eq!(pkg_data.name.name, "notetris");
 }
 

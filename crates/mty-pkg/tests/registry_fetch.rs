@@ -8,7 +8,8 @@
 fn fetches_real_release_index() {
     let tmp = tempfile::tempdir().unwrap();
     // Use a small, stable public repo with at least one release. The
-    // `stardust-pkg/registry` slug doesn't exist yet — we hit a real
+    // `mighty-pkg/registry` slug doesn't exist yet (and neither does
+    // its legacy `stardust-pkg/registry` predecessor) — we hit a real
     // repo here so the smoke test catches transport breakage. Switch
     // to the official registry once v0.5 spins it up.
     let slug = "octocat/Hello-World";

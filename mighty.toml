@@ -1,5 +1,5 @@
 [package]
-name = "stardust-stdlib-placeholder"
+name = "mighty-stdlib-placeholder"
 version = "0.1.0"
 edition = "2026"
 profile = "host"

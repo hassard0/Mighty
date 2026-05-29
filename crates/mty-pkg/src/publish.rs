@@ -388,7 +388,7 @@ edition = "2026"
     }
 
     #[test]
-    fn bundle_excludes_stardust_and_target() {
+    fn bundle_excludes_mighty_and_target() {
         let dir = tempfile::tempdir().unwrap();
         write_pkg(dir.path(), "demo", "0.1.0");
         std::fs::create_dir_all(dir.path().join("target")).unwrap();

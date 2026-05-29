@@ -698,9 +698,9 @@ fn expr_kind_name(e: &HirExpr) -> String {
     .to_string()
 }
 
-// ---- Stardust-side summary extracted from the event stream --------------
+// ---- Mighty-side summary extracted from the event stream ---------------
 
-fn stardust_summary(events: &[HirEvent]) -> HirSummary {
+fn mty_summary(events: &[HirEvent]) -> HirSummary {
     let mut items: Vec<String> = vec![];
     let mut item_names: Vec<String> = vec![];
     let mut expr_kinds: Vec<String> = vec![];
@@ -756,16 +756,16 @@ fn selfhost_hir_hello_world() {
         "self-hosted HIR did not terminate cleanly: {:?}",
         result
     );
-    let s = stardust_summary(&events);
+    let s = mty_summary(&events);
     let r = rust_hir(input);
     assert_eq!(
         s.items, r.items,
-        "item-kind diff:\n  stardust={:?}\n  rust    ={:?}",
+        "item-kind diff:\n  mty={:?}\n  rust={:?}",
         s.items, r.items
     );
     assert_eq!(
         s.item_names, r.item_names,
-        "item-name diff:\n  stardust={:?}\n  rust    ={:?}",
+        "item-name diff:\n  mty={:?}\n  rust={:?}",
         s.item_names, r.item_names
     );
 }
@@ -777,7 +777,7 @@ fn selfhost_hir_example_01() {
     let SelfhostHirRun { events, result } =
         run_selfhost_hir(&input).expect("Mighty HIR lowerer should compile");
     assert!(matches!(result, RunResult::Ok { .. }), "{:?}", result);
-    let s = stardust_summary(&events);
+    let s = mty_summary(&events);
     let r = rust_hir(&input);
     assert_eq!(s.items, r.items, "item-kind diff (ex01)");
     assert_eq!(s.item_names, r.item_names, "item-name diff (ex01)");
@@ -790,16 +790,16 @@ fn selfhost_hir_example_02() {
     let SelfhostHirRun { events, result } =
         run_selfhost_hir(&input).expect("Mighty HIR lowerer should compile");
     assert!(matches!(result, RunResult::Ok { .. }), "{:?}", result);
-    let s = stardust_summary(&events);
+    let s = mty_summary(&events);
     let r = rust_hir(&input);
     assert_eq!(
         s.items, r.items,
-        "item-kind diff (ex02):\n  stardust={:?}\n  rust    ={:?}",
+        "item-kind diff (ex02):\n  mty={:?}\n  rust={:?}",
         s.items, r.items
     );
     assert_eq!(
         s.item_names, r.item_names,
-        "item-name diff (ex02):\n  stardust={:?}\n  rust    ={:?}",
+        "item-name diff (ex02):\n  mty={:?}\n  rust={:?}",
         s.item_names, r.item_names
     );
 }
@@ -811,7 +811,7 @@ fn selfhost_hir_example_03() {
     let SelfhostHirRun { events, result } =
         run_selfhost_hir(&input).expect("Mighty HIR lowerer should compile");
     assert!(matches!(result, RunResult::Ok { .. }), "{:?}", result);
-    let s = stardust_summary(&events);
+    let s = mty_summary(&events);
     let r = rust_hir(&input);
     assert_eq!(s.items, r.items, "item-kind diff (ex03)");
     assert_eq!(s.item_names, r.item_names, "item-name diff (ex03)");
@@ -824,7 +824,7 @@ fn selfhost_hir_example_04() {
     let SelfhostHirRun { events, result } =
         run_selfhost_hir(&input).expect("Mighty HIR lowerer should compile");
     assert!(matches!(result, RunResult::Ok { .. }), "{:?}", result);
-    let s = stardust_summary(&events);
+    let s = mty_summary(&events);
     let r = rust_hir(&input);
     assert_eq!(s.items, r.items, "item-kind diff (ex04)");
 }
@@ -836,7 +836,7 @@ fn selfhost_hir_example_05() {
     let SelfhostHirRun { events, result } =
         run_selfhost_hir(&input).expect("Mighty HIR lowerer should compile");
     assert!(matches!(result, RunResult::Ok { .. }), "{:?}", result);
-    let s = stardust_summary(&events);
+    let s = mty_summary(&events);
     let r = rust_hir(&input);
     assert_eq!(s.items, r.items, "item-kind diff (ex05)");
 }

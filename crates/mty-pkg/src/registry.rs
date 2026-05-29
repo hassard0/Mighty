@@ -21,9 +21,13 @@
 //!
 //! ```toml
 //! [registry]
-//! default = "stardust-pkg/registry"        # the official one
-//! extras = ["myorg/private-stardust-pkgs"] # additional registries
+//! default = "mighty-pkg/registry"        # the official one (v0.36 T4)
+//! extras = ["myorg/private-mighty-pkgs"] # additional registries
 //! ```
+//!
+//! v0.36 T4 — the legacy `stardust-pkg/registry` slug is still
+//! recognised by [`is_official_registry`] so older manifests that
+//! reference it keep resolving against the same default.
 //!
 //! Multiple registries are unioned at lookup time; on duplicate
 //! `(name, version)`, the **first-listed** registry wins (the default,
@@ -37,11 +41,27 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// The official Mighty registry repository slug. The cloud control
-/// plane will own `stardust-pkg/registry` once v0.5 spins it up; until
+/// plane will own `mighty-pkg/registry` once v0.5 spins it up; until
 /// then this default points at a slug that does not yet exist on
 /// GitHub and any fetch attempt will surface a clear "release not
 /// found" error.
-pub const DEFAULT_REGISTRY_SLUG: &str = "stardust-pkg/registry";
+///
+/// v0.36 T4 — renamed from `stardust-pkg/registry`. The legacy slug
+/// is still recognised by [`is_official_registry`] so manifests that
+/// reference it explicitly continue to resolve to the same default.
+pub const DEFAULT_REGISTRY_SLUG: &str = "mighty-pkg/registry";
+
+/// Pre-v0.36 spelling of [`DEFAULT_REGISTRY_SLUG`]. Retained for
+/// back-compat with manifests authored before the brand rename.
+pub const LEGACY_REGISTRY_SLUG: &str = "stardust-pkg/registry";
+
+/// `true` when `slug` matches the current official registry slug
+/// (`mighty-pkg/registry`) or its pre-v0.36 spelling
+/// (`stardust-pkg/registry`). Callers MAY use this to short-circuit
+/// network fetches that would hit either slug equivalently.
+pub fn is_official_registry(slug: &str) -> bool {
+    slug == DEFAULT_REGISTRY_SLUG || slug == LEGACY_REGISTRY_SLUG
+}
 
 /// In-package cache TTL for a fetched registry index (1 hour).
 pub const INDEX_TTL_SECS: u64 = 60 * 60;
@@ -559,6 +579,25 @@ edition = "2026"
         std::env::set_var("GITHUB_TOKEN", "from-env");
         assert_eq!(store.token_for("x/y").as_deref(), Some("from-env"));
         std::env::remove_var("GITHUB_TOKEN");
+    }
+
+    /// v0.36 T4 — `DEFAULT_REGISTRY_SLUG` now points at the new
+    /// `mighty-pkg/registry` slug while the pre-v0.36
+    /// `stardust-pkg/registry` slug is still recognised as official.
+    #[test]
+    fn default_registry_slug_uses_mighty_namespace() {
+        assert_eq!(DEFAULT_REGISTRY_SLUG, "mighty-pkg/registry");
+        assert_eq!(LEGACY_REGISTRY_SLUG, "stardust-pkg/registry");
+    }
+
+    /// v0.36 T4 — the official-registry helper recognises both the
+    /// new and the legacy slug spellings.
+    #[test]
+    fn is_official_registry_accepts_both_spellings() {
+        assert!(is_official_registry("mighty-pkg/registry"));
+        assert!(is_official_registry("stardust-pkg/registry"));
+        assert!(!is_official_registry("someone/else"));
+        assert!(!is_official_registry(""));
     }
 
     #[test]

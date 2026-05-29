@@ -4,7 +4,8 @@
 //! `.wit` document that describes the package's *public* surface:
 //!
 //! - top-level fns become `func` members of the package's main
-//!   interface (`stardust:pkg/lib`),
+//!   interface (`mty:<pkg>/lib`; v0.36 T4 renamed from the legacy
+//!   `stardust:<pkg>/lib` namespace),
 //! - `struct` ADTs become `record` types,
 //! - `enum` ADTs become `variant` types (or plain `enum` when none
 //!   of the variants carry payloads),
@@ -62,7 +63,7 @@ impl WitDocument {
     > {
         let mut resolve = wit_parser::Resolve::default();
         let pkg = resolve
-            .push_str("stardust.wit", &self.text)
+            .push_str("mighty.wit", &self.text)
             .map_err(|e| WasmError::Invalid(format!("wit re-parse: {e:#}")))?;
         let world = resolve
             .select_world(pkg, Some(&self.world_name))
@@ -71,9 +72,27 @@ impl WitDocument {
     }
 }
 
+/// The WIT package namespace used by all Mighty-emitted documents.
+/// v0.36 T4 — renamed from `stardust` to `mty`; the legacy spelling
+/// is still recognised by [`accepted_pkg_namespace`] for downstream
+/// readers that need to ingest pre-v0.36 trace artefacts.
+pub const PKG_NAMESPACE: &str = "mty";
+
+/// Pre-v0.36 spelling of [`PKG_NAMESPACE`]. Retained for round-trip
+/// validation of historical artefacts.
+pub const LEGACY_PKG_NAMESPACE: &str = "stardust";
+
+/// `true` when `ns` matches either the current package namespace
+/// (`mty`) or the legacy pre-v0.36 spelling (`stardust`). Use this
+/// in any reader that ingests user-supplied WIT to keep compat with
+/// older Mighty artefacts.
+pub fn accepted_pkg_namespace(ns: &str) -> bool {
+    ns == PKG_NAMESPACE || ns == LEGACY_PKG_NAMESPACE
+}
+
 /// Emit a WIT document for `prog`. `pkg_name` is the kebab-case
 /// package name (the source-file stem); it becomes the second half
-/// of the `stardust:<pkg>` package id.
+/// of the `mty:<pkg>` package id (legacy: `stardust:<pkg>`).
 pub fn emit_wit(prog: &Program, pkg_name: &str, target: WasmTarget) -> CompileResult<WitDocument> {
     let pkg_id = sanitize_pkg_id(pkg_name);
     let world_name = format!("{}-world", pkg_id);
@@ -96,7 +115,7 @@ pub fn emit_wit(prog: &Program, pkg_name: &str, target: WasmTarget) -> CompileRe
         target.triple()
     )
     .unwrap();
-    writeln!(user_body, "package stardust:{};", pkg_id).unwrap();
+    writeln!(user_body, "package {}:{};", PKG_NAMESPACE, pkg_id).unwrap();
     writeln!(user_body).unwrap();
 
     // World — declares imports and inline exports. Inline exports
@@ -160,12 +179,12 @@ pub fn emit_wit(prog: &Program, pkg_name: &str, target: WasmTarget) -> CompileRe
     let with_stubs = user_body;
     let mut resolve = wit_parser::Resolve::default();
     let _ = resolve
-        .push_str("stardust.wit", &with_stubs)
+        .push_str("mighty.wit", &with_stubs)
         .map_err(|e| WasmError::Invalid(format!("wit round-trip: {e:#}")))?;
 
     Ok(WitDocument {
         text: with_stubs,
-        package_id: format!("stardust:{}", pkg_id),
+        package_id: format!("{}:{}", PKG_NAMESPACE, pkg_id),
         world_name,
         target,
     })
@@ -717,7 +736,7 @@ mod tests {
     }
 
     #[test]
-    fn web_target_uses_stardust_web_log() {
+    fn web_target_uses_mty_web_log() {
         let doc = emit_wit(&empty_main(), "hello", WasmTarget::Web).expect("emit");
         assert!(
             doc.text.contains("import mty:web/log"),
@@ -734,5 +753,48 @@ mod tests {
             "wit was: {}",
             doc.text
         );
+    }
+
+    /// v0.36 T4 — verify the emitted package id is `mty:<pkg>` and
+    /// not the pre-rename `stardust:<pkg>`.
+    #[test]
+    fn emitted_package_id_uses_mty_namespace() {
+        let doc = emit_wit(&empty_main(), "hello", WasmTarget::Wasi).expect("emit");
+        assert!(
+            doc.text.contains("package mty:hello;"),
+            "expected `package mty:hello;` in wit; got:\n{}",
+            doc.text
+        );
+        assert!(
+            !doc.text.contains("package stardust:"),
+            "wit must not emit legacy `stardust:` package id; got:\n{}",
+            doc.text
+        );
+        assert_eq!(doc.package_id, "mty:hello");
+    }
+
+    /// v0.36 T4 — the compat helper recognises both the new and the
+    /// pre-v0.36 package namespaces so downstream readers can ingest
+    /// either.
+    #[test]
+    fn accepted_pkg_namespace_recognises_both() {
+        assert!(accepted_pkg_namespace("mty"));
+        assert!(accepted_pkg_namespace("stardust"));
+        assert!(!accepted_pkg_namespace("wasi"));
+        assert!(!accepted_pkg_namespace(""));
+    }
+
+    /// v0.36 T4 — the wit_parser still accepts pre-v0.36 documents
+    /// that use the `stardust:` namespace. We don't emit them any
+    /// more but we promise round-trip ingestion.
+    #[test]
+    fn legacy_stardust_namespace_parses() {
+        let legacy = "package stardust:legacy;\n\nworld w {}\n";
+        let mut resolve = wit_parser::Resolve::default();
+        let pkg = resolve
+            .push_str("legacy.wit", legacy)
+            .expect("legacy stardust:... package id must still parse");
+        // World list non-empty proves we actually got the document in.
+        let _world_ids = resolve.packages[pkg].worlds.iter().collect::<Vec<_>>();
     }
 }

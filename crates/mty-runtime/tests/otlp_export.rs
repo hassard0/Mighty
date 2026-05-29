@@ -2,8 +2,9 @@
 //!
 //! The full OTLP wire-level round-trip needs a tonic gRPC mock
 //! collector which is heavy to spin up in unit tests. Here we
-//! exercise the JSON-line fallback path (when STARDUST_OTLP_ENDPOINT
-//! is unset) and verify the semantic-convention mapping table built
+//! exercise the JSON-line fallback path (when neither
+//! `MTY_OTLP_ENDPOINT` nor the legacy `STARDUST_OTLP_ENDPOINT` is
+//! set) and verify the semantic-convention mapping table built
 //! into `otlp::event_to_span` matches the documented contract.
 
 use mty_runtime::telemetry::{TelemetryEvent, TelemetrySink};
@@ -11,6 +12,8 @@ use mty_runtime::telemetry::{TelemetryEvent, TelemetrySink};
 #[test]
 fn json_line_fallback_when_otlp_endpoint_unset() {
     // No env var set → from_env should pick a non-OTLP sink.
+    std::env::remove_var("MTY_OTLP_ENDPOINT");
+    std::env::remove_var("MTY_TRACE");
     std::env::remove_var("STARDUST_OTLP_ENDPOINT");
     std::env::remove_var("STARDUST_TRACE");
     let sink = TelemetrySink::from_env();

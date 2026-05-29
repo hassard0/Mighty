@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run whichever comparator implementations the local toolchain
 # supports. Output to stdout in a stable shape so doc scripts can
-# parse it. Always runs the Stardust impls first so a developer with
+# parse it. Always runs the Mighty impls first so a developer with
 # no extra toolchains still sees the numbers that go into
 # docs/benchmarks/*.md.
 #
@@ -11,7 +11,8 @@
 #   ./benches/run.sh --go        # go comparators only
 #   ./benches/run.sh --cpp       # c++ comparators only
 #   ./benches/run.sh --all       # require all toolchains
-#   ./benches/run.sh --stardust  # stardust impl only (cargo build req'd)
+#   ./benches/run.sh --mighty    # mighty impl only (cargo build req'd)
+#   ./benches/run.sh --stardust  # legacy alias for --mighty (deprecated)
 
 set -euo pipefail
 
@@ -24,7 +25,9 @@ for arg in "$@"; do
     --rust)     want_rust=yes; want_go=no;  want_cpp=no;  want_sd=no ;;
     --go)       want_rust=no;  want_go=yes; want_cpp=no;  want_sd=no ;;
     --cpp)      want_rust=no;  want_go=no;  want_cpp=yes; want_sd=no ;;
-    --stardust) want_rust=no;  want_go=no;  want_cpp=no;  want_sd=yes ;;
+    --mighty)   want_rust=no;  want_go=no;  want_cpp=no;  want_sd=yes ;;
+    --stardust) want_rust=no;  want_go=no;  want_cpp=no;  want_sd=yes;
+                echo "(deprecated) --stardust is now spelled --mighty" >&2 ;;
     --all)      want_rust=yes; want_go=yes; want_cpp=yes; want_sd=yes ;;
     *) echo "unknown arg: $arg" >&2; exit 2 ;;
   esac
@@ -33,7 +36,10 @@ done
 have_rust() { command -v cargo >/dev/null 2>&1; }
 have_go()   { command -v go    >/dev/null 2>&1; }
 have_cpp()  { command -v g++   >/dev/null 2>&1 || command -v clang++ >/dev/null 2>&1; }
-have_sd()   { [ -x target/release/sdust-bench-runner ] || [ -x target/release/sdust-bench-runner.exe ]; }
+# v0.36 T4 — the bench runner binary is `mty-bench-runner`; for back-compat
+# with pre-rename builds we also accept the legacy `sdust-bench-runner` name.
+have_sd()   { [ -x target/release/mty-bench-runner ] || [ -x target/release/mty-bench-runner.exe ] \
+              || [ -x target/release/sdust-bench-runner ] || [ -x target/release/sdust-bench-runner.exe ]; }
 
 run_rust_one() { # $1 = path to crate
   echo "==> rust: $1"
@@ -48,15 +54,20 @@ run_cpp_one() { # $1 = dir with Makefile
   ( cd "$1" && make --silent run )
 }
 
-# --- Stardust impls ---------------------------------------------------------
+# --- Mighty impls ----------------------------------------------------------
 if [ "$want_sd" != "no" ]; then
   if have_sd; then
-    echo "==> stardust"
-    runner="target/release/sdust-bench-runner"
+    echo "==> mighty"
+    # Prefer the post-rename binary name; fall back to the pre-v0.7
+    # `sdust-bench-runner` for legacy build trees.
+    runner="target/release/mty-bench-runner"
+    if [ ! -x "$runner" ] && [ ! -x "${runner}.exe" ]; then
+      runner="target/release/sdust-bench-runner"
+    fi
     if [ -x "${runner}.exe" ]; then runner="${runner}.exe"; fi
     "$runner" --all --iters 30
   else
-    echo "(skip) stardust: build target/release/sdust-bench-runner first"
+    echo "(skip) mighty: build target/release/mty-bench-runner first (cargo build --release -p mty-bench)"
   fi
 fi
 

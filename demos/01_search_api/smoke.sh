@@ -29,7 +29,7 @@ check() {
 }
 
 check health   '{"status":"ok"}'
-check search   '{"q":"stardust","hits":[]}'
+check search   '{"q":"mighty","hits":[]}'
 check search-2 '{"q":"agents","hits":[]}'
 check metrics  '{"health":1,"search":2}'
 check 404      '{"error":"not found"}'

@@ -42,7 +42,7 @@ fn rooted_cap_denies_outside() {
     let tmp = tempfile::tempdir().unwrap();
     let inside = tmp.path().to_path_buf();
     let cap = FsCap::rooted([inside.clone()]);
-    let outside = std::env::temp_dir().join("definitely-not-allowed-stardust-test");
+    let outside = std::env::temp_dir().join("definitely-not-allowed-mighty-test");
     assert!(read(&cap, &outside).is_err());
     let inside_path = inside.join("ok.txt");
     write(&cap, &inside_path, b"ok").unwrap();

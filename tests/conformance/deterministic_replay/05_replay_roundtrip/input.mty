@@ -2,7 +2,7 @@
 // test is the byte-identical replay invariant: a program that mixes
 // pure computation with a single observable effect (here, a clock
 // read) produces a trace, and re-running with the recorded trace
-// installed via `STARDUST_REPLAY_PLAY` MUST emit the exact same
+// installed via `MTY_REPLAY_PLAY` MUST emit the exact same
 // sequence of events.
 //
 // The conformance_full harness asserts the program type-checks; the

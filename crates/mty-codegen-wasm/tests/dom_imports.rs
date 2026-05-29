@@ -40,7 +40,7 @@ fn empty_main() -> Program {
 }
 
 #[test]
-fn web_target_imports_stardust_web_dom() {
+fn web_target_imports_mty_web_dom() {
     let doc = emit_wit(&empty_main(), "demo", WasmTarget::Web).expect("emit");
     assert!(
         doc.text.contains("import mty:web/dom"),

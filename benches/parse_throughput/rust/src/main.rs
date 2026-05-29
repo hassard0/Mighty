@@ -1,7 +1,7 @@
 //! Rust comparator for the parse_throughput benchmark.
 //!
 //! Lexes a 10 KLOC synthetic source identical in *shape* to the one
-//! `sdust_bench::fixtures::stardust_10kloc()` generates. We use logos
+//! `mty_bench::fixtures::mighty_10kloc()` generates. We use logos
 //! 0.14 — the same lexer crate Mighty uses — so the comparison is
 //! "Mighty's lexer vs an idiomatic hand-written Rust lexer with the
 //! same backend." The expected outcome is a small Mighty slowdown

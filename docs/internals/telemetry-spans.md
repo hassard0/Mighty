@@ -32,9 +32,11 @@ The split reflects two cooperating layers:
   attach structured events to the active span.
 
 The two layers do **not** share state. Each can be enabled or
-disabled independently. Setting `MTY_OTLP_ENDPOINT` enables the span
-layer; setting `STARDUST_OTLP_ENDPOINT` enables the sink's OTLP
-bridge. Either, both, or neither may be active in any given run.
+disabled independently. Setting `MTY_OTLP_ENDPOINT` enables both the
+span layer and the sink's OTLP bridge (the legacy
+`STARDUST_OTLP_ENDPOINT` spelling is still honoured with a one-shot
+deprecation warning). Either, both, or neither may be active in any
+given run.
 
 ## Lifecycle
 

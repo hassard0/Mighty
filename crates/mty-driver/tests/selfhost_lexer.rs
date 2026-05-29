@@ -205,7 +205,7 @@ fn diff_summary(actual: &[TokenRecord], expected: &[TokenRecord]) -> String {
         let a = actual.get(i);
         let e = expected.get(i);
         if a != e {
-            lines.push(format!("  [{}] stardust={:?}  rust={:?}", i, a, e));
+            lines.push(format!("  [{}] mty={:?}  rust={:?}", i, a, e));
             if lines.len() > 20 {
                 lines.push("  …".into());
                 break;

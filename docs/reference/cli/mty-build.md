@@ -58,7 +58,9 @@ The binary's name is derived from the source file's stem
 
 For native builds, the discovery order is:
 
-1. `$STARDUST_LINKER` env var, if set and non-empty.
+1. `$MTY_LINKER` env var, if set and non-empty (legacy
+   `$STARDUST_LINKER` is still honoured with a one-shot
+   deprecation warning).
 2. `clang` (`clang.exe` on Windows).
 3. `gcc` (`gcc.exe`).
 4. `cc` (`cc.exe`).
@@ -70,7 +72,7 @@ If no linker is found, `mty build` still succeeds for the object
 file. The exit message is:
 
 ```
-wrote object target/<name>.o (no linker found; set $STARDUST_LINKER)
+wrote object target/<name>.o (no linker found; set $MTY_LINKER)
 ```
 
 You can then invoke the linker yourself:

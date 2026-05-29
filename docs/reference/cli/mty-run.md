@@ -62,13 +62,18 @@ which lack a `main` in their canonical form).
 
 ## Runtime environment variables
 
-| Variable                       | Effect                              |
-|--------------------------------|-------------------------------------|
-| `STARDUST_TRACE=stderr`        | emit JSON telemetry lines to stderr |
-| `STARDUST_TRACE=file:/path`    | append JSON telemetry to file       |
-| `STARDUST_RUNTIME_THREADS=N`   | tokio worker thread count (default 1) |
-| `STARDUST_DET_SEED=N`          | (reserved) seed for deterministic mode |
-| `STARDUST_HTTP_MOCK=1`         | (reserved) skip TCP bind for tests   |
+| Variable                  | Effect                                 |
+|---------------------------|----------------------------------------|
+| `MTY_TRACE=stderr`        | emit JSON telemetry lines to stderr    |
+| `MTY_TRACE=file:/path`    | append JSON telemetry to file          |
+| `MTY_RUNTIME_THREADS=N`   | tokio worker thread count (default 1)  |
+| `MTY_DET_SEED=N`          | (reserved) seed for deterministic mode |
+| `MTY_HTTP_MOCK=1`         | (reserved) skip TCP bind for tests     |
+
+The legacy `STARDUST_*` spellings (`STARDUST_TRACE`,
+`STARDUST_RUNTIME_THREADS`, …) are still honoured for back-compat
+with v0.6-era deployments; the first lookup that falls through to
+a `STARDUST_*` name emits a one-shot deprecation warning on stderr.
 
 ## Example
 

@@ -3,19 +3,19 @@
 
 $ErrorActionPreference = "Stop"
 $root = (Resolve-Path "$PSScriptRoot/../..").Path
-$sdust = $env:SDUST
-if (-not $sdust) { $sdust = Join-Path $root "target\debug\sdust.exe" }
-if (-not (Test-Path $sdust)) {
-    Write-Error "smoke: sdust binary not found at $sdust. Build with: cargo build -p sdust-cli"
+$mty = $env:MTY
+if (-not $mty) { $mty = Join-Path $root "target\debug\mty.exe" }
+if (-not (Test-Path $mty)) {
+    Write-Error "smoke: mty binary not found at $mty. Build with: cargo build -p mty-cli"
     exit 2
 }
 
-$demo = Join-Path $root "demos\01_search_api\src\main.sd"
-$out = & $sdust run $demo 2>&1 | Out-String
+$demo = Join-Path $root "demos\01_search_api\src\main.mty"
+$out = & $mty run $demo 2>&1 | Out-String
 
 $expectations = @(
     @{ Label = "health";   Needle = '{"status":"ok"}' },
-    @{ Label = "search";   Needle = '{"q":"stardust","hits":[]}' },
+    @{ Label = "search";   Needle = '{"q":"mighty","hits":[]}' },
     @{ Label = "search-2"; Needle = '{"q":"agents","hits":[]}' },
     @{ Label = "metrics";  Needle = '{"health":1,"search":2}' },
     @{ Label = "404";      Needle = '{"error":"not found"}' }
