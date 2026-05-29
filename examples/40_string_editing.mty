@@ -36,7 +36,6 @@
 //     to flow through the call frame (v0.37 follow-up).
 //   * `log(...)` in `main()` stays on a literal so the native v0.2
 //     codegen sweep accepts the example.
-
 // ----- Position lookup --------------------------------------------------
 // `find` / `rfind` return byte indices into the UTF-8 buffer. Both
 // return `Option[USize]`; callers use the standard match shape.
