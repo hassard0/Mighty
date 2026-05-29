@@ -99,7 +99,10 @@ fn lookup_env_inner(key: &str, quiet: bool) -> Option<String> {
 /// Convenience helper for boolean-ish env vars where `"1"`, `"true"`,
 /// `"yes"` mean enabled. Treats missing/empty/other as `false`.
 pub fn lookup_env_bool(key: &str) -> bool {
-    matches!(lookup_env(key).as_deref(), Some("1" | "true" | "yes" | "on"))
+    matches!(
+        lookup_env(key).as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    )
 }
 
 #[cfg(test)]
