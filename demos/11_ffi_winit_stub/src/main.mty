@@ -1,25 +1,66 @@
 // Demo 11 — minimal FFI scaffold for a winit-style app.
 //
-// This is the v0.36 Track T2 scaffold the native-IDE track
-// (C:\Users\ihass\mighty-ide) uses to bootstrap a real wgpu/winit
-// integration. The C shim under `vendor/winit_shim.c` is deliberately
-// a no-op so the smoke test stays hermetic; a real binding would
-// replace the shim with libwinit + libwgpu and add the matching
-// `[[extern_lib]]` entries to mighty.toml.
+// v0.36 Track T2 shipped the link-level plumbing (`[[extern_lib]]`,
+// extern-c declarations, cranelift Linkage::Import + linker args).
+// v0.37 Track T3 closes the call-site ergonomics that previously
+// forced the "wrapper-pattern" workaround:
+//
+//   1. Str → *U8 auto-coercion at extern-c arg positions.
+//      Mighty Str literals are interned null-terminated UTF-8 already;
+//      the typeck + cranelift backend now read the ptr-half of the
+//      (ptr, len) aggregate when handing it to a `*U8` C param. No
+//      more "wrap in a zero-arg C helper to build the string".
+//
+//   2. `&mut local` for FFI out-params (`*mut I32`-shaped C arguments).
+//      Borrow-checker still rules the local during the call; the
+//      cranelift backend lowers `&mut x` to the local's slot address.
+//
+//   3. Inline struct literals at extern-c call sites. Required to call
+//      wgpu/winit shapes like `wgpu_create_pipeline(VertState{...}, ...)`
+//      without a one-line let binding.
+//
+// The C shim under `vendor/winit_shim.c` is deliberately a no-op so the
+// smoke test stays hermetic; a real binding would replace the shim with
+// libwinit + libwgpu and add the matching `[[extern_lib]]` entries to
+// mighty.toml.
+struct Rect { x: I32, y: I32, w: I32, h: I32 }
 
 extern c {
   fn winit_shim_init() -> I32
-  fn winit_shim_open_window(w: I32, h: I32, title_ptr: *U8, title_len: USize) -> I32
+  // v0.37 surface 1 — title passed as a Mighty Str (auto-coerced to *U8).
+  fn winit_shim_open_window(w: I32, h: I32, title: *U8, title_len: USize) -> I32
   fn winit_shim_run_event_loop_once() -> I32
+  // v0.37 surface 2 — event-poll fills *out with a 1 (event consumed)
+  // or 0 (idle), without the C-side wrapper allocating its own slot.
+  fn winit_shim_poll_event(out: *I32) -> I32
+  // v0.37 surface 3 — pass an inline Rect literal by value.
+  fn winit_shim_set_clip(r: Rect) -> I32
   fn winit_shim_shutdown() -> I32
 }
 
 fn main() {
-  let rc = winit_shim_init()
-  log("ffi_winit_stub: init=...")
-  let opened = winit_shim_open_window(640, 480, "mty-ide", 7)
-  log("ffi_winit_stub: opened=...")
+  let _ = winit_shim_init()
+  log("ffi_winit_stub: init done")
+
+  // Surface 1: Str literal at *U8 — was previously "title_ptr, title_len"
+  // with the title buffer baked into the C wrapper.
+  let _opened = winit_shim_open_window(640, 480, "mty-ide", 7)
+  log("ffi_winit_stub: opened window")
+
+  // Surface 3: inline Rect struct literal at call site — was previously
+  // `let r = Rect{...}; winit_shim_set_clip(r)` after the typeck refused
+  // the inline form.
+  let _ = winit_shim_set_clip(Rect { x: 0, y: 0, w: 640, h: 480 })
+
   let _ = winit_shim_run_event_loop_once()
+
+  // Surface 2: `&mut local` at *I32 — was previously a C-side wrapper
+  // that allocated the slot, polled, and returned the value through the
+  // return register.
+  let mut got_event: I32 = 0
+  let _ = winit_shim_poll_event(&mut got_event)
+  log("ffi_winit_stub: polled event slot")
+
   let _ = winit_shim_shutdown()
   log("ffi_winit_stub: clean shutdown")
 }

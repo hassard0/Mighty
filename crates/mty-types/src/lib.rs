@@ -90,6 +90,19 @@ pub struct TypedPackage {
     pub fn_ret: HashMap<FnId, TyId>,
     /// Slice 5: per-fn inferred effect set (deterministic order).
     pub fn_effects: HashMap<FnId, Vec<EffectId>>,
+    /// v0.37 Track T3 — call-site arg exprs that need a `Str → *U8`
+    /// coercion at IR-lowering time. Populated by `synth_call` when an
+    /// arg of type `Str` flows into an extern-c param of type `*U8` /
+    /// `*const U8`. The backend reads the Str's `ptr` half (offset 0
+    /// of the 16-byte aggregate) and passes that scalar as the FFI
+    /// arg slot instead of the address of the (ptr, len) pair.
+    pub coerce_str_to_ptr: std::collections::HashSet<ExprId>,
+    /// v0.37 Track T3 — call-site arg exprs that are `&local` or
+    /// `&mut local` borrows feeding an extern-c `*T` / `*mut T` param.
+    /// The backend lowers these to the local's slot address. Borrow-check
+    /// still applies (an exclusive `&mut` borrow during the FFI call,
+    /// shared `&` borrows allow aliased reads).
+    pub coerce_addr_of: std::collections::HashSet<ExprId>,
     pub diagnostics: Vec<Diagnostic>,
 }
 

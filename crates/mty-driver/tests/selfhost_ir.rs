@@ -1268,6 +1268,7 @@ fn rvalue_kind(rv: &Rvalue) -> String {
         Rvalue::Ask { .. } => "Ask",
         Rvalue::CapValue { .. } => "CapValue",
         Rvalue::Cast { .. } => "Cast",
+        Rvalue::StrPtr(_) => "StrPtr",
     }
     .to_string()
 }

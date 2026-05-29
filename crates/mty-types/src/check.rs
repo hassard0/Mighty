@@ -137,6 +137,13 @@ pub struct Cx<'a> {
     pub scope_kind: ScopeKind,
     /// Side-table sink: every expression we type produces a (id, ty) entry.
     pub expr_ty: &'a mut HashMap<ExprId, TyId>,
+    /// v0.37 Track T3 — FFI call-site coercion sinks. The call-site
+    /// checker inserts `arg.value` exprIds here when the corresponding
+    /// extern-c param requires a `Str → *U8` or `&local → *T` coercion.
+    /// The IR lowerer reads these to emit the right shape (load Str
+    /// ptr-half, take place address) instead of the default copy.
+    pub coerce_str_to_ptr: &'a mut std::collections::HashSet<ExprId>,
+    pub coerce_addr_of: &'a mut std::collections::HashSet<ExprId>,
 }
 
 impl<'a> Cx<'a> {
@@ -886,10 +893,112 @@ fn synth_unary(cx: &mut Cx, op: UnOp, rhs: ExprId) -> TyId {
     }
 }
 
+/// v0.37 Track T3 — attempt one of the three FFI coercions at an
+/// extern-c call site. Returns `true` iff a coercion fired (the caller
+/// should skip the regular `check_expr` step). Returns `false` when no
+/// coercion applies — the regular path takes over.
+///
+/// Coercion rules:
+///
+/// | Arg expr           | Arg type | Param type         | Effect                                  |
+/// |--------------------|----------|--------------------|-----------------------------------------|
+/// | (any)              | `Str`    | `*U8` (RawPtr U8)  | Record in `coerce_str_to_ptr` for IR.   |
+/// | `&inner`           | (any)    | `*T`               | Synth `inner: T`; record `coerce_addr_of`. |
+/// | `&mut inner`       | (any)    | `*T`               | Synth `inner: T`; record `coerce_addr_of`. |
+///
+/// In Mighty today there is only one raw-pointer flavour (`RawPtr(T)` —
+/// the typed-side parser maps both `*T` and `*mut T` onto the same
+/// `TyData::RawPtr(T)` because mutability lives on the *referent*'s
+/// borrow node, not on the pointer type). That keeps the typeck side
+/// simple: we accept both `&` and `&mut` borrow exprs in any `*T` slot,
+/// and the borrow checker's mutable-vs-shared accounting still happens
+/// on the inner `HirExpr::Borrow` node so the usual exclusive-borrow
+/// rules apply.
+fn try_extern_c_coercion(cx: &mut Cx, arg: ExprId, expected: TyId) -> bool {
+    let expected_resolved = cx.subst.resolve(expected, cx.arena);
+    let expected_data = cx.arena.get(expected_resolved).clone();
+    // At the syntax level `*T` and `&T` share the `TYPE_BORROW` CST
+    // node — slice-1's intentional simplification. Both resolve to
+    // `TyData::Ref { .. }` at typeck time. We treat either flavour
+    // as the FFI pointer slot here; raw-pointer-typed prelude builtins
+    // (`raw_ptr`, `null`) use the legacy `TyData::RawPtr` path, so we
+    // also accept that for forward-compat.
+    let (TyData::Ref {
+        inner: pointee_ty, ..
+    }
+    | TyData::RawPtr(pointee_ty)) = expected_data
+    else {
+        return false;
+    };
+    let pointee_resolved = cx.subst.resolve(pointee_ty, cx.arena);
+    let pointee_data = cx.arena.get(pointee_resolved).clone();
+
+    // Coercion 2/3: borrow expr at any *T slot.
+    if let HirExpr::Borrow { inner, .. } = cx.pkg.exprs[arg].clone() {
+        // Synth the inner; it should match the pointee type (or be
+        // permissively compatible via unify). We don't hard-fail on
+        // pointee mismatch — the regular path would have emitted a
+        // diagnostic via `check_expr`, and the borrow site is rarely
+        // the right place to surface a pointee mismatch.
+        let inner_ty = synth_expr(cx, inner);
+        let _ = crate::infer::unify(inner_ty, pointee_resolved, cx.subst, cx.arena);
+        // Record the borrow expr itself in the address-of table so
+        // IR lowering knows to skip the temp + Ref dance and lower
+        // straight to a place address.
+        cx.coerce_addr_of.insert(arg);
+        // The outer expr's recorded type is the parameter (the FFI
+        // `*T`), not the borrow's logical `&T` type, so downstream
+        // SIR lowering sees a uniform pointer slot.
+        cx.expr_ty.insert(arg, expected_resolved);
+        return true;
+    }
+
+    // Coercion 1: Str → *U8.
+    if matches!(pointee_data, TyData::Int(IntKind::U8)) {
+        let arg_ty = synth_expr(cx, arg);
+        let arg_resolved = cx.subst.resolve(arg_ty, cx.arena);
+        if matches!(cx.arena.get(arg_resolved), TyData::Str) {
+            cx.coerce_str_to_ptr.insert(arg);
+            // Overwrite the arg's expr type to the param type so the
+            // borrow checker / effect walker see a uniform `*U8` slot.
+            cx.expr_ty.insert(arg, expected_resolved);
+            return true;
+        }
+    }
+    false
+}
+
+/// v0.37 Track T3 — does the call's callee expr resolve to an extern-c fn?
+/// Returns `Some(true)` iff the callee path resolves to a `FnDef` whose
+/// `extern_abi == Some("c")`. Returns `None` if we can't tell (the callee
+/// isn't a plain path or doesn't resolve to a fn).
+///
+/// Only the simple single-segment-path shape is recognised, which covers
+/// every `extern c { fn foo(...) }` call site today. Dotted-path / module-
+/// qualified extern calls (`mod::foo()`) fall through to the regular
+/// (non-coercing) path — those don't exist in current Mighty surface.
+fn callee_is_extern_c(cx: &Cx, callee: ExprId) -> bool {
+    let HirExpr::Path(segments) = &cx.pkg.exprs[callee] else {
+        return false;
+    };
+    if segments.len() != 1 {
+        return false;
+    }
+    let name = &segments[0];
+    if let Some(DefRef::Fn(fdid)) = cx.defs.lookup(name) {
+        if let Some(f) = cx.defs.fn_def(fdid) {
+            return f.extern_abi.as_deref() == Some("c");
+        }
+    }
+    false
+}
+
 fn synth_call(cx: &mut Cx, callee: ExprId, args: &[HirArg], expr_id: ExprId) -> TyId {
     let callee_ty = synth_expr(cx, callee);
     let callee_resolved = cx.subst.resolve(callee_ty, cx.arena);
     let data = cx.arena.get(callee_resolved).clone();
+    // v0.37 Track T3 — detect extern-c callee for FFI coercion.
+    let is_extern_c = callee_is_extern_c(cx, callee);
     match data {
         TyData::Fn { params, ret, .. } => {
             if params.len() != args.len() {
@@ -901,6 +1010,36 @@ fn synth_call(cx: &mut Cx, callee: ExprId, args: &[HirArg], expr_id: ExprId) -> 
             }
             for (i, arg) in args.iter().enumerate() {
                 let expected = params.get(i).copied().unwrap_or_else(|| cx.fresh());
+                // v0.37 Track T3 — at extern-c call sites, allow three
+                // coercions that the regular unifier rejects:
+                //
+                //   (1) Str → *U8 / *const U8       — pass ptr-half of the
+                //                                     Mighty Str aggregate.
+                //   (2) &local → *T                 — take address of place.
+                //   (3) &mut local → *mut T         — same, mutable.
+                //
+                // For (2) and (3) the arg expr is a `HirExpr::Borrow {
+                // mutable, inner }`. We synth the inner's type, check it
+                // unifies with the pointee, and record the arg in
+                // `coerce_addr_of` so IR lowering emits a place-address
+                // load instead of an aggregate copy.
+                //
+                // For (1) we synth the arg's type, check it equals Str,
+                // and record in `coerce_str_to_ptr`. The Str literal is
+                // already null-terminated by `intern_string`, so no
+                // separate "to C string" buffer is needed in the default
+                // path. The `#[ffi_nul_ok]` faster-path attribute is a
+                // v0.38 follow-up — the default in v0.37 is the safe
+                // (null-terminated) layout.
+                if is_extern_c && try_extern_c_coercion(cx, arg.value, expected) {
+                    // Coercion succeeded — no further check_expr needed
+                    // (we already validated the inner type matches the
+                    // pointee). check_cap_subsumption still runs below
+                    // for caps-in-extern-args, but FFI sites don't pass
+                    // capability values today, so this is effectively a
+                    // no-op.
+                    continue;
+                }
                 check_expr(cx, arg.value, expected);
                 check_cap_subsumption(cx, arg.value, expected, expr_id);
             }

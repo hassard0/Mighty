@@ -614,6 +614,11 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                 let want = self.pl.llvm_ty(ty);
                 Ok(self.coerce(v, want))
             }
+            // v0.37 Track T3 — LLVM backend doesn't model Str's
+            // (ptr,len) split; treat StrPtr as a pass-through, mirroring
+            // the wasm backend. The cranelift native path handles real
+            // pointer extraction.
+            Rvalue::StrPtr(src) => self.eval_operand(src),
             // Best-effort stubs for the rest — all return a null pointer
             // so the function still verifies.
             _ => Ok(self.pl.ptr_ty().const_null().into()),

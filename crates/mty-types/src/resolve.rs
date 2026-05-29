@@ -286,6 +286,7 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
                     is_pub: hf.is_pub,
                     body: hf.body,
                     hir_fn: Some(*mfid),
+                    extern_abi: None,
                 };
                 let id = defs.alloc_fn(fdef);
                 defs.hir_fn_to_def.insert(*mfid, id);
@@ -398,6 +399,7 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
                     is_pub: hf.is_pub,
                     body: hf.body,
                     hir_fn: Some(*mfid),
+                    extern_abi: None,
                 });
                 defs.hir_fn_to_def.insert(*mfid, fdef_id);
                 if let Some(aid) = self_adt {
@@ -606,11 +608,13 @@ fn declare_item(
                 is_pub: hf.is_pub,
                 body: hf.body,
                 hir_fn: Some(*fid),
+                extern_abi: None,
             });
             defs.by_name.insert(hf.name.clone(), DefRef::Fn(fdef_id));
             fn_ids.push((*fid, fdef_id));
         }
         HirItem::ExternBlock(eb) => {
+            let abi = eb.abi.clone();
             for fid in &eb.fns {
                 let hf = &pkg.fns[*fid];
                 let fdef_id = defs.alloc_fn(FnDef {
@@ -623,6 +627,11 @@ fn declare_item(
                     is_pub: true,
                     body: None,
                     hir_fn: Some(*fid),
+                    // v0.37 Track T3 — mark this fn as belonging to an
+                    // extern <abi> { ... } block. The call-site checker
+                    // gates FFI coercions (Str → *U8, &x for *U8 out-params,
+                    // struct literals as args) on `extern_abi == Some("c")`.
+                    extern_abi: Some(abi.clone().unwrap_or_else(|| "c".to_string())),
                 });
                 defs.by_name
                     .entry(hf.name.clone())

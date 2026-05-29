@@ -1454,6 +1454,18 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 let src_ty = self.operand_ir_ty(src);
                 Ok(self.coerce_to_with_src(v, want, src_ty.as_ref()))
             }
+            Rvalue::StrPtr(src) => {
+                // v0.37 Track T3 — read the ptr half (offset 0) of the
+                // Mighty Str aggregate. The Str's backing bytes are
+                // null-terminated by `intern_string`, so the returned
+                // `*U8` is directly usable as a `const char *` in C.
+                // Fast paths for literals (skip the stack-slot round
+                // trip) and dynamic Str locals (load from the (ptr,len)
+                // slot) live in `string_pair`; we only want the first
+                // half here.
+                let (ptr, _len) = self.string_pair(src)?;
+                Ok(ptr)
+            }
             Rvalue::FieldRead { receiver, field } => {
                 let mut p = receiver.clone();
                 p.proj.push(Projection::Field(*field));
