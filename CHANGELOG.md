@@ -9,53 +9,96 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-v0.34 candidates (rolled up from all 6 v0.33 tracks):
+v0.35 candidates (rolled up from all 4 v0.34 tracks):
 
-- **T1 — PGO + benchmarks** — wire `release-pgo` into
-  `.github/workflows/release.yml` (two-phase instrument / train /
-  rebuild); refresh Go + C++ comparator numbers on vulcan; fix the
-  `http-server-throughput-rust-hyper` comparator's E0790
-  (`BodyExt::collect`); add a Wasm size-budget gate.
-- **T2 — RAG + multi-modal** — stream multi-modal responses (today
-  Image input ships end-to-end but vision-turn streaming is
-  provider-stub); plug a real cross-encoder model behind
-  `std.rag::Reranker` (today: BM25 + cosine heuristic); pin the
-  `std.rag::Index` binary schema; expand the demo 10 corpus to 20+
-  docs exercising every chunking strategy.
-- **T3 — Playground + gallery** — ship the real `wasm32-web` `mty`
-  runtime artifact (the marquee v0.34 item — v0.33's playground UI
-  works against a mock-compile stub); persistent share-URL
-  shortener; run telemetry to prioritise the next gallery
-  examples; mobile responsive (Monaco hides below 720 px today).
-- **T4 — Structured diagnostics** — backfill the remaining ~30
-  MTxxxx codes (v0.33 ships 31 of ~61); reach 100% MT4xxx
-  coverage (taint codes are the highest-leverage); calibrate
-  confidence scores against a labelled fix-success-rate corpus;
-  flip `--include-source` to on-by-default for `--format json`.
-- **T5 — `mty agent`** — finish HTTP + Unix transports (v0.33
-  ships stdio + non-stdio stubs); Bearer-token auth surface for
-  HTTP transport; streaming responses for long ops (compile, eval,
-  swarm); `mty agent --resume`; concurrency cap + worker pool.
-- **T6 — LSP hover** — backfill hover examples for the remaining
-  ~80 stdlib items (v0.33: 58 of ~140 public items); SVG/PNG
-  attachment support in `///` doc comments; hover code-action chips
-  for See-also `MTxxxx` links.
-- **T7 — `mty find`** — index user-workspace symbols (v0.33: stdlib
-  only); semantic-search hook via `std.memory::VectorStore` for
-  users with API keys; `mty find --watch <query>` LSP path;
-  system-wide stdlib index shared across workspaces.
-- **Cross-cutting** — single `tools/` README indexing all six
-  subfolders (carryover from v0.32); vulcan disk hygiene
-  pre-commit (vulcan filled up twice during v0.33); fix or `#[cfg]`-
-  out the Windows-only `mty-runtime::work_stealing` flake; add a
-  pre-merge fmt gate to swarm worktrees so future merges don't
-  introduce drift.
+- **T1 — Fix coverage** — backfill the remaining ~30 codes in the v1.0
+  registry (v0.34 ships 81 of ~110); confidence-score calibration
+  against a labelled fix-success-rate corpus; `mty fix --auto-pick`
+  for batch application of the top-ranked alternative without an LSP
+  round-trip.
+- **T2 — LSP CodeActions** — streaming refactor actions that open a
+  wizard for multi-step fixes; IntelliJ Alt+Enter intention-list
+  parity with the current quickfix surface; per-fix telemetry hook
+  so the IDE surface can report which alternatives users pick.
+- **T3 — Hover catalog** — multi-modal hover (inline SVG/PNG from
+  `///` doc comments); per-namespace catalog test sharding (the
+  catalog is now 1237 lines in one file); hover types from
+  user-workspace `use` imports, not just stdlib + current file.
+- **T4 — Quality bumps** — extend span fidelity to `MT3xxx`
+  (capability errors currently highlight the whole call); `mty diag
+  migrate-envelopes` migration tool for pre-1.0 envelope dumps in
+  shared fixtures; receiver-type hover for chained calls
+  (`r.get(...).body().text()`); pre-push hook telemetry to report
+  how often it saves a drift commit.
+- **Cross-cutting** — re-export `SCHEMA_VERSION` from
+  `mty_diagnostics` crate root (today accessed via
+  `mty_diagnostics::fix::SCHEMA_VERSION`); run the pre-push hook in
+  CI as a redundant safety net for contributors who haven't
+  installed it; vulcan disk hygiene (still at 91% after clean — mount
+  a larger /tmp or budget a fresh build cache periodically); carry
+  forward unresolved v0.34 v1.0 backlog: PGO release wiring,
+  Wasm size-budget gate, Go/C++ comparator refresh, multi-modal
+  streaming, real `wasm32-web` playground artifact, persistent
+  share-URLs, `mty agent` HTTP + Unix transports, `mty find` user
+  workspace + semantic search, `mty-runtime::work_stealing`
+  Windows-only flake.
 
 The v1.0 freeze-gate is unchanged: 8 RFC comment windows opened
 2026-05-26, earliest close 2026-06-09 (RFC-005), latest close
 2026-07-25 (RFC-002 + RFC-006). Proposed v1.0 freeze date
-2026-09-01; earliest tag 2026-07-26. There is **no remaining
-Post-v1.0 backlog**.
+2026-09-01; earliest tag 2026-07-26. v0.34's auto-fix coverage and
+hover-catalog growth pull two of the v1.0 freeze-gate items
+(structured-fix coverage; stdlib hover surface) into "ready".
+
+## [0.34.0] - 2026-05-28
+
+**Mighty v0.34 — compounding the agent first-shot success rate. 81
+MTxxxx codes (up from 31) ship structured auto-fix proposals; every
+fix appears as a one-click LSP CodeAction in VS Code + JetBrains;
+the stdlib hover catalog grew from 58 to 203 examples; and a
+pre-merge fmt/clippy hook stops the recurring Linux drift trap
+before it reaches CI.** Four tracks merge in parallel (T2 already
+includes T1).
+
+### Added — Agent-first compounding
+- **T1** — 50 more MTxxxx fix engines (full MT2xxx coverage + MT3xxx
+  polish + MT4xxx finish); total fix-capable codes 31 → 81; multi-
+  alternative envelopes on every MT4xxx code with more than one
+  legitimate untaint path. `+56 tests`.
+- **T2** — LSP `textDocument/codeAction` wiring all fix envelopes as
+  one-click "Apply fix" quickfixes in VS Code (setting
+  `mighty.codeAction.confidenceThreshold`) and JetBrains (Settings >
+  Tools > Mighty > Code action confidence). Per-alternative actions
+  appear when the envelope has more than one fix path.
+  `+53 tests`.
+- **T3** — Stdlib hover catalog 58 → 203 entries (+145), covering
+  `std.rag`, `std.computer`, `std.swarm`, `std.observe`,
+  `std.taint`, `std.eval`, `std.web`, `std.fs`, `std.json`,
+  `std.string`, `std.vec`. Every public stdlib item the LSP hover
+  query can resolve now answers with at least one worked example
+  (was: ~40%). `+2 catalog tests`.
+- **T4** — `MT4099` emit-site span fidelity (taint diagnostics now
+  point at the exact `call(tainted)` byte range, not the enclosing
+  function); `schema_version` field on every `DiagnosticEnvelope`
+  (versioning policy in `docs/internals/diagnostic-envelopes.md`);
+  receiver-type hover for local bindings; pre-push fmt + clippy git
+  hook + `mty hooks install` subcommand. `+21 tests`.
+
+### Integrator
+- The pre-push hook paid for itself on its first run by catching a
+  missing `schema_version` field in the MT4099 test envelope
+  introduced by the T1+T2/T4 merge; fix shipped inline before the
+  integrator commit reached origin/main. First confirmed save
+  against the v0.33 Linux-fmt-drift recurrence pattern.
+
+### Gates (vulcan)
+- `cargo test --workspace --no-fail-fast` — **2887 passed, 0 failed**
+  (pre-v0.34: 2766; +121 over the 4 feature tracks).
+- `cargo clippy --workspace --all-targets -- -D warnings` — clean.
+- `cargo fmt --all -- --check` — clean.
+- `cargo audit --deny warnings` — clean.
+- VS Code extension `npm run compile` — clean (0.34.0).
+- Playground `npm run build` — clean.
 
 ## [0.33.0] - 2026-05-28
 
