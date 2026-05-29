@@ -335,23 +335,27 @@ fn single_shot_fix_no_diagnostic_in_file() {
 }
 
 #[test]
-fn single_shot_transport_http_stub() {
-    // http transport is reserved for v0.34 — should error cleanly.
-    let mut child = Command::new(mty_bin())
-        .args(["agent", "--transport", "http", "--single-shot"])
-        .stdin(Stdio::piped())
+fn single_shot_transport_http_bad_listen() {
+    // v0.35 T2 — HTTP transport is real now, but it ignores
+    // `--single-shot` and binds a listener. We can drive an error
+    // path by passing a malformed `--listen` so the bind setup
+    // fails fast without leaving a listening socket.
+    let out = Command::new(mty_bin())
+        .args([
+            "agent",
+            "--transport",
+            "http",
+            "--listen",
+            "not-a-host:port",
+        ])
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn");
-    {
-        let stdin = child.stdin.as_mut().unwrap();
-        let _ = stdin.write_all(b"");
-    }
-    let out = child.wait_with_output().expect("wait");
+        .output()
+        .expect("run");
     assert_eq!(out.status.code().unwrap_or(-1), 2);
-    let s = String::from_utf8_lossy(&out.stdout);
-    assert!(s.contains("v0.34"), "stdout: {}", s);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("bad --listen"), "stderr: {}", stderr);
 }
 
 #[test]

@@ -14,8 +14,11 @@ This page covers the human-facing CLI knobs.
 mty agent                                    # interactive stdio loop
 mty agent --single-shot < req.json           # one request, exit
 mty agent --transport stdio                  # explicit stdio
-mty agent --transport http --port 8888       # v0.34 stub (errors out cleanly)
-mty agent --transport unix --socket /tmp/x   # v0.34 stub (errors out cleanly)
+mty agent --transport http --listen 0.0.0.0:9090
+mty agent --transport http --listen 127.0.0.1:9090 --auth-token s3cret
+mty agent --transport unix --listen /tmp/mty-agent.sock
+mty agent --record session.ndjson            # capture every (req, resp)
+mty agent --replay session.ndjson            # re-run + assert byte-match
 ```
 
 ## Arguments
@@ -26,10 +29,14 @@ None. All work is driven by NDJSON requests on stdin.
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--single-shot` | off | Read exactly one JSON object from stdin, run it, exit with that op's exit code. |
-| `--transport <KIND>` | `stdio` | One of `stdio`, `http`, `unix`. http + unix are v0.34 stubs. |
-| `--port <N>` | 8889 | Used with `--transport http`. |
-| `--socket <PATH>` | — | Used with `--transport unix`. |
+| `--single-shot` | off | Read exactly one JSON object from stdin, run it, exit with that op's exit code. (stdio only) |
+| `--transport <KIND>` | `stdio` | One of `stdio`, `http`, `unix`. All three are fully implemented since v0.35 T2. |
+| `--port <N>` | 8889 | HTTP transport convenience shortcut for `--listen 127.0.0.1:<N>`. |
+| `--socket <PATH>` | — | Unix transport convenience shortcut for `--listen <PATH>`. |
+| `--listen <ADDR>` | — | `host:port` for HTTP, or a path for unix. Wins over `--port` / `--socket` when both are set. |
+| `--auth-token <T>` | off | Bearer token required on every HTTP request. Returns 401 on missing / wrong token. Ignored under stdio + unix transports. |
+| `--record <PATH>` | off | Append every `(request, response)` pair to this NDJSON file. Works under every transport. |
+| `--replay <PATH>` | off | Read a previously recorded file, re-run every request, assert each live response byte-matches the recorded one. Exits 0 on match, 1 on drift, 2 on read/parse errors. |
 
 ## Behavior
 
@@ -40,8 +47,21 @@ None. All work is driven by NDJSON requests on stdin.
   request, an EOF, or a fatal protocol error.
 * **single-shot** — Reads the entire stdin body as one JSON object,
   runs it, exits with the wrapped op's exit code.
-* **http / unix (v0.34 stubs)** — Print a one-line `kind:"error"`
-  envelope explaining the transport is reserved for v0.34, then exit 2.
+* **http** — Binds a TCP listener. Exposes `POST /v1/agent`,
+  `POST /v1/agent/batch`, and `GET /v1/agent/version`. With
+  `--auth-token`, every request must carry `Authorization: Bearer
+  <token>`. See `docs/internals/agent-mode-protocol.md` for the wire
+  format.
+* **unix** — Binds a `tokio::net::UnixListener` at the given path.
+  Same line-delimited JSON protocol as stdio, one independent
+  session per connection. Pre-existing socket files at the path are
+  unlinked. On Windows the agent prints a one-line `kind:"error"`
+  envelope and exits 2 (Unix sockets aren't supported by this
+  binary today).
+* **record / replay** — `--record` is a session-trace recorder
+  usable under any transport. `--replay` is its inverse: read a
+  recorded file, re-run every request against a fresh session, and
+  assert each response byte-matches.
 
 ## Ops at a glance
 
@@ -105,6 +125,55 @@ echo '{"op":"fix","path":"src/main.mty","code":"MT1001"}' \
 
 Returns a `kind:"patch"` line with the candidate diff but does not
 mutate the file.
+
+### HTTP transport
+
+```bash
+# Terminal A — start the server
+mty agent --transport http --listen 127.0.0.1:9090 --auth-token s3cret
+
+# Terminal B — drive it
+curl -sS -H 'Authorization: Bearer s3cret' \
+  http://127.0.0.1:9090/v1/agent/version
+# {"agent_protocol":"1.0","mty_version":"0.1.0"}
+
+curl -sS -H 'Authorization: Bearer s3cret' \
+  -d '{"op":"explain","code":"MT0001"}' \
+  http://127.0.0.1:9090/v1/agent
+# NDJSON response stream, ending with {"kind":"done","exit_code":0}
+
+# Batch mode — multiple NDJSON requests, share session state
+printf '%s\n%s\n' \
+  '{"op":"check","path":"src/main.mty"}' \
+  '{"op":"fix","code":"MT4099","write":true}' | \
+  curl -sS -H 'Authorization: Bearer s3cret' \
+    --data-binary @- \
+    http://127.0.0.1:9090/v1/agent/batch
+```
+
+### Unix socket transport
+
+```bash
+# Server
+mty agent --transport unix --listen /tmp/mty-agent.sock &
+
+# Client — bash + ncat / socat
+echo '{"op":"explain","code":"MT0001"}' | nc -U /tmp/mty-agent.sock
+```
+
+### Recorded sessions
+
+```bash
+# Record one session — works under any transport.
+mty agent --single-shot --record /tmp/sess.ndjson < req.json
+
+# Replay it later — exits 0 if every response still byte-matches.
+mty agent --replay /tmp/sess.ndjson
+```
+
+The replay path is the easiest way to catch unintentional changes to
+the agent protocol's wire output: check a `sess.ndjson` into git and
+fail CI when it drifts.
 
 ## Exit codes
 

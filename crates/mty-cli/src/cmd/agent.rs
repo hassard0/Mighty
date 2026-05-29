@@ -44,16 +44,24 @@ pub struct AgentArgs {
     /// If true, read one request from stdin (the entire stdin body
     /// parsed as a single JSON object), run it, then exit.
     pub single_shot: bool,
-    /// Transport. `stdio` is the only fully-implemented transport in
-    /// v0.33; `http` and `unix` are reserved for v0.34 and currently
-    /// emit a stub error envelope.
+    /// Transport. `stdio` is the default. `http` and `unix` were
+    /// stubbed in v0.33 T5 and shipped real in v0.35 T2.
     pub transport: Transport,
-    /// HTTP transport: port to bind. Defaults to 8889.
-    #[allow(dead_code)]
+    /// HTTP transport: port to bind. Defaults to 8889. Overridden by
+    /// `listen` when that's set.
     pub http_port: u16,
-    /// Unix transport: socket path.
-    #[allow(dead_code)]
+    /// Unix transport: socket path. Overridden by `listen` when that's set.
     pub unix_socket: Option<PathBuf>,
+    /// v0.35 T2 — `host:port` for HTTP / socket path for Unix.
+    /// Overrides `http_port` / `unix_socket` when present.
+    pub listen: Option<String>,
+    /// v0.35 T2 — bearer token required on every HTTP request.
+    pub auth_token: Option<String>,
+    /// v0.35 T2 — path to append `(request, response)` NDJSON pairs to.
+    pub record: Option<PathBuf>,
+    /// v0.35 T2 — replay a previously recorded session and assert the
+    /// live responses byte-match the recorded ones.
+    pub replay: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -77,9 +85,16 @@ impl Transport {
 
 /// Process entry point. Returns the process exit code.
 pub fn run(args: AgentArgs) -> i32 {
+    // Replay supersedes every transport: the recorded NDJSON pairs are
+    // the input + the expected output. We re-run them in-process and
+    // compare. Replay reuses the same Session loop.
+    if let Some(replay) = args.replay.clone() {
+        return run_replay(&replay);
+    }
     match args.transport {
         Transport::Stdio => run_stdio(args),
-        Transport::Http | Transport::Unix => run_transport_stub(args),
+        Transport::Http => run_http(args),
+        Transport::Unix => run_unix(args),
     }
 }
 
@@ -88,20 +103,30 @@ fn run_stdio(args: AgentArgs) -> i32 {
     let stdout = std::io::stdout();
     let mut stdout_locked = stdout.lock();
     let mut session = Session::new();
+    let mut recorder = match Recorder::open(args.record.as_deref()) {
+        Ok(r) => r,
+        Err(e) => {
+            return emit_fatal(&mut stdout_locked, format!("recorder open failed: {e}"));
+        }
+    };
 
     if args.single_shot {
         let mut body = String::new();
         if let Err(e) = stdin.lock().read_to_string(&mut body) {
             return emit_fatal(&mut stdout_locked, format!("stdin read error: {e}"));
         }
-        let req = match parse_request(&body) {
+        let trimmed = body.trim();
+        let req = match parse_request(trimmed) {
             Ok(r) => r,
             Err(e) => {
                 return emit_fatal(&mut stdout_locked, format!("malformed JSON: {e}"));
             }
         };
-        let code = session.handle(&req, &mut stdout_locked);
-        emit(&mut stdout_locked, &Response::Done { exit_code: code });
+        let (code, captured) = run_one_capturing(&mut session, &req);
+        // Replay back to the real stdout.
+        let _ = stdout_locked.write_all(captured.as_bytes());
+        let _ = stdout_locked.flush();
+        recorder.record_pair(trimmed, &captured);
         return code;
     }
 
@@ -128,20 +153,26 @@ fn run_stdio(args: AgentArgs) -> i32 {
         let req = match parse_request(trimmed) {
             Ok(r) => r,
             Err(e) => {
+                let mut buf: Vec<u8> = Vec::new();
                 emit(
-                    &mut stdout_locked,
+                    &mut buf,
                     &Response::Error {
                         message: format!("malformed JSON: {e}"),
                     },
                 );
-                emit(&mut stdout_locked, &Response::Done { exit_code: 2 });
+                emit(&mut buf, &Response::Done { exit_code: 2 });
+                let _ = stdout_locked.write_all(&buf);
+                let _ = stdout_locked.flush();
+                recorder.record_pair(trimmed, std::str::from_utf8(&buf).unwrap_or(""));
                 worst_exit = worst_exit.max(2);
                 continue;
             }
         };
         let is_halt = matches!(req.op.as_str(), "halt");
-        let code = session.handle(&req, &mut stdout_locked);
-        emit(&mut stdout_locked, &Response::Done { exit_code: code });
+        let (code, captured) = run_one_capturing(&mut session, &req);
+        let _ = stdout_locked.write_all(captured.as_bytes());
+        let _ = stdout_locked.flush();
+        recorder.record_pair(trimmed, &captured);
         if code != 0 {
             worst_exit = worst_exit.max(code);
         }
@@ -150,26 +181,6 @@ fn run_stdio(args: AgentArgs) -> i32 {
         }
     }
     worst_exit
-}
-
-fn run_transport_stub(args: AgentArgs) -> i32 {
-    let stdout = std::io::stdout();
-    let mut locked = stdout.lock();
-    let kind = match args.transport {
-        Transport::Http => "http",
-        Transport::Unix => "unix",
-        Transport::Stdio => unreachable!(),
-    };
-    emit(
-        &mut locked,
-        &Response::Error {
-            message: format!(
-                "transport `{kind}` is reserved for v0.34; use `--transport stdio` (default) in v0.33"
-            ),
-        },
-    );
-    emit(&mut locked, &Response::Done { exit_code: 2 });
-    2
 }
 
 fn emit_fatal<W: Write>(out: &mut W, message: String) -> i32 {
@@ -287,7 +298,7 @@ fn emit<W: Write>(out: &mut W, msg: &Response) {
 // Session — per-process interactive state
 // ---------------------------------------------------------------------------
 
-struct Session {
+pub(crate) struct Session {
     /// Last source-file path operated on. Mirrored as a hint into the
     /// `fix` op handler so future ops can skip restating the path.
     last_path: Option<PathBuf>,
@@ -298,7 +309,7 @@ struct Session {
 }
 
 impl Session {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             last_path: None,
             last_envelopes: Vec::new(),
@@ -306,7 +317,7 @@ impl Session {
         }
     }
 
-    fn handle<W: Write>(&mut self, req: &Request, out: &mut W) -> i32 {
+    pub(crate) fn handle<W: Write>(&mut self, req: &Request, out: &mut W) -> i32 {
         match req.op.as_str() {
             "check" => self.op_check(req, out),
             "run" => self.op_run(req, out),
@@ -1091,6 +1102,586 @@ pub fn ndjson_for(path: &Path, include_source: bool) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// v0.35 T2 — request runner shared by every transport
+// ---------------------------------------------------------------------------
+
+/// Run one request against `session`, capturing every response line
+/// (including the terminating `done`) into an in-memory NDJSON string.
+///
+/// Every non-stdio transport — HTTP, Unix socket, recorder, replay —
+/// goes through this so the wire bytes are identical to what stdio
+/// would have produced. The exit code returned is the same code
+/// `Session::handle` produced for the underlying op.
+pub(crate) fn run_one_capturing(session: &mut Session, req: &Request) -> (i32, String) {
+    let mut buf: Vec<u8> = Vec::new();
+    let code = session.handle(req, &mut buf);
+    emit(&mut buf, &Response::Done { exit_code: code });
+    let s = String::from_utf8(buf).unwrap_or_default();
+    (code, s)
+}
+
+/// Same shape as `run_one_capturing` but takes a raw NDJSON line. On
+/// parse failure emits the same `kind:"error"` + `kind:"done"`
+/// envelope the stdio path would have, with exit code 2.
+pub(crate) fn run_one_capturing_line(session: &mut Session, line: &str) -> (i32, String) {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        let mut buf: Vec<u8> = Vec::new();
+        emit(
+            &mut buf,
+            &Response::Error {
+                message: "empty request".into(),
+            },
+        );
+        emit(&mut buf, &Response::Done { exit_code: 2 });
+        return (2, String::from_utf8(buf).unwrap_or_default());
+    }
+    match parse_request(trimmed) {
+        Ok(req) => run_one_capturing(session, &req),
+        Err(e) => {
+            let mut buf: Vec<u8> = Vec::new();
+            emit(
+                &mut buf,
+                &Response::Error {
+                    message: format!("malformed JSON: {e}"),
+                },
+            );
+            emit(&mut buf, &Response::Done { exit_code: 2 });
+            (2, String::from_utf8(buf).unwrap_or_default())
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// v0.35 T2 — Recorder
+// ---------------------------------------------------------------------------
+
+/// Append-only NDJSON file capturing every (request, response) pair
+/// the session processed. Each line is a single JSON object of shape
+/// `{"request": "<raw request line>", "response": "<raw response
+/// bytes>"}` so the file can be replayed verbatim by `run_replay`.
+///
+/// The recorder is best-effort: if writing fails (disk full, perms,
+/// EPIPE on a renamed file), the failure is logged to stderr but does
+/// NOT halt the session — recording is an aux trace, not a sync
+/// transport.
+pub(crate) struct Recorder {
+    inner: Option<std::io::BufWriter<std::fs::File>>,
+}
+
+impl Recorder {
+    /// Open the recorder against `path`. When `path` is `None`, returns
+    /// a no-op recorder whose `record_pair` is a free function call.
+    pub(crate) fn open(path: Option<&Path>) -> Result<Self, String> {
+        let Some(p) = path else {
+            return Ok(Self { inner: None });
+        };
+        if let Some(parent) = p.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent)
+                    .map_err(|e| format!("create parent {}: {}", parent.display(), e))?;
+            }
+        }
+        let f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(p)
+            .map_err(|e| format!("open {}: {}", p.display(), e))?;
+        Ok(Self {
+            inner: Some(std::io::BufWriter::new(f)),
+        })
+    }
+
+    /// Append one (request, response) pair. `response` is the full
+    /// raw NDJSON-bytes string the transport sent back to the client,
+    /// including the trailing `done` line.
+    pub(crate) fn record_pair(&mut self, request: &str, response: &str) {
+        let Some(w) = self.inner.as_mut() else {
+            return;
+        };
+        let entry = serde_json::json!({
+            "request": request,
+            "response": response,
+        });
+        let line = serde_json::to_string(&entry).unwrap_or_default();
+        if let Err(e) = writeln!(w, "{}", line) {
+            eprintln!("mty agent: recorder write failed: {e}");
+        }
+        if let Err(e) = w.flush() {
+            eprintln!("mty agent: recorder flush failed: {e}");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// v0.35 T2 — Replay
+// ---------------------------------------------------------------------------
+
+/// Read a recorded NDJSON session file and re-run every request
+/// against a fresh `Session`, asserting each response byte-matches
+/// the recorded one. Returns 0 on full match, 1 on any drift, 2 on
+/// IO / parse errors against the file itself.
+pub(crate) fn run_replay(path: &Path) -> i32 {
+    let body = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("mty agent --replay: read {}: {}", path.display(), e);
+            return 2;
+        }
+    };
+    let mut session = Session::new();
+    let mut drift = false;
+    let mut count: usize = 0;
+    for (i, raw) in body.lines().enumerate() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let entry: serde_json::Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("mty agent --replay: line {} not JSON: {}", i + 1, e);
+                return 2;
+            }
+        };
+        let Some(req_line) = entry.get("request").and_then(|v| v.as_str()) else {
+            eprintln!("mty agent --replay: line {} missing `request`", i + 1);
+            return 2;
+        };
+        let Some(recorded) = entry.get("response").and_then(|v| v.as_str()) else {
+            eprintln!("mty agent --replay: line {} missing `response`", i + 1);
+            return 2;
+        };
+        let (_code, live) = run_one_capturing_line(&mut session, req_line);
+        if live != recorded {
+            eprintln!(
+                "mty agent --replay: drift at line {} (req: {})",
+                i + 1,
+                truncate(req_line, 80)
+            );
+            eprintln!("  recorded:\n{}", indent(recorded, "    "));
+            eprintln!("  live:\n{}", indent(&live, "    "));
+            drift = true;
+        }
+        count += 1;
+    }
+    if drift {
+        eprintln!(
+            "mty agent --replay: {} request(s), at least one drifted",
+            count
+        );
+        1
+    } else {
+        eprintln!("mty agent --replay: {} request(s) all match", count);
+        0
+    }
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        let cut = s
+            .char_indices()
+            .map(|(i, _)| i)
+            .take_while(|i| *i <= max)
+            .last()
+            .unwrap_or(0);
+        format!("{}…", &s[..cut])
+    }
+}
+
+fn indent(s: &str, prefix: &str) -> String {
+    s.lines()
+        .map(|l| format!("{}{}", prefix, l))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+// ---------------------------------------------------------------------------
+// v0.35 T2 — HTTP transport
+// ---------------------------------------------------------------------------
+
+/// Process entry point for `--transport http`. Spawns a tokio runtime,
+/// binds a TCP listener, and serves the three documented endpoints:
+///
+/// * `POST /v1/agent` — body is one Request JSON; response is NDJSON
+///   streamed back as the response body.
+/// * `POST /v1/agent/batch` — body is NDJSON requests; response is
+///   interleaved NDJSON responses, one batch-result line per request.
+/// * `GET /v1/agent/version` — returns `{"mty_version": "<v>",
+///   "agent_protocol": "1.0"}`.
+///
+/// Auth: when `auth_token` is `Some`, every request must carry
+/// `Authorization: Bearer <token>`. Unauthorized returns 401.
+fn run_http(args: AgentArgs) -> i32 {
+    use std::net::SocketAddr;
+
+    let listen_spec = args
+        .listen
+        .clone()
+        .unwrap_or_else(|| format!("127.0.0.1:{}", args.http_port));
+    let addr: SocketAddr = match listen_spec.parse() {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!(
+                "mty agent --transport http: bad --listen `{}`: {}",
+                listen_spec, e
+            );
+            return 2;
+        }
+    };
+
+    let rt = match tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("mty agent --transport http: tokio init: {e}");
+            return 2;
+        }
+    };
+
+    let auth = args.auth_token.clone();
+    let record = args.record.clone();
+
+    rt.block_on(async move {
+        let listener = match tokio::net::TcpListener::bind(&addr).await {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("mty agent --transport http: bind {}: {}", addr, e);
+                return 2;
+            }
+        };
+        let bound = listener.local_addr().unwrap_or(addr);
+        eprintln!("mty agent: HTTP listening on http://{}/v1/agent", bound);
+
+        // Recorder shared across every connection. Wrapped in
+        // tokio::Mutex so concurrent handlers can serialize their
+        // writes.
+        let recorder = std::sync::Arc::new(tokio::sync::Mutex::new(
+            match Recorder::open(record.as_deref()) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("mty agent --transport http: recorder: {e}");
+                    return 2;
+                }
+            },
+        ));
+
+        http_accept_loop(listener, auth, recorder).await;
+        0
+    })
+}
+
+#[allow(clippy::too_many_lines)]
+async fn http_accept_loop(
+    listener: tokio::net::TcpListener,
+    auth_token: Option<String>,
+    recorder: std::sync::Arc<tokio::sync::Mutex<Recorder>>,
+) {
+    use http_body_util::Full;
+    use hyper::body::{Bytes, Incoming};
+    use hyper::server::conn::http1;
+    use hyper::service::service_fn;
+    use hyper::{Request as HReq, Response as HResp};
+    use hyper_util::rt::TokioIo;
+    use std::convert::Infallible;
+
+    loop {
+        let (stream, _peer) = match listener.accept().await {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("mty agent --transport http: accept: {e}");
+                return;
+            }
+        };
+        let auth = auth_token.clone();
+        let recorder = recorder.clone();
+        tokio::spawn(async move {
+            let io = TokioIo::new(stream);
+            let svc = service_fn(move |req: HReq<Incoming>| {
+                let auth = auth.clone();
+                let recorder = recorder.clone();
+                async move {
+                    let resp = http_handle(req, auth, recorder).await;
+                    Ok::<HResp<Full<Bytes>>, Infallible>(resp)
+                }
+            });
+            let _ = http1::Builder::new().serve_connection(io, svc).await;
+        });
+    }
+}
+
+async fn http_handle(
+    req: hyper::Request<hyper::body::Incoming>,
+    auth_token: Option<String>,
+    recorder: std::sync::Arc<tokio::sync::Mutex<Recorder>>,
+) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
+    use http_body_util::{BodyExt, Full};
+    use hyper::body::Bytes;
+
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+    let authz_hdr = req
+        .headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    // Bearer-token gate.
+    if let Some(expected) = &auth_token {
+        let supplied = authz_hdr.as_deref().and_then(|h| {
+            // RFC 7617: `Bearer <token>`. Match case-insensitively on
+            // the scheme.
+            let (scheme, token) = h.split_once(' ')?;
+            if scheme.eq_ignore_ascii_case("Bearer") {
+                Some(token.trim().to_string())
+            } else {
+                None
+            }
+        });
+        if supplied.as_deref() != Some(expected.as_str()) {
+            return hyper::Response::builder()
+                .status(401)
+                .header("content-type", "application/json")
+                .header("www-authenticate", "Bearer")
+                .body(Full::new(Bytes::from_static(
+                    b"{\"kind\":\"error\",\"message\":\"unauthorized\"}\n",
+                )))
+                .expect("401 builds");
+        }
+    }
+
+    // Routes.
+    match (method.as_str(), path.as_str()) {
+        ("GET", "/v1/agent/version") => {
+            let body = serde_json::json!({
+                "mty_version": env!("CARGO_PKG_VERSION"),
+                "agent_protocol": "1.0",
+            });
+            hyper::Response::builder()
+                .status(200)
+                .header("content-type", "application/json")
+                .body(Full::new(Bytes::from(body.to_string() + "\n")))
+                .expect("version builds")
+        }
+        ("POST", "/v1/agent") => {
+            let bytes = match req.into_body().collect().await {
+                Ok(b) => b.to_bytes(),
+                Err(e) => return http_bad_request(format!("read body: {e}")),
+            };
+            let Ok(body_utf8) = std::str::from_utf8(&bytes) else {
+                return http_bad_request("body is not utf-8".into());
+            };
+            let body_str = body_utf8.trim();
+            let mut session = Session::new();
+            let (_code, ndjson) = run_one_capturing_line(&mut session, body_str);
+            // Record the pair if a recorder is wired.
+            {
+                let mut rec = recorder.lock().await;
+                rec.record_pair(body_str, &ndjson);
+            }
+            hyper::Response::builder()
+                .status(200)
+                .header("content-type", "application/x-ndjson")
+                .body(Full::new(Bytes::from(ndjson)))
+                .expect("ndjson builds")
+        }
+        ("POST", "/v1/agent/batch") => {
+            let bytes = match req.into_body().collect().await {
+                Ok(b) => b.to_bytes(),
+                Err(e) => return http_bad_request(format!("read body: {e}")),
+            };
+            let Ok(body_str) = std::str::from_utf8(&bytes) else {
+                return http_bad_request("body is not utf-8".into());
+            };
+            let mut session = Session::new();
+            let mut out = String::new();
+            for line in body_str.lines() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let (_code, ndjson) = run_one_capturing_line(&mut session, trimmed);
+                {
+                    let mut rec = recorder.lock().await;
+                    rec.record_pair(trimmed, &ndjson);
+                }
+                out.push_str(&ndjson);
+            }
+            hyper::Response::builder()
+                .status(200)
+                .header("content-type", "application/x-ndjson")
+                .body(Full::new(Bytes::from(out)))
+                .expect("ndjson builds")
+        }
+        _ => hyper::Response::builder()
+            .status(404)
+            .header("content-type", "application/json")
+            .body(Full::new(Bytes::from_static(
+                b"{\"kind\":\"error\",\"message\":\"not found\"}\n",
+            )))
+            .expect("404 builds"),
+    }
+}
+
+fn http_bad_request(msg: String) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
+    use http_body_util::Full;
+    use hyper::body::Bytes;
+    let env = serde_json::json!({"kind":"error","message": msg});
+    hyper::Response::builder()
+        .status(400)
+        .header("content-type", "application/json")
+        .body(Full::new(Bytes::from(env.to_string() + "\n")))
+        .expect("400 builds")
+}
+
+// ---------------------------------------------------------------------------
+// v0.35 T2 — Unix socket transport
+// ---------------------------------------------------------------------------
+
+/// Process entry point for `--transport unix`.
+///
+/// On Unix, binds a `tokio::net::UnixListener` at the supplied path
+/// and speaks the same line-delimited JSON protocol as stdio, one
+/// session per connection. The socket file is unlinked at process
+/// exit (best-effort).
+///
+/// On Windows the agent doesn't ship Unix-socket support today — we
+/// print a one-line error envelope and exit 2 so the caller gets a
+/// clean signal rather than a hyper-confusing bind failure.
+#[cfg(unix)]
+fn run_unix(args: AgentArgs) -> i32 {
+    let Some(path) = args
+        .listen
+        .as_ref()
+        .map(PathBuf::from)
+        .or_else(|| args.unix_socket.clone())
+    else {
+        eprintln!("mty agent --transport unix: pass --listen <path> or --socket <path>");
+        return 2;
+    };
+
+    // Pre-unlink so we don't EADDRINUSE if the previous run died
+    // without cleaning up.
+    let _ = std::fs::remove_file(&path);
+
+    let rt = match tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("mty agent --transport unix: tokio init: {e}");
+            return 2;
+        }
+    };
+
+    let record = args.record.clone();
+
+    rt.block_on(async move {
+        let listener = match tokio::net::UnixListener::bind(&path) {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("mty agent --transport unix: bind {}: {}", path.display(), e);
+                return 2;
+            }
+        };
+        eprintln!("mty agent: Unix socket listening on {}", path.display());
+
+        let recorder = std::sync::Arc::new(tokio::sync::Mutex::new(
+            match Recorder::open(record.as_deref()) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("mty agent --transport unix: recorder: {e}");
+                    return 2;
+                }
+            },
+        ));
+
+        unix_accept_loop(listener, recorder).await;
+        let _ = std::fs::remove_file(&path);
+        0
+    })
+}
+
+#[cfg(not(unix))]
+fn run_unix(_args: AgentArgs) -> i32 {
+    let stdout = std::io::stdout();
+    let mut locked = stdout.lock();
+    emit(
+        &mut locked,
+        &Response::Error {
+            message:
+                "transport `unix` is not supported on Windows; use `--transport http` or `--transport stdio`"
+                    .into(),
+        },
+    );
+    emit(&mut locked, &Response::Done { exit_code: 2 });
+    2
+}
+
+#[cfg(unix)]
+async fn unix_accept_loop(
+    listener: tokio::net::UnixListener,
+    recorder: std::sync::Arc<tokio::sync::Mutex<Recorder>>,
+) {
+    loop {
+        let (stream, _peer) = match listener.accept().await {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("mty agent --transport unix: accept: {e}");
+                return;
+            }
+        };
+        let recorder = recorder.clone();
+        tokio::spawn(async move {
+            if let Err(e) = unix_serve_conn(stream, recorder).await {
+                eprintln!("mty agent --transport unix: conn: {e}");
+            }
+        });
+    }
+}
+
+#[cfg(unix)]
+async fn unix_serve_conn(
+    stream: tokio::net::UnixStream,
+    recorder: std::sync::Arc<tokio::sync::Mutex<Recorder>>,
+) -> std::io::Result<()> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let (rd, mut wr) = stream.into_split();
+    let mut reader = BufReader::new(rd).lines();
+    let mut session = Session::new();
+    while let Some(line) = reader.next_line().await? {
+        let trimmed = line.trim().to_string();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let req_for_halt = parse_request(&trimmed).ok();
+        let is_halt = req_for_halt
+            .as_ref()
+            .map(|r| r.op == "halt")
+            .unwrap_or(false);
+        let (_code, ndjson) = run_one_capturing_line(&mut session, &trimmed);
+        {
+            let mut rec = recorder.lock().await;
+            rec.record_pair(&trimmed, &ndjson);
+        }
+        wr.write_all(ndjson.as_bytes()).await?;
+        wr.flush().await?;
+        if is_halt {
+            break;
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
 
@@ -1488,29 +2079,130 @@ mod tests {
         assert_eq!(code, 1);
     }
 
+    // run_one_capturing — used by every transport. A trivial sanity
+    // check that it produces the same NDJSON bytes Session.handle would
+    // have written directly, plus a terminating `done` line.
     #[test]
-    fn run_transport_stub_http() {
-        // We can't easily run_stdio (it reads real stdin) but the stub
-        // path is pure.
-        let args = AgentArgs {
-            single_shot: false,
-            transport: Transport::Http,
-            http_port: 8889,
-            unix_socket: None,
+    fn run_one_capturing_emits_done_line() {
+        let mut s = Session::new();
+        let req = Request {
+            op: "halt".into(),
+            fields: serde_json::Map::new(),
         };
-        let code = run_transport_stub(args);
+        let (code, body) = run_one_capturing(&mut s, &req);
+        assert_eq!(code, 0);
+        assert!(body.contains("\"kind\":\"halt\"") || body.contains("\"op\":\"halt\""));
+        // Last non-empty line is the `done` terminator.
+        let last = body.lines().rfind(|l| !l.trim().is_empty()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(last).unwrap();
+        assert_eq!(v["kind"], "done");
+        assert_eq!(v["exit_code"], 0);
+    }
+
+    #[test]
+    fn run_one_capturing_unknown_op_done_2() {
+        let mut s = Session::new();
+        let req = Request {
+            op: "frobnicate".into(),
+            fields: serde_json::Map::new(),
+        };
+        let (code, body) = run_one_capturing(&mut s, &req);
+        assert_eq!(code, 2);
+        let last = body.lines().rfind(|l| !l.trim().is_empty()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(last).unwrap();
+        assert_eq!(v["kind"], "done");
+        assert_eq!(v["exit_code"], 2);
+    }
+
+    // ----- Recorder + replay --------------------------------------------
+
+    #[test]
+    fn recorder_records_pairs() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rec.ndjson");
+        let mut rec = Recorder::open(Some(&path)).unwrap();
+        rec.record_pair(r#"{"op":"halt"}"#, "{\"kind\":\"done\",\"exit_code\":0}\n");
+        drop(rec);
+        let body = std::fs::read_to_string(&path).unwrap();
+        // Each line is one JSON object with "request" and "response".
+        let line = body.lines().next().unwrap();
+        let v: serde_json::Value = serde_json::from_str(line).unwrap();
+        assert_eq!(v["request"], r#"{"op":"halt"}"#);
+        assert!(v["response"]
+            .as_str()
+            .unwrap()
+            .contains("\"kind\":\"done\""));
+    }
+
+    #[test]
+    fn recorder_noop_when_path_is_none() {
+        // record_pair should be a no-op when no path was supplied.
+        let mut rec = Recorder::open(None).unwrap();
+        rec.record_pair("a", "b"); // doesn't panic, writes nothing.
+    }
+
+    #[test]
+    fn replay_matches_when_response_byte_identical() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rec.ndjson");
+        // Record one halt request and its actual response.
+        let mut s = Session::new();
+        let req = Request {
+            op: "halt".into(),
+            fields: serde_json::Map::new(),
+        };
+        let (_c, body) = run_one_capturing(&mut s, &req);
+        let mut rec = Recorder::open(Some(&path)).unwrap();
+        rec.record_pair(r#"{"op":"halt"}"#, &body);
+        drop(rec);
+        let code = run_replay(&path);
+        assert_eq!(code, 0);
+    }
+
+    #[test]
+    fn replay_fails_on_response_drift() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rec.ndjson");
+        let entry = serde_json::json!({
+            "request": r#"{"op":"halt"}"#,
+            "response": "{\"kind\":\"done\",\"exit_code\":42}\n",
+        });
+        std::fs::write(&path, entry.to_string() + "\n").unwrap();
+        let code = run_replay(&path);
+        assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn replay_handles_unknown_op_gracefully() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rec.ndjson");
+        let mut s = Session::new();
+        let req = Request {
+            op: "weird".into(),
+            fields: serde_json::Map::new(),
+        };
+        let (_c, body) = run_one_capturing(&mut s, &req);
+        let mut rec = Recorder::open(Some(&path)).unwrap();
+        rec.record_pair(r#"{"op":"weird"}"#, &body);
+        drop(rec);
+        let code = run_replay(&path);
+        assert_eq!(code, 0);
+    }
+
+    #[test]
+    fn replay_errors_on_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("does-not-exist.ndjson");
+        let code = run_replay(&path);
         assert_eq!(code, 2);
     }
 
     #[test]
-    fn run_transport_stub_unix() {
-        let args = AgentArgs {
-            single_shot: false,
-            transport: Transport::Unix,
-            http_port: 8889,
-            unix_socket: Some(PathBuf::from("/tmp/x.sock")),
-        };
-        let code = run_transport_stub(args);
+    fn replay_errors_on_malformed_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rec.ndjson");
+        std::fs::write(&path, "not json\n").unwrap();
+        let code = run_replay(&path);
         assert_eq!(code, 2);
     }
 }
