@@ -2,7 +2,7 @@
   "name": "mighty-language",
   "displayName": "Mighty Language",
   "description": "First-class Mighty language support for VS Code: syntax highlighting, LSP client, snippets, palette commands, and a live cost status bar.",
-  "version": "0.32.0",
+  "version": "0.34.0",
   "publisher": "hassard0",
   "license": "MIT",
   "icon": "icons/mighty.png",
@@ -214,6 +214,13 @@
           "type": "boolean",
           "default": true,
           "description": "Default `Mighty: Test --eval` to --replay-only (no live LLM calls)."
+        },
+        "mighty.codeAction.confidenceThreshold": {
+          "type": "number",
+          "default": 0.7,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Minimum fix confidence to surface in the lightbulb. T1's fix engines ship alternatives at 0.5 (low) → 0.92 (mechanical). Lower this to see more suggestions; raise it to hide low-confidence ones. Hidden fixes are still available via `mty fix --apply` on the CLI."
         }
       }
     },

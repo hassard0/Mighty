@@ -1,19 +1,43 @@
 //! Code actions — `textDocument/codeAction`.
 //!
-//! v0.5 ships quick fixes triggered by selected diagnostics:
+//! Two tracks of code actions ship today:
 //!
-//! | code | fix                                                                 |
-//! |------|---------------------------------------------------------------------|
-//! | MT2021 unresolved value  | suggest top-3 in-scope names by edit distance |
-//! | MT2002 unresolved type   | suggest top-3 in-scope type names by edit distance |
-//! | MT3001 use-after-move    | suggest `.clone()` (best-effort; user confirms)    |
-//! | MT4001 effect undeclared | suggest adding the missing effect to the fn signature |
+//! 1. **Hand-written, scope-driven** — v0.5 fixes that ride the
+//!    LSP's live type / scope information rather than re-running the
+//!    fix engine. Coverage:
+//!
+//!    | code | fix                                                                 |
+//!    |------|---------------------------------------------------------------------|
+//!    | MT2021 unresolved value  | suggest top-3 in-scope names by edit distance |
+//!    | MT2002 unresolved type   | suggest top-3 in-scope type names by edit distance |
+//!    | MT3001 use-after-move    | suggest `.clone()` (best-effort; user confirms)    |
+//!    | MT4001 effect undeclared | suggest adding the missing effect to the fn signature |
+//!    | MT6001 unknown macro     | suggest top-3 in-scope macro names                |
+//!
+//! 2. **Envelope-driven (v0.34 T2)** — every Mighty diagnostic carries
+//!    a `mty_diagnostics::fix::DiagnosticEnvelope` with one or more
+//!    `FixAlternative`s. We surface them as LSP `CodeAction`s by
+//!    parsing the embedded unified diff into [`TextEdit`]s (see
+//!    [`crate::diff_apply`]).
+//!
+//!    Confidence filtering:
+//!    - `>= preferred_threshold` (default 0.85) → `isPreferred = true`
+//!    - `>= visible_threshold` (default 0.7) → emitted, not preferred
+//!    - below `visible_threshold` → hidden from the lightbulb (still
+//!      available via `mty fix --apply` on the CLI)
+//!
+//!    Thresholds are configurable per-server via
+//!    [`CodeActionConfig::from_initialization_options`]. The defaults
+//!    match the LSP setting `mighty.codeAction.confidenceThreshold`.
 //!
 //! Each action returns a single-text-edit [`WorkspaceEdit`] so the
-//! editor can preview before applying.
+//! editor can preview before applying. Multi-hunk diffs collapse to
+//! one `WorkspaceEdit` with multiple edits, applied atomically.
 
+use crate::diff_apply::unified_diff_to_text_edits;
 use crate::docs::DocAnalysis;
-use mty_diagnostics::Diagnostic;
+use mty_diagnostics::fix::DiagnosticEnvelope;
+use mty_diagnostics::{Diagnostic, ToEnvelope};
 use mty_types::DefRef;
 use std::collections::HashMap;
 use tower_lsp::lsp_types::{
@@ -24,6 +48,56 @@ use tower_lsp::lsp_types::{
 /// Maximum edit distance for "did you mean" suggestions.
 const SUGGEST_MAX_DISTANCE: usize = 2;
 
+/// Default lower bound for an envelope fix to appear at all in the
+/// lightbulb. Below this, the suggestion is still in the JSON envelope
+/// (so `mty fix --apply` can use it) but the editor lightbulb hides it.
+pub const DEFAULT_VISIBLE_THRESHOLD: f32 = 0.7;
+
+/// Default lower bound for marking an action as the editor's
+/// "preferred" fix (the one applied on `Quick Fix`). Above this,
+/// `is_preferred = true`.
+pub const DEFAULT_PREFERRED_THRESHOLD: f32 = 0.85;
+
+/// Runtime-configurable thresholds, surfaced via the LSP
+/// `mighty.codeAction.confidenceThreshold` setting.
+#[derive(Debug, Clone, Copy)]
+pub struct CodeActionConfig {
+    pub visible_threshold: f32,
+    pub preferred_threshold: f32,
+}
+
+impl Default for CodeActionConfig {
+    fn default() -> Self {
+        Self {
+            visible_threshold: DEFAULT_VISIBLE_THRESHOLD,
+            preferred_threshold: DEFAULT_PREFERRED_THRESHOLD,
+        }
+    }
+}
+
+impl CodeActionConfig {
+    /// Read `mighty.codeAction.confidenceThreshold` from an
+    /// `initializationOptions` JSON blob. Falls back to the default
+    /// (0.7) when the key is missing or out of range.
+    pub fn from_initialization_options(opts: &serde_json::Value) -> Self {
+        let mut cfg = Self::default();
+        let mighty = opts.get("mighty").unwrap_or(opts);
+        if let Some(v) = mighty
+            .get("codeAction")
+            .and_then(|c| c.get("confidenceThreshold"))
+            .and_then(|t| t.as_f64())
+        {
+            let v = v as f32;
+            if (0.0..=1.0).contains(&v) {
+                cfg.visible_threshold = v;
+                // Keep the preferred threshold above the visible one.
+                cfg.preferred_threshold = cfg.preferred_threshold.max(v);
+            }
+        }
+        cfg
+    }
+}
+
 /// Top-level handler entry. `cursor_range` is the editor's current
 /// selection (so we can scope the suggestions); `diagnostics` is the
 /// list the client thinks applies at that range.
@@ -33,12 +107,36 @@ pub fn code_actions(
     cursor_range: Range,
     diagnostics: &[tower_lsp::lsp_types::Diagnostic],
 ) -> CodeActionResponse {
+    code_actions_with_config(
+        uri,
+        doc,
+        cursor_range,
+        diagnostics,
+        CodeActionConfig::default(),
+    )
+}
+
+/// Like [`code_actions`] but with caller-supplied confidence
+/// thresholds. The server holds one `CodeActionConfig` per session,
+/// updated from `initializationOptions`.
+pub fn code_actions_with_config(
+    uri: &Url,
+    doc: &DocAnalysis,
+    cursor_range: Range,
+    diagnostics: &[tower_lsp::lsp_types::Diagnostic],
+    cfg: CodeActionConfig,
+) -> CodeActionResponse {
     let mut out: Vec<CodeActionOrCommand> = Vec::new();
+    // Track titles we've already pushed so the envelope-driven path
+    // doesn't duplicate the hand-written scope-aware suggestions.
+    let mut seen_titles: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // -------- Pass 1: scope-aware hand-written fixes ----------
     for diag in diagnostics {
-        // Pull our SD-code string out of the diagnostic.
         let Some(NumberOrString::String(code)) = &diag.code else {
             continue;
         };
+        let before = out.len();
         match code.as_str() {
             "MT2021" => actions_for_unresolved_value(uri, doc, diag, &mut out),
             "MT2002" => actions_for_unresolved_type(uri, doc, diag, &mut out),
@@ -47,16 +145,19 @@ pub fn code_actions(
             "MT6001" => actions_for_unknown_macro(uri, doc, diag, &mut out),
             _ => {}
         }
+        for a in &out[before..] {
+            if let CodeActionOrCommand::CodeAction(ca) = a {
+                seen_titles.insert(ca.title.clone());
+            }
+        }
     }
-    // Even without diagnostics, sometimes the editor calls codeAction
-    // with an empty diag list to populate the lightbulb. We also try to
-    // match any cursor-position diagnostic the server itself produced
-    // (so the action works on first paint, before the client round-trips
-    // the diagnostic back).
+    // Empty-diag-list path: scope-aware fixes triggered by the
+    // cursor position alone (no client round-trip yet).
     if diagnostics.is_empty() {
         for d in &doc.diagnostics {
             if diag_contains_cursor(d, doc, cursor_range) {
                 let lsp_diag = crate::conv::diagnostic_to_lsp(d, &doc.line_index, &doc.source);
+                let before = out.len();
                 match d.code.as_str().as_str() {
                     "MT2021" => actions_for_unresolved_value(uri, doc, &lsp_diag, &mut out),
                     "MT2002" => actions_for_unresolved_type(uri, doc, &lsp_diag, &mut out),
@@ -65,11 +166,157 @@ pub fn code_actions(
                     "MT6001" => actions_for_unknown_macro(uri, doc, &lsp_diag, &mut out),
                     _ => {}
                 }
+                for a in &out[before..] {
+                    if let CodeActionOrCommand::CodeAction(ca) = a {
+                        seen_titles.insert(ca.title.clone());
+                    }
+                }
             }
         }
     }
+
+    // -------- Pass 2: envelope-driven fixes (v0.34 T2) ----------
+    // Build a map: { MTxxxx code → list of matching client diagnostics }.
+    // For each Mighty Diagnostic in the document whose range overlaps
+    // the cursor (or is in the client-passed diag list), pull its
+    // envelope and surface every `FixAlternative` with confidence
+    // ≥ visible_threshold as a CodeAction.
+    let client_diag_codes: std::collections::HashSet<String> = diagnostics
+        .iter()
+        .filter_map(|d| match &d.code {
+            Some(NumberOrString::String(s)) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+
+    for d in &doc.diagnostics {
+        let in_range = diag_contains_cursor(d, doc, cursor_range);
+        let in_client_list = client_diag_codes.contains(&d.code.as_str());
+        if !(in_range || in_client_list) {
+            continue;
+        }
+        let env = d.to_envelope(uri.as_str(), &doc.source);
+        let lsp_diag = crate::conv::diagnostic_to_lsp(d, &doc.line_index, &doc.source);
+        emit_envelope_actions(
+            uri,
+            &env,
+            &lsp_diag,
+            &doc.source,
+            cfg,
+            &seen_titles,
+            &mut out,
+        );
+    }
+
     out
 }
+
+/// Translate one envelope's fix alternatives into LSP `CodeAction`s.
+/// Each `FixAlternative` becomes one action; alternatives below the
+/// visible threshold are skipped. Titles already present in
+/// `seen_titles` (from the hand-written pass) are skipped to avoid
+/// duplicates.
+fn emit_envelope_actions(
+    uri: &Url,
+    env: &DiagnosticEnvelope,
+    lsp_diag: &tower_lsp::lsp_types::Diagnostic,
+    source: &str,
+    cfg: CodeActionConfig,
+    seen_titles: &std::collections::HashSet<String>,
+    out: &mut Vec<CodeActionOrCommand>,
+) {
+    let Some(fix) = env.fix.as_ref() else {
+        return;
+    };
+    for alt in &fix.alternatives {
+        if alt.confidence < cfg.visible_threshold {
+            continue;
+        }
+        let title = format!("Apply: {}", alt.label);
+        if seen_titles.contains(&title) {
+            continue;
+        }
+        let edits = unified_diff_to_text_edits(&alt.diff, source);
+        if edits.is_empty() {
+            // The diff didn't line up with the source (probably an
+            // off-by-one between fix engine + LSP doc version). Drop
+            // the alternative rather than offer a broken edit.
+            continue;
+        }
+        let kind = code_action_kind_for(&fix.kind);
+        let is_preferred = alt.confidence >= cfg.preferred_threshold;
+        out.push(envelope_action(
+            uri,
+            lsp_diag.clone(),
+            edits,
+            title,
+            kind,
+            is_preferred,
+        ));
+    }
+}
+
+/// Map a `FixKind` discriminator (`"untaint"`, `"rename_to_match_decl"`,
+/// etc.) to the LSP `CodeActionKind` the editor should use. Most kinds
+/// map to plain `quickfix`; rename / refactor-flavored fixes get a
+/// `refactor.rewrite` kind so editors that show "Refactor" menus
+/// separately surface them in the right place.
+fn code_action_kind_for(fix_kind: &str) -> CodeActionKind {
+    match fix_kind {
+        // Renames + structural refactors live under `refactor.rewrite`.
+        "rename_to_match_decl" | "add_struct_field" | "add_match_arm" => {
+            CodeActionKind::REFACTOR_REWRITE
+        }
+        // Everything else is a quickfix.
+        _ => CodeActionKind::QUICKFIX,
+    }
+}
+
+fn envelope_action(
+    uri: &Url,
+    diag: tower_lsp::lsp_types::Diagnostic,
+    edits: Vec<TextEdit>,
+    title: String,
+    kind: CodeActionKind,
+    is_preferred: bool,
+) -> CodeActionOrCommand {
+    let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+    changes.insert(uri.clone(), edits);
+    CodeActionOrCommand::CodeAction(CodeAction {
+        title,
+        kind: Some(kind),
+        diagnostics: Some(vec![diag]),
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }),
+        command: None,
+        is_preferred: Some(is_preferred),
+        disabled: None,
+        data: None,
+    })
+}
+
+/// Surface every CodeActionKind T2 might emit so the server can
+/// advertise them in `initialize` capabilities. Editors that filter
+/// the `only` field can then ask for `refactor.rewrite` and get the
+/// rename-flavored fixes back without the quick-fix lightbulb.
+pub fn supported_code_action_kinds() -> Vec<CodeActionKind> {
+    vec![
+        CodeActionKind::QUICKFIX,
+        CodeActionKind::REFACTOR_REWRITE,
+        // Source-action kind reserved for v0.35 bulk-apply
+        // ("Fix all Mighty problems"). Advertising it now means
+        // editor toolbars can already include the entry.
+        CodeActionKind::new("source.fixAll.mighty"),
+    ]
+}
+
+/// Bulk apply identifier (v0.35 follow-up). Documented here so
+/// editors that bind to a fixed string don't have to wait for the
+/// implementation to land.
+pub const SOURCE_FIX_ALL_MIGHTY: &str = "source.fixAll.mighty";
 
 fn actions_for_unknown_macro(
     uri: &Url,
@@ -363,6 +610,9 @@ fn edit_distance(a: &str, b: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mty_diagnostics::fix::{Fix, FixBuilder, FixKind, SpanInfo};
+    use serde_json::json;
+    use tower_lsp::lsp_types as lt;
 
     #[test]
     fn distance_basics() {
@@ -387,5 +637,382 @@ mod tests {
     fn extract_quoted_picks_first() {
         assert_eq!(extract_quoted("missing `io` effect"), Some("io".into()));
         assert_eq!(extract_quoted("no quotes here"), None);
+    }
+
+    // ---------- v0.34 T2 — config + envelope ----------
+
+    #[test]
+    fn config_default_thresholds() {
+        let cfg = CodeActionConfig::default();
+        assert!((cfg.visible_threshold - DEFAULT_VISIBLE_THRESHOLD).abs() < f32::EPSILON);
+        assert!((cfg.preferred_threshold - DEFAULT_PREFERRED_THRESHOLD).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn config_from_init_options_reads_threshold() {
+        let opts = json!({
+            "mighty": {
+                "codeAction": { "confidenceThreshold": 0.5 }
+            }
+        });
+        let cfg = CodeActionConfig::from_initialization_options(&opts);
+        assert!((cfg.visible_threshold - 0.5).abs() < f32::EPSILON);
+        // Preferred threshold stays at the default (still ≥ visible).
+        assert!(cfg.preferred_threshold >= cfg.visible_threshold);
+    }
+
+    #[test]
+    fn config_from_init_options_ignores_out_of_range() {
+        let opts = json!({"mighty": {"codeAction": {"confidenceThreshold": 2.0}}});
+        let cfg = CodeActionConfig::from_initialization_options(&opts);
+        assert!((cfg.visible_threshold - DEFAULT_VISIBLE_THRESHOLD).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn config_from_init_options_handles_missing_key() {
+        let cfg = CodeActionConfig::from_initialization_options(&json!({}));
+        assert!((cfg.visible_threshold - DEFAULT_VISIBLE_THRESHOLD).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn config_threshold_at_root_level_also_works() {
+        // Some clients omit the "mighty" wrapper.
+        let opts = json!({"codeAction": {"confidenceThreshold": 0.8}});
+        let cfg = CodeActionConfig::from_initialization_options(&opts);
+        assert!((cfg.visible_threshold - 0.8).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn code_action_kind_for_untaint_is_quickfix() {
+        let k = code_action_kind_for("untaint");
+        assert_eq!(k, CodeActionKind::QUICKFIX);
+    }
+
+    #[test]
+    fn code_action_kind_for_rename_is_refactor_rewrite() {
+        let k = code_action_kind_for("rename_to_match_decl");
+        assert_eq!(k, CodeActionKind::REFACTOR_REWRITE);
+    }
+
+    #[test]
+    fn code_action_kind_for_add_match_arm_is_refactor() {
+        assert_eq!(
+            code_action_kind_for("add_match_arm"),
+            CodeActionKind::REFACTOR_REWRITE
+        );
+    }
+
+    #[test]
+    fn supported_kinds_include_quickfix_refactor_and_fix_all() {
+        let kinds = supported_code_action_kinds();
+        assert!(kinds.contains(&CodeActionKind::QUICKFIX));
+        assert!(kinds.contains(&CodeActionKind::REFACTOR_REWRITE));
+        assert!(kinds.iter().any(|k| k.as_str() == SOURCE_FIX_ALL_MIGHTY));
+    }
+
+    fn synthetic_diag(code: &str, range: Range) -> tower_lsp::lsp_types::Diagnostic {
+        tower_lsp::lsp_types::Diagnostic {
+            range,
+            code: Some(NumberOrString::String(code.into())),
+            message: format!("synthetic {}", code),
+            ..Default::default()
+        }
+    }
+
+    fn synthetic_envelope_with_three_alts(line: u32) -> DiagnosticEnvelope {
+        let alt_a = FixBuilder::new("alt A", "r", 0.92)
+            .replace_line("u.mty", line, "  call(tainted)", "  call(safe_a)")
+            .build();
+        let alt_b = FixBuilder::new("alt B", "r", 0.80)
+            .replace_line("u.mty", line, "  call(tainted)", "  call(safe_b)")
+            .build();
+        let alt_c = FixBuilder::new("alt C", "r", 0.60)
+            .replace_line("u.mty", line, "  call(tainted)", "  call(safe_c)")
+            .build();
+        DiagnosticEnvelope {
+            code: "MT4099".into(),
+            severity: "error".into(),
+            span: SpanInfo {
+                file: "u.mty".into(),
+                line,
+                col: 1,
+                len: 1,
+                byte_start: 0,
+                byte_end: 1,
+            },
+            title: "tainted".into(),
+            prose: "p".into(),
+            fix: Some(Fix {
+                kind: FixKind::Untaint.as_str().to_string(),
+                confidence: 0.92,
+                alternatives: vec![alt_a, alt_b, alt_c],
+            }),
+            see_also: vec![],
+            source: None,
+        }
+    }
+
+    #[test]
+    fn emit_envelope_actions_default_threshold_drops_low_confidence() {
+        let env = synthetic_envelope_with_three_alts(1);
+        let source = "  call(tainted)\n";
+        let mut out: Vec<CodeActionOrCommand> = Vec::new();
+        let uri = lt::Url::parse("test://u.mty").unwrap();
+        let lsp_diag = synthetic_diag(
+            "MT4099",
+            Range {
+                start: lt::Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: lt::Position {
+                    line: 0,
+                    character: 1,
+                },
+            },
+        );
+        emit_envelope_actions(
+            &uri,
+            &env,
+            &lsp_diag,
+            source,
+            CodeActionConfig::default(),
+            &std::collections::HashSet::new(),
+            &mut out,
+        );
+        // 0.92 and 0.80 survive; 0.60 is dropped.
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn emit_envelope_actions_lowered_threshold_includes_low_confidence() {
+        let env = synthetic_envelope_with_three_alts(1);
+        let source = "  call(tainted)\n";
+        let mut out: Vec<CodeActionOrCommand> = Vec::new();
+        let uri = lt::Url::parse("test://u.mty").unwrap();
+        let diag = synthetic_diag(
+            "MT4099",
+            Range {
+                start: lt::Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: lt::Position {
+                    line: 0,
+                    character: 1,
+                },
+            },
+        );
+        let cfg = CodeActionConfig {
+            visible_threshold: 0.5,
+            preferred_threshold: 0.85,
+        };
+        emit_envelope_actions(
+            &uri,
+            &env,
+            &diag,
+            source,
+            cfg,
+            &std::collections::HashSet::new(),
+            &mut out,
+        );
+        // All 3 alternatives visible now.
+        assert_eq!(out.len(), 3);
+    }
+
+    #[test]
+    fn emit_envelope_actions_marks_high_confidence_as_preferred() {
+        let env = synthetic_envelope_with_three_alts(1);
+        let source = "  call(tainted)\n";
+        let mut out: Vec<CodeActionOrCommand> = Vec::new();
+        let uri = lt::Url::parse("test://u.mty").unwrap();
+        let diag = synthetic_diag(
+            "MT4099",
+            Range {
+                start: lt::Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: lt::Position {
+                    line: 0,
+                    character: 1,
+                },
+            },
+        );
+        emit_envelope_actions(
+            &uri,
+            &env,
+            &diag,
+            source,
+            CodeActionConfig::default(),
+            &std::collections::HashSet::new(),
+            &mut out,
+        );
+        // First action (confidence 0.92 ≥ 0.85) is preferred.
+        // Second action (0.80 < 0.85) is not preferred.
+        let prefs: Vec<bool> = out
+            .iter()
+            .map(|a| match a {
+                CodeActionOrCommand::CodeAction(ca) => ca.is_preferred.unwrap_or(false),
+                _ => false,
+            })
+            .collect();
+        assert_eq!(prefs, vec![true, false]);
+    }
+
+    #[test]
+    fn emit_envelope_actions_assigns_quickfix_kind_to_untaint() {
+        let env = synthetic_envelope_with_three_alts(1);
+        let source = "  call(tainted)\n";
+        let mut out: Vec<CodeActionOrCommand> = Vec::new();
+        let uri = lt::Url::parse("test://u.mty").unwrap();
+        let diag = synthetic_diag(
+            "MT4099",
+            Range {
+                start: lt::Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: lt::Position {
+                    line: 0,
+                    character: 1,
+                },
+            },
+        );
+        emit_envelope_actions(
+            &uri,
+            &env,
+            &diag,
+            source,
+            CodeActionConfig::default(),
+            &std::collections::HashSet::new(),
+            &mut out,
+        );
+        for a in &out {
+            match a {
+                CodeActionOrCommand::CodeAction(ca) => {
+                    assert_eq!(ca.kind.as_ref(), Some(&CodeActionKind::QUICKFIX));
+                }
+                _ => panic!("expected CodeAction"),
+            }
+        }
+    }
+
+    #[test]
+    fn emit_envelope_actions_skips_diff_that_does_not_match_source() {
+        // Envelope says line 1 is "  call(tainted)" but our source has
+        // "  call(other)". The diff should refuse to apply.
+        let env = synthetic_envelope_with_three_alts(1);
+        let source = "  call(other)\n";
+        let mut out: Vec<CodeActionOrCommand> = Vec::new();
+        let uri = lt::Url::parse("test://u.mty").unwrap();
+        let diag = synthetic_diag(
+            "MT4099",
+            Range {
+                start: lt::Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: lt::Position {
+                    line: 0,
+                    character: 1,
+                },
+            },
+        );
+        emit_envelope_actions(
+            &uri,
+            &env,
+            &diag,
+            source,
+            CodeActionConfig::default(),
+            &std::collections::HashSet::new(),
+            &mut out,
+        );
+        assert!(out.is_empty(), "should drop fixes that don't apply cleanly");
+    }
+
+    #[test]
+    fn emit_envelope_actions_dedupes_against_hand_written_titles() {
+        let env = synthetic_envelope_with_three_alts(1);
+        let source = "  call(tainted)\n";
+        let mut out: Vec<CodeActionOrCommand> = Vec::new();
+        let uri = lt::Url::parse("test://u.mty").unwrap();
+        let diag = synthetic_diag(
+            "MT4099",
+            Range {
+                start: lt::Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: lt::Position {
+                    line: 0,
+                    character: 1,
+                },
+            },
+        );
+        // Pre-populate the dedup set with the title the envelope would emit.
+        let mut seen = std::collections::HashSet::new();
+        seen.insert("Apply: alt A".to_string());
+        emit_envelope_actions(
+            &uri,
+            &env,
+            &diag,
+            source,
+            CodeActionConfig::default(),
+            &seen,
+            &mut out,
+        );
+        // Only alt B survives (alt A skipped, alt C below threshold).
+        assert_eq!(out.len(), 1);
+        if let CodeActionOrCommand::CodeAction(ca) = &out[0] {
+            assert_eq!(ca.title, "Apply: alt B");
+        }
+    }
+
+    #[test]
+    fn envelope_action_carries_workspace_edit() {
+        let uri = lt::Url::parse("test://u.mty").unwrap();
+        let edits = vec![TextEdit {
+            range: Range {
+                start: lt::Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: lt::Position {
+                    line: 0,
+                    character: 0,
+                },
+            },
+            new_text: "x".into(),
+        }];
+        let diag = synthetic_diag(
+            "MT0001",
+            Range {
+                start: lt::Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: lt::Position {
+                    line: 0,
+                    character: 0,
+                },
+            },
+        );
+        let a = envelope_action(
+            &uri,
+            diag,
+            edits,
+            "t".into(),
+            CodeActionKind::QUICKFIX,
+            true,
+        );
+        if let CodeActionOrCommand::CodeAction(ca) = a {
+            let we = ca.edit.expect("edit");
+            let changes = we.changes.expect("changes");
+            assert!(changes.contains_key(&uri));
+            assert_eq!(ca.is_preferred, Some(true));
+        } else {
+            panic!("expected CodeAction");
+        }
     }
 }

@@ -34,4 +34,33 @@ class MightyLspServerDescriptor(project: Project) :
             // back the command line and let the platform plumb the streams.
             .withRedirectErrorStream(false)
     }
+
+    /**
+     * v0.34 T2 — pass the user's CodeAction confidence threshold
+     * through to the LSP server as an `initializationOptions` payload.
+     *
+     * The shape mirrors the VS Code extension exactly so the same
+     * server can read either client's settings without branching:
+     *
+     * ```json
+     * { "mighty": { "codeAction": { "confidenceThreshold": 0.7 } } }
+     * ```
+     *
+     * Quick Fixes (Alt+Enter) backed by Mighty's fix engines will
+     * appear in the IntelliJ Quick Fix list whenever an alternative's
+     * confidence is at or above the configured value. Lower the
+     * threshold for more suggestions; raise it for mechanical-only
+     * fixes. Hidden suggestions remain available on the CLI via
+     * `mty fix --apply`.
+     */
+    override fun getInitializationOptions(): Any? {
+        val threshold = MightySettingsState.getInstance().codeActionConfidenceThreshold
+        return mapOf(
+            "mighty" to mapOf(
+                "codeAction" to mapOf(
+                    "confidenceThreshold" to threshold,
+                ),
+            ),
+        )
+    }
 }

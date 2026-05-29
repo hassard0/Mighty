@@ -79,6 +79,18 @@ export async function activate(
     initializationOptions: {
       inlayHints: config.get<boolean>("inlayHints.enable", false),
       semanticTokens: config.get<boolean>("semanticTokens.enable", true),
+      // v0.34 T2 — confidence threshold for the envelope-driven
+      // CodeAction lightbulb. The server reads
+      // `mighty.codeAction.confidenceThreshold` and exposes any fix
+      // alternative at or above this confidence.
+      mighty: {
+        codeAction: {
+          confidenceThreshold: config.get<number>(
+            "codeAction.confidenceThreshold",
+            0.7,
+          ),
+        },
+      },
     },
   };
 

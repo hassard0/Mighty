@@ -38,6 +38,9 @@ pub struct Backend {
     pub client: Client,
     pub docs: Arc<DocStore>,
     pub workspaces: Arc<WorkspaceRegistry>,
+    /// v0.34 T2: per-session CodeAction tunables. Updated from the
+    /// client's `initializationOptions` JSON in `initialize`.
+    pub code_action_config: Arc<std::sync::RwLock<code_actions::CodeActionConfig>>,
 }
 
 impl Backend {
@@ -46,6 +49,9 @@ impl Backend {
             client,
             docs: Arc::new(DocStore::new()),
             workspaces: Arc::new(WorkspaceRegistry::new()),
+            code_action_config: Arc::new(std::sync::RwLock::new(
+                code_actions::CodeActionConfig::default(),
+            )),
         }
     }
 
@@ -73,6 +79,15 @@ impl LanguageServer for Backend {
                 self.workspaces.add_folder(p);
             }
         }
+        // v0.34 T2: read `mighty.codeAction.confidenceThreshold` from
+        // the client's `initializationOptions` so the user can opt
+        // into a wider (or narrower) suggestion list.
+        if let Some(opts) = &params.initialization_options {
+            let cfg = code_actions::CodeActionConfig::from_initialization_options(opts);
+            if let Ok(mut g) = self.code_action_config.write() {
+                *g = cfg;
+            }
+        }
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -91,9 +106,11 @@ impl LanguageServer for Backend {
                 })),
                 code_action_provider: Some(CodeActionProviderCapability::Options(
                     CodeActionOptions {
-                        code_action_kinds: Some(vec![
-                            tower_lsp::lsp_types::CodeActionKind::QUICKFIX,
-                        ]),
+                        // v0.34 T2: advertise every kind the envelope-
+                        // driven actions can return so editors that
+                        // filter on `only` (refactor menus, source
+                        // actions) see them.
+                        code_action_kinds: Some(code_actions::supported_code_action_kinds()),
                         work_done_progress_options: WorkDoneProgressOptions::default(),
                         resolve_provider: Some(false),
                     },
@@ -317,11 +334,17 @@ impl LanguageServer for Backend {
         let Some(doc) = self.docs.get(&uri) else {
             return Ok(None);
         };
-        Ok(Some(code_actions::code_actions(
+        let cfg = self
+            .code_action_config
+            .read()
+            .map(|g| *g)
+            .unwrap_or_default();
+        Ok(Some(code_actions::code_actions_with_config(
             &uri,
             &doc,
             params.range,
             &params.context.diagnostics,
+            cfg,
         )))
     }
 
