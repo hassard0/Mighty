@@ -24,7 +24,7 @@ import {
   Example,
   findExample,
 } from "./examples.ts";
-import { makeRunner, Runner } from "./runner.ts";
+import { makeRunnerWithFallback, Runner } from "./runner.ts";
 import {
   copyToClipboard,
   decodeShareState,
@@ -221,10 +221,12 @@ async function bootstrap() {
     void doRun();
   });
 
-  runner = makeRunner();
+  // v0.35 T1 — wasm-pack-emitted backend with auto-fallback to the
+  // mock runner if the artifact failed to load (typical in `npm run
+  // dev` before `wasm-pack build` has run). The pill reflects what
+  // we actually got.
+  runner = await makeRunnerWithFallback();
   backendModePill.textContent = runner.mode;
-
-  await runner.init();
 
   populatePicker();
   picker.addEventListener("change", () => loadExample(picker.value));

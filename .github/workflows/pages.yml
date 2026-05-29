@@ -7,6 +7,11 @@ name: Pages
 # The corpus is the `docs/` tree at the repo root, rendered by
 # mkdocs-material (pure-Python; no Ruby runtime needed). Site
 # configuration lives in `mkdocs.yml`.
+#
+# v0.35 T1 — the browser-based Mighty playground is now built into
+# `tools/playground/build/` via `wasm-pack` + `vite build` and is
+# mounted at `https://hassard0.github.io/Mighty/playground/`. See
+# `tools/playground/README.md` and `crates/mty-cli/src/playground.rs`.
 
 on:
   push:
@@ -26,11 +31,12 @@ concurrency:
 
 jobs:
   build:
-    name: build (mkdocs)
+    name: build (mkdocs + playground)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
+      # ---- mkdocs site -------------------------------------------------
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -59,6 +65,81 @@ jobs:
         # all have been migrated to GitHub blob URLs or fixed inline.
         # Future PRs that introduce a broken link will fail this job.
         run: mkdocs build --strict --site-dir site/
+
+      # ---- playground build (wasm-pack + vite) -------------------------
+      #
+      # The playground compiles the lightweight Mighty front-end
+      # (parser → HIR → typeck → borrowck → tree-walk interpreter) to
+      # wasm32-unknown-unknown via wasm-pack, then bundles it into a
+      # static site under `tools/playground/build/`. We mount that under
+      # `site/playground/` so the Pages deploy serves both.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-playground-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-playground-
+
+      - name: Install wasm-pack
+        run: |
+          if ! command -v wasm-pack >/dev/null 2>&1; then
+            curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+          fi
+          wasm-pack --version
+
+      - name: wasm-pack build (mty-cli playground)
+        # wasm-pack forwards everything after `--` to `cargo build`.
+        # We need `--no-default-features --features playground-wasm`
+        # on the cargo side so the host-toolchain (codegen/runtime/
+        # tokio/hyper) deps stay out of the wasm crate graph. See
+        # `crates/mty-cli/Cargo.toml`'s `host-toolchain` feature.
+        run: |
+          cd crates/mty-cli
+          wasm-pack build --target web \
+            -d ../../tools/playground/public/wasm \
+            -- --no-default-features --features playground-wasm
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: tools/playground/package-lock.json
+
+      - name: npm install (playground)
+        run: cd tools/playground && npm ci
+
+      - name: typecheck + build playground
+        run: |
+          cd tools/playground
+          npm run typecheck
+          npm run build
+
+      - name: Merge playground into site/
+        run: |
+          mkdir -p site/playground
+          cp -r tools/playground/build/* site/playground/
+
+      # ---- gallery (static index) -------------------------------------
+      #
+      # If tools/gallery/ exists, mirror it under site/gallery/ so the
+      # playground's "more examples" link resolves on the deployed site.
+      - name: Merge gallery into site/
+        run: |
+          if [ -d tools/gallery ]; then
+            mkdir -p site/gallery
+            cp -r tools/gallery/* site/gallery/ || true
+          fi
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

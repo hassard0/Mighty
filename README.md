@@ -51,7 +51,10 @@ cargo install --path crates/mty-cli
 ```
 
 Or via package manager: `brew install hassard0/mighty/mty` (taps coming v0.32; see [`tools/distribution/`](tools/distribution/)).
-Or try in the browser at [`tools/playground/`](tools/playground/) (Monaco + WASM, no install).
+Or try it in the browser — no install — at
+[**hassard0.github.io/Mighty/playground/**](https://hassard0.github.io/Mighty/playground/) (Monaco editor + the
+real Mighty compiler compiled to WebAssembly via `wasm-pack`; see
+[`tools/playground/`](tools/playground/)).
 
 Scaffold a new project: `mty new <name>` (CLI), `mty new --template web-game <name>` (canvas), `mty serve --watch` (dev server + hot reload).
 

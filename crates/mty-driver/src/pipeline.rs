@@ -83,6 +83,7 @@ pub fn lower_to_sir(pkg: &Package) -> (mty_ir::Program, Vec<Diagnostic>) {
 /// Slice-6 helper: parse → lower → type+borrow check → SIR-lower → run.
 /// Returns the interpreter exit code. Stops on any error in earlier
 /// phases.
+#[cfg(feature = "host-toolchain")]
 pub fn run_file(src: String, source_id: String) -> i32 {
     use mty_diagnostics::render::ariadne::render_all;
     use mty_diagnostics::Severity;
@@ -122,6 +123,7 @@ pub fn run_file(src: String, source_id: String) -> i32 {
 /// matches example 07/08/10 which lack a `main` in their canonical
 /// form). Agents that have been spawned but have not received any
 /// messages are shut down cleanly.
+#[cfg(feature = "host-toolchain")]
 pub fn run_file_with_runtime(src: String, source_id: String) -> i32 {
     use mty_diagnostics::render::ariadne::render_all;
     use mty_diagnostics::Severity;
