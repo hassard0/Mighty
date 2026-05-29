@@ -51,8 +51,30 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
         }
     }
 
-    // Type-check each top-level fn with a body.
+    // v0.36 Track T2 — populate `fn_params` + `fn_ret` for body-less
+    // fns (extern c blocks, trait methods without a default). The
+    // body-check loop below skips them so without this pre-pass the
+    // SIR lowerer would receive an empty params Vec for every extern
+    // fn and downstream codegen would emit empty-signature stubs.
+    //
+    // The resolver already filled `FnDef.params` / `FnDef.ret` from
+    // the HIR (see the `for (fid, fdef_id)` loop in
+    // `crates/mty-types/src/resolve.rs`), so we just forward those
+    // values into the typed-package output.
     let fn_def_count = defs.fns.len();
+    for fdef_id in 0..fn_def_count {
+        let id = FnDefId(fdef_id as u32);
+        if let Some(f) = defs.fn_def(id) {
+            if f.body.is_none() {
+                if let Some(fid) = f.hir_fn {
+                    fn_params.insert(fid, f.params.clone());
+                    fn_ret.insert(fid, f.ret);
+                }
+            }
+        }
+    }
+
+    // Type-check each top-level fn with a body.
     for fdef_id in 0..fn_def_count {
         let id = FnDefId(fdef_id as u32);
         let (body, ret, generics, params, hir_fn) = match defs.fn_def(id) {

@@ -113,6 +113,10 @@ pub struct LowerCtx<'m, M: Module> {
     /// v0.21: when true, `define_fn` instruments per-statement
     /// SourceLoc values and reads back the `MachSrcLoc` map.
     pub capture_debug_info: bool,
+    /// v0.36 Track T2 — set of fn ids declared as `Linkage::Import`
+    /// because they originated from an `extern c { ... }` block. The
+    /// `define_fn` path skips these (the linker provides the body).
+    pub extern_fn_ids: std::collections::HashSet<IrFnId>,
 }
 
 impl<'m, M: Module> LowerCtx<'m, M> {
@@ -130,6 +134,7 @@ impl<'m, M: Module> LowerCtx<'m, M> {
             triple,
             fn_debug: HashMap::with_capacity(128),
             capture_debug_info: false,
+            extern_fn_ids: std::collections::HashSet::with_capacity(16),
         }
     }
 
@@ -175,7 +180,22 @@ impl<'m, M: Module> LowerCtx<'m, M> {
             param_tys.clear();
             param_tys.extend(f.params.iter().map(|p| f.locals[p.0 as usize].ty.clone()));
             let sig = build_signature(&self.triple, &param_tys, &f.ret_ty);
-            let linkage = if f.name == "main" {
+            // v0.36 Track T2 — an `extern c { fn ... }` declaration
+            // produces an SIR shell with no body. We must declare it
+            // to cranelift as `Linkage::Import` so the final linker
+            // resolves the symbol against one of the manifest's
+            // `[[extern_lib]]` archives, *not* as a local fn (which
+            // would emit an empty body trampoline that returns 0 and
+            // silently mask FFI calls).
+            //
+            // Detection: any fn id present in `prog.extern_bindings`
+            // came from an extern block. The wasm backend already
+            // consults this same table for `(import ...)` emission,
+            // so the contract is well established.
+            let is_extern = prog.extern_bindings.contains_key(&f.id);
+            let linkage = if is_extern {
+                Linkage::Import
+            } else if f.name == "main" {
                 Linkage::Export
             } else {
                 Linkage::Local
@@ -186,6 +206,11 @@ impl<'m, M: Module> LowerCtx<'m, M> {
                 .map_err(|e| CodegenError::Module(e.to_string()))?;
             self.fn_ids.insert(f.id, id);
             self.fn_sigs.insert(f.id, sig);
+            // Track extern fns so `define_fn` can skip them; the linker
+            // owns the body.
+            if is_extern {
+                self.extern_fn_ids.insert(f.id);
+            }
         }
         Ok(())
     }
@@ -214,6 +239,14 @@ impl<'m, M: Module> LowerCtx<'m, M> {
 
     /// Define a single SIR fn into the cranelift module.
     pub fn define_fn(&mut self, prog: &Program, f: &Function) -> CompileResult<()> {
+        // v0.36 Track T2 — extern fns get declared with `Linkage::Import`
+        // and have no Mighty-side body. `cranelift_module` rejects any
+        // attempt to `define_function` against an import; skipping the
+        // lowering here is what makes `extern c { ... }` actually link
+        // against a vendored archive.
+        if self.extern_fn_ids.contains(&f.id) {
+            return Ok(());
+        }
         let func_id = *self
             .fn_ids
             .get(&f.id)

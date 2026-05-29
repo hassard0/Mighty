@@ -241,6 +241,10 @@ fn run_compile(iters: usize) -> Sample {
             no_component: true,
             wasi_preview: mty_driver::build::WasiPreview::P1,
             user_wit: None,
+
+            extern_libs: Vec::new(),
+
+            manifest_dir: None,
         };
         let t0 = Instant::now();
         let _ = build_wasm(
@@ -275,6 +279,10 @@ fn run_wasm_size() -> Sample {
         no_component: true,
         wasi_preview: mty_driver::build::WasiPreview::P1,
         user_wit: None,
+
+        extern_libs: Vec::new(),
+
+        manifest_dir: None,
     };
     let outcome = build_wasm(src, "wasm_size.mty".into(), &opts, WasmTarget::Wasi);
     let bytes = match outcome {

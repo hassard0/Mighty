@@ -1,0 +1,9 @@
+// Row 7: return struct by-value.
+
+extern c {
+  fn mty_row07() -> I32
+}
+
+fn main() {
+  let _ = mty_row07()
+}

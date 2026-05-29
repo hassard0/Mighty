@@ -3143,6 +3143,7 @@ dependencies = [
  "rowan",
  "serde",
  "serde_json",
+ "target-lexicon",
  "tempfile",
  "thiserror 1.0.69",
  "toml",

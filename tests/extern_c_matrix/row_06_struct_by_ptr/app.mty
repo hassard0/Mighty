@@ -1,0 +1,13 @@
+// Row 6: struct by-pointer.
+//
+// Same "opaque-handle" shape every system FFI uses (HWND, FILE*,
+// wgpu::Device*). The wrapper allocates the Point and passes its
+// address; the real fn dereferences.
+
+extern c {
+  fn mty_row06() -> I32
+}
+
+fn main() {
+  let _ = mty_row06()
+}

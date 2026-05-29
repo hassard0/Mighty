@@ -31,6 +31,26 @@ pub struct Manifest {
     /// load.
     #[serde(default)]
     pub build: Option<BuildConfig>,
+    /// v0.36 Track T2 — first-class FFI surface. Each `[[extern_lib]]`
+    /// block names a native library the Mighty linker should link
+    /// against when building this package. Required for any program
+    /// containing `extern c { ... }` declarations whose symbols don't
+    /// resolve through the host's already-linked libc / dynamic loader.
+    ///
+    /// Example:
+    /// ```toml
+    /// [[extern_lib]]
+    /// name = "winit"
+    /// kind = "static"
+    /// path = "vendor/libwinit.a"
+    /// link_args_macos = ["-framework", "Cocoa"]
+    /// link_args_linux = ["-lX11", "-lxkbcommon"]
+    /// ```
+    ///
+    /// See `docs/internals/extern-c-matrix.md` for the full schema and
+    /// per-shape examples.
+    #[serde(default, rename = "extern_lib")]
+    pub extern_libs: Vec<ExternLib>,
     /// v0.19 Tier 4.1 (continued): cluster mesh configuration.
     ///
     /// Optional `[cluster]` block carrying the local node id, the TLS
@@ -259,6 +279,119 @@ pub struct BuildConfig {
     pub allow_net: Vec<String>,
     #[serde(default)]
     pub allow_fs: Vec<String>,
+}
+
+/// v0.36 Track T2 — declarative shape of a `[[extern_lib]]` entry.
+///
+/// Each entry tells the linker to pull in a native library when the
+/// final executable is produced. Both static archives (`.a` / `.lib`)
+/// and dynamic libraries (`.so` / `.dylib` / `.dll`) are supported via
+/// the `kind` field.
+///
+/// Two ways to identify the library:
+///
+/// * `path` — explicit filesystem path (relative to the manifest dir).
+///   Bypasses the linker's search path; perfect for vendored archives.
+/// * neither — fall back to `-l<name>` (or the MSVC equivalent), letting
+///   the linker find the library on the system search path.
+///
+/// `link_args` lets callers append raw linker flags (e.g.
+/// `-framework Cocoa` on macOS, `Userenv.lib` on Windows). The per-OS
+/// variants (`link_args_linux`, `link_args_macos`, `link_args_windows`)
+/// are filtered by `cfg(target_os)` at build time so the manifest can
+/// declare every platform at once.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ExternLib {
+    /// Logical library name. Used as the `-l<name>` argument when no
+    /// explicit `path` is given, and surfaced in error messages.
+    pub name: String,
+
+    /// `"static"` (the default) or `"dynamic"`. Static archives are
+    /// pulled in whole; dynamic libraries record a runtime dependency.
+    #[serde(default = "default_extern_kind")]
+    pub kind: String,
+
+    /// Optional filesystem path to the library. Resolved relative to
+    /// the manifest's directory at build time. When `None`, the linker
+    /// searches its default library path for `-l<name>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+
+    /// Cross-platform raw linker flags (always applied).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub link_args: Vec<String>,
+
+    /// Linker flags applied only on Linux hosts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub link_args_linux: Vec<String>,
+
+    /// Linker flags applied only on macOS hosts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub link_args_macos: Vec<String>,
+
+    /// Linker flags applied only on Windows hosts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub link_args_windows: Vec<String>,
+}
+
+fn default_extern_kind() -> String {
+    "static".into()
+}
+
+/// Host operating-system tag for filtering per-platform link_args.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostOs {
+    Linux,
+    Macos,
+    Windows,
+    Other,
+}
+
+impl HostOs {
+    /// Detect the current host. Used by the build driver when filtering
+    /// `link_args_*` entries from an `[[extern_lib]]` block.
+    pub fn current() -> Self {
+        if cfg!(target_os = "linux") {
+            HostOs::Linux
+        } else if cfg!(target_os = "macos") {
+            HostOs::Macos
+        } else if cfg!(target_os = "windows") {
+            HostOs::Windows
+        } else {
+            HostOs::Other
+        }
+    }
+}
+
+impl ExternLib {
+    /// `true` when this entry declares a static archive (the default).
+    pub fn is_static(&self) -> bool {
+        // Be lenient about case so manifests using "Static" or
+        // "STATIC" still work. Any string other than "dynamic"
+        // (case-insensitive) is treated as static so a typo surfaces
+        // as a link error against a well-known archive name, not as
+        // a silent dlopen.
+        !self.kind.eq_ignore_ascii_case("dynamic")
+    }
+
+    /// `true` when this entry declares a dynamic library.
+    pub fn is_dynamic(&self) -> bool {
+        self.kind.eq_ignore_ascii_case("dynamic")
+    }
+
+    /// All linker arguments contributed by this entry on the given host.
+    /// The output is the concatenation of `link_args` (always) plus the
+    /// host-specific variant.
+    pub fn resolved_link_args(&self, host: HostOs) -> Vec<String> {
+        let mut out = self.link_args.clone();
+        match host {
+            HostOs::Linux => out.extend(self.link_args_linux.iter().cloned()),
+            HostOs::Macos => out.extend(self.link_args_macos.iter().cloned()),
+            HostOs::Windows => out.extend(self.link_args_windows.iter().cloned()),
+            HostOs::Other => {}
+        }
+        out
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

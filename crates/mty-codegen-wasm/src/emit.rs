@@ -1242,6 +1242,22 @@ impl<'a> Emitter<'a> {
             if self.extern_js_fns.contains(&f.id) {
                 continue;
             }
+            // v0.36 Track T2 — extern c fns are linker-resolved at the
+            // AOT native path; in wasm they have no body. Pre-v0.36
+            // their SIR signature was empty (typeck never populated
+            // `fn_params` for body-less fns), so the wasm emitter
+            // produced an empty `() -> ()` shell that didn't validate
+            // against the call site. Post-v0.36 the signature is
+            // real, so emitting a body would also need to actually
+            // call the C side — which wasm can't. Skip them entirely
+            // in the wasm path; they should never be called from a
+            // wasm program (the matrix doc spells this out under
+            // "Wasm targets do not link native libraries").
+            if let Some(b) = self.prog.extern_bindings.get(&f.id) {
+                if b.abi == "c" {
+                    continue;
+                }
+            }
             let sig = Self::fn_sig_for(f)?;
             let ty_idx = self.intern_sig(sig);
             self.fn_type_index.insert(f.id, ty_idx);
@@ -1324,6 +1340,16 @@ impl<'a> Emitter<'a> {
         for f in &self.prog.fns.clone() {
             if self.extern_js_fns.contains(&f.id) {
                 continue;
+            }
+            // v0.36 Track T2 — see note in `declare_fns`: extern c fns
+            // have no wasm body. The declare path already skipped them,
+            // so we must skip the body-emit too or the code_section
+            // would get an extra entry that throws off the function-
+            // index numbering.
+            if let Some(b) = self.prog.extern_bindings.get(&f.id) {
+                if b.abi == "c" {
+                    continue;
+                }
             }
             let body = self.emit_fn(f)?;
             self.code_section.function(&body);

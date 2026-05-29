@@ -1,0 +1,25 @@
+[package]
+name = "ffi_winit_stub"
+version = "0.1.0"
+edition = "2026"
+profile = "host"
+
+[deps]
+
+# v0.36 Track T2 — FFI scaffold. This demo doesn't link real winit
+# because the smoke check has to be hermetic; it links a tiny C shim
+# (`vendor/winit_shim.c`) compiled into `libwinit_shim.a` by the
+# build script. The shim returns immediately so CI doesn't open a
+# window. Set MTY_FFI_SMOKE=1 to run the full smoke (still no
+# window — the shim is a no-op stub).
+[[extern_lib]]
+name = "winit_shim"
+kind = "static"
+path = "vendor/libwinit_shim.a"
+
+# These are the per-platform flags a real winit binding would set.
+# The stub doesn't need them, but they're documented here so any
+# downstream consumer can copy this manifest verbatim.
+link_args_macos = ["-framework", "Cocoa", "-framework", "CoreFoundation"]
+link_args_linux = ["-lX11", "-lxkbcommon"]
+link_args_windows = ["Userenv.lib"]

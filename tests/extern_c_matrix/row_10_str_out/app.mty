@@ -1,0 +1,9 @@
+// Row 10: caller-owned out-buffer.
+
+extern c {
+  fn mty_row10() -> I32
+}
+
+fn main() {
+  let _ = mty_row10()
+}

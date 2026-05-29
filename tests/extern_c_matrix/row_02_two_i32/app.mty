@@ -1,0 +1,16 @@
+// Row 2: extern c fn foo(a: i32, b: i32) -> i32.
+//
+// Pins primitive-in / primitive-out. Two I32s by value through the
+// register-passed ABI, an I32 back via the return register. Sum is
+// computed in C so the harness can verify both arg ordering and the
+// return path.
+
+extern c {
+  fn mty_row02(a: I32, b: I32) -> I32
+}
+
+fn main() {
+  let a: I32 = 7
+  let b: I32 = 35
+  let _ = mty_row02(a, b)
+}
