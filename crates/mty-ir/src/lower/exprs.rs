@@ -820,7 +820,30 @@ fn lower_call(ctx: &mut LowerCtx, fb: &mut FnBuilder, callee: ExprId, args: &[Hi
             }
         }
     }
-    let arg_ops: Vec<Operand> = args.iter().map(|a| lower_expr(ctx, fb, a.value)).collect();
+    // v0.37 Track T3 — per-arg FFI coercion. When typeck flagged the
+    // arg in `coerce_str_to_ptr`, lower the inner expr and wrap it in
+    // `Rvalue::StrPtr` so the backend reads the ptr half (offset 0) of
+    // the Str aggregate rather than passing the (ptr,len) slot address
+    // verbatim. `coerce_addr_of` is already taken care of by the
+    // existing `HirExpr::Borrow` lowering — borrow temps are
+    // i64-sized in cranelift and hold the place's address, which the
+    // call-arg coerce path then passes straight through.
+    let arg_ops: Vec<Operand> = args
+        .iter()
+        .map(|a| {
+            let op = lower_expr(ctx, fb, a.value);
+            if ctx.typed.coerce_str_to_ptr.contains(&a.value) {
+                // Materialise the ptr half via a fresh temp typed as
+                // `*U8` (IR-side raw-ptr-shaped). Downstream call
+                // lowering reads from this temp as an i64 scalar.
+                let temp = fb.fresh_temp(IrTy::RawPtr(Box::new(IrTy::Int(IntKind::U8))));
+                fb.push_stmt(Stmt::Assign(Place::local(temp), Rvalue::StrPtr(op)));
+                Operand::Move(Place::local(temp))
+            } else {
+                op
+            }
+        })
+        .collect();
 
     // Inspect the callee to figure out which fn to call.
     let func = resolve_callee(ctx, callee);

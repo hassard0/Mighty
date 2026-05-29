@@ -315,6 +315,7 @@ fn dump_rvalue(r: &Rvalue) -> String {
         }
         Rvalue::CapValue { family, constraint } => format!("cap({:?}, {:?})", family, constraint),
         Rvalue::Cast { src, ty } => format!("cast {} as {}", dump_operand(src), dump_ty(ty)),
+        Rvalue::StrPtr(src) => format!("str_ptr({})", dump_operand(src)),
     }
 }
 

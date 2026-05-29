@@ -24,6 +24,12 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
     let mut expr_ty: HashMap<ExprId, TyId> = HashMap::new();
     let mut fn_params: HashMap<FnId, Vec<(String, TyId)>> = HashMap::new();
     let mut fn_ret: HashMap<FnId, TyId> = HashMap::new();
+    // v0.37 Track T3 — accumulators for FFI call-site coercions. The Cx
+    // for each fn body writes into per-body sinks (`local_coerce_*`),
+    // which we merge into these top-level sets at the end of every
+    // fn-body loop so the TypedPackage gets the union across all fns.
+    let mut coerce_str_to_ptr: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
+    let mut coerce_addr_of: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
 
     // Pub-signature validation: every pub fn param must have an explicit type.
     for item_id in &pkg.top_level {
@@ -132,6 +138,8 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
             tolerance_open: false,
             scope_kind,
             expr_ty: &mut local_expr_ty,
+            coerce_str_to_ptr: &mut coerce_str_to_ptr,
+            coerce_addr_of: &mut coerce_addr_of,
         };
         cx.locals.enter();
         for (name, ty) in &params {
@@ -221,6 +229,8 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
                         // strict agent body.
                         scope_kind: ScopeKind::AgentBody,
                         expr_ty: &mut local_expr_ty,
+                        coerce_str_to_ptr: &mut coerce_str_to_ptr,
+                        coerce_addr_of: &mut coerce_addr_of,
                     };
                     let _ = synth_expr(&mut cx, init);
                     diagnostics.extend(cx_diag);
@@ -269,6 +279,8 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
                     // v0.3 (A65): handler bodies are strict.
                     scope_kind: ScopeKind::HandlerBody,
                     expr_ty: &mut local_expr_ty,
+                    coerce_str_to_ptr: &mut coerce_str_to_ptr,
+                    coerce_addr_of: &mut coerce_addr_of,
                 };
                 cx.locals.enter();
                 // Bind handler params: prefer protocol-declared types,
@@ -404,6 +416,8 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
                     tolerance_open: true,
                     scope_kind: ScopeKind::SupervisorBody,
                     expr_ty: &mut local_expr_ty,
+                    coerce_str_to_ptr: &mut coerce_str_to_ptr,
+                    coerce_addr_of: &mut coerce_addr_of,
                 };
                 let _ = synth_expr(&mut cx, *child_expr);
                 diagnostics.extend(cx_diag);
@@ -433,6 +447,8 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
         fn_params,
         fn_ret,
         fn_effects,
+        coerce_str_to_ptr: coerce_str_to_ptr.clone(),
+        coerce_addr_of: coerce_addr_of.clone(),
         diagnostics: vec![],
     };
     let mut cap_diags = vec![];
@@ -457,6 +473,8 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
         fn_params,
         fn_ret,
         fn_effects,
+        coerce_str_to_ptr: _,
+        coerce_addr_of: _,
         diagnostics: _,
     } = typed_for_resolver;
 
@@ -467,6 +485,8 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
         fn_params,
         fn_ret,
         fn_effects,
+        coerce_str_to_ptr,
+        coerce_addr_of,
         diagnostics,
     }
 }

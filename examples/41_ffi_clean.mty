@@ -1,0 +1,62 @@
+// v0.37 T3 — Clean FFI call shapes.
+//
+// Three call-site coercions land in v0.37 T3 that together let Mighty
+// programs talk to C without per-row wrapper functions. This example
+// shows all three side-by-side. Each is independently exercised by
+// `crates/mty-types/tests/ffi_coercions_v037.rs` and used in
+// `demos/11_ffi_winit_stub/`.
+//
+// Run as a typeck/lowering smoke (no native build needed):
+//   $ mty check examples/41_ffi_clean.mty
+//
+// The `_ffi_clean_*` symbols are declared but never linked — this
+// file pins the call-site shapes the type checker accepts; the actual
+// FFI plumbing has its own e2e cover under `tests/extern_c_matrix/`
+// and `demos/11_ffi_winit_stub/`. The `_` prefix tells the wasm-
+// component WIT encoder to filter these names out of the world
+// export list (matches the convention from `examples/14_extern_c.mty`).
+struct Point { x: I32, y: I32 }
+
+extern c {
+  // Coercion 1 — Str → *U8 at extern-c call sites. The Mighty Str is
+  // a (ptr, len) pair stored in a 16-byte stack slot; at the call site
+  // the cranelift backend reads the ptr half (offset 0) and passes
+  // that scalar as the *U8 arg. The Str's backing bytes are null-
+  // terminated by intern_string, so the result is a real
+  // `const char *`.
+  fn _ffi_clean_take_ptr(p: *U8, len: USize) -> I32
+
+  // Coercion 2 — &local / &mut local for *T / *mut T at extern-c
+  // call sites. The borrow expr's place address flows into the FFI
+  // arg slot directly; borrow check still ensures exclusive access
+  // for &mut during the call.
+  fn _ffi_clean_read_out(p: *I32) -> Unit
+
+  // Coercion 3 — struct literal at extern-c arg position. Parser
+  // already accepted struct-literal-in-call; v0.37 T3 locks in the
+  // typeck path and pins it via tests.
+  fn _ffi_clean_draw_point(p: Point) -> I32
+}
+
+fn main() {
+  // Surface 1: Str literal directly at a *U8 slot.
+  let _ = _ffi_clean_take_ptr("hello-mighty", 12)
+
+  // Surface 1 again — through a let binding, dynamic Str shape.
+  let title: Str = "v0.37 ergonomics"
+  let _ = _ffi_clean_take_ptr(title, 17)
+
+  // Surface 2: &mut local for *I32 out-param. Borrow ck ensures
+  // x is exclusively held during the call.
+  let mut x: I32 = 0
+  _ffi_clean_read_out(&mut x)
+  log("read x via out-param")
+
+  // Surface 2 with a shared borrow.
+  let y: I32 = 42
+  _ffi_clean_read_out(&y)
+  log("read y via shared ptr")
+
+  // Surface 3: inline struct literal as FFI arg.
+  let _ = _ffi_clean_draw_point(Point { x: 10, y: 20 })
+}

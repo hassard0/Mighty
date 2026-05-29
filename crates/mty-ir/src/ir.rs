@@ -397,6 +397,13 @@ pub enum Rvalue {
         src: Operand,
         ty: IrTy,
     },
+    /// v0.37 Track T3 — read the pointer half of a Mighty `Str`
+    /// aggregate. Lowered from an `extern c` arg whose typeck path
+    /// inserted `arg` into `coerce_str_to_ptr`. The result is a raw
+    /// `*U8` (i64-shaped) pointer to the null-terminated UTF-8 byte
+    /// blob backing the Str — matching `const char *` on every host
+    /// ABI we target. See `docs/internals/extern-c-matrix.md`.
+    StrPtr(Operand),
 }
 
 // ----- Statements ----------------------------------------------------------

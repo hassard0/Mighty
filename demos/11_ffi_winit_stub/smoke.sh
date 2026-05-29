@@ -54,9 +54,16 @@ runout="$("$BIN" 2>&1 || true)"
 echo "--- binary output ---"
 echo "$runout"
 
-# 4. Assert markers
+# 4. Assert markers — covers the v0.36 init/open/shutdown surface plus
+# the v0.37 T3 surfaces (Str → *U8 in the open_window title, out-param
+# via &mut x in poll_event, struct literal in set_clip).
 fail=0
-for marker in "winit_shim_init: stub ok" "winit_shim_open_window: 640x480" "winit_shim_shutdown: stub ok"; do
+for marker in \
+  "winit_shim_init: stub ok" \
+  "winit_shim_open_window: 640x480" \
+  "winit_shim_set_clip: rect(0,0,640x480)" \
+  "winit_shim_poll_event: wrote 1 to out slot" \
+  "winit_shim_shutdown: stub ok"; do
   if ! grep -F -q "$marker" <<<"$runout"; then
     echo "smoke FAIL: expected marker missing: $marker" >&2
     fail=1

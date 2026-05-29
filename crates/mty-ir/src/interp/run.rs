@@ -707,6 +707,17 @@ impl<'a> Interp<'a> {
                 let v = self.eval_operand(src);
                 EvalOutcome::Value(eval_cast(v, ty))
             }
+            Rvalue::StrPtr(src) => {
+                // v0.37 Track T3 — Str → *U8 coercion. The SIR
+                // interpreter doesn't run on real native pointers
+                // (extern fns dispatch through the host's extern
+                // table), so we just forward the underlying value.
+                // The host shim sees a `Value::Str` arg and converts
+                // to a real `*const c_char` at the boundary. This
+                // matches the existing pattern for `Const::Str` in
+                // log/print/panic.
+                EvalOutcome::Value(self.eval_operand(src))
+            }
         }
     }
 

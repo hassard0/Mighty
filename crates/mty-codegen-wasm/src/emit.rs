@@ -1697,7 +1697,14 @@ impl<'a> Emitter<'a> {
         wfn: &mut WFunction,
     ) -> CompileResult<()> {
         match rv {
-            Rvalue::Use(op) | Rvalue::Cast { src: op, .. } => self.emit_operand(f, m, op, wfn),
+            Rvalue::Use(op) | Rvalue::Cast { src: op, .. } | Rvalue::StrPtr(op) => {
+                // v0.37 Track T3 — wasm32-web doesn't have a real
+                // raw-pointer ABI (extern js calls funnel through the
+                // host's bridge), so a `StrPtr` is effectively a pass-
+                // through of the operand. The host shim does its own
+                // string conversion at the boundary.
+                self.emit_operand(f, m, op, wfn)
+            }
             Rvalue::Const(c) => self.emit_const(c, wfn),
             Rvalue::BinOp(op, a, b) => {
                 self.emit_operand(f, m, a, wfn)?;

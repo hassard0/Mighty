@@ -64,6 +64,11 @@ pub struct FnDef {
     pub body: Option<mty_hir::BlockId>,
     /// Original HIR fn for body-checking. `None` for built-ins.
     pub hir_fn: Option<mty_hir::FnId>,
+    /// v0.37 Track T3 — when this fn came from an `extern <abi> { ... }`
+    /// block, the abi string (currently `"c"` or `"js"`). `None` for
+    /// regular Mighty fns and built-ins. Drives the FFI call-site
+    /// coercions in `synth_call` (Str → *U8, address-of, etc.).
+    pub extern_abi: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
