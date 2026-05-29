@@ -122,8 +122,7 @@ pub struct LowerCtx<'m, M: Module> {
     /// `declare_fns` alongside `extern_fn_ids` and consumed by the
     /// call-site lowerer when the callee is an extern fn returning an
     /// aggregate. Non-extern fns omit the entry (treated as `None`).
-    pub extern_return_kinds:
-        std::collections::HashMap<IrFnId, crate::abi::AggregateReturnKind>,
+    pub extern_return_kinds: std::collections::HashMap<IrFnId, crate::abi::AggregateReturnKind>,
 }
 
 impl<'m, M: Module> LowerCtx<'m, M> {
@@ -1710,10 +1709,7 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 match fref {
                     mty_ir::ir::FnRef::User(fid) => {
                         let func_id = *self.mod_ctx.fn_ids.get(fid).ok_or_else(|| {
-                            CodegenError::Module(format!(
-                                "fn-ptr to undeclared fn {:?}",
-                                fid
-                            ))
+                            CodegenError::Module(format!("fn-ptr to undeclared fn {:?}", fid))
                         })?;
                         let func_ref = self
                             .mod_ctx
@@ -2029,9 +2025,7 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 // callee uses an aggregate-return convention. For sret
                 // we also prepend the slot address as the hidden first
                 // arg (matches the SysV / Windows-x64 layout).
-                let ret_slot_addr: Option<cranelift_codegen::ir::Value> = if agg_kind
-                    .needs_slot()
-                {
+                let ret_slot_addr: Option<cranelift_codegen::ir::Value> = if agg_kind.needs_slot() {
                     let size = match agg_kind {
                         crate::abi::AggregateReturnKind::OneReg { size }
                         | crate::abi::AggregateReturnKind::TwoReg { size }
