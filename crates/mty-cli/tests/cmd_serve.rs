@@ -99,8 +99,17 @@ fn http_get(port: u16, path: &str) -> (u16, String, Vec<u8>) {
         .unwrap();
     let req = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
     stream.write_all(req.as_bytes()).expect("write req");
+    // GHA Ubuntu runners occasionally see ConnectionReset before EOF
+    // when the server sends a small 404 response and closes the socket
+    // quickly. Tolerate RST when we already have a valid HTTP head.
+    // Passes locally + on vulcan; only flakes on GHA Ubuntu. v0.37
+    // should switch the test to a real HTTP client (reqwest/ureq).
     let mut raw = Vec::new();
-    stream.read_to_end(&mut raw).expect("read resp");
+    match stream.read_to_end(&mut raw) {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset && !raw.is_empty() => {}
+        Err(e) => panic!("read resp: {e:?}"),
+    }
 
     // Parse the start-line + headers.
     let split = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap_or(0);
