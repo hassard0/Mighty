@@ -103,6 +103,15 @@ pub struct TypedPackage {
     /// still applies (an exclusive `&mut` borrow during the FFI call,
     /// shared `&` borrows allow aliased reads).
     pub coerce_addr_of: std::collections::HashSet<ExprId>,
+    /// v0.38 Track T3 — call-site arg exprs whose Str→*U8 coercion is
+    /// allowed to skip the safety copy (the caller has guaranteed via
+    /// the param's `#[ffi_nul_ok]` attribute that the C side reads the
+    /// bytes as a null-terminated `const char *`). The backend may pass
+    /// the literal's intern-string ptr verbatim instead of materialising
+    /// a fresh null-terminated copy. Always a subset of
+    /// `coerce_str_to_ptr` — the nul_ok flag is meaningless without the
+    /// underlying coercion.
+    pub coerce_nul_ok: std::collections::HashSet<ExprId>,
     pub diagnostics: Vec<Diagnostic>,
 }
 

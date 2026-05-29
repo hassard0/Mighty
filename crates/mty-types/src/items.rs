@@ -30,6 +30,11 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
     // fn-body loop so the TypedPackage gets the union across all fns.
     let mut coerce_str_to_ptr: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
     let mut coerce_addr_of: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
+    // v0.38 Track T3 — `#[ffi_nul_ok]` accelerated-Str path sink. A
+    // subset of `coerce_str_to_ptr` whose corresponding extern-c param
+    // carries the `#[ffi_nul_ok]` attribute. See `coerce_nul_ok` on
+    // [`TypedPackage`] for the lowering contract.
+    let mut coerce_nul_ok: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
 
     // Pub-signature validation: every pub fn param must have an explicit type.
     for item_id in &pkg.top_level {
@@ -140,6 +145,7 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
             expr_ty: &mut local_expr_ty,
             coerce_str_to_ptr: &mut coerce_str_to_ptr,
             coerce_addr_of: &mut coerce_addr_of,
+            coerce_nul_ok: &mut coerce_nul_ok,
         };
         cx.locals.enter();
         for (name, ty) in &params {
@@ -231,6 +237,7 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
                         expr_ty: &mut local_expr_ty,
                         coerce_str_to_ptr: &mut coerce_str_to_ptr,
                         coerce_addr_of: &mut coerce_addr_of,
+                        coerce_nul_ok: &mut coerce_nul_ok,
                     };
                     let _ = synth_expr(&mut cx, init);
                     diagnostics.extend(cx_diag);
@@ -281,6 +288,7 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
                     expr_ty: &mut local_expr_ty,
                     coerce_str_to_ptr: &mut coerce_str_to_ptr,
                     coerce_addr_of: &mut coerce_addr_of,
+                    coerce_nul_ok: &mut coerce_nul_ok,
                 };
                 cx.locals.enter();
                 // Bind handler params: prefer protocol-declared types,
@@ -418,6 +426,7 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
                     expr_ty: &mut local_expr_ty,
                     coerce_str_to_ptr: &mut coerce_str_to_ptr,
                     coerce_addr_of: &mut coerce_addr_of,
+                    coerce_nul_ok: &mut coerce_nul_ok,
                 };
                 let _ = synth_expr(&mut cx, *child_expr);
                 diagnostics.extend(cx_diag);
@@ -449,6 +458,7 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
         fn_effects,
         coerce_str_to_ptr: coerce_str_to_ptr.clone(),
         coerce_addr_of: coerce_addr_of.clone(),
+        coerce_nul_ok: coerce_nul_ok.clone(),
         diagnostics: vec![],
     };
     let mut cap_diags = vec![];
@@ -475,6 +485,7 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
         fn_effects,
         coerce_str_to_ptr: _,
         coerce_addr_of: _,
+        coerce_nul_ok: _,
         diagnostics: _,
     } = typed_for_resolver;
 
@@ -487,6 +498,7 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
         fn_effects,
         coerce_str_to_ptr,
         coerce_addr_of,
+        coerce_nul_ok,
         diagnostics,
     }
 }

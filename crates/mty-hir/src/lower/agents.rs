@@ -144,6 +144,7 @@ pub fn lower_protocol(ctx: &mut LoweringCtx, p: ProtocolDecl) -> ProtocolId {
                                 name: pname,
                                 ty,
                                 span: span_of(&fp.0),
+                                attrs: vec![],
                             }
                         })
                         .collect();

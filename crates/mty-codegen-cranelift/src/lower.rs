@@ -117,6 +117,13 @@ pub struct LowerCtx<'m, M: Module> {
     /// because they originated from an `extern c { ... }` block. The
     /// `define_fn` path skips these (the linker provides the body).
     pub extern_fn_ids: std::collections::HashSet<IrFnId>,
+    /// v0.38 Track T3 — for each extern fn id, the C-ABI returned-struct
+    /// classification (single-reg / two-reg / sret / none). Populated by
+    /// `declare_fns` alongside `extern_fn_ids` and consumed by the
+    /// call-site lowerer when the callee is an extern fn returning an
+    /// aggregate. Non-extern fns omit the entry (treated as `None`).
+    pub extern_return_kinds:
+        std::collections::HashMap<IrFnId, crate::abi::AggregateReturnKind>,
 }
 
 impl<'m, M: Module> LowerCtx<'m, M> {
@@ -135,6 +142,7 @@ impl<'m, M: Module> LowerCtx<'m, M> {
             fn_debug: HashMap::with_capacity(128),
             capture_debug_info: false,
             extern_fn_ids: std::collections::HashSet::with_capacity(16),
+            extern_return_kinds: std::collections::HashMap::with_capacity(16),
         }
     }
 
@@ -179,7 +187,6 @@ impl<'m, M: Module> LowerCtx<'m, M> {
         for f in &prog.fns {
             param_tys.clear();
             param_tys.extend(f.params.iter().map(|p| f.locals[p.0 as usize].ty.clone()));
-            let sig = build_signature(&self.triple, &param_tys, &f.ret_ty);
             // v0.36 Track T2 — an `extern c { fn ... }` declaration
             // produces an SIR shell with no body. We must declare it
             // to cranelift as `Linkage::Import` so the final linker
@@ -193,6 +200,25 @@ impl<'m, M: Module> LowerCtx<'m, M> {
             // consults this same table for `(import ...)` emission,
             // so the contract is well established.
             let is_extern = prog.extern_bindings.contains_key(&f.id);
+            // v0.38 Track T3 — extern fns get a C-ABI signature that
+            // models returned-struct conventions (one-reg / two-reg /
+            // sret). Non-extern fns keep the slice-8 Mighty-internal
+            // shape where aggregate returns ride a single i64 (matches
+            // the caller's aggregate-local stack-slot shape).
+            let (sig, agg_kind) = if is_extern {
+                let (s, k) = crate::abi::build_extern_signature(
+                    &self.triple,
+                    &param_tys,
+                    &f.ret_ty,
+                    &prog.adts,
+                );
+                (s, k)
+            } else {
+                (
+                    build_signature(&self.triple, &param_tys, &f.ret_ty),
+                    crate::abi::AggregateReturnKind::None,
+                )
+            };
             let linkage = if is_extern {
                 Linkage::Import
             } else if f.name == "main" {
@@ -210,6 +236,9 @@ impl<'m, M: Module> LowerCtx<'m, M> {
             // owns the body.
             if is_extern {
                 self.extern_fn_ids.insert(f.id);
+                if !matches!(agg_kind, crate::abi::AggregateReturnKind::None) {
+                    self.extern_return_kinds.insert(f.id, agg_kind);
+                }
             }
         }
         Ok(())
@@ -1664,7 +1693,42 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
             Const::Duration { value, .. } | Const::Size { value, .. } => {
                 self.b.ins().iconst(ct::I64, *value as i64)
             }
-            Const::FnPtr(_) => return Err(CodegenError::Unsupported("fn-pointer const".into())),
+            Const::FnPtr(fref) => {
+                // v0.38 Track T3 — fn-pointer surface for FFI (row 11
+                // of the extern_c matrix). A `FnPtr(FnRef::User(fid))`
+                // operand is materialised by taking the address of the
+                // declared function via cranelift's `func_addr`, which
+                // emits a `iconst-or-symbol` reference the linker
+                // resolves at final-link time. The resulting i64 fits
+                // the C-side function-pointer slot directly.
+                //
+                // Builtins/runtime fns aren't addressable in the same
+                // way (they don't always have a stable symbol — `log`
+                // routes through `mty_runtime_log` indirectly), so we
+                // reject them here with a clean diagnostic. Real FFI
+                // callbacks should be plain Mighty fns.
+                match fref {
+                    mty_ir::ir::FnRef::User(fid) => {
+                        let func_id = *self.mod_ctx.fn_ids.get(fid).ok_or_else(|| {
+                            CodegenError::Module(format!(
+                                "fn-ptr to undeclared fn {:?}",
+                                fid
+                            ))
+                        })?;
+                        let func_ref = self
+                            .mod_ctx
+                            .module
+                            .declare_func_in_func(func_id, self.b.func);
+                        self.b.ins().func_addr(ct::I64, func_ref)
+                    }
+                    mty_ir::ir::FnRef::Builtin(_) => {
+                        return Err(CodegenError::Unsupported(
+                            "fn-pointer of a builtin (use a plain Mighty fn for FFI callbacks)"
+                                .into(),
+                        ));
+                    }
+                }
+            }
             Const::NullPtr => self.b.ins().iconst(ct::I64, 0),
         })
     }
@@ -1910,6 +1974,16 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                     .get(callee_id)
                     .map(|b| b.is_variadic)
                     .unwrap_or(false);
+                // v0.38 Track T3 — returned-struct classification for the
+                // call site. Drives slot allocation, sret arg insertion,
+                // and per-register result store. Non-aggregate callees
+                // fall through to the legacy single-result path.
+                let agg_kind = self
+                    .mod_ctx
+                    .extern_return_kinds
+                    .get(callee_id)
+                    .copied()
+                    .unwrap_or(crate::abi::AggregateReturnKind::None);
                 let func_ref = self
                     .mod_ctx
                     .module
@@ -1949,7 +2023,37 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                     }
                 }
                 let expected = callee_param_tys.len();
-                let mut arg_vals: Vec<cranelift_codegen::ir::Value> = Vec::with_capacity(expected);
+                let mut arg_vals: Vec<cranelift_codegen::ir::Value> =
+                    Vec::with_capacity(expected + 1);
+                // v0.38 Track T3 — allocate the return-value slot if the
+                // callee uses an aggregate-return convention. For sret
+                // we also prepend the slot address as the hidden first
+                // arg (matches the SysV / Windows-x64 layout).
+                let ret_slot_addr: Option<cranelift_codegen::ir::Value> = if agg_kind
+                    .needs_slot()
+                {
+                    let size = match agg_kind {
+                        crate::abi::AggregateReturnKind::OneReg { size }
+                        | crate::abi::AggregateReturnKind::TwoReg { size }
+                        | crate::abi::AggregateReturnKind::Sret { size } => size,
+                        crate::abi::AggregateReturnKind::None => 0,
+                    };
+                    let align = type_align(&callee.ret_ty, &self.prog.adts).max(8);
+                    let log2_align = (align.next_power_of_two().trailing_zeros()).min(16) as u8;
+                    let slot = self.b.create_sized_stack_slot(StackSlotData::new(
+                        StackSlotKind::ExplicitSlot,
+                        slot_size(size.max(1)),
+                        log2_align,
+                    ));
+                    let addr = self.b.ins().stack_addr(ct::I64, slot, 0);
+                    if matches!(agg_kind, crate::abi::AggregateReturnKind::Sret { .. }) {
+                        // sret arg goes first in the actual call.
+                        arg_vals.push(addr);
+                    }
+                    Some(addr)
+                } else {
+                    None
+                };
                 for a in args {
                     if arg_vals.len() >= expected {
                         break;
@@ -2013,6 +2117,48 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 }
                 let call = self.b.ins().call(func_ref, &arg_vals);
                 let results = self.b.inst_results(call).to_vec();
+                // v0.38 Track T3 — fold returned-struct registers into
+                // the caller-allocated slot. The caller of `lower_call`
+                // expects an i64 holding the slot's address (matches
+                // the aggregate-local shape from `agg_addr`).
+                if let Some(slot_addr) = ret_slot_addr {
+                    match agg_kind {
+                        crate::abi::AggregateReturnKind::OneReg { .. } => {
+                            if let Some(v) = results.first().copied() {
+                                self.b.ins().store(
+                                    cranelift_codegen::ir::MemFlags::trusted(),
+                                    v,
+                                    slot_addr,
+                                    0,
+                                );
+                            }
+                        }
+                        crate::abi::AggregateReturnKind::TwoReg { .. } => {
+                            if let Some(v0) = results.first().copied() {
+                                self.b.ins().store(
+                                    cranelift_codegen::ir::MemFlags::trusted(),
+                                    v0,
+                                    slot_addr,
+                                    0,
+                                );
+                            }
+                            if let Some(v1) = results.get(1).copied() {
+                                self.b.ins().store(
+                                    cranelift_codegen::ir::MemFlags::trusted(),
+                                    v1,
+                                    slot_addr,
+                                    8,
+                                );
+                            }
+                        }
+                        crate::abi::AggregateReturnKind::Sret { .. } => {
+                            // Callee wrote through the slot pointer we
+                            // passed; nothing to fold from results.
+                        }
+                        crate::abi::AggregateReturnKind::None => unreachable!(),
+                    }
+                    return Ok(slot_addr);
+                }
                 Ok(results
                     .first()
                     .copied()

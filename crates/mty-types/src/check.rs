@@ -144,6 +144,13 @@ pub struct Cx<'a> {
     /// ptr-half, take place address) instead of the default copy.
     pub coerce_str_to_ptr: &'a mut std::collections::HashSet<ExprId>,
     pub coerce_addr_of: &'a mut std::collections::HashSet<ExprId>,
+    /// v0.38 Track T3 — `#[ffi_nul_ok]` fast-path opt-in side table.
+    /// Inserted alongside `coerce_str_to_ptr` when the corresponding
+    /// extern-c param carries the `#[ffi_nul_ok]` attribute. The
+    /// cranelift lowering may skip the safety-copy and pass the literal's
+    /// already-null-terminated ptr verbatim. Always a subset of
+    /// `coerce_str_to_ptr`.
+    pub coerce_nul_ok: &'a mut std::collections::HashSet<ExprId>,
 }
 
 impl<'a> Cx<'a> {
@@ -1062,6 +1069,38 @@ fn callee_is_extern_c(cx: &Cx, callee: ExprId) -> bool {
     false
 }
 
+/// v0.38 Track T3 — does the extern-c callee's `idx`-th param carry the
+/// `#[ffi_nul_ok]` attribute? Returns `false` for non-Path callees, for
+/// non-extern callees, and for out-of-range param indices.
+///
+/// The lookup walks the callee's `HirFn.params` because the canonical
+/// FnDef carries only resolved type-info, not param-level attributes —
+/// keeps the FnDef shape stable across this change. Cheap: O(1) lookup
+/// inside an O(N) param iteration.
+fn callee_param_has_nul_ok(cx: &Cx, callee: ExprId, idx: usize) -> bool {
+    let HirExpr::Path(segments) = &cx.pkg.exprs[callee] else {
+        return false;
+    };
+    if segments.len() != 1 {
+        return false;
+    }
+    let name = &segments[0];
+    let Some(DefRef::Fn(fdid)) = cx.defs.lookup(name) else {
+        return false;
+    };
+    let Some(f) = cx.defs.fn_def(fdid) else {
+        return false;
+    };
+    let Some(hir_fid) = f.hir_fn else {
+        return false;
+    };
+    let hf = &cx.pkg.fns[hir_fid];
+    let Some(p) = hf.params.get(idx) else {
+        return false;
+    };
+    p.attrs.iter().any(|a| a == "ffi_nul_ok")
+}
+
 fn synth_call(cx: &mut Cx, callee: ExprId, args: &[HirArg], expr_id: ExprId) -> TyId {
     // v0.37 T6 — variadic extern fns (`extern c fn printf(fmt, ...) -> I32;`)
     // need to accept any number of args beyond the declared prefix. The
@@ -1142,6 +1181,19 @@ fn synth_call(cx: &mut Cx, callee: ExprId, args: &[HirArg], expr_id: ExprId) -> 
                     // for caps-in-extern-args, but FFI sites don't pass
                     // capability values today, so this is effectively a
                     // no-op.
+                    //
+                    // v0.38 T3 — if the Str→*U8 coercion fired AND the
+                    // param carries `#[ffi_nul_ok]`, also flag the arg
+                    // in the nul_ok side-table so the cranelift backend
+                    // can take the fast (no-copy) path. Borrow path
+                    // (`coerce_addr_of`) doesn't participate in this
+                    // optimization — addr-of already passes the raw
+                    // slot, no string-copy is involved.
+                    if cx.coerce_str_to_ptr.contains(&arg.value)
+                        && callee_param_has_nul_ok(cx, callee, i)
+                    {
+                        cx.coerce_nul_ok.insert(arg.value);
+                    }
                     continue;
                 }
                 check_expr(cx, arg.value, expected);

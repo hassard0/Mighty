@@ -36,6 +36,18 @@ typedef struct {
   int32_t h;
 } Rect;
 
+/* v0.38 — matches Mighty `struct WindowInfo { w: I32, h: I32 }`. The
+ * 8-byte struct rides the SysV / Windows-x64 single-register return
+ * path (RAX); the cranelift backend folds the i64 return into a
+ * caller-allocated slot. */
+typedef struct {
+  int32_t w;
+  int32_t h;
+} WindowInfo;
+
+/* v0.38 — fn-pointer alias used by `winit_shim_register_cb`. */
+typedef int32_t (*MtyTickCb)(int32_t);
+
 int32_t winit_shim_init(void) {
   fputs("winit_shim_init: stub ok\n", stderr);
   return 0;
@@ -74,6 +86,32 @@ int32_t winit_shim_set_clip(Rect r) {
           "winit_shim_set_clip: rect(%d,%d,%dx%d) stub ok\n",
           r.x, r.y, r.w, r.h);
   return 0;
+}
+
+/* v0.38 — returned-struct shape. The Mighty side binds the result
+ * with `let info: WindowInfo = winit_shim_window_info()`; the cranelift
+ * backend's caller-side slot receives the bytes via the return-register
+ * (RAX) path because WindowInfo is exactly 8 bytes. */
+WindowInfo winit_shim_window_info(void) {
+  WindowInfo info = {640, 480};
+  fprintf(stderr, "winit_shim_window_info: returning %dx%d\n", info.w, info.h);
+  return info;
+}
+
+/* v0.38 — function-pointer surface. Invokes the Mighty callback once
+ * to prove the address arrived intact. Real code would store the cb
+ * for use during the event loop. */
+int32_t winit_shim_register_cb(MtyTickCb cb) {
+  int32_t v = cb ? cb(0) : -1;
+  fprintf(stderr, "winit_shim_register_cb: cb(0) -> %d\n", v);
+  return v;
+}
+
+/* v0.38 — `#[ffi_nul_ok]` consumer. The Mighty side guarantees the
+ * incoming buffer is null-terminated (intern_string already does this
+ * for literals; the attribute documents the contract). */
+void winit_shim_log(const unsigned char *s) {
+  fprintf(stderr, "winit_shim_log: %s\n", s ? (const char *)s : "(null)");
 }
 
 int32_t winit_shim_shutdown(void) {

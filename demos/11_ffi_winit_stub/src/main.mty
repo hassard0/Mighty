@@ -2,28 +2,38 @@
 //
 // v0.36 Track T2 shipped the link-level plumbing (`[[extern_lib]]`,
 // extern-c declarations, cranelift Linkage::Import + linker args).
-// v0.37 Track T3 closes the call-site ergonomics that previously
+// v0.37 Track T3 closed the call-site ergonomics that previously
 // forced the "wrapper-pattern" workaround:
 //
 //   1. Str → *U8 auto-coercion at extern-c arg positions.
-//      Mighty Str literals are interned null-terminated UTF-8 already;
-//      the typeck + cranelift backend now read the ptr-half of the
-//      (ptr, len) aggregate when handing it to a `*U8` C param. No
-//      more "wrap in a zero-arg C helper to build the string".
+//   2. `&mut local` for FFI out-params (`*mut I32`-shaped C args).
+//   3. Inline struct literals at extern-c call sites.
 //
-//   2. `&mut local` for FFI out-params (`*mut I32`-shaped C arguments).
-//      Borrow-checker still rules the local during the call; the
-//      cranelift backend lowers `&mut x` to the local's slot address.
+// v0.38 Track T3 closes the three remaining shapes flagged on the
+// extern_c matrix doc — rows 07 (returned struct), 11 (fn pointer),
+// and the `#[ffi_nul_ok]` attribute. This demo now exercises all of
+// them alongside the v0.37 surfaces, in the same single program:
 //
-//   3. Inline struct literals at extern-c call sites. Required to call
-//      wgpu/winit shapes like `wgpu_create_pipeline(VertState{...}, ...)`
-//      without a one-line let binding.
+//   4. **Returned struct** — `winit_shim_window_info()` returns a small
+//      WindowInfo struct by value. The cranelift backend allocates a
+//      caller-side slot and uses the SysV/Windows-x64 multi-register
+//      return convention (or sret for >16 byte returns).
 //
-// The C shim under `vendor/winit_shim.c` is deliberately a no-op so the
-// smoke test stays hermetic; a real binding would replace the shim with
-// libwinit + libwgpu and add the matching `[[extern_lib]]` entries to
-// mighty.toml.
+//   5. **Function pointer** — `winit_shim_register_cb(my_cb)` passes the
+//      address of a Mighty fn at an `extern fn(I32) -> I32` arg slot.
+//      The cranelift backend emits `func_addr` against the declared
+//      symbol, which the linker resolves to the local fn's body.
+//
+//   6. **`#[ffi_nul_ok]`** — `winit_shim_log(title)` is declared with
+//      `#[ffi_nul_ok]` on its `*U8` param. The Mighty Str→*U8 coercion
+//      stays on the fast (no-copy) path; the attribute documents that
+//      the caller knows the bytes are null-terminated.
+//
+// The C shim under `vendor/winit_shim.c` stays a no-op so the smoke
+// test is hermetic; a real binding would replace the shim with
+// libwinit + libwgpu and add the matching `[[extern_lib]]` entries.
 struct Rect { x: I32, y: I32, w: I32, h: I32 }
+struct WindowInfo { w: I32, h: I32 }
 
 extern c {
   fn winit_shim_init() -> I32
@@ -35,7 +45,24 @@ extern c {
   fn winit_shim_poll_event(out: *I32) -> I32
   // v0.37 surface 3 — pass an inline Rect literal by value.
   fn winit_shim_set_clip(r: Rect) -> I32
+  // v0.38 surface 4 — returned-struct binding (row 07 of the matrix).
+  fn winit_shim_window_info() -> WindowInfo
+  // v0.38 surface 5 — function pointer at FFI arg slot (row 11).
+  fn winit_shim_register_cb(cb: fn(I32) -> I32) -> I32
+  // v0.38 surface 6 — `#[ffi_nul_ok]` fast-path attribute on a *U8
+  // param. The Str→*U8 coercion stays no-copy (intern_string already
+  // null-terminates literals; the attribute documents that the
+  // contract holds and any future safety-wrapper pass should skip
+  // adding one here).
+  fn winit_shim_log(#[ffi_nul_ok] s: *U8) -> Unit
   fn winit_shim_shutdown() -> I32
+}
+
+// v0.38 surface 5 callback — bumps the count by one. The address of
+// this fn is what the cranelift backend hands the C side via the
+// fn-pointer arg slot.
+fn on_tick(prev: I32) -> I32 {
+  prev + 1
 }
 
 fn main() {
@@ -52,6 +79,20 @@ fn main() {
   // the inline form.
   let _ = winit_shim_set_clip(Rect { x: 0, y: 0, w: 640, h: 480 })
 
+  // v0.38 surface 4: returned-struct binding. The cranelift backend
+  // allocates a stack slot for `info` and folds the C-side return
+  // registers (or sret pointer for >16 bytes) into the slot.
+  let info: WindowInfo = winit_shim_window_info()
+  let _ = info.w
+  let _ = info.h
+  log("ffi_winit_stub: read back window info")
+
+  // v0.38 surface 5: pass `on_tick` as a fn pointer. The cranelift
+  // backend emits `func_addr on_tick` and the C side invokes through
+  // the function-pointer slot.
+  let _ = winit_shim_register_cb(on_tick)
+  log("ffi_winit_stub: registered tick callback")
+
   let _ = winit_shim_run_event_loop_once()
 
   // Surface 2: `&mut local` at *I32 — was previously a C-side wrapper
@@ -60,6 +101,9 @@ fn main() {
   let mut got_event: I32 = 0
   let _ = winit_shim_poll_event(&mut got_event)
   log("ffi_winit_stub: polled event slot")
+
+  // v0.38 surface 6: `#[ffi_nul_ok]` Str→*U8 fast path.
+  winit_shim_log("ffi_winit_stub: nul-ok marker")
 
   let _ = winit_shim_shutdown()
   log("ffi_winit_stub: clean shutdown")
