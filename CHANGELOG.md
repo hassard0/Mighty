@@ -9,6 +9,33 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
+### v0.36 T5 — infra papercuts (landed on track branch)
+
+- **Windows `cargo install mty` works without MSVC.** Split
+  `observe-sqlite` out of the always-on `host-toolchain` feature
+  into a top-level mty-cli feature with an `cli-min` alias.
+  `cargo install mty --no-default-features --features cli-min` skips
+  rusqlite's C build (the historical "link.exe not found" path) and
+  produces a fully-functional CLI; `mty inspect --cost` reports the
+  feature as disabled rather than crashing. FAQ entry updated to
+  point at the new flag-set.
+- **macOS `LC_BUILD_VERSION` warning eliminated.** Override
+  cranelift-object's `Darwin(_)` → `PLATFORM_UNKNOWN (0)` default
+  with `PLATFORM_MACOS + minos=11.0 + sdk=14.0` packed in the
+  nibble layout `loader.h` documents. Honors
+  `MACOSX_DEPLOYMENT_TARGET` (same env var rustc uses) and a new
+  `MTY_MACOSX_SDK_VERSION` knob.
+- **PGO re-enabled on linux-x86_64, darwin-arm64, windows-x86_64.**
+  Phase 4 drops `-Clinker-plugin-lto` (collided with PGO's
+  `CG Profile` module metadata on linux-x86_64). Phase 0 wipes
+  `target/release-pgo/{build,deps,incremental,.fingerprint}` so
+  stale `-Cprofile-use` codegen can't survive across runs (root
+  cause of the profile-format raw=8 vs expected=10 mismatch on
+  macOS+Windows). `release.yml` cache keys segregate PGO vs non-PGO
+  so the restore-keys can't cross-contaminate. `darwin-x86_64`
+  and `linux-aarch64` stay `use_pgo: false` (rosetta /
+  cross-compile can't run the instrumented binary).
+
 v0.36 candidates (rolled up across all 5 v0.35 tracks):
 
 - **T1 — WASM playground** — Cloudflare Worker proxy deployment
