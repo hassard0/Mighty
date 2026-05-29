@@ -730,6 +730,7 @@ mod tests {
             .replace_line("u.mty", line, "  call(tainted)", "  call(safe_c)")
             .build();
         DiagnosticEnvelope {
+            schema_version: mty_diagnostics::fix::SCHEMA_VERSION.to_string(),
             code: "MT4099".into(),
             severity: "error".into(),
             span: SpanInfo {
