@@ -25,7 +25,7 @@
 //!   compiles, agent handlers stay on the interpreter for slice 8)
 //! - capabilities / dyn dispatch / pattern matching
 
-use crate::abi::{build_signature, cl_ty_for, host_call_conv};
+use crate::abi::{build_signature, cl_ty_for, cl_ty_for_variadic, host_call_conv};
 use crate::aggregate::{
     field_load_ty, is_aggregate, slot_size, struct_field_offset, tuple_offset, type_align,
     type_size, variant_field_offset, TAG_OFFSET, TAG_SIZE,
@@ -1895,15 +1895,14 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 let func_id = *self.mod_ctx.fn_ids.get(callee_id).ok_or_else(|| {
                     CodegenError::Module(format!("call to undeclared fn {:?}", callee_id))
                 })?;
-                // v0.37 T6 — variadic extern C fn (e.g. `printf`). The
-                // declared signature only has the fixed prefix; cranelift
-                // 0.132 has no first-class variadic flag, so for now we
-                // only support the fixed-arity case (no trailing `...`
-                // args actually supplied). Calls that pass extra args
-                // are still parse/typeck-legal — they surface here as a
-                // clear codegen error pointing at the extern-c matrix
-                // doc. Tracked as a v0.38 follow-up under
-                // `docs/internals/extern-c-matrix.md`.
+                // v0.37 T6 / v0.38 T2 — variadic extern C fn (e.g.
+                // `printf`). The declared signature only has the fixed
+                // prefix; v0.38 wires the trailing `...` args by
+                // building a *per-call* `ir::Signature`, importing it
+                // via `Function::import_signature`, taking the imported
+                // symbol's address with `func_addr`, and dispatching
+                // through `call_indirect`. Extra args go through C ABI
+                // default argument promotion (`abi::cl_ty_for_variadic`).
                 let is_variadic_callee = self
                     .prog
                     .extern_bindings
@@ -1920,81 +1919,67 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 // cranelift type. Falls back to a positional pass when
                 // the callee fn isn't in the program (shouldn't happen).
                 let callee = self.prog.fn_by_id(*callee_id);
-                let mut callee_param_tys: Vec<IrTy> = callee
+                let callee_param_tys: Vec<IrTy> = callee
                     .params
                     .iter()
                     .map(|p| callee.locals[p.0 as usize].ty.clone())
                     .filter(|t| !matches!(t, IrTy::Unit | IrTy::Never))
                     .collect();
-                // v0.37 T6 — refuse the call only if the caller actually
-                // tries to pass MORE args than the fixed prefix. Calls
-                // that exactly match the prefix work via the regular
-                // path below.
-                if is_variadic_callee {
-                    let non_unit_arg_count = args
-                        .iter()
-                        .filter(|a| {
-                            !matches!(a, mty_ir::ir::Operand::Const(mty_ir::ir::Const::Unit))
-                        })
-                        .count();
-                    if non_unit_arg_count > callee_param_tys.len() {
-                        return Err(CodegenError::Unsupported(format!(
-                            "variadic extern call to `{}` with {} args; cranelift backend only \
-                             supports the fixed-arity prefix in v0.37 T6 (see \
-                             docs/internals/extern-c-matrix.md). Declared with {} fixed param(s).",
-                            callee.name,
-                            non_unit_arg_count,
-                            callee_param_tys.len()
-                        )));
-                    }
-                }
+                let callee_ret_ty = callee.ret_ty.clone();
                 let expected = callee_param_tys.len();
-                let mut arg_vals: Vec<cranelift_codegen::ir::Value> = Vec::with_capacity(expected);
-                for a in args {
-                    if arg_vals.len() >= expected {
-                        break;
-                    }
-                    // Skip unit constants entirely.
-                    if matches!(a, Operand::Const(Const::Unit)) {
-                        continue;
-                    }
-                    // Skip operands whose declared place type is Unit/Never.
-                    if let Operand::Copy(p) | Operand::Move(p) = a {
-                        if p.proj.is_empty()
-                            && matches!(
-                                self.f.locals[p.local.0 as usize].ty,
-                                IrTy::Unit | IrTy::Never
-                            )
-                        {
-                            continue;
+
+                // Partition the caller's operand list into "fixed" and
+                // "extra" non-unit slots so the variadic path can build
+                // the right per-call signature without re-walking.
+                #[derive(Clone)]
+                struct VisibleArg<'q> {
+                    op: &'q Operand,
+                }
+                let visible: Vec<VisibleArg> = args
+                    .iter()
+                    .filter(|a| {
+                        if matches!(a, Operand::Const(Const::Unit)) {
+                            return false;
                         }
-                    }
-                    let v = self.eval_operand(a)?;
-                    // v0.36 T1: capture the operand's SIR type so the
-                    // coerce path can pick `uextend` for unsigned
-                    // widening (U8 → U32/U64 fn args were wrong).
-                    let src_ty = self.operand_ir_ty(a);
-                    let want_ty = if !callee_param_tys.is_empty() {
-                        Some(callee_param_tys.remove(0))
+                        if let Operand::Copy(p) | Operand::Move(p) = a {
+                            if p.proj.is_empty()
+                                && matches!(
+                                    self.f.locals[p.local.0 as usize].ty,
+                                    IrTy::Unit | IrTy::Never
+                                )
+                            {
+                                return false;
+                            }
+                        }
+                        true
+                    })
+                    .map(|op| VisibleArg { op })
+                    .collect();
+
+                let fixed_count = expected.min(visible.len());
+                let extras = &visible[fixed_count..];
+
+                // Lower the fixed prefix. This is the same logic as the
+                // pre-v0.38 path: coerce each operand to the declared
+                // param type, padding with zeros if the caller passed
+                // too few visible args.
+                let mut callee_param_tys_mut = callee_param_tys.clone();
+                let mut arg_vals: Vec<cranelift_codegen::ir::Value> =
+                    Vec::with_capacity(visible.len());
+                for va in &visible[..fixed_count] {
+                    let v = self.eval_operand(va.op)?;
+                    let src_ty = self.operand_ir_ty(va.op);
+                    let want_ty = callee_param_tys_mut.remove(0);
+                    let want = if is_aggregate(&want_ty) {
+                        ct::I64
                     } else {
-                        None
+                        cl_ty_for(&want_ty)
                     };
-                    let coerced = if let Some(t) = &want_ty {
-                        let want = if is_aggregate(t) {
-                            ct::I64
-                        } else {
-                            cl_ty_for(t)
-                        };
-                        self.coerce_to_with_src(v, want, src_ty.as_ref())
-                    } else {
-                        v
-                    };
+                    let coerced = self.coerce_to_with_src(v, want, src_ty.as_ref());
                     arg_vals.push(coerced);
                 }
-                // Pad with zeros if we still have leftover expected
-                // params (rare — typeck mismatch).
-                while !callee_param_tys.is_empty() {
-                    let t = callee_param_tys.remove(0);
+                while !callee_param_tys_mut.is_empty() {
+                    let t = callee_param_tys_mut.remove(0);
                     let want = if is_aggregate(&t) {
                         ct::I64
                     } else {
@@ -2011,6 +1996,100 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                     };
                     arg_vals.push(v);
                 }
+
+                if !extras.is_empty() {
+                    // Variadic call site with non-empty extras. If the
+                    // callee isn't actually variadic, surface a clean
+                    // Unsupported — typeck should have caught this, but
+                    // the codegen contract is "Unsupported, not crash".
+                    if !is_variadic_callee {
+                        return Err(CodegenError::Unsupported(format!(
+                            "non-variadic call to `{}` with {} extra args",
+                            callee.name,
+                            extras.len()
+                        )));
+                    }
+
+                    // Lower each extra under the C ABI variadic
+                    // promotion rules.
+                    let mut extra_cl_tys: Vec<cranelift_codegen::ir::Type> =
+                        Vec::with_capacity(extras.len());
+                    for va in extras {
+                        let src_ty = self.operand_ir_ty(va.op);
+                        let (want_cl, unsigned_hint) = match &src_ty {
+                            Some(t) => cl_ty_for_variadic(t),
+                            // No SIR type info — fall back to pointer-
+                            // sized integer (treats opaque values as
+                            // 64-bit blobs, which matches the existing
+                            // is_aggregate→I64 default).
+                            None => (ct::I64, true),
+                        };
+                        let v = self.eval_operand(va.op)?;
+                        // Pick uextend / sextend correctly for the
+                        // promotion. We synthesize an "IntKind hint"
+                        // for the coerce path by passing the original
+                        // src_ty when it was signed and a U64-shaped
+                        // sentinel otherwise — the existing
+                        // coerce_to_with_src already inspects the
+                        // hint's unsigned-ness, so a clone of src_ty
+                        // suffices. For floats we let coerce_to do
+                        // fpromote.
+                        let coerced = if want_cl.is_float() {
+                            self.coerce_to(v, want_cl)
+                        } else if unsigned_hint
+                            && src_ty
+                                .as_ref()
+                                .is_none_or(|t| !FnLower::<M>::is_unsigned_int_ty(t))
+                        {
+                            // The C-ABI says unsigned promotion; force
+                            // uextend even if the SIR type was
+                            // ambiguous (e.g. char promoted to int).
+                            let have = self.b.func.dfg.value_type(v);
+                            if have.is_int() && want_cl.is_int() && have.bits() < want_cl.bits() {
+                                self.b.ins().uextend(want_cl, v)
+                            } else {
+                                self.coerce_to(v, want_cl)
+                            }
+                        } else {
+                            self.coerce_to_with_src(v, want_cl, src_ty.as_ref())
+                        };
+                        arg_vals.push(coerced);
+                        extra_cl_tys.push(want_cl);
+                    }
+
+                    // Build a per-call signature: fixed prefix types
+                    // from the declared extern + the promoted extras.
+                    let mut sig = Signature::new(host_call_conv(&self.mod_ctx.triple));
+                    if !matches!(callee_ret_ty, IrTy::Unit | IrTy::Never) {
+                        sig.returns.push(AbiParam::new(cl_ty_for(&callee_ret_ty)));
+                    }
+                    for t in &callee_param_tys {
+                        let want = if is_aggregate(t) {
+                            ct::I64
+                        } else {
+                            cl_ty_for(t)
+                        };
+                        sig.params.push(AbiParam::new(want));
+                    }
+                    for cl in &extra_cl_tys {
+                        sig.params.push(AbiParam::new(*cl));
+                    }
+                    let sig_ref = self.b.func.import_signature(sig);
+
+                    // Take the address of the linked symbol. The
+                    // extern was declared with `Linkage::Import`, so
+                    // the linker / JIT symbol-resolver fills it in.
+                    let ptr_ty = ct::I64; // host is 64-bit (slice 8)
+                    let callee_addr = self.b.ins().func_addr(ptr_ty, func_ref);
+
+                    let call = self.b.ins().call_indirect(sig_ref, callee_addr, &arg_vals);
+                    let results = self.b.inst_results(call).to_vec();
+                    return Ok(results
+                        .first()
+                        .copied()
+                        .unwrap_or_else(|| self.b.ins().iconst(ct::I64, 0)));
+                }
+
                 let call = self.b.ins().call(func_ref, &arg_vals);
                 let results = self.b.inst_results(call).to_vec();
                 Ok(results
