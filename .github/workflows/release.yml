@@ -42,6 +42,29 @@ jobs:
       # degrades to a 3-binary release rather than blocking the
       # whole tag.
       fail-fast: false
+      # v0.35 (Track T4): PGO wired into 3 of 5 platforms.
+      # `use_pgo: true` swaps `cargo build --release` for the
+      # two-stage profile-guided pipeline in `scripts/build-pgo.{sh,ps1}`
+      # (instrument → run training corpus → merge → optimised rebuild),
+      # which uses the `[profile.release-pgo]` profile already pinned
+      # in the workspace Cargo.toml (fat LTO, codegen-units=1, strip).
+      #
+      # PGO is constrained to platforms where the instrumented binary
+      # can run natively on the same runner that built it. That rules
+      # out cross-compile and Rosetta paths:
+      #
+      #   - linux-x86_64 (ubuntu-latest): native PGO. EASY.
+      #   - darwin-arm64 (macos-14):      native PGO. EASY.
+      #   - windows-x86_64 (windows-latest): native PGO. EASY.
+      #   - darwin-x86_64 (macos-14):     would require Rosetta to
+      #     run the instrumented binary on the arm64 runner. We tried
+      #     this in v0.35 dev and Rosetta wall-clock plus the .profraw
+      #     write-back path were unreliable; falls back to plain
+      #     `release` profile and is flagged in the release notes.
+      #   - linux-aarch64 (ubuntu-latest + cross): cross-compiled, so
+      #     instrumented binary is arm64 and the x86_64 runner can't
+      #     execute it. Falls back to plain `release` profile via
+      #     `cross`.
       matrix:
         include:
           - os: ubuntu-latest
@@ -49,6 +72,7 @@ jobs:
             artifact: mty
             asset: mty-x86_64-unknown-linux-gnu.tar.gz
             use_cross: false
+            use_pgo: true
           # v0.32 (Track D): Intel macOS via cross-compile on Apple
           # Silicon runner. v0.32.1 pivoted from `macos-13` to
           # `macos-14` because GitHub Actions' free Intel runner
@@ -59,32 +83,40 @@ jobs:
           # fine on macos-14. Intel Macs still ~30% of macOS base;
           # this binary remains a hard requirement for the
           # homebrew-core submission.
+          # v0.35: not PGO — would require Rosetta to run the
+          # instrumented x86_64 binary on the arm64 runner.
           - os: macos-14
             target: x86_64-apple-darwin
             artifact: mty
             asset: mty-x86_64-apple-darwin.tar.gz
             use_cross: false
+            use_pgo: false
           - os: macos-14
             target: aarch64-apple-darwin
             artifact: mty
             asset: mty-aarch64-apple-darwin.tar.gz
             use_cross: false
+            use_pgo: true
           # v0.32 (Track D): aarch64 Linux for Raspberry Pi 5, AWS
           # Graviton, Ampere Altra, and Apple Silicon Linux VMs.
           # Cross-compiled from ubuntu-latest via the `cross` tool
           # (`cargo install cross --version 0.2.5 --locked`) to
           # avoid paying for a GitHub-hosted arm64 Linux runner,
           # which is still preview / paid-tier only.
+          # v0.35: not PGO — cross-compile means the instrumented
+          # arm64 binary can't run on the x86_64 build host.
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             artifact: mty
             asset: mty-aarch64-unknown-linux-gnu.tar.gz
             use_cross: true
+            use_pgo: false
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: mty.exe
             asset: mty-x86_64-pc-windows-msvc.zip
             use_cross: false
+            use_pgo: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -95,6 +127,12 @@ jobs:
         with:
           toolchain: "1.95.0"
           targets: ${{ matrix.target }}
+          # v0.35 (Track T4): PGO matrix entries need `llvm-profdata`
+          # to merge the .profraw shards from the instrumented pass.
+          # `llvm-tools-preview` ships it inside the toolchain sysroot
+          # at `lib/rustlib/<host>/bin/llvm-profdata`; the build-pgo
+          # script auto-discovers it via `rustc --print sysroot`.
+          components: ${{ matrix.use_pgo && 'llvm-tools-preview' || '' }}
 
       - name: Cache cargo registry + target
         uses: actions/cache@v4
@@ -108,6 +146,30 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.target }}-cargo-release-
 
+      # v0.35 (Track T4): Three build paths now —
+      #   1. native + PGO   → scripts/build-pgo.{sh,ps1}
+      #   2. native + plain → cargo build --release
+      #   3. cross + plain  → cross build --release
+      #
+      # PGO scripts produce `target/release-pgo/mty` (host-native, no
+      # `--target` triple in the path). Plain native + cross produce
+      # `target/<triple>/release/mty`. The stage step below normalizes.
+
+      - name: Build mty (release, native, PGO) — Unix
+        if: matrix.use_pgo == true && runner.os != 'Windows'
+        env:
+          TOOLCHAIN: "1.95.0"
+        run: bash scripts/build-pgo.sh
+
+      - name: Build mty (release, native, PGO) — Windows
+        if: matrix.use_pgo == true && runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/build-pgo.ps1 -Toolchain 1.95.0
+
+      - name: Build mty (release, native, no-PGO)
+        if: matrix.use_pgo == false && matrix.use_cross == false
+        run: cargo build --release --bin mty -p mty-cli --target ${{ matrix.target }}
+
       - name: Install cross (aarch64 Linux only)
         if: matrix.use_cross == true
         # `cross` is pinned to 0.2.5 — last known-good release
@@ -116,19 +178,42 @@ jobs:
         # the aarch64 release silently.
         run: cargo install cross --version 0.2.5 --locked
 
-      - name: Build mty (release, native)
-        if: matrix.use_cross == false
-        run: cargo build --release --bin mty -p mty-cli --target ${{ matrix.target }}
-
-      - name: Build mty (release, cross)
+      - name: Build mty (release, cross, no-PGO)
         if: matrix.use_cross == true
         run: cross build --release --bin mty -p mty-cli --target ${{ matrix.target }}
+
+      # v0.35 (Track T4): normalize the binary path for the packaging
+      # steps. PGO build lands at `target/release-pgo/mty`; native and
+      # cross release builds land at `target/<triple>/release/mty`.
+      # We copy whichever exists into a stable `staged/` directory so
+      # the packaging steps below don't need to branch on use_pgo.
+      - name: Stage built binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          set -euo pipefail
+          mkdir -p staged
+          if [[ "${{ matrix.use_pgo }}" == "true" ]]; then
+            cp "target/release-pgo/${{ matrix.artifact }}" "staged/${{ matrix.artifact }}"
+          else
+            cp "target/${{ matrix.target }}/release/${{ matrix.artifact }}" "staged/${{ matrix.artifact }}"
+          fi
+
+      - name: Stage built binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path staged | Out-Null
+          if ("${{ matrix.use_pgo }}" -eq "true") {
+            Copy-Item "target/release-pgo/${{ matrix.artifact }}" "staged/${{ matrix.artifact }}"
+          } else {
+            Copy-Item "target/${{ matrix.target }}/release/${{ matrix.artifact }}" "staged/${{ matrix.artifact }}"
+          }
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist/mty-${{ github.ref_name }}
-          cp target/${{ matrix.target }}/release/${{ matrix.artifact }} dist/mty-${{ github.ref_name }}/
+          cp staged/${{ matrix.artifact }} dist/mty-${{ github.ref_name }}/
           cp LICENSE README.md CHANGELOG.md dist/mty-${{ github.ref_name }}/
           tar -C dist -czf ${{ matrix.asset }} mty-${{ github.ref_name }}
           shasum -a 256 ${{ matrix.asset }} > ${{ matrix.asset }}.sha256
@@ -139,7 +224,7 @@ jobs:
         run: |
           $stage = "dist/mty-${{ github.ref_name }}"
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.artifact }}" $stage
+          Copy-Item "staged/${{ matrix.artifact }}" $stage
           Copy-Item LICENSE,README.md,CHANGELOG.md $stage
           Compress-Archive -Path $stage -DestinationPath "${{ matrix.asset }}"
           $hash = (Get-FileHash -Algorithm SHA256 "${{ matrix.asset }}").Hash.ToLower()
@@ -180,19 +265,22 @@ jobs:
 
   # v0.32 (Track D): Cosign sign + SBOM step for the official Docker
   # image. This job is GATED on the `PUBLISH_DOCKER` repo variable
-  # because Docker push doesn't live in release.yml yet (it's a
-  # manual step from `tools/distribution/README.md` runbook §4). When
-  # the publish step is folded into release.yml in a future track,
-  # flip `vars.PUBLISH_DOCKER` to `true` and this job will run with
-  # no further edits.
+  # so the docker push only happens when the user has opted in (the
+  # default is off — the workflow + Dockerfile ship but no image is
+  # published until vars.PUBLISH_DOCKER == 'true').
+  #
+  # v0.35 (Track T4): bumped to multi-arch (linux/amd64 + linux/arm64)
+  # now that the Dockerfile is TARGETARCH-aware. The job also moved
+  # to `needs: [release]` so the GitHub Release (and its attached
+  # binaries) exist by the time the Dockerfile tries to curl them.
   #
   # Keyless signing via GitHub OIDC is documented at
   # https://docs.sigstore.dev/cosign/signing/overview/. SBOM +
   # provenance attestations come from `docker buildx build` with
   # `--sbom=true --provenance=true`.
   docker-sign-sbom:
-    name: cosign + sbom (docker)
-    needs: [build]
+    name: cosign + sbom (docker, multi-arch)
+    needs: [release]
     runs-on: ubuntu-latest
     if: ${{ vars.PUBLISH_DOCKER == 'true' }}
     permissions:
@@ -205,6 +293,10 @@ jobs:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Set up QEMU
+        # QEMU lets the ubuntu-latest (x86_64) runner emulate arm64
+        # for the `linux/arm64` build leg. The Dockerfile only runs
+        # `curl` + `tar` + `sha256sum -c` at build time (no Rust
+        # compilation), so emulation overhead is negligible.
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
@@ -223,18 +315,16 @@ jobs:
           raw="${{ github.event.inputs.tag || github.ref_name }}"
           echo "value=${raw#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build + push image with SBOM + provenance
+      - name: Build + push multi-arch image with SBOM + provenance
         id: docker_build
         uses: docker/build-push-action@v6
         with:
           context: tools/distribution/docker
-          # NOTE: Dockerfile currently hard-codes the
-          # `mty-x86_64-unknown-linux-gnu.tar.gz` asset URL, so
-          # multi-platform = amd64-only until the Dockerfile is
-          # rewritten to TARGETARCH-switch the asset name. v0.32
-          # release.yml shipped the aarch64-linux binary so a v0.33
-          # follow-up can flip this to `linux/amd64,linux/arm64`.
-          platforms: linux/amd64
+          # v0.35 (Track T4): multi-arch. The Dockerfile switches on
+          # the implicit `TARGETARCH` build-arg (`amd64`|`arm64`) to
+          # pick the right release tarball URL and verify against the
+          # matching `.sha256` sidecar published in step 1.
+          platforms: linux/amd64,linux/arm64
           push: true
           sbom: true
           provenance: true
@@ -249,12 +339,17 @@ jobs:
         with:
           cosign-release: v2.4.1
 
-      - name: Sign the image (keyless, GitHub OIDC)
+      - name: Sign the multi-arch image (keyless, GitHub OIDC)
+        # Signing the manifest-list digest covers both per-arch images
+        # via the recursive sign behaviour of cosign v2 (the `manifest
+        # list → each manifest` edge is followed). The user's `cosign
+        # verify ghcr.io/hassard0/mty:<tag>` check works regardless of
+        # which arch they pulled.
         env:
           COSIGN_EXPERIMENTAL: "1"
           DIGEST: ${{ steps.docker_build.outputs.digest }}
         run: |
-          cosign sign --yes "ghcr.io/hassard0/mty@${DIGEST}"
+          cosign sign --yes --recursive "ghcr.io/hassard0/mty@${DIGEST}"
 
   release:
     name: publish release
