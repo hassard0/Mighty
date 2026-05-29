@@ -161,7 +161,7 @@ diagnostics instead of crashing.
 
 ## Runtime ABI
 
-The runtime ABI (`stardust_runtime_*` symbols) is identical for LLVM
+The runtime ABI (`mty_runtime_*` symbols) is identical for LLVM
 and Cranelift — they both link against the same C-ABI fns provided by
 `mty-runtime::codegen_abi`. The `runtime_imports::RUNTIME_IMPORTS`
 table in the Cranelift crate is the canonical source of truth; the

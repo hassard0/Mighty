@@ -9,6 +9,9 @@ pub mod agent;
 pub mod arena;
 pub mod budget;
 pub mod cancel;
+// v0.36 T4 — `MTY_*` is the new primary env-var prefix; legacy
+// `STARDUST_*` is still accepted (one-shot deprecation warning).
+pub mod env_compat;
 // v0.18 Tier 4.1 — distributed agents (single-cluster mesh). The
 // module ships the transport layer (`AgentAddr`, framed CBOR/TLS
 // wire, reconnecting peers, mesh) so the runtime can opt-in to

@@ -10,7 +10,7 @@
 //
 // Two design departures from the Rust HIR:
 //
-//   1. **No la_arena.** Stardust doesn't depend on la_arena, so arenas
+//   1. **No la_arena.** Mighty doesn't depend on la_arena, so arenas
 //      are simple Vec<T> indexed by USize. IDs are bare USize values.
 //
 //   2. **No generic types.** v0.6 Mighty's generic-param support is

@@ -493,7 +493,7 @@ fn diff_kinds(a: &[String], b: &[String]) -> String {
         let x = a.get(i).map(|s| s.as_str()).unwrap_or("(none)");
         let y = b.get(i).map(|s| s.as_str()).unwrap_or("(none)");
         if x != y {
-            lines.push(format!("  [{:3}] stardust={} rust={}", i, x, y));
+            lines.push(format!("  [{:3}] mty={} rust={}", i, x, y));
             if lines.len() > 30 {
                 lines.push("  …".into());
                 break;
@@ -560,9 +560,9 @@ fn selfhost_parser_hello_world() {
         "self-hosted parser did not terminate cleanly: {:?}",
         result
     );
-    let stardust_tree = build_tree(&events).expect("parser should emit a tree");
+    let mty_tree = build_tree(&events).expect("parser should emit a tree");
     let rust_tree = rust_tree(input);
-    let s_kinds = bfs_kinds(&stardust_tree);
+    let s_kinds = bfs_kinds(&mty_tree);
     let r_kinds = bfs_kinds(&rust_tree);
     assert_eq!(
         s_kinds,

@@ -40,9 +40,10 @@ of `ReplayEvent` records emitted in execution order, each tagged with
 the actor id (0 = synthetic external caller; per-agent ids otherwise).
 A conforming implementation MUST be able to:
 
-1. Run the program once with `STARDUST_REPLAY_RECORD=<path>` and
-   produce a trace file.
-2. Run the program a second time with `STARDUST_REPLAY_PLAY=<path>`
+1. Run the program once with `MTY_REPLAY_RECORD=<path>` (or the
+   legacy `STARDUST_REPLAY_RECORD`) and produce a trace file.
+2. Run the program a second time with `MTY_REPLAY_PLAY=<path>` (or
+   the legacy `STARDUST_REPLAY_PLAY`)
    and produce the SAME trace (modulo wall-clock timestamps, which
    the v0.20 ReplayDriver substitutes back from the recorded values).
 3. Observe that any post-fact mutation of the trace file (changing a

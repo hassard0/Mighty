@@ -21,7 +21,7 @@ fn wasi_target_imports_use_wasi_namespace() {
 }
 
 #[test]
-fn web_target_imports_use_stardust_web_namespace() {
+fn web_target_imports_use_mty_web_namespace() {
     let prog = common::empty_main();
     let doc = emit_wit(&prog, "hello", WasmTarget::Web).expect("emit");
     assert!(

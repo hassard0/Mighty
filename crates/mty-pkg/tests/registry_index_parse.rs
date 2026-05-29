@@ -7,7 +7,7 @@ const FIXTURE: &str = r#"[
     {
         "tag_name": "otel-0.1.0",
         "name": "otel-0.1.0",
-        "html_url": "https://github.com/stardust-pkg/registry/releases/tag/otel-0.1.0",
+        "html_url": "https://github.com/mighty-pkg/registry/releases/tag/otel-0.1.0",
         "body": "[package]\nname=\"otel\"\nversion=\"0.1.0\"\nedition=\"2026\"",
         "assets": [
             {
@@ -23,7 +23,7 @@ const FIXTURE: &str = r#"[
     {
         "tag_name": "my-lib-1.2.3",
         "name": "my-lib-1.2.3",
-        "html_url": "https://github.com/stardust-pkg/registry/releases/tag/my-lib-1.2.3",
+        "html_url": "https://github.com/mighty-pkg/registry/releases/tag/my-lib-1.2.3",
         "body": "snapshot",
         "assets": [
             {

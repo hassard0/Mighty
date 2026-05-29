@@ -10,7 +10,7 @@
 // Two design departures from the Rust IR (same shape as the v0.8 HIR
 // notes):
 //
-//   1. **No la_arena / no typed arenas.** Stardust doesn't depend on
+//   1. **No la_arena / no typed arenas.** Mighty doesn't depend on
 //      la_arena, and the Mighty type system doesn't yet provide
 //      parametric newtypes. Vec<T> indexed by USize stands in; IDs are
 //      bare USize values.

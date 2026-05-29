@@ -1,10 +1,10 @@
 # demos/02_counter_web/smoke.ps1 — PowerShell equivalent of smoke.sh.
 $ErrorActionPreference = "Stop"
 $root = (Resolve-Path "$PSScriptRoot/../..").Path
-$sdust = $env:SDUST
-if (-not $sdust) { $sdust = Join-Path $root "target\debug\sdust.exe" }
-if (-not (Test-Path $sdust)) {
-    Write-Error "smoke: sdust not built. Run: cargo build -p sdust-cli"
+$mty = $env:MTY
+if (-not $mty) { $mty = Join-Path $root "target\debug\mty.exe" }
+if (-not (Test-Path $mty)) {
+    Write-Error "smoke: mty not built. Run: cargo build -p mty-cli"
     exit 2
 }
 
@@ -12,8 +12,8 @@ $out = Join-Path $root "demos\02_counter_web\target"
 if (-not (Test-Path $out)) { New-Item -ItemType Directory -Path $out | Out-Null }
 
 # 1) check + build
-& $sdust check (Join-Path $root "demos\02_counter_web\src\main.sd") | Out-Null
-& $sdust build --target wasm32-web --out-dir $out (Join-Path $root "demos\02_counter_web\src\main.sd") | Out-Null
+& $mty check (Join-Path $root "demos\02_counter_web\src\main.mty") | Out-Null
+& $mty build --target wasm32-web --out-dir $out (Join-Path $root "demos\02_counter_web\src\main.mty") | Out-Null
 
 $wasm = Join-Path $out "main.wasm"
 if (-not (Test-Path $wasm)) { Write-Error "smoke FAIL: missing $wasm"; exit 1 }
@@ -34,15 +34,16 @@ if ($bytes.Length -le 200) {
     exit 1
 }
 
-# 4) embedded 'stardust:web/log' string
+# 4) embedded 'mty:web/log' string (v0.36 T4 — renamed from legacy
+# `stardust:web/log` namespace).
 $text = [System.Text.Encoding]::ASCII.GetString($bytes)
-if (-not ($text -like "*stardust:web/log*")) {
-    Write-Error "smoke FAIL: 'stardust:web/log' import not found"
+if (-not ($text -like "*mty:web/log*")) {
+    Write-Error "smoke FAIL: 'mty:web/log' import not found"
     exit 1
 }
 
 # 5) host run
-$host_out = & $sdust run (Join-Path $root "demos\02_counter_web\src\main.sd") 2>&1 | Out-String
+$host_out = & $mty run (Join-Path $root "demos\02_counter_web\src\main.mty") 2>&1 | Out-String
 if (-not ($host_out -like "*counter_web: built*")) {
     Write-Host "host output:"
     Write-Host $host_out

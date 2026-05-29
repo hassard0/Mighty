@@ -107,7 +107,7 @@ pub fn run(
         }
         BuildOutcome::NativeOkNoLinker(p) => {
             println!(
-                "wrote object {} (no linker found; set $STARDUST_LINKER)",
+                "wrote object {} (no linker found; set $MTY_LINKER)",
                 p.display()
             );
             0

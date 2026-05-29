@@ -74,7 +74,7 @@ cd cpp && make run
 Or, from the repo root, run all available toolchains at once:
 
 ```bash
-./benches/run.sh   # auto-detects rust / go / c++ (and stardust if built)
+./benches/run.sh   # auto-detects rust / go / c++ (and mighty if built)
 ```
 
 ## Output shape

@@ -81,18 +81,18 @@ symbols (see `runtime_imports::RUNTIME_IMPORTS`):
 
 | Symbol | Signature | Purpose |
 |--------|-----------|---------|
-| `stardust_runtime_log` | `(ptr, len)` | `log("...")` |
-| `stardust_runtime_print` | `(ptr, len)` | `print("...")` |
-| `stardust_runtime_panic` | `(ptr, len)` | trap with message |
-| `stardust_runtime_arena_push` | `() -> handle` | open arena frame |
-| `stardust_runtime_arena_pop` | `(handle)` | close arena frame |
-| `stardust_runtime_alloc` | `(size, align, zero) -> ptr` | bump-allocate in top arena |
-| `stardust_runtime_budget_charge` | `(bytes) -> ok?` | charge against budget |
-| `stardust_runtime_send` | `(target, msg, payload)` | fire-and-forget |
-| `stardust_runtime_ask` | `(target, msg, payload, deadline_ms) -> reply` | sync request |
-| `stardust_runtime_spawn` | `(agent_id) -> handle` | start an agent |
-| `stardust_runtime_extern_call` | `(name_ptr, name_len, args)` | call libc fn |
-| `stardust_runtime_log_i64` | `(value)` | debug `log` for ints |
+| `mty_runtime_log` | `(ptr, len)` | `log("...")` |
+| `mty_runtime_print` | `(ptr, len)` | `print("...")` |
+| `mty_runtime_panic` | `(ptr, len)` | trap with message |
+| `mty_runtime_arena_push` | `() -> handle` | open arena frame |
+| `mty_runtime_arena_pop` | `(handle)` | close arena frame |
+| `mty_runtime_alloc` | `(size, align, zero) -> ptr` | bump-allocate in top arena |
+| `mty_runtime_budget_charge` | `(bytes) -> ok?` | charge against budget |
+| `mty_runtime_send` | `(target, msg, payload)` | fire-and-forget |
+| `mty_runtime_ask` | `(target, msg, payload, deadline_ms) -> reply` | sync request |
+| `mty_runtime_spawn` | `(agent_id) -> handle` | start an agent |
+| `mty_runtime_extern_call` | `(name_ptr, name_len, args)` | call libc fn |
+| `mty_runtime_log_i64` | `(value)` | debug `log` for ints |
 
 The runtime registers these via `JITBuilder::symbol(name, addr)` at
 finalize time. AOT mode declares them as imports and lets the host
@@ -169,7 +169,8 @@ let exe = link_executable(&obj, &exe_path, BuildMode::Release)?;
 ```
 
 Linker discovery (A52, extended in v0.2):
-1. `$STARDUST_LINKER` if set.
+1. `$MTY_LINKER` if set, otherwise `$STARDUST_LINKER` (legacy spelling,
+   one-shot deprecation warning).
 2. **Windows**: `clang.exe`, `clang`, `gcc.exe`, `gcc`, `cc.exe`, then
    `lld-link.exe`, `lld-link`. (We deliberately do *not* probe bare
    `link` on Windows because the MSYS coreutils `/usr/bin/link.exe`
@@ -181,7 +182,7 @@ Linker discovery (A52, extended in v0.2):
    skipped if found in `PATH`.
 
 If none found, `compile_object` succeeds but `link_executable` is
-skipped and the caller is told to set `$STARDUST_LINKER`.
+skipped and the caller is told to set `$MTY_LINKER`.
 
 ### Why `clang` first
 

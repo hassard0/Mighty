@@ -3,7 +3,7 @@
 // Compiles with `mty build --target wasm32-web` to a Component Model
 // component that imports a single host function:
 //
-//   import stardust:web/log#log(msg: string)
+//   import mty:web/log#log(msg: string)
 //
 // The companion `web/index.html` provides a JS host that implements
 // `log` by appending each call into a #log <pre> element and bumping
@@ -13,7 +13,7 @@
 //   * `package` + `use` on a wasm-targeted unit
 //   * `agent`/`protocol` shape (state + handler) — the counter agent
 //   * `export fn` synthesis to the Component Model world
-//   * `log("...")` lowering to the `stardust:web/log#log` import
+//   * `log("...")` lowering to the `mty:web/log#log` import
 //
 // v0.4 caveats:
 //   * The wasm32-web backend wires `log` but not yet a full DOM

@@ -81,11 +81,16 @@ exercised end-to-end in slice 7).
 
 | Variable | Effect |
 |----------|--------|
-| `STARDUST_TRACE=stderr` | emit JSON telemetry lines to stderr |
-| `STARDUST_TRACE=file:/path` | append JSON telemetry to file |
-| `STARDUST_RUNTIME_THREADS=N` | worker threads (default 1) |
-| `STARDUST_HTTP_MOCK=1` | bypass TCP bind for tests (reserved) |
-| `STARDUST_DET_SEED=N` | (reserved) seed for deterministic mode |
+| `MTY_TRACE=stderr` | emit JSON telemetry lines to stderr |
+| `MTY_TRACE=file:/path` | append JSON telemetry to file |
+| `MTY_RUNTIME_THREADS=N` | worker threads (default 1) |
+| `MTY_HTTP_MOCK=1` | bypass TCP bind for tests (reserved) |
+| `MTY_DET_SEED=N` | (reserved) seed for deterministic mode |
+
+> The legacy `STARDUST_*` spellings (`STARDUST_TRACE`,
+> `STARDUST_RUNTIME_THREADS`, …) are still honoured for back-compat;
+> the first lookup that falls through to a `STARDUST_*` name emits a
+> one-shot deprecation warning on stderr. See `crates/mty-runtime/src/env_compat.rs`.
 
 ## What slice 7 ships vs spec
 

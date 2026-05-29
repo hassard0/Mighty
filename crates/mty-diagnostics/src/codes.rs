@@ -1019,8 +1019,8 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
             "MT8008: Native linker missing. `mty build --target native` \
                  emitted a `.o` but could not find a system linker \
                  (cc / gcc / clang on unix, link.exe on windows). Set \
-                 `STARDUST_LINKER` to point at one, or install a C \
-                 toolchain."
+                 `MTY_LINKER` (or the legacy `STARDUST_LINKER`) to \
+                 point at one, or install a C toolchain."
         }
         8009 => {
             "MT8009: Emitted Wasm failed validation. The wasm backend \

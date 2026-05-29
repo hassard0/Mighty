@@ -1,4 +1,4 @@
-// demo 01_search_api — a minimal HTTP search-shaped service in Stardust.
+// demo 01_search_api — a minimal HTTP search-shaped service in Mighty.
 //
 // Endpoints (when bound by the real `std.http.serve` host bridge):
 //   GET  /health   -> {"status":"ok"}
@@ -66,7 +66,7 @@ fn main() {
 
   // /search — twice, to bump the counter.
   log("== search ==")
-  log(s?Query("stardust"))
+  log(s?Query("mighty"))
 
   log("== search-2 ==")
   log(s?Query("agents"))

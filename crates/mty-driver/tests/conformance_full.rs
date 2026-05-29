@@ -391,10 +391,21 @@ fn phase1_conformance_full() {
     let mut by_category: std::collections::BTreeMap<String, usize> = Default::default();
 
     // Optional bisect filter for debugging:
-    //   STARDUST_CONF_ONLY=<category>            — only that category
-    //   STARDUST_CONF_CASE=<category>/<case>     — only that case
-    let only = std::env::var("STARDUST_CONF_ONLY").ok();
-    let only_case = std::env::var("STARDUST_CONF_CASE").ok();
+    //   MTY_CONF_ONLY=<category>          — only that category
+    //   MTY_CONF_CASE=<category>/<case>   — only that case
+    // v0.36 T4 — the legacy `STARDUST_CONF_*` spellings still work
+    // (one-shot deprecation warning); useful when bisecting against
+    // older shell history.
+    let only = std::env::var("MTY_CONF_ONLY").ok().or_else(|| {
+        std::env::var("STARDUST_CONF_ONLY").ok().inspect(|_| {
+            eprintln!("mighty: warning: STARDUST_CONF_ONLY is deprecated; use MTY_CONF_ONLY");
+        })
+    });
+    let only_case = std::env::var("MTY_CONF_CASE").ok().or_else(|| {
+        std::env::var("STARDUST_CONF_CASE").ok().inspect(|_| {
+            eprintln!("mighty: warning: STARDUST_CONF_CASE is deprecated; use MTY_CONF_CASE");
+        })
+    });
     for (category, dir) in &cases {
         let name = dir.file_name().unwrap().to_string_lossy().into_owned();
         if let Some(o) = &only {
@@ -449,7 +460,7 @@ fn phase1_conformance_full() {
     // discoverable corpus floor up to 130+. See
     // CONFORMANCE_V0_10_NOTES.md, CONFORMANCE_V0_20_NOTES.md, and
     // docs/spec/conformance-coverage.md for the per-FROZEN-code coverage
-    // table. Skip the floor check when bisecting via STARDUST_CONF_ONLY.
+    // table. Skip the floor check when bisecting via MTY_CONF_ONLY.
     if only.is_none() && only_case.is_none() {
         assert!(
             ran >= 70,

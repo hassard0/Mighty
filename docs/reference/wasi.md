@@ -93,8 +93,9 @@ explicit `--wasi=p1` legacy path:
 1. The generated WIT document imports versioned P2 interfaces:
    `wasi:cli@0.2.3`, `wasi:io@0.2.3`, `wasi:clocks@0.2.3`,
    `wasi:filesystem@0.2.3`, `wasi:http@0.2.3`, `wasi:random@0.2.3`.
-2. The component's package id becomes `mighty:<pkg>` (instead of
-   `stardust:<pkg>`).
+2. The component's package id becomes `mty:<pkg>` (renamed from the
+   pre-v0.36 `stardust:<pkg>` spelling; see
+   `crates/mty-codegen-wasm/src/wit.rs::PKG_NAMESPACE`).
 3. (v0.13–v0.16) An unversioned `wasi:cli/log` shim used to be
    declared here so the core module's `wasi:cli/log#log` import
    resolved through `wit-component::ComponentEncoder` without

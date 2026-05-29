@@ -224,8 +224,8 @@ the MSVC-toolchain dependency. Two fixes:
    that instead.
 
 If the build succeeds but `mty build` can't find a linker, point
-`STARDUST_LINKER` at one or install a C toolchain — see `mty
-explain MT8008`.
+`MTY_LINKER` (or the legacy `STARDUST_LINKER`) at one or install a
+C toolchain — see `mty explain MT8008`.
 
 ### What is the macOS `LC_BUILD_VERSION` fix?
 

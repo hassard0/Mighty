@@ -60,7 +60,7 @@ pub extern "C" fn mty_runtime_print(ptr: i64, len: i64) {
 #[no_mangle]
 pub extern "C" fn mty_runtime_panic(ptr: i64, len: i64) {
     let s = unsafe { read_str(ptr, len) };
-    eprintln!("stardust panic: {s}");
+    eprintln!("mighty panic: {s}");
 }
 
 #[no_mangle]

@@ -4,7 +4,7 @@
 pub enum WasmTarget {
     /// wasm32-wasi (WASI preview1) — log/print routed to fd_write.
     Wasi,
-    /// wasm32-web — browser host; log routed to imported `stardust.log`.
+    /// wasm32-web — browser host; log routed to imported `mty:web/log`.
     Web,
 }
 

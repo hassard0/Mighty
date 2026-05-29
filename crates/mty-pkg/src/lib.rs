@@ -49,8 +49,8 @@ pub use mty_driver::manifest::{
 
 pub use lockfile::{LockedPackage, Lockfile, LockfileError, DEFAULT_REGISTRY};
 pub use registry::{
-    AuthStore, RegistryConfig, RegistryError, RegistryIndex, RegistryRelease,
-    DEFAULT_REGISTRY_SLUG, INDEX_TTL_SECS,
+    is_official_registry, AuthStore, RegistryConfig, RegistryError, RegistryIndex, RegistryRelease,
+    DEFAULT_REGISTRY_SLUG, INDEX_TTL_SECS, LEGACY_REGISTRY_SLUG,
 };
 pub use resolver::{ResolveError, Resolver};
 

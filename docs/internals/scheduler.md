@@ -109,7 +109,7 @@ single worker runtime. Same external behavior; new internal layout.
 
 - `RuntimeBuilder::workers(n)` controls worker count
   (default = `std::thread::available_parallelism()` or
-  `STARDUST_RUNTIME_THREADS=N`).
+  `MTY_RUNTIME_THREADS=N`, or the legacy `STARDUST_RUNTIME_THREADS`).
 - `RuntimeBuilder::threads(n)` is a slice-7 alias of `.workers(n)`.
 - `Runtime::start_monitor()` spawns the load-monitor OS thread.
 

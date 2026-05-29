@@ -77,9 +77,10 @@ pub struct RuntimeBuilder {
 
 impl Default for RuntimeBuilder {
     fn default() -> Self {
-        let env_workers = std::env::var("STARDUST_RUNTIME_THREADS")
-            .ok()
-            .and_then(|s| s.parse().ok());
+        // v0.36 T4 — prefer MTY_RUNTIME_THREADS; honour the legacy
+        // STARDUST_RUNTIME_THREADS spelling with a one-shot warning.
+        let env_workers =
+            crate::env_compat::lookup_env("RUNTIME_THREADS").and_then(|s| s.parse().ok());
         let workers = env_workers.unwrap_or_else(default_worker_count);
         Self {
             deterministic_seed: None,

@@ -75,7 +75,7 @@ fn world_exports_functions_inline() {
 fn package_id_is_kebab_normalized() {
     let prog = common::empty_main();
     let doc = emit_wit(&prog, "Hello_World", WasmTarget::Wasi).expect("emit");
-    assert_eq!(doc.package_id, "stardust:hello-world");
+    assert_eq!(doc.package_id, "mty:hello-world");
 }
 
 #[test]

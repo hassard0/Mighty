@@ -76,7 +76,7 @@ pub fn diagnostic_to_lsp(
         severity: Some(severity_to_lsp(d.severity)),
         code: Some(lt::NumberOrString::String(d.code.as_str())),
         code_description: None,
-        source: Some("stardust".to_string()),
+        source: Some("mighty".to_string()),
         message,
         related_information: if related.is_empty() {
             None

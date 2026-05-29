@@ -182,7 +182,8 @@ kit's expected_diagnostics.txt uses the Rust reference's codes; a
 * v0.21+ — deepen the new categories' assertion machinery:
   - `deterministic_replay`: integration tests under
     `crates/mty-runtime/tests/` that exec each case under
-    `STARDUST_REPLAY_RECORD` + `STARDUST_REPLAY_PLAY` and diff
+    `MTY_REPLAY_RECORD` + `MTY_REPLAY_PLAY` (legacy `STARDUST_*`
+    spellings still accepted) and diff
     the traces against `expected_trace.txt`.
   - `formatter_idempotence`: a `crates/mty-fmt/tests/conformance_idem.rs`
     that asserts `fmt(input.mty) == canonical.mty` for every case.

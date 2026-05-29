@@ -8,7 +8,7 @@ mkdir -p generated
 
 UNITS=100
 
-# Stardust
+# Mighty
 {
   echo "// auto-generated"
   for i in $(seq 0 $((UNITS - 1))); do
@@ -25,7 +25,7 @@ fn bench_f${i}(x: I64, y: I64) -> I64 {
 }
 EOF
   done
-} > generated/synth.sd
+} > generated/synth.mty
 
 # Rust
 {
@@ -65,4 +65,4 @@ EOF
   echo "int main() { std::printf(\"%lld\\n\", (long long)bench_f0(1, 2)); return 0; }"
 } > generated/synth.cpp
 
-echo "wrote generated/synth.{sd,rs,go,cpp}"
+echo "wrote generated/synth.{mty,rs,go,cpp}"

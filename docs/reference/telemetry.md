@@ -8,8 +8,9 @@ Mighty's runtime emits OpenTelemetry spans for every agent operation
 when an OTLP collector endpoint is configured. The instrumentation is
 off by default — runtimes with no `MTY_OTLP_ENDPOINT` pay zero cost.
 
-For the slice-7 JSON-line event emitter (`STARDUST_OTLP_ENDPOINT`,
-`STARDUST_TRACE`), see `docs/internals/telemetry.md` and
+For the slice-7 JSON-line event emitter (`MTY_OTLP_ENDPOINT`,
+`MTY_TRACE`; legacy `STARDUST_*` spellings still honoured), see
+`docs/internals/telemetry.md` and
 `docs/internals/telemetry-otlp.md`. The two layers coexist: the
 slice-7 sink emits point-in-time events at every call site; the
 v0.16 span layer adds long-lived spans with parent-child relationships
