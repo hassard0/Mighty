@@ -1,9 +1,10 @@
 # Mighty v0.35 — Release Notes
 
-**Tag:** `v0.35.1` (v0.35.0 had a PGO release-pipeline bug — see
-"Integrator notes")
+**Tag:** `v0.35.2` (v0.35.0 + v0.35.1 had Release-workflow PGO
+bugs — see "Integrator notes")
 **Date:** 2026-05-29
-**Status:** SHIPPED — closing the v0.33 stubs.
+**Status:** SHIPPED — closing the v0.33 stubs. PGO temporarily
+disabled in v0.35.2; queued as v0.36 deeper fix.
 
 **Headline:** **Mighty v0.35 — closing the v0.33 stubs.** Real WASM
 mty in the browser (the install funnel that the playground was
@@ -258,10 +259,10 @@ stable at `~/.cargo/bin/cargo`). All green.
 
 ## Integrator notes
 
-**v0.35.0 → v0.35.1 PGO fix.** The v0.35.0 tag pushed at 03:56
-UTC. The Release workflow's PGO leg failed on all three PGO
-platforms (`linux-x86_64`, `darwin-arm64`, `windows-x86_64`) at
-Phase 4 (optimised rebuild) with `file
+**v0.35.0 → v0.35.1 → v0.35.2 PGO saga.** The v0.35.0 tag pushed
+at 03:56 UTC. The Release workflow's PGO leg failed on all three
+PGO platforms (`linux-x86_64`, `darwin-arm64`, `windows-x86_64`)
+at Phase 4 (optimised rebuild) with `file
 'target/pgo-profiles/merged.profdata' passed to '-C profile-use'
 does not exist`. Root cause: `rustc` resolves
 `-Cprofile-use=<path>` at compile time from each build script's
@@ -269,11 +270,37 @@ own CWD (package dir), not the workspace root.
 `-Cprofile-generate=<path>` works with the same relative path
 because that path is registered into the instrumented binary and
 resolved at *runtime* CWD (the sweep is driven from workspace
-root). The fix promotes `$PROFDIR` / `$ProfDir` to absolute
-*before* any `rustc` invocation, in both `scripts/build-pgo.sh`
-and `scripts/build-pgo.ps1`. Retagged as `v0.35.1`. No source
-changes between v0.35.0 and v0.35.1 outside the two release
-scripts.
+root). v0.35.1 fixed this by promoting `$PROFDIR` / `$ProfDir` to
+absolute *before* any `rustc` invocation.
+
+**v0.35.1 → v0.35.2.** With the path bug gone, two deeper PGO
+issues surfaced:
+
+- `linux-x86_64` Phase 4 reached the link step then aborted with
+  `LLVM ERROR: Broken module found, module flag identifiers must
+  be unique !"CG Profile"`. The `-Clinker-plugin-lto` flag plus
+  `release-pgo`'s fat LTO produces conflicting "CG Profile" module
+  flags from multiple C-dep object files (libgit2-sys, ring,
+  aws-lc-sys, libsqlite3-sys).
+- `darwin-arm64` + `windows-x86_64` Phase 3 hit a profile-format
+  version mismatch (`raw=8 vs expected=10`) on a subset of
+  profraw shards. The cargo cache at key
+  `${runner.os}-${target}-cargo-release-${Cargo.lock-hash}` is
+  shared between runs; v0.35.1's cache hit restored
+  `target/release-pgo/build/<crate>/build-script-build` artefacts
+  from a prior PGO attempt with a slightly different LLVM profraw
+  format. Phase 0's `rm -rf $PROFDIR` only wipes the merged
+  output, not the build-script binaries that emit profraw on
+  execution.
+
+v0.35.2 flips `use_pgo: true → false` for all three previously-
+PGO platforms. All 5 release binaries ship via the plain `release`
+profile. PGO infra (`scripts/build-pgo.{sh,ps1}` + workflow
+matrix wiring) is preserved for the v0.36 deeper fix (drop
+`-Clinker-plugin-lto`, narrow the cache key to exclude
+`target/release-pgo/`). The user-facing UX of v0.35 is unchanged
+— the playground, agent transports, `mty fix --apply`, Strategy B
+hover, and Docker multi-arch all ship as designed.
 
 The five merges were mechanical despite three tracks touching
 `crates/mty-cli/src/main.rs` — each new subcommand variant extends
@@ -343,6 +370,16 @@ the final tag push only.
   apply corpus.
 
 ### T4 — PGO / Docker / Homebrew
+- **PGO re-enable (HIGH PRIORITY for v0.36)** — v0.35.2 ships with
+  PGO disabled across the 3 PGO platforms after v0.35.0 + v0.35.1
+  failed in CI (see "Integrator notes"). Fix path:
+  (a) drop `-Clinker-plugin-lto` from the optimised-rebuild
+  RUSTFLAGS — the PGO+fat-LTO combo already gives us most of the
+  perf win without dragging in cross-lang LTO that conflicts on
+  the "CG Profile" module flag; (b) tighten the cargo cache key
+  to exclude `target/release-pgo/` so stale build-script artefacts
+  don't leak profile-format version mismatches; (c) consider
+  adding `target/release-pgo/build/` to Phase 0's `rm -rf`.
 - **PGO on `darwin-x86_64`** — once the CI matrix gains a macOS
   Intel runner that can execute the instrumented binary natively.
 - **PGO on `linux-aarch64`** — once a native arm64 GitHub runner

@@ -72,7 +72,16 @@ jobs:
             artifact: mty
             asset: mty-x86_64-unknown-linux-gnu.tar.gz
             use_cross: false
-            use_pgo: true
+            # v0.35.2: PGO temporarily disabled. v0.35.1 fixed the
+            # absolute-path bug at Phase 4 but the PGO+linker-plugin-LTO
+            # combo blows up on linux-x86_64 with
+            # `LLVM ERROR: Broken module found, module flag identifiers
+            # must be unique !"CG Profile"`, and the macOS+windows legs
+            # hit a profile-format version mismatch (raw=8 vs expected
+            # =10) on cached `target/` artifacts. v0.36 owns the deeper
+            # fix (likely: drop `-Clinker-plugin-lto`, scope cache key
+            # away from `target/pgo-profiles/`).
+            use_pgo: false
           # v0.32 (Track D): Intel macOS via cross-compile on Apple
           # Silicon runner. v0.32.1 pivoted from `macos-13` to
           # `macos-14` because GitHub Actions' free Intel runner
@@ -96,7 +105,8 @@ jobs:
             artifact: mty
             asset: mty-aarch64-apple-darwin.tar.gz
             use_cross: false
-            use_pgo: true
+            # v0.35.2: PGO temporarily disabled (see linux-x86_64 entry).
+            use_pgo: false
           # v0.32 (Track D): aarch64 Linux for Raspberry Pi 5, AWS
           # Graviton, Ampere Altra, and Apple Silicon Linux VMs.
           # Cross-compiled from ubuntu-latest via the `cross` tool
@@ -116,7 +126,8 @@ jobs:
             artifact: mty.exe
             asset: mty-x86_64-pc-windows-msvc.zip
             use_cross: false
-            use_pgo: true
+            # v0.35.2: PGO temporarily disabled (see linux-x86_64 entry).
+            use_pgo: false
     steps:
       - uses: actions/checkout@v4
         with:

@@ -28,7 +28,10 @@ v0.36 candidates (rolled up across all 5 v0.35 tracks):
   (`source.fixAll.mighty.MT4xxx`); `mty fix --apply --workspace`
   to walk the project; apply telemetry to feed the confidence-score
   calibration corpus.
-- **T4 — PGO / Docker / Homebrew** — PGO on `darwin-x86_64` (needs
+- **T4 — PGO / Docker / Homebrew** — **PGO re-enable (HIGH
+  PRIORITY)** — v0.35.2 ships PGO disabled after v0.35.0+v0.35.1
+  Release failures; fix path is to drop `-Clinker-plugin-lto` and
+  tighten the cargo cache key; PGO on `darwin-x86_64` (needs
   native macOS Intel runner that can execute instrumented binary);
   PGO on `linux-aarch64` (needs native arm64 GitHub runner);
   Docker publish toggle (user-driven); Homebrew-core PR (runbook
@@ -55,20 +58,35 @@ freeze-gate items into "ready": real WASM playground (T1), `mty
 agent` production transports (T2), and the agent-first-shot →
 zero-shot loop (T3).
 
+## [0.35.2] - 2026-05-29
+
+### Fixed
+- **Release pipeline** — PGO temporarily disabled across the three
+  PGO platforms (`linux-x86_64`, `darwin-arm64`,
+  `windows-x86_64`). v0.35.1 fixed the `-Cprofile-use` absolute-
+  path bug at Phase 4, but two deeper issues remain: `linux-x86_64`
+  hits `LLVM ERROR: Broken module found, module flag identifiers
+  must be unique !"CG Profile"` during the PGO+`-Clinker-plugin-lto`
+  link-time pass, and `darwin-arm64` + `windows-x86_64` see a
+  profile-format version mismatch (`raw=8 vs expected=10`) on
+  cached `target/` artefacts. v0.36 owns the deeper fix (likely:
+  drop `-Clinker-plugin-lto`, scope cache key away from
+  `target/pgo-profiles/`). All 5 release binaries now ship via the
+  plain `release` profile. PGO script + workflow wiring preserved.
+
 ## [0.35.1] - 2026-05-29
 
 ### Fixed
 - **PGO release pipeline** — `scripts/build-pgo.{sh,ps1}` promote
   `$PROFDIR` / `$ProfDir` to absolute before any `rustc`
   invocation. v0.35.0's Release workflow failed on all three PGO
-  platforms (`linux-x86_64`, `darwin-arm64`, `windows-x86_64`)
-  with `file 'target/pgo-profiles/merged.profdata' passed to
-  '-C profile-use' does not exist` because `rustc` resolved
-  `-Cprofile-use=<relative-path>` from each build script's own
-  CWD (package dir), not the workspace root.
+  platforms with `file 'target/pgo-profiles/merged.profdata'
+  passed to '-C profile-use' does not exist` because `rustc`
+  resolved `-Cprofile-use=<relative-path>` from each build
+  script's own CWD (package dir), not the workspace root.
   `-Cprofile-generate` was unaffected (the path is resolved at the
   instrumented binary's runtime CWD, which is the workspace root).
-  Source artefacts are otherwise identical to v0.35.0.
+  Superseded by v0.35.2 on the deeper PGO breakage (see above).
 
 ## [0.35.0] - 2026-05-28
 
@@ -109,14 +127,14 @@ parallel.
   both paths. Canonical zero-shot loop:
   `mty check --format json src/main.mty | mty fix --apply
   --from-stdin`. `+78 tests`.
-- **T4** — PGO release on 3 platforms (`linux-x86_64`,
-  `darwin-arm64`, `windows-x86_64`); `darwin-x86_64` and
-  `linux-aarch64` stay on plain `release` because neither build
-  path can execute the instrumented binary natively. Multi-arch
-  Docker (`linux/amd64,linux/arm64`, cosigned with `--recursive`,
-  SBOM, gated on `vars.PUBLISH_DOCKER`); Homebrew-core submission
-  runbook updated for v0.35 reality (all four arches shipping
-  cleanly for ~7 releases — user-driven submission).
+- **T4** — PGO scripts + workflow matrix wiring for 3 platforms
+  (`linux-x86_64`, `darwin-arm64`, `windows-x86_64`); **shipped
+  disabled in v0.35.2** after CI failures (see [0.35.2] above).
+  Multi-arch Docker (`linux/amd64,linux/arm64`, cosigned with
+  `--recursive`, SBOM, gated on `vars.PUBLISH_DOCKER`); Homebrew-
+  core submission runbook updated for v0.35 reality (all four
+  arches shipping cleanly for ~7 releases — user-driven
+  submission).
 - **T5** — Strategy B hover catalog: per-module `.docstub` files
   (`crates/mty-stdlib/docs/<module>.docstub`, 18 module buckets)
   + walker (`crates/mty-doc/src/stdlib_walker.rs`,
