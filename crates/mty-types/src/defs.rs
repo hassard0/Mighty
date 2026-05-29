@@ -64,6 +64,12 @@ pub struct FnDef {
     pub body: Option<mty_hir::BlockId>,
     /// Original HIR fn for body-checking. `None` for built-ins.
     pub hir_fn: Option<mty_hir::FnId>,
+    /// v0.37 T6 — variadic extern C fn (`extern c fn printf(fmt: *const
+    /// U8, ...) -> I32;`). When `true`, [`crate::check::synth_call`]
+    /// accepts any number of trailing args beyond `params.len()` (each
+    /// typechecked independently as a fresh inference var) instead of
+    /// emitting MT2005 (WRONG_ARG_COUNT).
+    pub is_variadic: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

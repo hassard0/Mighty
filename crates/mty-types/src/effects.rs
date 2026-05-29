@@ -2064,6 +2064,7 @@ mod tests {
             generics: vec![],
             body: Some(block),
             tool_attr: None,
+            is_variadic: false,
             span: SourceSpan { start: 0, end: 0 },
         });
         let iid = pkg.items.alloc(Item::Fn(fid));
@@ -2121,6 +2122,7 @@ mod tests {
             generics: vec![],
             body: Some(block),
             tool_attr: None,
+            is_variadic: false,
             span: SourceSpan { start: 0, end: 0 },
         });
         let iid = pkg.items.alloc(Item::Fn(fid));

@@ -286,6 +286,7 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
                     is_pub: hf.is_pub,
                     body: hf.body,
                     hir_fn: Some(*mfid),
+                    is_variadic: false,
                 };
                 let id = defs.alloc_fn(fdef);
                 defs.hir_fn_to_def.insert(*mfid, id);
@@ -398,6 +399,7 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
                     is_pub: hf.is_pub,
                     body: hf.body,
                     hir_fn: Some(*mfid),
+                    is_variadic: false,
                 });
                 defs.hir_fn_to_def.insert(*mfid, fdef_id);
                 if let Some(aid) = self_adt {
@@ -606,6 +608,7 @@ fn declare_item(
                 is_pub: hf.is_pub,
                 body: hf.body,
                 hir_fn: Some(*fid),
+                is_variadic: false,
             });
             defs.by_name.insert(hf.name.clone(), DefRef::Fn(fdef_id));
             fn_ids.push((*fid, fdef_id));
@@ -623,6 +626,11 @@ fn declare_item(
                     is_pub: true,
                     body: None,
                     hir_fn: Some(*fid),
+                    // v0.37 T6 — forward the parser-detected variadic
+                    // marker from the HIR. This is the only place where
+                    // FnDef.is_variadic can be `true`; all other FnDef
+                    // constructors hard-code `false`.
+                    is_variadic: hf.is_variadic,
                 });
                 defs.by_name
                     .entry(hf.name.clone())

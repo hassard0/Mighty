@@ -91,6 +91,9 @@ fn lower_fn(ctx: &mut LoweringCtx, f: FnDecl) -> FnId {
         effect_row,
         body,
         tool_attr,
+        // v0.37 T6 — ordinary (non-extern) fns can't be variadic; the
+        // parser rejects `...` outside of an extern block.
+        is_variadic: false,
         span: span_of(&f.0),
     };
     ctx.package.fns.alloc(hf)
@@ -452,6 +455,17 @@ fn lower_extern_block(ctx: &mut LoweringCtx, node: SyntaxNode) -> HirExternBlock
             .find(|c| c.kind() == SyntaxKind::RET_TYPE)
             .and_then(|r| r.children().next())
             .map(|t| super::types::lower_type(ctx, t));
+        // v0.37 T6 — detect the variadic marker (`...`) inside the
+        // parameter list. The parser wraps it in a `VARIADIC_MARKER`
+        // node sibling to the FN_PARAMs, so we just look for that.
+        let is_variadic = child
+            .children()
+            .find(|c| c.kind() == SyntaxKind::FN_PARAM_LIST)
+            .map(|pl| {
+                pl.children()
+                    .any(|c| c.kind() == SyntaxKind::VARIADIC_MARKER)
+            })
+            .unwrap_or(false);
         let hf = HirFn {
             name,
             is_pub: true,
@@ -463,6 +477,7 @@ fn lower_extern_block(ctx: &mut LoweringCtx, node: SyntaxNode) -> HirExternBlock
             effect_row: None,
             body: None,
             tool_attr: None,
+            is_variadic,
             span: span_of(&child),
         };
         let fid = ctx.package.fns.alloc(hf);

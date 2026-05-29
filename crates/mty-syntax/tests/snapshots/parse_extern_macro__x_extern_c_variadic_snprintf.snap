@@ -1,0 +1,76 @@
+---
+source: crates/mty-syntax/tests/parse_extern_macro.rs
+expression: "dump(\"extern c {\\n  fn snprintf(buf: *U8, n: USize, fmt: *U8, ...) -> I32\\n}\")"
+---
+FILE@0..68
+  EXTERN_BLOCK@0..68
+    EXTERN_KW@0..6 "extern"
+    WHITESPACE@6..7 " "
+    NAME@7..8
+      IDENT@7..8 "c"
+    WHITESPACE@8..9 " "
+    L_BRACE@9..10 "{"
+    WHITESPACE@10..13 "\n  "
+    EXTERN_FN@13..67
+      FN_KW@13..15 "fn"
+      WHITESPACE@15..16 " "
+      NAME@16..24
+        IDENT@16..24 "snprintf"
+      FN_PARAM_LIST@24..60
+        L_PAREN@24..25 "("
+        FN_PARAM@25..33
+          NAME@25..28
+            IDENT@25..28 "buf"
+          COLON@28..29 ":"
+          WHITESPACE@29..30 " "
+          TYPE_BORROW@30..33
+            STAR@30..31 "*"
+            TYPE_PATH@31..33
+              PATH@31..33
+                PATH_SEGMENT@31..33
+                  NAME_REF@31..33
+                    IDENT@31..33 "U8"
+        COMMA@33..34 ","
+        WHITESPACE@34..35 " "
+        FN_PARAM@35..43
+          NAME@35..36
+            IDENT@35..36 "n"
+          COLON@36..37 ":"
+          WHITESPACE@37..38 " "
+          TYPE_PATH@38..43
+            PATH@38..43
+              PATH_SEGMENT@38..43
+                NAME_REF@38..43
+                  IDENT@38..43 "USize"
+        COMMA@43..44 ","
+        WHITESPACE@44..45 " "
+        FN_PARAM@45..53
+          NAME@45..48
+            IDENT@45..48 "fmt"
+          COLON@48..49 ":"
+          WHITESPACE@49..50 " "
+          TYPE_BORROW@50..53
+            STAR@50..51 "*"
+            TYPE_PATH@51..53
+              PATH@51..53
+                PATH_SEGMENT@51..53
+                  NAME_REF@51..53
+                    IDENT@51..53 "U8"
+        COMMA@53..54 ","
+        WHITESPACE@54..55 " "
+        VARIADIC_MARKER@55..58
+          DOT_DOT_DOT@55..58 "..."
+        R_PAREN@58..59 ")"
+        WHITESPACE@59..60 " "
+      THIN_ARROW@60..62 "->"
+      WHITESPACE@62..63 " "
+      RET_TYPE@63..67
+        TYPE_PATH@63..67
+          PATH@63..67
+            PATH_SEGMENT@63..66
+              NAME_REF@63..66
+                IDENT@63..66 "I32"
+            WHITESPACE@66..67 "\n"
+    R_BRACE@67..68 "}"
+
+errors: []

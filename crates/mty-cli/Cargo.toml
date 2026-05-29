@@ -165,6 +165,14 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "ne
 # v0.30 Track E — `cmd::test` discovery + frontmatter parser tests
 # spin up temp directories full of `*.eval.mty` fixtures.
 tempfile = "3"
+# v0.37 T6 — replaced the hand-rolled `http_get()` in `tests/cmd_serve.rs`
+# with `ureq::get(...)`. Pure-Rust blocking HTTP client; no async/runtime
+# requirement and no rustls/ring transitive deps. Crucially, ureq handles
+# the ConnectionReset-before-EOF case that GHA Ubuntu runners flake on
+# with raw TCP reads (see commit 19e2163 in v0.36.1) — the RST is folded
+# into a normal EOF rather than panicking, so the v0.36 retry workaround
+# could be dropped.
+ureq = { version = "2", default-features = false }
 
 [lints]
 workspace = true

@@ -99,7 +99,7 @@ matrix test still proves the .a is reachable.
 | 09 | `extern c fn foo(s: *const Str)` (Str ↔ C const char*) | works (wrapper) | Mighty's `Const::Str` interns null-terminated UTF-8, so the pointer is `const char *`-compatible. |
 | 10 | `extern c fn foo(s: *mut Str) -> usize` (caller-owned buf) | works (wrapper) | The classic `snprintf` shape. |
 | 11 | `extern c fn foo(cb: extern fn(i32) -> i32)` | works (wrapper) | Function pointer. Wrapper synthesises the callback C-side. |
-| 12 | Variadic | **NOT** supported | Cranelift's `Signature` lacks a vararg marker; deferred to v0.37. |
+| 12 | Variadic (decl) | parse / typeck / linker decl shipped (v0.37 T6) | `extern c fn printf(fmt: *U8, ...) -> I32` parses, typechecks, and lowers to a `Linkage::Import` declaration. Calls with **only the fixed-arity prefix** work end-to-end on the cranelift backend. Calls passing extra varargs are still a cranelift-side `CodegenError::Unsupported` — cranelift 0.132 has no vararg `Signature` flag, so a per-call-site signature import is the v0.38 follow-up. |
 
 ## v0.37 follow-ups — Mighty-side ergonomics
 
@@ -113,8 +113,49 @@ plumbing is already shipped.
    followed by `mty_row04(&x)` borrowchecks (row 04).
 3. **Struct literal as FFI arg** — pass a Mighty `Point { x: 1, y: 2 }`
    directly into a C `Point` param (rows 05, 06, 07).
-4. **Variadic extern decls** — `extern c fn printf(fmt: *U8, ...)`
-   (row 12).
+
+## v0.37 T6 — variadic externs (parse / typeck / decl)
+
+Lands the `...` token and the full parse → HIR → SIR plumbing for
+variadic C signatures. What works today on the cranelift backend:
+
+* **Declaration.** `extern c fn printf(fmt: *U8, ...) -> I32` parses
+  (the `...` is wrapped in a `VARIADIC_MARKER` CST node sibling to the
+  trailing `FN_PARAM`s), lowers to `HirFn { is_variadic: true, ... }`,
+  flows into `FnDef.is_variadic`, and the SIR `ExternBinding` carries
+  the flag so every backend can see it.
+* **Typeck.** `synth_call` recognises a single-segment `Path` callee
+  that resolves to a variadic `FnDef`, switches the strict
+  `params.len() != args.len()` check to `args.len() >= params.len()`,
+  and synthesises a fresh inference variable for each extra arg
+  (typed independently). Below-fixed-arity calls still emit MT2005.
+* **Codegen — fixed-arity prefix.** Calls that pass exactly the
+  fixed-arity prefix (e.g. `printf(fmt)`) lower like any other extern
+  C call: the linker resolves the symbol, the declared signature is
+  exact, the call instruction validates.
+* **Codegen — variadic call extension.** Calls with extra args
+  (`printf(fmt, 1, 2)`) surface a clean `CodegenError::Unsupported`
+  pointing at this doc. Cranelift 0.132's `Signature` has no
+  first-class vararg flag and `declare_function` rejects re-declaring
+  the same symbol with a different signature, so per-call-site
+  signature handling needs `Function::import_signature` +
+  `call_indirect` via `func_addr` of the linked symbol. **Tracked for
+  v0.38.**
+* **Wasm backend.** Any program containing a variadic extern fn
+  fails the wasm compile with `WasmError::Unsupported`, regardless of
+  whether the fn is actually called. Core wasm has no varargs ABI
+  and the Component Model FFI surface forbids it. Use the cranelift
+  backend instead.
+
+### v0.38 follow-up
+
+Finish the cranelift call extension: at every call site where a
+variadic extern is invoked with non-empty extras, build a per-call
+`ir::Signature` from the actual SIR arg types, register it via
+`Function::import_signature`, materialise the callee's address via
+`func_addr` against the `Linkage::Import` declaration, and use
+`call_indirect`. The wasm-side stance does NOT change — variadic
+externs stay rejected.
 
 ## Practical examples
 

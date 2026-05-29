@@ -1883,6 +1883,21 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 let func_id = *self.mod_ctx.fn_ids.get(callee_id).ok_or_else(|| {
                     CodegenError::Module(format!("call to undeclared fn {:?}", callee_id))
                 })?;
+                // v0.37 T6 — variadic extern C fn (e.g. `printf`). The
+                // declared signature only has the fixed prefix; cranelift
+                // 0.132 has no first-class variadic flag, so for now we
+                // only support the fixed-arity case (no trailing `...`
+                // args actually supplied). Calls that pass extra args
+                // are still parse/typeck-legal — they surface here as a
+                // clear codegen error pointing at the extern-c matrix
+                // doc. Tracked as a v0.38 follow-up under
+                // `docs/internals/extern-c-matrix.md`.
+                let is_variadic_callee = self
+                    .prog
+                    .extern_bindings
+                    .get(callee_id)
+                    .map(|b| b.is_variadic)
+                    .unwrap_or(false);
                 let func_ref = self
                     .mod_ctx
                     .module
@@ -1899,6 +1914,28 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                     .map(|p| callee.locals[p.0 as usize].ty.clone())
                     .filter(|t| !matches!(t, IrTy::Unit | IrTy::Never))
                     .collect();
+                // v0.37 T6 — refuse the call only if the caller actually
+                // tries to pass MORE args than the fixed prefix. Calls
+                // that exactly match the prefix work via the regular
+                // path below.
+                if is_variadic_callee {
+                    let non_unit_arg_count = args
+                        .iter()
+                        .filter(|a| {
+                            !matches!(a, mty_ir::ir::Operand::Const(mty_ir::ir::Const::Unit))
+                        })
+                        .count();
+                    if non_unit_arg_count > callee_param_tys.len() {
+                        return Err(CodegenError::Unsupported(format!(
+                            "variadic extern call to `{}` with {} args; cranelift backend only \
+                             supports the fixed-arity prefix in v0.37 T6 (see \
+                             docs/internals/extern-c-matrix.md). Declared with {} fixed param(s).",
+                            callee.name,
+                            non_unit_arg_count,
+                            callee_param_tys.len()
+                        )));
+                    }
+                }
                 let expected = callee_param_tys.len();
                 let mut arg_vals: Vec<cranelift_codegen::ir::Value> = Vec::with_capacity(expected);
                 for a in args {

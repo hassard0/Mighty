@@ -52,3 +52,41 @@ fn x_unsafe_block() {
 fn x_unsafe_fn_requires() {
     assert_snapshot!(dump("pub unsafe fn from_raw(ptr: *U8, len: USize) -> Bytes\n  requires ptr != null\n  requires valid(ptr, len)"));
 }
+
+// ---- v0.37 T6 — variadic extern C fn declarations ----
+
+/// Parses a `printf`-style signature with a trailing `...` after one
+/// fixed param. The variadic marker should land in the CST as a
+/// `VARIADIC_MARKER` node, NOT as an extra `FN_PARAM`.
+#[test]
+fn x_extern_c_variadic_printf() {
+    assert_snapshot!(dump("extern c {\n  fn printf(fmt: *U8, ...) -> I32\n}"));
+}
+
+/// Two fixed params + variadic — the most common shape for snprintf
+/// and friends.
+#[test]
+fn x_extern_c_variadic_snprintf() {
+    assert_snapshot!(dump(
+        "extern c {\n  fn snprintf(buf: *U8, n: USize, fmt: *U8, ...) -> I32\n}"
+    ));
+}
+
+/// Leading `...` (zero fixed params before the marker). C technically
+/// requires at least one fixed param before `...`, but the parser
+/// accepts this shape — typeck / clippy-style lints can flag it later.
+/// What we care about at parse time is the CST shape: no `FN_PARAM`,
+/// one `VARIADIC_MARKER`.
+#[test]
+fn x_extern_c_variadic_leading() {
+    assert_snapshot!(dump("extern c {\n  fn fff(...) -> I32\n}"));
+}
+
+/// Mixed extern block: one variadic + one regular fn. Each fn's
+/// variadic-ness is recorded independently.
+#[test]
+fn x_extern_c_variadic_mixed_block() {
+    assert_snapshot!(dump(
+        "extern c {\n  fn printf(fmt: *U8, ...) -> I32\n  fn strlen(s: *U8) -> USize\n}"
+    ));
+}
