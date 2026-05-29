@@ -9,46 +9,118 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-v0.35 candidates (rolled up from all 4 v0.34 tracks):
+v0.36 candidates (rolled up across all 5 v0.35 tracks):
 
-- **T1 — Fix coverage** — backfill the remaining ~30 codes in the v1.0
-  registry (v0.34 ships 81 of ~110); confidence-score calibration
-  against a labelled fix-success-rate corpus; `mty fix --auto-pick`
-  for batch application of the top-ranked alternative without an LSP
-  round-trip.
-- **T2 — LSP CodeActions** — streaming refactor actions that open a
-  wizard for multi-step fixes; IntelliJ Alt+Enter intention-list
-  parity with the current quickfix surface; per-fix telemetry hook
-  so the IDE surface can report which alternatives users pick.
-- **T3 — Hover catalog** — multi-modal hover (inline SVG/PNG from
-  `///` doc comments); per-namespace catalog test sharding (the
-  catalog is now 1237 lines in one file); hover types from
-  user-workspace `use` imports, not just stdlib + current file.
-- **T4 — Quality bumps** — extend span fidelity to `MT3xxx`
-  (capability errors currently highlight the whole call); `mty diag
-  migrate-envelopes` migration tool for pre-1.0 envelope dumps in
-  shared fixtures; receiver-type hover for chained calls
-  (`r.get(...).body().text()`); pre-push hook telemetry to report
-  how often it saves a drift commit.
-- **Cross-cutting** — re-export `SCHEMA_VERSION` from
-  `mty_diagnostics` crate root (today accessed via
-  `mty_diagnostics::fix::SCHEMA_VERSION`); run the pre-push hook in
-  CI as a redundant safety net for contributors who haven't
-  installed it; vulcan disk hygiene (still at 91% after clean — mount
-  a larger /tmp or budget a fresh build cache periodically); carry
-  forward unresolved v0.34 v1.0 backlog: PGO release wiring,
-  Wasm size-budget gate, Go/C++ comparator refresh, multi-modal
-  streaming, real `wasm32-web` playground artifact, persistent
-  share-URLs, `mty agent` HTTP + Unix transports, `mty find` user
-  workspace + semantic search, `mty-runtime::work_stealing`
-  Windows-only flake.
+- **T1 — WASM playground** — Cloudflare Worker proxy deployment
+  (runbook ready; `wrangler deploy`); WASM size pass (`wasm-opt -Oz`,
+  wasm-bindgen tree-shake); browser JIT via a `playground-wasm-jit`
+  feature once cranelift's wasm target matures; CF Worker
+  rate-limit telemetry into Workers Analytics; CI WASM size guard
+  at 2 MB.
+- **T2 — Agent transports** — HTTP `Transfer-Encoding: chunked` for
+  streaming batch responses; Windows `AF_UNIX` (10+ supports it —
+  drop the "not supported" fallback); optional `--tls-cert /
+  --tls-key` for HTTPS without a reverse proxy; replay unified-diff
+  output on byte-mismatch.
+- **T3 — fix --apply + LSP fixAll** — `mty fix --auto-pick` carry-over
+  from v0.34 (highest-confidence regardless of threshold);
+  per-namespace bulk-apply filters
+  (`source.fixAll.mighty.MT4xxx`); `mty fix --apply --workspace`
+  to walk the project; apply telemetry to feed the confidence-score
+  calibration corpus.
+- **T4 — PGO / Docker / Homebrew** — PGO on `darwin-x86_64` (needs
+  native macOS Intel runner that can execute instrumented binary);
+  PGO on `linux-aarch64` (needs native arm64 GitHub runner);
+  Docker publish toggle (user-driven); Homebrew-core PR (runbook
+  ready, user files).
+- **T5 — Strategy B hover** — flip source-of-truth so
+  `STDLIB_EXAMPLES` is `build.rs`-generated from docstubs (needs
+  LSP `LazyLock<Vec<…>>` bridge); `##since <version>` directive for
+  "added in vX" hover badges; walker-driven `EMBEDDED_DOCSTUBS`
+  list so new module files are auto-picked up; multi-modal hover
+  carry-over from v0.34 T3 (inline SVG/PNG in docstubs).
+- **Cross-cutting / integrator** — vulcan PATH (cargo at
+  `~/.cargo/bin/cargo`, not default PATH — past integrators have
+  falsely reported "no Rust toolchain"); carry-forward unresolved
+  v0.34/v0.35 backlog: `SCHEMA_VERSION` crate-root re-export,
+  pre-push hook in CI redundancy, vulcan disk hygiene, multi-modal
+  streaming, Go/C++ comparator refresh, `mty find` semantic search,
+  `mty-runtime::work_stealing` Windows-only flake.
 
 The v1.0 freeze-gate is unchanged: 8 RFC comment windows opened
 2026-05-26, earliest close 2026-06-09 (RFC-005), latest close
 2026-07-25 (RFC-002 + RFC-006). Proposed v1.0 freeze date
-2026-09-01; earliest tag 2026-07-26. v0.34's auto-fix coverage and
-hover-catalog growth pull two of the v1.0 freeze-gate items
-(structured-fix coverage; stdlib hover surface) into "ready".
+2026-09-01; earliest tag 2026-07-26. v0.35 pulls three more
+freeze-gate items into "ready": real WASM playground (T1), `mty
+agent` production transports (T2), and the agent-first-shot →
+zero-shot loop (T3).
+
+## [0.35.0] - 2026-05-28
+
+**Mighty v0.35 — closing the v0.33 stubs. Real WASM mty in the
+browser (the install funnel that the playground was promising),
+`mty agent` HTTP + Unix transports + record/replay, `mty fix
+--apply` + LSP bulk `source.fixAll.mighty` (agent first-shot becomes
+zero-shot), PGO release binaries on 3 platforms, multi-arch Docker,
+and Strategy B hover with drift detection.** Five tracks merge in
+parallel.
+
+### Added — Closing the agent-first stubs
+- **T1** — Real WASM `mty` compiler in `tools/playground/`
+  (1.15 MB; parser + typeck + borrowck + IR + tree-walk interp
+  run in the browser via `wasm-pack`); `mty-cli` lib gains
+  `cdylib` + default-on `host-toolchain` feature gating the native
+  dep set; Cloudflare Worker LLM proxy source (`POST
+  /v1/{anthropic,openai,gemini}/{path}`, per-IP rate-limit via KV,
+  CORS allowlist); `.github/workflows/playground.yml` Playwright
+  smoke on every PR; `.github/workflows/pages.yml` extended to
+  publish the playground under `site/playground/`. `4/4 Playwright
+  smoke tests`.
+- **T2** — `mty agent` HTTP transport (hyper HTTP/1.1; `POST
+  /v1/agent`, `POST /v1/agent/batch`, `GET /v1/agent/version`;
+  optional `--auth-token` bearer auth with 401 +
+  `WWW-Authenticate: Bearer`); Unix socket transport
+  (`tokio::net::UnixListener`; pre-existing socket files unlinked
+  on bind); recorder (`--record <PATH>`, appends NDJSON
+  request/response pairs) + replay (`--replay`, byte-matches live
+  responses against the recording). `+50 tests`.
+- **T3** — `mty fix --apply` CLI (`--code`, `--alternative`,
+  `--threshold`, `--dry-run`, `--interactive`, `--from-stdin`;
+  highest-line-first conflict-resolution policy); LSP
+  `source.fixAll.mighty` action wires the v0.34 T2 capability to a
+  real handler — one `CodeAction` with an atomic `WorkspaceEdit`
+  bulk-applying every preferred-confidence fix in the document;
+  shared `mty_diagnostics::apply::apply_unified_diff` helper used by
+  both paths. Canonical zero-shot loop:
+  `mty check --format json src/main.mty | mty fix --apply
+  --from-stdin`. `+78 tests`.
+- **T4** — PGO release on 3 platforms (`linux-x86_64`,
+  `darwin-arm64`, `windows-x86_64`); `darwin-x86_64` and
+  `linux-aarch64` stay on plain `release` because neither build
+  path can execute the instrumented binary natively. Multi-arch
+  Docker (`linux/amd64,linux/arm64`, cosigned with `--recursive`,
+  SBOM, gated on `vars.PUBLISH_DOCKER`); Homebrew-core submission
+  runbook updated for v0.35 reality (all four arches shipping
+  cleanly for ~7 releases — user-driven submission).
+- **T5** — Strategy B hover catalog: per-module `.docstub` files
+  (`crates/mty-stdlib/docs/<module>.docstub`, 18 module buckets)
+  + walker (`crates/mty-doc/src/stdlib_walker.rs`,
+  `include_str!`-time parse) + one-shot generator
+  (`crates/mty-doc/src/bin/regen-stdlib-docstubs.rs`); `mty doc
+  --check` drift gate, CI-enforced on every push; 203 entries
+  migrated with byte-for-byte zero drift against the curated
+  gold-set. `+29 tests`.
+
+### Gates (vulcan)
+- `cargo test --workspace --no-fail-fast` — **3017 passed, 0
+  failed** (pre-v0.35: 2887; +130 over the 5 feature tracks).
+- `cargo clippy --workspace --all-targets -- -D warnings` — clean.
+- `cargo fmt --all -- --check` — clean.
+- `cargo audit --deny warnings` — clean.
+- `wasm-pack build --target web --no-default-features --features
+  playground-wasm` — clean; emits `1.15 MB` `mty_cli_bg.wasm`.
+
+
 
 ## [0.34.0] - 2026-05-28
 

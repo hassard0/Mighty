@@ -29,12 +29,12 @@ the type system:
   not the prompt. A misbehaving LLM cannot escape its capability set.
 - Every agent run is byte-identically replayable from the recorded
   trace — regression-test LLM agents like any other code.
-- Structured diagnostics with auto-fix proposals — structured fix
-  envelopes on every diagnostic (81 `MTxxxx` codes covered),
-  delivered as one-click LSP CodeAction quickfixes in VS Code +
-  JetBrains. Mighty has the highest agent first-shot success rate
-  of any language toolchain (see
-  [docs/internals/diagnostic-envelopes.md](docs/internals/diagnostic-envelopes.md)).
+- Structured diagnostics with auto-fix proposals — fix envelopes on
+  every diagnostic (81 `MTxxxx` codes), surfaced as one-click LSP
+  CodeActions and bulk-applied via `source.fixAll.mighty`. The
+  agent zero-shot loop is one shell pipe:
+  `mty check --format json src/main.mty | mty fix --apply --from-stdin`
+  (see [docs/internals/diagnostic-envelopes.md](docs/internals/diagnostic-envelopes.md)).
 - Cross-node agent swarms, hot reload preserving conversation
   state, OpenTelemetry spans — all in stdlib.
 
@@ -53,8 +53,8 @@ cargo install --path crates/mty-cli
 Or via package manager: `brew install hassard0/mighty/mty` (taps coming v0.32; see [`tools/distribution/`](tools/distribution/)).
 Or try it in the browser — no install — at
 [**hassard0.github.io/Mighty/playground/**](https://hassard0.github.io/Mighty/playground/) (Monaco editor + the
-real Mighty compiler compiled to WebAssembly via `wasm-pack`; see
-[`tools/playground/`](tools/playground/)).
+real Mighty parser+typeck+IR+interp shipped as a 1.15 MB
+`wasm-pack` artifact; see [`tools/playground/`](tools/playground/)).
 
 Scaffold a new project: `mty new <name>` (CLI), `mty new --template web-game <name>` (canvas), `mty serve --watch` (dev server + hot reload).
 
@@ -79,6 +79,7 @@ mty run   src/main.mty
 | `mty reload`     | swap an agent's wasm without losing its state                      |
 | `mty test`       | run unit tests; `--eval` runs `*.eval.mty` suites against a panel  |
 | `mty explain`    | one-paragraph explanation of any `MTxxxx` diagnostic code          |
+| `mty fix --apply`| pipe `mty check --format json` in; apply highest-confidence fixes  |
 
 ## Features
 
@@ -124,9 +125,10 @@ mty run   src/main.mty
   capability with typed sandbox bounds
 - `mty replay --diff` — divergence reporter, points at the first
   divergent recorded turn across two traces
-- `mty agent` — structured NDJSON-over-stdio CLI protocol (9 ops)
-  so LLM agents can drive every other `mty` subcommand without
-  scraping human-rendered output
+- `mty agent` — structured NDJSON CLI protocol (9 ops) over stdio,
+  HTTP/1.1 (`POST /v1/agent`, bearer auth), or Unix socket; record/
+  replay byte-matches sessions; agents drive every `mty` subcommand
+  without scraping human output
 
 **Web** *(canvas + keyboard agents)*
 - `std.web.Canvas` + `std.web.Input` WIT interfaces
@@ -180,7 +182,7 @@ Live docs site: <https://hassard0.github.io/Mighty/>
 - **Neovim / Helix / Zed** — tree-sitter grammar at [`tools/tree-sitter/`](tools/tree-sitter/)
 - **GitHub Actions** — reusable composite actions at [`tools/gh-actions/`](tools/gh-actions/)
 - **Debugging** — `mty dap` debug adapter wired into both VS Code and JetBrains
-- **One-click quickfixes** — LSP CodeActions on every diagnostic (81 `MTxxxx` codes), surfaced in VS Code + JetBrains Ultimate
+- **One-click quickfixes** — LSP CodeActions on every diagnostic (81 `MTxxxx` codes); `source.fixAll.mighty` bulk-applies every preferred-confidence fix in one editor action
 
 ## Project layout
 
@@ -249,10 +251,10 @@ current state of the language, not its history.
 
 ## Status
 
-Mighty is **pre-alpha**. Internal milestones tagged through v0.34.
-The toolchain is exercised by **~2887 Rust tests** across 20 crates
+Mighty is **pre-alpha**. Internal milestones tagged through v0.35.
+The toolchain is exercised by **~3017 Rust tests** across 20 crates
 plus **490 Python 2nd-impl tests** plus **159 normative conformance
-cases** plus **23 self-host driver codegen tests** — combined **~3559
+cases** plus **23 self-host driver codegen tests** — combined **~3689
 tests, 0 failing**. All four LLM providers full (with multi-modal
 vision-language Image input); `std.swarm` votes consensus across
 them; `std.eval` regression-tests agents under byte-identical
