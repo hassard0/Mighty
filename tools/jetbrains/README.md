@@ -26,6 +26,7 @@ listed below.
 | LSP completion / hover / go-to-def / rename | no | **yes** |
 | LSP inlay hints / semantic tokens / formatting | no | **yes** |
 | LSP diagnostics in the editor gutter | no | **yes** |
+| **LSP Quick Fixes** (v0.34, Alt+Enter on any `MTxxxx`) | no | **yes** |
 
 The LSP-only features depend on `com.intellij.platform.lsp.api`, a module
 JetBrains only ships in their **paid** IDEs. The Mighty plugin still loads
@@ -49,6 +50,44 @@ Top-level **Mighty** menu shortcuts (also on the editor context menu):
 - **Check Current Mighty File** (`mty check <file>`)
 - **Inspect Cost** (`mty inspect --cost`)
 - **Test Eval** (`mty test --eval`)
+
+## Quick Fix lightbulb (v0.34, Ultimate only)
+
+Every Mighty diagnostic now ships a structured *fix envelope* with
+one or more concrete alternatives. On Ultimate-class IDEs the LSP
+surfaces them as standard IntelliJ Quick Fixes — place the caret on
+any underlined `MTxxxx`, hit **Alt+Enter**, and pick a fix.
+
+What lights up:
+
+- **MT4099 (tainted value flows to sink)** — three untaint strategies:
+  *Constrain via a known-safe regex*, *Apply a provably-correct
+  sanitizer*, *Parse against an enum allowlist*.
+- **MT1001 / MT2002 / MT2021 (unresolved name / type / value)** —
+  rename to the closest in-scope spelling, plus a `use std.<name>`
+  suggestion when applicable.
+- **MT4001 / MT4050 / MT4055 / MT4060 (effect / capability)** — add
+  the missing effect or capability to the enclosing fn signature.
+- **MT3001 / MT3013 / MT3014 (use-after-move / immut local)** — add
+  `.clone()`, take a reference, or add `mut`.
+- 80+ other `MTxxxx` codes covered by T1's fix engines — inspect the
+  full envelope with `mty check --format json`.
+
+Each entry includes the strategy's **confidence** (the fix engines
+score 0.5 → 1.0; the default Quick Fix list shows alternatives at or
+above 0.7). The highest-confidence alternative is marked as the
+preferred fix — IntelliJ surfaces it first.
+
+Tune the threshold in *Settings > Tools > Mighty* via the **CodeAction
+confidence threshold** field (range `0..1`). Drop to `0.5` for
+speculative suggestions, raise to `0.9` for mechanical-only fixes.
+Hidden suggestions remain available on the CLI via `mty fix --apply`.
+
+Community editions don't ship `com.intellij.platform.lsp.api`, so the
+Quick Fixes — like every other LSP-backed feature — are Ultimate-only.
+Mighty's CLI still works there: run `mty check --format json` on a
+file and pipe through `mty fix --apply` to apply the highest-confidence
+fix per diagnostic.
 
 ## Debugging (v0.32)
 
@@ -86,7 +125,7 @@ compile against Ultimate so the LSP symbols resolve, but the resulting
 plugin runs on Community too), then produces:
 
 ```
-build/distributions/mighty-0.32.0.zip
+build/distributions/mighty-0.34.0.zip
 ```
 
 That ZIP is the installable plugin artifact — ship it to the JetBrains
@@ -103,7 +142,7 @@ Marketplace or distribute it directly.
 1. Open any JetBrains IDE — Community or Ultimate.
 2. *Settings/Preferences* → *Plugins* → cog icon → **Install Plugin from
    Disk…**
-3. Select `build/distributions/mighty-0.32.0.zip`.
+3. Select `build/distributions/mighty-0.34.0.zip`.
 4. Restart the IDE when prompted.
 
 On first start the plugin extracts its bundled TextMate grammar
@@ -137,7 +176,7 @@ Edit `gradle.properties` to bump plugin coordinates:
 
 ```
 pluginGroup    = dev.mighty.jetbrains
-pluginVersion  = 0.32.0
+pluginVersion  = 0.34.0
 pluginSinceBuild = 232          # IntelliJ Platform 2023.2+ (CE + Ultimate)
 platformVersion  = 2024.1       # IDE built against (Ultimate by default)
 platformType     = IU           # IU = Ultimate (LSP symbols resolve)

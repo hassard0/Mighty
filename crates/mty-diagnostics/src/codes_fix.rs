@@ -159,7 +159,14 @@ fn fix_for(
 ) -> Option<Fix> {
     match diag.code.0 {
         // Lex/parse
+        1 => fix_unexpected_token(source_id, source, span),
+        2 => fix_unterminated_string(source_id, source, span),
+        3 => fix_invalid_escape(source_id, source, span),
+        4 => fix_unknown_duration_unit(source_id, source, span),
+        10 => fix_expected_item(source_id, source, span),
+        11 => fix_expected_expr(source_id, source, span),
         12 => fix_mismatched_delimiter(source_id, source, span),
+        20 => fix_duplicate_on_handler(source_id, source, span),
         21 => fix_pub_needs_return_type(source_id, source, span),
 
         // HIR
@@ -170,36 +177,79 @@ fn fix_for(
         2001 => fix_type_mismatch(diag, source_id, source, span),
         2002 => fix_unresolved_type(diag, source_id, source, span),
         2003 => fix_cannot_infer_type(source_id, source, span),
+        2004 => fix_wrong_generic_arity(diag, source_id, source, span),
         2005 => fix_wrong_arg_count(diag, source_id, source, span),
         2006 => fix_unknown_field(diag, source_id, source, span),
         2007 => fix_unknown_method(diag, source_id, source, span),
+        2008 => fix_not_callable(source_id, source, span),
+        2009 => fix_unknown_variant(diag, source_id, source, span),
         2010 => fix_question_outside_result(source_id, source, span),
+        2011 => fix_question_error_mismatch(source_id, source, span),
+        2012 => fix_wrong_variant_arity(diag, source_id, source, span),
         2013 => fix_missing_struct_field(diag, source_id, source, span),
+        2014 => fix_duplicate_struct_field(diag, source_id, source, span),
         2015 => fix_non_exhaustive_match(source_id, source, span),
+        2016 => fix_unreachable_match_arm(source_id, source, span),
+        2017 => fix_binop_type_mismatch(diag, source_id, source, span),
         2018 => fix_if_branch_mismatch(source_id, source, span),
         2019 => fix_return_type_mismatch(source_id, source, span),
         2020 => fix_pub_param_needs_type(source_id, source, span),
         2021 => fix_unresolved_value(diag, source_id, source, span),
+        2022 => fix_not_a_struct(source_id, source, span),
+        2023 => fix_generic_arg_mismatch(diag, source_id, source, span),
+        2024 => fix_lambda_arity_mismatch(source_id, source, span),
+        2025 => fix_cannot_take_ref(source_id, source, span),
         2026 => fix_protocol_msg_unknown(diag, source_id, source, span),
 
         // Borrow
         3001 => fix_use_after_move(source_id, source, span),
+        3002 => fix_move_out_of_borrow(source_id, source, span),
+        3003 => fix_borrow_after_move(source_id, source, span),
         3004..=3006 => fix_borrow_conflict(source_id, source, span, diag.code.0),
+        3007 => fix_borrow_outlives_owner(source_id, source, span),
+        3008 => fix_cannot_move_borrowed(source_id, source, span),
+        3009 => fix_move_out_of_ref(source_id, source, span),
+        3010 => fix_arena_escape(source_id, source, span),
+        3011 => fix_non_sendable_message_arg(source_id, source, span),
+        3012 => fix_drop_in_const_context(source_id, source, span),
         3013 | 3014 => fix_immut_local(source_id, source, span),
         3015 => fix_use_uninitialized(source_id, source, span),
 
         // Effects + capabilities + taint
         4001 => fix_effect_undeclared(diag, source_id, source, span),
+        4002 => fix_alloc_in_core(source_id, source, span),
         4010 => fix_cap_too_broad(source_id, source, span),
+        4020 => fix_method_ambiguous(diag, source_id, source, span),
+        4021 => fix_method_not_found(diag, source_id, source, span),
+        4022 => fix_trait_coherence_violation(source_id, source, span),
+        4023 => fix_dyn_requires_object_safe(source_id, source, span),
+        4030 => fix_protocol_arity_mismatch(source_id, source, span),
+        4031 => fix_protocol_param_type_mismatch(source_id, source, span),
         4032 => fix_protocol_missing_handler(diag, source_id, source, span),
+        4033 => fix_protocol_extra_handler(diag, source_id, source, span),
+        4040 => fix_derive_copy_field_not_copy(source_id, source, span),
+        4041 => fix_derive_unknown(diag, source_id, source, span),
         4050 | 4059 => fix_row_subsumption_fail(source_id, source, span),
+        4051 => fix_row_occurs_check(source_id, source, span),
+        4053 => fix_row_var_unbound(diag, source_id, source, span),
+        4054 => fix_row_effect_mismatch(source_id, source, span),
         4055 | 4057 => fix_row_var_unused(source_id, source, span),
         4060 => fix_cap_name_unbound(diag, source_id, source, span),
+        4061 => fix_cap_family_mismatch(diag, source_id, source, span),
+        4062 => fix_cap_scope_violation(source_id, source, span),
+        4063 => fix_cap_redeclaration(diag, source_id, source, span),
+        4064 => fix_cap_method_unknown(diag, source_id, source, span),
         4099 => fix_tainted_to_sink(diag, source_id, source, span),
 
         // Macros
         6001 => fix_unknown_macro(diag, source_id, source, span),
+        6002 => fix_macro_arity_mismatch(source_id, source, span),
+        6009 => fix_macro_format_bad_template(source_id, source, span),
+        6010 => fix_macro_format_unsupported_spec(source_id, source, span),
         6017 => fix_computer_use_missing_cap(source_id, source, span),
+        6018 => fix_computer_use_malformed_cap(source_id, source, span),
+        6019 => fix_computer_use_malformed_dimension(source_id, source, span),
+        6020 => fix_computer_use_not_an_agent(source_id, source, span),
 
         // Codegen runtime traps fold to "this is a runtime-only
         // diagnostic; no source-level fix to propose".
@@ -1312,6 +1362,1534 @@ fn fix_computer_use_missing_cap(
     })
 }
 
+// =================================================================
+// v0.34 T1 — backfill: MT0xxx parser polish
+// =================================================================
+
+// -------- MT0001: unexpected token ---------------------------------
+
+fn fix_unexpected_token(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.55,
+        alternatives: vec![
+            FixBuilder::new(
+                "Remove or replace the unexpected token",
+                "The parser was in the middle of a known construct (let/fn/match/...) \
+                 when this token appeared. Either delete the token or replace it with \
+                 the expected one.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Close the surrounding construct first",
+                "An earlier missing closer (`)`, `]`, `}`) often produces a misleading \
+                 \"unexpected token\" further down. Re-check the preceding lines.",
+                0.5,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+// -------- MT0002: unterminated string ------------------------------
+
+fn fix_unterminated_string(
+    source_id: &str,
+    source: &str,
+    span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    let line = current_line(source, span.line)?;
+    // Append a closing quote at end of line.
+    let new_line = if line.trim_end().ends_with('"') {
+        line.to_string()
+    } else {
+        format!("{}\"", line.trim_end())
+    };
+    Some(Fix {
+        kind: FixKind::BalanceDelimiters.as_str().to_string(),
+        confidence: 0.85,
+        alternatives: vec![
+            FixBuilder::new(
+                "Close the string literal",
+                "The lexer reached end-of-line / end-of-input before the closing quote. \
+                 Adding a trailing `\"` closes it.",
+                0.85,
+            )
+            .replace_line(source_id, span.line, line, &new_line)
+            .build(),
+            FixBuilder::new(
+                "Escape the embedded quote",
+                "If the string contains a literal `\"`, escape it as `\\\"` so the lexer \
+                 doesn't mis-read it as the closer.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+// -------- MT0003: invalid escape -----------------------------------
+
+fn fix_invalid_escape(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.7,
+        alternatives: vec![
+            FixBuilder::new(
+                "Use a supported escape (`\\n`, `\\t`, `\\r`, `\\\\`, `\\\"`)",
+                "Mighty's string escapes are the standard short set plus `\\u{NNNN}` for \
+                 unicode code-points. Other backslash sequences are rejected.",
+                0.7,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Escape the backslash with `\\\\`",
+                "If the literal `\\` is intentional (e.g. Windows paths), double it.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+// -------- MT0004: unknown duration unit ----------------------------
+
+fn fix_unknown_duration_unit(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.8,
+        alternatives: vec![FixBuilder::new(
+            "Use one of the known duration suffixes",
+            "Mighty accepts `ns`, `us`, `ms`, `s`, `m`, `h`, `d` as duration suffixes. \
+             Compound durations (`1h30m`) are written `1.h + 30.m` in this version.",
+            0.8,
+        )
+        .diff(String::new())
+        .build()],
+    })
+}
+
+// -------- MT0010: expected item ------------------------------------
+
+fn fix_expected_item(_source_id: &str, _source: &str, _span: &crate::fix::SpanInfo) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.55,
+        alternatives: vec![
+            FixBuilder::new(
+                "Start the file with a top-level item",
+                "Mighty files must contain items: `fn`, `struct`, `enum`, `agent`, \
+                 `protocol`, `use`, or `package`. The parser saw something else here.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Move expression code into an `fn`",
+                "Free-standing statements aren't legal at the top level; wrap them in \
+                 `fn main() { ... }` or another fn.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+// -------- MT0011: expected expr ------------------------------------
+
+fn fix_expected_expr(_source_id: &str, _source: &str, _span: &crate::fix::SpanInfo) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.55,
+        alternatives: vec![FixBuilder::new(
+            "Supply an expression here",
+            "The parser was inside a position that requires an expression (right-hand \
+             side of `=`, inside a call, after `return`, ...). Fill it in or remove the \
+             surrounding construct.",
+            0.55,
+        )
+        .diff(String::new())
+        .build()],
+    })
+}
+
+// -------- MT0020: duplicate on-handler -----------------------------
+
+fn fix_duplicate_on_handler(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::RemoveUnreachable.as_str().to_string(),
+        confidence: 0.8,
+        alternatives: vec![
+            FixBuilder::new(
+                "Delete the duplicate `on` handler",
+                "An agent may declare each protocol message exactly once. Keep the \
+                 handler whose body you actually want and delete the other.",
+                0.8,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Merge the two handlers into one",
+                "If both handlers should run, combine their bodies in a single `on Msg` \
+                 (use `match` on payload fields when behavior depends on input).",
+                0.65,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+// =================================================================
+// v0.34 T1 — backfill: MT2xxx full coverage
+// =================================================================
+
+// -------- MT2004: wrong generic arity ------------------------------
+
+fn fix_wrong_generic_arity(
+    diag: &Diagnostic,
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    let msg = &diag.primary.message;
+    let expected = extract_first_number(msg).unwrap_or_else(|| "N".to_string());
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.7,
+        alternatives: vec![
+            FixBuilder::new(
+                format!("Provide exactly {expected} generic argument(s)"),
+                "The type expects a specific number of generic parameters; supply the \
+                 missing ones or drop the extras.",
+                0.7,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Use `_` placeholders to let inference fill the rest",
+                "When you only want to pin some generics, leave the rest as `_` and the \
+                 checker will infer them from context.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+// -------- MT2008: not callable -------------------------------------
+
+fn fix_not_callable(source_id: &str, source: &str, span: &crate::fix::SpanInfo) -> Option<Fix> {
+    let line = current_line(source, span.line)?;
+    // Drop the `()` that immediately follows the identifier at the
+    // diagnostic's span, if any. Falls back to leaving the line alone.
+    let new_line = drop_parens_after_ident(line, source, span.byte_start as usize);
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.7,
+        alternatives: vec![
+            FixBuilder::new(
+                "Remove the call parens — it's a value, not a fn",
+                "The expression bound here is a value (struct field, constant, ...). \
+                 Drop the `()` to use it directly.",
+                0.7,
+            )
+            .replace_line(source_id, span.line, line, &new_line)
+            .build(),
+            FixBuilder::new(
+                "Call its method instead",
+                "If the value has a callable method (e.g. `.call()`, `.invoke()`), use \
+                 method-call syntax: `value.method(args)`.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+// -------- MT2009: unknown variant ----------------------------------
+
+fn fix_unknown_variant(
+    _diag: &Diagnostic,
+    source_id: &str,
+    source: &str,
+    span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    let line = current_line(source, span.line)?;
+    let (ident, _) = identifier_at(source, span.byte_start as usize)?;
+    if let Some((candidate, dist)) = closest_ident(source, &ident) {
+        if dist <= 2 {
+            let new_line = line.replace(&ident, &candidate);
+            let conf = if dist == 1 { 0.78 } else { 0.6 };
+            return Some(Fix {
+                kind: FixKind::RenameToMatchDecl.as_str().to_string(),
+                confidence: conf,
+                alternatives: vec![FixBuilder::new(
+                    format!("Rename variant to `{candidate}`"),
+                    "Edit-distance heuristic surfaced a likely typo against an existing variant.",
+                    conf,
+                )
+                .replace_line(source_id, span.line, line, &new_line)
+                .build()],
+            });
+        }
+    }
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.55,
+        alternatives: vec![FixBuilder::new(
+            format!("Add the variant `{ident}` to the enum declaration"),
+            "If the variant is genuinely new, declare it on the enum where the other \
+             variants live.",
+            0.55,
+        )
+        .diff(String::new())
+        .build()],
+    })
+}
+
+// -------- MT2011: `?` error-type mismatch --------------------------
+
+fn fix_question_error_mismatch(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::TypeConversion.as_str().to_string(),
+        confidence: 0.72,
+        alternatives: vec![
+            FixBuilder::new(
+                "Map the error with `.map_err(|e| MyError::from(e))?`",
+                "When `?` propagates a `Result[T, E1]` into a fn that returns `Result[T, E2]`, \
+                 convert the error type explicitly.",
+                0.72,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Add a `From[E1] for E2` impl",
+                "An automatic `From` conversion lets `?` work transparently.",
+                0.65,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Widen the fn's error type",
+                "Change `-> Result[T, E2]` to `-> Result[T, E1]` if the caller can absorb \
+                 the broader error.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+// -------- MT2012: wrong variant arity ------------------------------
+
+fn fix_wrong_variant_arity(
+    diag: &Diagnostic,
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    let msg = &diag.primary.message;
+    let expected = extract_first_number(msg).unwrap_or_else(|| "N".to_string());
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.7,
+        alternatives: vec![
+            FixBuilder::new(
+                format!("Pass exactly {expected} argument(s) to the variant"),
+                "The variant's declared arity is fixed. Check the enum and match the count.",
+                0.7,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Use the unit form `Variant` if it takes no payload",
+                "If you're constructing a payload-less variant, drop the parens entirely.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+// -------- MT2014: duplicate struct field ---------------------------
+
+fn fix_duplicate_struct_field(
+    diag: &Diagnostic,
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    let msg = &diag.primary.message;
+    let field = msg.split('`').nth(1).unwrap_or("field").to_string();
+    Some(Fix {
+        kind: FixKind::RemoveUnreachable.as_str().to_string(),
+        confidence: 0.85,
+        alternatives: vec![
+            FixBuilder::new(
+                format!("Remove the second `{field}: ...` occurrence"),
+                "Struct literals must mention each field exactly once.",
+                0.85,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Rename one of the keys",
+                "If the two values were meant for different fields, rename the second \
+                 occurrence to the right key.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+// -------- MT2016: unreachable match arm ----------------------------
+
+fn fix_unreachable_match_arm(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::RemoveUnreachable.as_str().to_string(),
+        confidence: 0.8,
+        alternatives: vec![
+            FixBuilder::new(
+                "Delete the unreachable arm",
+                "A prior arm already covers this case, so the highlighted body can never \
+                 execute.",
+                0.8,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Move the arm above the catch-all",
+                "If you want this specific case handled differently, reorder it before the \
+                 broader pattern (typically the `_` wildcard).",
+                0.7,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+// -------- MT2017: binop type mismatch ------------------------------
+
+fn fix_binop_type_mismatch(
+    _diag: &Diagnostic,
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::TypeConversion.as_str().to_string(),
+        confidence: 0.65,
+        alternatives: vec![
+            FixBuilder::new(
+                "Convert one operand to the other's type",
+                "Use `.to_string()`, `.parse()?`, `as I32`, etc. so both sides agree.",
+                0.65,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Use the type-specific operator",
+                "Mighty's `+` is type-uniform; for string concatenation use `++` or \
+                 `format!(\"{}{}\", a, b)`.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+// -------- MT2022: not a struct -------------------------------------
+
+fn fix_not_a_struct(_source_id: &str, _source: &str, _span: &crate::fix::SpanInfo) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.6,
+        alternatives: vec![
+            FixBuilder::new(
+                "Use the enum's variant constructor instead",
+                "The path points to an enum or alias, not a struct. Construct via \
+                 `EnumName.Variant { ... }` or call the alias's underlying constructor.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Define the struct",
+                "If you meant a new struct type, add `struct Name { field: T }` and use \
+                 it here.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+// -------- MT2023: generic arg mismatch -----------------------------
+
+fn fix_generic_arg_mismatch(
+    _diag: &Diagnostic,
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::TypeConversion.as_str().to_string(),
+        confidence: 0.62,
+        alternatives: vec![
+            FixBuilder::new(
+                "Align the generic argument with the parameter's bound",
+                "The supplied type doesn't satisfy the parameter's constraint. Either \
+                 substitute a conforming type or widen the bound on the declaration.",
+                0.62,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Add an `impl` for the required trait",
+                "If you control the type, implementing the missing trait makes it \
+                 acceptable as the generic argument.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+// -------- MT2024: lambda arity mismatch ----------------------------
+
+fn fix_lambda_arity_mismatch(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.7,
+        alternatives: vec![
+            FixBuilder::new(
+                "Match the callback's expected parameter count",
+                "Higher-order fns (`map`, `filter`, `fold`, ...) define the lambda's arity. \
+                 Add or remove parameters until they match.",
+                0.7,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Use `_` for parameters you don't need",
+                "If the callback supplies arguments you ignore, accept them with `_` to \
+                 keep the arity right.",
+                0.65,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+// -------- MT2025: cannot take ref ----------------------------------
+
+fn fix_cannot_take_ref(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::TakeReference.as_str().to_string(),
+        confidence: 0.6,
+        alternatives: vec![
+            FixBuilder::new(
+                "Bind the temporary to a `let` first",
+                "Mighty refuses to take a reference to an expression with no home. \
+                 Introduce `let x = expr` then borrow `&x`.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Pass by value (clone if needed)",
+                "If the callee can take ownership, drop the `&` and pass the value \
+                 directly — clone first when the binding must survive.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+// =================================================================
+// v0.34 T1 — backfill: MT3xxx borrow polish
+// =================================================================
+
+fn fix_move_out_of_borrow(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::AddClone.as_str().to_string(),
+        confidence: 0.7,
+        alternatives: vec![
+            FixBuilder::new(
+                "Clone before moving",
+                "Borrowed data can't be moved out. `.clone()` copies the value so the \
+                 borrow remains valid.",
+                0.7,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Restructure to consume the owner",
+                "If you can take ownership earlier, the borrow doesn't need to exist at \
+                 this point.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_borrow_after_move(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::TakeReference.as_str().to_string(),
+        confidence: 0.7,
+        alternatives: vec![
+            FixBuilder::new(
+                "Borrow before the move",
+                "Reorder so the `&`/`&mut` is taken while the binding is still live; the \
+                 move happens after the last borrow use.",
+                0.7,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Clone instead of moving",
+                "If the move was for handing ownership somewhere else, `.clone()` keeps \
+                 the original binding usable by the borrow site.",
+                0.65,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_borrow_outlives_owner(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.6,
+        alternatives: vec![
+            FixBuilder::new(
+                "Extend the owner's lifetime",
+                "Bind the owner one scope earlier so it lives at least as long as the \
+                 borrow.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Return an owned value, not a reference",
+                "Functions that return `&T` over locals leak the local's lifetime. \
+                 Returning `T` (cloned/owned) sidesteps the constraint.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Add an explicit `'a` annotation",
+                "When the inferred lifetime is wrong, an explicit `'a` documents the \
+                 intent and forces the checker to use it.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_cannot_move_borrowed(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::AddClone.as_str().to_string(),
+        confidence: 0.7,
+        alternatives: vec![
+            FixBuilder::new(
+                "Wait for the borrow to end before moving",
+                "End the borrow (drop the reference) and then move; or restructure the \
+                 borrow to a smaller scope.",
+                0.7,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Clone so the borrow stays valid",
+                "`.clone()` produces a new owned copy you can move while the original \
+                 stays borrowed.",
+                0.65,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_move_out_of_ref(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::AddClone.as_str().to_string(),
+        confidence: 0.7,
+        alternatives: vec![
+            FixBuilder::new(
+                "Dereference + clone",
+                "Replace `(*r)` with `(*r).clone()` (or just `r.clone()` if `T: Clone`).",
+                0.7,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Take the reference by value",
+                "Change the parameter type from `&T` to `T` and let the caller move.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_arena_escape(_source_id: &str, _source: &str, _span: &crate::fix::SpanInfo) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.6,
+        alternatives: vec![
+            FixBuilder::new(
+                "Move the binding into the same arena scope",
+                "Arena-allocated values can't escape the arena. Confine the use-site to \
+                 within `arena { ... }`.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Allocate in the parent arena (or heap)",
+                "If the value needs to outlive the inner scope, allocate it in the \
+                 outer arena or use the heap allocator.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_non_sendable_message_arg(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.65,
+        alternatives: vec![
+            FixBuilder::new(
+                "Use a Send-safe payload type",
+                "Agent messages must implement `Send`. Replace `Rc[T]` with `Arc[T]`, \
+                 `&T` with `T` (owned), or drop the cap from the payload.",
+                0.65,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Derive Send if your type qualifies",
+                "If every field is Send, add `derive Send` on the type so the agent can \
+                 carry it.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_drop_in_const_context(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.6,
+        alternatives: vec![FixBuilder::new(
+            "Move the value out of the const context",
+            "Const evaluation can't run Drop glue. Compute the value at runtime, or \
+             use a `Copy` type that has no Drop.",
+            0.6,
+        )
+        .diff(String::new())
+        .build()],
+    })
+}
+
+// =================================================================
+// v0.34 T1 — backfill: MT4xxx effect/cap remaining
+// =================================================================
+
+fn fix_alloc_in_core(_source_id: &str, _source: &str, _span: &crate::fix::SpanInfo) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.7,
+        alternatives: vec![
+            FixBuilder::new(
+                "Move the allocation outside `#[core]`",
+                "`#[core]` modules forbid heap allocation. Lift the call into a non-core \
+                 fn that the core fn calls back into.",
+                0.7,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Use a stack-allocated container",
+                "Replace `Vec[T]` with `[T; N]` (fixed-size) or a pre-allocated arena.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_method_ambiguous(
+    _diag: &Diagnostic,
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.7,
+        alternatives: vec![
+            FixBuilder::new(
+                "Disambiguate with `<T as Trait>::method(self, ...)`",
+                "Two traits in scope define the same method name. Fully-qualified syntax \
+                 picks the one you want.",
+                0.7,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Remove one of the trait imports",
+                "Often only one of the conflicting traits is actually used; dropping the \
+                 stray `use` resolves the ambiguity.",
+                0.65,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_method_not_found(
+    diag: &Diagnostic,
+    source_id: &str,
+    source: &str,
+    span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    // Reuse MT2007's rename-or-import shape.
+    fix_unknown_method(diag, source_id, source, span)
+}
+
+fn fix_trait_coherence_violation(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.6,
+        alternatives: vec![
+            FixBuilder::new(
+                "Wrap the type in a newtype you own",
+                "Orphan-rule coherence forbids impls for foreign-type/foreign-trait \
+                 pairs. A newtype struct gives you a local type for the impl.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Move the impl into the upstream package",
+                "If you maintain the package that owns the trait or the type, add the \
+                 impl there.",
+                0.5,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_dyn_requires_object_safe(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.65,
+        alternatives: vec![
+            FixBuilder::new(
+                "Use a generic `T: Trait` parameter instead of `dyn Trait`",
+                "`dyn` requires object-safe traits. Monomorphic generics sidestep the \
+                 constraint.",
+                0.65,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Split the trait into object-safe and non-object-safe halves",
+                "Methods returning `Self` or using generic parameters break object \
+                 safety. Move them to a separate trait.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_protocol_arity_mismatch(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.7,
+        alternatives: vec![
+            FixBuilder::new(
+                "Match the protocol's declared arity",
+                "The `protocol P { Msg(a, b) }` declaration fixes the arity. Add or \
+                 remove parameters until your `on Msg(...)` lines up.",
+                0.7,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Change the protocol declaration",
+                "If the protocol is yours and the handler shape is the right one, edit \
+                 the protocol to match.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_protocol_param_type_mismatch(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::TypeConversion.as_str().to_string(),
+        confidence: 0.7,
+        alternatives: vec![FixBuilder::new(
+            "Annotate `on Msg(arg: T)` with the declared type",
+            "The protocol fixes each argument's type. Use that type verbatim in your \
+             handler (or remove the annotation and let it infer).",
+            0.7,
+        )
+        .diff(String::new())
+        .build()],
+    })
+}
+
+fn fix_protocol_extra_handler(
+    diag: &Diagnostic,
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    let msg = &diag.primary.message;
+    let name = msg.split('`').nth(1).unwrap_or("Msg").to_string();
+    Some(Fix {
+        kind: FixKind::RemoveUnreachable.as_str().to_string(),
+        confidence: 0.75,
+        alternatives: vec![
+            FixBuilder::new(
+                format!("Delete the stray `on {name}` handler"),
+                "The agent's protocol clause doesn't include this message; the handler \
+                 is dead code.",
+                0.75,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                format!("Add `{name}` to a protocol the agent uses"),
+                "If the message is intentional, declare it in the protocol and add the \
+                 protocol to the agent's clause.",
+                0.65,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_derive_copy_field_not_copy(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.7,
+        alternatives: vec![
+            FixBuilder::new(
+                "Replace the non-Copy field with a Copy alternative",
+                "Common fix: `String` → `Str` (Copy), `Vec[T]` → `[T; N]`. The struct \
+                 only derives Copy when every field is Copy.",
+                0.7,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Drop `Copy` from the derive list",
+                "If the struct doesn't need to be `Copy`, derive only `Clone` (or remove \
+                 the derive altogether).",
+                0.7,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_derive_unknown(
+    diag: &Diagnostic,
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    let msg = &diag.primary.message;
+    let name = msg.split('`').nth(1).unwrap_or("Trait").to_string();
+    let knowns = [
+        "Copy",
+        "Clone",
+        "Debug",
+        "Eq",
+        "PartialEq",
+        "Hash",
+        "Send",
+        "Default",
+        "Display",
+    ];
+    let mut alts: Vec<FixAlternative> = Vec::new();
+    for k in &knowns {
+        let d = levenshtein(k, &name);
+        if d != 0 && d <= 2 {
+            alts.push(
+                FixBuilder::new(
+                    format!("Rename to `{k}`"),
+                    format!("Built-in derivable `{k}` is the closest match (edit distance {d})."),
+                    if d == 1 { 0.78 } else { 0.6 },
+                )
+                .diff(String::new())
+                .build(),
+            );
+            break;
+        }
+    }
+    if alts.is_empty() {
+        alts.push(
+            FixBuilder::new(
+                format!("Import a `derive_{name}` proc macro"),
+                "Custom derives must come from a proc-macro crate brought into scope \
+                 with `use`.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+        );
+    }
+    let best = alts.iter().map(|a| a.confidence).fold(0.0_f32, f32::max);
+    Some(Fix {
+        kind: FixKind::CorrectMacroAttr.as_str().to_string(),
+        confidence: best,
+        alternatives: alts,
+    })
+}
+
+fn fix_row_occurs_check(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.55,
+        alternatives: vec![
+            FixBuilder::new(
+                "Break the recursive row constraint",
+                "A row variable can't appear inside its own row. Add an indirection (Box, \
+                 closure, or named protocol) so the recursion is structural rather than \
+                 by-row.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Use a concrete row instead",
+                "Replace the row variable with the concrete set of effects you mean.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_row_var_unbound(
+    diag: &Diagnostic,
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    let msg = &diag.primary.message;
+    let name = msg.split('`').nth(1).unwrap_or("E").to_string();
+    Some(Fix {
+        kind: FixKind::AddEffect.as_str().to_string(),
+        confidence: 0.7,
+        alternatives: vec![
+            FixBuilder::new(
+                format!("Bind `{name}` on the enclosing fn"),
+                "Add the row variable to the fn's generic list: `fn f[{name}](...)`.",
+                0.7,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Replace it with a concrete row",
+                "If you don't need polymorphism over effects, write the concrete row \
+                 directly.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_row_effect_mismatch(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::AddEffect.as_str().to_string(),
+        confidence: 0.65,
+        alternatives: vec![
+            FixBuilder::new(
+                "Add the missing effect to the row",
+                "The caller's row needs to mention every effect the callee performs. \
+                 Widen the row at the caller's signature.",
+                0.65,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Remove the surplus effect from the callee",
+                "If the effect isn't actually performed, drop it from the callee's row.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_cap_family_mismatch(
+    diag: &Diagnostic,
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    let msg = &diag.primary.message;
+    let name = msg.split('`').nth(1).unwrap_or("cap").to_string();
+    Some(Fix {
+        kind: FixKind::AddCapability.as_str().to_string(),
+        confidence: 0.7,
+        alternatives: vec![
+            FixBuilder::new(
+                format!("Use a capability from the `{name}` family"),
+                "Capability families are nominal — `fs.ro` is not `net.host`. Match the \
+                 family the callee expects.",
+                0.7,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Convert via the family's adapter",
+                "Some families expose `.into[OtherFamily]()` adapters; use one if available.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_cap_scope_violation(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::AddCapability.as_str().to_string(),
+        confidence: 0.65,
+        alternatives: vec![
+            FixBuilder::new(
+                "Pass the capability into the inner scope",
+                "Capabilities can't escape sandbox boundaries implicitly. Thread the cap \
+                 through as a parameter.",
+                0.65,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Move the operation outside the sandbox",
+                "If the call must use the outer cap, perform it before entering the \
+                 sandboxed block.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_cap_redeclaration(
+    diag: &Diagnostic,
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    let msg = &diag.primary.message;
+    let name = msg.split('`').nth(1).unwrap_or("cap").to_string();
+    Some(Fix {
+        kind: FixKind::RemoveUnreachable.as_str().to_string(),
+        confidence: 0.8,
+        alternatives: vec![
+            FixBuilder::new(
+                format!("Delete the duplicate `cap {name}` declaration"),
+                "Each capability name must be declared at most once in a scope.",
+                0.8,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Rename one of the declarations",
+                "If both declarations are intentional, give them distinct names.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_cap_method_unknown(
+    diag: &Diagnostic,
+    source_id: &str,
+    source: &str,
+    span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    let line = current_line(source, span.line)?;
+    let (ident, _) = identifier_at(source, span.byte_start as usize)?;
+    if let Some((candidate, dist)) = closest_ident(source, &ident) {
+        if dist <= 2 {
+            let new_line = line.replace(&ident, &candidate);
+            let conf = if dist == 1 { 0.78 } else { 0.6 };
+            return Some(Fix {
+                kind: FixKind::RenameToMatchDecl.as_str().to_string(),
+                confidence: conf,
+                alternatives: vec![FixBuilder::new(
+                    format!("Rename to capability method `{candidate}`"),
+                    "Edit-distance heuristic surfaced a likely typo against the \
+                     capability's method set.",
+                    conf,
+                )
+                .replace_line(source_id, span.line, line, &new_line)
+                .build()],
+            });
+        }
+    }
+    let _ = diag;
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.55,
+        alternatives: vec![FixBuilder::new(
+            "Check the capability's family for available methods",
+            "Each cap family declares a finite method set. Consult `mty explain` on the \
+             family for the full list.",
+            0.55,
+        )
+        .diff(String::new())
+        .build()],
+    })
+}
+
+// =================================================================
+// v0.34 T1 — backfill: MT6xxx macro polish
+// =================================================================
+
+fn fix_macro_arity_mismatch(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.7,
+        alternatives: vec![
+            FixBuilder::new(
+                "Match the macro's declared arity",
+                "Macros enforce their parameter count at expansion time. Add or remove \
+                 arguments until the call matches the declaration.",
+                0.7,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Use the variadic form (if the macro supports it)",
+                "If the macro has a variadic pattern (`$($x:expr),+`), check whether \
+                 you accidentally split the args.",
+                0.55,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_macro_format_bad_template(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.75,
+        alternatives: vec![
+            FixBuilder::new(
+                "Balance `{` and `}` in the format string",
+                "Use `{{` and `}}` to write literal braces. Every `{...}` placeholder \
+                 needs a matching closer.",
+                0.75,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Switch to positional placeholders",
+                "If named placeholders are giving trouble, use `{}` and supply args in \
+                 order.",
+                0.65,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+fn fix_macro_format_unsupported_spec(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::Other.as_str().to_string(),
+        confidence: 0.65,
+        alternatives: vec![FixBuilder::new(
+            "Use a supported format spec",
+            "Mighty's v0.34 `format!` supports `{}`, `{:?}`, `{:x}`, `{:o}`, `{:b}`, \
+             `{:0Nd}`. Other specs aren't implemented yet.",
+            0.65,
+        )
+        .diff(String::new())
+        .build()],
+    })
+}
+
+fn fix_computer_use_malformed_cap(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::CorrectMacroAttr.as_str().to_string(),
+        confidence: 0.8,
+        alternatives: vec![FixBuilder::new(
+            "Use the canonical cap expression",
+            "`cap: computer.screen + computer.input + computer.dom` — the `+` combines \
+             family members. Anything else is rejected.",
+            0.8,
+        )
+        .diff(String::new())
+        .build()],
+    })
+}
+
+fn fix_computer_use_malformed_dimension(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::CorrectMacroAttr.as_str().to_string(),
+        confidence: 0.8,
+        alternatives: vec![FixBuilder::new(
+            "Pass `width` and `height` as positive integers",
+            "Computer-use dimensions are pixels; non-integer or non-positive values are \
+             rejected.",
+            0.8,
+        )
+        .diff(String::new())
+        .build()],
+    })
+}
+
+fn fix_computer_use_not_an_agent(
+    _source_id: &str,
+    _source: &str,
+    _span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    Some(Fix {
+        kind: FixKind::CorrectMacroAttr.as_str().to_string(),
+        confidence: 0.8,
+        alternatives: vec![
+            FixBuilder::new(
+                "Apply `@computer_use(...)` to an `agent` item",
+                "The decorator only attaches to agents. Move it above the `agent` block.",
+                0.8,
+            )
+            .diff(String::new())
+            .build(),
+            FixBuilder::new(
+                "Wrap the fn in an agent",
+                "Computer-use sessions need an agent's mailbox; promote the fn into a \
+                 one-shot agent.",
+                0.6,
+            )
+            .diff(String::new())
+            .build(),
+        ],
+    })
+}
+
+// =================================================================
+// Helpers shared across v0.34 backfill handlers
+// =================================================================
+
+/// Drop the empty `()` call-parens that immediately follow the
+/// identifier at `byte_start` in `source`. Returns the modified line.
+/// If the identifier is missing or not followed by `()`, returns the
+/// line unchanged.
+fn drop_parens_after_ident(line: &str, source: &str, byte_start: usize) -> String {
+    let Some((ident, ident_start)) = identifier_at(source, byte_start) else {
+        return line.to_string();
+    };
+    let ident_with_parens = format!("{ident}()");
+    // Locate the identifier within the line. We use the column-from-
+    // line-start by finding the line containing ident_start, then
+    // searching the line for the exact ident-with-parens occurrence.
+    // Caller has already guaranteed `line` is the right line.
+    let _ = ident_start;
+    if let Some(pos) = line.find(&ident_with_parens) {
+        let mut out = String::with_capacity(line.len());
+        out.push_str(&line[..pos]);
+        out.push_str(&ident);
+        out.push_str(&line[pos + ident_with_parens.len()..]);
+        out
+    } else {
+        line.to_string()
+    }
+}
+
+/// Extract the first run of ASCII digits from `s`. Used by codes that
+/// encode "expected N, got M" in the primary message.
+fn extract_first_number(s: &str) -> Option<String> {
+    let mut buf = String::new();
+    for ch in s.chars() {
+        if ch.is_ascii_digit() {
+            buf.push(ch);
+        } else if !buf.is_empty() {
+            break;
+        }
+    }
+    if buf.is_empty() {
+        None
+    } else {
+        Some(buf)
+    }
+}
+
 // -------- see_also: per-code related codes -------------------------
 
 fn see_also_for(code: DiagCode) -> Vec<String> {
@@ -1321,16 +2899,60 @@ fn see_also_for(code: DiagCode) -> Vec<String> {
         1002 => vec!["MT1001".into()],
         2001 => vec!["MT2018".into(), "MT2019".into()],
         2002 => vec!["MT1002".into()],
+        2004 => vec!["MT2023".into()],
         2007 => vec!["MT4020".into(), "MT4021".into()],
+        2008 => vec!["MT2007".into()],
+        2009 => vec!["MT2012".into()],
         2010 => vec!["MT2011".into()],
+        2011 => vec!["MT2010".into()],
+        2012 => vec!["MT2009".into()],
+        2014 => vec!["MT2013".into()],
+        2015 => vec!["MT2016".into()],
+        2016 => vec!["MT2015".into()],
+        2022 => vec!["MT2002".into()],
+        2023 => vec!["MT2004".into()],
+        2024 => vec!["MT2005".into()],
         2026 => vec!["MT4031".into(), "MT4032".into(), "MT4033".into()],
         3001 => vec!["MT3002".into(), "MT3008".into()],
+        3002 => vec!["MT3001".into(), "MT3003".into()],
+        3003 => vec!["MT3001".into(), "MT3002".into()],
         3004..=3006 => vec!["MT3001".into()],
+        3007 => vec!["MT3008".into()],
+        3008 => vec!["MT3001".into(), "MT3007".into()],
+        3009 => vec!["MT3002".into()],
+        3010 => vec!["MT5007".into()],
+        3011 => vec!["MT3001".into()],
         4001 => vec!["MT4050".into()],
+        4002 => vec!["MT4001".into()],
+        4020 => vec!["MT4021".into(), "MT2007".into()],
+        4021 => vec!["MT4020".into(), "MT2007".into()],
+        4030 => vec!["MT4031".into(), "MT4032".into(), "MT4033".into()],
+        4031 => vec!["MT4030".into(), "MT2026".into()],
+        4032 => vec!["MT4030".into(), "MT4033".into()],
+        4033 => vec!["MT4032".into(), "MT2026".into()],
+        4040 => vec!["MT4041".into()],
+        4041 => vec!["MT4040".into()],
         4050 => vec!["MT4055".into(), "MT4059".into()],
+        4051 => vec!["MT4050".into()],
+        4053 => vec!["MT4055".into(), "MT4057".into()],
+        4054 => vec!["MT4050".into()],
         4060 => vec!["MT4061".into(), "MT4062".into(), "MT4063".into()],
+        4061 => vec!["MT4060".into()],
+        4062 => vec!["MT4060".into(), "MT5015".into()],
+        4063 => vec!["MT4060".into()],
+        4064 => vec!["MT4060".into(), "MT4061".into()],
         6001 => vec!["MT6002".into(), "MT6003".into()],
+        6002 => vec!["MT6001".into()],
+        6009 => vec!["MT6010".into(), "MT6011".into(), "MT6012".into()],
+        6010 => vec!["MT6009".into()],
         6017 => vec!["MT6018".into(), "MT6019".into(), "MT6020".into()],
+        6018 => vec!["MT6017".into()],
+        6019 => vec!["MT6017".into()],
+        6020 => vec!["MT6017".into()],
+        1 | 10 | 11 => vec!["MT0012".into()],
+        2 => vec!["MT0003".into()],
+        3 => vec!["MT0002".into()],
+        20 => vec!["MT4032".into()],
         _ => vec![],
     }
 }
@@ -1772,5 +3394,638 @@ mod tests {
         let env = diag.to_envelope("a.mty", "x");
         assert!(env.prose.contains("note: originates"));
         assert!(env.prose.contains("help: untaint"));
+    }
+
+    // =============================================================
+    // v0.34 T1 — backfill tests
+    // =============================================================
+
+    #[test]
+    fn envelope_mt0001_unexpected_token() {
+        let src = "fn f() { let = 1 }\n";
+        let diag = d(codes::UNEXPECTED_TOKEN, 11, 12, "unexpected token");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert_eq!(fix.alternatives.len(), 2);
+    }
+
+    #[test]
+    fn envelope_mt0002_unterminated_string_appends_quote() {
+        let src = "let x = \"hi\n";
+        let diag = d(codes::UNTERMINATED_STRING, 8, 11, "unterminated string");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert_eq!(fix.kind, "balance_delimiters");
+        assert!(fix.alternatives[0].diff.contains("\""));
+    }
+
+    #[test]
+    fn envelope_mt0003_invalid_escape_offers_known_set() {
+        let src = "let x = \"\\q\"\n";
+        let diag = d(codes::INVALID_ESCAPE, 9, 11, "invalid escape `\\q`");
+        let env = diag.to_envelope("a.mty", src);
+        assert!(env.fix.is_some());
+        assert_eq!(env.see_also, vec!["MT0002".to_string()]);
+    }
+
+    #[test]
+    fn envelope_mt0004_unknown_duration_unit() {
+        let src = "let t = 5.zorps\n";
+        let diag = d(codes::UNKNOWN_DURATION_UNIT, 10, 15, "unknown unit `zorps`");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert!(fix.alternatives[0].rationale.contains("duration"));
+    }
+
+    #[test]
+    fn envelope_mt0010_expected_item() {
+        let src = "x = 1\n";
+        let diag = d(codes::EXPECTED_ITEM, 0, 1, "expected item");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert_eq!(fix.alternatives.len(), 2);
+    }
+
+    #[test]
+    fn envelope_mt0011_expected_expr() {
+        let src = "fn f() { let x = }\n";
+        let diag = d(codes::EXPECTED_EXPR, 17, 18, "expected expression");
+        let env = diag.to_envelope("a.mty", src);
+        assert!(env.fix.is_some());
+    }
+
+    #[test]
+    fn envelope_mt0020_duplicate_on_handler() {
+        let src = "agent A: P { on Tick() -> {} on Tick() -> {} }\n";
+        let diag = d(codes::DUPLICATE_ON_HANDLER, 28, 30, "duplicate `on Tick`");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert_eq!(fix.kind, "remove_unreachable");
+        assert_eq!(fix.alternatives.len(), 2);
+    }
+
+    #[test]
+    fn envelope_mt2004_wrong_generic_arity_extracts_number() {
+        let src = "let x: Map[I32] = mk()\n";
+        let diag = d(
+            codes::WRONG_GENERIC_ARITY,
+            7,
+            10,
+            "expected 2 generic args, got 1",
+        );
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert!(fix.alternatives[0].label.contains("2"));
+    }
+
+    #[test]
+    fn envelope_mt2008_not_callable_removes_parens() {
+        let src = "fn main() { let x = 1; x() }\n";
+        let start = src.find("x()").unwrap();
+        let diag = d(codes::NOT_CALLABLE, start, start + 1, "value not callable");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        let diff = &fix.alternatives[0].diff;
+        // Diff removes the old line (containing `x()`) and adds the
+        // new line (containing `x` without parens).
+        assert!(diff.contains("-fn main() { let x = 1; x() }"));
+        assert!(diff.contains("+fn main() { let x = 1; x }"));
+    }
+
+    #[test]
+    fn envelope_mt2009_unknown_variant_offers_rename() {
+        let src = "enum E { Alpha, Beta }\nfn f() { let x = E.Alpa }\n";
+        let start = src.rfind("Alpa").unwrap();
+        let diag = d(
+            codes::UNKNOWN_VARIANT,
+            start,
+            start + 4,
+            "unknown variant `Alpa`",
+        );
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert!(fix.alternatives.iter().any(|a| a.label.contains("Alpha")));
+    }
+
+    #[test]
+    fn envelope_mt2011_question_error_mismatch_three_alts() {
+        let src = "fn f() -> Result[I32, MyErr] { g()? }\n";
+        let start = src.find('?').unwrap();
+        let diag = d(
+            codes::QUESTION_ERROR_MISMATCH,
+            start,
+            start + 1,
+            "error mismatch",
+        );
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert_eq!(fix.alternatives.len(), 3);
+        assert_eq!(fix.kind, "type_conversion");
+    }
+
+    #[test]
+    fn envelope_mt2012_wrong_variant_arity() {
+        let src = "fn f() { E.Some(1, 2) }\n";
+        let diag = d(
+            codes::WRONG_VARIANT_ARITY,
+            9,
+            13,
+            "variant `Some` expects 1 arg, got 2",
+        );
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert!(fix.alternatives[0].label.contains("1"));
+    }
+
+    #[test]
+    fn envelope_mt2014_duplicate_struct_field() {
+        let src = "fn f() { S { name: \"a\", name: \"b\" } }\n";
+        let diag = d(
+            codes::DUPLICATE_STRUCT_FIELD,
+            0,
+            1,
+            "duplicate field `name`",
+        );
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert!(fix.alternatives[0].label.contains("name"));
+        assert_eq!(fix.kind, "remove_unreachable");
+    }
+
+    #[test]
+    fn envelope_mt2016_unreachable_match_arm_two_alts() {
+        let src = "match x { _ => 0, A => 1 }\n";
+        let diag = d(
+            codes::UNREACHABLE_MATCH_ARM,
+            18,
+            19,
+            "unreachable match arm",
+        );
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert_eq!(fix.alternatives.len(), 2);
+        assert_eq!(fix.kind, "remove_unreachable");
+    }
+
+    #[test]
+    fn envelope_mt2017_binop_type_mismatch() {
+        let src = "let x = 1 + \"hi\"\n";
+        let diag = d(codes::BINOP_TYPE_MISMATCH, 10, 11, "binop mismatch");
+        let env = diag.to_envelope("a.mty", src);
+        assert_eq!(env.fix.unwrap().kind, "type_conversion");
+    }
+
+    #[test]
+    fn envelope_mt2022_not_a_struct() {
+        let src = "let x = E { v: 1 }\n";
+        let diag = d(codes::NOT_A_STRUCT, 8, 9, "not a struct");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert_eq!(fix.alternatives.len(), 2);
+    }
+
+    #[test]
+    fn envelope_mt2023_generic_arg_mismatch() {
+        let src = "let x: Vec[NoOrd] = mk()\n";
+        let diag = d(
+            codes::GENERIC_ARG_MISMATCH,
+            11,
+            16,
+            "generic arg fails bound",
+        );
+        let env = diag.to_envelope("a.mty", src);
+        assert!(env.fix.is_some());
+    }
+
+    #[test]
+    fn envelope_mt2024_lambda_arity_mismatch() {
+        let src = "xs.map(|a, b| a)\n";
+        let diag = d(codes::LAMBDA_ARITY_MISMATCH, 3, 6, "lambda arity");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert_eq!(fix.alternatives.len(), 2);
+    }
+
+    #[test]
+    fn envelope_mt2025_cannot_take_ref() {
+        let src = "let r = &(1 + 2)\n";
+        let diag = d(codes::CANNOT_TAKE_REF, 9, 10, "cannot take ref");
+        let env = diag.to_envelope("a.mty", src);
+        assert_eq!(env.fix.unwrap().kind, "take_reference");
+    }
+
+    #[test]
+    fn envelope_mt3002_move_out_of_borrow() {
+        let src = "fn f(r: &S) -> S { *r }\n";
+        let diag = d(codes::MOVE_OUT_OF_BORROW, 19, 21, "move out of borrow");
+        let env = diag.to_envelope("a.mty", src);
+        assert_eq!(env.fix.unwrap().kind, "add_clone");
+    }
+
+    #[test]
+    fn envelope_mt3003_borrow_after_move() {
+        let src = "fn f() { let s = mk(); let t = move s; let r = &s }\n";
+        let diag = d(codes::BORROW_AFTER_MOVE, 0, 2, "borrow after move");
+        let env = diag.to_envelope("a.mty", src);
+        assert_eq!(env.fix.unwrap().kind, "take_reference");
+    }
+
+    #[test]
+    fn envelope_mt3007_borrow_outlives_owner_three_alts() {
+        let src = "fn f() -> &S { let s = mk(); &s }\n";
+        let diag = d(codes::BORROW_OUTLIVES_OWNER, 0, 2, "borrow outlives owner");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert_eq!(fix.alternatives.len(), 3);
+    }
+
+    #[test]
+    fn envelope_mt3008_cannot_move_borrowed() {
+        let src = "fn f() { let r = &s; let t = move s }\n";
+        let diag = d(codes::CANNOT_MOVE_BORROWED, 0, 2, "cannot move borrowed");
+        let env = diag.to_envelope("a.mty", src);
+        assert!(env.fix.is_some());
+    }
+
+    #[test]
+    fn envelope_mt3009_move_out_of_ref() {
+        let src = "fn f(r: &T) -> T { *r }\n";
+        let diag = d(codes::MOVE_OUT_OF_REF, 0, 2, "move out of ref");
+        let env = diag.to_envelope("a.mty", src);
+        assert_eq!(env.fix.unwrap().kind, "add_clone");
+    }
+
+    #[test]
+    fn envelope_mt3010_arena_escape() {
+        let src = "arena { let x = mk(); leak(x) }\n";
+        let diag = d(codes::ARENA_ESCAPE, 0, 5, "arena escape");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert_eq!(fix.alternatives.len(), 2);
+    }
+
+    #[test]
+    fn envelope_mt3011_non_sendable_message_arg() {
+        let src = "agent A: P { on Msg(x: Rc[T]) -> {} }\n";
+        let diag = d(codes::NON_SENDABLE_MESSAGE_ARG, 0, 5, "not Send");
+        let env = diag.to_envelope("a.mty", src);
+        assert!(env.fix.is_some());
+    }
+
+    #[test]
+    fn envelope_mt3012_drop_in_const_context() {
+        let src = "const X: S = S {}\n";
+        let diag = d(codes::DROP_IN_CONST_CONTEXT, 0, 5, "drop in const");
+        let env = diag.to_envelope("a.mty", src);
+        assert!(env.fix.is_some());
+    }
+
+    #[test]
+    fn envelope_mt4002_alloc_in_core() {
+        let src = "#[core]\nfn f() { Vec.new() }\n";
+        let diag = d(codes::ALLOC_IN_CORE, 0, 7, "alloc in core");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert_eq!(fix.alternatives.len(), 2);
+    }
+
+    #[test]
+    fn envelope_mt4020_method_ambiguous() {
+        let src = "fn f(x: T) { x.foo() }\n";
+        let diag = d(codes::METHOD_AMBIGUOUS, 13, 16, "ambiguous method `foo`");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert!(fix.alternatives[0].rationale.contains("Fully"));
+    }
+
+    #[test]
+    fn envelope_mt4021_method_not_found() {
+        let src = "fn f(x: T) { x.bar() }\n";
+        let start = src.find("bar").unwrap();
+        let diag = d(
+            codes::METHOD_NOT_FOUND,
+            start,
+            start + 3,
+            "method `bar` not found",
+        );
+        let env = diag.to_envelope("a.mty", src);
+        assert!(env.fix.is_some());
+    }
+
+    #[test]
+    fn envelope_mt4022_trait_coherence_violation() {
+        let src = "impl ForeignTrait for ForeignType {}\n";
+        let diag = d(codes::TRAIT_COHERENCE_VIOLATION, 0, 4, "coherence");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert!(fix.alternatives[0].label.contains("newtype"));
+    }
+
+    #[test]
+    fn envelope_mt4023_dyn_requires_object_safe() {
+        let src = "fn f(x: dyn T) {}\n";
+        let diag = d(codes::DYN_REQUIRES_OBJECT_SAFE, 0, 3, "dyn requires safe");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert_eq!(fix.alternatives.len(), 2);
+    }
+
+    #[test]
+    fn envelope_mt4030_protocol_arity_mismatch() {
+        let src = "agent A: P { on Tick(x, y) -> {} }\n";
+        let diag = d(codes::PROTOCOL_ARITY_MISMATCH, 0, 5, "arity mismatch");
+        let env = diag.to_envelope("a.mty", src);
+        assert!(env.fix.is_some());
+    }
+
+    #[test]
+    fn envelope_mt4031_protocol_param_type_mismatch() {
+        let src = "agent A: P { on Tick(x: Str) -> {} }\n";
+        let diag = d(
+            codes::PROTOCOL_PARAM_TYPE_MISMATCH,
+            0,
+            5,
+            "param type mismatch",
+        );
+        let env = diag.to_envelope("a.mty", src);
+        assert_eq!(env.fix.unwrap().kind, "type_conversion");
+    }
+
+    #[test]
+    fn envelope_mt4033_protocol_extra_handler() {
+        let src = "agent A: P { on Stray() -> {} }\n";
+        let diag = d(
+            codes::PROTOCOL_EXTRA_HANDLER,
+            0,
+            5,
+            "handler `Stray` not in protocol",
+        );
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert!(fix.alternatives[0].label.contains("Stray"));
+        assert_eq!(fix.kind, "remove_unreachable");
+    }
+
+    #[test]
+    fn envelope_mt4040_derive_copy_field_not_copy() {
+        let src = "#[derive(Copy)] struct S { v: Vec[I32] }\n";
+        let diag = d(codes::DERIVE_COPY_FIELD_NOT_COPY, 0, 7, "field not copy");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert_eq!(fix.alternatives.len(), 2);
+    }
+
+    #[test]
+    fn envelope_mt4041_derive_unknown_renames_to_known() {
+        let src = "#[derive(Cloen)] struct S {}\n";
+        let diag = d(codes::DERIVE_UNKNOWN, 0, 7, "unknown derive `Cloen`");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert!(fix.alternatives[0].label.contains("Clone"));
+    }
+
+    #[test]
+    fn envelope_mt4051_row_occurs_check() {
+        let src = "fn f[E]() !{a | E} {}\n";
+        let diag = d(codes::ROW_OCCURS_CHECK, 0, 4, "occurs check");
+        let env = diag.to_envelope("a.mty", src);
+        assert!(env.fix.is_some());
+    }
+
+    #[test]
+    fn envelope_mt4053_row_var_unbound_uses_name() {
+        let src = "fn f() !{a | R} {}\n";
+        let diag = d(codes::ROW_VAR_UNBOUND, 0, 4, "row var `R` is unbound");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert!(fix.alternatives[0].label.contains('R'));
+    }
+
+    #[test]
+    fn envelope_mt4054_row_effect_mismatch() {
+        let src = "fn f() !{a} { g() }\n";
+        let diag = d(codes::ROW_EFFECT_MISMATCH, 0, 4, "row effect mismatch");
+        let env = diag.to_envelope("a.mty", src);
+        assert_eq!(env.fix.unwrap().kind, "add_effect");
+    }
+
+    #[test]
+    fn envelope_mt4061_cap_family_mismatch_uses_name() {
+        let src = "fn f(c: cap fs.ro) { net.get(c) }\n";
+        let diag = d(
+            codes::CAP_FAMILY_MISMATCH,
+            0,
+            4,
+            "cap family `net` expected",
+        );
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert!(fix.alternatives[0].label.contains("net"));
+    }
+
+    #[test]
+    fn envelope_mt4062_cap_scope_violation() {
+        let src = "sandbox { fs.write(\"x\") }\n";
+        let diag = d(codes::CAP_SCOPE_VIOLATION, 0, 7, "cap scope");
+        let env = diag.to_envelope("a.mty", src);
+        assert_eq!(env.fix.unwrap().kind, "add_capability");
+    }
+
+    #[test]
+    fn envelope_mt4063_cap_redeclaration_extracts_name() {
+        let src = "cap c = fs.ro; cap c = fs.rw\n";
+        let diag = d(codes::CAP_REDECLARATION, 0, 5, "duplicate cap `c`");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert!(fix.alternatives[0].label.contains('c'));
+        assert_eq!(fix.kind, "remove_unreachable");
+    }
+
+    #[test]
+    fn envelope_mt4064_cap_method_unknown_renames() {
+        let src = "fn f(c: cap fs.ro) { c.reed() }\n";
+        let start = src.find("reed").unwrap();
+        let diag = d(
+            codes::CAP_METHOD_UNKNOWN,
+            start,
+            start + 4,
+            "unknown cap method",
+        );
+        let env = diag.to_envelope("a.mty", src);
+        assert!(env.fix.is_some());
+    }
+
+    #[test]
+    fn envelope_mt6002_macro_arity_mismatch() {
+        let src = "log!()\n";
+        let diag = d(codes::MACRO_ARITY_MISMATCH, 0, 4, "macro arity");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert_eq!(fix.alternatives.len(), 2);
+    }
+
+    #[test]
+    fn envelope_mt6009_macro_format_bad_template() {
+        let src = "format!(\"{\")\n";
+        let diag = d(codes::MACRO_FORMAT_BAD_TEMPLATE, 0, 7, "bad template");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert!(fix.alternatives[0].label.contains("{"));
+    }
+
+    #[test]
+    fn envelope_mt6010_macro_format_unsupported_spec() {
+        let src = "format!(\"{:Q}\", x)\n";
+        let diag = d(
+            codes::MACRO_FORMAT_UNSUPPORTED_SPEC,
+            0,
+            7,
+            "unsupported spec",
+        );
+        let env = diag.to_envelope("a.mty", src);
+        assert!(env.fix.is_some());
+    }
+
+    #[test]
+    fn envelope_mt6018_computer_use_malformed_cap() {
+        let src = "@computer_use(cap: nonsense)\nagent A {}\n";
+        let diag = d(codes::COMPUTER_USE_MALFORMED_CAP, 0, 13, "malformed cap");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert!(fix.alternatives[0].rationale.contains("computer.screen"));
+    }
+
+    #[test]
+    fn envelope_mt6019_computer_use_malformed_dimension() {
+        let src = "@computer_use(width: \"x\")\nagent A {}\n";
+        let diag = d(
+            codes::COMPUTER_USE_MALFORMED_DIMENSION,
+            0,
+            13,
+            "malformed dim",
+        );
+        let env = diag.to_envelope("a.mty", src);
+        assert!(env.fix.is_some());
+    }
+
+    #[test]
+    fn envelope_mt6020_computer_use_not_an_agent() {
+        let src = "@computer_use()\nfn f() {}\n";
+        let diag = d(codes::COMPUTER_USE_NOT_AN_AGENT, 0, 13, "not an agent");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert_eq!(fix.alternatives.len(), 2);
+    }
+
+    // -- snapshot-ish tests for the 5 most-common new codes -----
+
+    #[test]
+    fn snapshot_mt2008_not_callable_diff_drops_parens() {
+        let src = "fn main() {\n  let x = 1\n  x()\n}\n";
+        let start = src.find("x()").unwrap();
+        let diag = d(codes::NOT_CALLABLE, start, start + 1, "not callable");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        // First alternative is the parens-removal diff.
+        let diff = &fix.alternatives[0].diff;
+        assert!(diff.contains("--- a/a.mty"));
+        assert!(diff.contains("+++ b/a.mty"));
+        assert!(diff.contains("-  x()"));
+        assert!(diff.contains("+  x"));
+    }
+
+    #[test]
+    fn snapshot_mt2016_unreachable_arm_has_remove_then_reorder() {
+        let src = "fn f(x: E) -> I32 {\n  match x {\n    _ => 0,\n    A => 1,\n  }\n}\n";
+        let diag = d(codes::UNREACHABLE_MATCH_ARM, 0, 5, "unreachable");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert_eq!(fix.alternatives[0].label, "Delete the unreachable arm");
+        assert_eq!(
+            fix.alternatives[1].label,
+            "Move the arm above the catch-all"
+        );
+    }
+
+    #[test]
+    fn snapshot_mt2014_duplicate_field_kind_is_remove_unreachable() {
+        let src = "fn f() { S { name: \"a\", name: \"b\" } }\n";
+        let diag = d(
+            codes::DUPLICATE_STRUCT_FIELD,
+            0,
+            1,
+            "duplicate field `name`",
+        );
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert_eq!(fix.kind, "remove_unreachable");
+        assert!((fix.confidence - 0.85).abs() < 1e-4);
+    }
+
+    #[test]
+    fn snapshot_mt0002_unterminated_string_diff_adds_quote() {
+        let src = "let x = \"hi\n";
+        let diag = d(codes::UNTERMINATED_STRING, 8, 11, "unterminated");
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        let diff = &fix.alternatives[0].diff;
+        assert!(diff.contains("+let x = \"hi\""));
+        assert!(diff.contains("@@ -1,1 +1,1 @@"));
+    }
+
+    #[test]
+    fn snapshot_mt4033_protocol_extra_handler_label_includes_name() {
+        let src = "agent A: P { on Stray() -> {} }\n";
+        let diag = d(
+            codes::PROTOCOL_EXTRA_HANDLER,
+            0,
+            5,
+            "handler `Stray` not in protocol",
+        );
+        let env = diag.to_envelope("a.mty", src);
+        let fix = env.fix.unwrap();
+        assert_eq!(
+            fix.alternatives[0].label,
+            "Delete the stray `on Stray` handler"
+        );
+        assert_eq!(
+            env.see_also,
+            vec!["MT4032".to_string(), "MT2026".to_string()]
+        );
+    }
+
+    // -- helper tests --------------------------------------------
+
+    #[test]
+    fn extract_first_number_finds_first_run() {
+        assert_eq!(extract_first_number("expected 12 got 4"), Some("12".into()));
+        assert_eq!(extract_first_number("no digits"), None);
+        assert_eq!(extract_first_number("3"), Some("3".into()));
+    }
+
+    // -- end-to-end NDJSON validity check ------------------------
+
+    #[test]
+    fn ndjson_round_trip_for_v034_codes() {
+        // One diagnostic per new code class — make sure they all
+        // produce valid envelopes that serialize + deserialize cleanly.
+        let src = "fn main() {\n  let x = 1\n}\n";
+        let diags = vec![
+            d(codes::UNEXPECTED_TOKEN, 0, 1, "u"),
+            d(codes::NOT_CALLABLE, 0, 1, "n"),
+            d(codes::DUPLICATE_STRUCT_FIELD, 0, 1, "d `f`"),
+            d(codes::UNREACHABLE_MATCH_ARM, 0, 1, "u"),
+            d(codes::MOVE_OUT_OF_REF, 0, 1, "m"),
+            d(codes::PROTOCOL_EXTRA_HANDLER, 0, 1, "p `M`"),
+            d(codes::CAP_FAMILY_MISMATCH, 0, 1, "f `c`"),
+            d(codes::COMPUTER_USE_MALFORMED_CAP, 0, 1, "m"),
+        ];
+        let out = crate::fix::to_ndjson(&diags, "a.mty", src, false);
+        let lines: Vec<&str> = out.trim_end().split('\n').collect();
+        assert_eq!(lines.len(), diags.len());
+        for l in &lines {
+            let env: DiagnosticEnvelope = serde_json::from_str(l).unwrap();
+            assert!(env.fix.is_some(), "code {} should have a fix", env.code);
+        }
     }
 }

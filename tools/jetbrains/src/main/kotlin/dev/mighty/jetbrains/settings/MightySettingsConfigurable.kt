@@ -29,6 +29,7 @@ class MightySettingsConfigurable : Configurable {
 
     private val pollSecondsField = JBTextField()
     private val autoRefreshCheckbox = JBCheckBox("Auto-refresh the Mighty Cost tool window")
+    private val codeActionThresholdField = JBTextField()
 
     private var panel: JPanel? = null
 
@@ -40,6 +41,17 @@ class MightySettingsConfigurable : Configurable {
             .addTooltip("Empty = resolve `mty` on PATH at server-spawn time.")
             .addLabeledComponent(JBLabel("Cost poll interval (seconds):"), pollSecondsField, 1, false)
             .addComponent(autoRefreshCheckbox, 1)
+            .addLabeledComponent(
+                JBLabel("CodeAction confidence threshold (0.0..1.0):"),
+                codeActionThresholdField,
+                1,
+                false,
+            )
+            .addTooltip(
+                "Minimum fix-envelope confidence to surface as a Quick Fix on Alt+Enter. " +
+                    "0.7 (default) hides speculative suggestions; lower to see more. " +
+                    "Restart the LSP for changes to take effect.",
+            )
             .addComponentFillVertically(JPanel(), 0)
             .panel
         panel = built
@@ -49,19 +61,23 @@ class MightySettingsConfigurable : Configurable {
     override fun isModified(): Boolean {
         return binaryPathField.text != state.mtyBinaryPath ||
             pollSecondsField.text.toIntOrNull() != state.costPollSeconds ||
-            autoRefreshCheckbox.isSelected != state.costAutoRefresh
+            autoRefreshCheckbox.isSelected != state.costAutoRefresh ||
+            codeActionThresholdField.text.toDoubleOrNull() != state.codeActionConfidenceThreshold
     }
 
     override fun apply() {
         state.mtyBinaryPath = binaryPathField.text.trim()
         state.costPollSeconds = pollSecondsField.text.toIntOrNull()?.coerceAtLeast(5) ?: 30
         state.costAutoRefresh = autoRefreshCheckbox.isSelected
+        state.codeActionConfidenceThreshold =
+            codeActionThresholdField.text.toDoubleOrNull()?.coerceIn(0.0, 1.0) ?: 0.7
     }
 
     override fun reset() {
         binaryPathField.text = state.mtyBinaryPath
         pollSecondsField.text = state.costPollSeconds.toString()
         autoRefreshCheckbox.isSelected = state.costAutoRefresh
+        codeActionThresholdField.text = state.codeActionConfidenceThreshold.toString()
     }
 
     override fun disposeUIResources() {

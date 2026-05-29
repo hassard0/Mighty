@@ -33,12 +33,23 @@ class MightySettingsState : PersistentStateComponent<MightySettingsState> {
      */
     var costAutoRefresh: Boolean = true
 
+    /**
+     * v0.34 T2 — minimum confidence for a fix-envelope alternative to
+     * appear in the IntelliJ Quick Fix list. Range `0.0..1.0`. Defaults
+     * to 0.7 (matches the LSP server's default; mirrors the VS Code
+     * setting `mighty.codeAction.confidenceThreshold`). Lower the
+     * threshold to see more speculative suggestions; raise it for
+     * mechanical-only fixes.
+     */
+    var codeActionConfidenceThreshold: Double = 0.7
+
     override fun getState(): MightySettingsState = this
 
     override fun loadState(state: MightySettingsState) {
         this.mtyBinaryPath = state.mtyBinaryPath
         this.costPollSeconds = state.costPollSeconds
         this.costAutoRefresh = state.costAutoRefresh
+        this.codeActionConfidenceThreshold = state.codeActionConfidenceThreshold
     }
 
     companion object {

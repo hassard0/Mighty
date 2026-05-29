@@ -18,6 +18,7 @@ language itself.
 | **Cost side panel** (v0.32) | `Mighty: Inspect cost` opens a theme-aware webview with summary cards (today / 7d / 30d / all-time), per-provider + per-model bar breakdowns, and a top-10 most expensive calls table. Auto-refreshes every 30s. |
 | **Tree-sitter semantic tokens** (v0.32) | Stub provider registered with a forward-compatible token legend (incl. our custom `taintedType` token). The full grammar integration ships in v0.33 — see "Tree-sitter highlights" below for the theme-tweak that lets you start using `taintedType` today. |
 | **Debugger** (v0.32) | Native DAP integration via `mty dap`. Hit `F5` on any `.mty` file — VS Code's built-in debug UI handles breakpoints, step-in / step-over / step-out, the variables view (showing each `let` binding + Track-F structured `tool_uses` for LLM calls), and the call stack. |
+| **Quick-fix lightbulb** (v0.34) | Every `MTxxxx` diagnostic now ships one or more *fix alternatives*. The LSP surfaces them as standard VS Code CodeActions — click the lightbulb (or `Ctrl+.`) on any error to apply a fix in-place. Untaint suggestions for `MT4099` give three strategies; rename suggestions for `MT1001` / `MT2007` pick the closest in-scope spelling; effect-row mismatches add the missing effect to the signature. Confidence threshold tunable via `mighty.codeAction.confidenceThreshold`. |
 | Keybindings | `Ctrl+F5` (run current file), `Ctrl+Shift+B` (check current file), and `F5` (debug current file) when a Mighty editor is focused. |
 
 ## Debugging (v0.32)
@@ -59,7 +60,7 @@ executing live (the v0.32 Track F deliverable).
 cd tools/vscode
 npm install
 npm run package
-code --install-extension mighty-language-0.32.0.vsix
+code --install-extension mighty-language-0.34.0.vsix
 ```
 
 The extension targets VS Code ≥ 1.85. The `mty` binary must be on `PATH`
@@ -112,6 +113,7 @@ npm run watch
 | `mighty.costStatusBar.refreshSeconds` | `30` | Refresh interval (min 5s). |
 | `mighty.costCodeLens.enable` | `true` | Toggle the v0.32 cost CodeLens above call sites. |
 | `mighty.test.replayOnly` | `true` | Default `Mighty: Test --eval` to `--replay-only`. |
+| `mighty.codeAction.confidenceThreshold` | `0.7` | Minimum fix confidence to surface in the lightbulb. Lower to see more suggestions; raise to hide low-confidence ones. Hidden fixes are still available via `mty fix --apply` on the CLI. |
 
 ## Cost CodeLens — what it shows
 
@@ -164,6 +166,46 @@ active.
 
 The previous terminal-flavour command is still available as
 **Mighty: Inspect cost (terminal)**.
+
+## Quick-fix lightbulb (v0.34)
+
+Every Mighty diagnostic now ships a structured *fix envelope* with one
+or more concrete alternatives. The LSP surfaces them as standard VS
+Code CodeActions: place the cursor on any underlined `MTxxxx`, click
+the lightbulb (or hit `Ctrl+.` / `Cmd+.`), and pick a fix.
+
+What you get:
+
+- **MT4099 (tainted value flows to sink)** — three untaint strategies:
+  *Constrain via a known-safe regex*, *Apply a provably-correct
+  sanitizer*, *Parse against an enum allowlist*.
+- **MT1001 / MT2002 / MT2021 (unresolved name / type / value)** —
+  rename to the closest in-scope spelling, plus a `use std.<name>`
+  suggestion when applicable.
+- **MT4001 / MT4050 / MT4055 / MT4060 (effect / capability)** — add
+  the missing effect or capability to the enclosing fn signature.
+- **MT3001 / MT3013 / MT3014 (use-after-move / immut local)** — add
+  `.clone()`, take a reference, or add `mut` to the binding.
+- 80+ other `MTxxxx` codes covered by T1's fix engines — see
+  `mty check --format json` to inspect the full envelope.
+
+Each lightbulb entry includes the strategy's **confidence** (the fix
+engines score 0.5 → 1.0; the default lightbulb shows everything ≥ 0.7).
+The highest-confidence suggestion is marked as the editor's *preferred*
+quick fix — that's the one VS Code applies when you press `Ctrl+.` and
+hit Enter without picking one explicitly.
+
+Renames and structural refactors (rename-to-match-decl, add-match-arm,
+add-struct-field) also appear under VS Code's *Refactor…* menu via
+`refactor.rewrite`.
+
+Tune the threshold with `mighty.codeAction.confidenceThreshold` (range
+`0..1`). Drop to `0.5` if you want the LSP to surface speculative
+suggestions; raise to `0.9` for mechanical-only fixes. Hidden
+suggestions remain available on the CLI via `mty fix --apply`.
+
+> Screenshot: `![lightbulb](docs/lightbulb.png)` will land in a
+> follow-up commit once the v0.34 release branch settles.
 
 ## Tree-sitter highlights (v0.32 stub → v0.33)
 
