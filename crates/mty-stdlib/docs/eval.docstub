@@ -156,3 +156,14 @@ let suite = Suite.new("summaries")
   .run_with(Member.openai("gpt-4o"));
 ##end
 
+##sym Suite.compare_with
+##sig fn Suite.compare_with(self, cmp: Compare) -> Suite
+##desc Set the comparator used when no per-case override is supplied. Chain after `.case().run_with(...)` to declare the eval pipeline declaratively.
+##see Suite.new, Suite.case, Suite.run_with, Compare.equal
+##example
+let s = Suite.new("qa")
+  .case(c1)
+  .run_with(member)
+  .compare_with(Compare.semantic_similarity(0.8));
+##end
+

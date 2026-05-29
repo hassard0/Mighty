@@ -1,0 +1,87 @@
+##module io
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym std.io.stdin
+##sig fn std.io.stdin() -> Stdin
+##cap io.stdin
+##desc Returns the process stdin handle. Wrap in `BufReader.new(stdin)` for line iteration.
+##see std.io.stdout, std.io.stderr, BufReader.new
+##example
+let r = BufReader.new(std.io.stdin());
+for line in r.lines() { log(line?); }
+##end
+
+##sym std.io.stdout
+##sig fn std.io.stdout() -> Stdout
+##cap io.stdout
+##desc Returns the process stdout handle. `log` and `println!` share its buffer; flush is implicit on newline.
+##see std.io.stderr, std.io.stdin, BufWriter.new, log
+##example
+std.io.stdout().write_line("hello")?;
+##end
+
+##sym std.io.stderr
+##sig fn std.io.stderr() -> Stderr
+##cap io.stderr
+##desc Returns the process stderr handle. Unbuffered by default so diagnostics survive a crash before flush.
+##see std.io.stdout, eprintln, panic
+##example
+std.io.stderr().write_line("error: bad input")?;
+##end
+
+##sym BufReader.new
+##sig fn BufReader.new[R: Read](inner: R) -> BufReader[R]
+##desc Wrap a `Read` handle in a buffered reader. Reduces syscall count for line-oriented workloads.
+##see BufReader.lines, BufWriter.new, std.io.stdin
+##example
+let r = BufReader.new(std.fs.open("input.txt", FsCap.unrestricted())?);
+##end
+
+##sym BufReader.lines
+##sig fn BufReader.lines[R](&mut self) -> Iterator[Result<Str, IoError>]
+##desc Lazy iterator of `\n`-terminated lines (the terminator is stripped). Yields `Err` on read failure mid-stream.
+##see BufReader.new, std.io.stdin
+##example
+let mut r = BufReader.new(std.io.stdin());
+for line in r.lines() { log(line?); }
+##end
+
+##sym BufWriter.new
+##sig fn BufWriter.new[W: Write](inner: W) -> BufWriter[W]
+##desc Wrap a `Write` handle in a buffered writer. Coalesces small writes into block-sized syscalls; drop or `.flush()` to commit.
+##see BufWriter.flush, BufReader.new, std.io.stdout
+##example
+let mut w = BufWriter.new(std.io.stdout());
+w.write_line("hi")?;
+w.flush()?;
+##end
+
+##sym BufWriter.flush
+##sig fn BufWriter.flush[W](&mut self) -> Result<(), IoError>
+##desc Force-write any buffered bytes to the inner handle. Called automatically on drop but explicit flush surfaces I/O errors at a useful site.
+##see BufWriter.new, std.io.stdout
+##example
+let mut w = BufWriter.new(std.io.stdout());
+w.write_line("hi")?;
+w.flush()?;
+##end
+
+##sym read_line
+##sig fn Stdin.read_line(&mut self, buf: &mut String) -> Result<USize, IoError>
+##cap io.stdin
+##desc Read one `\n`-terminated line from stdin into `buf` (appended, not replaced). Returns the byte count read; `0` on EOF.
+##see std.io.stdin, BufReader.lines, write_line
+##example
+let mut s = String.new();
+let n = std.io.stdin().read_line(&mut s)?;
+log(format!("got {} bytes", n));
+##end
+
+##sym write_line
+##sig fn Write.write_line(&mut self, s: Str) -> Result<(), IoError>
+##desc Write `s` followed by a `\n`. Implemented on every `Write` handle (`Stdout`, `Stderr`, `BufWriter`, file handles).
+##see std.io.stdout, BufWriter.new, eprintln
+##example
+std.io.stdout().write_line("done")?;
+##end
+

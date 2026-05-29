@@ -1,0 +1,126 @@
+##module iter
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym Iterator.map
+##sig fn Iterator.map[T, U](self, f: fn(T) -> U) -> Iterator[U]
+##desc Lazily transform each item. Combinator — nothing runs until the consumer drives the iterator.
+##see Iterator.filter, Iterator.fold, Iterator.collect
+##example
+let xs = [1, 2, 3].iter().map(|x| x * 2).collect();
+assert_eq(xs, [2, 4, 6]);
+##end
+
+##sym Iterator.filter
+##sig fn Iterator.filter[T](self, pred: fn(&T) -> Bool) -> Iterator[T]
+##desc Lazily keep only items where `pred` returns `true`.
+##see Iterator.map, Iterator.fold, Iterator.collect
+##example
+let evens = (1..10).filter(|x| x % 2 == 0).collect();
+##end
+
+##sym Iterator.fold
+##sig fn Iterator.fold[T, A](self, init: A, f: fn(A, T) -> A) -> A
+##desc Reduce to a single value by threading `init` through `f` for each item. Terminal — drives the iterator.
+##see Iterator.map, Iterator.filter, Iterator.sum
+##example
+let sum = [1, 2, 3].iter().fold(0, |a, x| a + x);
+assert_eq(sum, 6);
+##end
+
+##sym Iterator.collect
+##sig fn Iterator.collect[T, C: FromIterator[T]](self) -> C
+##desc Terminal: drain the iterator into a collection. Target type is inferred from context (`Vec[T]`, `HashSet[T]`, ...).
+##see Iterator.map, Vec.iter, HashSet.new
+##example
+let v: Vec[I32] = (1..5).collect();
+assert_eq(v.len(), 4);
+##end
+
+##sym Iterator.zip
+##sig fn Iterator.zip[T, U](self, other: Iterator[U]) -> Iterator[(T, U)]
+##desc Pairwise combine. The result stops as soon as either source is exhausted.
+##see Iterator.chain, Iterator.enumerate, Iterator.map
+##example
+let pairs = [1, 2, 3].iter().zip(["a", "b"].iter()).collect();
+assert_eq(pairs.len(), 2);
+##end
+
+##sym Iterator.chain
+##sig fn Iterator.chain[T](self, other: Iterator[T]) -> Iterator[T]
+##desc Yield every item of `self`, then every item of `other`. Lazy.
+##see Iterator.zip, Iterator.collect, Iterator.map
+##example
+let all = [1, 2].iter().chain([3, 4].iter()).collect();
+assert_eq(all, [1, 2, 3, 4]);
+##end
+
+##sym Iterator.take
+##sig fn Iterator.take[T](self, n: USize) -> Iterator[T]
+##desc Yield at most the first `n` items, then stop.
+##see Iterator.skip, Iterator.enumerate, Iterator.collect
+##example
+let first3 = (1..).take(3).collect();
+assert_eq(first3, [1, 2, 3]);
+##end
+
+##sym Iterator.skip
+##sig fn Iterator.skip[T](self, n: USize) -> Iterator[T]
+##desc Drop the first `n` items, then yield the rest.
+##see Iterator.take, Iterator.enumerate
+##example
+let tail = (1..5).skip(2).collect();
+assert_eq(tail, [3, 4]);
+##end
+
+##sym Iterator.enumerate
+##sig fn Iterator.enumerate[T](self) -> Iterator[(USize, T)]
+##desc Yield `(index, item)` pairs starting at index `0`.
+##see Iterator.zip, Iterator.map, Vec.iter
+##example
+for (i, name) in names.iter().enumerate() {
+  log(format!("{}: {}", i, name));
+}
+##end
+
+##sym Iterator.sum
+##sig fn Iterator.sum[T: Add](self) -> T
+##desc Reduce by `+`. Terminal. Works for any item type with a `+ T -> T` Add impl.
+##see Iterator.fold, Iterator.collect
+##example
+let total: I64 = [1, 2, 3].iter().sum();
+assert_eq(total, 6);
+##end
+
+##sym Iterator.count
+##sig fn Iterator.count[T](self) -> USize
+##desc Terminal: consume the iterator and return the number of items yielded. O(n) — use `Vec.len` if you already have a sized container.
+##see Iterator.fold, Iterator.sum, Vec.len
+##example
+let n = (1..100).filter(|x| x % 7 == 0).count();
+##end
+
+##sym Iterator.any
+##sig fn Iterator.any[T](self, pred: fn(T) -> Bool) -> Bool
+##desc Terminal: returns `true` as soon as any item satisfies `pred`. Short-circuits on the first match.
+##see Iterator.all, Iterator.filter
+##example
+if names.iter().any(|n| n == "root") { panic("root not allowed"); }
+##end
+
+##sym Iterator.all
+##sig fn Iterator.all[T](self, pred: fn(T) -> Bool) -> Bool
+##desc Terminal: returns `true` iff every item satisfies `pred`. Short-circuits on the first failure. Vacuously true on the empty iterator.
+##see Iterator.any, Iterator.filter
+##example
+assert(xs.iter().all(|x| x > 0));
+##end
+
+##sym Iterator.find
+##sig fn Iterator.find[T](self, pred: fn(&T) -> Bool) -> Option[T]
+##desc Terminal: return the first item satisfying `pred`, or `None`. Short-circuits.
+##see Iterator.any, Iterator.filter, Option.is_some
+##example
+let first_even = (1..).find(|x| x % 2 == 0);
+assert_eq(first_even, Some(2));
+##end
+

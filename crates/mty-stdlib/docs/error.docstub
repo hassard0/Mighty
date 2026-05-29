@@ -1,0 +1,26 @@
+##module error
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym Error.trait
+##sig trait Error: Display + Debug { fn source(&self) -> Option[&dyn Error] { None } }
+##desc Common interface for typed error values. Implementations carry a `Display` impl for human-readable messages and an optional `source()` chain. Mirrors `std::error::Error`.
+##see Result.map_err, anyhow_error
+##example
+impl Error for AppError {
+  fn source(&self) -> Option[&dyn Error] {
+    match self {
+      AppError.Io(e) => Some(e),
+      _ => None,
+    }
+  }
+}
+##end
+
+##sym anyhow_error
+##sig macro anyhow!(fmt: Str, args: ...) -> AnyhowError
+##desc Construct an `AnyhowError` from a format string (anyhow-style ergonomics). The error carries a stringified message and the `?`-chain backtrace.
+##see Error.trait, Result.map_err, panic
+##example
+if !port_ok { return Err(anyhow!("bad port: {}", port)); }
+##end
+

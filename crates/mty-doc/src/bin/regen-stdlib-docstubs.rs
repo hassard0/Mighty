@@ -101,6 +101,9 @@ fn module_of(symbol: &str) -> &'static str {
             "json" => "json",
             "env" => "env",
             "observe" => "observe",
+            "process" => "process",
+            "io" => "io",
+            "path" => "path",
             _ => "builtin",
         };
     }
@@ -113,9 +116,11 @@ fn module_of(symbol: &str) -> &'static str {
         "VectorStore" | "EpisodicMemory" | "WorkingMemory" => "memory",
         "Suite" | "Compare" | "Verdict" | "Case" => "eval",
         "observe" | "Window" | "GroupBy" | "summarize" | "percentiles" | "aggregate_by"
-        | "CostSummary" => "observe",
+        | "CostSummary" | "top_by_cost" => "observe",
         "HtmlEscape" | "ShellEscape" | "SqlEscape" | "PathBoundary" | "sanitize_with"
-        | "matches_regex" | "in_allowlist" => "taint",
+        | "matches_regex" | "in_allowlist" | "sanitize_compose" | "named_regex" | "Allowlist" => {
+            "taint"
+        }
         "FsCap" | "StatResult" => "fs",
         "Json" => "json",
         "String" | "format" => "string",
@@ -124,7 +129,35 @@ fn module_of(symbol: &str) -> &'static str {
         "ComputerCap" | "Dispatcher" | "Mouse" | "Keyboard" | "Screen" | "MockScreen"
         | "ComputerAction" | "SandboxViolation" => "computer",
         "Canvas" | "Input" | "Key" => "web",
-        "log" | "panic" | "spawn" => "builtin",
+        "log" | "panic" | "spawn" | "eprintln" => "builtin",
+        // v0.38 T4: extern c / FFI surfaces (v0.37 T3 + T6)
+        "extern_block" | "extern_c_fn" | "extern_c_variadic" | "extern_lib"
+        | "coerce_str_to_u8" | "addr_of_local" | "addr_of_mut" | "returned_struct" => "extern",
+        // v0.38 T4: cast expressions (v0.37 T2 — MT2027 INVALID_CAST)
+        "cast_as" | "cast_u8_to_i64" | "cast_i64_to_u8" | "cast_f32_to_f64"
+        | "cast_f64_to_f32" | "cast_i32_to_f32" | "cast_f32_to_i32" | "cast_usize_to_u64"
+        | "cast_bool_to_u8" | "cast_char_to_u32" | "cast_ptr_to_usize" | "cast_invalid_mt2027" => {
+            "cast"
+        }
+        // v0.38 T4: runtime / build env vars
+        "MTY_LINKER" | "MTY_OTLP_ENDPOINT" | "MTY_TRACE" | "MTY_RUNTIME_THREADS"
+        | "MTY_RUNTIME_CONTROL_SOCK" => "env",
+        // v0.38 T4: std.process builder + helpers (rooted at non-`std.` prefix)
+        "Command" => "process",
+        "ProcessExit" => "process",
+        // v0.38 T4: std.io readers / writers (rooted at non-`std.` prefix)
+        "BufReader" | "BufWriter" | "read_line" | "write_line" => "io",
+        // v0.38 T4: std.path
+        "Path" | "PathBuf" => "path",
+        // v0.38 T4: std.collections
+        "HashMap" | "HashSet" | "BTreeMap" | "BTreeSet" => "collections",
+        // v0.38 T4: std.iter combinators
+        "Iterator" => "iter",
+        // v0.38 T4: std.result / std.option
+        "Result" => "result",
+        "Option" => "option",
+        // v0.38 T4: std.error trait + anyhow macro
+        "Error" | "anyhow_error" => "error",
         _ => "builtin",
     }
 }

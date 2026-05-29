@@ -1,0 +1,79 @@
+##module collections
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym HashMap.new
+##sig fn HashMap.new[K, V]() -> HashMap[K, V]
+##desc Empty hash-backed key-value map. `K` must implement `Hash + Eq`.
+##see HashMap.insert, HashMap.get, BTreeMap.new
+##example
+let mut m: HashMap[Str, I32] = HashMap.new();
+m.insert("alpha", 1);
+##end
+
+##sym HashMap.insert
+##sig fn HashMap.insert[K, V](&mut self, k: K, v: V) -> Option[V]
+##desc Insert or overwrite. Returns the displaced value when the key was already present, `None` otherwise.
+##see HashMap.new, HashMap.get, HashMap.remove
+##example
+let prev = m.insert("alpha", 2);
+assert_eq(prev, Some(1));
+##end
+
+##sym HashMap.get
+##sig fn HashMap.get[K, V](&self, k: &K) -> Option[&V]
+##desc Borrow the value associated with `k`, or `None`.
+##see HashMap.insert, HashMap.remove, HashMap.new
+##example
+match m.get(&"alpha") {
+  Some(v) => log(format!("{}", v)),
+  None => log("missing"),
+}
+##end
+
+##sym HashMap.remove
+##sig fn HashMap.remove[K, V](&mut self, k: &K) -> Option[V]
+##desc Remove and return the value at `k`, or `None` if absent.
+##see HashMap.insert, HashMap.get
+##example
+let prev = m.remove(&"alpha");
+##end
+
+##sym HashSet.new
+##sig fn HashSet.new[T]() -> HashSet[T]
+##desc Empty hash-backed set. `T` must implement `Hash + Eq`.
+##see HashSet.insert, HashMap.new, BTreeSet.new
+##example
+let mut s: HashSet[Str] = HashSet.new();
+s.insert("alpha");
+##end
+
+##sym HashSet.insert
+##sig fn HashSet.insert[T](&mut self, x: T) -> Bool
+##desc Add `x`. Returns `true` when it was newly inserted, `false` when it was already present.
+##see HashSet.new, HashMap.insert
+##example
+assert(s.insert("alpha"));
+assert(!s.insert("alpha"));
+##end
+
+##sym BTreeMap.new
+##sig fn BTreeMap.new[K, V]() -> BTreeMap[K, V]
+##desc Ordered key-value map. Iteration order is the `Ord` order on `K`. Cheaper than `HashMap` for small `K` count + range queries.
+##see HashMap.new, BTreeSet.new
+##example
+let mut m: BTreeMap[I32, Str] = BTreeMap.new();
+m.insert(1, "alpha");
+for (k, v) in m.iter() { log(format!("{} -> {}", k, v)); }
+##end
+
+##sym BTreeSet.new
+##sig fn BTreeSet.new[T]() -> BTreeSet[T]
+##desc Ordered set. Iteration order is `Ord` order on `T`.
+##see HashSet.new, BTreeMap.new
+##example
+let mut s: BTreeSet[I32] = BTreeSet.new();
+s.insert(3);
+s.insert(1);
+for x in s.iter() { log(format!("{}", x)); }
+##end
+

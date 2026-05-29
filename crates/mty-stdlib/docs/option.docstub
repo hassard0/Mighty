@@ -1,0 +1,54 @@
+##module option
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym Option.is_some
+##sig fn Option.is_some[T](&self) -> Bool
+##desc True when the option holds a value. Cheap shortcut over `matches!(o, Some(_))`.
+##see Option.is_none, Option.map, Option.unwrap_or
+##example
+let o: Option[I32] = Some(7);
+assert(o.is_some());
+##end
+
+##sym Option.is_none
+##sig fn Option.is_none[T](&self) -> Bool
+##desc True when the option is empty.
+##see Option.is_some, Option.ok_or
+##example
+let o: Option[I32] = None;
+assert(o.is_none());
+##end
+
+##sym Option.map
+##sig fn Option.map[T, U](self, f: fn(T) -> U) -> Option[U]
+##desc Transform the `Some` value with `f`; pass `None` through unchanged.
+##see Option.and_then, Option.unwrap_or, Result.map_err
+##example
+let len = Some("hi").map(|s| s.len());
+assert_eq(len, Some(2));
+##end
+
+##sym Option.and_then
+##sig fn Option.and_then[T, U](self, f: fn(T) -> Option[U]) -> Option[U]
+##desc Monadic bind. Threads the inner value through `f`; short-circuits on `None`.
+##see Option.map, Option.unwrap_or, Result.and_then
+##example
+let n = parse_int(s).and_then(|x| if x > 0 { Some(x) } else { None });
+##end
+
+##sym Option.unwrap_or
+##sig fn Option.unwrap_or[T](self, default: T) -> T
+##desc Return the `Some` value or `default` on `None`. Never panics.
+##see Option.map, Option.ok_or, Result.unwrap_or
+##example
+let n = parse_int(s).unwrap_or(0);
+##end
+
+##sym Option.ok_or
+##sig fn Option.ok_or[T, E](self, err: E) -> Result[T, E]
+##desc Promote an `Option` to a `Result`, using `err` as the failure value.
+##see Option.map, Result.ok, Result.err
+##example
+let r: Result[I32, Str] = parse_int(s).ok_or("bad int");
+##end
+
