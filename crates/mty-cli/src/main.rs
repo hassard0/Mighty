@@ -29,6 +29,24 @@ struct ServeArgs {
     manifest_dir: Option<std::path::PathBuf>,
 }
 
+/// v0.34 T4 — `mty hooks <install|uninstall|status>`.
+#[derive(Subcommand, Debug, Clone)]
+enum HooksCmd {
+    /// Install the project's pre-push hook into `.git/hooks/pre-push`.
+    Install {
+        /// Overwrite any pre-existing hook, even if it's not a Mighty
+        /// hook. Without this flag, the install refuses to clobber
+        /// hooks we didn't author.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Remove the installed pre-push hook (only if it carries our
+    /// sentinel).
+    Uninstall,
+    /// Report whether the hook is installed.
+    Status,
+}
+
 #[derive(Subcommand)]
 enum Cmd {
     /// Scaffold a new Mighty package.
@@ -368,6 +386,14 @@ enum Cmd {
         #[arg(long, default_value = "pretty")]
         format: String,
     },
+    /// v0.34 T4 — install / uninstall / status of the project's
+    /// pre-push git hook (mirrors the cheapest two CI gates,
+    /// `cargo fmt --check` + `cargo clippy -D warnings`). See
+    /// `docs/contributing.md` for the swarm-agent setup boilerplate.
+    Hooks {
+        #[command(subcommand)]
+        cmd: HooksCmd,
+    },
     /// Render package documentation extracted from `///` doc comments.
     ///
     /// With no flags, prints a Go-style summary of the package's public
@@ -616,6 +642,14 @@ fn main() {
             json,
             dry_run,
         }),
+        Cmd::Hooks { cmd: hooks_cmd } => {
+            let action = match hooks_cmd {
+                HooksCmd::Install { force } => cmd::hooks::HooksAction::Install { force },
+                HooksCmd::Uninstall => cmd::hooks::HooksAction::Uninstall,
+                HooksCmd::Status => cmd::hooks::HooksAction::Status,
+            };
+            cmd::hooks::run(action)
+        }
     };
     std::process::exit(code);
 }

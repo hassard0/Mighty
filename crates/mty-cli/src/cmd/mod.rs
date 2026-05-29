@@ -19,6 +19,9 @@ pub mod explain;
 // `docs/reference/find.md` for the query DSL + ranking spec.
 pub mod find;
 pub mod fmt;
+// v0.34 T4 — `mty hooks install`: install the project's pre-push hook
+// (`.git-hooks/pre-push`) into `.git/hooks/pre-push`. See cmd/hooks.rs.
+pub mod hooks;
 pub mod inspect;
 pub mod lsp;
 pub mod new;

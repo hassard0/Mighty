@@ -804,7 +804,7 @@ impl<'pkg> TaintCx<'pkg> {
         sensitive_idx: usize,
         args: &[HirArg],
         arg_t: &[bool],
-        _site: ExprId,
+        site: ExprId,
     ) {
         // Determine the list of argument indices to check.
         let to_check: Vec<usize> = if sensitive_idx == usize::MAX {
@@ -814,11 +814,23 @@ impl<'pkg> TaintCx<'pkg> {
         };
         for idx in to_check {
             if arg_t.get(idx).copied().unwrap_or(false) {
+                // v0.34 T4 — point at the SINK ARGUMENT's span (the
+                // tainted value reference) rather than the start of
+                // the file. The arg span is what the user wants to
+                // see highlighted in their editor / pretty output.
+                // Fall back to the call site's own span, then to a
+                // zero span, if neither is recorded.
+                let (start, end) = args
+                    .get(idx)
+                    .and_then(|a| self.pkg.expr_spans.get(&a.value))
+                    .or_else(|| self.pkg.expr_spans.get(&site))
+                    .map(|s| (s.start as usize, s.end as usize))
+                    .unwrap_or((0, 0));
                 self.diagnostics.push(Diagnostic::error(
                     TAINTED_VALUE_TO_SINK,
                     Label {
-                        start: 0,
-                        end: 0,
+                        start,
+                        end,
                         message: format!(
                             "tainted value flows to `{}` (arg #{}) — untaint via \
                              `.matches_regex(...)`, `.in_allowlist[Enum]()`, or \
