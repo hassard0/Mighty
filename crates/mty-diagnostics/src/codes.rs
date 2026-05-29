@@ -198,6 +198,14 @@ pub const AGENT_HANDLER_MISSING: DiagCode = DiagCode::new(5020);
 pub const SEND_TO_DEAD_AGENT: DiagCode = DiagCode::new(5021);
 pub const EXTERN_FN_UNIMPL: DiagCode = DiagCode::new(5050);
 
+/// MT5080 (v0.36 Track T3): a String range-edit op (`insert_at`,
+/// `remove_range`, `replace_range`) was given a byte index that is
+/// outside the buffer or lands in the middle of a multi-byte UTF-8
+/// sequence. Silent truncation would corrupt the UTF-8 invariant; the
+/// stdlib panics with this code instead. Use `is_char_boundary` /
+/// `next_char_boundary` / `prev_char_boundary` to snap to a safe index.
+pub const STRING_NOT_CHAR_BOUNDARY: DiagCode = DiagCode::new(5080);
+
 // Codegen traps (slice 8): MT8001..MT8010
 pub const CODEGEN_DIV_BY_ZERO: DiagCode = DiagCode::new(8001);
 pub const CODEGEN_OOB_INDEX: DiagCode = DiagCode::new(8002);
@@ -973,6 +981,15 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
                  host binding for the named `extern { fn ... }` symbol. \
                  Register a host stub or run under a target that \
                  supplies the symbol."
+        }
+        5080 => {
+            "MT5080: String index not on a UTF-8 code-point boundary. \
+                 A String range-edit op (`insert_at`, `remove_range`, \
+                 `replace_range`) was given a byte index that is past \
+                 the end of the buffer or lands in the middle of a \
+                 multi-byte UTF-8 sequence. Use `is_char_boundary` / \
+                 `next_char_boundary` / `prev_char_boundary` to snap \
+                 the index to a safe position before retrying."
         }
         8001 => {
             "MT8001: Divide by zero in compiled code. The native or \

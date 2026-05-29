@@ -825,6 +825,22 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         "pending_count",
         "media_type",
         "byte_len",
+        // v0.36 Track T3 — std.String position / range edit / char-boundary
+        // surface. Rust impls live in `mty_stdlib::string`; the SIR interp
+        // dispatch lives in `mty-ir::interp::run::eval_method`. Registered
+        // here as permissive so calls like `s.find("needle")`,
+        // `s.insert_at(7, "x")`, `s.is_char_boundary(2)` typecheck against
+        // any receiver. See `dev/history/notes/STDLIB_STRING_T3_V0_36_NOTES.md`.
+        "rfind",
+        "position",
+        "is_char_boundary",
+        "next_char_boundary",
+        "prev_char_boundary",
+        "insert_at",
+        "remove_range",
+        "replace_range",
+        "char_indices",
+        "as_bytes",
     ];
     for m in permissive_methods {
         defs.builtin_methods.insert(
