@@ -1,3 +1,4 @@
+#![cfg(feature = "host-toolchain")]
 //! v0.35 T2 — integration tests for `mty agent --transport unix`.
 //!
 //! Unix-only. The whole file is `cfg`-gated; on Windows the agent

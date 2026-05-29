@@ -1,3 +1,4 @@
+#![cfg(feature = "host-toolchain")]
 //! v0.24 Track C — deterministic `mty serve --watch` reload test.
 //!
 //! The v0.23 sibling test (`serve_watch_rebuilds_on_change` in

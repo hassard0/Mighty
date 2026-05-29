@@ -1,3 +1,4 @@
+#![cfg(feature = "host-toolchain")]
 //! v0.30 Track E — integration tests for `mty test --eval`.
 //!
 //! Spins the `mty` binary against a temp project populated with

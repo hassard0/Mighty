@@ -1,3 +1,4 @@
+#![cfg(feature = "host-toolchain")]
 use std::process::Command;
 
 fn mty(args: &[&str]) -> (i32, String, String) {

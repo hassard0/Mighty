@@ -1,3 +1,4 @@
+#![cfg(feature = "host-toolchain")]
 //! v0.35 T3 — integration tests for `mty fix --apply`.
 //!
 //! These tests spawn the real binary to confirm the CLI surface

@@ -1,3 +1,4 @@
+#![cfg(feature = "host-toolchain")]
 //! v0.35 T2 — integration tests for `mty agent --transport http`.
 //!
 //! These spin up `mty agent --transport http --listen 127.0.0.1:0`,

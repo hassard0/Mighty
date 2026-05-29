@@ -1,3 +1,4 @@
+#![cfg(feature = "host-toolchain")]
 //! v0.23 Track C — `mty new --template <name>` integration tests.
 //!
 //! Exercises the template registry end-to-end: scaffold the

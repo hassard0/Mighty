@@ -58,12 +58,29 @@ freeze-gate items into "ready": real WASM playground (T1), `mty
 agent` production transports (T2), and the agent-first-shot →
 zero-shot loop (T3).
 
+## [0.35.4] - 2026-05-29
+
+### Fixed
+- **CI `test (minimal features)` job (round 2)** — v0.35.3 fixed
+  the compile errors but the spawn-binary integration tests still
+  ran under `--no-default-features` and panicked because the
+  `mty` `[[bin]]` is gated on `required-features =
+  ["host-toolchain"]` (T1) so the binary doesn't exist. v0.35.4
+  gates every spawn-binary mty-cli test
+  (`agent_http`, `agent_mode`, `agent_recorder`, `agent_unix`,
+  `cmd_fix`, `cmd_new_template`, `cmd_serve`, `cmd_serve_watch`,
+  `cmd_test_eval`, `explain`) behind
+  `#![cfg(feature = "host-toolchain")]`. Also gates
+  `mty-stdlib/tests/observe_auto_record.rs` behind
+  `observe-sqlite` (it unwraps `SqliteStore::in_memory()` which
+  returns `FeatureDisabled` when the feature is off).
+
 ## [0.35.3] - 2026-05-29
 
 ### Fixed
-- **CI `test (minimal features)` job** — `cargo test --workspace
-  --no-default-features` failed under `RUSTFLAGS=-D warnings` with
-  6 dead-code / unused-import errors: 4 in `mty-pkg` (`split_url`,
+- **CI `test (minimal features)` job (round 1)** — `cargo test
+  --workspace --no-default-features` failed under `RUSTFLAGS=-D
+  warnings` with 6 dead-code / unused-import errors: 4 in `mty-pkg` (`split_url`,
   `short_slug`, `now_secs`, `normalise_sha256_line` plus the
   `registry::self` import) where the helpers are only reachable
   via the `git-fetch` / `registry-fetch`-feature-gated `fetch`

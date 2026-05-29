@@ -1,3 +1,4 @@
+#![cfg(feature = "host-toolchain")]
 //! v0.33 T5 — integration tests for `mty agent`.
 //!
 //! These tests drive the binary as a subprocess (mirroring how an LLM

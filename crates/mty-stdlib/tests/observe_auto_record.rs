@@ -1,3 +1,4 @@
+#![cfg(feature = "observe-sqlite")]
 //! End-to-end test: `LlmProvider::complete()` records into the
 //! active observe store iff `MTY_OBSERVE=1`.
 //!

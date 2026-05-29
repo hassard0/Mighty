@@ -1,8 +1,9 @@
 # Mighty v0.35 — Release Notes
 
-**Tag:** `v0.35.3` (v0.35.0 + v0.35.1 hit Release-workflow PGO
-bugs; v0.35.2 disabled PGO; v0.35.3 fixes the CI
-`test (minimal features)` job — see "Integrator notes")
+**Tag:** `v0.35.4` (v0.35.0 + v0.35.1 hit Release-workflow PGO
+bugs; v0.35.2 disabled PGO; v0.35.3 + v0.35.4 fix the CI
+`test (minimal features)` job in two rounds — see "Integrator
+notes")
 **Date:** 2026-05-29
 **Status:** SHIPPED — closing the v0.33 stubs. PGO temporarily
 disabled in v0.35.2; queued as v0.36 deeper fix.
@@ -318,6 +319,19 @@ because v0.34 didn't have T1's host-toolchain split. Fix:
 on the helpers, `#![cfg(feature = "host-toolchain")]` on the
 two affected mty-cli test files. v0.35.3 ships only these 5
 files changed; no Release-pipeline impact.
+
+**v0.35.3 → v0.35.4.** v0.35.3 fixed the *compile* errors in
+`test (minimal features)` but the spawn-binary integration tests
+in mty-cli (10 files: `agent_*`, `cmd_*`, `explain`) still ran
+under `--no-default-features` and panicked at
+`Command::new("mty").spawn()` because the `mty` `[[bin]]` is
+gated on `required-features = ["host-toolchain"]` (T1) — without
+that feature, cargo doesn't build the binary so the tests can't
+find it. v0.35.4 gates every spawn-binary mty-cli test behind
+`#![cfg(feature = "host-toolchain")]` and gates
+`mty-stdlib/tests/observe_auto_record.rs` behind
+`observe-sqlite` (it unwraps `SqliteStore::in_memory()` which
+returns `FeatureDisabled` when the feature is off).
 
 The five merges were mechanical despite three tracks touching
 `crates/mty-cli/src/main.rs` — each new subcommand variant extends

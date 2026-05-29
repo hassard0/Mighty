@@ -1,3 +1,4 @@
+#![cfg(feature = "host-toolchain")]
 //! v0.23 Track C — `mty serve` integration tests.
 //!
 //! Spawns `mty serve --port 0` as a child process pointed at a
