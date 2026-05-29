@@ -80,12 +80,32 @@ echo "Using llvm-profdata: $LLVM_PROFDATA"
 
 # ----------------------------------------------------------------
 # Phase 0: clean the profile directory so we don't merge stale data
-# from an older instrumented build. We keep `target/` intact — the
-# cargo cache is still useful between PGO runs.
+# from an older instrumented build. We keep most of `target/` intact —
+# the cargo cache for non-PGO deps is still useful between PGO runs.
+#
+# v0.36 T5: also wipe `target/release-pgo/build` and
+# `target/release-pgo/deps`. The v0.35.2 hot-spot LLVM error
+# (`Broken module found, module flag identifiers must be unique
+# !"CG Profile"`) and the profile-format mismatch (raw=8 vs expected
+# =10) on macOS+Windows BOTH traced to stale `target/release-pgo/`
+# artifacts surviving across runs: the instrumented Phase 1 reuses
+# Phase 4's prior `-Cprofile-use` codegen, doubling up the CG Profile
+# metadata. Force fresh codegen on every release build.
 # ----------------------------------------------------------------
-echo "=== Phase 0: prepare profile dir ==="
+echo "=== Phase 0: prepare profile dir + wipe stale PGO build artifacts ==="
 rm -rf "$PROFDIR"
 mkdir -p "$PROFDIR"
+# Wipe per-PGO build state but keep the cargo dep cache (registry/
+# git/etc). `target/release-pgo/{build,deps,incremental}` is
+# specifically what needs to be fresh; the rest of `target/` (e.g.
+# `target/debug`, `target/release`, `target/<triple>`) is
+# untouched.
+if [[ -d target/release-pgo ]]; then
+  rm -rf target/release-pgo/build \
+         target/release-pgo/deps \
+         target/release-pgo/incremental \
+         target/release-pgo/.fingerprint
+fi
 
 # ----------------------------------------------------------------
 # Phase 1: instrumented build. `release-pgo` already pins fat LTO +
@@ -163,14 +183,25 @@ echo "  merging $RAW_COUNT .profraw shards"
 "$LLVM_PROFDATA" merge -o "$PROFDIR/merged.profdata" "$PROFDIR"/*.profraw
 
 # ----------------------------------------------------------------
-# Phase 4: optimised rebuild. -Clinker-plugin-lto lets the linker
-# (lld / ld64) cross-LTO between rustc-generated bitcode and any
-# LLVM-built static libs in the dep graph; combined with the
-# release-pgo profile's `lto = "fat"` it's the heaviest layout
-# rustc supports.
+# Phase 4: optimised rebuild.
+#
+# v0.36 T5: dropped `-Clinker-plugin-lto`. The `release-pgo` profile
+# in workspace Cargo.toml already pins `lto = "fat"`, which gives
+# rustc full link-time optimisation. `-Clinker-plugin-lto` is a
+# SEPARATE flag that asks the *linker* (lld/ld64) to additionally
+# cross-LTO between rustc-generated bitcode and LLVM-built static
+# libs in the dep graph. On linux-x86_64 this collides with PGO's
+# `CG Profile` module flag and trips:
+#
+#   LLVM ERROR: Broken module found, module flag identifiers must
+#   be unique !"CG Profile"
+#
+# Fat LTO (already enabled) is the heaviest layout rustc supports;
+# linker-plugin-LTO only adds value when the dep graph has llvm-bc
+# static libs (rare in mty). Drop it.
 # ----------------------------------------------------------------
 echo "=== Phase 4: optimised rebuild (profile-use) ==="
-RUSTFLAGS="-Cprofile-use=$PROFDIR/merged.profdata -Clinker-plugin-lto" \
+RUSTFLAGS="-Cprofile-use=$PROFDIR/merged.profdata" \
   cargo +"$TOOLCHAIN" build --profile release-pgo -p mty-cli
 
 # ----------------------------------------------------------------

@@ -215,13 +215,36 @@ and [`docs/internals/computer-use.md`](internals/computer-use.md).
 
 If you see an error mentioning `link.exe` not found or a missing
 DLL during `cargo install --path crates/mty-cli`, you're hitting
-the MSVC-toolchain dependency. Two fixes:
+the MSVC-toolchain dependency that the `observe-sqlite` feature
+pulls in (it bundles SQLite from C source and that C build needs
+MSVC `cl.exe`).
 
-1. Install the Visual Studio Build Tools (the *Desktop development
-   with C++* workload).
-2. Or, install the GNU toolchain target:
-   `rustup toolchain install stable-x86_64-pc-windows-gnu` and use
-   that instead.
+**v0.36+ — the recommended fix:** install with the MSVC-free
+feature set:
+
+```bash
+cargo install --path crates/mty-cli --no-default-features --features cli-min
+```
+
+`cli-min` is the full native CLI minus the SQLite cost-tracking
+backend. `mty inspect --cost` still parses; it reports the feature
+as disabled instead of crashing. Re-enable it by installing MSVC +
+`--features observe-sqlite`, or use the pre-built Windows release
+binary (which is built with `observe-sqlite` on, no MSVC required
+at runtime).
+
+Other workarounds:
+
+1. **Visual Studio Build Tools** — install the *Desktop development
+   with C++* workload, then `cargo install --path crates/mty-cli`
+   works as written (with cost tracking).
+2. **GNU toolchain** — `rustup toolchain install
+   stable-x86_64-pc-windows-gnu` then `cargo install --path
+   crates/mty-cli --target x86_64-pc-windows-gnu`. Avoids MSVC
+   entirely but `rusqlite` still needs MinGW gcc on PATH.
+3. **Pre-built binary** — grab the `.zip` from
+   <https://github.com/hassard0/Mighty/releases>. It ships every
+   required runtime DLL alongside `mty.exe`.
 
 If the build succeeds but `mty build` can't find a linker, point
 `STARDUST_LINKER` at one or install a C toolchain — see `mty
@@ -230,11 +253,27 @@ explain MT8008`.
 ### What is the macOS `LC_BUILD_VERSION` fix?
 
 macOS 11+ requires every Mach-O object to carry an
-`LC_BUILD_VERSION` load command. Cranelift didn't emit one until
-v0.10.0 (commit `7f2feab`). If you see a linker warning like
-*"object file does not contain platform information"* when running
-`mty build`, upgrade to v0.10.0 or later; the warning is benign
-on older releases but blocks notarisation.
+`LC_BUILD_VERSION` load command. Cranelift's `cranelift-object`
+0.132 emits one automatically, but for `OperatingSystem::Darwin(_)`
+(what `target_lexicon::Triple::host()` returns on a stock macOS
+host) it stamps `platform = 0` (PLATFORM_UNKNOWN) and zero
+versions. Xcode 15+ `ld` warns on that:
+
+```
+ld: warning: object file (...) has malformed LC_BUILD_VERSION
+load command (platform=0)
+```
+
+v0.36 T5 fixed this in `crates/mty-codegen-cranelift/src/object.rs`
+by overriding cranelift's default with `platform = PLATFORM_MACOS`,
+`minos = 11.0` (or `MACOSX_DEPLOYMENT_TARGET` if set), and
+`sdk = 14.0` (Sonoma; override via `MTY_MACOSX_SDK_VERSION`). If
+you still see the warning on v0.36+, set `MACOSX_DEPLOYMENT_TARGET`
+to match the macOS minimum your project supports, or report the
+exact ld output.
+
+Pre-v0.36 the warning is benign at runtime but blocks
+notarisation.
 
 ### What MSRV does Mighty require?
 

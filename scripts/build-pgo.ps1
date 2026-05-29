@@ -60,11 +60,26 @@ New-Item -ItemType Directory -Force -Path $ProfDir | Out-Null
 $ProfDir = (Resolve-Path $ProfDir).Path
 
 # ----------------------------------------------------------------
-# Phase 0: prepare profile dir.
+# Phase 0: prepare profile dir + wipe stale PGO build artifacts.
+#
+# v0.36 T5: also wipe `target/release-pgo/{build,deps,incremental,
+# .fingerprint}`. The v0.35.2 profile-format mismatch (raw=8 vs
+# expected=10) on Windows traced to stale `target/release-pgo/`
+# artifacts surviving across runs: the instrumented Phase 1 reused
+# Phase 4's prior `-Cprofile-use` codegen, putting the wrong
+# profile-format header in the new binary. Force fresh codegen on
+# every release build. The rest of `target/` (debug, release,
+# per-triple) stays cached.
 # ----------------------------------------------------------------
-Write-Host "=== Phase 0: prepare profile dir ==="
+Write-Host "=== Phase 0: prepare profile dir + wipe stale PGO build artifacts ==="
 if (Test-Path $ProfDir) { Remove-Item -Recurse -Force $ProfDir }
 New-Item -ItemType Directory -Force -Path $ProfDir | Out-Null
+if (Test-Path "target/release-pgo") {
+    foreach ($sub in @("build", "deps", "incremental", ".fingerprint")) {
+        $p = "target/release-pgo/$sub"
+        if (Test-Path $p) { Remove-Item -Recurse -Force $p }
+    }
+}
 
 # ----------------------------------------------------------------
 # Phase 1: instrumented build. We thread the flag through the env
@@ -139,9 +154,17 @@ if ($LASTEXITCODE -ne 0) { throw "llvm-profdata merge failed" }
 
 # ----------------------------------------------------------------
 # Phase 4: optimised rebuild.
+#
+# v0.36 T5: dropped `-Clinker-plugin-lto`. The `release-pgo` profile
+# already pins `lto = "fat"` which is the heaviest layout rustc
+# supports. `-Clinker-plugin-lto` is a separate flag for cross-LTO
+# between rustc bitcode and LLVM-built static libs; the mty dep
+# graph doesn't have those, so the flag was zero-value on Windows
+# but contributed to PGO module-flag collisions on linux-x86_64.
+# Same fix on both platforms keeps the script consistent.
 # ----------------------------------------------------------------
 Write-Host "=== Phase 4: optimised rebuild (profile-use) ==="
-$env:RUSTFLAGS = "-Cprofile-use=$merged -Clinker-plugin-lto"
+$env:RUSTFLAGS = "-Cprofile-use=$merged"
 try {
     & cargo "+$Toolchain" build --profile release-pgo -p mty-cli
     if ($LASTEXITCODE -ne 0) { throw "optimised rebuild failed" }
