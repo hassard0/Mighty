@@ -148,6 +148,16 @@ FFI ergonomics the parallel IDE work needs.
   cast target type (T2).
 - `cmd_serve` test flake under GHA Ubuntu connection-reset race
   removed by switching the test client to `ureq` (T6).
+- **Integrator fix** — wasm backend's `Rvalue::Cast` arm was
+  pass-through (bundled with `Rvalue::Use`); after T2 added the
+  parser cast surface, `b as I64` on a U8 source pushed `i32` where
+  validators expected `i64`. Split Cast into its own arm with a
+  `lower_ty(src)` vs `lower_ty(dst)` ValType compare and emit the
+  matching wasm conversion (`i64.extend_i32_{u,s}`, `i32.wrap_i64`,
+  `f64.promote_f32`, `f32.demote_f64`). The u-vs-s pick mirrors
+  v0.36 T1's cranelift uextend fix. Caught by
+  `conformance_codegen::all_examples_compile_wasm{,_component}` in
+  the v0.37 vulcan test run.
 
 ## [0.36.1] - 2026-05-29
 

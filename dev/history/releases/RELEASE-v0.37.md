@@ -332,6 +332,26 @@ transient kernel-side failures. The tolerate-RST guard is removed.
   updated row table (rows 3/4/5/6/8/9 marked "v0.37 direct") and
   appending T6's standalone "v0.37 T6 — variadic externs" section
   below the surfaces.
+- **Integrator fix — wasm Cast emission (commit `5ad4ff9`).** T2's
+  parser cast surface added `Rvalue::Cast { src, ty }` lowering on
+  the cranelift side, but the wasm backend's emit_rvalue arm bundled
+  `Cast` with `Use` and `StrPtr` as a pure pass-through. That worked
+  for same-ValType casts (`U8 → I32`, `U16 → I32` — both i32 in wasm)
+  but failed validation for cross-ValType casts: `examples/39_native_binary.mty`
+  uses `b as I64` on a U8 source which pushed `i32` where the
+  consuming local store expected `i64`. The fix splits `Rvalue::Cast`
+  into its own arm, adds a new `operand_ir_ty(&Function, &Operand)`
+  helper that looks up the source's IrTy from the function's locals
+  table (mirroring cranelift's helper), lowers both src and dst types
+  to `ValType`, and emits the matching wasm conversion
+  (`i64.extend_i32_u/s`, `i32.wrap_i64`, `f64.promote_f32`,
+  `f32.demote_f64`). The unsigned-vs-signed pick mirrors v0.36 T1's
+  cranelift `uextend` fix for U8/U16/U32 sources. Same-ValType casts
+  stay as no-ops because the wasm stack already holds an i32 — any
+  narrowing materialises at the next store/use. Caught by
+  `conformance_codegen::all_examples_compile_wasm{,_component}` on
+  the vulcan workspace test run; the fix landed before the v0.37.0
+  tag was pushed.
 - **T3 ↔ T6 surface gate.** Both tracks needed an FFI-call-site
   decision: T3's coercions gate on `extern_abi == Some("c")`; T6's
   variadic relaxation gates on `is_variadic`. They never need to
