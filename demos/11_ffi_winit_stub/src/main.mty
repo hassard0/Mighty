@@ -6,7 +6,6 @@
 // a no-op so the smoke test stays hermetic; a real binding would
 // replace the shim with libwinit + libwgpu and add the matching
 // `[[extern_lib]]` entries to mighty.toml.
-
 extern c {
   fn winit_shim_init() -> I32
   fn winit_shim_open_window(w: I32, h: I32, title_ptr: *U8, title_len: USize) -> I32

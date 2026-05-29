@@ -16,7 +16,6 @@
 // is the easiest one to trip. If nothing trips, the demo exits 0
 // (still a valid v0.4 state — the cap recording shape is verified by
 // the unit tests in crates/mty-runtime/tests/).
-
 package extract_breach
 
 protocol Extract {

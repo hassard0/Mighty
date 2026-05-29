@@ -42,15 +42,21 @@ Six CI jobs are required gates: `test` (cross-OS matrix),
 `test-minimal`, `msrv`, `clippy-strict` (pedantic + `-D warnings`),
 `bench`, `security` (`cargo audit --deny warnings`).
 
-### Pre-push git hook (v0.34 T4)
+### Pre-push git hook (v0.34 T4, extended in v0.37 T1)
 
-A pre-push hook lives at `.git-hooks/pre-push`. It mirrors the two
-cheapest CI gates (`cargo fmt --all -- --check` and
-`cargo clippy --workspace --all-targets -- -D warnings`) so you catch
-the recurring Linux-side fmt-drift class of regressions before they
-hit CI.
+A pre-push hook lives at `.git-hooks/pre-push`. It mirrors the three
+cheapest CI gates:
 
-The hook is opt-in for human contributors. Install it once per clone:
+1. `cargo fmt --all -- --check`
+2. `cargo clippy --workspace --all-targets -- -D warnings`
+3. `mty fmt --check` on every `.mty` file under `examples/`,
+   `demos/*/src/`, and `tools/gallery/examples/*/main.mty`
+   (added in v0.37 T1; the first two checks were Rust-only and
+   missed the `.mty` drift that caused the v0.36.1 retag cycle —
+   two retags + two main-branch fixes in one release).
+
+The hook is **REQUIRED for swarm agents** and strongly recommended
+for human contributors. Install it once per clone:
 
 ```bash
 mty hooks install
@@ -63,7 +69,13 @@ mty hooks status
 # -> mty hooks status: Mighty pre-push hook installed at ...
 ```
 
-Bypass for one push (e.g. a docs-only branch):
+Re-running `mty hooks install` is idempotent — when the hook script
+in `.git-hooks/pre-push` changes (e.g. a future track adds a fourth
+gate), a plain `mty hooks install` overwrites the previously
+installed copy without needing `--force`.
+
+Bypass for one push (e.g. a docs-only branch where you know the
+.mty surfaces are untouched):
 
 ```bash
 git push --no-verify
@@ -81,9 +93,12 @@ Uninstall: `mty hooks uninstall`.
 retros all surfaced the same failure mode: a swarm agent pushed a
 branch that passed local Windows checks but failed Linux-side
 `cargo fmt --check` in CI, breaking the integrator's merge train.
-Every swarm-agent setup boilerplate MUST run `mty hooks install`
-right after `git worktree add`, alongside `export CARGO_TARGET_DIR`.
-The hook itself is a no-op when `cargo` isn't on PATH (so doc-only
+v0.36.1 added a new wrinkle: even with the hook installed, tracks
+pushed `.mty` drift that only `mty fmt --check` catches — the
+Rust-only hook didn't see it. v0.37 T1 plugs that gap. Every
+swarm-agent setup boilerplate MUST run `mty hooks install` right
+after `git worktree add`, alongside `export CARGO_TARGET_DIR`. The
+hook itself is a no-op when `cargo` isn't on PATH (so doc-only
 worktrees still push cleanly).
 
 For docs and example-only PRs, the same fmt + clippy + test gate
@@ -92,7 +107,9 @@ still runs (cargo-fast). The
 additionally runs `mty check` + `mty fmt --check` on every
 `examples/*.mty` and asserts a clean exit — modulo the
 `@compile-error` markers, which deliberately expect a specific
-MT-code.
+MT-code. The local hook covers a slightly different surface
+(examples + demos + gallery) so a `.mty` change to any of them
+trips the hook before it trips CI.
 
 ## Snapshot tests
 
