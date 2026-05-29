@@ -58,19 +58,62 @@ PROFDIR="$(cd "$PROFDIR" && pwd)"
 # at the Phase 3 merge step. The rustup-shipped llvm-profdata is the
 # version that wrote the .profraw, so it parses them by definition.
 # Falling back to system LLVM only when rustup's variant is missing.
+#
+# v0.37 T4: expanded the rustup search to a fallback chain that also
+# tries the macOS sibling tuple (aarch64↔x86_64) before falling back
+# to system LLVM. v0.36.1 disabled darwin-arm64 PGO because the
+# integrator hit a profile-format mismatch — the root cause was that
+# `rustc -vV | grep host` on macos-14 sometimes resolved to a tuple
+# whose llvm-tools-preview sub-component path didn't exist (e.g. if
+# the toolchain was installed before the host tuple changed, or if
+# the rust-installer ordering on macos-14 lands `llvm-tools-preview`
+# under one tuple's `bin/` rather than the host's). Trying both
+# Darwin tuples plus the host tuple covers every macos-14 layout we
+# saw without needing system LLVM at all.
 # ----------------------------------------------------------------
-locate_llvm_profdata() {
-  local sysroot
-  sysroot="$(rustc +"$TOOLCHAIN" --print sysroot 2>/dev/null || true)"
-  if [[ -n "$sysroot" ]]; then
-    # rustup paths are <sysroot>/lib/rustlib/<host>/bin/llvm-profdata
-    local host
-    host="$(rustc +"$TOOLCHAIN" -vV | awk '/^host:/ { print $2 }')"
-    local candidate="$sysroot/lib/rustlib/$host/bin/llvm-profdata"
+# `locate_llvm_profdata_in` is the pure-function inner helper. Given a
+# sysroot and a host tuple, it walks the fallback chain and emits the
+# first executable llvm-profdata it finds, or empty + nonzero exit if
+# none. Factored out from `locate_llvm_profdata` so the test harness in
+# `scripts/tests/test-build-pgo-paths.sh` can drive it against a fake
+# sysroot without needing rustup.
+locate_llvm_profdata_in() {
+  local sysroot="$1"
+  local host="$2"
+  [[ -z "$sysroot" ]] && return 1
+  local tuple
+  for tuple in \
+    "$host" \
+    "aarch64-apple-darwin" \
+    "x86_64-apple-darwin" \
+    ; do
+    [[ -z "$tuple" ]] && continue
+    local candidate="$sysroot/lib/rustlib/$tuple/bin/llvm-profdata"
     if [[ -x "$candidate" ]]; then
       echo "$candidate"
       return 0
     fi
+  done
+  # Last-ditch: any rustlib bin dir that has it. Covers future
+  # tuples we haven't enumerated.
+  local wildcard
+  wildcard="$(find "$sysroot/lib/rustlib" -maxdepth 3 -type f -name llvm-profdata -perm -u+x 2>/dev/null | head -n 1)"
+  if [[ -n "$wildcard" && -x "$wildcard" ]]; then
+    echo "$wildcard"
+    return 0
+  fi
+  return 1
+}
+
+locate_llvm_profdata() {
+  local sysroot
+  sysroot="$(rustc +"$TOOLCHAIN" --print sysroot 2>/dev/null || true)"
+  local host
+  host="$(rustc +"$TOOLCHAIN" -vV 2>/dev/null | awk '/^host:/ { print $2 }')"
+  local found
+  if found="$(locate_llvm_profdata_in "$sysroot" "$host")"; then
+    echo "$found"
+    return 0
   fi
   if command -v llvm-profdata >/dev/null 2>&1; then
     echo "llvm-profdata"
@@ -79,6 +122,14 @@ locate_llvm_profdata() {
   echo ""
   return 1
 }
+
+# v0.37 T4: when sourced for unit-testing (BUILD_PGO_SOURCE_ONLY=1
+# from the test harness), bail out before running the build. Lets the
+# test re-use `locate_llvm_profdata_in` as a library without launching
+# rustc / cargo.
+if [[ "${BUILD_PGO_SOURCE_ONLY:-0}" == "1" ]]; then
+  return 0 2>/dev/null || exit 0
+fi
 
 LLVM_PROFDATA="$(locate_llvm_profdata || true)"
 if [[ -z "$LLVM_PROFDATA" ]]; then

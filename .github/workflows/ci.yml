@@ -110,6 +110,17 @@ jobs:
             fi
           done
 
+      # v0.37 T4: lock in the `locate_llvm_profdata_in` fallback chain
+      # in `scripts/build-pgo.sh` that re-enables darwin-arm64 PGO.
+      # The test mocks a rustup sysroot under a temp dir and asserts
+      # the helper picks the right stub for each macos-14 layout we
+      # saw in v0.36.1; it doesn't need rustc / cargo / a real PGO
+      # build, so it's a cheap regression gate on every push.
+      - name: build-pgo path-discovery unit tests (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: bash scripts/tests/test-build-pgo-paths.sh
+
   # ----------------------------------------------------------------
   # `--no-default-features` job catches feature-gated breakage that
   # the default test job hides. Runs on Linux only — features are

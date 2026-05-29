@@ -20,9 +20,18 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to build (e.g. v0.15.0). Must already exist."
-        required: true
+        # v0.37 T4: optional + defaulted so an integrator can canary-test
+        # the release pipeline against an existing tag without typing it
+        # every time. We pin the default to v0.36.1 — the last green
+        # release — so the dry-run defaults to "rebuild the latest binary
+        # set" rather than asking GitHub to check out a tag that may not
+        # exist yet. To dry-run from the gh CLI:
+        #
+        #   gh workflow run release.yml -f tag=v0.36.1
+        description: "Tag to build (e.g. v0.36.1). Must already exist on the repo."
+        required: false
         type: string
+        default: "v0.36.1"
 
 permissions:
   contents: write
@@ -43,6 +52,8 @@ jobs:
       # whole tag.
       fail-fast: false
       # v0.35 (Track T4): PGO wired into 3 of 5 platforms.
+      # v0.37 (Track T4): darwin-arm64 back in the PGO set — same 3 of
+      # 5 platforms as v0.35, after a v0.36.1 regression on macos-14.
       # `use_pgo: true` swaps `cargo build --release` for the
       # two-stage profile-guided pipeline in `scripts/build-pgo.{sh,ps1}`
       # (instrument → run training corpus → merge → optimised rebuild),
@@ -115,18 +126,27 @@ jobs:
             artifact: mty
             asset: mty-aarch64-apple-darwin.tar.gz
             use_cross: false
-            # v0.36.1: PGO disabled. v0.36.0 hit a fresh profile-format
-            # mismatch (`raw=8 vs expected=10`) at Phase 3 merge —
-            # different root cause from the v0.35 stale-cache symptom:
-            # `llvm-profdata` resolved to macos-14's system LLVM (newer
-            # than rust 1.95.0's instrumentation) instead of the
-            # rustup-shipped variant that wrote the .profraw shards.
-            # `scripts/build-pgo.{sh,ps1}` were updated to prefer the
-            # rustup-shipped one; until that's been validated on a fresh
-            # macos runner we keep this leg non-PGO so v* tags publish
-            # a binary regardless. Re-enable in v0.37 after a green
-            # canary run.
-            use_pgo: false
+            # v0.37 T4: PGO RE-ENABLED. v0.36.1 disabled it because
+            # `llvm-profdata` resolved through a host-tuple path that
+            # didn't exist under the macos-14 toolchain layout, so the
+            # script fell back to system LLVM and tripped the raw
+            # profile format mismatch (`raw=8 vs expected=10`) at
+            # Phase 3 merge.
+            #
+            # `scripts/build-pgo.{sh,ps1}` now walks a fallback chain
+            # (host tuple → aarch64-apple-darwin → x86_64-apple-darwin
+            # → rustlib wildcard scan → system LLVM as a last resort)
+            # so the rustup-shipped llvm-profdata is selected no matter
+            # which tuple the rust-installer dropped it under on
+            # macos-14. The version that wrote the .profraw shards
+            # parses them by definition, killing the mismatch.
+            #
+            # Native PGO on macos-14 means the instrumented arm64
+            # binary runs natively on the same runner that builds it,
+            # so Phase 2 profile collection is just `mty check
+            # examples/*.mty` + one wasm32-wasi build, the same shape
+            # as linux-x86_64.
+            use_pgo: true
           # v0.32 (Track D): aarch64 Linux for Raspberry Pi 5, AWS
           # Graviton, Ampere Altra, and Apple Silicon Linux VMs.
           # Cross-compiled from ubuntu-latest via the `cross` tool
