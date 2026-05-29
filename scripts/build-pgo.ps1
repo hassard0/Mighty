@@ -92,19 +92,12 @@ llvm-profdata not found.
     exit 1
 }
 Write-Host "Using llvm-profdata: $LlvmProfdata"
-# v0.37.1: log + assert LLVM major matches rustc's
-$profdataLlvm = (& $LlvmProfdata --version 2>&1) -match 'LLVM version: (\S+)' | Out-Null; $profdataLlvm = $Matches[1]
-$rustcLlvm = ((rustc +$Toolchain -vV) | Where-Object { $_ -match 'LLVM version: (\S+)' } | ForEach-Object { $Matches[1] })
-Write-Host "  llvm-profdata LLVM: $profdataLlvm"
-Write-Host "  rustc          LLVM: $rustcLlvm"
-if ($profdataLlvm -and $rustcLlvm) {
-    $pMajor = ($profdataLlvm -split '\.')[0]
-    $rMajor = ($rustcLlvm -split '\.')[0]
-    if ($pMajor -ne $rMajor) {
-        Write-Error "LLVM major mismatch — profraw shards from rustc (LLVM $rMajor) cannot be merged by llvm-profdata (LLVM $pMajor).`n  Fix: ensure 'rustup component add llvm-tools-preview --toolchain $Toolchain' was run AND the rustup-bundled tool was discovered first."
-        exit 1
-    }
-}
+# v0.37.3: LLVM major-version assert removed for now. The
+# Bash version (build-pgo.sh) keeps it but tolerates "unknown"
+# from llvm-profdata --version. The PowerShell -match piping
+# was syntactically wrong in v0.37.2 and broke the working
+# Windows path. Until the assert is rewritten cleanly for ps1,
+# keep the simpler "trust that rustup-bundled is right" stance.
 
 # v0.35.1 fix: rustc resolves `-Cprofile-use=<path>` at compile
 # time from each build script's own CWD (package dir), not the

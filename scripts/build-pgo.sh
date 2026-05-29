@@ -115,13 +115,16 @@ locate_llvm_profdata() {
     echo "$found"
     return 0
   fi
-  # v0.37.1: REMOVED the `command -v llvm-profdata` system-PATH
-  # last-resort fallback. On macOS GitHub Actions runners, XCode
-  # provides llvm-profdata on PATH at a newer LLVM major than
-  # rustc's statically-linked LLVM, producing the raw=8 vs
-  # expected=10 mismatch that bit v0.36.1 + v0.37.0 darwin-arm64
-  # PGO. Fail loud instead — the rustup-bundled tool is the only
-  # one guaranteed to match rustc's profraw output.
+  # v0.37.3: RESTORED system-PATH fallback. Removing it in
+  # v0.37.2 broke linux/windows builds that legitimately rely
+  # on PATH when rustup-bundled path discovery has no entry.
+  # Darwin-arm64's separate raw=8 vs =10 issue is now handled
+  # by disabling PGO on that platform entirely (see release.yml
+  # matrix entry) until cargo-pgo migration ships in v0.38.
+  if command -v llvm-profdata >/dev/null 2>&1; then
+    echo "llvm-profdata"
+    return 0
+  fi
   echo ""
   return 1
 }

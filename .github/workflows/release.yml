@@ -126,22 +126,23 @@ jobs:
             artifact: mty
             asset: mty-aarch64-apple-darwin.tar.gz
             use_cross: false
-            # v0.37 T4: PGO RE-ENABLED. The raw=8 vs expected=10
-            # mismatch v0.36.1 hit was caused by build-pgo.sh's
-            # last-resort `command -v llvm-profdata` fallback
-            # picking up XCode's system llvm-profdata (LLVM 19+)
-            # instead of rustup's bundled one (matching rustc 1.95's
-            # LLVM 17). v0.37.1 build-pgo.sh removes the system-PATH
-            # fallback entirely + logs the picked path's --version
-            # at Phase 0 so a future mismatch is immediately
-            # diagnosable. The rustup component install is now a
-            # hard requirement when use_pgo=true (matrix already
-            # injects `llvm-tools-preview` via `components: …`).
+            # v0.37.3: PGO DISABLED on darwin-arm64. Investigation
+            # in v0.37.0-v0.37.2 confirmed this is a rustup
+            # distribution mismatch on 1.95.0-aarch64-apple-darwin:
+            # rustc emits raw=8 .profraw shards (statically-linked
+            # LLVM 17), but the bundled llvm-profdata in the SAME
+            # toolchain channel expects raw=10. Path-discovery
+            # changes don't help — the rustup-bundled tool was
+            # already picked correctly; the tools are just
+            # mismatched in that channel.
             #
-            # Native PGO on macos-14 — instrumented arm64 binary
-            # runs natively on the same runner that builds it; Phase 2
-            # profile collection mirrors linux-x86_64.
-            use_pgo: true
+            # v0.38 fix path: migrate to cargo-pgo crate which
+            # manages tool/LLVM matching independently, or pin to
+            # a newer toolchain (1.96+) where rustc + llvm-profdata
+            # are in sync on aarch64-darwin.
+            #
+            # 2/5 PGO platforms (linux-x86_64 + windows-x86_64).
+            use_pgo: false
           # v0.32 (Track D): aarch64 Linux for Raspberry Pi 5, AWS
           # Graviton, Ampere Altra, and Apple Silicon Linux VMs.
           # Cross-compiled from ubuntu-latest via the `cross` tool
