@@ -74,10 +74,12 @@ function Find-LlvmProfdata {
         }
     }
 
-    # Fallback: system LLVM on PATH.
-    $cmd = Get-Command llvm-profdata -ErrorAction SilentlyContinue
-    if ($cmd) { return $cmd.Source }
-
+    # v0.37.1: REMOVED the system-PATH last-resort fallback.
+    # XCode (or homebrew-installed LLVM, or VS Studio's bundled
+    # LLVM) provides a newer llvm-profdata than rustc's statically
+    # linked LLVM, producing the raw=8 vs expected=10 mismatch.
+    # The rustup-bundled tool is the only one guaranteed to match
+    # rustc's profraw output.
     return $null
 }
 
@@ -90,6 +92,19 @@ llvm-profdata not found.
     exit 1
 }
 Write-Host "Using llvm-profdata: $LlvmProfdata"
+# v0.37.1: log + assert LLVM major matches rustc's
+$profdataLlvm = (& $LlvmProfdata --version 2>&1) -match 'LLVM version: (\S+)' | Out-Null; $profdataLlvm = $Matches[1]
+$rustcLlvm = ((rustc +$Toolchain -vV) | Where-Object { $_ -match 'LLVM version: (\S+)' } | ForEach-Object { $Matches[1] })
+Write-Host "  llvm-profdata LLVM: $profdataLlvm"
+Write-Host "  rustc          LLVM: $rustcLlvm"
+if ($profdataLlvm -and $rustcLlvm) {
+    $pMajor = ($profdataLlvm -split '\.')[0]
+    $rMajor = ($rustcLlvm -split '\.')[0]
+    if ($pMajor -ne $rMajor) {
+        Write-Error "LLVM major mismatch — profraw shards from rustc (LLVM $rMajor) cannot be merged by llvm-profdata (LLVM $pMajor).`n  Fix: ensure 'rustup component add llvm-tools-preview --toolchain $Toolchain' was run AND the rustup-bundled tool was discovered first."
+        exit 1
+    }
+}
 
 # v0.35.1 fix: rustc resolves `-Cprofile-use=<path>` at compile
 # time from each build script's own CWD (package dir), not the

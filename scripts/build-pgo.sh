@@ -115,10 +115,13 @@ locate_llvm_profdata() {
     echo "$found"
     return 0
   fi
-  if command -v llvm-profdata >/dev/null 2>&1; then
-    echo "llvm-profdata"
-    return 0
-  fi
+  # v0.37.1: REMOVED the `command -v llvm-profdata` system-PATH
+  # last-resort fallback. On macOS GitHub Actions runners, XCode
+  # provides llvm-profdata on PATH at a newer LLVM major than
+  # rustc's statically-linked LLVM, producing the raw=8 vs
+  # expected=10 mismatch that bit v0.36.1 + v0.37.0 darwin-arm64
+  # PGO. Fail loud instead — the rustup-bundled tool is the only
+  # one guaranteed to match rustc's profraw output.
   echo ""
   return 1
 }
@@ -138,6 +141,23 @@ if [[ -z "$LLVM_PROFDATA" ]]; then
   exit 1
 fi
 echo "Using llvm-profdata: $LLVM_PROFDATA"
+# v0.37.1: log the LLVM major + rustc's LLVM major so a future
+# version mismatch is immediately diagnosable. rustup-shipped
+# llvm-profdata reports `LLVM version: X.Y.Z`; rustc reports
+# `LLVM version: X.Y.Z` in `rustc -vV`. They MUST match major.
+PROFDATA_LLVM="$("$LLVM_PROFDATA" --version 2>/dev/null | awk '/LLVM version:/ { print $3 }' | head -1)"
+RUSTC_LLVM="$(rustc +"$TOOLCHAIN" -vV 2>/dev/null | awk '/LLVM version:/ { print $3 }')"
+echo "  llvm-profdata LLVM: ${PROFDATA_LLVM:-unknown}"
+echo "  rustc          LLVM: ${RUSTC_LLVM:-unknown}"
+if [[ -n "$PROFDATA_LLVM" && -n "$RUSTC_LLVM" ]]; then
+  PROFDATA_MAJOR="${PROFDATA_LLVM%%.*}"
+  RUSTC_MAJOR="${RUSTC_LLVM%%.*}"
+  if [[ "$PROFDATA_MAJOR" != "$RUSTC_MAJOR" ]]; then
+    echo "ERROR: LLVM major mismatch — profraw shards from rustc (LLVM $RUSTC_MAJOR) cannot be merged by llvm-profdata (LLVM $PROFDATA_MAJOR)." >&2
+    echo "  Fix: ensure 'rustup component add llvm-tools-preview --toolchain $TOOLCHAIN' was run AND the rustup-bundled tool was discovered first by locate_llvm_profdata_in." >&2
+    exit 1
+  fi
+fi
 
 # ----------------------------------------------------------------
 # Phase 0: clean the profile directory so we don't merge stale data
