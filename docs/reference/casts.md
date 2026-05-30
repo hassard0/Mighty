@@ -145,7 +145,8 @@ The fix engine (`mty fix --apply`) auto-converts an existing
 shape migrates without manual edits. See
 `crates/mty-diagnostics/src/codes_fix.rs::fix_invalid_cast_int_to_char`.
 
-See [std-char.md](std-char.md) for the full `Char.from_u32` reference.
+See the `Char.from_u32` hover entry (`mty doc --hover std.Char.from_u32`)
+for the full prelude reference.
 
 ## Rejection table (post-v0.40 T3)
 
