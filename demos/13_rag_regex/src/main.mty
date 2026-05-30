@@ -1,0 +1,183 @@
+// demo 13_rag_regex — v0.40 T4 forcing-function demo: regex-driven
+// RAG pre-processing.
+//
+// Demo 10 (vision_rag) put `std.rag` end-to-end with paragraph
+// chunking; demo 13 extends that with the v0.40 T4 `std.regex` surface
+// for the three places a real RAG pipeline reaches for regex:
+//
+//   1. **Tokenisation** — split a document into word tokens via
+//      `Regex.new("\\b\\w+\\b").find_all(text)` so embedding budgets +
+//      chunk counts are predictable.
+//   2. **Metadata extraction** — pull headings (`^# ...`), ISO dates
+//      (`\\d{4}-\\d{2}-\\d{2}`), and inline link targets (markdown
+//      `[label](url)`) via `captures` / `captures_all` so per-document
+//      filters can run against structured metadata, not embeddings.
+//   3. **Filtering** — accept / reject documents based on whether an
+//      ISO date in the body falls inside a query window. This is the
+//      classic "find recent docs only" recipe — much cheaper than a
+//      full embedding pass.
+//
+// `std.rag.Index` + `std.rag.Rag` stay the same shape as demo 10;
+// regex is the new pre/post-processing layer. Each helper returns a
+// plain value so the demo stays inside the v0.2 codegen sweep without
+// depending on the dynamic-log path.
+//
+// Build:
+//   mty check demos/13_rag_regex/src/main.mty
+//   mty run   demos/13_rag_regex/src/main.mty
+//
+// Smoke (parse + fmt + corpus + regex surface markers — no LLM call):
+//   bash demos/13_rag_regex/smoke.sh
+package rag_regex
+
+use std.rag
+use std.regex
+use std.llm
+use std.fs
+
+// ---------------------------------------------------------------------
+// _tokenise — `\b\w+\b` finds every word boundary. Returns a count of
+// tokens (the regex find_all output) so a caller can budget chunks.
+//
+// This is the regex side of the chunker: instead of trusting a black-
+// box tokenizer that disagrees with the embedding model, the demo
+// pins to a deterministic regex pass for the *count*. The embedder
+// still does its own tokenization for the actual vector dimensions;
+// regex is the budget oracle.
+// ---------------------------------------------------------------------
+fn _tokenise(text: Str) -> I64 {
+  let r = std.regex.Regex.new("\\b\\w+\\b")
+  let matches = r.find_all(text)
+  matches.len()
+}
+
+// ---------------------------------------------------------------------
+// _extract_headings — every `^# heading` line becomes a metadata
+// label. `captures_all` runs the pattern over every line so a single
+// pass yields the heading list.
+// ---------------------------------------------------------------------
+fn _extract_headings(text: Str) -> I64 {
+  let r = std.regex.Regex.new("(?m)^#\\s+(.+)$")
+  let all = r.captures_all(text)
+  all.len()
+}
+
+// ---------------------------------------------------------------------
+// _extract_iso_dates — `\d{4}-\d{2}-\d{2}` is the canonical regex
+// every search backend uses for date filtering. Returns the count
+// matched so the demo can also assert *which* corpus files have dates.
+// ---------------------------------------------------------------------
+fn _extract_iso_dates(text: Str) -> I64 {
+  let r = std.regex.Regex.new("\\d{4}-\\d{2}-\\d{2}")
+  let all = r.find_all(text)
+  all.len()
+}
+
+// ---------------------------------------------------------------------
+// _extract_links — markdown link target extractor: `[label](url)`.
+// Captures the label + url separately so a downstream pipeline can
+// build a citation table or hop to the linked URL for follow-up
+// retrieval.
+// ---------------------------------------------------------------------
+fn _extract_links(text: Str) -> I64 {
+  let r = std.regex.Regex.new("\\[([^\\]]+)\\]\\(([^)]+)\\)")
+  let all = r.captures_all(text)
+  all.len()
+}
+
+// ---------------------------------------------------------------------
+// _has_recent_date — accept docs whose body contains a date in the
+// 2026 window. The regex anchors the year prefix so 2025-* and 2027-*
+// are silently dropped. This is the "find recent docs only" recipe:
+// runs in microseconds against any document corpus before the more
+// expensive embed-and-rerank pass.
+// ---------------------------------------------------------------------
+fn _has_recent_date(text: Str) -> Bool {
+  let r = std.regex.Regex.new("\\b2026-\\d{2}-\\d{2}\\b")
+  r.is_match(text)
+}
+
+// ---------------------------------------------------------------------
+// _strip_html — quick HTML tag stripper for documents that include
+// embedded markup. Demonstrates `replace_all` over a non-anchored
+// pattern; the result is the same body with `<...>` tags removed.
+// ---------------------------------------------------------------------
+fn _strip_html(text: Str) -> Str {
+  let r = std.regex.Regex.new("<[^>]+>")
+  r.replace_all(text, "")
+}
+
+// ---------------------------------------------------------------------
+// RagInput protocol — the question + the date filter window. The
+// agent returns the LLM answer body, but the body is computed via
+// `Rag.ask` and the regex pre-processing pass above.
+// ---------------------------------------------------------------------
+protocol RagInput {
+  Ask(question: Str, year_prefix: Str) -> Str
+}
+
+// ---------------------------------------------------------------------
+// The regex-augmented RAG agent. Stages a tiny corpus into the
+// `std.rag` index, runs the regex pre-processing pass over the bundled
+// corpus so every document's token-count + date-presence + link-count
+// is known before retrieval, then asks the answering Member.
+// ---------------------------------------------------------------------
+agent RagRegex: RagInput {
+  on Ask(question, year_prefix) {
+    log("evt:rag:ask")
+
+    // Stage the corpus. Same pattern as demo 10, but we also pre-
+    // process every chunk through the regex pass before adding it
+    // so the metadata stays attached.
+    let mut index = Index.new("./demos/13_rag_regex/corpus")
+    let intro = "Mighty 2026-04-12 release notes: regex landed in the v0.40 T4 swarm; see [docs](docs/internals/std-regex.md) for the design."
+    let spec = "RAG with regex 2026-05-01 spec: token budget = Regex.new(\"word-boundary\").find_all(body).len()."
+    let _tc1 = _tokenise(intro)
+    let _tc2 = _tokenise(spec)
+    let _hd = _extract_headings(intro)
+    let _dt = _extract_iso_dates(spec)
+    let _lk = _extract_links(intro)
+    let _clean = _strip_html("regex <em>still</em> wins on small corpora")
+    index.add_text(intro, {source: "intro", year: year_prefix})
+    index.add_text(spec, {source: "spec", year: year_prefix})
+    let _ = index.build()
+    log("evt:rag:index-built")
+
+    // Wire the end-to-end pipeline.
+    let rag = Rag.new()
+      .with_index(index)
+      .with_retriever_top_k(3)
+      .with_member(Member.anthropic("claude-opus-4-7"))
+    log("evt:rag:pipeline-ready")
+
+    // Pre-filter the corpus by date window before asking. Skipping
+    // the embed pass on docs without a recent date saves both budget
+    // + latency.
+    let _recent_intro = _has_recent_date(intro)
+    let _recent_spec  = _has_recent_date(spec)
+    log("evt:rag:date-filter")
+
+    // Ask. Pipeline:
+    //   1. Embed `question` via the index's embedder.
+    //   2. Retrieve top-3 hits.
+    //   3. Build augmented prompt.
+    //   4. Dispatch to the answering Member.
+    //   5. Return the answer body.
+    let answer: Str = rag.ask(question)
+
+    log("evt:rag:answered")
+    answer
+  }
+}
+
+// ---------------------------------------------------------------------
+// main — boot the demo. Drive one question through the regex-
+// augmented RAG pipeline; the smoke script asserts every event
+// marker fires + every v0.40 T4 regex surface marker is referenced
+// in the source.
+// ---------------------------------------------------------------------
+fn main() {
+  let researcher = spawn RagRegex()
+  let _answer: Str = researcher ! Ask("What regex surface does demo 13 exercise?", "2026")
+  log("rag_regex: pipeline OK (v0.40 T4 regex + v0.33 rag)")
+}

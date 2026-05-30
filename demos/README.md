@@ -1,6 +1,6 @@
 # Mighty Demos
 
-Eleven end-to-end demos that exercise the Mighty compiler + runtime
+Thirteen end-to-end demos that exercise the Mighty compiler + runtime
 the way an external adopter would. Each demo lives in its own
 directory with a `mighty.toml`, source under `src/`, a smoke script
 (bash + PowerShell where it makes sense), and a per-demo `README.md`.
@@ -26,6 +26,8 @@ sandboxes → stateful → web → agents → swarms → distributed.
 | 09 | [`09_distributed_swarm`](09_distributed_swarm/) | Cross-node swarm | cluster mesh + typed bang-send returns + `std.eval` |
 | 10 | [`10_vision_rag`](10_vision_rag/) | Multi-modal RAG agent | `std.rag.Index` + `std.rag.Rag` + `std.llm.Image` |
 | 11 | [`11_ffi_winit_stub`](11_ffi_winit_stub/) | FFI scaffold | `[[extern_lib]]` static-lib linking + `extern c { ... }` |
+| 12 | [`12_web_auth`](12_web_auth/) | Web login pipeline | `std.crypto.hmac_sha256` + `std.crypto.aes_gcm` + `std.uuid.Uuid.v7` + `std.url.percent_encode` |
+| 13 | [`13_rag_regex`](13_rag_regex/) | RAG with regex pre-processing | `std.regex.Regex` (`find_all` + `captures_all` + `is_match` + `replace_all`) + `std.rag` |
 
 Demos 5–8 are the agent-heavy ones — they exercise the
 **v0.27–v0.30 marketing claims** (capability-typed tools,
@@ -34,7 +36,9 @@ demonstrates the v0.29 cluster surface; the v0.30 differentiators
 (`Tainted[T]`, `std.observe`, `std.computer`) ship as canonical
 examples in [`examples/`](../examples/) (33–36). Demo 10 covers the
 v0.33 `std.rag` + multi-modal pipeline; demo 11 is the v0.36 Track T2
-FFI scaffold (`[[extern_lib]]` + `extern c {}`).
+FFI scaffold (`[[extern_lib]]` + `extern c {}`); demos 12 + 13 are
+the v0.39 + v0.40 forcing-functions — real-world web auth (crypto +
+UUID + URL) and regex-augmented RAG.
 
 ## How each demo lays out
 
@@ -75,7 +79,7 @@ Get-ChildItem demos\0*\ -Directory | ForEach-Object {
 }
 ```
 
-All eleven print `<demo>: PASS` when the run succeeds.
+All thirteen print `<demo>: PASS` when the run succeeds.
 
 ## Opt-in extras
 
@@ -126,6 +130,8 @@ shape. The short version:
 | 09 | v0.29 (BuiltinId::Swarm + typed bang-send + cluster routing) |
 | 10 | v0.33 (`std.rag` + `std.llm.Image` multi-modal pipeline)     |
 | 11 | v0.36 T2 (`[[extern_lib]]` + `extern c {}` static-lib linking) |
+| 12 | v0.39 T1 + v0.40 T4 (crypto + UUID + URL → login pipeline) |
+| 13 | v0.40 T4 (`std.regex` layered on the v0.33 `std.rag` pipeline) |
 
 The v0.30 differentiator surface (`Tainted[T]`, `std.observe`,
 `std.computer`, `mty test --eval`) ships as canonical examples

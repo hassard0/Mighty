@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Mighty v0.40 — web_auth demo</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, sans-serif; max-width: 32rem; margin: 2rem auto; padding: 0 1rem; color: #222; }
+    h1   { font-size: 1.4rem; }
+    form { display: grid; gap: 0.75rem; margin: 1.5rem 0; padding: 1rem; border: 1px solid #ccc; border-radius: 0.5rem; }
+    label { display: grid; gap: 0.3rem; font-size: 0.9rem; }
+    input { font-size: 1rem; padding: 0.4rem; border: 1px solid #aaa; border-radius: 0.25rem; }
+    button { font-size: 1rem; padding: 0.5rem 1rem; cursor: pointer; }
+    pre { background: #111; color: #b4f; padding: 0.5rem; font-size: 0.8rem; overflow: auto; border-radius: 0.25rem; }
+    code { background: #eef; padding: 0 0.2rem; }
+  </style>
+</head>
+<body>
+  <h1>Mighty v0.40 web_auth demo</h1>
+  <p>
+    A login form that exercises the v0.39 + v0.40 stdlib surface:
+    <code>std.crypto.hmac_sha256</code> for the password tag,
+    <code>std.crypto.aes_gcm</code> for the sealed cookie,
+    <code>std.uuid.Uuid.v7</code> for the time-ordered session id, and
+    <code>std.url.percent_encode</code> for the Set-Cookie value.
+  </p>
+  <p>
+    Submitting POSTs to <code>/login</code>. In this demo bundle the
+    Mighty side runs via <code>mty run demos/12_web_auth/src/main.mty</code>
+    and the page is served statically; the smoke script drives the
+    full login pipeline through the Mighty runtime and asserts the
+    surface markers fire.
+  </p>
+
+  <form id="login" autocomplete="off">
+    <label>
+      Username
+      <input id="user" name="username" required value="ihassard">
+    </label>
+    <label>
+      Password
+      <input id="pass" name="password" type="password" required value="correct horse battery staple">
+    </label>
+    <button type="submit">Sign in</button>
+  </form>
+
+  <p>Response:</p>
+  <pre id="out">(submit the form to see the JSON + Set-Cookie line)</pre>
+
+  <script type="module">
+    const form = document.getElementById('login');
+    const out  = document.getElementById('out');
+
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const body = new URLSearchParams({
+        username: document.getElementById('user').value,
+        password: document.getElementById('pass').value,
+      });
+      out.textContent = 'POST /login ...';
+      try {
+        const resp = await fetch('/login', {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+        const setCookie = resp.headers.get('set-cookie') || '(server hides Set-Cookie from JS; check network panel)';
+        const text = await resp.text();
+        out.textContent = `HTTP ${resp.status}\nSet-Cookie: ${setCookie}\n\n${text}`;
+      } catch (e) {
+        out.textContent = `error: ${e.message}\n\nTip: the smoke script runs the Mighty side; the page is a UI fixture.`;
+      }
+    });
+  </script>
+</body>
+</html>
