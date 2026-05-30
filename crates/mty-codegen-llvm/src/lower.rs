@@ -297,7 +297,7 @@ impl<'ctx, 'a, 'b> ProgramLowerer<'ctx, 'a, 'b> {
         ptr
     }
 
-    fn define_fn(&mut self, f: &Function) -> CompileResult<()> {
+    fn define_fn(&mut self, f: &'a Function) -> CompileResult<()> {
         let fv = *self
             .user_fns
             .get(&f.id)
@@ -1282,10 +1282,14 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                 .unwrap()
                 .into(),
             (BasicTypeEnum::IntType(it), BasicTypeEnum::FloatType(ft)) => {
-                if it.get_bit_width() == ft.get_bit_width().into() {
+                // v0.40 T2: inkwell 0.5's FloatType has no
+                // `get_bit_width` — derive width by direct type
+                // comparison against the context's f32/f64 types.
+                let fbw: u32 = if ft == self.pl.ctx.f32_type() { 32 } else { 64 };
+                if it.get_bit_width() == fbw {
                     self.pl.builder.build_bit_cast(v, ft, "ibcast").unwrap()
                 } else {
-                    let intermediate = if ft.get_bit_width() == 32 {
+                    let intermediate = if fbw == 32 {
                         self.pl.ctx.i32_type()
                     } else {
                         self.pl.i64_ty()
@@ -1299,10 +1303,11 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                 }
             }
             (BasicTypeEnum::FloatType(ft), BasicTypeEnum::IntType(it)) => {
-                if ft.get_bit_width() == it.get_bit_width().into() {
+                let fbw: u32 = if ft == self.pl.ctx.f32_type() { 32 } else { 64 };
+                if fbw == it.get_bit_width() {
                     self.pl.builder.build_bit_cast(v, it, "fbcast").unwrap()
                 } else {
-                    let intermediate = if ft.get_bit_width() == 32 {
+                    let intermediate = if fbw == 32 {
                         self.pl.ctx.i32_type()
                     } else {
                         self.pl.i64_ty()
@@ -1519,7 +1524,9 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
             Str | String | Bytes => 16,
             Ref { .. } | RawPtr(_) | Cap { .. } | Fn { .. } => 8,
             Dyn(_) => 16,
-            Tuple(elems) => Self::layout_struct_size(elems.iter().map(|e| Self::ir_type_size(e, prog))),
+            Tuple(elems) => {
+                Self::layout_struct_size(elems.iter().map(|e| Self::ir_type_size(e, prog)))
+            }
             Array { elem, len } => {
                 let n = len.unwrap_or(0) as u32;
                 Self::ir_type_size(elem, prog) * n
@@ -1527,7 +1534,9 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
             Adt(id, _args) => match prog.adt_by_id(*id) {
                 Some(adt) if adt.variants.len() == 1 => {
                     let v = &adt.variants[0];
-                    Self::layout_struct_size(v.fields.iter().map(|f| Self::ir_type_size(&f.ty, prog)))
+                    Self::layout_struct_size(
+                        v.fields.iter().map(|f| Self::ir_type_size(&f.ty, prog)),
+                    )
                 }
                 Some(adt) if adt.variants.is_empty() => 8,
                 Some(adt) => {
@@ -1581,11 +1590,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
         let call = self
             .pl
             .builder
-            .build_call(
-                f,
-                &[size.into(), align.into(), zero.into()],
-                "vec_rt_alloc",
-            )
+            .build_call(f, &[size.into(), align.into(), zero.into()], "vec_rt_alloc")
             .unwrap();
         let raw = call
             .try_as_basic_value()
@@ -1613,11 +1618,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
     }
 
     /// Dynamic byte-offset pointer (offset is an `IntValue`).
-    fn ptr_off_dyn(
-        &mut self,
-        base: PointerValue<'ctx>,
-        off: IntValue<'ctx>,
-    ) -> PointerValue<'ctx> {
+    fn ptr_off_dyn(&mut self, base: PointerValue<'ctx>, off: IntValue<'ctx>) -> PointerValue<'ctx> {
         let i8t = self.pl.i8_ty();
         unsafe {
             self.pl
@@ -1741,10 +1742,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
         // Copy elem_size bytes via build_memcpy.
         let src_ptr = self.header_to_ptr(val);
         let size_v = self.pl.i64_ty().const_int(elem_size, false);
-        let _ = self
-            .pl
-            .builder
-            .build_memcpy(slot, 1, src_ptr, 1, size_v);
+        let _ = self.pl.builder.build_memcpy(slot, 1, src_ptr, 1, size_v);
     }
 
     /// Load one element value from a Vec data slot. Mirrors
@@ -1790,10 +1788,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
     /// `unreachable` keeps the OOB block terminal for the LLVM
     /// verifier.
     fn vec_bounds_check(&mut self, idx: IntValue<'ctx>, len: IntValue<'ctx>) {
-        let oob = self
-            .pl
-            .ctx
-            .append_basic_block(self.fv, "vec_oob");
+        let oob = self.pl.ctx.append_basic_block(self.fv, "vec_oob");
         let ok = self.pl.ctx.append_basic_block(self.fv, "vec_ok");
         let is_oob = self
             .pl
@@ -1896,11 +1891,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
         let slot = self.ptr_off_dyn(data, byte_off);
         self.vec_store_elem(slot, raw, elem_size, lds, elem_ty.as_ref());
         let one = i64t.const_int(1, false);
-        let new_len = self
-            .pl
-            .builder
-            .build_int_add(len, one, "new_len")
-            .unwrap();
+        let new_len = self.pl.builder.build_int_add(len, one, "new_len").unwrap();
         let len_p = self.ptr_off(hdr, Self::VEC_LEN_OFF);
         self.pl.builder.build_store(len_p, new_len).unwrap();
         Ok(hdr.into())
@@ -1980,11 +1971,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
 
         // result slot — allocate a stack slot for the result so we can
         // store from both arms without phi gymnastics.
-        let res_slot = self
-            .pl
-            .builder
-            .build_alloca(i64t, "pop_res")
-            .unwrap();
+        let res_slot = self.pl.builder.build_alloca(i64t, "pop_res").unwrap();
 
         let is_empty = self
             .pl
@@ -2004,11 +1991,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
         // --- pop_bb ---
         self.pl.builder.position_at_end(pop_bb);
         let one = i64t.const_int(1, false);
-        let new_len = self
-            .pl
-            .builder
-            .build_int_sub(len, one, "new_len")
-            .unwrap();
+        let new_len = self.pl.builder.build_int_sub(len, one, "new_len").unwrap();
         let len_p = self.ptr_off(hdr, Self::VEC_LEN_OFF);
         self.pl.builder.build_store(len_p, new_len).unwrap();
         let data = self.vec_load_data(hdr);

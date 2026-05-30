@@ -289,7 +289,10 @@ fn main() -> I64 {
 }
 "#;
     let ll = must_lower(src);
-    assert!(ll.contains("load i8"), "expected `load i8` for Vec[U8]:\n{ll}");
+    assert!(
+        ll.contains("load i8"),
+        "expected `load i8` for Vec[U8]:\n{ll}"
+    );
     // The widening intrinsic emitted by `build_int_cast_sign_flag`
     // with signed=false for U8 lowers to `zext` in IR.
     assert!(
