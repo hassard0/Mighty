@@ -137,12 +137,19 @@ jobs:
             #     restore-keys can't pull in a stale `target/release-pgo`
             #     from a prior workflow.
             use_pgo: true
-            # v0.39 T4: BOLT layout on top of PGO. Linux-only because
-            # llvm-bolt's ELF support is mature and shipped in ubuntu
-            # apt as `llvm-bolt` (LLVM 19+). Windows/macOS BOLT exist
-            # but the binary-format support is rougher and we'd be
-            # the canary. Re-evaluate in v0.40.
-            use_bolt: true
+            # v0.39.1: BOLT temporarily disabled. v0.39.0 Release on
+            # c9c441d failed at the BOLT instrumentation step with:
+            #   rust-lld: error: --strip-all and --emit-relocs may
+            #   not be used together
+            # The `[profile.release-pgo]` workspace profile has
+            # `strip = "symbols"` (= --strip-all) and `cargo pgo
+            # bolt build` injects --emit-relocs for the BOLT
+            # instrumentation pass. v0.40 fix: pass RUSTFLAGS
+            # -Cstrip=none during the BOLT step OR define a
+            # separate release-pgo-bolt profile without strip.
+            # Reverting use_bolt to false until then; PGO alone
+            # still gives the main wins.
+            use_bolt: false
             toolchain: "1.95.0"
           # v0.32 (Track D): Intel macOS via cross-compile on Apple
           # Silicon runner. v0.32.1 pivoted from `macos-13` to
@@ -194,7 +201,16 @@ jobs:
             # BOLT stays off: even when PGO is back on darwin-arm64,
             # llvm-bolt's Mach-O support is too thin for the release
             # path. Linux-only BOLT in v0.39.
-            use_pgo: true
+            # v0.39.1: 1.96.0 toolchain retry FAILED — Release run
+            # on c9c441d hit the SAME raw=8 vs expected=10 mismatch.
+            # This is a deeper upstream issue than just the 1.95
+            # channel; even 1.96 has the same rustc/llvm-profdata
+            # version skew on aarch64-apple-darwin. Documented as
+            # rust-lang issue waiting for an LLVM-tools alignment
+            # upstream. Reverting to use_pgo: false until upstream
+            # fix lands. Toolchain pin retained but moot when
+            # use_pgo is false.
+            use_pgo: false
             use_bolt: false
             toolchain: "1.96.0"
           # v0.32 (Track D): aarch64 Linux for Raspberry Pi 5, AWS
