@@ -43,8 +43,9 @@ the type system:
 Pre-built binaries (Linux x86_64/aarch64, macOS arm64/x86_64,
 Windows x86_64) on the
 [Releases page](https://github.com/hassard0/Mighty/releases) —
-three platforms ship PGO-optimised (linux-x86_64, darwin-arm64,
-windows-x86_64). Or from source (MSRV: Rust 1.85):
+three platforms ship PGO-optimised via
+[`cargo-pgo`](https://github.com/Kobzol/cargo-pgo) (linux-x86_64,
+darwin-arm64, windows-x86_64). Or from source (MSRV: Rust 1.85):
 
 ```bash
 git clone https://github.com/hassard0/Mighty && cd Mighty
@@ -143,19 +144,25 @@ mty run   src/main.mty
 - WASI Preview 2 default for `wasm32-wasi`; `std.fs` / `std.http` /
   `std.random` / `std.time` / `log()` emit direct versioned P2 imports
 - DWARF v5 with per-instruction line program (opt-in via `MTY_DWARF5=1`)
-- PGO + ThinLTO via `release-pgo` profile + `scripts/build-pgo.sh`
-- FFI — extern c signature matrix (12 documented shapes incl.
-  variadic decls; rows 3/4/5/6/8/9 lifted from wrapper-pattern to
-  direct call-site coercion in v0.37 — Str→*U8 auto-coercion,
-  `&local`/`&mut local` for `*T`/`*mut T`, struct literals at
-  extern-c arg positions) and `[[extern_lib]]` manifest entries with
-  per-platform `link_args` for static + dynamic library linking
+- PGO + ThinLTO via `release-pgo` profile + cargo-pgo (CI) /
+  `scripts/build-pgo.{sh,ps1}` (local dev fallback)
+- FFI — extern c signature matrix (all 12 documented shapes wired
+  call-site direct: variadic *calls* with C ABI default promotions
+  via per-call `ir::Signature` + `call_indirect` (v0.38 T2),
+  returned-struct via 1-reg/2-reg/sret classification (v0.38 T3 row 7),
+  function pointers via `Const::FnPtr` + `func_addr` (v0.38 T3 row 11),
+  `#[ffi_nul_ok]` attribute on extern params (v0.38 T3), Str→*U8
+  auto-coercion + `&local`/`&mut local` for `*T`/`*mut T` + struct
+  literals at extern-c arg positions (v0.37 T3 rows 3/4/5/6/8/9))
+  and `[[extern_lib]]` manifest entries with per-platform `link_args`
+  for static + dynamic library linking
   (see [`docs/internals/extern-c-matrix.md`](docs/internals/extern-c-matrix.md))
 
 **Tooling**
 - `mty lsp` — LSP 3.17 (hover ships extracted `///` examples +
-  See-also references + capability hints, completion, go-to-def,
-  semantic tokens, rename, inlay hints, code actions, signature help)
+  See-also references + capability hints across **317 stdlib catalog
+  entries** spanning 26 modules, completion, go-to-def, semantic
+  tokens, rename, inlay hints, code actions, signature help)
 - `mty find` — capability-tagged stdlib search ("write files" →
   `fs.write` APIs); pretty / NDJSON / short formats
 - `mty pkg` — resolver, lockfile, GitHub-Releases-backed registry,
@@ -260,10 +267,10 @@ current state of the language, not its history.
 
 ## Status
 
-Mighty is **pre-alpha**. Internal milestones tagged through v0.37.
-The toolchain is exercised by **3236 Rust tests** across 20 crates
+Mighty is **pre-alpha**. Internal milestones tagged through v0.38.
+The toolchain is exercised by **3287 Rust tests** across 20 crates
 plus **490 Python 2nd-impl tests** plus **159 normative conformance
-cases** plus **23 self-host driver codegen tests** — combined **~3908
+cases** plus **23 self-host driver codegen tests** — combined **~3959
 tests, 0 failing**. All four LLM providers full (with multi-modal
 vision-language Image input); `std.swarm` votes consensus across
 them; `std.eval` regression-tests agents under byte-identical

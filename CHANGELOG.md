@@ -9,50 +9,116 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-v0.38 candidates (rolled up across the 6 v0.37 tracks):
+v0.39 candidates (rolled up across the 4 v0.38 tracks + T6 +
+deferred T5 + L28 native-Vec follow-ups):
 
-- **T1 — pre-push hook** — `mty hooks status` subcommand (report
-  installed hook version vs the in-tree `.git-hooks/pre-push`);
-  `mty hooks repair` (detect drift and re-install); `mty fmt --check`
-  parallel invocation in the hook (60 files serial ≈ 2s → parallel ≈
-  200ms); pre-push hook in CI redundancy.
-- **T2 — cast surface** — MT2027 LSP quickfix (`expr as I32` where
-  Bool was intended suggests `if b { 1 } else { 0 }`); `as`-cast in
-  const context (typechecks but const-eval doesn't fold);
-  `f32 as transmute<I32>` bitcast surface; `mty inspect
-  --cast-coverage`; span-underlines on both type halves in MT2027.
-- **T3 — FFI follow-ups** — returned-struct binding for FFI
-  (matrix row 7); function pointer surface (row 11); mutable
-  Str / caller-owned buffer ergonomics (row 10); `#[ffi_nul_ok]`
-  fast path for already-null-terminated Str → *U8; `extern system`,
-  `extern aapcs`, `extern sysv` ABIs sharing T3's call-site coercion
-  gate.
-- **T4 — PGO** — `darwin-x86_64` PGO via rosetta-host sniff;
-  `linux-aarch64` PGO via qemu-user emulation; profile-merge
-  throughput improvement via cached path resolution
-  (`.pgo-config`).
-- **T5 — LLVM backend** — feature parity sweep (extern_lib
-  linking, dynamic log, observe-sqlite) that cranelift backend
-  already ships; LLVM 17 vs LLVM 20 build matrix to confirm the
-  helper API still resolves the same way on both.
-- **T6 — variadic** — cranelift variadic-call extension (per-call
-  `Signature` + `Function::import_signature` + `call_indirect`
-  via `func_addr`); stricter variadic typeck (when the format
-  string is statically known, constrain the trailing arg types);
-  WASM Component Model FFI for `funcref` / resource types.
-- **Cross-cutting / integrator** — `SCHEMA_VERSION` crate-root
-  re-export; vulcan disk hygiene + automated `/tmp/v0XX-*` GC;
-  multi-modal streaming hover; Go/C++ comparator refresh;
-  `mty find` semantic search; `mty-runtime::work_stealing`
-  Windows-only flake; Homebrew-core PR (runbook ready, user
-  files); Docker publish toggle.
+- **T1 — cargo-pgo extension** — `darwin-x86_64` PGO via rosetta-host
+  sniff; `linux-aarch64` PGO via qemu-user emulation; per-machine
+  `.pgo-config` for cached path resolution on dev laptops.
+- **T2 — variadic typeck tightening** — when the format string at a
+  `printf`-shape call is statically known, constrain the trailing
+  arg types to match the format specifiers (`%d` → i32-or-promotable,
+  `%s` → `*U8`/Str-coercible, `%f` → f64-or-promotable).
+- **T2 — WASM Component Model variadic FFI** — wasm target still
+  rejects variadic externs; `funcref` / resource-type surface is the
+  eventual home.
+- **T3 — Mutable Str / caller-owned buffer ergonomics** for row 10's
+  `snprintf` shape — first-class mutable byte-buffer binding
+  (`let mut buf: [U8; 256] = [0u8; 256]` and `ffi(buf as *mut U8)`).
+- **T3 — `#[ffi_nul_ok]` runtime enforcement** — flip the attribute
+  from metadata-only to opt-in *for the future safety-wrapper pass*.
+- **T3 — More extern ABIs** — `extern system`, `extern aapcs`,
+  `extern sysv` sharing T3's call-site coercion gate.
+- **T4 — More hover modules** — `std.crypto`, `std.encoding.{base64,
+  hex}`, `std.regex`, `std.url` (estimated +60 entries).
+- **T4 — Hover examples extraction** — pull `///` triple-backtick
+  blocks into the LSP hover as `### Example` sections.
+- **T5 — cast surface polish (task #247, deferred from v0.38)** —
+  MT2027 LSP quickfix; span-underlines on both type halves; `as`-cast
+  in const context; `f32 as transmute<I32>` bitcast surface; `mty
+  inspect --cast-coverage` sub-table.
+- **T6 — Bench refresh automation** — nightly CI job that runs
+  `mty-bench` against tip-of-main and posts the deltas as a PR
+  comment.
+- **L28 follow-up — typed-slot Vec storage** — native Vec stores
+  every element in an 8-byte slot; pick the natural element size at
+  codegen time so narrower types don't waste capacity and wider
+  ADT-by-value elements can fit.
+- **Integrator — backfill the v0.38 track reports.** v0.38 was
+  integrated without per-track `dev/history/notes/V038_*_NOTES.md`
+  files because the swarms didn't push them; v0.39 mandate: every
+  swarm track ships a notes file alongside the source change.
 
 The v1.0 freeze-gate is unchanged: 8 RFC comment windows opened
 2026-05-26, earliest close 2026-06-09 (RFC-005), latest close
 2026-07-25 (RFC-002 + RFC-006). Proposed v1.0 freeze date
-2026-09-01; earliest tag 2026-07-26. v0.37 stops the v0.35/v0.36.1
-fmt-drift retag loop with a third pre-push gate and ships the
-FFI ergonomics the parallel IDE work needs.
+2026-09-01; earliest tag 2026-07-26.
+
+## [0.38.0] - 2026-05-29
+
+### Added — Finishing the PGO loop honestly
+- **T1 — cargo-pgo migration (3/5 PGO platforms).** Drop the in-tree
+  `scripts/build-pgo.{sh,ps1}` from the CI release pipeline in favour
+  of upstream [`cargo-pgo`](https://github.com/Kobzol/cargo-pgo)
+  0.2.9, which auto-discovers an `llvm-profdata` raw-version-compatible
+  with the rustc that emitted the `.profraw` shards. Closes the
+  v0.37 darwin-arm64 PGO bug where the within-channel profdata
+  expected raw=10 but the channel's rustc emitted raw=8. PGO matrix
+  now: `linux-x86_64` + `darwin-arm64` + `windows-x86_64` ON;
+  `linux-aarch64` + `darwin-x86_64` cross-compile legs OFF (no
+  representative workload). Manual `scripts/build-pgo.{sh,ps1}` stay
+  in the tree as the local-dev fallback. `scripts/tests/test-cargo-pgo-
+  availability.sh` gates: binary present + `cargo pgo --help` exits 0
+  + `llvm-profdata` major version matches `rustc` major version.
+- **T2 — Cranelift variadic-call codegen.** v0.37 T6 shipped the
+  parse / typeck / decl half; v0.38 T2 lights up calls with extras.
+  Build a per-call `ir::Signature` at every variadic call site,
+  import it via `Function::import_signature`, take the imported
+  symbol's address with `func_addr`, dispatch through `call_indirect`.
+  C ABI default argument promotion applied to extras (`F32→F64`,
+  signed `I8/I16→I32` sextend, unsigned `U8/U16→U32` uextend,
+  `Bool/Char→I32`). `printf_real_libc_round_trip` JIT-builds a real
+  call to `libc::printf("hello %d\n", 42)` and asserts the runtime
+  output. (+14 tests in `crates/mty-codegen-cranelift/tests/variadic_call.rs`;
+  integrator de-flake follow-up: every build_jit test takes the
+  `CLIF_DUMP_LOCK` mutex because the process-wide `MTY_DUMP_CLIF`
+  env var raced between parallel cargo-test threads.)
+- **T3 — FFI returned-struct + fn-pointer + `#[ffi_nul_ok]`.**
+  Three FFI matrix surfaces in one track. (a) **Row 7** — `extern c
+  fn make_point() -> Point` binds: ≤8 bytes ride a single integer
+  return register, 9..=16 bytes ride two, >16 bytes use a hidden
+  `sret` first param (`ArgumentPurpose::StructReturn`). The
+  `AggregateReturnKind` classifier + `build_extern_signature` live
+  in `crates/mty-codegen-cranelift/src/abi.rs`. (b) **Row 11** —
+  `fn(T1, T2) -> R` as an extern-c param now accepts a Mighty fn as
+  the callback; cranelift's `Const::FnPtr(FnRef::User(fid))` arm
+  takes the fn's address via `func_addr` against the `Linkage::Local`
+  declaration. (c) **`#[ffi_nul_ok]`** — per-param attribute on
+  extern-c params, metadata-only today (the Str→*U8 coercion already
+  takes the null-terminated fast path); reserves the side-table for
+  a future runtime null-terminator-check pass. (+25 tests: 16 typeck
+  cases in `crates/mty-types/tests/ffi_v038_t3.rs` + 9 codegen cases
+  in `crates/mty-codegen-cranelift/tests/ffi_v038_t3.rs`.)
+- **T4 — Stdlib hover catalog 215 → 317.** +102 entries across 10
+  new modules: `extern` (11), `cast` (8), `process` (12), `io` (14),
+  `path` (9), `collections` (13), `iter` (18), `result` (7),
+  `option` (6), `error` (4). Two catalog tests pin the count + verify
+  every entry has both a summary and a longer description.
+- **T6 — Benchmark numbers refreshed against v0.38 main.** Re-baselined
+  `mty check` parse-only throughput across 50 examples
+  (`docs/benchmarks/parse_throughput.md`) and `mty build --target
+  wasm32-wasi` output sizes for the 10 demos (`docs/benchmarks/wasm_size.md`)
+  using the v0.38 `release-pgo` binary. `scripts/tests/test-bench-results-
+  headers.sh` asserts every table carries the v0.38 column header +
+  the PGO profile annotation.
+- **Cranelift native growable Vec (L28 fix).** `v = v.push(x)` in a
+  loop now grows under `mty build` native — pre-fix, the cranelift
+  backend had no Vec runtime (only an `mty_runtime_extern_call`
+  stub that returned 0). Adds a 24-byte arena-backed header
+  (`len@0`, `cap@8`, `data@16`) + `emit_vec_new` + Vec push/len/get
+  arms in the `MethodCall` lowering. SIR interpreter unchanged
+  (always worked). (+1 test in `crates/mty-codegen-cranelift/tests/
+  vec_push_native.rs`.)
 
 ## [0.37.0] - 2026-05-29
 
