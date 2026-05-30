@@ -23,6 +23,7 @@ pub mod extract;
 pub mod ir;
 pub mod render;
 pub mod stdlib_walker;
+pub mod surface_audit;
 
 pub use examples::{
     examples_count, examples_to_json, infer_see_also, lookup as lookup_stdlib_example,
@@ -37,3 +38,4 @@ pub use stdlib_walker::{
     build_extracted_catalog, diff_catalogs, lookup_extracted, parse_docstub, render_drift_report,
     Drift, DriftKind, ExtractedExample, StdlibExampleRef,
 };
+pub use surface_audit::{audit_catalog, render_audit_report, RealSurface, UnresolvedEntry};

@@ -97,7 +97,18 @@ pub fn run(
 ///
 /// When `report_path` is set, the same payload is written to that
 /// file in addition to stdout — handy for CI artefact uploads.
-pub fn run_check(report_path: Option<&Path>) -> i32 {
+///
+/// ## v0.41 T5 — `--check-surface`
+///
+/// When `check_surface` is true, ALSO runs the v0.41 T5 surface
+/// auditor: every catalog entry must resolve to a real stdlib surface
+/// item (prelude registration, interp dispatch arm, host dispatcher
+/// arm, or `mty-stdlib` source declaration). Concept-doc / future
+/// opt-ins (`# concept-doc` / `# future` markers in the docstub) are
+/// excluded from the hard-fail set but listed in the report for
+/// review. Exits non-zero if any non-opt-in entry resolves to
+/// nothing.
+pub fn run_check(report_path: Option<&Path>, check_surface: bool) -> i32 {
     let extracted = mty_doc::build_extracted_catalog();
     let drift = mty_doc::diff_catalogs(&extracted, mty_doc::STDLIB_EXAMPLES);
 
@@ -109,28 +120,41 @@ pub fn run_check(report_path: Option<&Path>) -> i32 {
         mty_doc::STDLIB_EXAMPLES.len(),
         extracted.len(),
     ));
-    if drift.is_empty() {
-        payload.push_str("OK: extracted catalog matches curated table byte-for-byte.\n");
-        print!("{payload}");
-        if let Some(p) = report_path {
-            if let Err(e) = std::fs::write(p, &payload) {
-                eprintln!("mty doc check: write {}: {}", p.display(), e);
-            }
-        }
-        0
-    } else {
+    let drift_failed = !drift.is_empty();
+    if drift_failed {
         payload.push_str(&mty_doc::render_drift_report(&drift));
         payload.push_str(
             "\nTo fix: edit `crates/mty-stdlib/docs/<module>.docstub` to \
              match the curated table, OR regenerate it from the curated \
-             gold-set via `cargo run -p mty-doc --bin regen-stdlib-docstubs`.\n",
+             gold-set via `cargo run -p mty-doc --bin regen-stdlib-docstubs`.\n\n",
         );
-        print!("{payload}");
-        if let Some(p) = report_path {
-            if let Err(e) = std::fs::write(p, &payload) {
-                eprintln!("mty doc check: write {}: {}", p.display(), e);
-            }
+    } else {
+        payload.push_str("OK: extracted catalog matches curated table byte-for-byte.\n\n");
+    }
+
+    let surface_failed = if check_surface {
+        let unresolved = mty_doc::audit_catalog();
+        let total = extracted.len();
+        payload.push('\n');
+        payload.push_str("mty doc check --check-surface (v0.41 T5 audit)\n");
+        payload.push_str(&mty_doc::render_audit_report(&unresolved, total));
+        unresolved
+            .iter()
+            .any(|u| !u.flagged_as_concept && !u.flagged_as_future)
+    } else {
+        false
+    };
+
+    print!("{payload}");
+    if let Some(p) = report_path {
+        if let Err(e) = std::fs::write(p, &payload) {
+            eprintln!("mty doc check: write {}: {}", p.display(), e);
         }
+    }
+
+    if drift_failed || surface_failed {
         1
+    } else {
+        0
     }
 }

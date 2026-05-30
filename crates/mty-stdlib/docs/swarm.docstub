@@ -196,12 +196,3 @@ let clusters = cluster_replies(&bodies, SimilarityMode.Exact, 1.0);
 let clusters = cluster_replies(&bodies, SimilarityMode.TokenSet, 0.6);
 ##end
 
-##sym ConsensusStrategy.AbortOnDissent
-##sig const ConsensusStrategy.AbortOnDissent: ConsensusStrategy
-##desc Aborts the swarm the moment any member dissents from the running plurality. Useful as a CI gate: any disagreement = `Consensus.has_consensus() == false`.
-##see ConsensusStrategy.Majority, ConsensusStrategy.Unanimous, Consensus.has_consensus, swarm
-##example
-let c = swarm(p, panel, b, ConsensusStrategy.AbortOnDissent).await?;
-assert(c.has_consensus());
-##end
-

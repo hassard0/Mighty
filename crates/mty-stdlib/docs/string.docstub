@@ -242,22 +242,6 @@ if path.ends_with(".mty") { compile(path); }
 if body.contains("ERROR") { alert(); }
 ##end
 
-##sym String.to_lowercase
-##sig fn String.to_lowercase(&self) -> String
-##desc Allocate a lowercase copy. Honors Unicode special casing — `'İ'.to_lowercase()` yields `"i̇"` (two code points). Use `to_ascii_lowercase` for ASCII-only.
-##see String.to_uppercase, String.trim
-##example
-if email.to_lowercase() == canonical { /* match */ }
-##end
-
-##sym String.to_uppercase
-##sig fn String.to_uppercase(&self) -> String
-##desc Allocate an uppercase copy. Honors Unicode special casing.
-##see String.to_lowercase, String.trim
-##example
-let shout = greeting.to_uppercase();
-##end
-
 ##sym String.repeat
 ##sig fn String.repeat(&self, n: USize) -> Str
 ##desc Return a new string consisting of `n` copies of `self`. `"ab".repeat(3)` → `"ababab"`. Allocates a fresh `String` — for streaming output use a loop.
@@ -272,33 +256,6 @@ let separator = "-".repeat(40);
 ##see std.regex.Regex.replace_all, String.contains, String.split
 ##example
 let out = body.replace("<TOKEN>", &actual);
-##end
-
-##sym String.replacen
-##sig fn String.replacen(&self, pat: &Str, to: &Str, n: USize) -> Str
-##desc Replace up to `n` occurrences of `pat`. `replacen(pat, to, 1)` is the canonical "replace first occurrence" idiom.
-##see String.replace, std.regex.Regex.replace
-##example
-let first = body.replacen("foo", "bar", 1);
-##end
-
-##sym String.lines
-##sig fn String.lines(&self) -> Iterator[&Str]
-##desc Iterate over the LF-/CRLF-terminated lines, WITHOUT the line terminator. Trailing empty line (no terminator after) is yielded as an empty string if present. Mirrors Rust's `str::lines`.
-##see String.split, String.trim, std.fs.read_to_string
-##example
-for line in input.lines() {
-  if line.trim().is_empty() { continue; }
-  process(line);
-}
-##end
-
-##sym String.split_whitespace
-##sig fn String.split_whitespace(&self) -> Iterator[&Str]
-##desc Split on runs of Unicode whitespace, skipping empty fragments. Use this over `split(" ")` for any input that might have tabs, double spaces, NBSP, etc.
-##see String.split, String.trim, std.regex.Regex.split
-##example
-let words: Vec[&Str] = line.split_whitespace().collect();
 ##end
 
 ##sym String.parse

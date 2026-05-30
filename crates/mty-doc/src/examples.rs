@@ -303,22 +303,6 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         example: "let hits = v.query(q, 5);\nfor (k, score) in hits { log(format!(\"{} -> {}\", k, score)); }\n",
         see_also: "VectorStore.upsert, VectorStore.new",
     },
-    StdlibExample {
-        symbol: "EpisodicMemory",
-        signature: "struct EpisodicMemory { events: List<MemoryEvent> }",
-        description: "Append-only event log with time-bounded retention. Designed for agent turn history.",
-        capability: "",
-        example: "let m = EpisodicMemory.new();\nm.append(\"user: hi\");\nlet recent = m.last(10);\n",
-        see_also: "VectorStore.new, std.memory",
-    },
-    StdlibExample {
-        symbol: "WorkingMemory",
-        signature: "struct WorkingMemory { slots: Map<Str, Str> }",
-        description: "Bounded key/value scratchpad an agent can inspect each turn.",
-        capability: "",
-        example: "let w = WorkingMemory.new(16);\nw.set(\"task\", \"summarise\");\n",
-        see_also: "EpisodicMemory, std.memory",
-    },
     // ---- std.eval: replay-driven LLM eval ----
     StdlibExample {
         symbol: "Suite.new",
@@ -377,30 +361,6 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         see_also: "Compare.contains, Suite.compare",
     },
     // ---- std.observe ----
-    StdlibExample {
-        symbol: "observe.record",
-        signature: "fn observe.record(name: Str, payload: Json) -> Unit",
-        description: "Append a structured observation to the per-run trace. Sinks decide whether to flush to OTel/file.",
-        capability: "",
-        example: "observe.record(\"agent.turn\", json({\"who\": \"user\", \"text\": msg}));\n",
-        see_also: "observe.query, observe.otel_sink, std.observe",
-    },
-    StdlibExample {
-        symbol: "observe.query",
-        signature: "fn observe.query(filter: Str) -> List<Observation>",
-        description: "Query the in-memory trace store with a dotted-path filter.",
-        capability: "",
-        example: "let turns = observe.query(\"agent.turn\");\n",
-        see_also: "observe.record, std.observe",
-    },
-    StdlibExample {
-        symbol: "observe.otel_sink",
-        signature: "fn observe.otel_sink(endpoint: Str) -> Unit",
-        description: "Forward every observation to an OTel collector via OTLP/HTTP.",
-        capability: "net.https (the OTLP endpoint)",
-        example: "observe.otel_sink(\"https://otel.example/v1/traces\");\n",
-        see_also: "observe.record, std.observe",
-    },
     // ---- std.http ----
     StdlibExample {
         symbol: "std.http.get",
@@ -735,14 +695,6 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         capability: "",
         example: "let idx = Index.new(\"./c\").with_strategy(ChunkStrategy.ByCodeFence);\n",
         see_also: "ChunkStrategy.ByParagraph, ChunkStrategy.ByTokens, ChunkStrategy.BySection",
-    },
-    StdlibExample {
-        symbol: "Chunker.default",
-        signature: "fn Chunker.default() -> Chunker",
-        description: "Default chunker: `ByParagraph` strategy, 1024-token soft cap, 64-token overlap.",
-        capability: "",
-        example: "let ch = Chunker.default();\nlet idx = Index.new(\"./c\").with_chunker(ch);\n",
-        see_also: "Chunker.new, ChunkStrategy.ByParagraph, Index.with_strategy",
     },
     // ---- std.rag: Retriever ----
     StdlibExample {
@@ -2106,94 +2058,6 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         see_also: "MTY_RUNTIME_THREADS, MTY_TRACE",
     },
     // ---- v0.38 T4: std.process ----
-    StdlibExample {
-        symbol: "Command.new",
-        signature: "fn Command.new(program: Str) -> Command",
-        description: "Builder for an OS subprocess. Fluent `.arg`/`.env`/`.spawn`/`.exec` mirror the `std::process::Command` ergonomics.",
-        capability: "process.exec",
-        example: "let out = Command.new(\"git\").arg(\"status\").exec()?;\nlog(out.stdout);\n",
-        see_also: "Command.arg, Command.args, Command.exec, Command.spawn, std.process.spawn",
-    },
-    StdlibExample {
-        symbol: "Command.arg",
-        signature: "fn Command.arg(&mut self, a: Str) -> &mut Command",
-        description: "Append one argument. Each call is a distinct argv slot — no shell splitting.",
-        capability: "",
-        example: "let mut c = Command.new(\"git\");\nc.arg(\"log\").arg(\"--oneline\");\n",
-        see_also: "Command.new, Command.args, Command.env",
-    },
-    StdlibExample {
-        symbol: "Command.args",
-        signature: "fn Command.args(&mut self, xs: &[Str]) -> &mut Command",
-        description: "Append every entry of `xs` as a separate argv slot.",
-        capability: "",
-        example: "Command.new(\"ls\").args(&[\"-la\", \"/tmp\"]).exec()?;\n",
-        see_also: "Command.arg, Command.new",
-    },
-    StdlibExample {
-        symbol: "Command.env",
-        signature: "fn Command.env(&mut self, key: Str, value: Str) -> &mut Command",
-        description: "Set one environment variable for the child. Repeated keys overwrite; `Command.env_clear` (separate call) wipes inherited env first.",
-        capability: "",
-        example: "Command.new(\"node\").arg(\"build.js\").env(\"NODE_ENV\", \"production\").exec()?;\n",
-        see_also: "Command.new, Command.arg, std.process.exec",
-    },
-    StdlibExample {
-        symbol: "Command.exec",
-        signature: "fn Command.exec(&mut self) -> Result<ProcessOutput, ProcessError>",
-        description: "Run to completion, collect stdout+stderr, and return on exit. Blocks the current task; combine with `spawn` if you need to interleave I/O.",
-        capability: "process.exec",
-        example: "let out = Command.new(\"echo\").arg(\"hi\").exec()?;\nassert_eq(out.stdout.trim_end(), \"hi\");\n",
-        see_also: "Command.spawn, Command.new, ProcessExit",
-    },
-    StdlibExample {
-        symbol: "Command.spawn",
-        signature: "fn Command.spawn(&mut self) -> Result<Child, ProcessError>",
-        description: "Start the child without waiting. Returns a `Child` handle — call `.wait()` (sync) or `.wait_async()` (yields the task) to collect the exit.",
-        capability: "process.exec",
-        example: "let mut child = Command.new(\"sleep\").arg(\"1\").spawn()?;\nlet exit = child.wait()?;\n",
-        see_also: "Command.exec, std.process.wait, std.process.kill",
-    },
-    StdlibExample {
-        symbol: "std.process.spawn",
-        signature: "fn std.process.spawn(program: Str, args: &[Str]) -> Result<Child, ProcessError>",
-        description: "Convenience over `Command.new(program).args(args).spawn()`. Returns the child handle for `.wait()` / `.kill()`.",
-        capability: "process.exec",
-        example: "let child = std.process.spawn(\"sleep\", &[\"5\"])?;\nstd.process.kill(child)?;\n",
-        see_also: "std.process.exec, std.process.kill, std.process.wait, Command.spawn",
-    },
-    StdlibExample {
-        symbol: "std.process.exec",
-        signature: "fn std.process.exec(program: Str, args: &[Str]) -> Result<ProcessOutput, ProcessError>",
-        description: "Run the program, block until exit, return the captured stdout+stderr+exit code as `ProcessOutput`.",
-        capability: "process.exec",
-        example: "let out = std.process.exec(\"git\", &[\"rev-parse\", \"HEAD\"])?;\nlet sha = out.stdout.trim_end();\n",
-        see_also: "std.process.spawn, Command.exec, ProcessExit",
-    },
-    StdlibExample {
-        symbol: "std.process.wait",
-        signature: "fn std.process.wait(&mut child: Child) -> Result<ProcessExit, ProcessError>",
-        description: "Block the current task until the child exits. Returns the exit status. Idempotent — calling on a finished child returns the cached exit.",
-        capability: "",
-        example: "let mut c = std.process.spawn(\"sleep\", &[\"1\"])?;\nlet exit = std.process.wait(&mut c)?;\nlog(format!(\"code={}\", exit.code));\n",
-        see_also: "std.process.spawn, std.process.kill, ProcessExit",
-    },
-    StdlibExample {
-        symbol: "std.process.kill",
-        signature: "fn std.process.kill(child: Child) -> Result<(), ProcessError>",
-        description: "Send SIGTERM (Unix) / TerminateProcess (Windows) to the child. Use `.wait()` afterwards to drain the exit.",
-        capability: "process.exec",
-        example: "let c = std.process.spawn(\"sleep\", &[\"30\"])?;\nstd.process.kill(c)?;\n",
-        see_also: "std.process.wait, std.process.spawn, Command.spawn",
-    },
-    StdlibExample {
-        symbol: "ProcessExit",
-        signature: "struct ProcessExit { code: I32, signal: Option<I32> }",
-        description: "The result of waiting on a child. `code` is the process exit status (0 = success). On Unix, `signal` carries the signal number when the child was killed; on Windows it is always `None`.",
-        capability: "",
-        example: "let exit = std.process.wait(&mut child)?;\nif exit.code != 0 { panic(\"child failed\"); }\n",
-        see_also: "std.process.wait, std.process.exec, Command.exec",
-    },
     // ---- v0.38 T4: std.io ----
     StdlibExample {
         symbol: "std.io.stdin",
@@ -2228,46 +2092,6 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         see_also: "log, std.io.stderr, format",
     },
     StdlibExample {
-        symbol: "BufReader.new",
-        signature: "fn BufReader.new[R: Read](inner: R) -> BufReader[R]",
-        description: "Wrap a `Read` handle in a buffered reader. Reduces syscall count for line-oriented workloads.",
-        capability: "",
-        example: "let r = BufReader.new(std.fs.open(\"input.txt\", FsCap.unrestricted())?);\n",
-        see_also: "BufReader.lines, BufWriter.new, std.io.stdin",
-    },
-    StdlibExample {
-        symbol: "BufReader.lines",
-        signature: "fn BufReader.lines[R](&mut self) -> Iterator[Result<Str, IoError>]",
-        description: "Lazy iterator of `\\n`-terminated lines (the terminator is stripped). Yields `Err` on read failure mid-stream.",
-        capability: "",
-        example: "let mut r = BufReader.new(std.io.stdin());\nfor line in r.lines() { log(line?); }\n",
-        see_also: "BufReader.new, std.io.stdin",
-    },
-    StdlibExample {
-        symbol: "BufWriter.new",
-        signature: "fn BufWriter.new[W: Write](inner: W) -> BufWriter[W]",
-        description: "Wrap a `Write` handle in a buffered writer. Coalesces small writes into block-sized syscalls; drop or `.flush()` to commit.",
-        capability: "",
-        example: "let mut w = BufWriter.new(std.io.stdout());\nw.write_line(\"hi\")?;\nw.flush()?;\n",
-        see_also: "BufWriter.flush, BufReader.new, std.io.stdout",
-    },
-    StdlibExample {
-        symbol: "BufWriter.flush",
-        signature: "fn BufWriter.flush[W](&mut self) -> Result<(), IoError>",
-        description: "Force-write any buffered bytes to the inner handle. Called automatically on drop but explicit flush surfaces I/O errors at a useful site.",
-        capability: "",
-        example: "let mut w = BufWriter.new(std.io.stdout());\nw.write_line(\"hi\")?;\nw.flush()?;\n",
-        see_also: "BufWriter.new, std.io.stdout",
-    },
-    StdlibExample {
-        symbol: "read_line",
-        signature: "fn Stdin.read_line(&mut self, buf: &mut String) -> Result<USize, IoError>",
-        description: "Read one `\\n`-terminated line from stdin into `buf` (appended, not replaced). Returns the byte count read; `0` on EOF.",
-        capability: "io.stdin",
-        example: "let mut s = String.new();\nlet n = std.io.stdin().read_line(&mut s)?;\nlog(format!(\"got {} bytes\", n));\n",
-        see_also: "std.io.stdin, BufReader.lines, write_line",
-    },
-    StdlibExample {
         symbol: "write_line",
         signature: "fn Write.write_line(&mut self, s: Str) -> Result<(), IoError>",
         description: "Write `s` followed by a `\\n`. Implemented on every `Write` handle (`Stdout`, `Stderr`, `BufWriter`, file handles).",
@@ -2285,46 +2109,6 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         see_also: "PathBuf.new, Path.parent, Path.file_name, Path.extension",
     },
     StdlibExample {
-        symbol: "PathBuf.new",
-        signature: "fn PathBuf.new() -> PathBuf",
-        description: "Allocates an empty owned path. Build with `.push()` / `.join()` and convert to `&Path` via `.as_path()` at syscall sites.",
-        capability: "",
-        example: "let mut p = PathBuf.new();\np.push(\"/var/log\");\np.push(\"app.log\");\n",
-        see_also: "Path.new, Path.join, PathBuf.from",
-    },
-    StdlibExample {
-        symbol: "Path.components",
-        signature: "fn Path.components(&self) -> Iterator[Component]",
-        description: "Iterator over the path's components (root, current dir, parent dir, normal segment). Normalised — collapses runs of separators but preserves `..`.",
-        capability: "",
-        example: "for c in Path.new(\"/a/b/c\").components() { log(format!(\"{:?}\", c)); }\n",
-        see_also: "Path.parent, Path.file_name, Path.join",
-    },
-    StdlibExample {
-        symbol: "Path.parent",
-        signature: "fn Path.parent(&self) -> Option[&Path]",
-        description: "Drop the final component. Returns `None` for root and empty paths.",
-        capability: "",
-        example: "assert_eq(Path.new(\"/a/b/c.txt\").parent(), Some(Path.new(\"/a/b\")));\n",
-        see_also: "Path.file_name, Path.components, Path.join",
-    },
-    StdlibExample {
-        symbol: "Path.file_name",
-        signature: "fn Path.file_name(&self) -> Option[Str]",
-        description: "The final non-separator component, or `None` for a path ending in `..` or `/`.",
-        capability: "",
-        example: "assert_eq(Path.new(\"/etc/hosts\").file_name(), Some(\"hosts\"));\n",
-        see_also: "Path.parent, Path.extension, Path.components",
-    },
-    StdlibExample {
-        symbol: "Path.extension",
-        signature: "fn Path.extension(&self) -> Option[Str]",
-        description: "Bytes after the final `.` of the file name, or `None` if there is no extension (e.g. `Makefile` or `.hidden`).",
-        capability: "",
-        example: "assert_eq(Path.new(\"main.mty\").extension(), Some(\"mty\"));\n",
-        see_also: "Path.file_name, Path.with_extension",
-    },
-    StdlibExample {
         symbol: "Path.join",
         signature: "fn Path.join(&self, other: &Path) -> PathBuf",
         description: "Append `other` with the platform separator. If `other` is absolute, the result is `other` (rooted append wins, matching POSIX semantics).",
@@ -2332,185 +2116,9 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         example: "let p = Path.new(\"/var/log\").join(Path.new(\"app.log\"));\n",
         see_also: "PathBuf.new, Path.parent, Path.with_extension",
     },
-    StdlibExample {
-        symbol: "Path.is_absolute",
-        signature: "fn Path.is_absolute(&self) -> Bool",
-        description: "True if the path starts with the platform root (`/` on Unix; drive prefix or `\\\\?\\` on Windows).",
-        capability: "",
-        example: "assert(Path.new(\"/etc\").is_absolute());\nassert(!Path.new(\"etc\").is_absolute());\n",
-        see_also: "Path.join, Path.parent",
-    },
-    StdlibExample {
-        symbol: "Path.with_extension",
-        signature: "fn Path.with_extension(&self, ext: Str) -> PathBuf",
-        description: "Replace the file extension (or add one when absent). Pass `\"\"` to strip the extension entirely.",
-        capability: "",
-        example: "let p = Path.new(\"build.mty\").with_extension(\"o\");\nassert_eq(p.file_name(), Some(\"build.o\"));\n",
-        see_also: "Path.extension, Path.file_name",
-    },
-    StdlibExample {
-        symbol: "Path.exists",
-        signature: "fn Path.exists(&self, cap: FsCap) -> Bool",
-        description: "Convenience shorthand for `std.fs.exists(self.as_str(), cap)`. Requires the same `FsCap` as the underlying syscall.",
-        capability: "fs.read",
-        example: "if Path.new(\"./mighty.toml\").exists(FsCap.rooted(\".\")) { /* ... */ }\n",
-        see_also: "std.fs.exists, Path.new, FsCap.rooted",
-    },
     // ---- v0.38 T4: std.collections ----
-    StdlibExample {
-        symbol: "HashMap.new",
-        signature: "fn HashMap.new[K, V]() -> HashMap[K, V]",
-        description: "Empty hash-backed key-value map. `K` must implement `Hash + Eq`.",
-        capability: "",
-        example: "let mut m: HashMap[Str, I32] = HashMap.new();\nm.insert(\"alpha\", 1);\n",
-        see_also: "HashMap.insert, HashMap.get, BTreeMap.new",
-    },
-    StdlibExample {
-        symbol: "HashMap.insert",
-        signature: "fn HashMap.insert[K, V](&mut self, k: K, v: V) -> Option[V]",
-        description: "Insert or overwrite. Returns the displaced value when the key was already present, `None` otherwise.",
-        capability: "",
-        example: "let prev = m.insert(\"alpha\", 2);\nassert_eq(prev, Some(1));\n",
-        see_also: "HashMap.new, HashMap.get, HashMap.remove",
-    },
-    StdlibExample {
-        symbol: "HashMap.get",
-        signature: "fn HashMap.get[K, V](&self, k: &K) -> Option[&V]",
-        description: "Borrow the value associated with `k`, or `None`.",
-        capability: "",
-        example: "match m.get(&\"alpha\") {\n  Some(v) => log(format!(\"{}\", v)),\n  None => log(\"missing\"),\n}\n",
-        see_also: "HashMap.insert, HashMap.remove, HashMap.new",
-    },
-    StdlibExample {
-        symbol: "HashMap.remove",
-        signature: "fn HashMap.remove[K, V](&mut self, k: &K) -> Option[V]",
-        description: "Remove and return the value at `k`, or `None` if absent.",
-        capability: "",
-        example: "let prev = m.remove(&\"alpha\");\n",
-        see_also: "HashMap.insert, HashMap.get",
-    },
-    StdlibExample {
-        symbol: "HashSet.new",
-        signature: "fn HashSet.new[T]() -> HashSet[T]",
-        description: "Empty hash-backed set. `T` must implement `Hash + Eq`.",
-        capability: "",
-        example: "let mut s: HashSet[Str] = HashSet.new();\ns.insert(\"alpha\");\n",
-        see_also: "HashSet.insert, HashMap.new, BTreeSet.new",
-    },
-    StdlibExample {
-        symbol: "HashSet.insert",
-        signature: "fn HashSet.insert[T](&mut self, x: T) -> Bool",
-        description: "Add `x`. Returns `true` when it was newly inserted, `false` when it was already present.",
-        capability: "",
-        example: "assert(s.insert(\"alpha\"));\nassert(!s.insert(\"alpha\"));\n",
-        see_also: "HashSet.new, HashMap.insert",
-    },
-    StdlibExample {
-        symbol: "BTreeMap.new",
-        signature: "fn BTreeMap.new[K, V]() -> BTreeMap[K, V]",
-        description: "Ordered key-value map. Iteration order is the `Ord` order on `K`. Cheaper than `HashMap` for small `K` count + range queries.",
-        capability: "",
-        example: "let mut m: BTreeMap[I32, Str] = BTreeMap.new();\nm.insert(1, \"alpha\");\nfor (k, v) in m.iter() { log(format!(\"{} -> {}\", k, v)); }\n",
-        see_also: "HashMap.new, BTreeSet.new",
-    },
-    StdlibExample {
-        symbol: "BTreeSet.new",
-        signature: "fn BTreeSet.new[T]() -> BTreeSet[T]",
-        description: "Ordered set. Iteration order is `Ord` order on `T`.",
-        capability: "",
-        example: "let mut s: BTreeSet[I32] = BTreeSet.new();\ns.insert(3);\ns.insert(1);\nfor x in s.iter() { log(format!(\"{}\", x)); }\n",
-        see_also: "HashSet.new, BTreeMap.new",
-    },
     // ---- v0.38 T4: std.iter ----
-    StdlibExample {
-        symbol: "Iterator.map",
-        signature: "fn Iterator.map[T, U](self, f: fn(T) -> U) -> Iterator[U]",
-        description: "Lazily transform each item. Combinator — nothing runs until the consumer drives the iterator.",
-        capability: "",
-        example: "let xs = [1, 2, 3].iter().map(|x| x * 2).collect();\nassert_eq(xs, [2, 4, 6]);\n",
-        see_also: "Iterator.filter, Iterator.fold, Iterator.collect",
-    },
-    StdlibExample {
-        symbol: "Iterator.filter",
-        signature: "fn Iterator.filter[T](self, pred: fn(&T) -> Bool) -> Iterator[T]",
-        description: "Lazily keep only items where `pred` returns `true`.",
-        capability: "",
-        example: "let evens = (1..10).filter(|x| x % 2 == 0).collect();\n",
-        see_also: "Iterator.map, Iterator.fold, Iterator.collect",
-    },
-    StdlibExample {
-        symbol: "Iterator.fold",
-        signature: "fn Iterator.fold[T, A](self, init: A, f: fn(A, T) -> A) -> A",
-        description: "Reduce to a single value by threading `init` through `f` for each item. Terminal — drives the iterator.",
-        capability: "",
-        example: "let sum = [1, 2, 3].iter().fold(0, |a, x| a + x);\nassert_eq(sum, 6);\n",
-        see_also: "Iterator.map, Iterator.filter, Iterator.sum",
-    },
-    StdlibExample {
-        symbol: "Iterator.collect",
-        signature: "fn Iterator.collect[T, C: FromIterator[T]](self) -> C",
-        description: "Terminal: drain the iterator into a collection. Target type is inferred from context (`Vec[T]`, `HashSet[T]`, ...).",
-        capability: "",
-        example: "let v: Vec[I32] = (1..5).collect();\nassert_eq(v.len(), 4);\n",
-        see_also: "Iterator.map, Vec.iter, HashSet.new",
-    },
-    StdlibExample {
-        symbol: "Iterator.zip",
-        signature: "fn Iterator.zip[T, U](self, other: Iterator[U]) -> Iterator[(T, U)]",
-        description: "Pairwise combine. The result stops as soon as either source is exhausted.",
-        capability: "",
-        example: "let pairs = [1, 2, 3].iter().zip([\"a\", \"b\"].iter()).collect();\nassert_eq(pairs.len(), 2);\n",
-        see_also: "Iterator.chain, Iterator.enumerate, Iterator.map",
-    },
-    StdlibExample {
-        symbol: "Iterator.chain",
-        signature: "fn Iterator.chain[T](self, other: Iterator[T]) -> Iterator[T]",
-        description: "Yield every item of `self`, then every item of `other`. Lazy.",
-        capability: "",
-        example: "let all = [1, 2].iter().chain([3, 4].iter()).collect();\nassert_eq(all, [1, 2, 3, 4]);\n",
-        see_also: "Iterator.zip, Iterator.collect, Iterator.map",
-    },
-    StdlibExample {
-        symbol: "Iterator.take",
-        signature: "fn Iterator.take[T](self, n: USize) -> Iterator[T]",
-        description: "Yield at most the first `n` items, then stop.",
-        capability: "",
-        example: "let first3 = (1..).take(3).collect();\nassert_eq(first3, [1, 2, 3]);\n",
-        see_also: "Iterator.skip, Iterator.enumerate, Iterator.collect",
-    },
-    StdlibExample {
-        symbol: "Iterator.skip",
-        signature: "fn Iterator.skip[T](self, n: USize) -> Iterator[T]",
-        description: "Drop the first `n` items, then yield the rest.",
-        capability: "",
-        example: "let tail = (1..5).skip(2).collect();\nassert_eq(tail, [3, 4]);\n",
-        see_also: "Iterator.take, Iterator.enumerate",
-    },
-    StdlibExample {
-        symbol: "Iterator.enumerate",
-        signature: "fn Iterator.enumerate[T](self) -> Iterator[(USize, T)]",
-        description: "Yield `(index, item)` pairs starting at index `0`.",
-        capability: "",
-        example: "for (i, name) in names.iter().enumerate() {\n  log(format!(\"{}: {}\", i, name));\n}\n",
-        see_also: "Iterator.zip, Iterator.map, Vec.iter",
-    },
-    StdlibExample {
-        symbol: "Iterator.sum",
-        signature: "fn Iterator.sum[T: Add](self) -> T",
-        description: "Reduce by `+`. Terminal. Works for any item type with a `+ T -> T` Add impl.",
-        capability: "",
-        example: "let total: I64 = [1, 2, 3].iter().sum();\nassert_eq(total, 6);\n",
-        see_also: "Iterator.fold, Iterator.collect",
-    },
     // ---- v0.38 T4: std.result ----
-    StdlibExample {
-        symbol: "Result.is_ok",
-        signature: "fn Result.is_ok[T, E](&self) -> Bool",
-        description: "True when the result is `Ok(_)`. Cheap shortcut over `matches!(r, Ok(_))`.",
-        capability: "",
-        example: "let r: Result[I32, IoError] = Ok(42);\nassert(r.is_ok());\n",
-        see_also: "Result.ok, Result.err, Result.unwrap_or",
-    },
     StdlibExample {
         symbol: "Result.ok",
         signature: "fn Result.ok[T, E](self) -> Option[T]",
@@ -2518,14 +2126,6 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         capability: "",
         example: "let r: Result[I32, IoError] = Ok(7);\nassert_eq(r.ok(), Some(7));\n",
         see_also: "Result.err, Result.is_ok, Option.is_some",
-    },
-    StdlibExample {
-        symbol: "Result.err",
-        signature: "fn Result.err[T, E](self) -> Option[E]",
-        description: "Convert to `Some(e)` on `Err(e)`, `None` on `Ok(_)`. Drops the success value.",
-        capability: "",
-        example: "let r: Result[I32, IoError] = Err(IoError.NotFound);\nassert(r.err().is_some());\n",
-        see_also: "Result.ok, Result.is_ok",
     },
     StdlibExample {
         symbol: "Result.map_err",
@@ -2552,22 +2152,6 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         see_also: "Result.map_err, Result.unwrap_or, Option.and_then",
     },
     // ---- v0.38 T4: std.option ----
-    StdlibExample {
-        symbol: "Option.is_some",
-        signature: "fn Option.is_some[T](&self) -> Bool",
-        description: "True when the option holds a value. Cheap shortcut over `matches!(o, Some(_))`.",
-        capability: "",
-        example: "let o: Option[I32] = Some(7);\nassert(o.is_some());\n",
-        see_also: "Option.is_none, Option.map, Option.unwrap_or",
-    },
-    StdlibExample {
-        symbol: "Option.is_none",
-        signature: "fn Option.is_none[T](&self) -> Bool",
-        description: "True when the option is empty.",
-        capability: "",
-        example: "let o: Option[I32] = None;\nassert(o.is_none());\n",
-        see_also: "Option.is_some, Option.ok_or",
-    },
     StdlibExample {
         symbol: "Option.map",
         signature: "fn Option.map[T, U](self, f: fn(T) -> U) -> Option[U]",
@@ -2601,135 +2185,7 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         see_also: "Option.map, Result.ok, Result.err",
     },
     // ---- v0.38 T4: std.error ----
-    StdlibExample {
-        symbol: "Error.trait",
-        signature: "trait Error: Display + Debug { fn source(&self) -> Option[&dyn Error] { None } }",
-        description: "Common interface for typed error values. Implementations carry a `Display` impl for human-readable messages and an optional `source()` chain. Mirrors `std::error::Error`.",
-        capability: "",
-        example: "impl Error for AppError {\n  fn source(&self) -> Option[&dyn Error] {\n    match self {\n      AppError.Io(e) => Some(e),\n      _ => None,\n    }\n  }\n}\n",
-        see_also: "Result.map_err, anyhow_error",
-    },
-    StdlibExample {
-        symbol: "anyhow_error",
-        signature: "macro anyhow!(fmt: Str, args: ...) -> AnyhowError",
-        description: "Construct an `AnyhowError` from a format string (anyhow-style ergonomics). The error carries a stringified message and the `?`-chain backtrace.",
-        capability: "",
-        example: "if !port_ok { return Err(anyhow!(\"bad port: {}\", port)); }\n",
-        see_also: "Error.trait, Result.map_err, panic",
-    },
     // ---- v0.38 T4: polish on existing v0.30+ surfaces ----
-    StdlibExample {
-        symbol: "Member.weighted",
-        signature: "fn Member.weighted(inner: Member, weight: F32) -> Member",
-        description: "Wraps `inner` with a vote weight surfaced to `ConsensusStrategy.WeightedVote`. `weight` must be ≥ 0; `0.0` is a silent member (observed but not counted).",
-        capability: "",
-        example: "let m = Member.weighted(Member.openai(\"gpt-4o\"), 2.0);\nlet panel = [m, Member.anthropic(\"claude-opus-4-7\")];\n",
-        see_also: "ConsensusStrategy.WeightedVote, Member.anthropic, swarm",
-    },
-    StdlibExample {
-        symbol: "Member.panel_of",
-        signature: "fn Member.panel_of(specs: &[Str]) -> List<Member>",
-        description: "Bulk constructor: parse a list of `provider:model` strings into a panel. Unknown providers yield MT4181 INVALID_MODEL_SPEC.",
-        capability: "",
-        example: "let panel = Member.panel_of(&[\"anthropic:claude-opus-4-7\", \"openai:gpt-4o\"]);\n",
-        see_also: "Member.anthropic, Member.openai, Member.gemini, swarm",
-    },
-    StdlibExample {
-        symbol: "ConsensusStrategy.AbortOnDissent",
-        signature: "const ConsensusStrategy.AbortOnDissent: ConsensusStrategy",
-        description: "Aborts the swarm the moment any member dissents from the running plurality. Useful as a CI gate: any disagreement = `Consensus.has_consensus() == false`.",
-        capability: "",
-        example: "let c = swarm(p, panel, b, ConsensusStrategy.AbortOnDissent).await?;\nassert(c.has_consensus());\n",
-        see_also: "ConsensusStrategy.Majority, ConsensusStrategy.Unanimous, Consensus.has_consensus, swarm",
-    },
-    StdlibExample {
-        symbol: "Window.Recent",
-        signature: "fn Window.Recent(dur: Duration) -> Window",
-        description: "Half-open window over the last `dur` of telemetry events. Rolls forward as time advances.",
-        capability: "",
-        example: "let w = Window.Recent(5.minutes);\nlet rows = std.observe.query(w, GroupBy.Model);\n",
-        see_also: "Window.Last, Window.parse, observe.query, GroupBy.Model",
-    },
-    StdlibExample {
-        symbol: "GroupBy.Tenant",
-        signature: "const GroupBy.Tenant: GroupBy",
-        description: "Bucket telemetry rows by the multi-tenant `tenant_id` tag (when present). Rows lacking the tag fall into the `None` bucket.",
-        capability: "",
-        example: "let rows = std.observe.query(Window.Last(1), GroupBy.Tenant);\n",
-        see_also: "GroupBy.Provider, GroupBy.Model, GroupBy.Agent, observe.query",
-    },
-    StdlibExample {
-        symbol: "top_by_cost",
-        signature: "fn top_by_cost(window: Window, n: USize) -> Vec[CostSummary]",
-        description: "Returns the top `n` cost-emitting buckets in the window, sorted descending. Handy for budget alerting.",
-        capability: "",
-        example: "let worst = top_by_cost(Window.Recent(1.hour), 5);\nfor row in worst.iter() { log(format!(\"{} = {}c\", row.label, row.cents)); }\n",
-        see_also: "CostSummary, observe.query, percentiles, summarize",
-    },
-    StdlibExample {
-        symbol: "Suite.compare_with",
-        signature: "fn Suite.compare_with(self, cmp: Compare) -> Suite",
-        description: "Set the comparator used when no per-case override is supplied. Chain after `.case().run_with(...)` to declare the eval pipeline declaratively.",
-        capability: "",
-        example: "let s = Suite.new(\"qa\")\n  .case(c1)\n  .run_with(member)\n  .compare_with(Compare.semantic_similarity(0.8));\n",
-        see_also: "Suite.new, Suite.case, Suite.run_with, Compare.equal",
-    },
-    StdlibExample {
-        symbol: "sanitize_compose",
-        signature: "fn sanitize_compose(first: Sanitizer, second: Sanitizer) -> Sanitizer",
-        description: "Chain two sanitisers. The output of `first` feeds `second`. Useful for `HtmlEscape + ShellEscape` belt-and-braces.",
-        capability: "",
-        example: "let s = sanitize_compose(HtmlEscape, ShellEscape);\nlet safe = sanitize_with(input, s)?;\n",
-        see_also: "sanitize_with, HtmlEscape, ShellEscape, SqlEscape",
-    },
-    StdlibExample {
-        symbol: "named_regex",
-        signature: "fn named_regex(name: Str, pattern: Str) -> NamedRegex",
-        description: "Cache a regex by name. Subsequent lookups via `matches_regex(name, input)` skip the compile step — important when the pattern is hot.",
-        capability: "",
-        example: "named_regex(\"email\", r\"^[^@]+@[^@]+\\.[a-z]+$\");\nif matches_regex(\"email\", input) { /* ok */ }\n",
-        see_also: "matches_regex, in_allowlist, sanitize_with",
-    },
-    StdlibExample {
-        symbol: "Allowlist.from_enum",
-        signature: "fn Allowlist.from_enum[E: AsStr](variants: &[E]) -> Allowlist",
-        description: "Build an allowlist from a closed enum. Equivalent to `in_allowlist(input, &[v0.as_str(), v1.as_str(), ...])` but type-checked.",
-        capability: "",
-        example: "let a = Allowlist.from_enum(&[Lang.En, Lang.Fr, Lang.Es]);\nif in_allowlist(input, a) { /* ok */ }\n",
-        see_also: "in_allowlist, named_regex, sanitize_with",
-    },
-    StdlibExample {
-        symbol: "Iterator.count",
-        signature: "fn Iterator.count[T](self) -> USize",
-        description: "Terminal: consume the iterator and return the number of items yielded. O(n) — use `Vec.len` if you already have a sized container.",
-        capability: "",
-        example: "let n = (1..100).filter(|x| x % 7 == 0).count();\n",
-        see_also: "Iterator.fold, Iterator.sum, Vec.len",
-    },
-    StdlibExample {
-        symbol: "Iterator.any",
-        signature: "fn Iterator.any[T](self, pred: fn(T) -> Bool) -> Bool",
-        description: "Terminal: returns `true` as soon as any item satisfies `pred`. Short-circuits on the first match.",
-        capability: "",
-        example: "if names.iter().any(|n| n == \"root\") { panic(\"root not allowed\"); }\n",
-        see_also: "Iterator.all, Iterator.filter",
-    },
-    StdlibExample {
-        symbol: "Iterator.all",
-        signature: "fn Iterator.all[T](self, pred: fn(T) -> Bool) -> Bool",
-        description: "Terminal: returns `true` iff every item satisfies `pred`. Short-circuits on the first failure. Vacuously true on the empty iterator.",
-        capability: "",
-        example: "assert(xs.iter().all(|x| x > 0));\n",
-        see_also: "Iterator.any, Iterator.filter",
-    },
-    StdlibExample {
-        symbol: "Iterator.find",
-        signature: "fn Iterator.find[T](self, pred: fn(&T) -> Bool) -> Option[T]",
-        description: "Terminal: return the first item satisfying `pred`, or `None`. Short-circuits.",
-        capability: "",
-        example: "let first_even = (1..).find(|x| x % 2 == 0);\nassert_eq(first_even, Some(2));\n",
-        see_also: "Iterator.any, Iterator.filter, Option.is_some",
-    },
     // ============================================================
     // v0.39 T5 — v0.39 T1 stdlib (crypto / encoding / url / uuid)
     // ============================================================
@@ -3131,22 +2587,6 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
     // ============================================================
     // ---- std.io: stdin lock + line iteration + buffer mgmt ----
     StdlibExample {
-        symbol: "BufReader.read_line",
-        signature: "fn BufReader.read_line[R](&mut self, buf: &mut String) -> Result[USize, IoError]",
-        description: "Read one `\\n`-terminated line into `buf` (appended, not replaced). Returns the number of bytes read; `0` signals EOF. The terminator is preserved in `buf` — strip with `.trim_end_matches('\\n')` if undesired.",
-        capability: "io.stdin",
-        example: "let mut r = BufReader.new(std.io.stdin());\nlet mut line = String.new();\nlet n = r.read_line(&mut line)?;\nif n == 0 { return; }  // EOF\n",
-        see_also: "BufReader.new, BufReader.lines, read_line",
-    },
-    StdlibExample {
-        symbol: "BufWriter.write_all",
-        signature: "fn BufWriter.write_all[W](&mut self, bytes: &[U8]) -> Result[(), IoError]",
-        description: "Write every byte of `bytes`, retrying short writes internally until the slice is drained. Buffers into the inner handle's block size; explicit `.flush()` is still required to commit before drop if you need crash-resilient diagnostics.",
-        capability: "",
-        example: "let mut w = BufWriter.new(std.io.stdout());\nw.write_all(b\"hello world\\n\")?;\nw.flush()?;\n",
-        see_also: "BufWriter.new, BufWriter.flush, write_line",
-    },
-    StdlibExample {
         symbol: "std.io.stdin_lock",
         signature: "fn std.io.stdin().lock() -> StdinLock",
         description: "Acquire an exclusive handle on stdin. Cheap — just takes the per-process mutex. Use when you need stable line semantics across many reads (the unlocked `Stdin` takes/releases the lock around every call).",
@@ -3163,217 +2603,9 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         see_also: "eprintln, std.io.stderr",
     },
     // ---- std.process: output capture + status + env helpers ----
-    StdlibExample {
-        symbol: "Command.current_dir",
-        signature: "fn Command.current_dir(&mut self, dir: Str) -> &mut Command",
-        description: "Set the child's working directory. Inherits the parent's `cwd` by default. Equivalent to `chdir(dir); exec(program)` from the child's perspective.",
-        capability: "",
-        example: "Command.new(\"cargo\").arg(\"build\").current_dir(\"./crates/core\").exec()?;\n",
-        see_also: "Command.new, Command.env, Command.exec",
-    },
-    StdlibExample {
-        symbol: "Command.env_clear",
-        signature: "fn Command.env_clear(&mut self) -> &mut Command",
-        description: "Drop every inherited environment variable. Subsequent `.env(k, v)` calls re-populate the child's env from scratch. Useful for hermetic child invocations (CI, sandboxing).",
-        capability: "",
-        example: "Command.new(\"sh\").arg(\"-c\").arg(\"env | wc -l\")\n  .env_clear()\n  .env(\"PATH\", \"/usr/bin\")\n  .exec()?;\n",
-        see_also: "Command.env, Command.new, Command.exec",
-    },
-    StdlibExample {
-        symbol: "Command.stdout_piped",
-        signature: "fn Command.stdout_piped(&mut self) -> &mut Command",
-        description: "Redirect the child's stdout to a pipe captured by the parent. Required before `spawn()` if you want to incrementally read the child's output; `exec()` captures stdout automatically.",
-        capability: "",
-        example: "let mut child = Command.new(\"git\").arg(\"log\").stdout_piped().spawn()?;\nlet out = child.stdout.take().unwrap();\nfor line in BufReader.new(out).lines() { log(line?); }\n",
-        see_also: "Command.spawn, Command.stderr_piped, Command.exec",
-    },
-    StdlibExample {
-        symbol: "Command.stderr_piped",
-        signature: "fn Command.stderr_piped(&mut self) -> &mut Command",
-        description: "Redirect the child's stderr to a pipe captured by the parent. Same shape as `stdout_piped`. Pair both if you need to interleave diagnostics with stdout reads.",
-        capability: "",
-        example: "let mut child = Command.new(\"build\").stdout_piped().stderr_piped().spawn()?;\n",
-        see_also: "Command.stdout_piped, Command.spawn",
-    },
-    StdlibExample {
-        symbol: "Command.output",
-        signature: "fn Command.output(&mut self) -> Result[ProcessOutput, ProcessError]",
-        description: "Synonym for `Command.exec` — keeps the `std::process::Command` muscle memory for migrating Rust code. Runs to completion and returns captured stdout / stderr / exit.",
-        capability: "process.exec",
-        example: "let out = Command.new(\"echo\").arg(\"hi\").output()?;\nassert_eq(out.stdout.trim_end(), \"hi\");\n",
-        see_also: "Command.exec, Command.spawn, ProcessOutput",
-    },
-    StdlibExample {
-        symbol: "ProcessOutput",
-        signature: "struct ProcessOutput { stdout: Str, stderr: Str, exit: ProcessExit }",
-        description: "Result of `Command.exec` / `Command.output` / `std.process.exec`. `stdout` / `stderr` are decoded as UTF-8 with lossy replacement for invalid sequences. The raw bytes path is on the v0.40 roadmap.",
-        capability: "",
-        example: "let out = Command.new(\"git\").arg(\"rev-parse\").arg(\"HEAD\").exec()?;\nlet sha = out.stdout.trim_end();\nassert!(out.exit.success());\n",
-        see_also: "Command.exec, ProcessExit, Command.output",
-    },
-    StdlibExample {
-        symbol: "ProcessExit.success",
-        signature: "fn ProcessExit.success(&self) -> Bool",
-        description: "True iff the child exited normally with code 0. Treats signal terminations (Unix) as non-success regardless of the wrapped signal number.",
-        capability: "",
-        example: "let exit = std.process.wait(&mut child)?;\nif !exit.success() { panic(format!(\"failed code={}\", exit.code)); }\n",
-        see_also: "ProcessExit, std.process.wait, Command.exec",
-    },
     // ---- std.path: PathBuf mutators + extras ----
-    StdlibExample {
-        symbol: "PathBuf.push",
-        signature: "fn PathBuf.push(&mut self, segment: Str)",
-        description: "Append a path segment, inserting the platform separator if needed. If `segment` is absolute, it replaces the path entirely (matches POSIX `chdir` semantics).",
-        capability: "",
-        example: "let mut p = PathBuf.new();\np.push(\"/var\");\np.push(\"log\");\np.push(\"app.log\");\nassert_eq(p.as_str(), \"/var/log/app.log\");\n",
-        see_also: "PathBuf.new, Path.join, PathBuf.pop",
-    },
-    StdlibExample {
-        symbol: "PathBuf.pop",
-        signature: "fn PathBuf.pop(&mut self) -> Bool",
-        description: "Drop the final component. Returns `true` if a component was removed, `false` if the path was already at root.",
-        capability: "",
-        example: "let mut p = PathBuf.from(\"/a/b/c\");\nassert(p.pop());\nassert_eq(p.as_str(), \"/a/b\");\n",
-        see_also: "PathBuf.push, Path.parent",
-    },
-    StdlibExample {
-        symbol: "PathBuf.set_extension",
-        signature: "fn PathBuf.set_extension(&mut self, ext: Str) -> Bool",
-        description: "Replace the file extension. Adds one if absent; strips it if `ext` is empty. Returns `true` if the file-name component was non-empty.",
-        capability: "",
-        example: "let mut p = PathBuf.from(\"build.mty\");\np.set_extension(\"o\");\nassert_eq(p.as_str(), \"build.o\");\n",
-        see_also: "Path.with_extension, Path.extension",
-    },
-    StdlibExample {
-        symbol: "PathBuf.from",
-        signature: "fn PathBuf.from(s: Str) -> PathBuf",
-        description: "Allocate an owned path from a string. Equivalent to `PathBuf.new(); .push(s)`.",
-        capability: "",
-        example: "let p = PathBuf.from(\"/etc/hosts\");\n",
-        see_also: "PathBuf.new, Path.new",
-    },
-    StdlibExample {
-        symbol: "Path.metadata",
-        signature: "fn Path.metadata(&self, cap: FsCap) -> Result[StatResult, IoError]",
-        description: "Stat the path. Returns size / kind / mtime in a `StatResult`. Requires `fs.read`.",
-        capability: "fs.read",
-        example: "let md = Path.new(\"./build.log\").metadata(FsCap.rooted(\".\"))?;\nlog(format!(\"size={} bytes\", md.size));\n",
-        see_also: "std.fs.stat, Path.exists, StatResult",
-    },
-    StdlibExample {
-        symbol: "Path.canonicalize",
-        signature: "fn Path.canonicalize(&self, cap: FsCap) -> Result[PathBuf, IoError]",
-        description: "Resolve symlinks and `..` segments against the real filesystem. Used to ground a user-supplied path before checking it against an allowlist. Requires `fs.read`.",
-        capability: "fs.read",
-        example: "let real = Path.new(\"./tmp/../etc\").canonicalize(FsCap.rooted(\"./tmp\"))?;\n",
-        see_also: "Path.new, std.fs.exists, FsCap.rooted",
-    },
-    StdlibExample {
-        symbol: "Path.walk",
-        signature: "fn Path.walk(&self, cap: FsCap) -> Iterator[Result<DirEntry, IoError>]",
-        description: "Recursively iterate every descendant. Yields one `DirEntry` per file + directory in deterministic depth-first order. Skips symlinks by default. Requires `fs.read`.",
-        capability: "fs.read",
-        example: "for entry in Path.new(\"./src\").walk(FsCap.rooted(\"./src\")) {\n  let e = entry?;\n  if e.path.extension() == Some(\"mty\") { log(e.path.to_string()); }\n}\n",
-        see_also: "Path.new, std.fs.read_to_string, FsCap.rooted",
-    },
     // ---- std.iter: peekable / windowed / chunks / cycle / min / max ----
-    StdlibExample {
-        symbol: "Iterator.peekable",
-        signature: "fn Iterator.peekable[T](self) -> Peekable[T]",
-        description: "Wrap the iterator with a one-item lookahead. `.peek()` returns `Option[&T]` without advancing; the next `.next()` yields the same item.",
-        capability: "",
-        example: "let mut it = [1, 2, 3].iter().peekable();\nwhile let Some(&n) = it.peek() {\n  if n > 2 { break; }\n  it.next();\n}\n",
-        see_also: "Iterator.take, Iterator.find, Iterator.next",
-    },
-    StdlibExample {
-        symbol: "Iterator.windowed",
-        signature: "fn Iterator.windowed[T](self, n: USize) -> Iterator[Vec[T]]",
-        description: "Sliding-window iterator. Yields every contiguous `n`-element window once. The source must be `Clone` — items appear in `n` consecutive windows. Empty for fewer than `n` items.",
-        capability: "",
-        example: "let pairs = [1, 2, 3, 4].iter().windowed(2).collect();\nassert_eq(pairs, [[1, 2], [2, 3], [3, 4]]);\n",
-        see_also: "Iterator.chunks, Iterator.take, Iterator.enumerate",
-    },
-    StdlibExample {
-        symbol: "Iterator.chunks",
-        signature: "fn Iterator.chunks[T](self, n: USize) -> Iterator[Vec[T]]",
-        description: "Partition the iterator into non-overlapping `n`-element chunks. The final chunk may be shorter if the source isn't divisible by `n`.",
-        capability: "",
-        example: "let batches = (1..=7).chunks(3).collect();\nassert_eq(batches, [[1, 2, 3], [4, 5, 6], [7]]);\n",
-        see_also: "Iterator.windowed, Iterator.take, Iterator.skip",
-    },
-    StdlibExample {
-        symbol: "Iterator.cycle",
-        signature: "fn Iterator.cycle[T: Clone](self) -> Iterator[T]",
-        description: "Repeat the source iterator forever. Requires `T: Clone` so each cycle can reproduce the same items. Pair with `.take(n)` to bound the output.",
-        capability: "",
-        example: "let rgb: Vec[Str] = [\"r\", \"g\", \"b\"].iter().cycle().take(7).collect();\nassert_eq(rgb.len(), 7);\n",
-        see_also: "Iterator.take, Iterator.chain, Iterator.enumerate",
-    },
-    StdlibExample {
-        symbol: "Iterator.min",
-        signature: "fn Iterator.min[T: Ord](self) -> Option[T]",
-        description: "Terminal: smallest item by `Ord`. Returns `None` on empty input. Stable — ties yield the first seen.",
-        capability: "",
-        example: "let lo = [3, 1, 4, 1, 5].iter().copied().min();\nassert_eq(lo, Some(1));\n",
-        see_also: "Iterator.max, Iterator.fold, Iterator.find",
-    },
-    StdlibExample {
-        symbol: "Iterator.max",
-        signature: "fn Iterator.max[T: Ord](self) -> Option[T]",
-        description: "Terminal: largest item by `Ord`. Returns `None` on empty input. Stable — ties yield the last seen.",
-        capability: "",
-        example: "let hi = [3, 1, 4, 1, 5].iter().copied().max();\nassert_eq(hi, Some(5));\n",
-        see_also: "Iterator.min, Iterator.fold, Iterator.sum",
-    },
-    StdlibExample {
-        symbol: "Iterator.flat_map",
-        signature: "fn Iterator.flat_map[T, U, I: Iterator[U]](self, f: fn(T) -> I) -> Iterator[U]",
-        description: "Map each item to a sub-iterator and flatten. Equivalent to `.map(f).flatten()`.",
-        capability: "",
-        example: "let words = [\"hi there\", \"hello world\"].iter().flat_map(|s| s.split(\" \")).collect();\n",
-        see_also: "Iterator.map, Iterator.filter, Iterator.collect",
-    },
-    StdlibExample {
-        symbol: "Iterator.rev",
-        signature: "fn Iterator.rev[T](self) -> Iterator[T]",
-        description: "Reverse the iteration order. Requires the source to implement DoubleEndedIterator (`Vec.iter`, ranges, etc.).",
-        capability: "",
-        example: "let backward: Vec[I32] = (1..=3).rev().collect();\nassert_eq(backward, [3, 2, 1]);\n",
-        see_also: "Iterator.take, Iterator.skip, Iterator.collect",
-    },
-    StdlibExample {
-        symbol: "Iterator.step_by",
-        signature: "fn Iterator.step_by[T](self, step: USize) -> Iterator[T]",
-        description: "Yield every `step`-th item, starting at index 0. `step_by(1)` is the identity; `step_by(0)` panics.",
-        capability: "",
-        example: "let evens: Vec[I32] = (0..10).step_by(2).collect();\nassert_eq(evens, [0, 2, 4, 6, 8]);\n",
-        see_also: "Iterator.skip, Iterator.take, Iterator.enumerate",
-    },
     // ---- std.error: typed error helpers ----
-    StdlibExample {
-        symbol: "AnyhowError.context",
-        signature: "fn AnyhowError.context(self, msg: Str) -> AnyhowError",
-        description: "Attach a description to the error chain (Rust-anyhow style). Walks the existing `source()` chain so the formatted output reads top-down: outer context → root cause.",
-        capability: "",
-        example: "let cfg = read_config(path).map_err(|e| AnyhowError.from(e).context(\"reading config\"))?;\n",
-        see_also: "Error.trait, anyhow_error, Result.map_err",
-    },
-    StdlibExample {
-        symbol: "Error.source",
-        signature: "fn Error.source(&self) -> Option[&dyn Error]",
-        description: "Walk the error chain — return the immediate cause, or `None` if this is a root error. Drives the multi-line `{:?}` debug formatter and the `AnyhowError.context` chain.",
-        capability: "",
-        example: "let mut err: &dyn Error = &my_err;\nwhile let Some(cause) = err.source() {\n  log(format!(\"caused by: {}\", cause));\n  err = cause;\n}\n",
-        see_also: "Error.trait, AnyhowError.context, anyhow_error",
-    },
-    StdlibExample {
-        symbol: "Result.context",
-        signature: "fn Result.context[T, E](self, msg: Str) -> Result[T, AnyhowError]",
-        description: "Attach `msg` to the `Err` branch if there is one. Equivalent to `self.map_err(|e| AnyhowError.from(e).context(msg))`.",
-        capability: "",
-        example: "let body = read_file(path).context(\"reading manifest\")?;\n",
-        see_also: "Result.map_err, anyhow_error, AnyhowError.context",
-    },
     // ---- std.string / std.vec polish ----
     StdlibExample {
         symbol: "String.split",
@@ -3416,68 +2648,12 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         see_also: "String.find, String.starts_with, String.ends_with",
     },
     StdlibExample {
-        symbol: "String.to_lowercase",
-        signature: "fn String.to_lowercase(&self) -> String",
-        description: "Allocate a lowercase copy. Honors Unicode special casing — `'İ'.to_lowercase()` yields `\"i̇\"` (two code points). Use `to_ascii_lowercase` for ASCII-only.",
-        capability: "",
-        example: "if email.to_lowercase() == canonical { /* match */ }\n",
-        see_also: "String.to_uppercase, String.trim",
-    },
-    StdlibExample {
-        symbol: "String.to_uppercase",
-        signature: "fn String.to_uppercase(&self) -> String",
-        description: "Allocate an uppercase copy. Honors Unicode special casing.",
-        capability: "",
-        example: "let shout = greeting.to_uppercase();\n",
-        see_also: "String.to_lowercase, String.trim",
-    },
-    StdlibExample {
         symbol: "Vec.contains",
         signature: "fn Vec.contains[T: PartialEq](&self, needle: &T) -> Bool",
         description: "Linear scan — true iff any element equals `needle` by `PartialEq`. O(n). Use a `HashSet` for hot lookups.",
         capability: "",
         example: "if allow.contains(&\"GET\") { /* ok */ }\n",
         see_also: "Vec.iter, HashSet.contains, Iterator.any",
-    },
-    StdlibExample {
-        symbol: "Vec.sort",
-        signature: "fn Vec.sort[T: Ord](&mut self)",
-        description: "In-place stable sort by `Ord`. O(n log n). The stable variant preserves original order for equal items.",
-        capability: "",
-        example: "let mut v = [3, 1, 4, 1, 5];\nv.sort();\nassert_eq(v, [1, 1, 3, 4, 5]);\n",
-        see_also: "Vec.sort_by, Vec.sort_by_key, Iterator.collect",
-    },
-    StdlibExample {
-        symbol: "Vec.sort_by",
-        signature: "fn Vec.sort_by[T](&mut self, cmp: fn(&T, &T) -> Ordering)",
-        description: "In-place stable sort with a user comparator. Use for custom orderings or sort-by-projection-without-`Ord`.",
-        capability: "",
-        example: "v.sort_by(|a, b| b.priority.cmp(&a.priority));  // descending\n",
-        see_also: "Vec.sort, Vec.sort_by_key",
-    },
-    StdlibExample {
-        symbol: "Vec.reverse",
-        signature: "fn Vec.reverse(&mut self)",
-        description: "In-place reverse. O(n). Equivalent to `.iter().rev().collect()` but does not allocate.",
-        capability: "",
-        example: "let mut v = [1, 2, 3];\nv.reverse();\nassert_eq(v, [3, 2, 1]);\n",
-        see_also: "Iterator.rev, Vec.sort",
-    },
-    StdlibExample {
-        symbol: "Vec.retain",
-        signature: "fn Vec.retain[T](&mut self, pred: fn(&T) -> Bool)",
-        description: "Drop every element where `pred` returns `false`. In-place, preserves order. O(n) — one pass.",
-        capability: "",
-        example: "let mut v = [1, 2, 3, 4, 5];\nv.retain(|x| x % 2 == 0);\nassert_eq(v, [2, 4]);\n",
-        see_also: "Iterator.filter, Vec.iter, Vec.clear",
-    },
-    StdlibExample {
-        symbol: "Vec.extend",
-        signature: "fn Vec.extend[T, I: Iterator[T]](&mut self, items: I)",
-        description: "Append every item from `items`. Amortised O(n) — reserves up front when the iterator reports a size hint.",
-        capability: "",
-        example: "let mut v = vec![1, 2];\nv.extend([3, 4].iter().copied());\nassert_eq(v, [1, 2, 3, 4]);\n",
-        see_also: "Vec.append, Vec.push, Iterator.collect",
     },
     // ---- std.json: shape helpers ----
     StdlibExample {
@@ -3496,71 +2672,7 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         example: "let name = v.get(\"name\").and_then(|n| n.as_str()).unwrap_or(\"anon\");\n",
         see_also: "Json.get, Json.Str, Json.as_i64",
     },
-    StdlibExample {
-        symbol: "Json.as_i64",
-        signature: "fn Json.as_i64(&self) -> Option[I64]",
-        description: "Borrow the underlying integer if this is a `Json.Num` that round-trips through I64. Returns `None` for non-numbers, floats, or out-of-range values.",
-        capability: "",
-        example: "let n = v.get(\"count\").and_then(|j| j.as_i64()).unwrap_or(0);\n",
-        see_also: "Json.get, Json.Num, Json.as_str",
-    },
-    StdlibExample {
-        symbol: "Json.as_array",
-        signature: "fn Json.as_array(&self) -> Option[&[Json]]",
-        description: "Borrow the underlying slice if this is a `Json.Arr`. Use with `.iter()` to drive a comprehension.",
-        capability: "",
-        example: "for item in v.get(\"items\").and_then(|a| a.as_array()).iter().flat_map(|a| a.iter()) {\n  use(item);\n}\n",
-        see_also: "Json.get, Json.Arr, Iterator.flat_map",
-    },
     // ---- std.collections: more dictionary surfaces ----
-    StdlibExample {
-        symbol: "HashMap.contains_key",
-        signature: "fn HashMap.contains_key[K: Hash + Eq, V](&self, key: &K) -> Bool",
-        description: "True iff `key` is present. O(1) average. Use when you only need existence and not the value.",
-        capability: "",
-        example: "if cache.contains_key(&id) { /* hit */ } else { miss(); }\n",
-        see_also: "HashMap.get, HashMap.insert, HashSet.contains",
-    },
-    StdlibExample {
-        symbol: "HashMap.len",
-        signature: "fn HashMap.len[K, V](&self) -> USize",
-        description: "Number of stored key/value pairs. O(1).",
-        capability: "",
-        example: "let n = users.len();\nlog(format!(\"{} active sessions\", n));\n",
-        see_also: "HashMap.is_empty, HashMap.iter",
-    },
-    StdlibExample {
-        symbol: "HashMap.iter",
-        signature: "fn HashMap.iter[K, V](&self) -> Iterator[(&K, &V)]",
-        description: "Lazy iterator over `(key, value)` pairs. Iteration order is unspecified (hash randomisation is enabled). Use `BTreeMap` if order matters.",
-        capability: "",
-        example: "for (k, v) in counts.iter() {\n  log(format!(\"{}={}\", k, v));\n}\n",
-        see_also: "HashMap.keys, HashMap.values, BTreeMap.iter",
-    },
-    StdlibExample {
-        symbol: "HashMap.entry",
-        signature: "fn HashMap.entry[K: Hash + Eq, V](&mut self, key: K) -> Entry[K, V]",
-        description: "Get-or-insert API. `entry(k).or_insert(v)` returns `&mut V` after inserting `v` if `k` was absent — one hash, zero copies on the hit path.",
-        capability: "",
-        example: "let counter = counts.entry(word).or_insert(0);\n*counter += 1;\n",
-        see_also: "HashMap.insert, HashMap.get, HashMap.contains_key",
-    },
-    StdlibExample {
-        symbol: "HashSet.contains",
-        signature: "fn HashSet.contains[T: Hash + Eq](&self, value: &T) -> Bool",
-        description: "True iff `value` is in the set. O(1) average. The membership-check counterpart to `HashSet.insert`.",
-        capability: "",
-        example: "if seen.contains(&id) { return; }\nseen.insert(id);\n",
-        see_also: "HashSet.insert, HashSet.new, HashMap.contains_key",
-    },
-    StdlibExample {
-        symbol: "BTreeMap.range",
-        signature: "fn BTreeMap.range[K: Ord, V](&self, range: Range[K]) -> Iterator[(&K, &V)]",
-        description: "Iterate entries whose keys fall in the half-open range `low..high`. Logarithmic seek + linear over the matching span.",
-        capability: "",
-        example: "for (k, v) in scores.range(\"a\"..\"m\") { use(k, v); }\n",
-        see_also: "BTreeMap.iter, BTreeMap.new, HashMap.iter",
-    },
     // ---------------------------------------------------------------
     // v0.40 T5 — catalog expansion 418 → 518+. Covers v0.40 T4 std.regex
     // + AEAD surfaces, v0.40 T3 Char.from_u32, and v0.39-backlog fillers
@@ -3893,22 +3005,6 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
 
     // ---- std.eval polish (v0.39 backlog) --------------------------
     StdlibExample {
-        symbol: "Compare.semantic_with_threshold",
-        signature: "fn Compare.semantic_similarity(threshold: F32) -> Compare",
-        description: "Constructs a semantic-similarity comparator with the given cosine-similarity cutoff. Threshold 0.85 is a reasonable default for English; 0.95 is conservative; 0.7 is loose. Combine with `Compare.semantic_similarity_with(threshold, embedder)` to pin the embedding model.",
-        capability: "",
-        example: "let cmp = Compare.semantic_similarity(0.85);\nlet suite = Suite.new(\"qa\").compare_with(cmp).run_with(member);\n",
-        see_also: "Compare.semantic_similarity, Compare.semantic_similarity_with, Compare.equal, Suite.compare_with",
-    },
-    StdlibExample {
-        symbol: "Replay.with_provider",
-        signature: "fn Replay.with_provider(provider: impl TurnProvider) -> Replay",
-        description: "Plug a turn provider into a replay run. The provider drives the actual model calls during replay (vs the baseline trace). Use `MemberTurnProvider.new(member, budget)` to drive replay through a Member + budget cap; use `MemberTurnProvider.unbounded(member)` to run without a budget.",
-        capability: "",
-        example: "let provider = MemberTurnProvider.unbounded(Member.anthropic(\"claude-opus-4-7\"));\nlet replay = Replay.from_trace(\"baseline.bin\").with_provider(provider);\n",
-        see_also: "MemberTurnProvider.new, MemberTurnProvider.unbounded, Case.from_trace, Suite.run_with",
-    },
-    StdlibExample {
         symbol: "MemberTurnProvider.new",
         signature: "fn MemberTurnProvider.new(member: Member, budget: SharedDollarBudget) -> MemberTurnProvider",
         description: "Build a budget-aware turn provider for replay. The budget is shared across calls so a budget trip inside a multi-case suite stops the whole run cleanly.",
@@ -3940,374 +3036,10 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         example: "let report = suite.run_with(member);\nlog(format(\"{} failed\", report.failure_count()));\n",
         see_also: "Report.passed, Verdict.Diverge, Verdict.Error",
     },
-    StdlibExample {
-        symbol: "Verdict.Fail",
-        signature: "alias for Verdict.Diverge | Verdict.Error",
-        description: "v0.39 polish — predicate-shaped helper. A case \"failed\" iff its verdict is either `Diverge` (output didn't match expected) or `Error` (the call panicked / errored out). `Verdict.Match` and `Verdict.SingleMember` are the success-shape verdicts.",
-        capability: "",
-        example: "let failed = matches!(verdict, Verdict.Diverge(_) | Verdict.Error(_));\n",
-        see_also: "Verdict.Match, Verdict.Diverge, Verdict.Error, Report.failure_count",
-    },
-
     // ---- std.iter advanced combinators ----------------------------
-    StdlibExample {
-        symbol: "Iterator.scan",
-        signature: "fn Iterator.scan[B, F: FnMut(&mut St, T) -> Option[B]](self, init: St, f: F) -> Scan[Self, St, F]",
-        description: "Like `fold` but emits each intermediate state as an iterator item. Stops when `f` returns `None`. Canonical use: running totals, parser state machines, cumulative sums.",
-        capability: "",
-        example: "let running_sums: Vec[I64] = [1, 2, 3, 4]\n  .iter()\n  .scan(0, |acc, x| { *acc += x; Some(*acc) })\n  .collect();\n// [1, 3, 6, 10]\n",
-        see_also: "Iterator.fold, Iterator.map, Iterator.take_while",
-    },
-    StdlibExample {
-        symbol: "Iterator.take_while",
-        signature: "fn Iterator.take_while[P: FnMut(&T) -> Bool](self, pred: P) -> TakeWhile[Self, P]",
-        description: "Yield items while `pred` returns true; stop at the first false. Unlike `filter`, the iterator terminates after the first rejection — useful for sorted streams and parse-prefix idioms.",
-        capability: "",
-        example: "let small: Vec[I64] = nums.iter().take_while(|&n| *n < 100).collect();\n",
-        see_also: "Iterator.skip_while, Iterator.filter, Iterator.take",
-    },
-    StdlibExample {
-        symbol: "Iterator.skip_while",
-        signature: "fn Iterator.skip_while[P: FnMut(&T) -> Bool](self, pred: P) -> SkipWhile[Self, P]",
-        description: "Skip items while `pred` returns true; from the first false on, yield everything (including subsequent items where `pred` would be true again). Mirror image of `take_while`.",
-        capability: "",
-        example: "let from_first_neg: Vec[I64] = nums.iter().skip_while(|&n| *n >= 0).copied().collect();\n",
-        see_also: "Iterator.take_while, Iterator.skip, Iterator.filter",
-    },
-    StdlibExample {
-        symbol: "Iterator.partition",
-        signature: "fn Iterator.partition[B: Default + Extend[T], P: FnMut(&T) -> Bool](self, pred: P) -> (B, B)",
-        description: "Split the iterator into two collections by predicate: `(matching, rejected)`. Single pass; both collections preserve original order. The canonical \"sort items into two buckets\" combinator.",
-        capability: "",
-        example: "let (evens, odds): (Vec[I32], Vec[I32]) = (1..10).partition(|&n| n % 2 == 0);\n",
-        see_also: "Iterator.filter, Iterator.group_by, Iterator.collect",
-    },
-    StdlibExample {
-        symbol: "Iterator.group_by",
-        signature: "fn Iterator.group_by[K: Eq, F: FnMut(&T) -> K](self, key: F) -> GroupBy[Self, F]",
-        description: "Group CONSECUTIVE items sharing the same key. NOT a SQL-style global GROUP BY — the input must already be sorted by key for total grouping. Each group yields `(key, sub-iterator)`.",
-        capability: "",
-        example: "let sorted: Vec<_> = items.iter().sorted_by_key(|x| x.kind).collect();\nfor (kind, group) in sorted.iter().group_by(|x| x.kind) {\n  log(format(\"{}: {}\", kind, group.count()));\n}\n",
-        see_also: "Iterator.partition, Iterator.fold, GroupBy.Provider",
-    },
-    StdlibExample {
-        symbol: "Iterator.position",
-        signature: "fn Iterator.position[P: FnMut(T) -> Bool](&mut self, pred: P) -> Option[USize]",
-        description: "Index of the first item for which `pred` returns true, or `None`. Consumes the iterator up to (but not including) the next item. The index counterpart of `find`.",
-        capability: "",
-        example: "let idx = nums.iter().position(|&n| n > 100);\n",
-        see_also: "Iterator.find, Iterator.any, Iterator.enumerate",
-    },
-    StdlibExample {
-        symbol: "Iterator.last",
-        signature: "fn Iterator.last(self) -> Option[T]",
-        description: "Consume the iterator and return the last yielded item, or `None` on an empty iterator. O(n) for the general case (specialised on `DoubleEndedIterator` for O(1) `.rev().next()`).",
-        capability: "",
-        example: "let last_line = std.fs.read_to_string(p)?.lines().last();\n",
-        see_also: "Iterator.next, Iterator.rev, Iterator.count",
-    },
-    StdlibExample {
-        symbol: "Iterator.nth",
-        signature: "fn Iterator.nth(&mut self, n: USize) -> Option[T]",
-        description: "Return the nth item (zero-indexed), or `None` if the iterator runs out first. Advances the iterator — subsequent `next()` calls start AFTER the returned item.",
-        capability: "",
-        example: "let third = (10..100).nth(3); // Some(13)\n",
-        see_also: "Iterator.next, Iterator.skip, Iterator.position",
-    },
-    StdlibExample {
-        symbol: "Iterator.product",
-        signature: "fn Iterator.product[T: Mul + One](self) -> T",
-        description: "Multiply every item. Empty iterator → `T::one()` (`1` for integers, `1.0` for floats). The `product` half of the sum/product pair.",
-        capability: "",
-        example: "let factorial: U64 = (1u64..=5).product(); // 120\n",
-        see_also: "Iterator.sum, Iterator.fold, Iterator.max",
-    },
-    StdlibExample {
-        symbol: "Iterator.copied",
-        signature: "fn Iterator.copied[T: Copy](self) -> Copied[Self]",
-        description: "Transform an iterator of `&T` into an iterator of `T` by `Copy`. Cheaper than `.cloned()` because it dispatches on `Copy` rather than `Clone`. The right move after `Vec.iter()` on a primitive element type.",
-        capability: "",
-        example: "let doubled: Vec[I32] = nums.iter().copied().map(|n| n * 2).collect();\n",
-        see_also: "Iterator.cloned, Iterator.map, Iterator.collect",
-    },
-    StdlibExample {
-        symbol: "Iterator.cloned",
-        signature: "fn Iterator.cloned[T: Clone](self) -> Cloned[Self]",
-        description: "Transform an iterator of `&T` into an iterator of `T` by `Clone`. Use when `T: Clone` but not `Copy` (e.g. `String`).",
-        capability: "",
-        example: "let owned: Vec[String] = strs.iter().cloned().collect();\n",
-        see_also: "Iterator.copied, Iterator.map, Iterator.collect",
-    },
-    StdlibExample {
-        symbol: "Iterator.max_by",
-        signature: "fn Iterator.max_by[F: FnMut(&T, &T) -> Ordering](self, cmp: F) -> Option[T]",
-        description: "Maximum by an arbitrary comparator. Use when `T` doesn't impl `Ord` (e.g. floats — `f64::total_cmp` is the safe choice).",
-        capability: "",
-        example: "let largest = floats.iter().copied().max_by(|a, b| a.total_cmp(b));\n",
-        see_also: "Iterator.max, Iterator.min_by, Iterator.fold",
-    },
-    StdlibExample {
-        symbol: "Iterator.min_by",
-        signature: "fn Iterator.min_by[F: FnMut(&T, &T) -> Ordering](self, cmp: F) -> Option[T]",
-        description: "Minimum by an arbitrary comparator. Mirror of `max_by`.",
-        capability: "",
-        example: "let smallest = floats.iter().copied().min_by(|a, b| a.total_cmp(b));\n",
-        see_also: "Iterator.min, Iterator.max_by, Iterator.fold",
-    },
-    StdlibExample {
-        symbol: "Iterator.max_by_key",
-        signature: "fn Iterator.max_by_key[K: Ord, F: FnMut(&T) -> K](self, key: F) -> Option[T]",
-        description: "Item with the maximum projected key. Compared to `max_by`, this is the right choice when there's a natural \"size\" projection.",
-        capability: "",
-        example: "let longest = strs.iter().max_by_key(|s| s.len());\n",
-        see_also: "Iterator.max, Iterator.min_by_key, Iterator.max_by",
-    },
-    StdlibExample {
-        symbol: "Iterator.min_by_key",
-        signature: "fn Iterator.min_by_key[K: Ord, F: FnMut(&T) -> K](self, key: F) -> Option[T]",
-        description: "Item with the minimum projected key. Mirror of `max_by_key`.",
-        capability: "",
-        example: "let shortest = strs.iter().min_by_key(|s| s.len());\n",
-        see_also: "Iterator.min, Iterator.max_by_key, Iterator.min_by",
-    },
-    StdlibExample {
-        symbol: "Iterator.by_ref",
-        signature: "fn Iterator.by_ref(&mut self) -> &mut Self",
-        description: "Borrow the iterator so a combinator chain doesn't consume it. Lets you split a stream — take the first N items, then consume the rest separately.",
-        capability: "",
-        example: "let head: Vec<_> = iter.by_ref().take(3).collect();\nlet tail: Vec<_> = iter.collect();\n",
-        see_also: "Iterator.take, Iterator.skip, Iterator.peekable",
-    },
-    StdlibExample {
-        symbol: "Iterator.inspect",
-        signature: "fn Iterator.inspect[F: FnMut(&T)](self, f: F) -> Inspect[Self, F]",
-        description: "Run `f` on each item as it passes through, but pass the item unchanged downstream. The lazy print-debug equivalent of `map(|x| { dbg!(x); x })`.",
-        capability: "",
-        example: "let total: I64 = nums.iter().inspect(|n| log(format(\"{}\", n))).sum();\n",
-        see_also: "Iterator.map, Iterator.for_each, log",
-    },
-    StdlibExample {
-        symbol: "Iterator.for_each",
-        signature: "fn Iterator.for_each[F: FnMut(T)](self, f: F)",
-        description: "Run `f` on each item, consuming the iterator. The functional counterpart to `for x in iter { f(x) }`. Returns `()` — use `fold` if you want an accumulator.",
-        capability: "",
-        example: "items.iter().for_each(|x| log(format(\"{}\", x)));\n",
-        see_also: "Iterator.fold, Iterator.inspect, Iterator.map",
-    },
-
     // ---- std.collections polish (v0.39 backlog) -------------------
-    StdlibExample {
-        symbol: "BTreeMap.iter",
-        signature: "fn BTreeMap.iter[K: Ord, V](&self) -> Iterator[(&K, &V)]",
-        description: "Iterate entries in KEY-SORTED order. The fundamental advantage `BTreeMap` has over `HashMap`. O(n) total, O(1) amortised per item.",
-        capability: "",
-        example: "for (k, v) in scores.iter() {\n  log(format(\"{}: {}\", k, v));\n}\n",
-        see_also: "BTreeMap.range, BTreeMap.new, HashMap.iter",
-    },
-    StdlibExample {
-        symbol: "BTreeMap.insert",
-        signature: "fn BTreeMap.insert[K: Ord, V](&mut self, key: K, value: V) -> Option[V]",
-        description: "Insert `value` under `key`. Returns the previous value if `key` was already present, else `None`. O(log n).",
-        capability: "",
-        example: "let prev = scores.insert(\"alice\", 42);\n",
-        see_also: "BTreeMap.get, BTreeMap.remove, HashMap.insert",
-    },
-    StdlibExample {
-        symbol: "BTreeMap.get",
-        signature: "fn BTreeMap.get[K: Ord, V](&self, key: &K) -> Option[&V]",
-        description: "Look up the value under `key`. O(log n). Returns `None` if absent.",
-        capability: "",
-        example: "if let Some(score) = scores.get(\"alice\") { use(score); }\n",
-        see_also: "BTreeMap.insert, BTreeMap.contains_key, HashMap.get",
-    },
-    StdlibExample {
-        symbol: "BTreeMap.remove",
-        signature: "fn BTreeMap.remove[K: Ord, V](&mut self, key: &K) -> Option[V]",
-        description: "Remove and return the value under `key`, or `None` if absent. O(log n).",
-        capability: "",
-        example: "let removed = scores.remove(\"alice\");\n",
-        see_also: "BTreeMap.insert, BTreeMap.get, HashMap.remove",
-    },
-    StdlibExample {
-        symbol: "BTreeMap.contains_key",
-        signature: "fn BTreeMap.contains_key[K: Ord, V](&self, key: &K) -> Bool",
-        description: "True iff `key` is in the map. O(log n). Use over `get(&k).is_some()` when you don't need the value.",
-        capability: "",
-        example: "if scores.contains_key(\"alice\") { /* ... */ }\n",
-        see_also: "BTreeMap.get, HashMap.contains_key",
-    },
-    StdlibExample {
-        symbol: "BTreeMap.len",
-        signature: "fn BTreeMap.len[K: Ord, V](&self) -> USize",
-        description: "Number of entries. O(1).",
-        capability: "",
-        example: "log(format(\"{} entries\", scores.len()));\n",
-        see_also: "BTreeMap.is_empty, HashMap.len",
-    },
-    StdlibExample {
-        symbol: "BTreeSet.insert",
-        signature: "fn BTreeSet.insert[T: Ord](&mut self, value: T) -> Bool",
-        description: "Insert `value`. Returns `true` if it was NEW, `false` if already present. O(log n).",
-        capability: "",
-        example: "if seen.insert(id) { /* first time we see this id */ }\n",
-        see_also: "BTreeSet.contains, BTreeSet.new, HashSet.insert",
-    },
-    StdlibExample {
-        symbol: "BTreeSet.contains",
-        signature: "fn BTreeSet.contains[T: Ord](&self, value: &T) -> Bool",
-        description: "True iff `value` is in the set. O(log n).",
-        capability: "",
-        example: "if seen.contains(&id) { return; }\n",
-        see_also: "BTreeSet.insert, BTreeSet.range, HashSet.contains",
-    },
-    StdlibExample {
-        symbol: "BTreeSet.range",
-        signature: "fn BTreeSet.range[T: Ord](&self, range: Range[T]) -> Iterator[&T]",
-        description: "Iterate the values whose order falls in the half-open range `low..high`. Set counterpart of `BTreeMap.range`.",
-        capability: "",
-        example: "for v in nums.range(10..20) { use(v); }\n",
-        see_also: "BTreeSet.contains, BTreeMap.range, BTreeSet.new",
-    },
-    StdlibExample {
-        symbol: "BTreeSet.iter",
-        signature: "fn BTreeSet.iter[T: Ord](&self) -> Iterator[&T]",
-        description: "Iterate values in SORTED order — the differentiator vs `HashSet.iter`.",
-        capability: "",
-        example: "for v in nums.iter() { log(format(\"{}\", v)); }\n",
-        see_also: "BTreeSet.range, HashSet.iter, BTreeMap.iter",
-    },
-    StdlibExample {
-        symbol: "HashSet.remove",
-        signature: "fn HashSet.remove[T: Hash + Eq](&mut self, value: &T) -> Bool",
-        description: "Remove `value`. Returns `true` if it was present, `false` if absent. O(1) average.",
-        capability: "",
-        example: "let was_there = seen.remove(&id);\n",
-        see_also: "HashSet.insert, HashSet.contains, HashMap.remove",
-    },
-    StdlibExample {
-        symbol: "HashSet.iter",
-        signature: "fn HashSet.iter[T: Hash + Eq](&self) -> Iterator[&T]",
-        description: "Iterate values in UNSPECIFIED order — the hash-table ordering is intentionally not stable across runs. Use `BTreeSet.iter` if you need sorted iteration.",
-        capability: "",
-        example: "for v in seen.iter() { log(format(\"{}\", v)); }\n",
-        see_also: "HashSet.contains, BTreeSet.iter, HashMap.iter",
-    },
-    StdlibExample {
-        symbol: "HashSet.intersection",
-        signature: "fn HashSet.intersection[T: Hash + Eq](&self, other: &HashSet[T]) -> Iterator[&T]",
-        description: "Items in BOTH sets. Lazy iterator — doesn't materialise a new set. O(min(|a|, |b|)) on average.",
-        capability: "",
-        example: "let common: Vec[&Str] = a.intersection(&b).collect();\n",
-        see_also: "HashSet.union, HashSet.difference, HashSet.contains",
-    },
-    StdlibExample {
-        symbol: "HashSet.union",
-        signature: "fn HashSet.union[T: Hash + Eq](&self, other: &HashSet[T]) -> Iterator[&T]",
-        description: "Items in EITHER set. Lazy iterator. Items present in both are yielded only once.",
-        capability: "",
-        example: "let everything: Vec<_> = a.union(&b).cloned().collect();\n",
-        see_also: "HashSet.intersection, HashSet.difference",
-    },
-    StdlibExample {
-        symbol: "HashSet.difference",
-        signature: "fn HashSet.difference[T: Hash + Eq](&self, other: &HashSet[T]) -> Iterator[&T]",
-        description: "Items in `self` but NOT in `other`. Lazy iterator. Asymmetric — `a.difference(b) != b.difference(a)` in general.",
-        capability: "",
-        example: "let only_in_a: Vec<_> = a.difference(&b).cloned().collect();\n",
-        see_also: "HashSet.intersection, HashSet.union, HashSet.symmetric_difference",
-    },
-    StdlibExample {
-        symbol: "HashMap.keys",
-        signature: "fn HashMap.keys[K: Hash + Eq, V](&self) -> Iterator[&K]",
-        description: "Iterate the keys in UNSPECIFIED order. The key-only counterpart of `iter`.",
-        capability: "",
-        example: "for k in m.keys() { log(format(\"{}\", k)); }\n",
-        see_also: "HashMap.values, HashMap.iter, BTreeMap.iter",
-    },
-    StdlibExample {
-        symbol: "HashMap.values",
-        signature: "fn HashMap.values[K: Hash + Eq, V](&self) -> Iterator[&V]",
-        description: "Iterate the values in UNSPECIFIED order. Value-only counterpart of `iter`.",
-        capability: "",
-        example: "let total: I64 = scores.values().sum();\n",
-        see_also: "HashMap.keys, HashMap.iter",
-    },
-
     // ---- std.json polish ------------------------------------------
-    StdlibExample {
-        symbol: "Json.as_bool",
-        signature: "fn Json.as_bool(&self) -> Option[Bool]",
-        description: "Return the value if the node is `Json.Bool`, else `None`. The boolean counterpart of `as_str` / `as_i64`.",
-        capability: "",
-        example: "let active = config.get(\"enabled\").and_then(|v| v.as_bool()).unwrap_or(false);\n",
-        see_also: "Json.as_i64, Json.as_str, Json.Bool",
-    },
-    StdlibExample {
-        symbol: "Json.as_f64",
-        signature: "fn Json.as_f64(&self) -> Option[F64]",
-        description: "Return the value as `F64` if the node is `Json.Num`. Numbers parsed from JSON live in F64 regardless of whether they look integer-shaped; use `as_i64` if you want integer narrowing semantics.",
-        capability: "",
-        example: "let temperature = sample.get(\"temp\").and_then(|v| v.as_f64()).unwrap_or(0.0);\n",
-        see_also: "Json.as_i64, Json.Num",
-    },
-    StdlibExample {
-        symbol: "Json.as_object",
-        signature: "fn Json.as_object(&self) -> Option[&HashMap[Str, Json]]",
-        description: "Return the underlying object map if the node is `Json.Obj`, else `None`. Mirrors `as_array` for `Json.Arr`.",
-        capability: "",
-        example: "if let Some(obj) = node.as_object() {\n  for (k, v) in obj { use(k, v); }\n}\n",
-        see_also: "Json.as_array, Json.Obj, Json.get",
-    },
-    StdlibExample {
-        symbol: "Json.is_null",
-        signature: "fn Json.is_null(&self) -> Bool",
-        description: "True iff the node is `Json.Null`. The `null` JSON value is distinct from \"absent key\" — use `Json.get(k).is_none()` for the latter.",
-        capability: "",
-        example: "let explicitly_null = node.get(\"opt\").map(|v| v.is_null()).unwrap_or(false);\n",
-        see_also: "Json.Null, Json.get",
-    },
-    StdlibExample {
-        symbol: "Json.pretty",
-        signature: "fn std.json.encode_pretty(value: &Json) -> Str",
-        description: "Encode JSON with 2-space indentation suitable for human-readable output (logs, debug dumps, config files). For wire-format use `std.json.encode`.",
-        capability: "",
-        example: "let s = std.json.encode_pretty(&value);\nstd.fs.write(p, s.as_bytes())?;\n",
-        see_also: "std.json.encode, std.json.parse",
-    },
-
     // ---- std.path polish ------------------------------------------
-    StdlibExample {
-        symbol: "Path.with_file_name",
-        signature: "fn Path.with_file_name(&self, name: &Str) -> PathBuf",
-        description: "Return a new path with the final component replaced by `name`. `Path::new(\"/a/b/c\").with_file_name(\"d\")` → `\"/a/b/d\"`. Useful for sibling-file derivations (e.g. `foo.mty` → `foo.mty.ll`).",
-        capability: "",
-        example: "let out = src.with_file_name(\"out.ll\");\n",
-        see_also: "Path.file_name, Path.with_extension, Path.parent",
-    },
-    StdlibExample {
-        symbol: "Path.file_stem",
-        signature: "fn Path.file_stem(&self) -> Option[&Str]",
-        description: "File name with the final extension removed. `\"a/b/c.tar.gz\".file_stem()` → `Some(\"c.tar\")` — only the LAST extension is stripped. Use the `file_name` + manual split for full multi-extension handling.",
-        capability: "",
-        example: "let stem = p.file_stem().unwrap_or(\"\");\n",
-        see_also: "Path.file_name, Path.extension, Path.with_extension",
-    },
-    StdlibExample {
-        symbol: "Path.has_root",
-        signature: "fn Path.has_root(&self) -> Bool",
-        description: "Does the path start with a root component (`/` on Unix, drive letter or `\\` on Windows)? Distinct from `is_absolute` on Windows where `\\foo` has a root but no prefix.",
-        capability: "",
-        example: "if !p.has_root() { p = cwd.join(&p); }\n",
-        see_also: "Path.is_absolute, Path.is_relative, Path.components",
-    },
-    StdlibExample {
-        symbol: "Path.is_relative",
-        signature: "fn Path.is_relative(&self) -> Bool",
-        description: "True iff the path is NOT absolute. Complement of `is_absolute` — never both true.",
-        capability: "",
-        example: "if p.is_relative() { p = root.join(&p); }\n",
-        see_also: "Path.is_absolute, Path.has_root",
-    },
     StdlibExample {
         symbol: "Path.starts_with",
         signature: "fn Path.starts_with(&self, base: impl AsRef[Path]) -> Bool",
@@ -4343,30 +3075,6 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         see_also: "std.regex.Regex.replace_all, String.contains, String.split",
     },
     StdlibExample {
-        symbol: "String.replacen",
-        signature: "fn String.replacen(&self, pat: &Str, to: &Str, n: USize) -> Str",
-        description: "Replace up to `n` occurrences of `pat`. `replacen(pat, to, 1)` is the canonical \"replace first occurrence\" idiom.",
-        capability: "",
-        example: "let first = body.replacen(\"foo\", \"bar\", 1);\n",
-        see_also: "String.replace, std.regex.Regex.replace",
-    },
-    StdlibExample {
-        symbol: "String.lines",
-        signature: "fn String.lines(&self) -> Iterator[&Str]",
-        description: "Iterate over the LF-/CRLF-terminated lines, WITHOUT the line terminator. Trailing empty line (no terminator after) is yielded as an empty string if present. Mirrors Rust's `str::lines`.",
-        capability: "",
-        example: "for line in input.lines() {\n  if line.trim().is_empty() { continue; }\n  process(line);\n}\n",
-        see_also: "String.split, String.trim, std.fs.read_to_string",
-    },
-    StdlibExample {
-        symbol: "String.split_whitespace",
-        signature: "fn String.split_whitespace(&self) -> Iterator[&Str]",
-        description: "Split on runs of Unicode whitespace, skipping empty fragments. Use this over `split(\" \")` for any input that might have tabs, double spaces, NBSP, etc.",
-        capability: "",
-        example: "let words: Vec[&Str] = line.split_whitespace().collect();\n",
-        see_also: "String.split, String.trim, std.regex.Regex.split",
-    },
-    StdlibExample {
         symbol: "String.parse",
         signature: "fn String.parse[T: FromStr](&self) -> Result[T, T.Err]",
         description: "Generic parse-from-string. `T` decides the parse semantics (number, IP, custom). Returns the `FromStr` error type on failure — no panicking variant.",
@@ -4385,38 +3093,6 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
 
     // ---- std.vec polish -------------------------------------------
     StdlibExample {
-        symbol: "Vec.insert",
-        signature: "fn Vec.insert[T](&mut self, index: USize, element: T)",
-        description: "Insert `element` at position `index`, shifting later elements right. O(n) in the tail length. Panics if `index > len()`. For amortised-O(1) appends use `Vec.push`.",
-        capability: "",
-        example: "items.insert(0, head); // prepend\n",
-        see_also: "Vec.push, Vec.remove, Vec.append",
-    },
-    StdlibExample {
-        symbol: "Vec.remove",
-        signature: "fn Vec.remove[T](&mut self, index: USize) -> T",
-        description: "Remove and return the element at `index`, shifting later elements left. O(n). Panics on out-of-bounds. For O(1) removal that doesn't preserve order use `Vec.swap_remove`.",
-        capability: "",
-        example: "let head = items.remove(0);\n",
-        see_also: "Vec.insert, Vec.swap_remove, Vec.pop",
-    },
-    StdlibExample {
-        symbol: "Vec.swap_remove",
-        signature: "fn Vec.swap_remove[T](&mut self, index: USize) -> T",
-        description: "Remove the element at `index` by swapping in the last element. O(1) but DOES NOT preserve order. Use over `remove` when iteration order doesn't matter.",
-        capability: "",
-        example: "let some_item = items.swap_remove(idx);\n",
-        see_also: "Vec.remove, Vec.pop",
-    },
-    StdlibExample {
-        symbol: "Vec.truncate",
-        signature: "fn Vec.truncate[T](&mut self, len: USize)",
-        description: "Shorten the vector to `len`, dropping every element past that. No-op if `len >= self.len()`. Useful for clipping logs to a tail.",
-        capability: "",
-        example: "if log.len() > 10_000 { log.truncate(10_000); }\n",
-        see_also: "Vec.clear, Vec.drain, Vec.pop",
-    },
-    StdlibExample {
         symbol: "Vec.first",
         signature: "fn Vec.first[T](&self) -> Option[&T]",
         description: "First element, or `None` if empty. The `vec[0]` shape without the out-of-bounds panic risk.",
@@ -4432,56 +3108,7 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         example: "if let Some(tail) = items.last() { use(tail); }\n",
         see_also: "Vec.first, Vec.pop, Vec.get",
     },
-    StdlibExample {
-        symbol: "Vec.split_at",
-        signature: "fn Vec.split_at[T](&self, mid: USize) -> (&[T], &[T])",
-        description: "Split into `(head, tail)` at index `mid` without copying. Panics on out-of-bounds. The slice-shaped counterpart of `String.split_at_byte`.",
-        capability: "",
-        example: "let (head, tail) = items.split_at(5);\n",
-        see_also: "Vec.chunks, Vec.iter",
-    },
-    StdlibExample {
-        symbol: "Vec.dedup",
-        signature: "fn Vec.dedup[T: PartialEq](&mut self)",
-        description: "Remove consecutive duplicate elements in place. NOT a global dedup — sort the vec first or use a `HashSet` accumulator for that.",
-        capability: "",
-        example: "items.sort();\nitems.dedup();\n",
-        see_also: "Vec.sort, HashSet.new, Vec.retain",
-    },
-    StdlibExample {
-        symbol: "Vec.chunks",
-        signature: "fn Vec.chunks[T](&self, size: USize) -> Iterator[&[T]]",
-        description: "Slice the vec into non-overlapping windows of length `size` (the LAST chunk may be shorter). The slice-of-slices counterpart of `Iterator.chunks`.",
-        capability: "",
-        example: "for batch in records.chunks(100) {\n  flush(batch);\n}\n",
-        see_also: "Iterator.chunks, Vec.split_at, Vec.windows",
-    },
-    StdlibExample {
-        symbol: "Vec.windows",
-        signature: "fn Vec.windows[T](&self, size: USize) -> Iterator[&[T]]",
-        description: "Sliding window of length `size`, ONE-STEP stride. `[1,2,3,4].windows(2)` → `[[1,2], [2,3], [3,4]]`. The non-chunked counterpart of `chunks`.",
-        capability: "",
-        example: "for pair in nums.windows(2) {\n  let diff = pair[1] - pair[0];\n}\n",
-        see_also: "Vec.chunks, Iterator.windowed, Vec.iter",
-    },
-
     // ---- std.option / std.result polish ---------------------------
-    StdlibExample {
-        symbol: "Option.flatten",
-        signature: "fn Option.flatten[T](self: Option[Option[T]]) -> Option[T]",
-        description: "Collapse one level of optional: `Some(Some(x)) → Some(x)`, `Some(None) → None`, `None → None`. Useful when chained `Option`-returning lookups would otherwise nest.",
-        capability: "",
-        example: "let inner: Option[I32] = map.get(\"k\").map(|v| v.parse().ok()).flatten();\n",
-        see_also: "Option.and_then, Option.map, Result.and_then",
-    },
-    StdlibExample {
-        symbol: "Option.or",
-        signature: "fn Option.or(self, alt: Option[T]) -> Option[T]",
-        description: "Eager fallback: return `self` if `Some`, else `alt`. For lazy fallback (only evaluate the alt when needed) use `or_else`.",
-        capability: "",
-        example: "let v = primary.or(backup);\n",
-        see_also: "Option.or_else, Option.unwrap_or, Result.or",
-    },
     StdlibExample {
         symbol: "Option.or_else",
         signature: "fn Option.or_else[F: FnOnce() -> Option[T]](self, f: F) -> Option[T]",
@@ -4489,14 +3116,6 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         capability: "",
         example: "let v = cache.get(k).copied().or_else(|| db.lookup(k));\n",
         see_also: "Option.or, Option.unwrap_or_else, Result.or_else",
-    },
-    StdlibExample {
-        symbol: "Option.take",
-        signature: "fn Option.take(&mut self) -> Option[T]",
-        description: "Replace `self` with `None` and return the old value. The canonical way to move a value out of an `Option` field without disturbing surrounding state.",
-        capability: "",
-        example: "if let Some(handle) = self.connection.take() {\n  handle.close()?;\n}\n",
-        see_also: "Option.replace, Option.unwrap",
     },
     StdlibExample {
         symbol: "Option.replace",
@@ -4515,14 +3134,6 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         see_also: "Option.unwrap_or, Option.expect, Option.is_some",
     },
     StdlibExample {
-        symbol: "Option.unwrap_or_else",
-        signature: "fn Option.unwrap_or_else[F: FnOnce() -> T](self, f: F) -> T",
-        description: "Lazy default: return the value if `Some`, else invoke `f()` for the default. Prefer over `unwrap_or` when the default is expensive to construct.",
-        capability: "",
-        example: "let v = cache.get(k).copied().unwrap_or_else(|| recompute());\n",
-        see_also: "Option.unwrap_or, Option.or_else",
-    },
-    StdlibExample {
         symbol: "Option.expect",
         signature: "fn Option.expect(self, msg: &Str) -> T",
         description: "Like `unwrap` but panics with a custom message. The message should describe the INVARIANT, not the failure (\"channel must be open here\" — not \"channel was closed\").",
@@ -4539,14 +3150,6 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         see_also: "Result.and_then, Result.map_err, Option.map",
     },
     StdlibExample {
-        symbol: "Result.is_err",
-        signature: "fn Result.is_err(&self) -> Bool",
-        description: "True iff the result is `Err`. Complement of `is_ok` — never both true.",
-        capability: "",
-        example: "if result.is_err() { metrics.errors += 1; }\n",
-        see_also: "Result.is_ok, Result.err",
-    },
-    StdlibExample {
         symbol: "Result.unwrap",
         signature: "fn Result.unwrap(self) -> T",
         description: "Panic if `Err`, return the inner value if `Ok`. Use only when an `Err` is structurally impossible at the call site. Prefer `?` for forwarding and `unwrap_or` for fallback.",
@@ -4555,28 +3158,12 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         see_also: "Result.unwrap_or, Result.expect, Result.is_ok",
     },
     StdlibExample {
-        symbol: "Result.unwrap_err",
-        signature: "fn Result.unwrap_err(self) -> E",
-        description: "Panic if `Ok`, return the error if `Err`. The dual of `unwrap` — useful in tests where the error path is the asserted outcome.",
-        capability: "",
-        example: "let err = expected_to_fail.unwrap_err();\nassert!(matches!(err, MyErr::Specific));\n",
-        see_also: "Result.unwrap, Result.err, Result.is_err",
-    },
-    StdlibExample {
         symbol: "Result.expect",
         signature: "fn Result.expect(self, msg: &Str) -> T",
         description: "Like `unwrap` but panics with a custom message including the inner error. Use to document the invariant being asserted.",
         capability: "",
         example: "let v = post_condition.expect(\"checked by validator above\");\n",
         see_also: "Result.unwrap, Option.expect",
-    },
-    StdlibExample {
-        symbol: "Result.or",
-        signature: "fn Result.or(self, alt: Result[T, F]) -> Result[T, F]",
-        description: "Eager fallback: return `self` if `Ok`, else `alt`. The error type may differ between sides.",
-        capability: "",
-        example: "let v = try_primary().or(try_secondary())?;\n",
-        see_also: "Result.or_else, Option.or",
     },
     StdlibExample {
         symbol: "Result.or_else",
@@ -4980,59 +3567,94 @@ mod tests {
         );
     }
 
-    /// v0.38 T4 grew the catalog past 300 entries by covering v0.37
-    /// surfaces (extern c / FFI, cast `expr as Ty`, MTY_* env vars) and
-    /// previously-uncovered helpers (std.process, std.io, std.path,
-    /// std.collections, std.iter, std.result, std.option, std.error)
-    /// plus polish on existing modules. The floor is one above the
-    /// v0.37→v0.38 baseline so accidental deletion of an entire module's
-    /// worth of entries is caught.
+    /// v0.41 T5 — honest-floor. v0.35→v0.40 grew the catalog past 500
+    /// entries chasing breadth; an external audit found ~30% of entries
+    /// described surfaces the stdlib crate had not actually shipped
+    /// (std.process / std.collections / std.iter / std.error / std.path
+    /// — entire modules were aspirational; Vec.sort / Option.is_some /
+    /// String.to_lowercase etc. — methods that never existed).
+    ///
+    /// v0.41 T5 audited every entry against the real prelude + interp
+    /// dispatch + host dispatcher + stdlib source surface and deleted
+    /// every entry that did not resolve to a real callable / type /
+    /// value (the `mty doc check --check-surface` gate enforces this
+    /// going forward). Result: catalog shrunk from ~565 entries to a
+    /// real-only ~380. The honest-floor here is set just below that to
+    /// catch accidental sweeps of an entire module while still allowing
+    /// targeted prunes.
+    ///
+    /// Historical floors:
+    /// - v0.34 T3: 140 (still enforced above as a tripwire)
+    /// - v0.38 T4: 300 (RETIRED — counted aspirational entries)
+    /// - v0.39 T5: 400 (RETIRED — same)
+    /// - v0.40 T5: 500 (RETIRED — same)
+    /// - v0.41 T5: 380 (current, honest)
     #[test]
-    fn v038_t4_catalog_floor_300() {
+    fn v041_t5_catalog_floor_380_honest() {
         assert!(
-            examples_count() >= 300,
-            "v0.38 T4 expected >= 300 seeded stdlib examples, got {}",
+            examples_count() >= 380,
+            "v0.41 T5 expected >= 380 audit-resolved stdlib examples, got {}",
             examples_count()
         );
     }
 
-    /// v0.39 T5 grew the catalog past 400 entries by covering v0.39 T1's
-    /// new stdlib surfaces (`std.crypto`, `std.encoding`, `std.url`,
-    /// `std.uuid`) and back-filling the v0.38 backlog (std.io reader
-    /// extras, std.process output / status / env helpers, std.path
-    /// mutators + walk, std.iter combinators, std.error context chain,
-    /// std.string / std.vec / std.json / std.collections polish).
+    /// v0.41 T5 — sample coverage probe. The v0.38/39/40 coverage probes
+    /// were retired because they enforced presence of entries that the
+    /// audit later proved were aspirational (Iterator.*, HashMap.*,
+    /// Path.*, ProcessExit, etc — surfaces that never shipped). The
+    /// surface-audit gate (`mty doc check --check-surface`) now catches
+    /// any entry that resolves to nothing, so we don't need per-module
+    /// presence asserts — but we keep a small sample for cheap regression
+    /// detection (a swarm agent that accidentally deletes the v0.40 T4
+    /// std.regex module will hit this).
     #[test]
-    fn v039_t5_catalog_floor_400() {
-        assert!(
-            examples_count() >= 400,
-            "v0.39 T5 expected >= 400 seeded stdlib examples, got {}",
-            examples_count()
-        );
+    fn v041_t5_audit_resolved_sample() {
+        let want = [
+            // v0.40 T4 — std.regex (real)
+            "std.regex.Regex",
+            "std.regex.Regex.new",
+            "std.regex.Regex.find",
+            "std.regex.Regex.captures",
+            "std.regex.Regex.replace_all",
+            // v0.40 T4 — AEAD invariants (concept-doc, kept)
+            "aead_nonce_uniqueness",
+            // v0.40 T3 — Char.from_u32 (real prelude registration)
+            "Char.from_u32",
+            // v0.40 T5 — std.observe (real)
+            "std.observe.percentiles",
+            "std.observe.aggregate_by",
+            // v0.40 T5 — std.eval glue (real)
+            "MemberTurnProvider.new",
+            "MemberTurnProvider.unbounded",
+            // v0.40 T5 — std.fs cap helpers (real)
+            "std.fs.install_default_read_cap",
+            "std.fs.current_default_write_cap",
+            // v0.39 T1 — std.crypto.hash (real)
+            "std.crypto.sha256",
+            "std.crypto.blake3",
+            // v0.39 T1 — std.url (real)
+            "std.url.parse",
+            "std.url.Url",
+            // v0.39 T1 — std.uuid (real)
+            "std.uuid.Uuid.v4",
+            "std.uuid.Uuid.v7",
+            // v0.36 — env vars (concept-doc, kept)
+            "MTY_LINKER",
+            "MTY_TRACE",
+        ];
+        for sym in want {
+            assert!(
+                lookup(sym).is_some(),
+                "v0.41 T5 audit-resolved sample: missing seeded entry for {sym}"
+            );
+        }
     }
 
-    /// v0.40 T5 grew the catalog past 500 entries by covering v0.40 T4's
-    /// new stdlib surfaces (`std.regex`, `std.crypto.aes_gcm`,
-    /// `std.crypto.chacha20_poly1305`), the v0.40 T3 cast Char runtime
-    /// (`Char.from_u32` + migration notes), and back-filling the v0.39
-    /// gap-fillers (std.iter advanced combinators, std.collections
-    /// BTreeMap/BTreeSet/HashSet polish, std.json/std.path/std.string/
-    /// std.vec/std.option/std.result polish, std.swarm Member helpers,
-    /// std.observe percentiles / aggregate_by, std.eval Replay glue,
-    /// std.fs cap helpers).
+    /// v0.40 T5 coverage probe — RETIRED. The audit gate makes per-entry
+    /// presence asserts obsolete; the listed entries had drifted into a
+    /// mix of real + aspirational items. See `v041_t5_audit_resolved_sample`.
     #[test]
-    fn v040_t5_catalog_floor_500() {
-        assert!(
-            examples_count() >= 500,
-            "v0.40 T5 expected >= 500 seeded stdlib examples, got {}",
-            examples_count()
-        );
-    }
-
-    /// Coverage probe for the v0.40 T5 surfaces. Future trimming passes
-    /// must drop a floor-changing number of entries before they silently
-    /// delete a v0.40-introduced module.
-    #[test]
+    #[ignore = "v0.41 T5 — retired in favour of audit gate"]
     fn v040_t5_modules_covered() {
         let want = [
             // v0.40 T4 — std.regex
@@ -5198,11 +3820,9 @@ mod tests {
         }
     }
 
-    /// Coverage probe for the v0.39 T1 stdlib surfaces plus the
-    /// v0.38-backlog gap-fillers. Future trimming passes have to drop a
-    /// floor-changing number of entries before they silently delete an
-    /// entire new module.
+    /// v0.39 T5 coverage probe — RETIRED. See `v041_t5_audit_resolved_sample`.
     #[test]
+    #[ignore = "v0.41 T5 — retired in favour of audit gate"]
     fn v039_t5_modules_covered() {
         let want = [
             // std.crypto.hash
@@ -5322,11 +3942,12 @@ mod tests {
         }
     }
 
-    /// Sanity-check coverage of every v0.38 T4 new module so a future
-    /// trimming pass can't silently delete the FFI / cast / env-var
-    /// surface or any of the std.process / std.io / std.path / std.iter
-    /// / std.result / std.option helpers.
+    /// v0.38 T4 coverage probe — RETIRED. The list enforced presence of
+    /// std.process / std.iter / std.collections / std.error entries that
+    /// the v0.41 T5 audit later proved were aspirational (those modules
+    /// were never wired into mty-stdlib). See `v041_t5_audit_resolved_sample`.
     #[test]
+    #[ignore = "v0.41 T5 — retired in favour of audit gate"]
     fn v038_t4_modules_covered() {
         let want = [
             // v0.37 extern c / FFI

@@ -491,6 +491,15 @@ enum Cmd {
         /// exits non-zero on any divergence. No path required.
         #[arg(long)]
         check: bool,
+        /// v0.41 T5: with `--check`, also audit every catalog entry
+        /// against the real stdlib surface (prelude registrations +
+        /// interp dispatch tables + host dispatcher + `mty-stdlib`
+        /// source) and exit non-zero if any entry resolves to nothing.
+        /// Catches catalog drift in the opposite direction from
+        /// `--check`: this one fires when docs describe a symbol the
+        /// runtime has not actually shipped.
+        #[arg(long)]
+        check_surface: bool,
         /// With `--check`, write the drift report to this file in
         /// addition to stdout. Useful for CI artefact uploads.
         #[arg(long)]
@@ -662,10 +671,11 @@ fn main() {
             out,
             check_examples,
             check,
+            check_surface,
             report,
         } => {
             if check {
-                cmd::doc::run_check(report.as_deref())
+                cmd::doc::run_check(report.as_deref(), check_surface)
             } else {
                 match path {
                     Some(p) => cmd::doc::run(&p, item, html, markdown, out, check_examples),

@@ -1,6 +1,7 @@
 ##module cast
 ##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
 
+# concept-doc
 ##sym cast_as
 ##sig expr as Ty
 ##desc Scalar cast operator. Accepted for numeric widening / narrowing, signedness flips, `Bool→U8`, `Char→U32`, and pointer↔USize. Other shapes emit MT2027 at type-check time.
@@ -11,6 +12,7 @@ let b: U8 = n as U8;
 let f: F64 = n as F64;
 ##end
 
+# concept-doc
 ##sym cast_u8_to_i64
 ##sig u8_expr as I64
 ##desc Zero-extend an unsigned byte to a 64-bit signed integer. Always lossless because U8's range fits in I64.
@@ -21,6 +23,7 @@ let wide: I64 = byte as I64;
 assert_eq(wide, 255);
 ##end
 
+# concept-doc
 ##sym cast_i64_to_u8
 ##sig i64_expr as U8
 ##desc Narrowing cast: truncates to the low 8 bits. Sign / overflow is silently dropped — no MT2027 because the cast is structurally well-formed; the lossy behaviour is intentional.
@@ -31,6 +34,7 @@ let small: U8 = big as U8;
 assert_eq(small, 1);
 ##end
 
+# concept-doc
 ##sym cast_f32_to_f64
 ##sig f32_expr as F64
 ##desc Widen single-precision to double-precision float. Always lossless.
@@ -40,6 +44,7 @@ let x: F32 = 1.5;
 let y: F64 = x as F64;
 ##end
 
+# concept-doc
 ##sym cast_f64_to_f32
 ##sig f64_expr as F32
 ##desc Narrow double to single precision. May round; values outside F32's range produce `+inf` / `-inf`.
@@ -49,6 +54,7 @@ let x: F64 = 3.141592653589793;
 let y: F32 = x as F32;
 ##end
 
+# concept-doc
 ##sym cast_i32_to_f32
 ##sig i32_expr as F32
 ##desc Int-to-float cast. Lossless for |n| ≤ 2^24; larger magnitudes round to the nearest representable F32.
@@ -58,6 +64,7 @@ let n: I32 = 1000;
 let f: F32 = n as F32;
 ##end
 
+# concept-doc
 ##sym cast_f32_to_i32
 ##sig f32_expr as I32
 ##desc Float-to-int truncation toward zero. NaN→0, ±inf saturate to I32::MIN/MAX (LLVM `fptosi.sat`).
@@ -68,6 +75,7 @@ let n: I32 = f as I32;
 assert_eq(n, 3);
 ##end
 
+# concept-doc
 ##sym cast_usize_to_u64
 ##sig usize_expr as U64
 ##desc Platform-pointer-width to fixed 64-bit width. Identity on 64-bit hosts; zero-extends on 32-bit hosts.
@@ -77,6 +85,7 @@ let n: USize = 1024;
 let w: U64 = n as U64;
 ##end
 
+# concept-doc
 ##sym cast_bool_to_u8
 ##sig bool_expr as U8
 ##desc `true→1`, `false→0`. Bool ↔ any int width is accepted as of v0.39 T2 (the reverse `IntN as Bool` follows `0 → false`, nonzero → `true` and lowers to `icmp ne 0`); `Bool as Float` and `Float as Bool` still emit MT2027.
@@ -89,6 +98,7 @@ let round_trip: Bool = (n as I32) as Bool;
 assert_eq(round_trip, true);
 ##end
 
+# concept-doc
 ##sym cast_int_to_bool
 ##sig int_expr as Bool
 ##desc v0.39 T2 — `0 → false`, any nonzero → `true`. The cranelift back-end emits an `icmp ne 0` (not a low-byte truncate), so `256_i32 as Bool` correctly yields `true`. `Float as Bool` is deliberately rejected — use the explicit predicate `x != 0.0 && !x.is_nan()`.
@@ -101,6 +111,7 @@ let zeroish: Bool = 0_i32 as Bool;
 assert_eq(zeroish, false);
 ##end
 
+# concept-doc
 ##sym cast_char_to_u32
 ##sig char_expr as U32
 ##desc Code-point integer value of a `Char`. ASCII `'A'` → 65, BMP `'©'` → 169.
@@ -111,6 +122,7 @@ let code: U32 = c as U32;
 assert_eq(code, 65);
 ##end
 
+# concept-doc
 ##sym cast_int_to_char
 ##sig <int-literal> as Char  (literal only; non-literal -> Char.from_u32)
 ##desc Integer-to-codepoint cast. **Literals** are checked at compile time against the Unicode scalar value range (0..0x110000 minus the UTF-16 surrogate gap 0xD800..=0xDFFF); out-of-range literals emit MT2028 INVALID_CODEPOINT. **Non-literal sources are rejected at the cast surface** as of v0.40 T3 (MT2027) — authors must spell `Char.from_u32(value)` which returns `Option[Char]`. The fix engine auto-rewrites the old shape; see docs/reference/casts.md + docs/reference/std-char.md.
@@ -126,6 +138,7 @@ fn from_input(v: U32) -> Option[Char] { Char.from_u32(v) }
 let safe: Char = Char.from_u32(v).unwrap_or('?');
 ##end
 
+# concept-doc
 ##sym char_from_u32
 ##sig fn Char.from_u32(value: U32) -> Option[Char]
 ##desc v0.40 T3 — explicit constructor for a `Char` from a runtime `U32` codepoint. Returns `Some(c)` iff `value` is a valid Unicode scalar value (`< 0x110000` and not in the surrogate gap `0xD800..=0xDFFF`); otherwise `None`. Mirrors Rust's `char::from_u32`. Replaces the v0.39 T2 non-literal `Int as Char` surface, which is now rejected with MT2027.
@@ -136,6 +149,7 @@ let bad: Option[Char] = Char.from_u32(0xD800_u32);   // None (surrogate)
 let safe: Char = Char.from_u32(v).unwrap_or('?');
 ##end
 
+# concept-doc
 ##sym cast_ref_to_ptr
 ##sig &T as *T
 ##desc v0.39 T2 — explicit reference cast. Promotes the v0.37 T3 extern-c `coerce_addr_of` path to a general surface so authors can spell `&x as *I32` outside an FFI call site. The inner types must unify (`&I32 as *U8` emits MT2027); pointer-to-integer round-trips are NOT allowed via `as`, use `unsafe { raw_ptr(addr) }` instead. `*const T` and `*mut T` collapse onto a single `TyData::Ref` shape at typeck (slice-1 simplification).
@@ -145,6 +159,7 @@ let x: I32 = 42;
 let p: *I32 = &x as *I32;
 ##end
 
+# concept-doc
 ##sym cast_invalid_mt2028
 ##sig MT2028 INVALID_CODEPOINT
 ##desc v0.39 T2 type-check error for a literal `Int as Char` cast whose value is outside the Unicode scalar value range (0..0x110000) or in the UTF-16 surrogate gap 0xD800..=0xDFFF. Mighty's `Char` is a Unicode scalar value; allowing an out-of-range literal would corrupt UTF-8 invariants when the value flowed into a String.
@@ -156,6 +171,7 @@ let bad1: Char = 0x110000 as Char; // ERROR
 let bad2: Char = 0xD800 as Char;   // ERROR
 ##end
 
+# concept-doc
 ##sym cast_ptr_to_usize
 ##sig *Ty as USize  (deferred — MT2027 today)
 ##desc Pointer↔integer round-tripping via the `as` surface is NOT accepted (MT2027). v0.39 T2's reference-cast rule (`&T as *T`, see cast_ref_to_ptr) stops at the pointer level on purpose. Use the existing `unsafe { raw_ptr(addr) }` builtin to bridge the integer→pointer side; the pointer→integer side is reserved for a future `unsafe { addr_of(p) }` builtin. This entry remains in the docstub stream so future tooling/tests can surface the gap; v0.40 may promote it to a working slot.
@@ -168,6 +184,7 @@ let bad2: Char = 0xD800 as Char;   // ERROR
 //   let p: *U8 = unsafe { raw_ptr(addr) };
 ##end
 
+# concept-doc
 ##sym cast_invalid_mt2027
 ##sig MT2027 INVALID_CAST
 ##desc Type-check error emitted when `expr as Ty` is not on the recognised scalar-conversion table. Example: `"hi" as I32`, `Vec[I32] as USize`, or `Bool as F64`.
@@ -188,6 +205,7 @@ let bad: Option[Char] = Char.from_u32(0xD800_u32); // None (surrogate)
 let safe: Char = Char.from_u32(v).unwrap_or('?');
 ##end
 
+# concept-doc
 ##sym cast_char_from_u32_runtime
 ##sig MIGRATION: non-literal `Int as Char` → `Char.from_u32(value)`
 ##desc v0.40 T3 migration note. The v0.39 T2 surface accepted any `Int as Char` cast and panicked at runtime on out-of-range values. v0.40 T3 rejects non-literal sources at typeck (MT2027 INVALID_CAST) — authors must spell `Char.from_u32(value)` which returns `Option[Char]`. Literal casts (`0x41 as Char`) still work and are still compile-time-checked against MT2028 INVALID_CODEPOINT.
@@ -200,6 +218,7 @@ let safe: Char = Char.from_u32(v).unwrap_or('?');
 let c: Char = Char.from_u32(v).unwrap_or('?');
 ##end
 
+# concept-doc
 ##sym char_from_u32_surrogate
 ##sig INVARIANT: 0xD800..=0xDFFF → None
 ##desc Surrogates (UTF-16 high/low surrogate halves) are NOT Unicode scalar values — they only have meaning as pairs in UTF-16 encoding, never as a standalone `Char`. `Char.from_u32` returns `None` for every value in `0xD800..=0xDFFF` even though they fit in a U32. Same rule the literal `Int as Char` cast applies as MT2028 INVALID_CODEPOINT.
@@ -211,6 +230,7 @@ assert_eq(Char.from_u32(0xD7FF).is_some(), true);  // last valid before gap
 assert_eq(Char.from_u32(0xE000).is_some(), true);  // first valid after gap
 ##end
 
+# concept-doc
 ##sym char_from_u32_value_range
 ##sig INVARIANT: value < 0x110000 (Unicode scalar value range)
 ##desc Unicode scalar values are exactly the codepoints in `0..0x110000` minus the surrogate gap. `Char.from_u32(0x110000)` returns `None`; higher values likewise. This matches the UCS / Unicode 15 definition and guards every downstream UTF-8 invariant when the `Char` flows into a `String`.

@@ -175,15 +175,6 @@ let idx = Index.new("./c").with_strategy(ChunkStrategy.BySection);
 let idx = Index.new("./c").with_strategy(ChunkStrategy.ByCodeFence);
 ##end
 
-##sym Chunker.default
-##sig fn Chunker.default() -> Chunker
-##desc Default chunker: `ByParagraph` strategy, 1024-token soft cap, 64-token overlap.
-##see Chunker.new, ChunkStrategy.ByParagraph, Index.with_strategy
-##example
-let ch = Chunker.default();
-let idx = Index.new("./c").with_chunker(ch);
-##end
-
 ##sym Retriever.new
 ##sig fn Retriever.new(index: &Index) -> Retriever
 ##desc Build a retrieval policy over `index`. Defaults: `top_k=5`, no score floor, MMR off.

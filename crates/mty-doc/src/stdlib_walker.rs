@@ -356,22 +356,17 @@ pub const EMBEDDED_DOCSTUBS: &[(&str, &str)] = &[
     ("web", include_str!("../../mty-stdlib/docs/web.docstub")),
     ("taint", include_str!("../../mty-stdlib/docs/taint.docstub")),
     // v0.38 T4 — new modules covering v0.37 surfaces + uncovered helpers.
+    // v0.41 T5 removed `collections`, `error`, `iter`, `process` —
+    // those modules were aspirational and never shipped a stdlib
+    // surface; the audit deleted every entry. See
+    // `docs/internals/stdlib-docs-pipeline.md` § "v0.41 T5".
     (
         "extern",
         include_str!("../../mty-stdlib/docs/extern.docstub"),
     ),
     ("cast", include_str!("../../mty-stdlib/docs/cast.docstub")),
-    (
-        "process",
-        include_str!("../../mty-stdlib/docs/process.docstub"),
-    ),
     ("io", include_str!("../../mty-stdlib/docs/io.docstub")),
     ("path", include_str!("../../mty-stdlib/docs/path.docstub")),
-    (
-        "collections",
-        include_str!("../../mty-stdlib/docs/collections.docstub"),
-    ),
-    ("iter", include_str!("../../mty-stdlib/docs/iter.docstub")),
     (
         "result",
         include_str!("../../mty-stdlib/docs/result.docstub"),
@@ -380,7 +375,6 @@ pub const EMBEDDED_DOCSTUBS: &[(&str, &str)] = &[
         "option",
         include_str!("../../mty-stdlib/docs/option.docstub"),
     ),
-    ("error", include_str!("../../mty-stdlib/docs/error.docstub")),
     // v0.39 T5 — v0.39 T1 stdlib surfaces.
     (
         "crypto",
