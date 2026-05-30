@@ -43,9 +43,12 @@ the type system:
 Pre-built binaries (Linux x86_64/aarch64, macOS arm64/x86_64,
 Windows x86_64) on the
 [Releases page](https://github.com/hassard0/Mighty/releases) —
-three platforms ship PGO-optimised via
-[`cargo-pgo`](https://github.com/Kobzol/cargo-pgo) (linux-x86_64,
-darwin-arm64, windows-x86_64). Or from source (MSRV: Rust 1.85):
+linux-x86_64 ships PGO-optimised via
+[`cargo-pgo`](https://github.com/Kobzol/cargo-pgo); darwin-arm64
+and windows-x86_64 ship the release profile (v0.38.1 disabled their
+PGO legs after cargo-pgo hit a toolchain-internal mismatch on darwin
+and produced empty profraws on Windows — v0.39 follow-up). Or from
+source (MSRV: Rust 1.85):
 
 ```bash
 git clone https://github.com/hassard0/Mighty && cd Mighty
@@ -144,8 +147,8 @@ mty run   src/main.mty
 - WASI Preview 2 default for `wasm32-wasi`; `std.fs` / `std.http` /
   `std.random` / `std.time` / `log()` emit direct versioned P2 imports
 - DWARF v5 with per-instruction line program (opt-in via `MTY_DWARF5=1`)
-- PGO + ThinLTO via `release-pgo` profile + cargo-pgo (CI) /
-  `scripts/build-pgo.{sh,ps1}` (local dev fallback)
+- PGO + ThinLTO via `release-pgo` profile + cargo-pgo on linux-x86_64
+  (CI); manual `scripts/build-pgo.{sh,ps1}` for local dev on every host
 - FFI — extern c signature matrix (all 12 documented shapes wired
   call-site direct: variadic *calls* with C ABI default promotions
   via per-call `ir::Signature` + `call_indirect` (v0.38 T2),

@@ -140,25 +140,22 @@ jobs:
             artifact: mty
             asset: mty-aarch64-apple-darwin.tar.gz
             use_cross: false
-            # v0.38 T1: PGO RE-ENABLED on darwin-arm64 via cargo-pgo.
+            # v0.38 T1: PGO migration to cargo-pgo did NOT fix the
+            # darwin-arm64 toolchain-internal mismatch. The v0.38.0
+            # release run hit the same raw=8 vs expected=10 error at
+            # the instrumented-binary runtime, this time surfaced as
+            # `LLVM Profile Error: Runtime and instrumentation version
+            # mismatch : expected 10, but get 8` per-example during
+            # the training-corpus step, leaving target/pgo-profiles
+            # empty for the optimise step. cargo-pgo can't help: it's
+            # the rustc emitting raw=8 vs the channel's runtime
+            # expecting raw=10. Both come from the same rustup-bundled
+            # toolchain. A future toolchain bump may fix this; until
+            # then darwin-arm64 ships the release profile.
             #
-            # The v0.37.0-v0.37.2 investigation pinned the failure
-            # mode: rustc 1.95.0 on aarch64-apple-darwin emits raw=8
-            # .profraw shards while the bundled llvm-profdata in the
-            # same toolchain channel expects raw=10. The manual
-            # `scripts/build-pgo.sh` could not work around an
-            # in-channel toolchain mismatch — every path-discovery
-            # tweak still landed on the wrong tool.
-            #
-            # cargo-pgo (https://github.com/Kobzol/cargo-pgo) wraps
-            # the entire PGO pipeline and auto-discovers an
-            # llvm-profdata that actually matches the rustc that
-            # wrote the .profraw shards. That closes the v0.37 loop
-            # without pinning a different rustc.
-            #
-            # 3/5 PGO platforms (linux-x86_64 + darwin-arm64 +
-            # windows-x86_64).
-            use_pgo: true
+            # v0.38.1 PGO matrix: 2/5 platforms (linux-x86_64 only;
+            # windows-x86_64 also disabled — see entry below).
+            use_pgo: false
           # v0.32 (Track D): aarch64 Linux for Raspberry Pi 5, AWS
           # Graviton, Ampere Altra, and Apple Silicon Linux VMs.
           # Cross-compiled from ubuntu-latest via the `cross` tool
@@ -178,11 +175,20 @@ jobs:
             artifact: mty.exe
             asset: mty-x86_64-pc-windows-msvc.zip
             use_cross: false
-            # v0.36 T5: PGO re-enabled (see linux-x86_64 entry for fix
-            # details). windows-x86_64 was a profile-format mismatch
-            # symptom of the stale `target/release-pgo` cache, fixed
-            # by Phase 0's wipe in build-pgo.ps1.
-            use_pgo: true
+            # v0.38 T1: PGO via cargo-pgo DISABLED on Windows for
+            # v0.38.1. The cargo-pgo training step exits cleanly but
+            # writes no .profraw shards to target/pgo-profiles, and
+            # the optimise step fails with `No profile files were
+            # found at D:\a\Mighty\Mighty\target\pgo-profiles`. The
+            # v0.37.3 ps1 script worked here; the cargo-pgo migration
+            # for windows-msvc is a v0.39 follow-up (likely needs an
+            # explicit profile-merge step on Windows or an MSVC-side
+            # LLVM-tools alignment that cargo-pgo isn't currently
+            # doing). windows-x86_64 ships the release profile in
+            # v0.38.1.
+            #
+            # v0.38.1 PGO matrix: 1/5 platforms (linux-x86_64 only).
+            use_pgo: false
     steps:
       - uses: actions/checkout@v4
         with:

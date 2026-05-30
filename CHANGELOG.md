@@ -12,6 +12,12 @@ For the full per-release notes, see
 v0.39 candidates (rolled up across the 4 v0.38 tracks + T6 +
 deferred T5 + L28 native-Vec follow-ups):
 
+- **T1 — cargo-pgo restoration** — investigate why cargo-pgo's
+  training-step writes no profraws on windows-msvc (v0.37.3 ps1
+  script worked there; cargo-pgo broke it); monitor upstream rustup
+  channels for a darwin-arm64 raw-version alignment; consider pinning
+  a specific rustc nightly that has the runtime/profdata aligned.
+  Target: get 3/5 PGO platforms back.
 - **T1 — cargo-pgo extension** — `darwin-x86_64` PGO via rosetta-host
   sniff; `linux-aarch64` PGO via qemu-user emulation; per-machine
   `.pgo-config` for cached path resolution on dev laptops.
@@ -54,22 +60,39 @@ The v1.0 freeze-gate is unchanged: 8 RFC comment windows opened
 2026-07-25 (RFC-002 + RFC-006). Proposed v1.0 freeze date
 2026-09-01; earliest tag 2026-07-26.
 
+## [0.38.1] - 2026-05-29
+
+### Fixed
+- **Disable darwin-arm64 + windows-x86_64 PGO after cargo-pgo
+  surfaces.** v0.38.0's Release run revealed cargo-pgo doesn't actually
+  fix darwin-arm64's `raw=8 vs expected=10` toolchain-internal mismatch
+  (cargo-pgo locates a profdata but rustc's runtime still emits the
+  wrong raw version — same bug as v0.37). Windows separately produces
+  no `.profraw` shards under cargo-pgo (training step exits clean, but
+  `target/pgo-profiles/` is empty at optimise time; v0.37.3's ps1
+  script worked). v0.38.1 disables both PGO legs and ships them with
+  the `release` profile; linux-x86_64 PGO via cargo-pgo still works.
+  v0.39 follow-up: cargo-pgo Windows-MSVC profile-write investigation.
+
 ## [0.38.0] - 2026-05-29
 
 ### Added — Finishing the PGO loop honestly
-- **T1 — cargo-pgo migration (3/5 PGO platforms).** Drop the in-tree
-  `scripts/build-pgo.{sh,ps1}` from the CI release pipeline in favour
-  of upstream [`cargo-pgo`](https://github.com/Kobzol/cargo-pgo)
-  0.2.9, which auto-discovers an `llvm-profdata` raw-version-compatible
-  with the rustc that emitted the `.profraw` shards. Closes the
-  v0.37 darwin-arm64 PGO bug where the within-channel profdata
-  expected raw=10 but the channel's rustc emitted raw=8. PGO matrix
-  now: `linux-x86_64` + `darwin-arm64` + `windows-x86_64` ON;
-  `linux-aarch64` + `darwin-x86_64` cross-compile legs OFF (no
-  representative workload). Manual `scripts/build-pgo.{sh,ps1}` stay
-  in the tree as the local-dev fallback. `scripts/tests/test-cargo-pgo-
-  availability.sh` gates: binary present + `cargo pgo --help` exits 0
-  + `llvm-profdata` major version matches `rustc` major version.
+- **T1 — cargo-pgo migration (1/5 PGO platforms after v0.38.1
+  contingency).** Drop the in-tree `scripts/build-pgo.{sh,ps1}` from
+  the CI release pipeline in favour of upstream
+  [`cargo-pgo`](https://github.com/Kobzol/cargo-pgo) 0.2.9. v0.38.0
+  attempted 3/5 PGO platforms (linux-x86_64 + darwin-arm64 +
+  windows-x86_64) but the release run revealed cargo-pgo doesn't
+  paper over the v0.37 darwin-arm64 toolchain-internal version
+  mismatch (rustc emits raw=8; the same channel's runtime expects
+  raw=10) and Windows produced no profraws at all. v0.38.1 retag
+  disabled darwin-arm64 + windows PGO; final PGO matrix is
+  **`linux-x86_64` ON** + `darwin-arm64` / `windows-x86_64` /
+  `linux-aarch64` (cross) / `darwin-x86_64` (cross) OFF. Manual
+  `scripts/build-pgo.{sh,ps1}` stay in the tree as the local-dev
+  fallback. `scripts/tests/test-cargo-pgo-availability.sh` gates:
+  binary present + `cargo pgo --help` exits 0 + `llvm-profdata` major
+  version matches `rustc` major version.
 - **T2 — Cranelift variadic-call codegen.** v0.37 T6 shipped the
   parse / typeck / decl half; v0.38 T2 lights up calls with extras.
   Build a per-call `ir::Signature` at every variadic call site,

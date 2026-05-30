@@ -405,3 +405,46 @@ deleted it.
 
 Tag SHA, CI workflow results, and release-asset list pasted into the
 final integrator report at the bottom of this v0.38.0 push session.
+
+## v0.38.1 — PGO contingency retag
+
+The v0.38.0 Release run revealed two PGO regressions vs T1's design
+intent:
+
+* **darwin-arm64 hit the EXACT same v0.37 bug.** cargo-pgo wraps the
+  pipeline but doesn't replace the rustc that emits the `.profraw`
+  shards or the runtime that writes them. On
+  `aarch64-apple-darwin` + rustc 1.95.0, the runtime emits raw=8
+  per-example (`LLVM Profile Error: Runtime and instrumentation
+  version mismatch : expected 10, but get 8`) and cargo-pgo's
+  optimise step sees an empty `target/pgo-profiles/`. cargo-pgo
+  cannot paper over a within-channel rustc⇄runtime mismatch — it's
+  the same toolchain emitting both ends.
+* **windows-x86_64 wrote no profraws.** The training step exits
+  clean (PowerShell `Out-Null` masks any binary failure), but
+  `target\pgo-profiles\` is empty at optimise time
+  (`No profile files were found at D:\a\Mighty\Mighty\target\pgo-profiles`).
+  v0.37.3's `scripts/build-pgo.ps1` worked. The cargo-pgo Windows-MSVC
+  profile-write path is a v0.39 follow-up — likely needs an explicit
+  profile-merge step (cargo-pgo's auto-merge may not be triggering on
+  MSVC) or an MSVC-side LLVM-tools alignment.
+
+**v0.38.1 contingency** (per the integrator mandate's documented
+contingency): set `use_pgo: false` on both darwin-arm64 and
+windows-x86_64, leave linux-x86_64 PGO enabled (it works), retag
+v0.38.1.
+
+Final PGO matrix:
+
+| Target                          | PGO | Notes                              |
+|---------------------------------|-----|------------------------------------|
+| `x86_64-unknown-linux-gnu`      | yes | cargo-pgo path works               |
+| `aarch64-unknown-linux-gnu`     | no  | cross-compile (no instr. exec)     |
+| `x86_64-apple-darwin`           | no  | x-arch (no instr. exec on arm host)|
+| `aarch64-apple-darwin`          | no  | v0.38.1: cargo-pgo didn't fix raw=8 mismatch |
+| `x86_64-pc-windows-msvc`        | no  | v0.38.1: cargo-pgo wrote no profraws |
+
+**1/5 PGO platforms** for v0.38.1. v0.39 backlog: investigate
+cargo-pgo's Windows-MSVC profile-write step, monitor upstream rustup
+channels for a darwin-arm64 raw-version fix, and consider pinning a
+specific rustc nightly that has the runtime/profdata aligned.
