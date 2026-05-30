@@ -35,9 +35,14 @@ pub fn lower_stmt(ctx: &mut LowerCtx, fb: &mut FnBuilder, s: &HirStmt) {
                 Some(e) => lower_expr(ctx, fb, *e),
                 None => Operand::Const(Const::Unit),
             };
+            // v0.39 T3: thread the init expression's TyId through so
+            // `bind_pat_assign` can resolve the binding's real type
+            // when one was inferred upstream (was `IrTy::Error` before,
+            // which lost `Vec[T]` info before reaching codegen).
+            let init_ty = init.map(|e| ctx.expr_ty(e));
             // Bind via the pattern. For the common case `let x = expr`,
             // pat is `Binding{ name: "x", sub: None }`.
-            bind_pat_assign(ctx, fb, *pat, init_op, *mutable, ty.is_some());
+            bind_pat_assign(ctx, fb, *pat, init_op, *mutable, ty.is_some(), init_ty);
         }
         HirStmt::Expr(e) => {
             let _ = lower_expr(ctx, fb, *e);
@@ -55,16 +60,39 @@ pub(crate) fn bind_pat_assign(
     rhs: Operand,
     mutable: bool,
     _annotated: bool,
+    init_ty: Option<mty_types::TyId>,
 ) {
     let p = ctx.pkg.pats[pat_id].clone();
     match p {
         HirPat::Binding { name, sub } => {
-            // Pick a slice-6 default type — we look up the rhs's type
-            // through the typed table when available. For statements we
-            // don't have an ExprId for the rhs after lowering, so use
-            // IrTy::Error and trust the interpreter's permissive
-            // Value enum.
-            let ty = IrTy::Error;
+            // v0.39 T3: pick up the init expression's inferred type
+            // *only* for ADTs that the codegen backend types-aware
+            // dispatch needs (currently `Vec[T]` for typed-slot
+            // storage). Everything else continues to default to
+            // `IrTy::Error` so the slice-6 aggregate-slot lazy-init
+            // path stays unchanged. Doing the full lower-ty here
+            // breaks the Str / String let-rebind path (the agg slot
+            // gets created mid-rebind and overwrites the source
+            // string-pair address).
+            let ty = match init_ty {
+                Some(tyid) => {
+                    let lowered = crate::lower::ty::lower_ty(tyid, &ctx.typed.ty_arena);
+                    if let IrTy::Adt(id, _) = &lowered {
+                        let is_vec = matches!(
+                            ctx.typed.def_map.lookup("Vec"),
+                            Some(mty_types::DefRef::Adt(a)) if a == *id
+                        );
+                        if is_vec {
+                            lowered
+                        } else {
+                            IrTy::Error
+                        }
+                    } else {
+                        IrTy::Error
+                    }
+                }
+                None => IrTy::Error,
+            };
             // v0.25 — propagate the per-fn `canvas_locals` taint across
             // let-binding. `let canvas = std.web.Canvas.new(W, H)`
             // lowers the rhs to a `Move(temp)` whose temp is already
@@ -87,7 +115,15 @@ pub(crate) fn bind_pat_assign(
             }
             fb.push_stmt(Stmt::Assign(Place::local(l), Rvalue::Use(rhs)));
             if let Some(sp) = sub {
-                bind_pat_assign(ctx, fb, sp, Operand::Copy(Place::local(l)), mutable, false);
+                bind_pat_assign(
+                    ctx,
+                    fb,
+                    sp,
+                    Operand::Copy(Place::local(l)),
+                    mutable,
+                    false,
+                    init_ty,
+                );
             }
         }
         HirPat::Wildcard => {
@@ -113,6 +149,7 @@ pub(crate) fn bind_pat_assign(
                     Operand::Move(Place::local(elt_temp)),
                     mutable,
                     false,
+                    None,
                 );
             }
         }

@@ -35,7 +35,7 @@ use crate::runtime_imports;
 use cranelift_codegen::ir::types as ct;
 use cranelift_codegen::ir::{
     AbiParam, Function as ClFunction, InstBuilder, MemFlags, Signature, SourceLoc, StackSlotData,
-    StackSlotKind, UserFuncName,
+    StackSlotKind, Type as ClType, UserFuncName,
 };
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
@@ -396,6 +396,12 @@ pub struct FnLower<'short, 'long, 'a, 'm, 'p, 'd, M: Module> {
     /// machine instruction; the `define_fn` post-pass reads them back
     /// out via `MachBufferFinalized::get_srclocs_sorted()`.
     pub debug: Option<&'d mut FnSrcLocMap>,
+    /// v0.39 T3: destination local's SIR type while lowering an Rvalue.
+    /// `lower_assign` sets this before calling `eval_rvalue` so the
+    /// `Vec.new()` builtin can read the element type out of the
+    /// destination's `IrTy::Adt(Vec, [T])` and seed the typed-slot
+    /// header. None outside an assign-rhs context.
+    pub current_dest_ty: Option<IrTy>,
 }
 
 impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p, 'd, M> {
@@ -415,6 +421,7 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
             blocks: HashMap::new(),
             agg_slots: HashMap::new(),
             debug,
+            current_dest_ty: None,
         })
     }
 
@@ -1173,7 +1180,12 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         if !place.proj.is_empty() {
             // Store through projection.
             let (addr, ty) = self.place_addr(place)?;
+            // v0.39 T3: scoped dest_ty so a Vec.new()-into-projection
+            // path still picks up the right element type.
+            let prev = self.current_dest_ty.take();
+            self.current_dest_ty = Some(ty.clone());
             let v = self.eval_rvalue(rv)?;
+            self.current_dest_ty = prev;
             self.store_scalar(addr, v, &ty)?;
             return Ok(());
         }
@@ -1199,7 +1211,13 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 }
             }
         }
+        // v0.39 T3: thread the destination local's SIR type into
+        // eval_rvalue so `Vec.new()` can pick the element type out of
+        // `Vec[T]` and seed the typed-slot header (`elem_size@24`).
+        let prev = self.current_dest_ty.take();
+        self.current_dest_ty = Some(local_ty.clone());
         let val = self.eval_rvalue(rv)?;
+        self.current_dest_ty = prev;
         let var = self.ensure_var(place.local);
         let want = if is_aggregate(&local_ty) {
             ct::I64
@@ -1609,8 +1627,10 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 //      element storage directly.
                 // We pick the base accordingly: for the Vec shape we must
                 // first load `data` from `header+16`; for arrays the base
-                // is the address itself. v0.38 (L28 fix) extends the
-                // slice-8 best-effort path to the real Vec layout.
+                // is the address itself. v0.39 T3: typed-slot — pick the
+                // element width from `Vec[T]` / array element type so a
+                // Vec[U8] index read returns 1 byte (zero-extended), not
+                // 8 bytes off-the-end of the data buffer.
                 let recv_ty = self.f.locals[receiver.local.0 as usize].ty.clone();
                 let base_raw = {
                     let var = self.ensure_var(receiver.local);
@@ -1618,18 +1638,28 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 };
                 let base_ptr = self.coerce_to(base_raw, ct::I64);
                 let mf = cranelift_codegen::ir::MemFlags::trusted();
-                let data = if is_aggregate(&recv_ty) {
+                let (data, elem_ty) = if is_aggregate(&recv_ty) {
                     // Fixed array: storage is at the slot address.
-                    base_ptr
+                    let et = match &recv_ty {
+                        IrTy::Array { elem, .. } => Some((**elem).clone()),
+                        _ => None,
+                    };
+                    (base_ptr, et)
                 } else {
                     // Native Vec: load the data pointer from the header.
-                    self.b.ins().load(ct::I64, mf, base_ptr, Self::VEC_DATA_OFF)
+                    let d = self.b.ins().load(ct::I64, mf, base_ptr, Self::VEC_DATA_OFF);
+                    (d, self.vec_elem_ty_from(&recv_ty))
                 };
+                let elem_size = elem_ty
+                    .as_ref()
+                    .map(|t| self.vec_elem_size_for(t))
+                    .unwrap_or(Self::VEC_FALLBACK_ELEM_SIZE);
+                let lds = elem_ty.as_ref().and_then(|t| self.vec_elem_ld_st(t));
                 let idx = self.eval_operand(index)?;
                 let idx_i64 = self.coerce_to(idx, ct::I64);
-                let off = self.b.ins().imul_imm(idx_i64, Self::VEC_ELEM_SIZE);
+                let off = self.b.ins().imul_imm(idx_i64, elem_size);
                 let addr = self.b.ins().iadd(data, off);
-                Ok(self.b.ins().load(ct::I64, mf, addr, 0))
+                Ok(self.vec_load_elem(addr, elem_size, lds))
             }
             Rvalue::MethodCall {
                 receiver,
@@ -1646,6 +1676,7 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                     "push" => return self.emit_vec_push(receiver, args),
                     "len" => return self.emit_vec_len(receiver),
                     "get" => return self.emit_vec_get(receiver, args),
+                    "set" => return self.emit_vec_set(receiver, args),
                     "pop" => return self.emit_vec_pop(receiver),
                     "clear" => return self.emit_vec_clear(receiver),
                     _ => {}
@@ -2475,11 +2506,36 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
     // live prefix; the old buffer is leaked into the arena (freed when
     // the arena frame pops). The arena allocator already backs every
     // native build, so no new runtime symbol is required.
-    const VEC_LEN_OFF: i32 = 0;
-    const VEC_CAP_OFF: i32 = 8;
-    const VEC_DATA_OFF: i32 = 16;
-    const VEC_HEADER_SIZE: i64 = 24;
-    const VEC_ELEM_SIZE: i64 = 8;
+    // v0.39 T3 — typed-slot Vec header v2 (32 bytes):
+    //   off  0 : len       (i64) — element count
+    //   off  8 : cap       (i64) — capacity in elements
+    //   off 16 : data      (i64) — pointer to `cap * elem_size` bytes
+    //   off 24 : elem_size (i64) — size in bytes of one element slot
+    //
+    // The element type is statically known at codegen time (it's the
+    // `T` in the receiver's `Vec[T]` or the destination's). We still
+    // store elem_size in the header so:
+    //   (a) the runtime grow loop can copy the live prefix without
+    //       re-deriving size at codegen time, and
+    //   (b) future migration tooling can detect v1 vs v2 layout from
+    //       a serialized image (v1 has data@16 + 8-byte slots, no
+    //       elem_size word; see `VEC_HEADER_V2` constant + RELEASE
+    //       notes for the v0.39 layout pivot).
+    pub const VEC_LEN_OFF: i32 = 0;
+    pub const VEC_CAP_OFF: i32 = 8;
+    pub const VEC_DATA_OFF: i32 = 16;
+    pub const VEC_ELEM_SIZE_OFF: i32 = 24;
+    pub const VEC_HEADER_SIZE: i64 = 32;
+    /// Marker constant for v0.39 header layout (`{len, cap, data,
+    /// elem_size}`). Bumped from the v0.38 layout (24-byte header, no
+    /// elem_size word). Migration tooling can read this to gate v1→v2
+    /// upgrades for serialized Vec values.
+    pub const VEC_HEADER_V2: u32 = 2;
+    /// Default element-slot width when the element type is unknown to
+    /// the lowerer (e.g. an `IrTy::Error` Vec local from a partly
+    /// type-checked snippet). Picked as i64 for backward compat with
+    /// the v0.38 8-byte-slot behavior.
+    const VEC_FALLBACK_ELEM_SIZE: i64 = 8;
 
     /// Allocate `size` bytes (align 8) from the runtime arena, returning
     /// the i64 pointer (0 on OOM, matching the runtime contract).
@@ -2493,15 +2549,142 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         Ok(r.unwrap_or_else(|| self.b.ins().iconst(ct::I64, 0)))
     }
 
-    /// `Vec.new()` — allocate a zeroed header (len=0, cap=0, data=null).
+    /// v0.39 T3: pull the element type `T` out of a `Vec[T]` SIR type
+    /// (the Vec ADT is registered in `mty-types::prelude` with a single
+    /// generic parameter). Returns None for non-Vec / no-generics
+    /// inputs — callers fall back to the 8-byte slot size.
+    fn vec_elem_ty_from(&self, t: &IrTy) -> Option<IrTy> {
+        // We can't carry the prelude AdtId down here, but the `Adt`
+        // node carries the type-args list directly. Match the name in
+        // the ADT catalog to avoid mis-typing a non-Vec opaque ADT.
+        if let IrTy::Adt(id, args) = t {
+            let name = self.prog.adt_by_id(*id).map(|a| a.name.as_str());
+            if name == Some("Vec") {
+                if let Some(elem) = args.first() {
+                    return Some(elem.clone());
+                }
+            }
+        }
+        None
+    }
+
+    /// v0.39 T3: statically pick a slot width for a Vec element type.
+    /// Mirrors `field_load_ty` widths but always yields a byte count
+    /// (1/2/4/8) for scalars and the layout size for aggregates.
+    /// Falls back to 8 for unresolved types so a `Vec[{error}]` keeps
+    /// the v0.38 8-byte slot behavior.
+    fn vec_elem_size_for(&self, elem_ty: &IrTy) -> i64 {
+        use IrTy::*;
+        match elem_ty {
+            Bool => 1,
+            Int(k) => match k {
+                IntKind::I8 | IntKind::U8 => 1,
+                IntKind::I16 | IntKind::U16 => 2,
+                IntKind::I32 | IntKind::U32 | IntKind::IntInfer => 4,
+                IntKind::I64 | IntKind::U64 | IntKind::ISize | IntKind::USize => 8,
+                IntKind::I128 | IntKind::U128 => 16,
+            },
+            Float(k) => match k {
+                mty_types::FloatKind::F32 => 4,
+                mty_types::FloatKind::F64 | mty_types::FloatKind::FloatInfer => 8,
+            },
+            Char => 4,
+            Duration | Size => 8,
+            Ref { .. } | RawPtr(_) | Cap { .. } | Fn { .. } => 8,
+            Tuple(_) | Array { .. } | Adt(_, _) | Str | String | Bytes => {
+                type_size(elem_ty, &self.prog.adts) as i64
+            }
+            Error | Param(_) | Module(_) | Unit | Never | Dyn(_) => Self::VEC_FALLBACK_ELEM_SIZE,
+        }
+    }
+
+    /// v0.39 T3: cranelift load/store width for a scalar element type
+    /// plus a sign/zero-extension flag for narrow-int reads. Returns
+    /// None when the element is an aggregate (caller must memcpy).
+    fn vec_elem_ld_st(&self, elem_ty: &IrTy) -> Option<(ClType, bool)> {
+        use IrTy::*;
+        Some(match elem_ty {
+            Bool => (ct::I8, false),
+            Int(k) => match k {
+                IntKind::I8 => (ct::I8, true),
+                IntKind::U8 => (ct::I8, false),
+                IntKind::I16 => (ct::I16, true),
+                IntKind::U16 => (ct::I16, false),
+                IntKind::I32 | IntKind::IntInfer => (ct::I32, true),
+                IntKind::U32 => (ct::I32, false),
+                IntKind::I64 | IntKind::ISize => (ct::I64, true),
+                IntKind::U64 | IntKind::USize => (ct::I64, false),
+                IntKind::I128 | IntKind::U128 => return None,
+            },
+            Float(k) => match k {
+                mty_types::FloatKind::F32 => (ct::F32, false),
+                mty_types::FloatKind::F64 | mty_types::FloatKind::FloatInfer => (ct::F64, false),
+            },
+            Char => (ct::I32, false),
+            Duration | Size => (ct::I64, false),
+            Ref { .. } | RawPtr(_) | Cap { .. } | Fn { .. } => (ct::I64, false),
+            Error | Param(_) | Module(_) | Dyn(_) | Unit | Never => (ct::I64, false),
+            Tuple(_) | Array { .. } | Adt(_, _) | Str | String | Bytes => return None,
+        })
+    }
+
+    /// Convenience: pull `T` out of the receiver operand's local type
+    /// and pick its element size + cranelift load width. Falls back to
+    /// `(8, i64, false)` when the type information is missing.
+    fn vec_elem_info(&self, receiver: &Operand) -> (i64, Option<(ClType, bool)>, Option<IrTy>) {
+        let recv_ty = match receiver {
+            Operand::Copy(p) | Operand::Move(p) => {
+                Some(self.f.locals[p.local.0 as usize].ty.clone())
+            }
+            Operand::Const(_) => None,
+        };
+        // v0.39 T3: the SIR lowerer types the MethodCall result temp
+        // as `IrTy::Error` (see `lower_expr` MethodCall arm in
+        // mty-ir/src/lower/exprs.rs), and the receiver of the next
+        // iteration's `v = v.push(x)` carries that same Error type
+        // forward. So `recv_ty` is usually `Some(Error)`. Fall back
+        // to `current_dest_ty` (the type of the *destination* of the
+        // current assignment), which still has `Vec[T]` for the user-
+        // declared `let mut v: Vec[T] = Vec.new()`.
+        let elem_ty = recv_ty
+            .as_ref()
+            .and_then(|t| self.vec_elem_ty_from(t))
+            .or_else(|| {
+                self.current_dest_ty
+                    .as_ref()
+                    .and_then(|t| self.vec_elem_ty_from(t))
+            });
+        let size = elem_ty
+            .as_ref()
+            .map(|t| self.vec_elem_size_for(t))
+            .unwrap_or(Self::VEC_FALLBACK_ELEM_SIZE);
+        let lds = elem_ty.as_ref().and_then(|t| self.vec_elem_ld_st(t));
+        (size, lds, elem_ty)
+    }
+
+    /// `Vec.new()` — allocate a zeroed header (len=0, cap=0, data=null,
+    /// elem_size=T-sized). The destination local's `Vec[T]` carries `T`;
+    /// caller sets `self.current_dest_ty` before invoking eval_rvalue.
     fn emit_vec_new(&mut self) -> CompileResult<cranelift_codegen::ir::Value> {
+        // Pull element size from the destination's `Vec[T]` type. When
+        // that's unavailable (e.g. dead-store with poisoned typeck),
+        // we fall back to the v0.38 8-byte slot.
+        let elem_size = self
+            .current_dest_ty
+            .clone()
+            .as_ref()
+            .and_then(|t| self.vec_elem_ty_from(t))
+            .map(|t| self.vec_elem_size_for(&t))
+            .unwrap_or(Self::VEC_FALLBACK_ELEM_SIZE);
         let hsize = self.b.ins().iconst(ct::I64, Self::VEC_HEADER_SIZE);
         let hdr = self.rt_alloc(hsize)?;
         let zero = self.b.ins().iconst(ct::I64, 0);
+        let esz = self.b.ins().iconst(ct::I64, elem_size);
         let mf = MemFlags::trusted();
         self.b.ins().store(mf, zero, hdr, Self::VEC_LEN_OFF);
         self.b.ins().store(mf, zero, hdr, Self::VEC_CAP_OFF);
         self.b.ins().store(mf, zero, hdr, Self::VEC_DATA_OFF);
+        self.b.ins().store(mf, esz, hdr, Self::VEC_ELEM_SIZE_OFF);
         Ok(hdr)
     }
 
@@ -2511,15 +2694,116 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         Ok(self.coerce_to(v, ct::I64))
     }
 
+    /// Store one element value into a Vec data slot.
+    /// - For scalars we use the typed cranelift load/store width so a
+    ///   Vec[U8] really only writes one byte.
+    /// - For aggregates (size > 8) we memcpy `elem_size` bytes from the
+    ///   value's slot address.
+    /// - When the element type is unknown we fall back to the v0.38
+    ///   i64-store path (8-byte slot).
+    fn vec_store_elem(
+        &mut self,
+        slot: cranelift_codegen::ir::Value,
+        val: cranelift_codegen::ir::Value,
+        elem_size: i64,
+        lds: Option<(ClType, bool)>,
+        elem_ty: Option<&IrTy>,
+    ) {
+        let mf = MemFlags::trusted();
+        if let Some((cty, _signed)) = lds {
+            // Scalar slot: coerce the source to the slot's cl type
+            // (handles I64 → I8 narrows via ireduce) then store.
+            let narrowed = self.coerce_to(val, cty);
+            self.b.ins().store(mf, narrowed, slot, 0);
+            return;
+        }
+        // Aggregate slot: val is the source aggregate's address.
+        // Copy elem_size bytes byte-granularly.
+        let _ = elem_ty;
+        self.memcpy_bytes(slot, val, elem_size as u32);
+    }
+
+    /// Load one element value from a Vec data slot.
+    /// - Scalar: typed load with sign/zero extend to i64.
+    /// - Aggregate: caller is responsible for the memcpy into a fresh
+    ///   slot; we return the slot pointer as i64. (None case stays
+    ///   compatible with `Rvalue::IndexRead` which historically loaded
+    ///   an i64 word.)
+    fn vec_load_elem(
+        &mut self,
+        slot: cranelift_codegen::ir::Value,
+        elem_size: i64,
+        lds: Option<(ClType, bool)>,
+    ) -> cranelift_codegen::ir::Value {
+        let mf = MemFlags::trusted();
+        if let Some((cty, signed)) = lds {
+            let raw = self.b.ins().load(cty, mf, slot, 0);
+            // Sign- or zero-extend narrow ints up to i64 for downstream
+            // consumers (BinOp / coerce paths expect i64 by default).
+            if cty == ct::I8 || cty == ct::I16 || cty == ct::I32 {
+                if signed {
+                    return self.b.ins().sextend(ct::I64, raw);
+                }
+                return self.b.ins().uextend(ct::I64, raw);
+            }
+            return raw;
+        }
+        // Aggregate: hand back the slot pointer; copying is the
+        // caller's job. (matches the v0.38 8-byte path's contract.)
+        let _ = elem_size;
+        slot
+    }
+
+    /// Trap-on-out-of-range bounds check: if `idx >= len`, emit a
+    /// `mty_runtime_panic` call with a fixed-message ptr then a hard
+    /// trap (TrapCode::user(5)). Used by `get` and `set`.
+    ///
+    /// v0.39 T3 — the panic stub in the production runtime exits the
+    /// process. We follow it with a `trap` so the cranelift verifier
+    /// sees the OOB block as terminal even if a stub returns. Tests
+    /// that want to observe the panic before the trap fires should
+    /// spawn a subprocess and assert non-zero exit.
+    fn vec_bounds_check(
+        &mut self,
+        idx: cranelift_codegen::ir::Value,
+        len: cranelift_codegen::ir::Value,
+    ) -> CompileResult<()> {
+        let oob = self.b.create_block();
+        let ok = self.b.create_block();
+        let is_oob = self.b.ins().icmp(
+            cranelift_codegen::ir::condcodes::IntCC::UnsignedGreaterThanOrEqual,
+            idx,
+            len,
+        );
+        self.b.ins().brif(is_oob, oob, &[], ok, &[]);
+        self.b.switch_to_block(oob);
+        self.b.seal_block(oob);
+        let id = self.mod_ctx.intern_string("Vec index out of bounds")?;
+        let gv = self.mod_ctx.module.declare_data_in_func(id, self.b.func);
+        let nptr = self.b.ins().symbol_value(ct::I64, gv);
+        let nlen = self.b.ins().iconst(ct::I64, 23);
+        let _ = self.call_rt("mty_runtime_panic", &[nptr, nlen], None)?;
+        self.b
+            .ins()
+            .trap(cranelift_codegen::ir::TrapCode::user(5).unwrap());
+        self.b.switch_to_block(ok);
+        self.b.seal_block(ok);
+        Ok(())
+    }
+
     /// `v.push(x)` — ensure capacity (growing if `len == cap`), store the
     /// element at `data[len]`, bump `len`, and return the (unchanged)
     /// header pointer so the capture-rebind keeps the same Vec.
+    ///
+    /// v0.39 T3: typed-slot — picks store width from receiver's `T`,
+    /// and grow-loop sizes/copies by `elem_size@24` from the header.
     fn emit_vec_push(
         &mut self,
         receiver: &Operand,
         args: &[Operand],
     ) -> CompileResult<cranelift_codegen::ir::Value> {
         let mf = MemFlags::trusted();
+        let (elem_size, lds, elem_ty) = self.vec_elem_info(receiver);
         let hdr = self.vec_header(receiver)?;
         let len = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_LEN_OFF);
         let cap = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_CAP_OFF);
@@ -2546,12 +2830,14 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
             four,
         );
         let new_cap = self.b.ins().select(cap_is_small, four, two_cap);
-        let new_bytes = self.b.ins().imul_imm(new_cap, Self::VEC_ELEM_SIZE);
+        let new_bytes = self.b.ins().imul_imm(new_cap, elem_size);
         let new_data = self.rt_alloc(new_bytes)?;
         let old_data = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_DATA_OFF);
-        // memcpy the live prefix (len * 8 bytes) old_data -> new_data.
-        let copy_bytes = self.b.ins().imul_imm(len, Self::VEC_ELEM_SIZE);
-        self.emit_memcpy_dynamic(new_data, old_data, copy_bytes);
+        // memcpy the live prefix (len * elem_size bytes) old → new. The
+        // byte-granular memcpy keeps Vec[U8] correct (no 8-byte
+        // overshoot off the end of the data buffer).
+        let copy_bytes = self.b.ins().imul_imm(len, elem_size);
+        self.emit_memcpy_dynamic_bytes(new_data, old_data, copy_bytes);
         self.b.ins().store(mf, new_cap, hdr, Self::VEC_CAP_OFF);
         self.b.ins().store(mf, new_data, hdr, Self::VEC_DATA_OFF);
         self.b.ins().jump(cont_block, &[]);
@@ -2561,15 +2847,17 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         self.b.seal_block(cont_block);
         // Reload data (it may have changed in grow_block); len unchanged.
         let data = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_DATA_OFF);
-        let elem = if let Some(a) = args.first() {
-            let raw = self.eval_operand(a)?;
-            self.coerce_to(raw, ct::I64)
+        // The element source value: for scalars, the raw i64 value.
+        // For aggregates, the address (eval_operand returns the slot
+        // address when the type is_aggregate).
+        let raw = if let Some(a) = args.first() {
+            self.eval_operand(a)?
         } else {
             self.b.ins().iconst(ct::I64, 0)
         };
-        let byte_off = self.b.ins().imul_imm(len, Self::VEC_ELEM_SIZE);
+        let byte_off = self.b.ins().imul_imm(len, elem_size);
         let slot = self.b.ins().iadd(data, byte_off);
-        self.b.ins().store(mf, elem, slot, 0);
+        self.vec_store_elem(slot, raw, elem_size, lds, elem_ty.as_ref());
         let new_len = self.b.ins().iadd_imm(len, 1);
         self.b.ins().store(mf, new_len, hdr, Self::VEC_LEN_OFF);
         Ok(hdr)
@@ -2584,17 +2872,21 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
             .load(ct::I64, MemFlags::trusted(), hdr, Self::VEC_LEN_OFF))
     }
 
-    /// `v.get(i)` — bounds-unchecked element load (slice-8 best effort).
-    /// Returns the i64 element. Out-of-range indices read past the live
-    /// prefix; the typed read path that consumes the result is expected
-    /// to keep `i < len`.
+    /// `v.get(i)` — bounds-checked element load. Out-of-range indices
+    /// trigger a runtime panic + MT5xxx trap (TrapCode::user(5)).
+    ///
+    /// v0.39 T3: typed slot — width and sign-extension are picked from
+    /// the receiver's element type. Vec[U8] reads 1 byte and
+    /// zero-extends; Vec[I32] reads 4 bytes and sign-extends; etc.
     fn emit_vec_get(
         &mut self,
         receiver: &Operand,
         args: &[Operand],
     ) -> CompileResult<cranelift_codegen::ir::Value> {
         let mf = MemFlags::trusted();
+        let (elem_size, lds, _elem_ty) = self.vec_elem_info(receiver);
         let hdr = self.vec_header(receiver)?;
+        let len = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_LEN_OFF);
         let data = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_DATA_OFF);
         let idx = if let Some(a) = args.first() {
             let raw = self.eval_operand(a)?;
@@ -2602,31 +2894,97 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         } else {
             self.b.ins().iconst(ct::I64, 0)
         };
-        let byte_off = self.b.ins().imul_imm(idx, Self::VEC_ELEM_SIZE);
+        self.vec_bounds_check(idx, len)?;
+        let byte_off = self.b.ins().imul_imm(idx, elem_size);
         let slot = self.b.ins().iadd(data, byte_off);
-        Ok(self.b.ins().load(ct::I64, mf, slot, 0))
+        Ok(self.vec_load_elem(slot, elem_size, lds))
+    }
+
+    /// `v.set(i, x)` — bounds-checked element store. v0.39 T3 surface;
+    /// previously the only mutation path was `v[i] = x` lowering to a
+    /// store-through-projection, which the v0.38 code didn't wire.
+    fn emit_vec_set(
+        &mut self,
+        receiver: &Operand,
+        args: &[Operand],
+    ) -> CompileResult<cranelift_codegen::ir::Value> {
+        let mf = MemFlags::trusted();
+        let (elem_size, lds, elem_ty) = self.vec_elem_info(receiver);
+        let hdr = self.vec_header(receiver)?;
+        let len = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_LEN_OFF);
+        let data = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_DATA_OFF);
+        let idx = if let Some(a) = args.first() {
+            let raw = self.eval_operand(a)?;
+            self.coerce_to(raw, ct::I64)
+        } else {
+            self.b.ins().iconst(ct::I64, 0)
+        };
+        self.vec_bounds_check(idx, len)?;
+        let val = if let Some(a) = args.get(1) {
+            self.eval_operand(a)?
+        } else {
+            self.b.ins().iconst(ct::I64, 0)
+        };
+        let byte_off = self.b.ins().imul_imm(idx, elem_size);
+        let slot = self.b.ins().iadd(data, byte_off);
+        self.vec_store_elem(slot, val, elem_size, lds, elem_ty.as_ref());
+        Ok(hdr)
     }
 
     /// `v.pop()` — decrement len (saturating at 0) and return the
     /// previously-last element. Returns 0 when empty.
+    ///
+    /// v0.39 T3: guard the load behind a real branch (not a select).
+    /// `Vec.new()` initialises `data` to null; a select-based load
+    /// would still dereference null when `len == 0`, segfaulting on
+    /// `let v: Vec[U8] = Vec.new(); v.pop()`. The new shape only loads
+    /// from `data + new_len * elem_size` on the non-empty arm.
     fn emit_vec_pop(&mut self, receiver: &Operand) -> CompileResult<cranelift_codegen::ir::Value> {
         let mf = MemFlags::trusted();
+        let (elem_size, lds, _elem_ty) = self.vec_elem_info(receiver);
         let hdr = self.vec_header(receiver)?;
         let len = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_LEN_OFF);
         let zero = self.b.ins().iconst(ct::I64, 0);
+
+        // result_var: holds the popped value (or 0 on empty). Seeded
+        // in both arms via def_var so cranelift's SSA construction
+        // sees a definition on every path to the join.
+        let result_var = self.b.declare_var(ct::I64);
+        let empty_block = self.b.create_block();
+        let pop_block = self.b.create_block();
+        let join_block = self.b.create_block();
+
         let is_empty = self
             .b
             .ins()
             .icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, len, zero);
-        // new_len = max(len - 1, 0); idx = new_len.
-        let dec = self.b.ins().iadd_imm(len, -1);
-        let new_len = self.b.ins().select(is_empty, zero, dec);
+        self.b
+            .ins()
+            .brif(is_empty, empty_block, &[], pop_block, &[]);
+
+        // --- empty_block: return 0, don't touch len/data ---
+        self.b.switch_to_block(empty_block);
+        self.b.seal_block(empty_block);
+        self.b.def_var(result_var, zero);
+        self.b.ins().jump(join_block, &[]);
+
+        // --- pop_block: decrement len, load tail element ---
+        self.b.switch_to_block(pop_block);
+        self.b.seal_block(pop_block);
+        let new_len = self.b.ins().iadd_imm(len, -1);
         self.b.ins().store(mf, new_len, hdr, Self::VEC_LEN_OFF);
         let data = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_DATA_OFF);
-        let byte_off = self.b.ins().imul_imm(new_len, Self::VEC_ELEM_SIZE);
+        let byte_off = self.b.ins().imul_imm(new_len, elem_size);
         let slot = self.b.ins().iadd(data, byte_off);
-        let elem = self.b.ins().load(ct::I64, mf, slot, 0);
-        Ok(self.b.ins().select(is_empty, zero, elem))
+        let elem = self.vec_load_elem(slot, elem_size, lds);
+        let elem_i64 = self.coerce_to(elem, ct::I64);
+        self.b.def_var(result_var, elem_i64);
+        self.b.ins().jump(join_block, &[]);
+
+        // --- join ---
+        self.b.switch_to_block(join_block);
+        self.b.seal_block(join_block);
+        Ok(self.b.use_var(result_var))
     }
 
     /// `v.clear()` — reset len to 0 (keeps the allocation). Returns the
@@ -2643,18 +3001,20 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         Ok(hdr)
     }
 
-    /// Copy `nbytes` (a runtime i64) from `src` to `dst`, 8 bytes at a
-    /// time then a 1-byte tail. Used by Vec growth; `nbytes` is always a
-    /// multiple of 8 there, but the tail loop keeps it total.
-    fn emit_memcpy_dynamic(
+    /// v0.39 T3: byte-granular dynamic memcpy. Used by Vec growth so
+    /// non-multiple-of-8 sizes (e.g. Vec[U8] with 5 elements) don't
+    /// overshoot the source/dest buffers. Loops one byte at a time —
+    /// fine for the small-vec sizes Vec growth re-copies (typeck
+    /// already vetoes Vec[T] where T is large in tight loops, and the
+    /// existing 8-byte loop assumed 8-byte slots which is no longer
+    /// guaranteed in v0.39).
+    fn emit_memcpy_dynamic_bytes(
         &mut self,
         dst: cranelift_codegen::ir::Value,
         src: cranelift_codegen::ir::Value,
         nbytes: cranelift_codegen::ir::Value,
     ) {
         let mf = MemFlags::trusted();
-        // Loop offset carried in a fresh cranelift Variable (avoids the
-        // BlockArg plumbing the brif/jump arg API otherwise needs).
         let off_var = self.b.declare_var(ct::I64);
         let zero = self.b.ins().iconst(ct::I64, 0);
         self.b.def_var(off_var, zero);
@@ -2677,9 +3037,9 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         let off_b = self.b.use_var(off_var);
         let sptr = self.b.ins().iadd(src, off_b);
         let dptr = self.b.ins().iadd(dst, off_b);
-        let word = self.b.ins().load(ct::I64, mf, sptr, 0);
-        self.b.ins().store(mf, word, dptr, 0);
-        let next = self.b.ins().iadd_imm(off_b, 8);
+        let byte = self.b.ins().load(ct::I8, mf, sptr, 0);
+        self.b.ins().store(mf, byte, dptr, 0);
+        let next = self.b.ins().iadd_imm(off_b, 1);
         self.b.def_var(off_var, next);
         self.b.ins().jump(header, &[]);
 
