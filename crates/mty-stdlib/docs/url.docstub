@@ -1,0 +1,57 @@
+##module url
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym std.url.parse
+##sig fn std.url.parse(s: Str) -> Result[Url, UrlErr]
+##desc Parse a URL string into named fields. RFC 3986 / WHATWG.
+##see std.url.Url, std.url.Url.builder
+##example
+let u = std.url.parse("https://example.com/path?q=hello world")?;
+log("host={}, query={}", u.host, u.query);
+##end
+
+##sym std.url.Url
+##sig struct std.url.Url { scheme: Str, username: Str, password: Str, host: Str, port: Option[U16], path: Str, query: Str, fragment: Str }
+##desc Parsed URL components. Empty `Str` fields signal "absent" (avoids `Option` unwrap noise).
+##see std.url.parse, std.url.Url.builder
+##example
+let u = std.url.parse("https://api.example.com:8443/v1?q=hi")?;
+assert_eq(u.scheme, "https");
+assert_eq(u.port, Some(8443));
+##end
+
+##sym std.url.Url.builder
+##sig fn std.url.Url.builder(scheme: Str) -> UrlBuilder
+##desc Start a fluent URL builder. Chain `.host()` / `.port()` / `.path()` / `.query_param()` / `.fragment()` / `.build()`.
+##see std.url.Url
+##example
+let u = std.url.Url.builder("https")
+  .host("api.example.com")
+  .path("/v1/search")
+  .query_param("q", "hello world")
+  .build()?;
+##end
+
+##sym std.url.percent_encode
+##sig fn std.url.percent_encode(s: Str) -> Str
+##desc Percent-encode `s` per RFC 3986. Unreserved chars + `/` pass through; everything else becomes `%HH`.
+##see std.url.percent_encode_component, std.url.percent_decode
+##example
+let enc = std.url.percent_encode("hello world");  // "hello%20world"
+##end
+
+##sym std.url.percent_encode_component
+##sig fn std.url.percent_encode_component(s: Str) -> Str
+##desc Like `percent_encode` but also encodes `/`. Use for single path/query components.
+##see std.url.percent_encode
+##example
+let enc = std.url.percent_encode_component("a/b&c=d");  // "a%2Fb%26c%3Dd"
+##end
+
+##sym std.url.percent_decode
+##sig fn std.url.percent_decode(s: Str) -> Option[Str]
+##desc Decode percent-escaped string. Returns `None` on malformed `%XX` triples.
+##see std.url.percent_encode
+##example
+let s = std.url.percent_decode("hello%20world")?;  // "hello world"
+##end

@@ -45,6 +45,8 @@
 //!   `host_std` to dispatch `std.*` generic calls.
 
 pub mod computer;
+pub mod crypto;
+pub mod encoding;
 pub mod env;
 pub mod eval;
 pub mod fmt;
@@ -65,5 +67,7 @@ pub mod swarm;
 pub mod test;
 pub mod time;
 pub mod tls;
+pub mod url;
+pub mod uuid;
 pub mod vec;
 pub mod web;

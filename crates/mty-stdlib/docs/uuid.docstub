@@ -1,0 +1,68 @@
+##module uuid
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym std.uuid.Uuid
+##sig struct std.uuid.Uuid { bytes: [U8; 16] }
+##desc 128-bit UUID per RFC 9562. Big-endian byte layout regardless of host.
+##see std.uuid.Uuid.v4, std.uuid.Uuid.v7, std.uuid.Uuid.parse
+##example
+let id = std.uuid.Uuid.v4()?;
+let s = id.to_string();
+##end
+
+##sym std.uuid.Uuid.v4
+##sig fn std.uuid.Uuid.v4() -> Result[Uuid, UuidErr]
+##desc Generate a random version-4 UUID. 122 bits of entropy. Requires `crypto.rand`.
+##see std.uuid.Uuid.v7
+##example
+let id = std.uuid.Uuid.v4()?;  // "550e8400-e29b-41d4-a716-446655440000"
+##end
+
+##sym std.uuid.Uuid.v7
+##sig fn std.uuid.Uuid.v7() -> Result[Uuid, UuidErr]
+##desc Generate a time-ordered version-7 UUID. 48-bit ms timestamp + 74 bits entropy. Sorts lexicographically by creation time. Preferred for DB primary keys.
+##see std.uuid.Uuid.v4
+##example
+let pk = std.uuid.Uuid.v7()?;  // sortable by creation order
+##end
+
+##sym std.uuid.Uuid.parse
+##sig fn std.uuid.Uuid.parse(s: Str) -> Result[Uuid, UuidErr]
+##desc Parse the canonical hyphenated form (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`). Accepts upper or lowercase.
+##see std.uuid.Uuid.to_string
+##example
+let id = std.uuid.Uuid.parse("550e8400-e29b-41d4-a716-446655440000")?;
+##end
+
+##sym std.uuid.Uuid.to_string
+##sig fn std.uuid.Uuid.to_string(self: &Uuid) -> Str
+##desc Render as the canonical hyphenated lowercase form.
+##see std.uuid.Uuid.parse
+##example
+let s = id.to_string();  // "550e8400-e29b-41d4-a716-446655440000"
+##end
+
+##sym std.uuid.Uuid.nil
+##sig fn std.uuid.Uuid.nil() -> Uuid
+##desc All-zero UUID. Useful as a sentinel.
+##see std.uuid.Uuid.is_nil
+##example
+let z = std.uuid.Uuid.nil();
+assert(z.is_nil());
+##end
+
+##sym std.uuid.Uuid.is_nil
+##sig fn std.uuid.Uuid.is_nil(self: &Uuid) -> Bool
+##desc True iff this is the all-zero UUID.
+##see std.uuid.Uuid.nil
+##example
+if id.is_nil() { /* sentinel value */ }
+##end
+
+##sym std.uuid.Uuid.version
+##sig fn std.uuid.Uuid.version(self: &Uuid) -> U8
+##desc UUID version digit per RFC 9562 (high nibble of byte 6). 4 for v4, 7 for v7.
+##see std.uuid.Uuid.v4, std.uuid.Uuid.v7
+##example
+assert_eq(std.uuid.Uuid.v4()?.version(), 4);
+##end
