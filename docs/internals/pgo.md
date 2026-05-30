@@ -1,4 +1,4 @@
-# PGO + ThinLTO build profile (v0.22, cargo-pgo since v0.38)
+# PGO + ThinLTO + BOLT build profile (v0.22, cargo-pgo since v0.38, BOLT since v0.39)
 
 Mighty's `release` build profile already runs ThinLTO with one codegen
 unit, which is fine for day-to-day distribution. v0.22 added a second,
@@ -16,6 +16,30 @@ in the same channel expects raw=10. A path-discovery fix in
 already being picked correctly; the tools themselves were skewed
 inside the rustup distribution. cargo-pgo handles that for us by
 locating a profdata that the rustc actually wrote the profraws with.
+
+**v0.39 (T4): BOLT layout + darwin-arm64 retry.** Two additions:
+
+1. **BOLT** ([Binary Optimization and Layout Tool][bolt]) runs as a
+   second post-PGO pass on linux-x86_64 via `cargo pgo bolt build`
+   + `cargo pgo bolt optimize`. BOLT re-orders basic blocks and
+   function bodies on the already-PGO-optimised ELF binary, typically
+   adding **5-15%** wall-clock on top of PGO alone. Linux-only for
+   now — llvm-bolt's PE/COFF (windows-msvc) and Mach-O (darwin)
+   handling exists upstream but is too rough for the release path.
+
+2. **darwin-arm64 PGO retry on toolchain 1.96.0.** v0.38 left
+   `aarch64-apple-darwin` on `use_pgo: false` because the v0.38.0
+   release run hit the same raw=8 vs expected=10 mismatch as the
+   v0.37 manual scripts, this time emitted by the instrumented
+   binary at runtime (`LLVM Profile Error: Runtime and
+   instrumentation version mismatch : expected 10, but get 8`).
+   v0.39 T4 uses a per-matrix-entry `toolchain: "1.96.0"` override
+   for the darwin leg (the rest of the matrix stays on 1.95.0,
+   matching the workspace pin in `rust-toolchain.toml`). The
+   workflow exports `RUSTUP_TOOLCHAIN` into `GITHUB_ENV` so cargo
+   honours the matrix toolchain rather than the workspace pin.
+
+[bolt]: https://github.com/llvm/llvm-project/tree/main/bolt
 
 The in-tree shell scripts (`scripts/build-pgo.sh` and
 `scripts/build-pgo.ps1`) are still in the repo for **local dev** —
@@ -114,6 +138,44 @@ cargo-pgo writes the final optimised binary to
 `target/<triple>/release-pgo/mty`. The release.yml staging step
 copies it into a stable `staged/` directory regardless of which
 build path produced it.
+
+### v0.39 T4: BOLT on top of PGO (linux-x86_64 only)
+
+On `use_bolt: true` matrix entries (currently linux-x86_64 only),
+the workflow runs **two more phases** after the PGO optimised build:
+
+```bash
+# 5. BOLT-instrument the PGO-optimised binary. cargo-pgo invokes
+#    llvm-bolt to rewrite the ELF with per-basic-block counters and
+#    drops the result at target/<triple>/release-pgo/mty-bolt-instrumented.
+cargo pgo bolt build -- \
+  --profile release-pgo \
+  --bin mty -p mty-cli \
+  --target <triple>
+
+# 6. Re-run the same training corpus against the BOLT-instrumented
+#    binary. BOLT writes per-PID fdata shards under target/bolt-profiles.
+for f in examples/*.mty; do
+  target/<triple>/release-pgo/mty-bolt-instrumented check "$f" || true
+done
+
+# 7. Apply the collected layout. cargo-pgo runs llvm-bolt one more time
+#    in "optimize" mode and drops target/<triple>/release-pgo/mty-bolt-optimized.
+cargo pgo bolt optimize -- \
+  --profile release-pgo \
+  --bin mty -p mty-cli \
+  --target <triple>
+```
+
+The workflow then copies `mty-bolt-optimized` over `mty` in the same
+directory so the existing staging step (`cp target/<triple>/release-pgo/mty
+→ staged/mty`) picks up the BOLT-optimised binary without branching
+on `use_bolt`. End result on Linux: PGO + BOLT every release.
+
+llvm-bolt itself comes from the `llvm-bolt` (or `llvm-19-bolt`) apt
+package on ubuntu-latest. cargo-pgo finds it via PATH. Windows + macOS
+matrix entries skip the BOLT install + steps because llvm-bolt's
+PE/COFF + Mach-O handling is too rough today; revisit in v0.40.
 
 ### Why cargo-pgo (and not the shell scripts) for CI
 
@@ -294,27 +356,32 @@ over-fit profiles.
 
 ## Platform support
 
-| Platform                       | CI PGO (cargo-pgo) | Local (build-pgo.{sh,ps1}) | Notes                                                              |
-|--------------------------------|--------------------|----------------------------|--------------------------------------------------------------------|
-| Linux x86_64 (ubuntu CI)       | yes                | yes                        | Reference platform; `pgo-bench.yml` + `release.yml` both run here. |
-| Linux aarch64                  | no (cross-compile) | yes                        | release.yml falls back to plain `--release` via `cross`.           |
-| macOS aarch64 (Apple Silicon)  | yes (v0.38)        | not recommended            | Local shell scripts hit the v0.37 raw=8/expected=10 mismatch.      |
-| macOS x86_64 (Intel via cross) | no (cross-compile) | yes                        | release.yml falls back to plain `--release`.                       |
-| Windows x86_64                 | yes                | yes                        | Use `build-pgo.ps1` locally; release.yml uses cargo-pgo on CI.     |
+| Platform                       | CI PGO  | CI BOLT (v0.39) | Local (build-pgo.{sh,ps1}) | Notes                                                                       |
+|--------------------------------|---------|-----------------|----------------------------|-----------------------------------------------------------------------------|
+| Linux x86_64 (ubuntu CI)       | yes     | yes             | yes                        | Reference platform; release.yml runs cargo-pgo + BOLT here.                 |
+| Linux aarch64                  | no      | no              | yes                        | Cross-compiled; release.yml falls back to plain `--release` via `cross`.    |
+| macOS aarch64 (Apple Silicon)  | yes (v0.39 retry, toolchain 1.96.0) | no | not recommended | v0.37/v0.38 raw=8/expected=10; v0.39 T4 retries on 1.96.0. BOLT off (Mach-O too rough). |
+| macOS x86_64 (Intel via cross) | no      | no              | yes                        | Cross-compiled on Apple Silicon runner; release.yml falls back to `--release`. |
+| Windows x86_64                 | yes (via build-pgo.ps1) | no | yes                       | cargo-pgo Windows is incomplete (no profraws); release.yml uses the ps1 path. BOLT off (PE/COFF too rough). |
 
 The toolchain-bundled `llvm-profdata` is what makes Windows work
 without a system LLVM install. If you're cross-compiling, run the
 collection step on the *target* triple — the `.profraw` shards are
 not portable across CPU architectures.
 
-## v0.23 follow-up: BOLT
+## BOLT (shipped in v0.39 T4 on linux-x86_64)
 
 The natural next step after PGO is **BOLT** (Binary Optimization and
 Layout Tool), which does a second post-link layout pass driven by
-hardware counters. BOLT typically squeezes another **3-7%** on top
-of a PGO build. It's a heavier dependency (LLVM + perf + a static
-build of BOLT itself) so v0.22 deliberately stops at PGO; the BOLT
-integration goes in the v0.23 roadmap.
+collected counters. BOLT typically squeezes another **5-15%** on top
+of a PGO build. v0.39 T4 ships BOLT on linux-x86_64 only via
+`cargo pgo bolt build` + `cargo pgo bolt optimize`. See the
+"v0.39 T4: BOLT on top of PGO" section above for the exact pipeline
+and the `use_bolt: true` matrix flag in `release.yml`.
+
+Windows + darwin BOLT is held back to v0.40 or beyond. llvm-bolt's
+upstream PE/COFF + Mach-O support exists but lags the ELF path by a
+margin we don't want to canary on every release.
 
 ## See also
 

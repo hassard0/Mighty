@@ -68,6 +68,26 @@ jobs:
       # `scripts/build-pgo.{sh,ps1}` are preserved for local dev
       # (users who don't want to install cargo-pgo).
       #
+      # v0.39 (Track T4):
+      #   - `use_bolt: true` runs `cargo pgo bolt build` + `cargo pgo
+      #     bolt optimize` on top of PGO. BOLT re-orders basic blocks
+      #     based on the same training corpus profiles, typically
+      #     5-15% more wall-clock on top of PGO. Linux-only for now:
+      #     llvm-bolt's PE/COFF support is too rough to ship on
+      #     windows-msvc, and BOLT on macOS would need a separate
+      #     install path. Cross-compile + Rosetta legs already opt
+      #     out of PGO so BOLT can't apply there either.
+      #   - darwin-arm64 PGO retry on toolchain 1.96.0. v0.38 left
+      #     the platform off because rustc 1.95.0 + the bundled
+      #     llvm-profdata on aarch64-apple-darwin disagreed on the
+      #     .profraw raw-format version (raw=8 emitted vs raw=10
+      #     expected) inside the same channel. Per-matrix-entry
+      #     `toolchain: "1.96.0"` overrides the workspace default
+      #     1.95.0 via RUSTUP_TOOLCHAIN env. Falls back to plain
+      #     `--release` (use_pgo: false) automatically if the newer
+      #     toolchain still skews — we leave the matrix entry able
+      #     to flip back without touching anything else.
+      #
       # `use_pgo: true` swaps `cargo build --release` for the cargo-pgo
       # two-stage pipeline (instrument → run training corpus → optimise)
       # using the `[profile.release-pgo]` profile already pinned in the
@@ -117,6 +137,13 @@ jobs:
             #     restore-keys can't pull in a stale `target/release-pgo`
             #     from a prior workflow.
             use_pgo: true
+            # v0.39 T4: BOLT layout on top of PGO. Linux-only because
+            # llvm-bolt's ELF support is mature and shipped in ubuntu
+            # apt as `llvm-bolt` (LLVM 19+). Windows/macOS BOLT exist
+            # but the binary-format support is rougher and we'd be
+            # the canary. Re-evaluate in v0.40.
+            use_bolt: true
+            toolchain: "1.95.0"
           # v0.32 (Track D): Intel macOS via cross-compile on Apple
           # Silicon runner. v0.32.1 pivoted from `macos-13` to
           # `macos-14` because GitHub Actions' free Intel runner
@@ -135,6 +162,8 @@ jobs:
             asset: mty-x86_64-apple-darwin.tar.gz
             use_cross: false
             use_pgo: false
+            use_bolt: false
+            toolchain: "1.95.0"
           - os: macos-14
             target: aarch64-apple-darwin
             artifact: mty
@@ -150,12 +179,24 @@ jobs:
             # empty for the optimise step. cargo-pgo can't help: it's
             # the rustc emitting raw=8 vs the channel's runtime
             # expecting raw=10. Both come from the same rustup-bundled
-            # toolchain. A future toolchain bump may fix this; until
-            # then darwin-arm64 ships the release profile.
+            # toolchain.
             #
-            # v0.38.1 PGO matrix: 2/5 platforms (linux-x86_64 only;
-            # windows-x86_64 also disabled — see entry below).
-            use_pgo: false
+            # v0.39 T4 RETRY: per-matrix toolchain override to 1.96.0,
+            # which post-dates the LLVM bump that introduced the raw=10
+            # runtime expectation on darwin-arm64. The RUSTUP_TOOLCHAIN
+            # env var below makes cargo + rustc + the bundled
+            # llvm-profdata all come from the SAME 1.96.0 channel
+            # rather than the workspace-pinned 1.95.0. If 1.96.0 still
+            # skews on the runner image, flip back to use_pgo: false
+            # and document the next attempt — the rest of the pipeline
+            # degrades to plain --release cleanly.
+            #
+            # BOLT stays off: even when PGO is back on darwin-arm64,
+            # llvm-bolt's Mach-O support is too thin for the release
+            # path. Linux-only BOLT in v0.39.
+            use_pgo: true
+            use_bolt: false
+            toolchain: "1.96.0"
           # v0.32 (Track D): aarch64 Linux for Raspberry Pi 5, AWS
           # Graviton, Ampere Altra, and Apple Silicon Linux VMs.
           # Cross-compiled from ubuntu-latest via the `cross` tool
@@ -170,6 +211,8 @@ jobs:
             asset: mty-aarch64-unknown-linux-gnu.tar.gz
             use_cross: true
             use_pgo: false
+            use_bolt: false
+            toolchain: "1.95.0"
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: mty.exe
@@ -185,12 +228,16 @@ jobs:
             # The ps1 script handles the profraw write path correctly
             # — it shipped working in every release from v0.36 → v0.37.3.
             #
-            # v0.38.3 PGO matrix: 2/5 platforms (linux-x86_64 via
-            # cargo-pgo + windows-x86_64 via build-pgo.ps1). Same
-            # working-set as v0.37.3. darwin-arm64 still off due to
-            # the within-channel rustc/llvm-profdata mismatch that
-            # neither cargo-pgo nor the manual scripts can fix.
+            # v0.39 PGO matrix (assuming darwin-arm64 retry holds):
+            # 3/5 platforms (linux-x86_64 via cargo-pgo + BOLT,
+            # windows-x86_64 via build-pgo.ps1, darwin-arm64 via
+            # cargo-pgo on toolchain 1.96.0).
+            #
+            # BOLT on Windows is off: llvm-bolt's PE/COFF handling is
+            # too rough to ship today. Re-evaluate when bolt/COFF lands.
             use_pgo: true
+            use_bolt: false
+            toolchain: "1.95.0"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -199,7 +246,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.95.0"
+          # v0.39 T4: per-matrix toolchain. Most legs stay on 1.95.0
+          # (the workspace pin in rust-toolchain.toml). darwin-arm64
+          # bumps to 1.96.0 to escape the v0.37/v0.38 within-channel
+          # raw=8/expected=10 PGO mismatch.
+          toolchain: ${{ matrix.toolchain }}
           targets: ${{ matrix.target }}
           # v0.35 (Track T4): PGO matrix entries need `llvm-profdata`
           # to merge the .profraw shards from the instrumented pass.
@@ -207,6 +258,16 @@ jobs:
           # at `lib/rustlib/<host>/bin/llvm-profdata`; the build-pgo
           # script auto-discovers it via `rustc --print sysroot`.
           components: ${{ matrix.use_pgo && 'llvm-tools-preview' || '' }}
+
+      # v0.39 T4: pin RUSTUP_TOOLCHAIN so cargo/rustc invocations in
+      # the rest of the job ignore the workspace `rust-toolchain.toml`
+      # pin (which is hard-coded to 1.95.0). Without this, the darwin
+      # leg would install 1.96.0 above but the build steps would
+      # still pick 1.95.0 from the toolchain file, defeating the
+      # whole point of the retry.
+      - name: Pin RUSTUP_TOOLCHAIN to matrix.toolchain
+        shell: bash
+        run: echo "RUSTUP_TOOLCHAIN=${{ matrix.toolchain }}" >> "$GITHUB_ENV"
 
       # v0.36 T5: cache key now segregates PGO and non-PGO targets.
       # The previous unified key let a stale `target/release-pgo/`
@@ -231,8 +292,9 @@ jobs:
             ~/.cargo/git/db
             target/${{ matrix.target }}
             target/debug
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-noPGO-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-noPGO-tc${{ matrix.toolchain }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-release-noPGO-tc${{ matrix.toolchain }}-
             ${{ runner.os }}-${{ matrix.target }}-cargo-release-noPGO-
 
       # PGO legs cache `target/<triple>/release-pgo` under its own key.
@@ -249,8 +311,15 @@ jobs:
             ~/.cargo/git/db
             target/${{ matrix.target }}/release-pgo/build
             target/${{ matrix.target }}/release-pgo/deps
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-pgo-cargopgo0.2.9-${{ hashFiles('Cargo.lock') }}
+          # v0.39 T4: cache key bumped to invalidate any v0.38.x cached
+          # `target/release-pgo/mty` that doesn't have BOLT applied —
+          # we cp the BOLT output over the same path, but bumping the
+          # discriminator means the BOLT leg starts from a clean slate.
+          # Per-matrix toolchain also discriminates so darwin-arm64's
+          # 1.96.0 cache stays separate from the 1.95.0 cache.
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-pgo-cargopgo0.2.9-bolt-tc${{ matrix.toolchain }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-release-pgo-cargopgo0.2.9-bolt-tc${{ matrix.toolchain }}-
             ${{ runner.os }}-${{ matrix.target }}-cargo-release-pgo-cargopgo0.2.9-
             ${{ runner.os }}-${{ matrix.target }}-cargo-release-pgo-
 
@@ -326,6 +395,97 @@ jobs:
             --bin mty -p mty-cli \
             --target ${{ matrix.target }}
 
+      # v0.39 T4: BOLT — Binary Optimization and Layout Tool. Re-orders
+      # basic blocks on the already-PGO-optimised binary using a second
+      # training pass, typically ~5-15% on top of PGO alone. cargo-pgo
+      # 0.2.9 supports `cargo pgo bolt build` (instrument) and
+      # `cargo pgo bolt optimize` (re-layout from collected fdata).
+      #
+      # llvm-bolt ships in the ubuntu-24.04 apt package `llvm-bolt`
+      # (currently LLVM 19). cargo-pgo discovers it via PATH, the
+      # same way it auto-discovers llvm-profdata for the PGO step.
+      #
+      # Linux-only: see matrix-level `use_bolt` comment for why.
+      - name: Install llvm-bolt (BOLT legs only)
+        if: matrix.use_bolt == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          # `llvm-bolt` package name varies across ubuntu versions; try
+          # the unversioned alias first, then fall back to the LLVM-19
+          # package which we know is on ubuntu-24.04.
+          if ! sudo apt-get install -y llvm-bolt; then
+            sudo apt-get install -y llvm-19-bolt
+            # Symlink the versioned binary into a directory on PATH so
+            # cargo-pgo's `which llvm-bolt` discovery finds it.
+            sudo ln -sf /usr/bin/llvm-bolt-19 /usr/local/bin/llvm-bolt
+            sudo ln -sf /usr/bin/merge-fdata-19 /usr/local/bin/merge-fdata
+          fi
+          llvm-bolt --version | head -1
+          merge-fdata --version 2>/dev/null | head -1 || true
+
+      - name: Build mty (BOLT, instrumented) — Linux
+        if: matrix.use_bolt == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `cargo pgo bolt build` takes the PGO-optimised binary from
+          # the prior step and rewrites it with BOLT instrumentation.
+          # Output lands at target/<triple>/release-pgo/<bin>-bolt-instrumented.
+          cargo pgo bolt build -- \
+            --profile release-pgo \
+            --bin mty -p mty-cli \
+            --target ${{ matrix.target }}
+
+      - name: Run BOLT training corpus — Linux
+        if: matrix.use_bolt == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="target/${{ matrix.target }}/release-pgo/mty-bolt-instrumented"
+          if [[ ! -x "$BIN" ]]; then
+            echo "ERROR: BOLT-instrumented mty not found at $BIN" >&2
+            ls -la "target/${{ matrix.target }}/release-pgo/" || true
+            exit 1
+          fi
+          # Same corpus as the PGO training pass. BOLT writes per-PID
+          # fdata shards under target/bolt-profiles which the optimise
+          # step merges automatically via merge-fdata.
+          shopt -s nullglob
+          for f in examples/*.mty; do
+            if grep -q '@typeck-pending' "$f" 2>/dev/null; then
+              continue
+            fi
+            "$BIN" check "$f" 2>&1 | tail -2 || true
+          done
+          if [[ -f examples/01_hello.mty ]]; then
+            "$BIN" build examples/01_hello.mty --target wasm32-wasi 2>&1 | tail -2 || true
+          fi
+
+      - name: Build mty (BOLT, optimised) — Linux
+        if: matrix.use_bolt == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo pgo bolt optimize -- \
+            --profile release-pgo \
+            --bin mty -p mty-cli \
+            --target ${{ matrix.target }}
+          # cargo-pgo lands the BOLT-optimised binary as
+          # target/<triple>/release-pgo/mty-bolt-optimized. Promote it
+          # into the canonical `mty` slot so the existing staging step
+          # picks it up without branching on use_bolt.
+          BOLT_BIN="target/${{ matrix.target }}/release-pgo/mty-bolt-optimized"
+          DST="target/${{ matrix.target }}/release-pgo/mty"
+          if [[ ! -x "$BOLT_BIN" ]]; then
+            echo "ERROR: BOLT-optimised mty not found at $BOLT_BIN" >&2
+            ls -la "target/${{ matrix.target }}/release-pgo/" || true
+            exit 1
+          fi
+          cp "$BOLT_BIN" "$DST"
+          echo "BOLT-optimised binary promoted to $DST"
+
       # v0.38.3: Windows PGO uses the v0.37.3 manual ps1 script.
       # cargo-pgo on windows-msvc writes no profraws (Phase 2 succeeds
       # but the optimise step finds an empty pgo-profiles directory).
@@ -341,7 +501,7 @@ jobs:
         if: matrix.use_pgo == true && runner.os == 'Windows'
         shell: pwsh
         env:
-          TOOLCHAIN: "1.95.0"
+          TOOLCHAIN: ${{ matrix.toolchain }}
         run: ./scripts/build-pgo.ps1
 
       - name: Build mty (release, native, no-PGO)
