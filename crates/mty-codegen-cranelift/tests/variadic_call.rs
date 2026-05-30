@@ -214,6 +214,13 @@ fn default_runtime_syms() -> Vec<(&'static str, *const u8)> {
 /// override so the call is dispatchable.
 #[test]
 fn printf_with_single_i32_extra_compiles() {
+    // Serialize with the other build_jit tests: the env-var
+    // `MTY_DUMP_CLIF` is read inside build_jit, and if a parallel
+    // CLIF-dump test set it, this test's main fn would land in
+    // their tempdir + corrupt their assertion.
+    let _g = CLIF_DUMP_LOCK
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     let p = variadic_printf_program(
         vec![(Const::Int(42, IntKind::I32), IrTy::Int(IntKind::I32))],
         0,
@@ -237,6 +244,9 @@ fn printf_with_single_i32_extra_compiles() {
 
 #[test]
 fn printf_with_multiple_mixed_extras_compiles() {
+    let _g = CLIF_DUMP_LOCK
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     // i32 + u8 + f32 + f64 + ptr-ish (USize) — exercises all the
     // promotion paths in one call site.
     let extras = vec![
@@ -264,6 +274,9 @@ fn printf_with_multiple_mixed_extras_compiles() {
 
 #[test]
 fn printf_with_zero_extras_still_compiles() {
+    let _g = CLIF_DUMP_LOCK
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     // Sanity: even when the caller passes no extras at a variadic
     // call site, the fixed-prefix path should still work (and not
     // accidentally route through the call_indirect branch).
@@ -526,6 +539,9 @@ fn libc_printf_addr() -> Option<*const u8> {
 /// the address stays valid for the JIT's lifetime.
 #[test]
 fn printf_real_libc_round_trip() {
+    let _g = CLIF_DUMP_LOCK
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     // "hello %d\n\0" — leak so the pointer stays valid.
     let fmt = Box::leak(Box::new(*b"hello %d\n\0"));
     let fmt_addr = fmt.as_ptr() as usize as i128;
