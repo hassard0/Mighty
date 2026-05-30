@@ -3,64 +3,88 @@
 
 ##sym std.encoding.base64.encode
 ##sig fn std.encoding.base64.encode(bytes: &[U8]) -> Str
-##desc Standard (RFC 4648 § 4) Base64 encode. Emits `=` padding.
-##see std.encoding.base64.decode, std.encoding.base64.encode_url
+##desc Standard (RFC 4648 § 4) Base64 encode. Emits `=` padding. KAT-tested against RFC 4648 § 10.
+##see std.encoding.base64.decode, std.encoding.base64.encode_url, std.encoding.hex.encode
 ##example
-let s = std.encoding.base64.encode("hello");  // "aGVsbG8="
+let s = std.encoding.base64.encode("hello".as_bytes());  // "aGVsbG8="
 ##end
 
 ##sym std.encoding.base64.decode
 ##sig fn std.encoding.base64.decode(s: Str) -> Result[Vec[U8], Base64Err]
-##desc Decode standard Base64. Accepts both padded and unpadded forms.
-##see std.encoding.base64.encode
+##desc Decode standard Base64. Accepts both padded and unpadded forms (some legacy emitters drop the trailing `=`).
+##see std.encoding.base64.encode, std.encoding.base64.decode_url
 ##example
 let bytes = std.encoding.base64.decode("aGVsbG8=")?;
 ##end
 
 ##sym std.encoding.base64.encode_url
 ##sig fn std.encoding.base64.encode_url(bytes: &[U8]) -> Str
-##desc URL-safe (§ 5) Base64 encode (`- _` alphabet). Emits `=` padding.
+##desc URL-safe (RFC 4648 § 5) Base64 encode (`- _` alphabet). Emits `=` padding.
 ##see std.encoding.base64.encode_url_no_pad, std.encoding.base64.decode_url
 ##example
-let s = std.encoding.base64.encode_url(token_bytes);
+let s = std.encoding.base64.encode_url(&token_bytes);
 ##end
 
 ##sym std.encoding.base64.encode_url_no_pad
 ##sig fn std.encoding.base64.encode_url_no_pad(bytes: &[U8]) -> Str
-##desc URL-safe Base64 with no `=` padding — the JWT/JWS shape.
-##see std.encoding.base64.encode_url
+##desc URL-safe Base64 with no `=` padding — the JWT / JWS shape.
+##see std.encoding.base64.encode_url, std.encoding.base64.decode_url
 ##example
-let jwt_header = std.encoding.base64.encode_url_no_pad(header_json_bytes);
+let jwt_header = std.encoding.base64.encode_url_no_pad(&header_json_bytes);
 ##end
 
 ##sym std.encoding.base64.decode_url
 ##sig fn std.encoding.base64.decode_url(s: Str) -> Result[Vec[U8], Base64Err]
-##desc Decode URL-safe Base64. Accepts both padded and unpadded forms.
-##see std.encoding.base64.encode_url
+##desc Decode URL-safe Base64. Accepts both padded and unpadded forms (JWT drops the padding).
+##see std.encoding.base64.encode_url, std.encoding.base64.encode_url_no_pad
 ##example
 let payload = std.encoding.base64.decode_url(jwt_segment)?;
 ##end
 
+##sym std.encoding.Base64Err
+##sig enum std.encoding.Base64Err { Decode(Str) }
+##desc Error returned by `base64.decode` / `base64.decode_url`. Carries the underlying parser message (invalid alphabet, malformed padding, etc.).
+##see std.encoding.base64.decode, std.encoding.base64.decode_url
+##example
+match std.encoding.base64.decode(input) {
+  Err(std.encoding.Base64Err.Decode(msg)) => log(format!("bad base64: {}", msg)),
+  Ok(bytes) => process(bytes),
+}
+##end
+
 ##sym std.encoding.hex.encode
 ##sig fn std.encoding.hex.encode(bytes: &[U8]) -> Str
-##desc Lowercase hex (base16) encode. 2 × N characters.
-##see std.encoding.hex.encode_upper, std.encoding.hex.decode
+##desc Lowercase hex (base16) encode per RFC 4648 § 8. 2 × N characters.
+##see std.encoding.hex.encode_upper, std.encoding.hex.decode, std.encoding.base64.encode
 ##example
-let s = std.encoding.hex.encode(digest);  // "deadbeef..."
+let s = std.encoding.hex.encode(&digest);  // "deadbeef..."
 ##end
 
 ##sym std.encoding.hex.encode_upper
 ##sig fn std.encoding.hex.encode_upper(bytes: &[U8]) -> Str
-##desc Uppercase hex encode (`0-9 A-F`).
-##see std.encoding.hex.encode
+##desc Uppercase hex encode (`0-9 A-F`). Same byte layout as `encode`, different alphabet.
+##see std.encoding.hex.encode, std.encoding.hex.decode
 ##example
-let s = std.encoding.hex.encode_upper(mac);  // "DEADBEEF"
+let s = std.encoding.hex.encode_upper(&mac);  // "DEADBEEF"
 ##end
 
 ##sym std.encoding.hex.decode
 ##sig fn std.encoding.hex.decode(s: Str) -> Result[Vec[U8], HexErr]
-##desc Decode hex string. Accepts mixed case. Rejects odd length and non-hex chars.
-##see std.encoding.hex.encode
+##desc Decode hex string. Accepts mixed case. Rejects odd length (`HexErr.OddLength`) and non-hex chars (`HexErr.BadChar`).
+##see std.encoding.hex.encode, std.encoding.hex.encode_upper
 ##example
 let bytes = std.encoding.hex.decode("DeAdBeEf")?;
 ##end
+
+##sym std.encoding.HexErr
+##sig enum std.encoding.HexErr { BadChar(Char, USize), OddLength(USize) }
+##desc Error returned by `hex.decode`. `BadChar(c, i)` carries the offending character + index; `OddLength(n)` carries the total length when the input had an odd number of chars.
+##see std.encoding.hex.decode
+##example
+match std.encoding.hex.decode(input) {
+  Err(std.encoding.HexErr.OddLength(n)) => log(format!("len={}", n)),
+  Err(std.encoding.HexErr.BadChar(c, i)) => log(format!("bad {:?}@{}", c, i)),
+  Ok(bytes) => use(bytes),
+}
+##end
+

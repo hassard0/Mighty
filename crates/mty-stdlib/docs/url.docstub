@@ -3,17 +3,17 @@
 
 ##sym std.url.parse
 ##sig fn std.url.parse(s: Str) -> Result[Url, UrlErr]
-##desc Parse a URL string into named fields. RFC 3986 / WHATWG.
-##see std.url.Url, std.url.Url.builder
+##desc Parse a URL string into named fields per RFC 3986 / WHATWG. Backed by the `url` crate, exposed with a struct-of-strings shape rather than getter methods.
+##see std.url.Url, std.url.Url.builder, std.url.UrlErr, std.url.percent_encode
 ##example
 let u = std.url.parse("https://example.com/path?q=hello world")?;
-log("host={}, query={}", u.host, u.query);
+log(format!("host={}, query={}", u.host, u.query));
 ##end
 
 ##sym std.url.Url
 ##sig struct std.url.Url { scheme: Str, username: Str, password: Str, host: Str, port: Option[U16], path: Str, query: Str, fragment: Str }
-##desc Parsed URL components. Empty `Str` fields signal "absent" (avoids `Option` unwrap noise).
-##see std.url.parse, std.url.Url.builder
+##desc Parsed URL components. Empty `Str` fields signal "absent" (avoids `Option` unwrap noise); only `port` keeps an explicit `Option` because `0` would be ambiguous.
+##see std.url.parse, std.url.Url.builder, std.url.Url.to_string
 ##example
 let u = std.url.parse("https://api.example.com:8443/v1?q=hi")?;
 assert_eq(u.scheme, "https");
@@ -22,8 +22,8 @@ assert_eq(u.port, Some(8443));
 
 ##sym std.url.Url.builder
 ##sig fn std.url.Url.builder(scheme: Str) -> UrlBuilder
-##desc Start a fluent URL builder. Chain `.host()` / `.port()` / `.path()` / `.query_param()` / `.fragment()` / `.build()`.
-##see std.url.Url
+##desc Start a fluent URL builder. Chain `.host()` / `.port()` / `.path()` / `.query_param()` / `.userinfo()` / `.fragment()` / `.build()`.
+##see std.url.Url, std.url.UrlBuilder.host, std.url.UrlBuilder.query_param, std.url.UrlBuilder.build
 ##example
 let u = std.url.Url.builder("https")
   .host("api.example.com")
@@ -32,9 +32,79 @@ let u = std.url.Url.builder("https")
   .build()?;
 ##end
 
+##sym std.url.Url.to_string
+##sig fn std.url.Url.to_string(&self) -> Str
+##desc Render the URL back to a canonical string form. Inverse of `std.url.parse` for round-trippable inputs.
+##see std.url.parse, std.url.Url
+##example
+let u = std.url.parse("https://example.com/x")?;
+assert_eq(u.to_string(), "https://example.com/x");
+##end
+
+##sym std.url.UrlBuilder.host
+##sig fn std.url.UrlBuilder.host(self, host: Str) -> UrlBuilder
+##desc Set the host segment. Pass an empty string to leave the URL hostless (data: URLs).
+##see std.url.Url.builder, std.url.UrlBuilder.port, std.url.UrlBuilder.path
+##example
+let u = std.url.Url.builder("https").host("api.example.com").build()?;
+##end
+
+##sym std.url.UrlBuilder.port
+##sig fn std.url.UrlBuilder.port(self, port: U16) -> UrlBuilder
+##desc Set the TCP port. Omit for the scheme default (https → 443, http → 80).
+##see std.url.Url.builder, std.url.UrlBuilder.host
+##example
+let u = std.url.Url.builder("https").host("x").port(8443).build()?;
+##end
+
+##sym std.url.UrlBuilder.path
+##sig fn std.url.UrlBuilder.path(self, path: Str) -> UrlBuilder
+##desc Set the path segment. The leading `/` is inferred — `.path("a/b")` and `.path("/a/b")` produce identical output.
+##see std.url.Url.builder, std.url.UrlBuilder.query_param
+##example
+let u = std.url.Url.builder("https").host("x").path("/api/v1/items").build()?;
+##end
+
+##sym std.url.UrlBuilder.query_param
+##sig fn std.url.UrlBuilder.query_param(self, key: Str, value: Str) -> UrlBuilder
+##desc Append a query parameter. Multiple calls produce `?k1=v1&k2=v2`. Both key and value are percent-encoded at `build()` time.
+##see std.url.Url.builder, std.url.UrlBuilder.fragment, std.url.percent_encode_component
+##example
+let u = std.url.Url.builder("https")
+  .host("x")
+  .query_param("q", "hello world")
+  .query_param("page", "2")
+  .build()?;
+##end
+
+##sym std.url.UrlBuilder.userinfo
+##sig fn std.url.UrlBuilder.userinfo(self, user: Str, password: Str) -> UrlBuilder
+##desc Set the `user[:password]@` segment. Pass empty strings to skip. Prefer header-based auth over baking credentials into the URL.
+##see std.url.Url.builder, std.url.UrlBuilder.host
+##example
+let u = std.url.Url.builder("https").userinfo("alice", "secret").host("vault.example.com").build()?;
+##end
+
+##sym std.url.UrlBuilder.fragment
+##sig fn std.url.UrlBuilder.fragment(self, frag: Str) -> UrlBuilder
+##desc Set the `#fragment` segment. Useful for anchor links and SPAs. The fragment is sent to the server only if the client copies it from the URL bar.
+##see std.url.Url.builder, std.url.UrlBuilder.query_param
+##example
+let u = std.url.Url.builder("https").host("x").path("/docs").fragment("section-3").build()?;
+##end
+
+##sym std.url.UrlBuilder.build
+##sig fn std.url.UrlBuilder.build(self) -> Result[Url, UrlErr]
+##desc Finalise the builder. Returns `UrlErr.Build` if a required field is missing (currently: empty scheme).
+##see std.url.Url.builder, std.url.UrlErr
+##example
+let u = std.url.Url.builder("https").host("example.com").build()?;
+assert_eq(u.path, "/");
+##end
+
 ##sym std.url.percent_encode
 ##sig fn std.url.percent_encode(s: Str) -> Str
-##desc Percent-encode `s` per RFC 3986. Unreserved chars + `/` pass through; everything else becomes `%HH`.
+##desc Percent-encode `s` per RFC 3986. Unreserved chars (`A-Z a-z 0-9 - _ . ~`) + `/` pass through; everything else becomes `%HH`.
 ##see std.url.percent_encode_component, std.url.percent_decode
 ##example
 let enc = std.url.percent_encode("hello world");  // "hello%20world"
@@ -42,16 +112,28 @@ let enc = std.url.percent_encode("hello world");  // "hello%20world"
 
 ##sym std.url.percent_encode_component
 ##sig fn std.url.percent_encode_component(s: Str) -> Str
-##desc Like `percent_encode` but also encodes `/`. Use for single path/query components.
-##see std.url.percent_encode
+##desc Like `percent_encode` but also encodes `/`. Use for single path / query components that should not be re-interpreted as separators.
+##see std.url.percent_encode, std.url.percent_decode, std.url.UrlBuilder.query_param
 ##example
 let enc = std.url.percent_encode_component("a/b&c=d");  // "a%2Fb%26c%3Dd"
 ##end
 
 ##sym std.url.percent_decode
 ##sig fn std.url.percent_decode(s: Str) -> Option[Str]
-##desc Decode percent-escaped string. Returns `None` on malformed `%XX` triples.
-##see std.url.percent_encode
+##desc Decode percent-escaped string. Returns `None` on malformed `%XX` triples. `+` is NOT decoded as space — that is form-urlencoded territory, decode upstream if needed.
+##see std.url.percent_encode, std.url.percent_encode_component
 ##example
 let s = std.url.percent_decode("hello%20world")?;  // "hello world"
 ##end
+
+##sym std.url.UrlErr
+##sig enum std.url.UrlErr { Parse(Str), Build(Str) }
+##desc Error variants for the URL surface. `Parse` wraps the underlying `url` crate's diagnostic; `Build` flags a required-field omission (empty scheme today).
+##see std.url.parse, std.url.UrlBuilder.build
+##example
+match std.url.parse(input) {
+  Err(std.url.UrlErr.Parse(msg)) => log(format!("bad url: {}", msg)),
+  Ok(u) => use(u),
+}
+##end
+

@@ -104,6 +104,11 @@ fn module_of(symbol: &str) -> &'static str {
             "process" => "process",
             "io" => "io",
             "path" => "path",
+            // v0.39 T5 — v0.39 T1 stdlib surfaces
+            "crypto" => "crypto",
+            "encoding" => "encoding",
+            "url" => "url",
+            "uuid" => "uuid",
             _ => "builtin",
         };
     }
@@ -129,7 +134,7 @@ fn module_of(symbol: &str) -> &'static str {
         "ComputerCap" | "Dispatcher" | "Mouse" | "Keyboard" | "Screen" | "MockScreen"
         | "ComputerAction" | "SandboxViolation" => "computer",
         "Canvas" | "Input" | "Key" => "web",
-        "log" | "panic" | "spawn" | "eprintln" => "builtin",
+        "log" | "panic" | "spawn" | "eprintln" | "eprint" => "builtin",
         // v0.38 T4: extern c / FFI surfaces (v0.37 T3 + T6)
         "extern_block" | "extern_c_fn" | "extern_c_variadic" | "extern_lib"
         | "coerce_str_to_u8" | "addr_of_local" | "addr_of_mut" | "returned_struct" => "extern",
@@ -155,6 +160,7 @@ fn module_of(symbol: &str) -> &'static str {
         // v0.38 T4: std.process builder + helpers (rooted at non-`std.` prefix)
         "Command" => "process",
         "ProcessExit" => "process",
+        "ProcessOutput" => "process",
         // v0.38 T4: std.io readers / writers (rooted at non-`std.` prefix)
         "BufReader" | "BufWriter" | "read_line" | "write_line" => "io",
         // v0.38 T4: std.path
@@ -167,7 +173,7 @@ fn module_of(symbol: &str) -> &'static str {
         "Result" => "result",
         "Option" => "option",
         // v0.38 T4: std.error trait + anyhow macro
-        "Error" | "anyhow_error" => "error",
+        "Error" | "anyhow_error" | "AnyhowError" => "error",
         _ => "builtin",
     }
 }

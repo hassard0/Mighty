@@ -24,3 +24,23 @@ impl Error for AppError {
 if !port_ok { return Err(anyhow!("bad port: {}", port)); }
 ##end
 
+##sym AnyhowError.context
+##sig fn AnyhowError.context(self, msg: Str) -> AnyhowError
+##desc Attach a description to the error chain (Rust-anyhow style). Walks the existing `source()` chain so the formatted output reads top-down: outer context → root cause.
+##see Error.trait, anyhow_error, Result.map_err
+##example
+let cfg = read_config(path).map_err(|e| AnyhowError.from(e).context("reading config"))?;
+##end
+
+##sym Error.source
+##sig fn Error.source(&self) -> Option[&dyn Error]
+##desc Walk the error chain — return the immediate cause, or `None` if this is a root error. Drives the multi-line `{:?}` debug formatter and the `AnyhowError.context` chain.
+##see Error.trait, AnyhowError.context, anyhow_error
+##example
+let mut err: &dyn Error = &my_err;
+while let Some(cause) = err.source() {
+  log(format!("caused by: {}", cause));
+  err = cause;
+}
+##end
+

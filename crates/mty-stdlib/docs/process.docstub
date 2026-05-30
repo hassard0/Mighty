@@ -105,3 +105,69 @@ let exit = std.process.wait(&mut child)?;
 if exit.code != 0 { panic("child failed"); }
 ##end
 
+##sym Command.current_dir
+##sig fn Command.current_dir(&mut self, dir: Str) -> &mut Command
+##desc Set the child's working directory. Inherits the parent's `cwd` by default. Equivalent to `chdir(dir); exec(program)` from the child's perspective.
+##see Command.new, Command.env, Command.exec
+##example
+Command.new("cargo").arg("build").current_dir("./crates/core").exec()?;
+##end
+
+##sym Command.env_clear
+##sig fn Command.env_clear(&mut self) -> &mut Command
+##desc Drop every inherited environment variable. Subsequent `.env(k, v)` calls re-populate the child's env from scratch. Useful for hermetic child invocations (CI, sandboxing).
+##see Command.env, Command.new, Command.exec
+##example
+Command.new("sh").arg("-c").arg("env | wc -l")
+  .env_clear()
+  .env("PATH", "/usr/bin")
+  .exec()?;
+##end
+
+##sym Command.stdout_piped
+##sig fn Command.stdout_piped(&mut self) -> &mut Command
+##desc Redirect the child's stdout to a pipe captured by the parent. Required before `spawn()` if you want to incrementally read the child's output; `exec()` captures stdout automatically.
+##see Command.spawn, Command.stderr_piped, Command.exec
+##example
+let mut child = Command.new("git").arg("log").stdout_piped().spawn()?;
+let out = child.stdout.take().unwrap();
+for line in BufReader.new(out).lines() { log(line?); }
+##end
+
+##sym Command.stderr_piped
+##sig fn Command.stderr_piped(&mut self) -> &mut Command
+##desc Redirect the child's stderr to a pipe captured by the parent. Same shape as `stdout_piped`. Pair both if you need to interleave diagnostics with stdout reads.
+##see Command.stdout_piped, Command.spawn
+##example
+let mut child = Command.new("build").stdout_piped().stderr_piped().spawn()?;
+##end
+
+##sym Command.output
+##sig fn Command.output(&mut self) -> Result[ProcessOutput, ProcessError]
+##cap process.exec
+##desc Synonym for `Command.exec` — keeps the `std::process::Command` muscle memory for migrating Rust code. Runs to completion and returns captured stdout / stderr / exit.
+##see Command.exec, Command.spawn, ProcessOutput
+##example
+let out = Command.new("echo").arg("hi").output()?;
+assert_eq(out.stdout.trim_end(), "hi");
+##end
+
+##sym ProcessOutput
+##sig struct ProcessOutput { stdout: Str, stderr: Str, exit: ProcessExit }
+##desc Result of `Command.exec` / `Command.output` / `std.process.exec`. `stdout` / `stderr` are decoded as UTF-8 with lossy replacement for invalid sequences. The raw bytes path is on the v0.40 roadmap.
+##see Command.exec, ProcessExit, Command.output
+##example
+let out = Command.new("git").arg("rev-parse").arg("HEAD").exec()?;
+let sha = out.stdout.trim_end();
+assert!(out.exit.success());
+##end
+
+##sym ProcessExit.success
+##sig fn ProcessExit.success(&self) -> Bool
+##desc True iff the child exited normally with code 0. Treats signal terminations (Unix) as non-success regardless of the wrapped signal number.
+##see ProcessExit, std.process.wait, Command.exec
+##example
+let exit = std.process.wait(&mut child)?;
+if !exit.success() { panic(format!("failed code={}", exit.code)); }
+##end
+

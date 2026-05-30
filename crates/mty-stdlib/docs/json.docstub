@@ -79,3 +79,38 @@ assert_eq(std.json.encode(&j)?, "[1.0,2.0]");
 let j = std.json.parse("{\"a\":1}")?;
 ##end
 
+##sym Json.get
+##sig fn Json.get(&self, key: Str) -> Option[&Json]
+##desc Lookup an object field by name. Returns `None` for non-objects or missing keys. Chains via `.and_then(|j| j.get(...))`.
+##see std.json.parse, Json.Obj, Json.as_str
+##example
+let v = std.json.parse(body)?;
+if let Some(name) = v.get("user").and_then(|u| u.get("name")) { log(name); }
+##end
+
+##sym Json.as_str
+##sig fn Json.as_str(&self) -> Option[Str]
+##desc Borrow the underlying string if this is a `Json.Str`. Returns `None` for any other variant. Use after `Json.get` to extract a string field defensively.
+##see Json.get, Json.Str, Json.as_i64
+##example
+let name = v.get("name").and_then(|n| n.as_str()).unwrap_or("anon");
+##end
+
+##sym Json.as_i64
+##sig fn Json.as_i64(&self) -> Option[I64]
+##desc Borrow the underlying integer if this is a `Json.Num` that round-trips through I64. Returns `None` for non-numbers, floats, or out-of-range values.
+##see Json.get, Json.Num, Json.as_str
+##example
+let n = v.get("count").and_then(|j| j.as_i64()).unwrap_or(0);
+##end
+
+##sym Json.as_array
+##sig fn Json.as_array(&self) -> Option[&[Json]]
+##desc Borrow the underlying slice if this is a `Json.Arr`. Use with `.iter()` to drive a comprehension.
+##see Json.get, Json.Arr, Iterator.flat_map
+##example
+for item in v.get("items").and_then(|a| a.as_array()).iter().flat_map(|a| a.iter()) {
+  use(item);
+}
+##end
+

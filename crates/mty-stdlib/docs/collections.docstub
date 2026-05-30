@@ -77,3 +77,56 @@ s.insert(1);
 for x in s.iter() { log(format!("{}", x)); }
 ##end
 
+##sym HashMap.contains_key
+##sig fn HashMap.contains_key[K: Hash + Eq, V](&self, key: &K) -> Bool
+##desc True iff `key` is present. O(1) average. Use when you only need existence and not the value.
+##see HashMap.get, HashMap.insert, HashSet.contains
+##example
+if cache.contains_key(&id) { /* hit */ } else { miss(); }
+##end
+
+##sym HashMap.len
+##sig fn HashMap.len[K, V](&self) -> USize
+##desc Number of stored key/value pairs. O(1).
+##see HashMap.is_empty, HashMap.iter
+##example
+let n = users.len();
+log(format!("{} active sessions", n));
+##end
+
+##sym HashMap.iter
+##sig fn HashMap.iter[K, V](&self) -> Iterator[(&K, &V)]
+##desc Lazy iterator over `(key, value)` pairs. Iteration order is unspecified (hash randomisation is enabled). Use `BTreeMap` if order matters.
+##see HashMap.keys, HashMap.values, BTreeMap.iter
+##example
+for (k, v) in counts.iter() {
+  log(format!("{}={}", k, v));
+}
+##end
+
+##sym HashMap.entry
+##sig fn HashMap.entry[K: Hash + Eq, V](&mut self, key: K) -> Entry[K, V]
+##desc Get-or-insert API. `entry(k).or_insert(v)` returns `&mut V` after inserting `v` if `k` was absent — one hash, zero copies on the hit path.
+##see HashMap.insert, HashMap.get, HashMap.contains_key
+##example
+let counter = counts.entry(word).or_insert(0);
+*counter += 1;
+##end
+
+##sym HashSet.contains
+##sig fn HashSet.contains[T: Hash + Eq](&self, value: &T) -> Bool
+##desc True iff `value` is in the set. O(1) average. The membership-check counterpart to `HashSet.insert`.
+##see HashSet.insert, HashSet.new, HashMap.contains_key
+##example
+if seen.contains(&id) { return; }
+seen.insert(id);
+##end
+
+##sym BTreeMap.range
+##sig fn BTreeMap.range[K: Ord, V](&self, range: Range[K]) -> Iterator[(&K, &V)]
+##desc Iterate entries whose keys fall in the half-open range `low..high`. Logarithmic seek + linear over the matching span.
+##see BTreeMap.iter, BTreeMap.new, HashMap.iter
+##example
+for (k, v) in scores.range("a".."m") { use(k, v); }
+##end
+

@@ -200,15 +200,21 @@ The "See also" list is curated-first, then back-filled by
 ## Tests
 
 - `crates/mty-doc/src/examples.rs` carries a `tests` module asserting
-  that the table has at least 50 entries (v0.33 T6 floor) and at least
-  140 entries (v0.34 T3 floor), that every symbol is unique, that
-  every entry has a signature and example body, that lookup hits for
-  both qualified and bare forms, that the content hash is
-  deterministic, that the rendered Markdown contains every expected
-  section header, and that the v0.34 T3 module-coverage probe lights
-  up entries for `std.rag`, `std.computer`, `std.swarm`,
-  `std.observe`, `std.taint`, `std.eval`, `std.web`, `std.fs`,
-  `std.json`, `std.string`, and `std.vec`.
+  that the table has at least 50 entries (v0.33 T6 floor), at least
+  140 entries (v0.34 T3 floor), at least 300 entries (v0.38 T4 floor),
+  and at least 400 entries (v0.39 T5 floor); that every symbol is
+  unique; that every entry has a signature and example body; that
+  lookup hits for both qualified and bare forms; that the content hash
+  is deterministic; that the rendered Markdown contains every expected
+  section header; and that the per-version module-coverage probes
+  light up entries for the v0.34 T3 surfaces (`std.rag`,
+  `std.computer`, `std.swarm`, `std.observe`, `std.taint`, `std.eval`,
+  `std.web`, `std.fs`, `std.json`, `std.string`, `std.vec`), the
+  v0.38 T4 surfaces (FFI / cast / env vars / std.process / std.io /
+  std.path / std.collections / std.iter / std.result / std.option /
+  std.error), and the v0.39 T5 surfaces (`std.crypto`,
+  `std.encoding`, `std.url`, `std.uuid` plus the v0.38-backlog
+  gap-fillers).
 - `crates/mty-lsp/tests/integration.rs` exercises the full hover path
   end-to-end on:
   - `log` (bare builtin, capability-less),
@@ -238,3 +244,20 @@ type signatures evolve.
 - **VS Code / JetBrains screenshot harness.** The current tests assert
   the Markdown payload; we still need a tiny smoke runner that drives
   a real client through `tower-lsp` and captures the rendered hover.
+
+## v0.40 follow-ups (after v0.39 T5)
+
+- **Cast-polish hover entries.** v0.39 T2 ships `cast_int_to_bool`,
+  `cast_int_to_char`, `cast_ref_to_ptr`, and `MT2028
+  INVALID_CODEPOINT`. The T2 docstub patch lives on
+  `origin/v039-track-cast-polish` and lands when that branch merges —
+  the T5 catalog deliberately holds the pre-polish shape so the
+  current main-merge stays drift-free.
+- **Vec typed-slot v2 header entries.** v0.39 T3 introduces
+  `VEC_HEADER_V2` and per-element-size headers. Same pattern as cast
+  polish — entries arrive with the T3 merge.
+- **Cipher / AEAD.** `std.crypto` ships hash + HMAC + CSPRNG in v0.39
+  T1 but not AES-GCM / ChaCha20-Poly1305. Add entries when the cipher
+  surface lands.
+- **regex.** `std.regex` is not yet shipped in T1; hover entries for
+  `Regex.new`, `Regex.find`, `Regex.captures` follow the surface.

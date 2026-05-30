@@ -124,3 +124,86 @@ let first_even = (1..).find(|x| x % 2 == 0);
 assert_eq(first_even, Some(2));
 ##end
 
+##sym Iterator.peekable
+##sig fn Iterator.peekable[T](self) -> Peekable[T]
+##desc Wrap the iterator with a one-item lookahead. `.peek()` returns `Option[&T]` without advancing; the next `.next()` yields the same item.
+##see Iterator.take, Iterator.find, Iterator.next
+##example
+let mut it = [1, 2, 3].iter().peekable();
+while let Some(&n) = it.peek() {
+  if n > 2 { break; }
+  it.next();
+}
+##end
+
+##sym Iterator.windowed
+##sig fn Iterator.windowed[T](self, n: USize) -> Iterator[Vec[T]]
+##desc Sliding-window iterator. Yields every contiguous `n`-element window once. The source must be `Clone` — items appear in `n` consecutive windows. Empty for fewer than `n` items.
+##see Iterator.chunks, Iterator.take, Iterator.enumerate
+##example
+let pairs = [1, 2, 3, 4].iter().windowed(2).collect();
+assert_eq(pairs, [[1, 2], [2, 3], [3, 4]]);
+##end
+
+##sym Iterator.chunks
+##sig fn Iterator.chunks[T](self, n: USize) -> Iterator[Vec[T]]
+##desc Partition the iterator into non-overlapping `n`-element chunks. The final chunk may be shorter if the source isn't divisible by `n`.
+##see Iterator.windowed, Iterator.take, Iterator.skip
+##example
+let batches = (1..=7).chunks(3).collect();
+assert_eq(batches, [[1, 2, 3], [4, 5, 6], [7]]);
+##end
+
+##sym Iterator.cycle
+##sig fn Iterator.cycle[T: Clone](self) -> Iterator[T]
+##desc Repeat the source iterator forever. Requires `T: Clone` so each cycle can reproduce the same items. Pair with `.take(n)` to bound the output.
+##see Iterator.take, Iterator.chain, Iterator.enumerate
+##example
+let rgb: Vec[Str] = ["r", "g", "b"].iter().cycle().take(7).collect();
+assert_eq(rgb.len(), 7);
+##end
+
+##sym Iterator.min
+##sig fn Iterator.min[T: Ord](self) -> Option[T]
+##desc Terminal: smallest item by `Ord`. Returns `None` on empty input. Stable — ties yield the first seen.
+##see Iterator.max, Iterator.fold, Iterator.find
+##example
+let lo = [3, 1, 4, 1, 5].iter().copied().min();
+assert_eq(lo, Some(1));
+##end
+
+##sym Iterator.max
+##sig fn Iterator.max[T: Ord](self) -> Option[T]
+##desc Terminal: largest item by `Ord`. Returns `None` on empty input. Stable — ties yield the last seen.
+##see Iterator.min, Iterator.fold, Iterator.sum
+##example
+let hi = [3, 1, 4, 1, 5].iter().copied().max();
+assert_eq(hi, Some(5));
+##end
+
+##sym Iterator.flat_map
+##sig fn Iterator.flat_map[T, U, I: Iterator[U]](self, f: fn(T) -> I) -> Iterator[U]
+##desc Map each item to a sub-iterator and flatten. Equivalent to `.map(f).flatten()`.
+##see Iterator.map, Iterator.filter, Iterator.collect
+##example
+let words = ["hi there", "hello world"].iter().flat_map(|s| s.split(" ")).collect();
+##end
+
+##sym Iterator.rev
+##sig fn Iterator.rev[T](self) -> Iterator[T]
+##desc Reverse the iteration order. Requires the source to implement DoubleEndedIterator (`Vec.iter`, ranges, etc.).
+##see Iterator.take, Iterator.skip, Iterator.collect
+##example
+let backward: Vec[I32] = (1..=3).rev().collect();
+assert_eq(backward, [3, 2, 1]);
+##end
+
+##sym Iterator.step_by
+##sig fn Iterator.step_by[T](self, step: USize) -> Iterator[T]
+##desc Yield every `step`-th item, starting at index 0. `step_by(1)` is the identity; `step_by(0)` panics.
+##see Iterator.skip, Iterator.take, Iterator.enumerate
+##example
+let evens: Vec[I32] = (0..10).step_by(2).collect();
+assert_eq(evens, [0, 2, 4, 6, 8]);
+##end
+

@@ -381,6 +381,17 @@ pub const EMBEDDED_DOCSTUBS: &[(&str, &str)] = &[
         include_str!("../../mty-stdlib/docs/option.docstub"),
     ),
     ("error", include_str!("../../mty-stdlib/docs/error.docstub")),
+    // v0.39 T5 — v0.39 T1 stdlib surfaces.
+    (
+        "crypto",
+        include_str!("../../mty-stdlib/docs/crypto.docstub"),
+    ),
+    (
+        "encoding",
+        include_str!("../../mty-stdlib/docs/encoding.docstub"),
+    ),
+    ("url", include_str!("../../mty-stdlib/docs/url.docstub")),
+    ("uuid", include_str!("../../mty-stdlib/docs/uuid.docstub")),
 ];
 
 /// Parse every embedded docstub and return the flat catalog.
