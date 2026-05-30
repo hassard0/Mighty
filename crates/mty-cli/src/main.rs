@@ -534,6 +534,29 @@ fn main() {
     mty_runtime::host_std::install_dispatcher(cli_std_dispatch);
 
     let cli = Cli::parse();
+    // Parsing + lowering Mighty is deeply recursive (recursive-descent parser, CST
+    // → AST → HIR). Large/deeply-nested sources (e.g. the Mighty IDE's main.mty)
+    // can exhaust the default ~8 MB main-thread stack and abort with "has
+    // overflowed its stack". Run all command work on a worker thread with a large
+    // stack so big programs compile reliably. RUST_MIN_STACK does NOT help — it
+    // only affects spawned threads, never the main thread, which is why this
+    // ceiling kept recurring.
+    let code = std::thread::Builder::new()
+        .stack_size(512 * 1024 * 1024)
+        .spawn(move || run_cli(cli))
+        .expect("failed to spawn mty worker thread")
+        .join()
+        .unwrap_or_else(|_| {
+            eprintln!("mty: internal error (worker thread panicked)");
+            101
+        });
+    std::process::exit(code);
+}
+
+/// Dispatch the parsed CLI command, returning the process exit code. Runs on a
+/// large-stack worker thread (spawned in `main`) so deeply-recursive parsing and
+/// lowering of large Mighty sources never overflows the default main-thread stack.
+fn run_cli(cli: Cli) -> i32 {
     let code = match cli.cmd {
         Cmd::New { name, template } => cmd::new::run(&name, template.as_deref()),
         Cmd::Serve(args) => cmd::serve::run(cmd::serve::ServeArgs {
@@ -777,5 +800,5 @@ fn main() {
             cmd::hooks::run(action)
         }
     };
-    std::process::exit(code);
+    code
 }
