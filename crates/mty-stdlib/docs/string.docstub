@@ -200,3 +200,61 @@ assert_eq(pairs.len(), 3);
 assert_eq("a©".byte_len(), 3);
 ##end
 
+##sym String.split
+##sig fn String.split(&self, sep: Str) -> Iterator[Str]
+##desc Lazy iterator of substrings separated by `sep`. Empty `sep` yields a `Char`-wide split (one item per code point). Trailing empties are preserved.
+##see String.splitn, String.find, String.trim
+##example
+let parts: Vec[Str] = "a,b,,c".split(",").collect();
+assert_eq(parts, ["a", "b", "", "c"]);
+##end
+
+##sym String.trim
+##sig fn String.trim(&self) -> Str
+##desc Borrow a sub-string with leading + trailing whitespace removed. Whitespace follows the Unicode White_Space property.
+##see String.trim_end, String.trim_start, String.split
+##example
+let s = "  hello world  \n".trim();
+assert_eq(s, "hello world");
+##end
+
+##sym String.starts_with
+##sig fn String.starts_with(&self, prefix: Str) -> Bool
+##desc True iff `self` starts with `prefix`. O(prefix.len()).
+##see String.ends_with, String.find
+##example
+if s.starts_with("https://") { /* secure */ }
+##end
+
+##sym String.ends_with
+##sig fn String.ends_with(&self, suffix: Str) -> Bool
+##desc True iff `self` ends with `suffix`. O(suffix.len()).
+##see String.starts_with, String.find
+##example
+if path.ends_with(".mty") { compile(path); }
+##end
+
+##sym String.contains
+##sig fn String.contains(&self, needle: Str) -> Bool
+##desc True iff `needle` occurs anywhere inside `self`. Use `find` if you also need the offset.
+##see String.find, String.starts_with, String.ends_with
+##example
+if body.contains("ERROR") { alert(); }
+##end
+
+##sym String.to_lowercase
+##sig fn String.to_lowercase(&self) -> String
+##desc Allocate a lowercase copy. Honors Unicode special casing — `'İ'.to_lowercase()` yields `"i̇"` (two code points). Use `to_ascii_lowercase` for ASCII-only.
+##see String.to_uppercase, String.trim
+##example
+if email.to_lowercase() == canonical { /* match */ }
+##end
+
+##sym String.to_uppercase
+##sig fn String.to_uppercase(&self) -> String
+##desc Allocate an uppercase copy. Honors Unicode special casing.
+##see String.to_lowercase, String.trim
+##example
+let shout = greeting.to_uppercase();
+##end
+

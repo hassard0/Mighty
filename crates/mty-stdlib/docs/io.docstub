@@ -85,3 +85,37 @@ log(format!("got {} bytes", n));
 std.io.stdout().write_line("done")?;
 ##end
 
+##sym BufReader.read_line
+##sig fn BufReader.read_line[R](&mut self, buf: &mut String) -> Result[USize, IoError]
+##cap io.stdin
+##desc Read one `\n`-terminated line into `buf` (appended, not replaced). Returns the number of bytes read; `0` signals EOF. The terminator is preserved in `buf` — strip with `.trim_end_matches('\n')` if undesired.
+##see BufReader.new, BufReader.lines, read_line
+##example
+let mut r = BufReader.new(std.io.stdin());
+let mut line = String.new();
+let n = r.read_line(&mut line)?;
+if n == 0 { return; }  // EOF
+##end
+
+##sym BufWriter.write_all
+##sig fn BufWriter.write_all[W](&mut self, bytes: &[U8]) -> Result[(), IoError]
+##desc Write every byte of `bytes`, retrying short writes internally until the slice is drained. Buffers into the inner handle's block size; explicit `.flush()` is still required to commit before drop if you need crash-resilient diagnostics.
+##see BufWriter.new, BufWriter.flush, write_line
+##example
+let mut w = BufWriter.new(std.io.stdout());
+w.write_all(b"hello world\n")?;
+w.flush()?;
+##end
+
+##sym std.io.stdin_lock
+##sig fn std.io.stdin().lock() -> StdinLock
+##cap io.stdin
+##desc Acquire an exclusive handle on stdin. Cheap — just takes the per-process mutex. Use when you need stable line semantics across many reads (the unlocked `Stdin` takes/releases the lock around every call).
+##see std.io.stdin, BufReader.new
+##example
+let stdin = std.io.stdin();
+let mut handle = stdin.lock();
+let mut s = String.new();
+handle.read_line(&mut s)?;
+##end
+

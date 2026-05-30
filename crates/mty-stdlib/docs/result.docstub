@@ -52,3 +52,11 @@ let port: I32 = parse_port(input).unwrap_or(8080);
 let n = parse_int(s).and_then(|x| if x > 0 { Ok(x) } else { Err("negative") });
 ##end
 
+##sym Result.context
+##sig fn Result.context[T, E](self, msg: Str) -> Result[T, AnyhowError]
+##desc Attach `msg` to the `Err` branch if there is one. Equivalent to `self.map_err(|e| AnyhowError.from(e).context(msg))`.
+##see Result.map_err, anyhow_error, AnyhowError.context
+##example
+let body = read_file(path).context("reading manifest")?;
+##end
+

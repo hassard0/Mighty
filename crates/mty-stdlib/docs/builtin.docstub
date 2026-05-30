@@ -35,3 +35,14 @@ h.send(Greet { name: "world" });
 eprintln!("failed: {}", err);
 ##end
 
+##sym eprint
+##sig macro eprint!(fmt: Str, args: ...)
+##cap io.stderr
+##desc Write to stderr without a trailing newline. Unbuffered — diagnostics survive a crash before flush. Pair with `eprintln!` when you want the newline.
+##see eprintln, std.io.stderr
+##example
+eprint!("progress: ");
+for i in 0..10 { eprint!("{} ", i); }
+eprintln!();
+##end
+

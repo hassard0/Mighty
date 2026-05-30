@@ -1,0 +1,128 @@
+##module crypto
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym std.crypto.sha256
+##sig fn std.crypto.sha256(input: &[U8]) -> [U8; 32]
+##desc SHA-256 one-shot hash. Returns the 32-byte digest. Pure — no capability required. KAT-tested against NIST FIPS-180-2.
+##see std.crypto.sha512, std.crypto.blake3, std.crypto.Sha256Hasher, std.crypto.hmac_sha256
+##example
+let h = std.crypto.sha256("hello".as_bytes());
+let hex_digest = std.encoding.hex.encode(&h);
+##end
+
+##sym std.crypto.sha512
+##sig fn std.crypto.sha512(input: &[U8]) -> [U8; 64]
+##desc SHA-512 one-shot hash. Returns the 64-byte digest. Pure. KAT-tested against RFC 4231 / NIST.
+##see std.crypto.sha256, std.crypto.Sha512Hasher, std.crypto.hmac_sha512
+##example
+let h = std.crypto.sha512("hello".as_bytes());
+let hex_digest = std.encoding.hex.encode(&h);
+##end
+
+##sym std.crypto.blake3
+##sig fn std.crypto.blake3(input: &[U8]) -> [U8; 32]
+##desc BLAKE3 hash. Fast modern hash function. Returns the default 32-byte digest. Pure. KAT-tested against the BLAKE3 reference vectors.
+##see std.crypto.sha256, std.crypto.Blake3Hasher
+##example
+let h = std.crypto.blake3(file_bytes);
+##end
+
+##sym std.crypto.Sha256Hasher
+##sig struct std.crypto.Sha256Hasher
+##desc Streaming SHA-256. `new()` → `update(&[U8])` (repeated) → `finalize() -> [U8; 32]`. Use when the input does not fit in memory.
+##see std.crypto.sha256, std.crypto.Sha512Hasher, std.crypto.Blake3Hasher
+##example
+let h = std.crypto.Sha256Hasher.new();
+h.update(chunk1);
+h.update(chunk2);
+let digest = h.finalize();
+##end
+
+##sym std.crypto.Sha512Hasher
+##sig struct std.crypto.Sha512Hasher
+##desc Streaming SHA-512. Same shape as `Sha256Hasher` — `new()` / `update(&[U8])` / `finalize() -> [U8; 64]`.
+##see std.crypto.sha512, std.crypto.Sha256Hasher
+##example
+let h = std.crypto.Sha512Hasher.new();
+h.update(chunk);
+let digest = h.finalize();
+##end
+
+##sym std.crypto.Blake3Hasher
+##sig struct std.crypto.Blake3Hasher
+##desc Streaming BLAKE3. Beyond the standard `new() / update / finalize`, exposes `finalize_xof(&mut [U8])` for arbitrary-length XOF output (KDF / extended MAC).
+##see std.crypto.blake3, std.crypto.Sha256Hasher
+##example
+let h = std.crypto.Blake3Hasher.new();
+h.update(body);
+let mut out = [0_u8; 64];
+h.finalize_xof(&mut out);
+##end
+
+##sym std.crypto.hmac_sha256
+##sig fn std.crypto.hmac_sha256(key: &[U8], message: &[U8]) -> [U8; 32]
+##desc HMAC-SHA-256 — keyed MAC tag per RFC 2104. Returns the 32-byte tag. Pure. KAT-tested against RFC 4231.
+##see std.crypto.hmac_sha512, std.crypto.subtle_eq, std.crypto.sha256
+##example
+// Webhook signature
+let mac = std.crypto.hmac_sha256(secret, body);
+let header = "sha256=" + std.encoding.hex.encode(&mac);
+##end
+
+##sym std.crypto.hmac_sha512
+##sig fn std.crypto.hmac_sha512(key: &[U8], message: &[U8]) -> [U8; 64]
+##desc HMAC-SHA-512 — keyed MAC tag per RFC 2104. Returns the 64-byte tag. Pure.
+##see std.crypto.hmac_sha256, std.crypto.subtle_eq, std.crypto.sha512
+##example
+let mac = std.crypto.hmac_sha512(key, message);
+##end
+
+##sym std.crypto.subtle_eq
+##sig fn std.crypto.subtle_eq(a: &[U8], b: &[U8]) -> Bool
+##desc Constant-time slice equality. Use for tag / digest comparison — never the naive `==` (which short-circuits and leaks timing).
+##see std.crypto.hmac_sha256, std.crypto.hmac_sha512
+##example
+if std.crypto.subtle_eq(&expected_tag, &computed_tag) {
+  // valid signature
+}
+##end
+
+##sym std.crypto.random_bytes
+##sig fn std.crypto.random_bytes(n: USize) -> Result[Vec[U8], RandErr]
+##cap crypto.rand
+##desc Cryptographically-secure random bytes from the OS CSPRNG (Linux `getrandom(2)`, macOS `getentropy(2)`, Windows `BCryptGenRandom`). Requires `crypto.rand`.
+##see std.crypto.uniform_int, std.crypto.uniform_f64, std.uuid.Uuid.v4
+##example
+let nonce = std.crypto.random_bytes(16)?;
+##end
+
+##sym std.crypto.uniform_int
+##sig fn std.crypto.uniform_int(low: I64, high: I64) -> Result[I64, RandErr]
+##cap crypto.rand
+##desc Uniform-random integer in `[low, high)`. Rejection-sampled against the OS entropy stream to avoid modulo bias. Returns `RandErr.EmptyRange` if `low >= high`. Requires `crypto.rand`.
+##see std.crypto.random_bytes, std.crypto.uniform_f64, std.crypto.RandErr
+##example
+let dice = std.crypto.uniform_int(1, 7)?;
+##end
+
+##sym std.crypto.uniform_f64
+##sig fn std.crypto.uniform_f64() -> Result[F64, RandErr]
+##cap crypto.rand
+##desc Uniform-random F64 in `[0.0, 1.0)`. 53-bit mantissa precision (every representable F64 in that range with a 53-bit integer mantissa is equally likely). Requires `crypto.rand`.
+##see std.crypto.uniform_int, std.crypto.random_bytes
+##example
+let p = std.crypto.uniform_f64()?;
+if p < 0.01 { /* 1% probability branch */ }
+##end
+
+##sym std.crypto.RandErr
+##sig enum std.crypto.RandErr { Os(Str), EmptyRange }
+##desc Error returned by the `random_bytes` / `uniform_*` surfaces. `Os(msg)` wraps a CSPRNG syscall failure; `EmptyRange` rejects `uniform_int(low, high)` with `low >= high`.
+##see std.crypto.random_bytes, std.crypto.uniform_int
+##example
+match std.crypto.uniform_int(5, 5) {
+  Err(std.crypto.RandErr.EmptyRange) => { /* expected */ }
+  _ => panic("unreachable"),
+}
+##end
+

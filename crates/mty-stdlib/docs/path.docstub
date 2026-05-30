@@ -87,3 +87,74 @@ assert_eq(p.file_name(), Some("build.o"));
 if Path.new("./mighty.toml").exists(FsCap.rooted(".")) { /* ... */ }
 ##end
 
+##sym PathBuf.push
+##sig fn PathBuf.push(&mut self, segment: Str)
+##desc Append a path segment, inserting the platform separator if needed. If `segment` is absolute, it replaces the path entirely (matches POSIX `chdir` semantics).
+##see PathBuf.new, Path.join, PathBuf.pop
+##example
+let mut p = PathBuf.new();
+p.push("/var");
+p.push("log");
+p.push("app.log");
+assert_eq(p.as_str(), "/var/log/app.log");
+##end
+
+##sym PathBuf.pop
+##sig fn PathBuf.pop(&mut self) -> Bool
+##desc Drop the final component. Returns `true` if a component was removed, `false` if the path was already at root.
+##see PathBuf.push, Path.parent
+##example
+let mut p = PathBuf.from("/a/b/c");
+assert(p.pop());
+assert_eq(p.as_str(), "/a/b");
+##end
+
+##sym PathBuf.set_extension
+##sig fn PathBuf.set_extension(&mut self, ext: Str) -> Bool
+##desc Replace the file extension. Adds one if absent; strips it if `ext` is empty. Returns `true` if the file-name component was non-empty.
+##see Path.with_extension, Path.extension
+##example
+let mut p = PathBuf.from("build.mty");
+p.set_extension("o");
+assert_eq(p.as_str(), "build.o");
+##end
+
+##sym PathBuf.from
+##sig fn PathBuf.from(s: Str) -> PathBuf
+##desc Allocate an owned path from a string. Equivalent to `PathBuf.new(); .push(s)`.
+##see PathBuf.new, Path.new
+##example
+let p = PathBuf.from("/etc/hosts");
+##end
+
+##sym Path.metadata
+##sig fn Path.metadata(&self, cap: FsCap) -> Result[StatResult, IoError]
+##cap fs.read
+##desc Stat the path. Returns size / kind / mtime in a `StatResult`. Requires `fs.read`.
+##see std.fs.stat, Path.exists, StatResult
+##example
+let md = Path.new("./build.log").metadata(FsCap.rooted("."))?;
+log(format!("size={} bytes", md.size));
+##end
+
+##sym Path.canonicalize
+##sig fn Path.canonicalize(&self, cap: FsCap) -> Result[PathBuf, IoError]
+##cap fs.read
+##desc Resolve symlinks and `..` segments against the real filesystem. Used to ground a user-supplied path before checking it against an allowlist. Requires `fs.read`.
+##see Path.new, std.fs.exists, FsCap.rooted
+##example
+let real = Path.new("./tmp/../etc").canonicalize(FsCap.rooted("./tmp"))?;
+##end
+
+##sym Path.walk
+##sig fn Path.walk(&self, cap: FsCap) -> Iterator[Result<DirEntry, IoError>]
+##cap fs.read
+##desc Recursively iterate every descendant. Yields one `DirEntry` per file + directory in deterministic depth-first order. Skips symlinks by default. Requires `fs.read`.
+##see Path.new, std.fs.read_to_string, FsCap.rooted
+##example
+for entry in Path.new("./src").walk(FsCap.rooted("./src")) {
+  let e = entry?;
+  if e.path.extension() == Some("mty") { log(e.path.to_string()); }
+}
+##end
+
