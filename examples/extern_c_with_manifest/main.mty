@@ -1,0 +1,15 @@
+// v0.41 T4 — demonstrates the manifest `[build]` link block.
+//
+// The sibling `mighty.toml` lists `native-libs = ["m"]`, so every
+// native build of this file links against libm. We don't actually
+// call any libm symbols here — the point is to show the plumbing.
+// Run with:
+//
+//     mty build examples/extern_c_with_manifest/main.mty
+//
+// On Unix hosts the link command receives `-lm`; on MSVC the driver
+// rewrites it to `m.lib`. See `docs/reference/cli/mty-build.md` for
+// the full env-var matrix and MSVC rewrite table.
+fn main() {
+  log("extern_c_with_manifest: built with [build] native-libs = [\"m\"]")
+}

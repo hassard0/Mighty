@@ -245,6 +245,7 @@ fn run_compile(iters: usize) -> Sample {
             extern_libs: Vec::new(),
 
             manifest_dir: None,
+            build_config: None,
         };
         let t0 = Instant::now();
         let _ = build_wasm(
@@ -283,6 +284,7 @@ fn run_wasm_size() -> Sample {
         extern_libs: Vec::new(),
 
         manifest_dir: None,
+        build_config: None,
     };
     let outcome = build_wasm(src, "wasm_size.mty".into(), &opts, WasmTarget::Wasi);
     let bytes = match outcome {

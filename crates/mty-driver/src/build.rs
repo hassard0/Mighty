@@ -5,7 +5,8 @@
 //! pipeline as `pipeline::run_file_with_runtime`, then hands the SIR
 //! to either the Cranelift backend (native) or the Wasm backend.
 
-use crate::manifest::{ExternLib, HostOs};
+use crate::link_flavor::{rewrite_for_flavor, LinkerFlavor};
+use crate::manifest::{BuildConfig, ExternLib, HostOs};
 use crate::pipeline::{lower, parse_source, type_and_borrow_check};
 use mty_codegen_cranelift::{
     artifact::BuildMode,
@@ -66,6 +67,12 @@ pub struct BuildOptions {
     /// wasn't anchored to a manifest (single-file `mty run` flow);
     /// in that case `extern_libs` is expected to be empty.
     pub manifest_dir: Option<PathBuf>,
+    /// v0.41 T4 — `[build]` block from the manifest. Contributes
+    /// project-wide native link knobs (`native-libs`, `link-search`,
+    /// `frameworks`, `link-args`) appended after the `[[extern_lib]]`
+    /// argv. `None` means the manifest had no `[build]` section (or
+    /// the build is anchored to no manifest at all).
+    pub build_config: Option<BuildConfig>,
 }
 
 /// Which WASI preview to target for Wasm builds.
@@ -116,6 +123,7 @@ impl BuildOptions {
             user_wit: None,
             extern_libs: Vec::new(),
             manifest_dir: None,
+            build_config: None,
         }
     }
     pub fn native_release(out_dir: PathBuf, name: impl Into<String>) -> Self {
@@ -129,6 +137,7 @@ impl BuildOptions {
             user_wit: None,
             extern_libs: Vec::new(),
             manifest_dir: None,
+            build_config: None,
         }
     }
 
@@ -138,6 +147,12 @@ impl BuildOptions {
     pub fn with_extern_libs(mut self, libs: Vec<ExternLib>, manifest_dir: Option<PathBuf>) -> Self {
         self.extern_libs = libs;
         self.manifest_dir = manifest_dir;
+        self
+    }
+
+    /// Attach a `[build]` block to a `BuildOptions` instance (v0.41 T4).
+    pub fn with_build_config(mut self, build: Option<BuildConfig>) -> Self {
+        self.build_config = build;
         self
     }
 }
@@ -216,14 +231,26 @@ pub fn build_native(src: String, source_id: String, opts: &BuildOptions) -> Buil
         Ok(a) => a,
         Err(e) => return BuildOutcome::BackendError(format!("codegen: {e}")),
     };
-    if find_linker().is_none() {
+    let Some(linker_path) = find_linker() else {
         return BuildOutcome::NativeOkNoLinker(obj.object_path);
-    }
+    };
     let exe_path = exe_path_for(&opts.out_dir, &opts.binary_name);
     // v0.36 T2: translate the manifest's [[extern_lib]] set into raw
     // linker arguments. The flat string list keeps codegen-crate code
     // free of manifest schema dependencies.
-    let extra_link_args = build_linker_args(&opts.extern_libs, opts.manifest_dir.as_deref());
+    let mut extra_link_args = build_linker_args(&opts.extern_libs, opts.manifest_dir.as_deref());
+    // v0.41 T4: append the project-wide [build] block's link args after
+    // the per-extern_lib args. Order matters: per-lib args first so a
+    // vendored static archive can override `[build] native-libs` if both
+    // contribute the same symbol.
+    if let Some(b) = &opts.build_config {
+        extra_link_args.extend(b.linker_args(HostOs::current()));
+    }
+    // v0.41 T4: rewrite GNU-shape args to MSVC shape when the resolved
+    // linker is `link.exe` / `lld-link`. Per-flavor detection is
+    // best-effort + overridable via `MTY_LINKER_FLAVOR`.
+    let flavor = LinkerFlavor::detect(&linker_path);
+    let extra_link_args = rewrite_for_flavor(&extra_link_args, flavor);
     match link_executable_with_libs(&obj, &exe_path, opts.mode, &extra_link_args) {
         Ok(a) => BuildOutcome::NativeOk(a.binary_path),
         // The object emitted cleanly but the linker rejected it
@@ -458,6 +485,7 @@ mod tests {
             user_wit: None,
             extern_libs: Vec::new(),
             manifest_dir: None,
+            build_config: None,
         };
         let outcome = build_wasm(
             "fn main() {}\n".into(),
@@ -496,6 +524,7 @@ mod tests {
             user_wit: None,
             extern_libs: Vec::new(),
             manifest_dir: None,
+            build_config: None,
         };
         let outcome = build_wasm(
             "fn main() {}\n".into(),
@@ -530,6 +559,7 @@ mod tests {
             user_wit: None,
             extern_libs: Vec::new(),
             manifest_dir: None,
+            build_config: None,
         };
         let outcome = build_wasm(
             "fn main() {}\n".into(),

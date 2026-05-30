@@ -24,6 +24,7 @@ fn opts(dir: &tempfile::TempDir, name: &str) -> BuildOptions {
         user_wit: None,
         extern_libs: Vec::new(),
         manifest_dir: None,
+        build_config: None,
     }
 }
 

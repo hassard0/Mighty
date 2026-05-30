@@ -259,6 +259,7 @@ fn build_once(pkg_root: &Path) -> Result<PathBuf, BuildErr> {
         extern_libs: Vec::new(),
 
         manifest_dir: None,
+        build_config: None,
     };
 
     match build_wasm(src, source_id, &opts, WasmTarget::Web) {

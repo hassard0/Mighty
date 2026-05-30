@@ -1,0 +1,28 @@
+[package]
+name = "extern_c_with_manifest"
+version = "0.1.0"
+edition = "2026"
+
+# v0.41 T4 — project-wide native link knobs. Each `mty build` of any
+# source in this package threads these into the linker invocation
+# *after* any per-library `[[extern_lib]]` block.
+#
+# On MSVC (`link.exe` / `lld-link`) the driver auto-rewrites:
+#   -lm           → m.lib
+#   -L/opt/lib    → /LIBPATH:/opt/lib
+#   --gc-sections → /OPT:REF
+#
+# Set `MTY_LINKER_FLAVOR=msvc` when your linker wrapper hides the
+# basename and the heuristic guesses wrong.
+[build]
+# libm is available on every Unix host out of the box; this is the
+# universally-runnable smoke shape for the `[build]` plumbing.
+native-libs = ["m"]
+# Extra search dir — paths are passed verbatim, the manifest dir is
+# *not* prepended. Use absolute paths or paths that make sense at
+# link time on the host.
+# link-search = ["/opt/whatever/lib"]
+# macOS-only frameworks. Silently dropped elsewhere.
+# frameworks = ["Cocoa"]
+# Raw passthrough — auto-translated on MSVC, otherwise verbatim.
+# link-args = ["--gc-sections"]

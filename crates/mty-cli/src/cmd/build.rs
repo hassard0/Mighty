@@ -1,7 +1,7 @@
 use mty_codegen_cranelift::artifact::BuildMode;
 use mty_codegen_wasm::{UserWit, WasmTarget};
 use mty_driver::build::WasiPreview;
-use mty_driver::manifest::ExternLib;
+use mty_driver::manifest::{BuildConfig, ExternLib};
 use mty_driver::{build_native, build_wasm, BuildOptions, BuildOutcome, BuildTarget};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -86,12 +86,13 @@ pub fn run(
         }
     };
 
-    // v0.36 Track T2: read `[[extern_lib]]` blocks from `mighty.toml`.
-    // Missing manifest is fine — single-file programs that don't use
-    // extern c just see an empty list. Failure to parse a manifest
-    // that *does* exist is fatal so the error is loud.
-    let (extern_libs, manifest_dir) = match load_extern_libs(path) {
-        Ok((libs, dir)) => (libs, dir),
+    // v0.36 Track T2 + v0.41 T4: read `[[extern_lib]]` blocks and the
+    // `[build]` block from `mighty.toml`. Missing manifest is fine —
+    // single-file programs that don't use extern c just see empty lists.
+    // Failure to parse a manifest that *does* exist is fatal so the
+    // error is loud.
+    let inputs = match load_manifest_build_inputs(path) {
+        Ok(v) => v,
         Err(e) => {
             eprintln!("manifest error: {e}");
             return 2;
@@ -105,8 +106,9 @@ pub fn run(
         no_component,
         wasi_preview,
         user_wit,
-        extern_libs,
-        manifest_dir,
+        extern_libs: inputs.extern_libs,
+        manifest_dir: inputs.manifest_dir,
+        build_config: inputs.build_config,
     };
 
     let outcome = match build_target {
@@ -160,18 +162,35 @@ fn load_user_wit(
     }))
 }
 
-/// v0.36 Track T2: load the manifest's `[[extern_lib]]` set for the
-/// build driver. Returns the list plus the manifest's directory so the
-/// driver can resolve relative `path` entries. `Ok((vec![], None))`
-/// when the source file isn't anchored to a `mighty.toml`.
-fn load_extern_libs(src_path: &Path) -> Result<(Vec<ExternLib>, Option<PathBuf>), String> {
+/// v0.36 Track T2 + v0.41 T4: bundle of manifest-derived inputs the
+/// build driver needs to wire the native link command. Returned from
+/// [`load_manifest_build_inputs`] so the call site doesn't grow an
+/// ever-longer tuple.
+struct ManifestBuildInputs {
+    extern_libs: Vec<ExternLib>,
+    manifest_dir: Option<PathBuf>,
+    build_config: Option<BuildConfig>,
+}
+
+/// Load the manifest's `[[extern_lib]]` set and `[build]` block for the
+/// build driver. Returns empty defaults when the source file isn't
+/// anchored to a `mighty.toml`.
+fn load_manifest_build_inputs(src_path: &Path) -> Result<ManifestBuildInputs, String> {
     let Some(pkg_root) = find_manifest_root(src_path) else {
-        return Ok((Vec::new(), None));
+        return Ok(ManifestBuildInputs {
+            extern_libs: Vec::new(),
+            manifest_dir: None,
+            build_config: None,
+        });
     };
     let manifest_path = pkg_root.join("mighty.toml");
     let m = mty_driver::manifest::load(&manifest_path)
         .map_err(|e| format!("{}: {e}", manifest_path.display()))?;
-    Ok((m.extern_libs, Some(pkg_root)))
+    Ok(ManifestBuildInputs {
+        extern_libs: m.extern_libs,
+        manifest_dir: Some(pkg_root),
+        build_config: m.build,
+    })
 }
 
 /// Walk upward from `src` looking for a directory containing

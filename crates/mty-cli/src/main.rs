@@ -132,6 +132,30 @@ enum Cmd {
     /// Cranelift + the platform linker). Use `--target wasm32-wasi`
     /// for a Wasm module runnable under `wasmtime`, or
     /// `--target wasm32-web` for a browser-targeted module.
+    ///
+    /// Environment variables (native build):
+    ///   MTY_LINKER         Override linker discovery. Set to an
+    ///                      absolute path or a bare name on PATH
+    ///                      (e.g. `clang`, `gcc`, `link.exe`,
+    ///                      `lld-link`). Takes precedence over the
+    ///                      default `cc`/`gcc`/`clang` walk.
+    ///   MTY_LINKER_FLAVOR  Force the arg-rewrite flavor regardless
+    ///                      of the detected basename. Values: `gnu`
+    ///                      (default, GNU-ld syntax) or `msvc` (the
+    ///                      driver rewrites `-lfoo`→`foo.lib`,
+    ///                      `-L<p>`→`/LIBPATH:<p>`,
+    ///                      `--gc-sections`→`/OPT:REF`).
+    ///   STARDUST_LINKER    Legacy spelling of `MTY_LINKER`. Honoured
+    ///                      with a one-shot deprecation warning.
+    ///
+    /// Manifest knobs (`mighty.toml`):
+    /// ```toml
+    /// [build]
+    /// native-libs = ["foo"]    # -lfoo  (foo.lib on MSVC)
+    /// link-search = ["/p"]     # -L/p   (/LIBPATH:/p on MSVC)
+    /// frameworks  = ["X"]      # -framework X (macOS only)
+    /// link-args   = ["-Wl,..."] # raw passthrough
+    /// ```
     Build {
         path: std::path::PathBuf,
         #[arg(long)]

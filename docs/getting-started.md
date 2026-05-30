@@ -174,6 +174,23 @@ platform C linker. If no linker is on PATH, the `.o` is left in
 `target/` and a helpful message tells you how to link manually
 (see `MT8008`).
 
+Override the linker with `$MTY_LINKER` (an absolute path or a bare
+name on PATH; legacy `$STARDUST_LINKER` is still accepted). Force
+the MSVC arg-rewrite path with `$MTY_LINKER_FLAVOR=msvc` when your
+linker wrapper hides the basename. To attach native libraries to
+every build in a package, add a `[build]` block to `mighty.toml`:
+
+```toml
+[build]
+native-libs = ["m"]                       # → -lm (m.lib on MSVC)
+link-search = ["/opt/whatever/lib"]       # → -L/...
+frameworks  = ["Cocoa"]                   # macOS only
+link-args   = ["--gc-sections"]           # raw passthrough
+```
+
+See `docs/reference/cli/mty-build.md` for the full env-var matrix
+and the MSVC rewrite table.
+
 The Wasm targets produce a Component-Model component (for the web
 target) or a core Wasm module with Preview 2 imports (for WASI),
 runnable under `wasmtime` / `wasmer` or any browser host.

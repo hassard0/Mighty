@@ -6,6 +6,7 @@
 // `wasm32-unknown-unknown` for the in-browser playground.
 #[cfg(feature = "host-toolchain")]
 pub mod build;
+pub mod link_flavor;
 pub mod manifest;
 pub mod pipeline;
 #[cfg(feature = "host-toolchain")]
