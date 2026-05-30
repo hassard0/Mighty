@@ -1,10 +1,10 @@
-# LSP hover (v0.33 T6, v0.34 T3 expansion)
+# LSP hover (v0.33 T6, v0.34 T3, v0.35 T5, v0.38 T4 expansions)
 
 The LSP hover provider returns a Markdown payload that drives the box VS
 Code / JetBrains / Neovim show when the user rests on an identifier. As
-of v0.34 T3 it stitches together signatures from the type-checker with a
-curated **stdlib examples index** so the hover for `Member.ask` (or any
-of the 200+ other seeded stdlib surfaces) renders:
+of v0.38 T4 it stitches together signatures from the type-checker with a
+curated **stdlib examples index** of 300+ seeded entries so the hover
+for `Member.ask` (or any other seeded stdlib surface) renders:
 
 - a fenced signature,
 - a one-line description,
@@ -37,8 +37,46 @@ Reranker/Rag + the four `ChunkStrategy` variants), `std.computer`
 methods, `std.eval` comparators + `Verdict` variants + `Case` sources,
 `std.web` (`Canvas` drawing surface + `Input`/`Key`), `std.fs`
 read/stat/list/exists + `FsCap`, every `std.json` `Value` variant, and
-the foundational `std.string` + `std.vec` method surface. The same
-shape applies:
+the foundational `std.string` + `std.vec` method surface.
+
+v0.35 T5 split the catalog into per-module docstub files
+(`crates/mty-stdlib/docs/<module>.docstub`) that are the runtime
+source-of-truth; the curated `STDLIB_EXAMPLES` is the gold-set the
+`mty doc --check` drift gate compares against (Strategy B).
+
+v0.38 T4 grew the catalog to **300+ entries** and added ten new modules
+covering v0.37's new surfaces and previously-uncovered stdlib helpers:
+
+- **`extern`** — FFI surfaces: `extern c { ... }` blocks, `extern c fn`
+  shorthand, `extern c fn ... (..., ...)` variadics (v0.37 T6),
+  `[[extern_lib]]` manifest entries, the v0.37 T3 call-site coercions
+  (`Str → *U8`, `&local → *const T`, `&mut local → *mut T`), and the
+  v0.38 T3 by-value struct return surface.
+- **`cast`** — `expr as Ty` and the MT2027 INVALID_CAST emit-site:
+  every recognised scalar conversion pair (U8↔I64, F32↔F64, I32↔F32,
+  USize↔U64, Bool→U8, Char→U32, pointer↔USize) plus the invalid-cast
+  diagnostic.
+- **`env`** — every runtime / build env var renamed at v0.36
+  (`MTY_LINKER`, `MTY_OTLP_ENDPOINT`, `MTY_TRACE`,
+  `MTY_RUNTIME_THREADS`, `MTY_RUNTIME_CONTROL_SOCK`) with their legacy
+  `STARDUST_*` deprecation notes.
+- **`process`** — `Command` builder + `std.process.{spawn,exec,wait,
+  kill}` + `ProcessExit`.
+- **`io`** — `std.io.{stdin,stdout,stderr}` handles, `BufReader` /
+  `BufWriter` wrappers, `read_line` / `write_line`, `eprintln!`.
+- **`path`** — `Path` borrow + `PathBuf` owned variants, `components`,
+  `parent`, `file_name`, `extension`, `join`, `is_absolute`,
+  `with_extension`, `exists`.
+- **`collections`** — `HashMap`/`HashSet` + `BTreeMap`/`BTreeSet`
+  constructors and core ops.
+- **`iter`** — every workhorse combinator: `map`, `filter`, `fold`,
+  `collect`, `zip`, `chain`, `take`, `skip`, `enumerate`, `sum`,
+  `count`, `any`, `all`, `find`.
+- **`result`** — `Result.{ok,err,is_ok,map_err,unwrap_or,and_then}`.
+- **`option`** — `Option.{is_some,is_none,map,and_then,unwrap_or,ok_or}`.
+- **`error`** — `Error` trait + `anyhow!` macro ergonomics.
+
+The table's per-entry shape is unchanged across all five expansions:
 
 ```rust
 pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
@@ -56,11 +94,13 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
 
 Each entry carries six `&'static str` fields. The table lives in the
 read-only data segment — there is no per-startup allocation, no JSON
-parsing, no async I/O on the hover path. v0.34 will migrate to Strategy
-B (real `.mty` source for the stdlib) and the index will be derived from
-those files automatically; until then, the table is hand-curated and
-covered by snapshot-style tests (uniqueness, presence of signature +
-example body, hash determinism — see `examples::tests`).
+parsing, no async I/O on the hover path. v0.35 T5 migrated to Strategy B
+(per-module `.docstub` files at `crates/mty-stdlib/docs/<module>.docstub`)
+which is now the runtime source-of-truth; the curated table is the
+gold-set the `mty doc --check` drift gate compares against. Coverage is
+locked in by snapshot-style tests (uniqueness, presence of signature +
+example body, hash determinism, per-version module-coverage floors at
+v0.34 T3 and v0.38 T4 — see `examples::tests`).
 
 ## Persistence
 

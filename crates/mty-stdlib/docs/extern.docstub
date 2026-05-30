@@ -1,0 +1,84 @@
+##module extern
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym extern_block
+##sig extern c { fn name(args) -> Ty }
+##desc Declares one or more C-ABI imports. The block tag picks the ABI; today `c` (system C) and `js` (wasm host) are recognised. Each fn's body lives in the linked archive named by `[[extern_lib]]`.
+##see extern_c_fn, extern_lib, extern_c_variadic, coerce_str_to_u8
+##example
+extern c {
+  fn libc_strlen(p: *U8) -> USize
+  fn libc_puts(p: *U8) -> I32
+}
+##end
+
+##sym extern_c_fn
+##sig extern c fn name(args) -> Ty
+##desc Single-line C-ABI import. Equivalent to wrapping the fn in an `extern c { ... }` block. The cranelift backend declares it as `Linkage::Import` and the linker resolves it from `[[extern_lib]]` archives.
+##see extern_block, extern_lib, coerce_str_to_u8, addr_of_local
+##example
+extern c fn libc_strlen(p: *U8) -> USize;
+let n = libc_strlen("hello".as_ptr());
+##end
+
+##sym extern_c_variadic
+##sig extern c fn name(fixed: Ty, ...) -> Ty
+##desc v0.37 T6: variadic C-ABI import (printf-family). At each call site the variadic tail is C-ABI promoted (Float→Double, I8/I16→I32). The wasm backend hard-errors — no portable variadic ABI.
+##see extern_c_fn, extern_block, cast_as
+##example
+extern c fn libc_printf(fmt: *U8, ...) -> I32;
+libc_printf("%d %s\n".as_ptr(), 42, "hi".as_ptr());
+##end
+
+##sym extern_lib
+##sig [[extern_lib]] name = "..." kind = "static"|"dynamic"
+##desc Manifest entry pinning a native archive Mighty links against. `path` overrides the linker search path; `link_args_{linux,macos,windows}` carry host-OS flags. Multiple entries are honoured in source order.
+##see extern_block, extern_c_fn
+##example
+[[extern_lib]]
+name = "sodium"
+kind = "static"
+path = "vendor/libsodium.a"
+link_args_linux = ["-lpthread"]
+##end
+
+##sym coerce_str_to_u8
+##sig Str -> *U8 (call-site coercion)
+##desc v0.37 T3: a `Str` literal or expression passed where a `*U8` is expected coerces automatically. The bytes are the NUL-terminated UTF-8 buffer the runtime holds for that string.
+##see extern_c_fn, addr_of_local, cast_ptr_to_usize
+##example
+extern c fn libc_puts(p: *U8) -> I32;
+libc_puts("hello");
+##end
+
+##sym addr_of_local
+##sig &local -> *const Ty
+##desc v0.37 T3: address-of a local binding for FFI. Produces `*const T` from a `&T` borrow. Borrow check still tracks the lifetime — the pointer must not outlive the local.
+##see addr_of_mut, extern_c_fn, coerce_str_to_u8
+##example
+extern c fn rgb_pack(p: *const Color) -> U32;
+let c = Color { r: 1, g: 2, b: 3 };
+let packed = rgb_pack(&c);
+##end
+
+##sym addr_of_mut
+##sig &mut local -> *mut Ty
+##desc v0.37 T3: mutable address-of for out-parameter FFI. The C function writes through the pointer; Mighty's borrow check rules out aliasing the local while the pointer is live.
+##see addr_of_local, extern_c_fn
+##example
+extern c fn read_int(out: *mut I32);
+let mut x: I32 = 0;
+read_int(&mut x);
+log(format!("x={}", x));
+##end
+
+##sym returned_struct
+##sig extern c fn foo(args) -> Struct
+##desc v0.38 T3 (if shipped): C functions can return by-value structs directly. The Mighty caller binds the result with `let`; layout matches the platform System V / Win64 small-struct rules.
+##see extern_c_fn, addr_of_local
+##example
+extern c fn make_point() -> Point;
+let p = make_point();
+log(format!("x={} y={}", p.x, p.y));
+##end
+

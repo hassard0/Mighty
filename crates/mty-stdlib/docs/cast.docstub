@@ -1,0 +1,119 @@
+##module cast
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym cast_as
+##sig expr as Ty
+##desc Scalar cast operator. Accepted for numeric widening / narrowing, signedness flips, `Bool→U8`, `Char→U32`, and pointer↔USize. Other shapes emit MT2027 at type-check time.
+##see cast_u8_to_i64, cast_invalid_mt2027, cast_f32_to_f64
+##example
+let n: I64 = 42;
+let b: U8 = n as U8;
+let f: F64 = n as F64;
+##end
+
+##sym cast_u8_to_i64
+##sig u8_expr as I64
+##desc Zero-extend an unsigned byte to a 64-bit signed integer. Always lossless because U8's range fits in I64.
+##see cast_as, cast_i64_to_u8, cast_usize_to_u64
+##example
+let byte: U8 = 0xFF;
+let wide: I64 = byte as I64;
+assert_eq(wide, 255);
+##end
+
+##sym cast_i64_to_u8
+##sig i64_expr as U8
+##desc Narrowing cast: truncates to the low 8 bits. Sign / overflow is silently dropped — no MT2027 because the cast is structurally well-formed; the lossy behaviour is intentional.
+##see cast_as, cast_u8_to_i64
+##example
+let big: I64 = 257;
+let small: U8 = big as U8;
+assert_eq(small, 1);
+##end
+
+##sym cast_f32_to_f64
+##sig f32_expr as F64
+##desc Widen single-precision to double-precision float. Always lossless.
+##see cast_as, cast_f64_to_f32, cast_i32_to_f32
+##example
+let x: F32 = 1.5;
+let y: F64 = x as F64;
+##end
+
+##sym cast_f64_to_f32
+##sig f64_expr as F32
+##desc Narrow double to single precision. May round; values outside F32's range produce `+inf` / `-inf`.
+##see cast_as, cast_f32_to_f64
+##example
+let x: F64 = 3.141592653589793;
+let y: F32 = x as F32;
+##end
+
+##sym cast_i32_to_f32
+##sig i32_expr as F32
+##desc Int-to-float cast. Lossless for |n| ≤ 2^24; larger magnitudes round to the nearest representable F32.
+##see cast_as, cast_f32_to_i32, cast_f32_to_f64
+##example
+let n: I32 = 1000;
+let f: F32 = n as F32;
+##end
+
+##sym cast_f32_to_i32
+##sig f32_expr as I32
+##desc Float-to-int truncation toward zero. NaN→0, ±inf saturate to I32::MIN/MAX (LLVM `fptosi.sat`).
+##see cast_as, cast_i32_to_f32
+##example
+let f: F32 = 3.7;
+let n: I32 = f as I32;
+assert_eq(n, 3);
+##end
+
+##sym cast_usize_to_u64
+##sig usize_expr as U64
+##desc Platform-pointer-width to fixed 64-bit width. Identity on 64-bit hosts; zero-extends on 32-bit hosts.
+##see cast_as, cast_u8_to_i64, cast_ptr_to_usize
+##example
+let n: USize = 1024;
+let w: U64 = n as U64;
+##end
+
+##sym cast_bool_to_u8
+##sig bool_expr as U8
+##desc `true→1`, `false→0`. The only widening allowed for `Bool`; all other `Bool as Ty` casts emit MT2027.
+##see cast_as, cast_invalid_mt2027
+##example
+let flag: Bool = true;
+let n: U8 = flag as U8;
+assert_eq(n, 1);
+##end
+
+##sym cast_char_to_u32
+##sig char_expr as U32
+##desc Code-point integer value of a `Char`. ASCII `'A'` → 65, BMP `'©'` → 169.
+##see cast_as, String.chars
+##example
+let c: Char = 'A';
+let code: U32 = c as U32;
+assert_eq(code, 65);
+##end
+
+##sym cast_ptr_to_usize
+##sig *Ty as USize
+##desc Reinterpret a raw pointer as a platform-sized integer. The reverse (`USize as *Ty`) also works and is the canonical way to round-trip handles through C-ABI integer slots.
+##see cast_as, cast_usize_to_u64, addr_of_local
+##example
+let p: *U8 = "hi".as_ptr();
+let addr: USize = p as USize;
+log(format!("addr={}", addr));
+##end
+
+##sym cast_invalid_mt2027
+##sig MT2027 INVALID_CAST
+##desc Type-check error emitted when `expr as Ty` is not on the recognised scalar-conversion table. Example: `"hi" as I32`, `Vec[I32] as USize`, or `Bool as F64`.
+##see cast_as, cast_bool_to_u8, cast_char_to_u32
+##example
+// MT2027: invalid cast — Str has no scalar projection to I32
+let s: Str = "hi";
+let n: I32 = s as I32; // ERROR
+##end
+

@@ -26,3 +26,12 @@ let h = spawn(Greeter.new());
 h.send(Greet { name: "world" });
 ##end
 
+##sym eprintln
+##sig macro eprintln!(fmt: Str, args: ...) -> Unit
+##cap io.stderr
+##desc `format!`-style writer to stderr followed by `\n`. Cheaper to spell than `std.io.stderr().write_line(format!(...))`.
+##see log, std.io.stderr, format
+##example
+eprintln!("failed: {}", err);
+##end
+

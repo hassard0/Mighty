@@ -1,0 +1,89 @@
+##module path
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym Path.new
+##sig fn Path.new(s: Str) -> &Path
+##desc Borrow `s` as a filesystem path. Cheap — no allocation. The slice is platform-neutral; OS-specific separator handling kicks in on conversion to `PathBuf` or syscall.
+##see PathBuf.new, Path.parent, Path.file_name, Path.extension
+##example
+let p = Path.new("/tmp/build.log");
+assert_eq(p.file_name(), Some("build.log"));
+##end
+
+##sym PathBuf.new
+##sig fn PathBuf.new() -> PathBuf
+##desc Allocates an empty owned path. Build with `.push()` / `.join()` and convert to `&Path` via `.as_path()` at syscall sites.
+##see Path.new, Path.join, PathBuf.from
+##example
+let mut p = PathBuf.new();
+p.push("/var/log");
+p.push("app.log");
+##end
+
+##sym Path.components
+##sig fn Path.components(&self) -> Iterator[Component]
+##desc Iterator over the path's components (root, current dir, parent dir, normal segment). Normalised — collapses runs of separators but preserves `..`.
+##see Path.parent, Path.file_name, Path.join
+##example
+for c in Path.new("/a/b/c").components() { log(format!("{:?}", c)); }
+##end
+
+##sym Path.parent
+##sig fn Path.parent(&self) -> Option[&Path]
+##desc Drop the final component. Returns `None` for root and empty paths.
+##see Path.file_name, Path.components, Path.join
+##example
+assert_eq(Path.new("/a/b/c.txt").parent(), Some(Path.new("/a/b")));
+##end
+
+##sym Path.file_name
+##sig fn Path.file_name(&self) -> Option[Str]
+##desc The final non-separator component, or `None` for a path ending in `..` or `/`.
+##see Path.parent, Path.extension, Path.components
+##example
+assert_eq(Path.new("/etc/hosts").file_name(), Some("hosts"));
+##end
+
+##sym Path.extension
+##sig fn Path.extension(&self) -> Option[Str]
+##desc Bytes after the final `.` of the file name, or `None` if there is no extension (e.g. `Makefile` or `.hidden`).
+##see Path.file_name, Path.with_extension
+##example
+assert_eq(Path.new("main.mty").extension(), Some("mty"));
+##end
+
+##sym Path.join
+##sig fn Path.join(&self, other: &Path) -> PathBuf
+##desc Append `other` with the platform separator. If `other` is absolute, the result is `other` (rooted append wins, matching POSIX semantics).
+##see PathBuf.new, Path.parent, Path.with_extension
+##example
+let p = Path.new("/var/log").join(Path.new("app.log"));
+##end
+
+##sym Path.is_absolute
+##sig fn Path.is_absolute(&self) -> Bool
+##desc True if the path starts with the platform root (`/` on Unix; drive prefix or `\\?\` on Windows).
+##see Path.join, Path.parent
+##example
+assert(Path.new("/etc").is_absolute());
+assert(!Path.new("etc").is_absolute());
+##end
+
+##sym Path.with_extension
+##sig fn Path.with_extension(&self, ext: Str) -> PathBuf
+##desc Replace the file extension (or add one when absent). Pass `""` to strip the extension entirely.
+##see Path.extension, Path.file_name
+##example
+let p = Path.new("build.mty").with_extension("o");
+assert_eq(p.file_name(), Some("build.o"));
+##end
+
+##sym Path.exists
+##sig fn Path.exists(&self, cap: FsCap) -> Bool
+##cap fs.read
+##desc Convenience shorthand for `std.fs.exists(self.as_str(), cap)`. Requires the same `FsCap` as the underlying syscall.
+##see std.fs.exists, Path.new, FsCap.rooted
+##example
+if Path.new("./mighty.toml").exists(FsCap.rooted(".")) { /* ... */ }
+##end
+

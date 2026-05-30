@@ -119,3 +119,29 @@ let s = summarize(&obs, Window.All, GroupBy.None, 0);
 log(format!("calls={} cost_cents={}", s.call_count, s.total_cost_cents));
 ##end
 
+##sym Window.Recent
+##sig fn Window.Recent(dur: Duration) -> Window
+##desc Half-open window over the last `dur` of telemetry events. Rolls forward as time advances.
+##see Window.Last, Window.parse, observe.query, GroupBy.Model
+##example
+let w = Window.Recent(5.minutes);
+let rows = std.observe.query(w, GroupBy.Model);
+##end
+
+##sym GroupBy.Tenant
+##sig const GroupBy.Tenant: GroupBy
+##desc Bucket telemetry rows by the multi-tenant `tenant_id` tag (when present). Rows lacking the tag fall into the `None` bucket.
+##see GroupBy.Provider, GroupBy.Model, GroupBy.Agent, observe.query
+##example
+let rows = std.observe.query(Window.Last(1), GroupBy.Tenant);
+##end
+
+##sym top_by_cost
+##sig fn top_by_cost(window: Window, n: USize) -> Vec[CostSummary]
+##desc Returns the top `n` cost-emitting buckets in the window, sorted descending. Handy for budget alerting.
+##see CostSummary, observe.query, percentiles, summarize
+##example
+let worst = top_by_cost(Window.Recent(1.hour), 5);
+for row in worst.iter() { log(format!("{} = {}c", row.label, row.cents)); }
+##end
+
