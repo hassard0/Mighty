@@ -9,6 +9,28 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
+v0.42 candidates (rolled up from v0.41's IDE-dogfooding lessons log):
+
+### Known issues — carry forward
+- **L28 (P0):** native `mty build` Vec growth still broken under
+  capture-rebind `v = v.push(x)`; works under interp.
+- **L21 (P0):** Vec param read in nested loops SIGSEGVs under native
+  codegen (likely same liveness/spill family as L28).
+- **L19 (P0):** `expr as T` numeric casts don't actually convert
+  (Char cast shipped v0.40 T3; int/float widening still broken).
+- **L20 (P1):** `(a)(b)` parses as call → MT2008 not callable.
+- **L23 (P1):** native `log(...)` only takes string literals; no
+  computed-value tracing on the native path.
+- **L18 (P1):** `std.fs` is a Rust-internal capability API, not
+  Mighty-callable.
+- **L26 (sharp):** `mty fmt` no-op stub on `.mty`; DESTRUCTIVE on
+  non-`.mty` input (truncates).
+- **L22 (P2):** type-error spans collapse to enclosing fn start;
+  ANSI always on; `mty check` ≠ a full lint.
+- **Pending:** #253 SWE-bench numbers, #262 BOLT training profile path.
+
+### v0.40-era candidates (still open)
+
 v0.41 candidates (rolled up across the 6 v0.40 tracks + v0.39 carryovers):
 
 - **T4 follow-ups — Ed25519 / X25519 / Argon2 / HKDF.** v0.40 T4
@@ -63,6 +85,73 @@ The v1.0 freeze-gate is unchanged: 8 RFC comment windows opened
 2026-05-26, earliest close 2026-06-09 (RFC-005), latest close
 2026-07-25 (RFC-002 + RFC-006). Proposed v1.0 freeze date
 2026-09-01; earliest tag 2026-07-26.
+
+## [0.41.0] - 2026-05-30
+
+### Fixed — honest correctness release; 5 P0 bugs from IDE dogfooding
+
+- **T1 — struct field reads return the named field, not field 0 (L15).**
+  `mty-ir` lower had two bugs: the multi-segment path resolver on the
+  read path fell back to field index 0, and the assign path stored to a
+  fresh temp instead of the field's slot. +10 tests in
+  `crates/mty-ir/tests/struct_fields.rs`. Tuple positional access and
+  L16's full follow-through left for T6 / future.
+- **T2 — package-level module resolution for `mty test` / `mty check` /
+  `mty run` (L13).** All three now assemble every `src/**/*.mty` into
+  one HIR Package before lower / typecheck / run, instead of each entry
+  file seeing only its own contents. New diagnostics MT2029
+  UNRESOLVED_MODULE + MT2030 SYMBOL_NOT_IN_MODULE. +5 conformance tests
+  in `crates/mty-cli/tests/cmd_test_package.rs`.
+- **T3 — 5 native-codegen parity gaps closed (L1).** All in the
+  Cranelift lowering; all caused segfaults under `mty build` / native
+  JIT while `mty run --legacy-interp` worked: (1) `v.get(i)` now
+  returns a real `Option[T]` aggregate (tag=0=Some + payload, tag=1
+  =None on OOB); (2) `v.pop()` same shape fix; (3) implicit arena
+  push at `main` entry so `let v = Vec.new()` outside an explicit
+  `arena {}` stops null-derefing; (4) `String.clear()` /
+  `String.push_str(...)` stop routing through `Vec.clear` / `Vec.push`
+  (was reading the String's (ptr,len) pair as a Vec header and
+  looping); (5) `stream.next()` on opaque receivers now synthesises a
+  real `None` aggregate instead of a 0 scalar. New examples
+  conformance suite at `crates/mty-cli/tests/conformance_examples.rs`
+  runs every `examples/*.mty` through both `mty run --legacy-interp`
+  and `mty run` (JIT) and diffs stdout + exit code. +9 JIT unit tests
+  in `option_aggregate_v041.rs`.
+- **T4 — manifest-driven native linking (L2).** `mighty.toml` grows a
+  `[build]` section: `native-libs`, `link-search`, `frameworks`,
+  `link-args`. New linker-flavor detection (gnu/msvc) with
+  `MTY_LINKER_FLAVOR` override + MSVC arg rewrite table. New
+  `crates/mty-driver/src/link_flavor.rs` (245 lines, 11 unit tests).
+  +14 integration tests in
+  `crates/mty-driver/tests/manifest_build_link.rs`. New example
+  `examples/extern_c_with_manifest/`.
+- **T6 — top-level `const` evaluates to its declared value (L16).**
+  Wired through HIR → DefMap → resolve → typecheck → IR lower with
+  inline-at-use; no runtime default-construction.
+- **T6 — alloc-effect diagnostic carries a per-effect hint + docs
+  link (L14).** Was a generic "missing effect"; now points at the
+  exact alloc shape and the docs section that explains it.
+
+### Tools / process
+
+- **T5 — hover-catalog surface audit + CI gate.** Catalog 565 → 388
+  honest entries. Whole modules deleted that never shipped
+  (`collections`, `iter`, `error`, `process`). 38 entries kept as
+  concept-docs via a new `# concept-doc` marker. New
+  `crates/mty-doc/src/surface_audit.rs` (880 lines + tests).
+  `mty doc check --check-surface` extended; CI gate added in
+  `.github/workflows/ci.yml` so future docstub-vs-stdlib divergence
+  fails the build, not the integrator's eye.
+- **T6 — pre-push hook honors `CARGO_TARGET_DIR`.** Hook was hardcoded
+  to `target/release/mty.exe`, breaking every parallel-worktree track
+  that set per-worktree target dirs (the v0.36 lesson).
+
+### Acknowledgements
+
+Every fix in v0.41 was surfaced by dogfooding Mighty IDE
+(`C:\Users\ihass\mighty-ide`, MIT). Living lessons log lives at
+`mighty-ide/docs/mighty-language-lessons.md`; v0.41 is the first
+release to consume it as a triage queue.
 
 ## [0.40.0] - 2026-05-30
 
