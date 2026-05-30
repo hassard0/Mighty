@@ -1,0 +1,138 @@
+// 42_crypto_url.mty — v0.39 Track T1: real-world stdlib (`std.crypto`,
+// `std.encoding`, `std.url`, `std.uuid`).
+//
+// Earlier slices shipped foundational `std.json`, `std.http`, `std.fs`,
+// etc. — enough to build the "echo a JSON body" service shape but not
+// enough to ship a real web API. The four modules v0.39 T1 adds round
+// out the surface every backend eventually wants:
+//
+//   * `std.crypto.sha256` / `sha512` / `blake3` — content hashing,
+//     password-derivation salts, content-addressed storage.
+//   * `std.crypto.hmac_sha256` — webhook signatures (Stripe / GitHub
+//     event delivery), session cookie auth, SigV4.
+//   * `std.crypto.random_bytes` — nonces, session IDs, CSRF tokens.
+//   * `std.encoding.base64` + `hex` — binary ↔ string for any of the
+//     above.
+//   * `std.url.parse` / `Url.builder` / `percent_encode` — every
+//     outbound HTTP call. Inbound webhook routing.
+//   * `std.uuid.v4` / `v7` — opaque resource IDs (v4) and
+//     time-ordered DB primary keys (v7).
+//
+// This example pins the SHAPE of those calls so any future refactor
+// that breaks the surface gets caught by `mty check`. Each helper
+// returns a plain value so the example stays inside the v0.2 codegen
+// sweep without depending on the dynamic-log path.
+//
+// Build:
+//   mty fmt examples/42_crypto_url.mty
+//   mty check examples/42_crypto_url.mty
+//
+// (`_` prefix on helper fns keeps them out of the WIT export world; the
+// example focus is the API surface, not exportability.)
+// ----- std.crypto: hashing ----------------------------------------------
+// SHA-256 over a byte slice. Returns a 32-byte digest array. Pure — no
+// capability required.
+fn _digest_hello() -> Str {
+  let h = std.crypto.sha256("hello")
+  std.encoding.hex.encode(h)
+}
+
+// SHA-512 over a UTF-8 string. 64-byte digest.
+fn _long_digest() -> Str {
+  let h = std.crypto.sha512("a longer message for SHA-512")
+  std.encoding.hex.encode(h)
+}
+
+// BLAKE3 — fast modern hash. 32-byte default digest.
+fn _content_address(blob: Str) -> Str {
+  let h = std.crypto.blake3(blob)
+  std.encoding.hex.encode(h)
+}
+
+// ----- std.crypto: HMAC -------------------------------------------------
+// Webhook signature shape: HMAC-SHA-256 over the request body, keyed by
+// a shared secret. The verifier recomputes the tag and compares using
+// `subtle_eq` (constant time).
+fn _webhook_tag(key: Str, body: Str) -> Str {
+  let mac = std.crypto.hmac_sha256(key, body)
+  std.encoding.hex.encode(mac)
+}
+
+// ----- std.crypto: random bytes (crypto.rand capability) ----------------
+// Nonces, session IDs, CSRF tokens — anything that needs OS entropy.
+// Returns `Result[Vec[U8], RandErr]` so a sandbox can refuse.
+fn _make_nonce() -> Str {
+  let bytes = std.crypto.random_bytes(16)
+  std.encoding.base64.encode_url_no_pad(bytes)
+}
+
+// ----- std.encoding: base64 + hex ---------------------------------------
+// Standard (`+ /`) and URL-safe (`- _`) Base64. JWT uses no-pad URL-safe.
+fn _b64_round_trip(blob: Str) -> Str {
+  let s = std.encoding.base64.encode(blob)
+  s
+}
+
+fn _hex_round_trip(blob: Str) -> Str {
+  let s = std.encoding.hex.encode(blob)
+  s
+}
+
+// ----- std.url: parse + build + percent-encode --------------------------
+// Parse a URL string into named fields. Returns `Result[Url, UrlErr]`.
+fn _parse_endpoint() -> Str {
+  let u = std.url.parse("https://api.example.com:8443/v1/items?q=hello%20world&page=2")
+  u.host
+}
+
+// Build a URL fluently. The query-param emitter percent-encodes both
+// keys and values so the result is always safe to embed.
+fn _build_search_url(query: Str, page: Str) -> Str {
+  let u = std.url.Url.builder("https")
+    .host("api.example.com")
+    .path("/v1/search")
+    .query_param("q", query)
+    .query_param("page", page)
+    .build()
+  u.to_string()
+}
+
+// Percent-encode a value for embedding in a URL.
+fn _encode_param(v: Str) -> Str {
+  std.url.percent_encode(v)
+}
+
+// ----- std.uuid: v4 + v7 -------------------------------------------------
+// v4 — random opaque ID. Use for things that don't need order
+// (request-ids, idempotency keys, etc).
+fn _make_request_id() -> Str {
+  let id = std.uuid.Uuid.v4()
+  id.to_string()
+}
+
+// v7 — time-ordered. Use as a database primary key when insertion-order
+// locality matters.
+fn _make_db_pk() -> Str {
+  let id = std.uuid.Uuid.v7()
+  id.to_string()
+}
+
+fn main() {
+  // Exercise every helper. Results discarded with `_` so the v0.2
+  // native + wasm codegen sweeps don't have to model the dynamic-log
+  // path. Runtime semantics live in `crates/mty-stdlib/src/{crypto,
+  // encoding, url, uuid}/` and are covered by the unit tests there.
+  let _h1 = _digest_hello()
+  let _h2 = _long_digest()
+  let _h3 = _content_address("file-contents")
+  let _mac = _webhook_tag("shared-secret", "request body")
+  let _nonce = _make_nonce()
+  let _b64 = _b64_round_trip("hello")
+  let _hx = _hex_round_trip("hello")
+  let _host = _parse_endpoint()
+  let _built = _build_search_url("hello world", "2")
+  let _enc = _encode_param("hello world")
+  let _rid = _make_request_id()
+  let _pk = _make_db_pk()
+  log("42_crypto_url: std.crypto + std.encoding + std.url + std.uuid (v0.39 T1)")
+}

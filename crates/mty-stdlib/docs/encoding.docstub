@@ -1,0 +1,66 @@
+##module encoding
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym std.encoding.base64.encode
+##sig fn std.encoding.base64.encode(bytes: &[U8]) -> Str
+##desc Standard (RFC 4648 § 4) Base64 encode. Emits `=` padding.
+##see std.encoding.base64.decode, std.encoding.base64.encode_url
+##example
+let s = std.encoding.base64.encode("hello");  // "aGVsbG8="
+##end
+
+##sym std.encoding.base64.decode
+##sig fn std.encoding.base64.decode(s: Str) -> Result[Vec[U8], Base64Err]
+##desc Decode standard Base64. Accepts both padded and unpadded forms.
+##see std.encoding.base64.encode
+##example
+let bytes = std.encoding.base64.decode("aGVsbG8=")?;
+##end
+
+##sym std.encoding.base64.encode_url
+##sig fn std.encoding.base64.encode_url(bytes: &[U8]) -> Str
+##desc URL-safe (§ 5) Base64 encode (`- _` alphabet). Emits `=` padding.
+##see std.encoding.base64.encode_url_no_pad, std.encoding.base64.decode_url
+##example
+let s = std.encoding.base64.encode_url(token_bytes);
+##end
+
+##sym std.encoding.base64.encode_url_no_pad
+##sig fn std.encoding.base64.encode_url_no_pad(bytes: &[U8]) -> Str
+##desc URL-safe Base64 with no `=` padding — the JWT/JWS shape.
+##see std.encoding.base64.encode_url
+##example
+let jwt_header = std.encoding.base64.encode_url_no_pad(header_json_bytes);
+##end
+
+##sym std.encoding.base64.decode_url
+##sig fn std.encoding.base64.decode_url(s: Str) -> Result[Vec[U8], Base64Err]
+##desc Decode URL-safe Base64. Accepts both padded and unpadded forms.
+##see std.encoding.base64.encode_url
+##example
+let payload = std.encoding.base64.decode_url(jwt_segment)?;
+##end
+
+##sym std.encoding.hex.encode
+##sig fn std.encoding.hex.encode(bytes: &[U8]) -> Str
+##desc Lowercase hex (base16) encode. 2 × N characters.
+##see std.encoding.hex.encode_upper, std.encoding.hex.decode
+##example
+let s = std.encoding.hex.encode(digest);  // "deadbeef..."
+##end
+
+##sym std.encoding.hex.encode_upper
+##sig fn std.encoding.hex.encode_upper(bytes: &[U8]) -> Str
+##desc Uppercase hex encode (`0-9 A-F`).
+##see std.encoding.hex.encode
+##example
+let s = std.encoding.hex.encode_upper(mac);  // "DEADBEEF"
+##end
+
+##sym std.encoding.hex.decode
+##sig fn std.encoding.hex.decode(s: Str) -> Result[Vec[U8], HexErr]
+##desc Decode hex string. Accepts mixed case. Rejects odd length and non-hex chars.
+##see std.encoding.hex.encode
+##example
+let bytes = std.encoding.hex.decode("DeAdBeEf")?;
+##end

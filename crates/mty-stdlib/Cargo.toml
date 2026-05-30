@@ -65,6 +65,16 @@ hex.workspace = true
 # v0.27 — Bedrock ConverseStream parses the AWS event-stream framing
 # (a small binary protocol — 12-byte header + headers + payload + CRC).
 # Implemented inline in `bedrock.rs`; no extra dep needed.
+# v0.39 T1 — real-world stdlib (std.crypto / std.encoding / std.url /
+# std.uuid). `hmac` and `base64` are already in Cargo.lock transitively
+# (rustls / hyper pull them); promoting them to direct deps keeps the
+# lockfile flat. `blake3` is the only genuinely new dep — chosen over a
+# hand-rolled portable BLAKE3 because the reference impl ships KAT
+# vectors the official test suite leans on.
+hmac = "0.12"
+base64 = "0.22"
+blake3 = { version = "1", default-features = false, features = ["std"] }
+url = "2"
 
 [features]
 # `runner` pulls the full driver/diagnostics stack so `std.test`
