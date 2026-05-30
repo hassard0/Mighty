@@ -43,12 +43,11 @@ the type system:
 Pre-built binaries (Linux x86_64/aarch64, macOS arm64/x86_64,
 Windows x86_64) on the
 [Releases page](https://github.com/hassard0/Mighty/releases) —
-linux-x86_64 ships PGO-optimised via
-[`cargo-pgo`](https://github.com/Kobzol/cargo-pgo); darwin-arm64
-and windows-x86_64 ship the release profile (v0.38.1 disabled their
-PGO legs after cargo-pgo hit a toolchain-internal mismatch on darwin
-and produced empty profraws on Windows — v0.39 follow-up). Or from
-source (MSRV: Rust 1.85):
+linux-x86_64 ships PGO + BOLT layout-optimised via
+[`cargo-pgo`](https://github.com/Kobzol/cargo-pgo) + `llvm-bolt`;
+windows-x86_64 ships PGO via the in-tree `scripts/build-pgo.ps1`
+(restored v0.38.3); darwin-arm64 retries PGO under per-matrix
+toolchain 1.96.0 (v0.39 T4). Or from source (MSRV: Rust 1.85):
 
 ```bash
 git clone https://github.com/hassard0/Mighty && cd Mighty
@@ -147,8 +146,11 @@ mty run   src/main.mty
 - WASI Preview 2 default for `wasm32-wasi`; `std.fs` / `std.http` /
   `std.random` / `std.time` / `log()` emit direct versioned P2 imports
 - DWARF v5 with per-instruction line program (opt-in via `MTY_DWARF5=1`)
-- PGO + ThinLTO via `release-pgo` profile + cargo-pgo on linux-x86_64
-  (CI); manual `scripts/build-pgo.{sh,ps1}` for local dev on every host
+- PGO + ThinLTO via `release-pgo` profile (cargo-pgo on
+  linux-x86_64 + darwin-arm64; in-tree `scripts/build-pgo.ps1` on
+  windows-x86_64) + BOLT layout optimisation on linux-x86_64 via
+  `cargo pgo bolt`; manual `scripts/build-pgo.{sh,ps1}` for local
+  dev on every host
 - FFI — extern c signature matrix (all 12 documented shapes wired
   call-site direct: variadic *calls* with C ABI default promotions
   via per-call `ir::Signature` + `call_indirect` (v0.38 T2),
@@ -163,8 +165,8 @@ mty run   src/main.mty
 
 **Tooling**
 - `mty lsp` — LSP 3.17 (hover ships extracted `///` examples +
-  See-also references + capability hints across **317 stdlib catalog
-  entries** spanning 26 modules, completion, go-to-def, semantic
+  See-also references + capability hints across **425 stdlib catalog
+  entries** spanning 32 modules, completion, go-to-def, semantic
   tokens, rename, inlay hints, code actions, signature help)
 - `mty find` — capability-tagged stdlib search ("write files" →
   `fs.write` APIs); pretty / NDJSON / short formats
@@ -226,7 +228,7 @@ Live docs site: <https://hassard0.github.io/Mighty/>
 | `mty-pkg` | package manager (sigstore-real signing) |
 | `mty-lsp` | LSP 3.17 server |
 | `mty-doc` | doc generator |
-| `mty-stdlib` | `std.{json,tls,http,fs,time,test,llm,mcp,memory,web,fmt}` |
+| `mty-stdlib` | `std.{json,tls,http,fs,time,test,llm,mcp,memory,web,fmt,crypto,encoding,url,uuid}` |
 | `mty-macros` | declarative macros + `format!` + `@tool` builtin attributes |
 | `mty-cli` | the `mty` binary |
 
@@ -261,8 +263,9 @@ Currently empty. Every former post-v1.0 roadmap item — lossless
 live agent migration, Polonius borrows, distributed agents, hot
 reload, DWARF v5, PGO/ThinLTO, work-stealing — has landed pre-v1.0.
 The next reach is into v1.1+ territory: cluster placement policies,
-multi-agent swarm consensus primitives, MCP federation, BOLT
-post-link optimisation.
+multi-agent swarm consensus primitives, MCP federation, expanded
+BOLT layout-optimisation coverage (Mach-O + PE/COFF), `std.regex`,
+symmetric cipher modes for `std.crypto`.
 
 Per-version detail lives in `CHANGELOG.md` and
 `dev/history/releases/RELEASE-v0.X.md`. This README tracks the
@@ -270,10 +273,10 @@ current state of the language, not its history.
 
 ## Status
 
-Mighty is **pre-alpha**. Internal milestones tagged through v0.38.
-The toolchain is exercised by **3287 Rust tests** across 20 crates
+Mighty is **pre-alpha**. Internal milestones tagged through v0.39.
+The toolchain is exercised by **~3417 Rust tests** across 20 crates
 plus **490 Python 2nd-impl tests** plus **159 normative conformance
-cases** plus **23 self-host driver codegen tests** — combined **~3959
+cases** plus **23 self-host driver codegen tests** — combined **~4089
 tests, 0 failing**. All four LLM providers full (with multi-modal
 vision-language Image input); `std.swarm` votes consensus across
 them; `std.eval` regression-tests agents under byte-identical

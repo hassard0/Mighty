@@ -9,56 +9,157 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-v0.39 candidates (rolled up across the 4 v0.38 tracks + T6 +
-deferred T5 + L28 native-Vec follow-ups):
+v0.40 candidates (rolled up across the 5 v0.39 tracks + v0.38 carryovers):
 
-- **T1 — cargo-pgo restoration** — investigate why cargo-pgo's
-  training-step writes no profraws on windows-msvc (v0.37.3 ps1
-  script worked there; cargo-pgo broke it); monitor upstream rustup
-  channels for a darwin-arm64 raw-version alignment; consider pinning
-  a specific rustc nightly that has the runtime/profdata aligned.
-  Target: get 3/5 PGO platforms back.
-- **T1 — cargo-pgo extension** — `darwin-x86_64` PGO via rosetta-host
-  sniff; `linux-aarch64` PGO via qemu-user emulation; per-machine
-  `.pgo-config` for cached path resolution on dev laptops.
-- **T2 — variadic typeck tightening** — when the format string at a
-  `printf`-shape call is statically known, constrain the trailing
-  arg types to match the format specifiers (`%d` → i32-or-promotable,
-  `%s` → `*U8`/Str-coercible, `%f` → f64-or-promotable).
-- **T2 — WASM Component Model variadic FFI** — wasm target still
-  rejects variadic externs; `funcref` / resource-type surface is the
-  eventual home.
-- **T3 — Mutable Str / caller-owned buffer ergonomics** for row 10's
-  `snprintf` shape — first-class mutable byte-buffer binding
-  (`let mut buf: [U8; 256] = [0u8; 256]` and `ffi(buf as *mut U8)`).
-- **T3 — `#[ffi_nul_ok]` runtime enforcement** — flip the attribute
-  from metadata-only to opt-in *for the future safety-wrapper pass*.
-- **T3 — More extern ABIs** — `extern system`, `extern aapcs`,
-  `extern sysv` sharing T3's call-site coercion gate.
-- **T4 — More hover modules** — `std.crypto`, `std.encoding.{base64,
-  hex}`, `std.regex`, `std.url` (estimated +60 entries).
-- **T4 — Hover examples extraction** — pull `///` triple-backtick
-  blocks into the LSP hover as `### Example` sections.
-- **T5 — cast surface polish (task #247, deferred from v0.38)** —
-  MT2027 LSP quickfix; span-underlines on both type halves; `as`-cast
-  in const context; `f32 as transmute<I32>` bitcast surface; `mty
-  inspect --cast-coverage` sub-table.
-- **T6 — Bench refresh automation** — nightly CI job that runs
-  `mty-bench` against tip-of-main and posts the deltas as a PR
-  comment.
-- **L28 follow-up — typed-slot Vec storage** — native Vec stores
-  every element in an 8-byte slot; pick the natural element size at
-  codegen time so narrower types don't waste capacity and wider
-  ADT-by-value elements can fit.
-- **Integrator — backfill the v0.38 track reports.** v0.38 was
-  integrated without per-track `dev/history/notes/V038_*_NOTES.md`
-  files because the swarms didn't push them; v0.39 mandate: every
-  swarm track ships a notes file alongside the source change.
+- **T2 — cast Char runtime trap decision.** v0.39 T2 left non-literal
+  `Int as Char` passing typeck and emitting the raw bit pattern; v0.40
+  picks between a runtime trap and an `Option[Char]` surface that
+  forces the caller to handle invalid codepoints.
+- **T3 — LLVM Vec typed-slot port.** v0.39 T3 changed only the
+  Cranelift native layout; the LLVM backend still uses the v1 24-byte
+  header. v0.40 ports it for parity.
+- **T1 follow-ups — `std.regex`** (next obvious stdlib module after
+  url; ICU unicode tables behind a feature flag) and **`std.crypto`
+  cipher modes** (ChaCha20-Poly1305 + AES-GCM — symmetric encryption
+  was deferred from v0.39 to give v0.40 time on the capability story).
+- **T4 — darwin-arm64 PGO durability.** v0.39 T4 retries via
+  toolchain 1.96.0. If the retry holds, v0.40 pins a specific rustc
+  nightly as a stability lever; if it breaks, the matrix flips back
+  and a post-mortem becomes a v0.40 task.
+- **T4 — Windows-MSVC cargo-pgo profile-write investigation.**
+  v0.38.1 disabled Windows PGO under cargo-pgo because the training
+  step produced no .profraw shards. v0.38.3 restored the v0.37.3
+  in-tree `build-pgo.ps1` path; v0.40 chases the upstream cargo-pgo
+  bug or upstreams the ps1 logic.
+- **T4 — BOLT on darwin / Windows.** v0.39 T4 ships BOLT on
+  linux-x86_64 only. Mach-O BOLT support is improving in llvm-bolt 20;
+  PE/COFF remains too rough. v0.40 re-evaluates per upstream.
+- **T6 — SWE-bench actual run.** v0.39 deferred T6; v0.40 picks it
+  back up with the user's API key and posts the comparison on the
+  v0.39 PGO+BOLT binary vs. the v0.38 PGO-only binary.
+- **T5 — Hover catalog field-mismatch check.** Drift gate currently
+  flags only missing/extra symbols. v0.40 extends the comparison to
+  signature + description + example bodies so a curated-side edit
+  that doesn't round-trip is caught.
+- **T2 — variadic typeck tightening** (carryover from v0.38) — when
+  the format string at a `printf`-shape call is statically known,
+  constrain the trailing arg types to match the specifiers.
+- **T2 — WASM Component Model variadic FFI** (carryover) —
+  `funcref` / resource-type surface for variadic externs.
+- **T3 — Mutable Str / caller-owned buffer ergonomics** (carryover)
+  for row 10's `snprintf` shape — first-class mutable byte-buffer
+  binding.
+- **T3 — `#[ffi_nul_ok]` runtime enforcement** (carryover) — flip the
+  attribute from metadata-only to opt-in for a future safety-wrapper
+  pass.
+- **T3 — More extern ABIs** (carryover) — `extern system`,
+  `extern aapcs`, `extern sysv`.
+- **T4 — Hover examples extraction** (carryover) — pull `///`
+  triple-backtick blocks into the LSP hover as `### Example` sections.
+- **T4 — cargo-pgo extension** (carryover) — `darwin-x86_64` PGO via
+  rosetta-host sniff; `linux-aarch64` PGO via qemu-user emulation;
+  per-machine `.pgo-config` for cached path resolution on dev laptops.
+- **Integrator — backfill the v0.38 + v0.39 track reports.** Both
+  cycles shipped track changes inside commit messages instead of
+  `dev/history/notes/V03{8,9}_*_NOTES.md` files. v0.40 backfills the
+  gap so the historical trail stays consistent.
 
 The v1.0 freeze-gate is unchanged: 8 RFC comment windows opened
 2026-05-26, earliest close 2026-06-09 (RFC-005), latest close
 2026-07-25 (RFC-002 + RFC-006). Proposed v1.0 freeze date
 2026-09-01; earliest tag 2026-07-26.
+
+## [0.39.0] - 2026-05-30
+
+### Added — Real-world stdlib that ships real apps
+
+- **T1 — std.crypto + std.encoding + std.url + std.uuid.** Four
+  foundational stdlib modules covering "the surfaces every web
+  backend eventually needs". std.crypto: SHA-256 / SHA-512 / BLAKE3
+  one-shot + streaming, HMAC-SHA-256 / HMAC-SHA-512 + constant-time
+  subtle_eq, CSPRNG random_bytes / uniform_int / uniform_f64 (gated
+  by `crypto.rand` capability). std.encoding: base64 standard +
+  URL-safe + no-pad RFC 4648 § 4-5; hex lowercase / uppercase /
+  mixed-case decode. std.url: WHATWG / RFC 3986 parser, fluent
+  builder, percent-encode + percent_encode_component + decode.
+  std.uuid: canonical 8-4-4-4-12 parse, v4 (random) and v7 (RFC 9562
+  time-ordered, lexicographically sortable). +152 KAT-anchored tests
+  across the four modules. Examples: `examples/42_crypto_url.mty`.
+- **T2 — Cast surface polish: Bool↔Int + reference cast + MT2028
+  INVALID_CODEPOINT.** `Int as Bool` lowers to `icmp ne 0` (so
+  `256_i32 as Bool` is `true`, not silently truncated). `Bool as Int`
+  is the inverse zext. Reference cast `&T as *T` accepted when inner
+  types unify — promotes the v0.37 T3 extern-c `coerce_addr_of` path
+  to a general explicit cast outside FFI. New MT2028
+  INVALID_CODEPOINT fires at compile time for `Int as Char` literal
+  sources outside `0..0x110000` or in the UTF-16 surrogate gap
+  `0xD800..=0xDFFF`. Non-literal sources currently pass typeck and
+  produce the raw bit pattern — v0.40 picks between a runtime trap
+  and an `Option[Char]` surface. New `docs/reference/casts.md` spec
+  page. +26 tests in `crates/mty-types/tests/v039_cast_polish.rs`.
+- **T3 — Vec typed-slot storage (8x memory reduction for Vec[U8]).**
+  v0.38's L28 fix landed a real native growable Vec with an 8-byte
+  slot regardless of T; v0.39 makes the slot width follow the
+  element type. Header v1 (24 bytes: len, cap, data) → v2 (32 bytes:
+  + elem_size). Element-size handling: 1 byte for U8/I8/Bool, 2 for
+  U16/I16, 4 for U32/I32/Char/F32, 8 for U64/I64/USize/F64/Ptr,
+  rounded layout for structs via memcpy_bytes. New `Vec.set(i, x)`
+  surface with bounds-checked typed-slot store; both `.get` and
+  `.set` emit a `mty_runtime_panic` call + `trap(TrapCode::user(5))`
+  on OOB. Memory footprint for `Vec[U8]@1000`: 2076 bytes total (was
+  ~16384 bytes in v0.38). New `VEC_HEADER_V2` constant exposed for
+  future migration tooling. LLVM backend unaffected (deferred to
+  v0.40). +16 tests in `vec_typed_slots_v039.rs`.
+- **T4 — BOLT layout optimization + darwin-arm64 PGO retry.** BOLT
+  runs on top of PGO via cargo-pgo's `bolt build` + `bolt optimize`
+  on linux-x86_64; llvm-bolt comes from the ubuntu apt `llvm-19-bolt`
+  package. Expect 5-15% wall-clock on top of PGO. Windows / macOS
+  stay off (PE/COFF + Mach-O BOLT support too rough). darwin-arm64
+  PGO retried via per-matrix `toolchain: "1.96.0"` override — the
+  release workflow now reads `matrix.toolchain` in the dtolnay
+  rust-toolchain step AND exports `RUSTUP_TOOLCHAIN` into
+  `GITHUB_ENV` so cargo honours the matrix toolchain rather than the
+  workspace `rust-toolchain.toml` pin. If 1.96.0 still skews on the
+  runner, the matrix entry flips back cleanly. +3 tests in
+  `crates/mty-cli/tests/pgo_scripts.rs`.
+- **T5 — Hover catalog 317 → 425.** 99 entries for the T1 stdlib
+  surfaces (crypto/encoding/url/uuid) + 51 gap-fillers across std.io
+  (BufReader/BufWriter/stdin().lock()/eprint!), std.process (Command
+  builder + ProcessOutput + ProcessExit.success), std.path (PathBuf
+  push/pop/from/set_extension), std.iter (peekable/windowed/chunks/
+  cycle/min/max/flat_map/rev/step_by), std.error (AnyhowError.context
+  + Error.source + Result.context), std.string (split/trim/
+  starts_with/ends_with/contains/lower/upper), std.vec (contains/
+  sort/sort_by/reverse/retain/extend), std.json (get/as_str/as_i64/
+  as_array), std.collections (HashMap.contains_key/len/iter/entry +
+  HashSet.contains + BTreeMap.range). Integrator added T3 + T2
+  follow-ups (Vec.set, VEC_HEADER_V2, vec_typed_slot, the four cast
+  symbols) in fixup `b0db3f4`. Final: 425 curated / 425 extracted,
+  drift gate byte-for-byte clean.
+
+### Changed
+- **Vec header v1 (24 bytes) → v2 (32 bytes).** Adds an `elem_size`
+  word at offset 24. No on-disk Vec values exist pre-v0.39
+  (std.json / std.observe serialise via SIR `Value`, not the native
+  layout), so the breaking layout change is internal-only; the
+  `VEC_HEADER_V2` constant ships for future migration tooling.
+- **Release workflow.** New `use_bolt` matrix field on the linux
+  platform entry; new per-matrix `toolchain` override applied in
+  both the dtolnay rust-toolchain step and `RUSTUP_TOOLCHAIN` env.
+
+### Deferred
+- **T6 — SWE-bench refresh.** The canned runner needs the user's
+  Anthropic API key; deferred to a v0.39.x patch tag or v0.40.
+
+## [0.38.3] - 2026-05-29
+
+### Fixed
+- **Restore Windows PGO via the v0.37.3 build-pgo.ps1 path.** v0.38.1
+  disabled Windows PGO under cargo-pgo because the training step
+  produced no .profraw shards; v0.38.3 routes the windows-x86_64
+  release through the in-tree `scripts/build-pgo.ps1` (the path that
+  worked in v0.37.3). Investigation of the cargo-pgo Windows-MSVC
+  empty-profraw bug deferred to v0.40.
 
 ## [0.38.1] - 2026-05-29
 
