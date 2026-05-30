@@ -1,0 +1,40 @@
+// Minimal standalone repro for the v0.36 native-codegen `Vec.push` bug.
+//
+// Build (Windows, clang linker, real bumpalo-arena runtime):
+//   cd repro
+//   "C:\Program Files\LLVM\bin\clang.exe" -c -O0 repro_print.c -o repro_print.o
+//   "C:\Program Files\LLVM\bin\llvm-ar.exe" rcs repro_print.lib repro_print.o
+//   cp ../target/debug/mty_rt_abi.lib mty_rt_abi.lib
+//   MTY_LINKER="C:\Program Files\LLVM\bin\clang.exe" \
+//     STARDUST_LINKER="C:\Program Files\LLVM\bin\clang.exe" \
+//     /c/Users/ihass/stardust/target/debug/mty.exe build repro.mty --out-dir .
+//   ./repro.exe
+//
+// Expected: v.len()=5.  Observed (v0.36 native): v.len()=0.
+
+extern {
+  fn repro_print_i32(v: I32)
+}
+
+// Count a Vec's length into an I32 (L19: `as` numeric casts don't convert,
+// so we walk indices in an I32 accumulator instead of `v.len() as I32`).
+fn vec_len_i32(v: Vec[I32]) -> I32 {
+  let mut n: I32 = 0
+  let mut i: USize = 0
+  while i < v.len() {
+    n = n + 1
+    i = i + 1
+  }
+  n
+}
+
+fn main() {
+  let mut v: Vec[I32] = Vec.new()
+  let mut i: USize = 0
+  while i < 5 {
+    v = v.push(65)
+    i = i + 1
+  }
+  // Print the accumulated length through the FFI int printer.
+  repro_print_i32(vec_len_i32(v))
+}

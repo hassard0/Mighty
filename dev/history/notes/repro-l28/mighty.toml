@@ -1,0 +1,18 @@
+[package]
+name = "vec-push-repro"
+version = "0.1.0"
+edition = "2026"
+
+# FFI int printer (the only external symbol repro.mty calls).
+[[extern_lib]]
+name = "repro_print"
+kind = "static"
+path = "repro_print.lib"
+
+# Real bumpalo-backed arena runtime (same as the IDE). Proves the empty-Vec
+# bug is NOT the no-op-arena stub: it reproduces with the real arena too.
+[[extern_lib]]
+name = "mtyrt"
+kind = "static"
+path = "mty_rt_abi.lib"
+link_args_windows = ["-lkernel32", "-lntdll", "-luserenv", "-lws2_32", "-ldbghelp"]
