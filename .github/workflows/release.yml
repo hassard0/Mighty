@@ -155,7 +155,20 @@ jobs:
             # release-pgo profile itself stays unchanged — non-BOLT
             # PGO platforms (windows-x86_64, darwin-arm64) still get
             # the `strip = true` behaviour they had in v0.38/v0.39.
-            use_bolt: true
+            #
+            # v0.40.1 REVERT: strip conflict cleared but BOLT still
+            # exits 1 after instrumentation completes. Logs show:
+            #   "BOLT-INFO: 0 out of 22642 functions in the binary
+            #   (0.0%) have non-empty execution profile"
+            # — training corpus profile data isn't reaching BOLT's
+            # optimize step. cargo pgo bolt's training expects
+            # profiles at `target/bolt-profiles/<bin>/profile` but
+            # something in the per-call workflow isn't writing them
+            # right. v0.41 investigation: trace the profile file
+            # path between the `cargo pgo bolt build` (instrument)
+            # and the actual training-corpus run. Until fixed, ship
+            # plain PGO without BOLT — still 2/5 PGO platforms.
+            use_bolt: false
             toolchain: "1.95.0"
           # v0.32 (Track D): Intel macOS via cross-compile on Apple
           # Silicon runner. v0.32.1 pivoted from `macos-13` to
