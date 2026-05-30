@@ -56,11 +56,25 @@ pub const LAMBDA_ARITY_MISMATCH: DiagCode = DiagCode::new(2024);
 pub const CANNOT_TAKE_REF: DiagCode = DiagCode::new(2025);
 pub const PROTOCOL_MSG_UNKNOWN: DiagCode = DiagCode::new(2026);
 /// MT2027: invalid cast. The `expr as Ty` surface only accepts well-known
-/// scalar conversions (int↔int, int↔float, float↔float, bool→int) at
-/// this layer. Casts that don't have a defined scalar conversion path
-/// (e.g. `Bool as Str`, `Str as I32`) are rejected here so they don't
-/// silently degrade in codegen.
+/// scalar conversions (int↔int, int↔float, float↔float, bool↔int, char↔int,
+/// &T↔*T) at this layer. Casts that don't have a defined scalar conversion
+/// path (e.g. `Bool as Str`, `Str as I32`, `Float as Bool`) are rejected
+/// here so they don't silently degrade in codegen.
 pub const INVALID_CAST: DiagCode = DiagCode::new(2027);
+
+/// MT2028 (v0.39 T2): invalid Unicode codepoint in a literal `as Char`
+/// cast. The source integer literal is either ≥ 0x110000 (outside the
+/// Unicode scalar value range) or in the UTF-16 surrogate gap
+/// 0xD800..=0xDFFF. Mighty's `Char` is a Unicode scalar value (matching
+/// Rust's `char`); silently producing an out-of-range value would
+/// corrupt downstream UTF-8 invariants.
+///
+/// This fires only for compile-time-known literals; non-literal
+/// `Int as Char` casts pass typeck and are documented as producing the
+/// raw bit pattern (v0.40 will choose between a runtime trap and an
+/// `Option[Char]` surface — see docs/reference/casts.md §"Char codepoint
+/// validity").
+pub const INVALID_CODEPOINT: DiagCode = DiagCode::new(2028);
 
 // Effects + capabilities + traits + protocol strict: MT4001..MT4099
 pub const EFFECT_UNDECLARED: DiagCode = DiagCode::new(4001);
@@ -551,16 +565,39 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
              \n\
              Cause:   `expr as Ty` only accepts well-known scalar \
              conversions: int\u{2194}int (widening/narrowing), \
-             float\u{2194}float, int\u{2194}float, and bool\u{2192}int. \
+             float\u{2194}float, int\u{2194}float, bool\u{2194}int \
+             (v0.39 T2), char\u{2194}int, and &T\u{2194}*T (v0.39 T2). \
              Casts between unrelated types (e.g. `Str as I32`, \
-             `Bool as Str`) have no defined scalar path and are \
-             rejected here.\n\
+             `Bool as Str`, `Float as Bool`) have no defined scalar \
+             path and are rejected here.\n\
              Example: `let s: Str = \"hi\"; let n = s as I32;` // MT2027\n\
              Fix:     Use a parser / converter for non-scalar conversions \
              (`Str::parse_int`), or remove the cast if the source already \
              has the target type. For numeric narrowing, the cast is \
-             accepted but truncates / saturates per spec \u{a7}5.4.\n\
-             Spec:    \u{a7}5.4 (scalar conversions) of v1.0-RC2."
+             accepted but truncates / saturates per spec \u{a7}5.4. \
+             For Float\u{2194}Bool use an explicit predicate \
+             (`x != 0.0 && !x.is_nan()`).\n\
+             Spec:    \u{a7}5.4 (scalar conversions) + docs/reference/casts.md."
+        }
+        2028 => {
+            "MT2028: Invalid Unicode codepoint in `as Char` cast.\n\
+             \n\
+             Cause:   A compile-time integer literal cast to `Char` \
+             evaluates to a value outside the Unicode scalar value \
+             range. Mighty's `Char` (like Rust's `char`) is a Unicode \
+             scalar value: a 32-bit integer in 0..0x110000 EXCLUDING \
+             the UTF-16 surrogate gap 0xD800..=0xDFFF. Out-of-range \
+             values would corrupt downstream UTF-8 invariants.\n\
+             Example: `let c = 0x110000_u32 as Char;`   // outside range\n\
+                      `let c = 0xD800_u32 as Char;`     // surrogate\n\
+             Fix:     Pick a codepoint in 0..=0xD7FF or 0xE000..=0x10FFFF, \
+             or use a runtime-validated constructor (post-v0.39: \
+             `Char::from_u32(x) -> Option[Char]`). Non-literal `Int as \
+             Char` casts pass typeck but produce the raw bit pattern; \
+             v0.40 will tighten this with either a runtime trap or an \
+             `Option[Char]` surface \u{2014} see \
+             docs/reference/casts.md \u{a7}\"Char codepoint validity\".\n\
+             Spec:    docs/reference/casts.md (v0.39 T2)."
         }
         3001 => {
             "MT3001: Use after move.\n\

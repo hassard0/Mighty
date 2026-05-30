@@ -1480,6 +1480,28 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 let v = self.eval_operand(src)?;
                 let want = cl_ty_for(ty);
                 let src_ty = self.operand_ir_ty(src);
+                // v0.39 T2 — Int → Bool requires a "nonzero" comparison,
+                // not a width-narrowing truncate. Without this branch
+                // `256_i32 as Bool` would `ireduce` to the low byte (0)
+                // and silently produce `false`, contradicting the
+                // documented semantics in docs/reference/casts.md
+                // §"Bool ↔ Int". Bool is stored as I8, so we compare
+                // against zero at the source width, then `bint` to I8.
+                if matches!(ty, IrTy::Bool)
+                    && src_ty.as_ref().is_some_and(|t| matches!(t, IrTy::Int(_)))
+                {
+                    let src_cl_ty = self.b.func.dfg.value_type(v);
+                    let zero = self.b.ins().iconst(src_cl_ty, 0);
+                    let cmp = self.b.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                        v,
+                        zero,
+                    );
+                    // `icmp` returns I8 already in Cranelift's typed-IR
+                    // mode, which is exactly the storage Mighty uses for
+                    // `Bool` — no further coerce needed.
+                    return Ok(self.coerce_to_with_src(cmp, want, Some(&IrTy::Bool)));
+                }
                 Ok(self.coerce_to_with_src(v, want, src_ty.as_ref()))
             }
             Rvalue::StrPtr(src) => {

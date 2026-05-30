@@ -1,10 +1,9 @@
-// v0.36 T1 + v0.37 T2 — Real native binary demo.
+// v0.36 T1 + v0.37 T2 + v0.39 T2 — Real native binary demo.
 //
 // Demonstrates native-codegen capabilities that landed in v0.36 T1
 // (hex-with-suffix literals, U8/U16/U32 unsigned widening, dynamic
-// log) plus the v0.37 T2 cast surface (`expr as Ty` now produces a
-// proper CAST_EXPR; previously `b as I64` silently degraded into
-// `BinOp::Add`).
+// log), v0.37 T2 (`expr as Ty` cast surface), and v0.39 T2 (cast
+// polish — Bool↔Int, reference casts, Char codepoint validity).
 //
 //   1. Hex-with-suffix integer literals (`0xFF_u8`, `0xDEAD_BEEF_u32`,
 //      `0xCAFE_BABE_DEAD_BEEF_u64`, etc.). Decimal `123_u8` was already
@@ -19,6 +18,13 @@
 //      fn return, or any non-literal Str now works on the native
 //      backends (cranelift + LLVM). Previously the cranelift backend
 //      required a string-literal arg.
+//   4. v0.39 T2 — Bool↔Int round-trip (`I32 as Bool` lowers to an
+//      `icmp ne, 0`, not a width-narrowing truncate), reference cast
+//      `&I32 as *I32` (formerly available only at extern-c call sites
+//      via the v0.37 T3 coercion path), and literal Int-as-Char with
+//      compile-time MT2028 INVALID_CODEPOINT guarding the Unicode
+//      scalar value range. See docs/reference/casts.md for the full
+//      matrix.
 //
 // Build natively:
 //   $ mty build --target native examples/39_native_binary.mty
@@ -66,6 +72,31 @@ fn main() {
   // literal in the same expression exercises the precedence rule
   // (`as` is tighter than `+`).
   let _sum: I64 = (p.r as I64) + 1_i64
+
+  // v0.39 T2 — Bool ↔ Int round-trip. Pre-v0.39 the I32→Bool half of
+  // this round-trip was MT2027; now it lowers to an `icmp ne, 0` and
+  // a 256-valued input still yields `true`, not low-byte truncation.
+  let truthy_int: I32 = 256_i32
+  let _truthy: Bool = truthy_int as Bool
+  let _flag_as_byte: U8 = _truthy as U8
+
+  // v0.39 T2 — reference cast. Same SIR shape as the v0.37 T3 FFI
+  // coercion path emits implicitly at an extern-c call site, but now
+  // spellable in any context. The inner type must unify (`&I32 as
+  // *U8` would be MT2027); see docs/reference/casts.md §"Reference
+  // casts" for the rule.
+  let pixel_red: I32 = p.r as I32
+  let _pixel_red_ptr: *I32 = &pixel_red as *I32
+
+  // v0.39 T2 — Int as Char with a literal-time codepoint check. The
+  // accepted forms below are well inside the Unicode scalar value
+  // range; the rejected counterparts (`0x110000 as Char`,
+  // `0xD800 as Char`) would surface MT2028 INVALID_CODEPOINT at
+  // compile time. Documented in docs/reference/casts.md §"Int as
+  // Char codepoint validity".
+  let _ascii_a: Char = 0x41 as Char        // 'A'
+  let _max_bmp: Char = 0xD7FF as Char      // last value before surrogate gap
+  let _astral: Char = 0x10FFFF as Char     // top of the scalar-value range
 
   // 3. Dynamic log — literal, then local, then fn-return.
   log("39_native_binary")

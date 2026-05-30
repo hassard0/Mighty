@@ -526,6 +526,24 @@ fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
                     cx.subst,
                     cx.defs,
                 ));
+            } else {
+                // v0.39 T2 (MT2028 emit-site): when the cast is
+                // `<int-literal> as Char`, verify the codepoint is a
+                // valid Unicode scalar value at compile time. Non-literal
+                // sources are documented as UB in docs/reference/casts.md
+                // — v0.40 will add a runtime check.
+                let target_resolved = cx.subst.resolve(target, cx.arena);
+                if matches!(cx.arena.get(target_resolved), TyData::Char) {
+                    if let HirExpr::Literal(HirLiteral::Int(v, _)) = &cx.pkg.exprs[lhs] {
+                        let cv = *v;
+                        let is_valid =
+                            (0..0x110000).contains(&cv) && !(0xD800..=0xDFFF).contains(&cv);
+                        if !is_valid {
+                            cx.diag
+                                .push(diag::invalid_codepoint(cv, &cx.span_of_expr(expr_id)));
+                        }
+                    }
+                }
             }
             target
         }
@@ -534,17 +552,27 @@ fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
     }
 }
 
-/// v0.37 T2 (MT2027): is `src as dst` a recognised scalar conversion?
+/// v0.37 T2 + v0.39 T2 (MT2027): is `src as dst` a recognised
+/// scalar / reference conversion?
 ///
-/// Accepted shapes:
-///   - int  ↔ int   (widen / narrow / sign change)
-///   - int  ↔ float (truncate / round)
-///   - float↔ float (widen / narrow)
-///   - bool → int   (false→0, true→1)
-///   - char → int (codepoint), int → char (the back-end already permits
-///     U8/U32 → Char in the cranelift coerce path; keep parity here)
+/// Accepted shapes (post-v0.39 T2):
+///   - int   ↔ int   (widen / narrow / sign change)
+///   - int   ↔ float (truncate / round)
+///   - float ↔ float (widen / narrow)
+///   - bool  ↔ int   (v0.39 T2; false→0, true→1; zero→false, nonzero→true)
+///   - char  ↔ int   (codepoint round-trip; cf. MT2028 for literal codepoint validity)
+///   - &T    ↔ *T    (v0.39 T2; only when the inner types unify — `&I32 as
+///     *I32` is fine, `&U8 as *I32` is not).  At the surface `*T` and `&T`
+///     share the `TyData::Ref` representation, so this rule reads as
+///     "Ref→Ref with matching inner type" — see docs/reference/casts.md
+///     §"Reference casts".
 ///
-/// Anything else (Str, Bytes, Tuple, Array, Adt, Ref, Fn) is rejected.
+/// Deliberately *rejected*:
+///   - float ↔ bool  (no obvious semantics for NaN; use an explicit predicate
+///     — docs/reference/casts.md §"Float ↔ Bool").
+///   - bool  ↔ char  (no defined codepoint mapping).
+///   - any Str / Bytes / Tuple / Array / Adt / Fn cast.
+///
 /// `Error`/`Var`/`Param` are *permitted* on either side so upstream
 /// errors don't cascade.
 fn is_valid_cast(cx: &mut Cx, src: TyId, dst: TyId) -> bool {
@@ -570,10 +598,17 @@ fn is_valid_cast(cx: &mut Cx, src: TyId, dst: TyId) -> bool {
     let d_is_int = matches!(dd, TyData::Int(_));
     let d_is_float = matches!(dd, TyData::Float(_));
     let d_is_char = matches!(dd, TyData::Char);
+    let d_is_bool = matches!(dd, TyData::Bool);
     if (s_is_int || s_is_float) && (d_is_int || d_is_float) {
         return true;
     }
     if s_is_bool && d_is_int {
+        return true;
+    }
+    // v0.39 T2 — Int → Bool (zero → false, nonzero → true). Pair to
+    // the long-standing Bool → Int direction. Float ↔ Bool stays
+    // rejected.
+    if s_is_int && d_is_bool {
         return true;
     }
     if s_is_char && d_is_int {
@@ -582,7 +617,34 @@ fn is_valid_cast(cx: &mut Cx, src: TyId, dst: TyId) -> bool {
     if s_is_int && d_is_char {
         return true;
     }
+    // v0.39 T2 — reference cast `&T as *T` / `&mut T as *mut T`. The
+    // surface parser already maps both `*T` and `&T` onto `TyData::Ref`
+    // (see crates/mty-syntax/src/parser/types.rs `ptr` vs `borrow`);
+    // we accept the cast iff the inner type unifies. This promotes the
+    // FFI-only `coerce_addr_of` path (v0.37 T3 / v0.38 T3) to a
+    // general explicit cast so users can spell the conversion in any
+    // context, not just at extern-c call sites.
+    //
+    // We also accept the legacy `TyData::RawPtr(T)` (still produced by
+    // a few prelude builtins like `raw_ptr` / `null`) on either side
+    // with the same inner-type unification rule, so an existing
+    // `*U8 as *I32` still hits MT2027 (inner mismatch) while
+    // `&I32 as *I32` lowers cleanly.
+    if let (Some(s_inner), Some(d_inner)) = (ref_inner(&sd), ref_inner(&dd)) {
+        return crate::infer::unify(s_inner, d_inner, cx.subst, cx.arena).is_ok();
+    }
     false
+}
+
+/// v0.39 T2 helper — peel a `Ref` / `RawPtr` to its pointee. Returns
+/// `None` for any other type. Used by [`is_valid_cast`] to gate the new
+/// reference-cast rule with an inner-type unification check.
+fn ref_inner(td: &TyData) -> Option<TyId> {
+    match td {
+        TyData::Ref { inner, .. } => Some(*inner),
+        TyData::RawPtr(inner) => Some(*inner),
+        _ => None,
+    }
 }
 
 /// v0.12 (Gap B / MT2025): true iff `e` is a "place" (l-value) — the only

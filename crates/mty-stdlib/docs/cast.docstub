@@ -79,32 +79,78 @@ let w: U64 = n as U64;
 
 ##sym cast_bool_to_u8
 ##sig bool_expr as U8
-##desc `true→1`, `false→0`. The only widening allowed for `Bool`; all other `Bool as Ty` casts emit MT2027.
-##see cast_as, cast_invalid_mt2027
+##desc `true→1`, `false→0`. Bool ↔ any int width is accepted as of v0.39 T2 (the reverse `IntN as Bool` follows `0 → false`, nonzero → `true` and lowers to `icmp ne 0`); `Bool as Float` and `Float as Bool` still emit MT2027.
+##see cast_as, cast_int_to_bool, cast_invalid_mt2027
 ##example
 let flag: Bool = true;
 let n: U8 = flag as U8;
 assert_eq(n, 1);
+let round_trip: Bool = (n as I32) as Bool;
+assert_eq(round_trip, true);
+##end
+
+##sym cast_int_to_bool
+##sig int_expr as Bool
+##desc v0.39 T2 — `0 → false`, any nonzero → `true`. The cranelift back-end emits an `icmp ne 0` (not a low-byte truncate), so `256_i32 as Bool` correctly yields `true`. `Float as Bool` is deliberately rejected — use the explicit predicate `x != 0.0 && !x.is_nan()`.
+##see cast_as, cast_bool_to_u8, cast_invalid_mt2027
+##example
+let n: I32 = 256;
+let truthy: Bool = n as Bool;
+assert_eq(truthy, true);
+let zeroish: Bool = 0_i32 as Bool;
+assert_eq(zeroish, false);
 ##end
 
 ##sym cast_char_to_u32
 ##sig char_expr as U32
 ##desc Code-point integer value of a `Char`. ASCII `'A'` → 65, BMP `'©'` → 169.
-##see cast_as, String.chars
+##see cast_as, cast_int_to_char, String.chars
 ##example
 let c: Char = 'A';
 let code: U32 = c as U32;
 assert_eq(code, 65);
 ##end
 
-##sym cast_ptr_to_usize
-##sig *Ty as USize
-##desc Reinterpret a raw pointer as a platform-sized integer. The reverse (`USize as *Ty`) also works and is the canonical way to round-trip handles through C-ABI integer slots.
-##see cast_as, cast_usize_to_u64, addr_of_local
+##sym cast_int_to_char
+##sig int_expr as Char
+##desc Integer-to-codepoint cast. Literals are checked at compile time against the Unicode scalar value range (0..0x110000 minus the UTF-16 surrogate gap 0xD800..=0xDFFF); out-of-range literals emit MT2028 INVALID_CODEPOINT. Non-literal sources currently pass typeck and produce the raw bit pattern — v0.40 will tighten this with either a runtime trap or an `Option[Char]` surface (see docs/reference/casts.md).
+##see cast_as, cast_char_to_u32, cast_invalid_mt2028
 ##example
-let p: *U8 = "hi".as_ptr();
-let addr: USize = p as USize;
-log(format!("addr={}", addr));
+let a: Char = 0x41 as Char;       // 'A' — ok
+let hi: Char = 0xD7FF as Char;    // last value before surrogate gap
+// let bad: Char = 0xD800 as Char; // MT2028 INVALID_CODEPOINT
+##end
+
+##sym cast_ref_to_ptr
+##sig &T as *T
+##desc v0.39 T2 — explicit reference cast. Promotes the v0.37 T3 extern-c `coerce_addr_of` path to a general surface so authors can spell `&x as *I32` outside an FFI call site. The inner types must unify (`&I32 as *U8` emits MT2027); pointer-to-integer round-trips are NOT allowed via `as`, use `unsafe { raw_ptr(addr) }` instead. `*const T` and `*mut T` collapse onto a single `TyData::Ref` shape at typeck (slice-1 simplification).
+##see cast_as, addr_of_local, coerce_str_to_u8
+##example
+let x: I32 = 42;
+let p: *I32 = &x as *I32;
+##end
+
+##sym cast_invalid_mt2028
+##sig MT2028 INVALID_CODEPOINT
+##desc v0.39 T2 type-check error for a literal `Int as Char` cast whose value is outside the Unicode scalar value range (0..0x110000) or in the UTF-16 surrogate gap 0xD800..=0xDFFF. Mighty's `Char` is a Unicode scalar value; allowing an out-of-range literal would corrupt UTF-8 invariants when the value flowed into a String.
+##see cast_int_to_char, cast_char_to_u32, cast_invalid_mt2027
+##example
+// MT2028: 0x110000 sits one past the top of the scalar-value range
+let bad1: Char = 0x110000 as Char; // ERROR
+// MT2028: surrogate gap is reserved
+let bad2: Char = 0xD800 as Char;   // ERROR
+##end
+
+##sym cast_ptr_to_usize
+##sig *Ty as USize  (deferred — MT2027 today)
+##desc Pointer↔integer round-tripping via the `as` surface is NOT accepted (MT2027). v0.39 T2's reference-cast rule (`&T as *T`, see cast_ref_to_ptr) stops at the pointer level on purpose. Use the existing `unsafe { raw_ptr(addr) }` builtin to bridge the integer→pointer side; the pointer→integer side is reserved for a future `unsafe { addr_of(p) }` builtin. This entry remains in the docstub stream so future tooling/tests can surface the gap; v0.40 may promote it to a working slot.
+##see cast_as, cast_ref_to_ptr, addr_of_local
+##example
+// Reserved — does NOT compile today (emits MT2027):
+//   let p: *U8 = ...;
+//   let addr: USize = p as USize;
+// Bridge via the unsafe builtin instead:
+//   let p: *U8 = unsafe { raw_ptr(addr) };
 ##end
 
 ##sym cast_invalid_mt2027
