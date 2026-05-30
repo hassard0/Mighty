@@ -175,20 +175,22 @@ jobs:
             artifact: mty.exe
             asset: mty-x86_64-pc-windows-msvc.zip
             use_cross: false
-            # v0.38 T1: PGO via cargo-pgo DISABLED on Windows for
-            # v0.38.1. The cargo-pgo training step exits cleanly but
-            # writes no .profraw shards to target/pgo-profiles, and
-            # the optimise step fails with `No profile files were
-            # found at D:\a\Mighty\Mighty\target\pgo-profiles`. The
-            # v0.37.3 ps1 script worked here; the cargo-pgo migration
-            # for windows-msvc is a v0.39 follow-up (likely needs an
-            # explicit profile-merge step on Windows or an MSVC-side
-            # LLVM-tools alignment that cargo-pgo isn't currently
-            # doing). windows-x86_64 ships the release profile in
-            # v0.38.1.
+            # v0.38.3: PGO RESTORED on Windows via the proven v0.37.3
+            # `scripts/build-pgo.ps1` manual path (NOT cargo-pgo).
+            # v0.38.0-v0.38.2 used cargo-pgo, which on windows-msvc
+            # ran the training step cleanly but wrote no .profraw
+            # shards to target/pgo-profiles, leaving the optimise
+            # step unable to find any profiles. cargo-pgo is correct
+            # for Linux but its Windows MSVC handling is incomplete.
+            # The ps1 script handles the profraw write path correctly
+            # — it shipped working in every release from v0.36 → v0.37.3.
             #
-            # v0.38.1 PGO matrix: 1/5 platforms (linux-x86_64 only).
-            use_pgo: false
+            # v0.38.3 PGO matrix: 2/5 platforms (linux-x86_64 via
+            # cargo-pgo + windows-x86_64 via build-pgo.ps1). Same
+            # working-set as v0.37.3. darwin-arm64 still off due to
+            # the within-channel rustc/llvm-profdata mismatch that
+            # neither cargo-pgo nor the manual scripts can fix.
+            use_pgo: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -324,44 +326,23 @@ jobs:
             --bin mty -p mty-cli \
             --target ${{ matrix.target }}
 
-      - name: Build mty (release-pgo, instrumented) — Windows
+      # v0.38.3: Windows PGO uses the v0.37.3 manual ps1 script.
+      # cargo-pgo on windows-msvc writes no profraws (Phase 2 succeeds
+      # but the optimise step finds an empty pgo-profiles directory).
+      # The ps1 script handled this correctly — instrument, run
+      # training corpus, merge with the rustup-bundled llvm-profdata,
+      # rebuild with -Cprofile-use — and shipped working through every
+      # release from v0.36 → v0.37.3. Restoring it here.
+      #
+      # The ps1 emits `target/release-pgo/mty.exe` (no per-triple
+      # subdirectory). The "Stage PGO output" / packaging step further
+      # down handles either layout.
+      - name: Build mty (release-pgo) via build-pgo.ps1 — Windows
         if: matrix.use_pgo == true && runner.os == 'Windows'
         shell: pwsh
-        run: |
-          cargo pgo build -- --profile release-pgo --bin mty -p mty-cli --target ${{ matrix.target }}
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Run PGO training corpus — Windows
-        if: matrix.use_pgo == true && runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $bin = "target/${{ matrix.target }}/release-pgo/mty.exe"
-          if (-not (Test-Path $bin)) {
-            Write-Error "instrumented mty not found at $bin"
-            Get-ChildItem "target/${{ matrix.target }}/release-pgo/" -ErrorAction SilentlyContinue
-            exit 1
-          }
-          $examples = Get-ChildItem "examples" -Filter "*.mty" -ErrorAction SilentlyContinue
-          foreach ($f in $examples) {
-            $marker = Select-String -Path $f.FullName -Pattern "@typeck-pending" -Quiet -ErrorAction SilentlyContinue
-            if ($marker) { continue }
-            & $bin check $f.FullName 2>&1 | Select-Object -Last 2 | Out-Null
-          }
-          $hello = "examples/01_hello.mty"
-          if (Test-Path $hello) {
-            & $bin build $hello --target wasm32-wasi 2>&1 | Select-Object -Last 2 | Out-Null
-          }
-          # cargo-pgo writes profraws under target/pgo-profiles; if any
-          # step above failed cleanly (non-zero exit but caught) we
-          # still want the optimise step to find them.
-          exit 0
-
-      - name: Build mty (release-pgo, optimised) — Windows
-        if: matrix.use_pgo == true && runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          cargo pgo optimize build -- --profile release-pgo --bin mty -p mty-cli --target ${{ matrix.target }}
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        env:
+          TOOLCHAIN: "1.95.0"
+        run: ./scripts/build-pgo.ps1
 
       - name: Build mty (release, native, no-PGO)
         if: matrix.use_pgo == false && matrix.use_cross == false
@@ -405,7 +386,18 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path staged | Out-Null
           if ("${{ matrix.use_pgo }}" -eq "true") {
-            Copy-Item "target/${{ matrix.target }}/release-pgo/${{ matrix.artifact }}" "staged/${{ matrix.artifact }}"
+            # v0.38.3: ps1 PGO script writes to target/release-pgo/
+            # (no per-triple subdir, unlike cargo-pgo). Try both paths.
+            $pgoPath = "target/release-pgo/${{ matrix.artifact }}"
+            $tripPath = "target/${{ matrix.target }}/release-pgo/${{ matrix.artifact }}"
+            if (Test-Path $pgoPath) {
+              Copy-Item $pgoPath "staged/${{ matrix.artifact }}"
+            } elseif (Test-Path $tripPath) {
+              Copy-Item $tripPath "staged/${{ matrix.artifact }}"
+            } else {
+              Write-Error "PGO binary not found at $pgoPath or $tripPath"
+              exit 1
+            }
           } else {
             Copy-Item "target/${{ matrix.target }}/release/${{ matrix.artifact }}" "staged/${{ matrix.artifact }}"
           }
