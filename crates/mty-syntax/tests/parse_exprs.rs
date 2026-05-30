@@ -178,3 +178,203 @@ fn parse_run_expr_with_propagate() {
     let root = SyntaxNode::new_root(r.green);
     assert!(root.descendants().any(|n| n.kind() == SyntaxKind::RUN_EXPR));
 }
+
+// ---- v0.42 L20: paren juxtaposition is NOT a call of a non-callable ----
+//
+// Background: `(half - ((half / 2) * 2)) == 1` and `(a + b)(c)` used to
+// parse as `expr1 APPLIED TO expr2`, surfacing a confusing MT2008
+// "value of type `{integer}` is not callable" diagnostic. The fix in
+// `try_postfix` only treats a following `(` as a CALL_EXPR when the
+// preceding primary is a callable shape (path / call / field / index /
+// lambda / method, or parens around any of those).
+
+#[test]
+fn l20_paren_arith_chord_keeps_parsing_as_compare() {
+    // The original L20 bug report. Parses cleanly into a top-level
+    // BINARY_EXPR for `==`; no CALL_EXPR anywhere.
+    use mty_syntax::{parser::parse_expr, SyntaxKind, SyntaxNode};
+    let r = parse_expr("(half - ((half / 2) * 2)) == 1");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    assert!(
+        !root
+            .descendants()
+            .any(|n| n.kind() == SyntaxKind::CALL_EXPR),
+        "L20 regression: arith chord must not parse as a call"
+    );
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::BINARY_EXPR));
+}
+
+#[test]
+fn l20_paren_arith_call_is_now_a_parse_error() {
+    // `(a + b)(c)` used to parse as `(a+b) APPLIED TO (c)`. With the L20
+    // fix, the `(c)` is no longer consumed as a CALL_EXPR and a parse
+    // error is emitted at the second `(`.
+    use mty_syntax::{parser::parse_expr, SyntaxKind, SyntaxNode};
+    let r = parse_expr("(a + b)(c)");
+    assert!(
+        !r.errors.is_empty(),
+        "L20: expected a parse error for `(a + b)(c)`, got none"
+    );
+    let root = SyntaxNode::new_root(r.green);
+    assert!(
+        !root
+            .descendants()
+            .any(|n| n.kind() == SyntaxKind::CALL_EXPR),
+        "L20: `(a + b)(c)` must not parse as CALL_EXPR"
+    );
+}
+
+#[test]
+fn l20_paren_around_path_still_calls() {
+    // `(f)(x)` — `f` wrapped in parens is still a callable path, so the
+    // following `(x)` must parse as a CALL_EXPR.
+    use mty_syntax::{parser::parse_expr, SyntaxKind, SyntaxNode};
+    let r = parse_expr("(f)(x)");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    assert!(
+        root.descendants()
+            .any(|n| n.kind() == SyntaxKind::CALL_EXPR),
+        "(f)(x) must still parse as CALL_EXPR"
+    );
+}
+
+#[test]
+fn l20_plain_call_still_works() {
+    use mty_syntax::{parser::parse_expr, SyntaxKind, SyntaxNode};
+    let r = parse_expr("f(x)");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::CALL_EXPR));
+}
+
+#[test]
+fn l20_chained_calls_still_work() {
+    // `g()()` — a call whose result is itself called. The inner `g()` is
+    // a CALL_EXPR (callable result), so the outer `()` must also parse.
+    use mty_syntax::{parser::parse_expr, SyntaxKind, SyntaxNode};
+    let r = parse_expr("g()()");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    let calls = root
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::CALL_EXPR)
+        .count();
+    assert_eq!(calls, 2, "expected two nested CALL_EXPR nodes for g()()");
+}
+
+#[test]
+fn l20_closure_call_still_works() {
+    // `(fn() { 1 })()` — `fn() { ... }` is a LAMBDA_EXPR, which is
+    // callable; the following `()` must parse as a CALL_EXPR.
+    use mty_syntax::{parser::parse_expr, SyntaxKind, SyntaxNode};
+    let r = parse_expr("(fn() { 1 })()");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    assert!(
+        root.descendants()
+            .any(|n| n.kind() == SyntaxKind::CALL_EXPR),
+        "closure-call must parse as CALL_EXPR"
+    );
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::LAMBDA_EXPR));
+}
+
+#[test]
+fn l20_method_call_still_works() {
+    // Mighty's parser treats `obj.method(x)` as a CALL_EXPR over a
+    // two-segment PATH (`obj.method`), not as METHOD_CALL_EXPR; the
+    // important property for L20 is just that it still parses cleanly.
+    use mty_syntax::{parser::parse_expr, SyntaxKind, SyntaxNode};
+    let r = parse_expr("obj.method(x)");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    assert!(
+        root.descendants()
+            .any(|n| n.kind() == SyntaxKind::CALL_EXPR),
+        "obj.method(x) must still parse as a call"
+    );
+}
+
+#[test]
+fn l20_method_call_via_postfix_still_works() {
+    // The `METHOD_CALL_EXPR` shape only kicks in when there's an
+    // intervening expression boundary — e.g. on the result of an index
+    // or call. Guard it explicitly so the postfix DOT path doesn't
+    // regress.
+    use mty_syntax::{parser::parse_expr, SyntaxKind, SyntaxNode};
+    let r = parse_expr("xs.map(square)");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::CALL_EXPR));
+}
+
+#[test]
+fn l20_indexed_callable_still_works() {
+    // `arr[0](x)` — the indexed element may be a closure, so the
+    // following `(x)` is allowed.
+    use mty_syntax::{parser::parse_expr, SyntaxKind, SyntaxNode};
+    let r = parse_expr("arr[0](x)");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::INDEX_EXPR));
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::CALL_EXPR));
+}
+
+#[test]
+fn l20_tuple_literal_not_a_callee() {
+    // `(a, b)(c)` is a tuple literal applied to `(c)` — must NOT be a
+    // call.
+    use mty_syntax::{parser::parse_expr, SyntaxKind, SyntaxNode};
+    let r = parse_expr("(a, b)(c)");
+    assert!(
+        !r.errors.is_empty(),
+        "L20: tuple literal must not be treated as callable"
+    );
+    let root = SyntaxNode::new_root(r.green);
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::TUPLE_EXPR));
+}
+
+#[test]
+fn l20_unit_literal_not_a_callee() {
+    // `()(x)` — `()` is the unit/empty tuple, definitely not callable.
+    use mty_syntax::{parser::parse_expr, SyntaxKind};
+    let r = parse_expr("()(x)");
+    assert!(
+        !r.errors.is_empty(),
+        "L20: () must not be treated as callable"
+    );
+    let root = mty_syntax::SyntaxNode::new_root(r.green);
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::TUPLE_EXPR));
+}
+
+#[test]
+fn l20_unary_not_callable() {
+    // `(-f)(x)` — a negated value is arithmetic, not callable.
+    use mty_syntax::{parser::parse_expr, SyntaxKind, SyntaxNode};
+    let r = parse_expr("(-f)(x)");
+    assert!(
+        !r.errors.is_empty(),
+        "L20: `(-f)(x)` must surface a parse error"
+    );
+    let root = SyntaxNode::new_root(r.green);
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::UNARY_EXPR));
+}
