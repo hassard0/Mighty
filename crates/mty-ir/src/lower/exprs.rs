@@ -1650,6 +1650,16 @@ fn const_duration_ms(o: &Operand) -> Option<u64> {
 /// scalar shapes that `expr as Ty` is allowed to target — every other
 /// shape still falls through to `IrTy::Error` (typeck already emitted
 /// MT2027, so we just need to keep the IR total).
+///
+/// v0.39 T2: the reference-cast surface (`&T as *T`) reaches here with
+/// a `HirType::Borrow { inner, .. }` — we lower that to `IrTy::Ref`
+/// (same shape the v0.37 T3 FFI coercion path emits implicitly) so the
+/// cranelift `coerce_to` rule treats the cast as a pointer-width
+/// pass-through. We don't synthesize `IrTy::RawPtr` here because the
+/// rest of the back-end and ABI layer already treats `Ref` and `RawPtr`
+/// uniformly as i64-shaped values; surfacing a distinct `RawPtr` from
+/// an `as`-cast would introduce a spurious IR difference between the
+/// implicit and explicit forms.
 fn lower_cast_target_ty(ctx: &LowerCtx, ty: mty_hir::TypeId) -> IrTy {
     use mty_hir::HirType;
     match &ctx.pkg.types[ty] {
@@ -1674,6 +1684,16 @@ fn lower_cast_target_ty(ctx: &LowerCtx, ty: mty_hir::TypeId) -> IrTy {
             "F32" => IrTy::Float(FloatKind::F32),
             "F64" => IrTy::Float(FloatKind::F64),
             _ => IrTy::Error,
+        },
+        // v0.39 T2 — reference cast `&T as *T`. The parser maps both
+        // `&T` and `*T` onto TYPE_BORROW (slice-1 simplification — see
+        // crates/mty-syntax/src/parser/types.rs); the HIR lowerer
+        // turns that into HirType::Borrow. We forward to IrTy::Ref
+        // with the same inner / mutable shape so the SIR sees a
+        // uniform pointer-width slot.
+        HirType::Borrow { mutable, inner } => IrTy::Ref {
+            mutable: *mutable,
+            inner: Box::new(lower_cast_target_ty(ctx, *inner)),
         },
         _ => IrTy::Error,
     }

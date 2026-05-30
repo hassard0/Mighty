@@ -134,6 +134,7 @@ fn module_of(symbol: &str) -> &'static str {
         "extern_block" | "extern_c_fn" | "extern_c_variadic" | "extern_lib"
         | "coerce_str_to_u8" | "addr_of_local" | "addr_of_mut" | "returned_struct" => "extern",
         // v0.38 T4: cast expressions (v0.37 T2 — MT2027 INVALID_CAST)
+        // v0.39 T2: cast polish — Bool↔Int, &T as *T, Int as Char codepoint check (MT2028)
         "cast_as"
         | "cast_u8_to_i64"
         | "cast_i64_to_u8"
@@ -143,9 +144,13 @@ fn module_of(symbol: &str) -> &'static str {
         | "cast_f32_to_i32"
         | "cast_usize_to_u64"
         | "cast_bool_to_u8"
+        | "cast_int_to_bool"
         | "cast_char_to_u32"
+        | "cast_int_to_char"
+        | "cast_ref_to_ptr"
         | "cast_ptr_to_usize"
-        | "cast_invalid_mt2027" => "cast",
+        | "cast_invalid_mt2027"
+        | "cast_invalid_mt2028" => "cast",
         // v0.38 T4: runtime / build env vars
         "MTY_LINKER"
         | "MTY_OTLP_ENDPOINT"

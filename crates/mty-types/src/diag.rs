@@ -394,6 +394,48 @@ pub fn invalid_cast(
     )
 }
 
+/// v0.39 T2 (MT2028 emit-site): an integer literal cast to `Char`
+/// evaluates to a value outside the Unicode scalar value range
+/// (0..0x110000 minus the surrogate gap 0xD800..=0xDFFF). Fires at
+/// compile time for literals; non-literal `Int as Char` casts pass
+/// typeck and are documented in docs/reference/casts.md.
+pub fn invalid_codepoint(value: i128, span: &SourceSpan) -> Diagnostic {
+    // Format the offending value as hex when it is a positive literal —
+    // that's the form authors used at the source level, so showing it
+    // back in hex matches the diagnostic to the cursor position.
+    let pretty = if (0..=0x10FFFF).contains(&value) {
+        format!("U+{:04X}", value)
+    } else if value < 0 {
+        format!("{}", value)
+    } else {
+        format!("0x{:X}", value)
+    };
+    let reason = if value < 0 {
+        "negative codepoint"
+    } else if value >= 0x110000 {
+        "outside Unicode scalar value range (must be < 0x110000)"
+    } else {
+        "UTF-16 surrogate (0xD800..=0xDFFF reserved)"
+    };
+    let mut d = Diagnostic::error(
+        INVALID_CODEPOINT,
+        label(
+            span,
+            format!(
+                "invalid Unicode codepoint `{}` in `as Char` cast: {}",
+                pretty, reason
+            ),
+        ),
+    );
+    d.notes.push(
+        "Mighty's `Char` is a Unicode scalar value (0..0xD7FF or \
+         0xE000..=0x10FFFF). Pick a valid codepoint, or use a \
+         runtime-validated constructor (post-v0.39)."
+            .into(),
+    );
+    d
+}
+
 /// v0.12 (Gap B / MT2025 emit-site): a borrow expression's inner term is
 /// not a place (l-value), so `&expr` cannot apply. Pre-v0.12 the synth
 /// path silently constructed a `Ref` over the synthesised type.
