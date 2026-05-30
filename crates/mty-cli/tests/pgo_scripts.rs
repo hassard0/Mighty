@@ -17,9 +17,15 @@
 //!      linux-x86_64 (`LLVM ERROR: Broken module found, module flag
 //!      identifiers must be unique !"CG Profile"`).
 //!   3. The release workflow's `use_pgo: true` matrix must stay
-//!      enabled on at least one native platform. v0.38.1 contingency:
-//!      linux-x86_64 only (darwin-arm64 + windows-msvc PGO disabled
-//!      after cargo-pgo migration surfaces; v0.39 follow-up).
+//!      enabled on at least one native platform. v0.39 T4 state:
+//!      linux-x86_64 (cargo-pgo + BOLT), windows-x86_64 (build-pgo.ps1),
+//!      darwin-arm64 (cargo-pgo on toolchain 1.96.0 retry). The
+//!      assertion now requires ≥ 2 PGO platforms — linux + windows
+//!      are the always-on baseline; darwin is the optional 3rd.
+//!   4. The release workflow's `use_bolt: true` matrix must run a
+//!      `cargo pgo bolt build` step. BOLT layout shipped in v0.39 T4
+//!      on linux-x86_64 (the only ELF platform in the matrix; bolt
+//!      PE/COFF + Mach-O support is too rough to ship).
 
 #![cfg(feature = "host-toolchain")]
 
@@ -109,17 +115,21 @@ fn build_pgo_ps1_does_not_pass_linker_plugin_lto() {
 #[test]
 fn release_workflow_enables_pgo_on_at_least_one_native_platform() {
     let yml = read_text(".github/workflows/release.yml");
-    // v0.38.1: cargo-pgo migration retained only linux-x86_64 PGO
-    // after the Release-run revealed cargo-pgo doesn't fix
-    // darwin-arm64's toolchain-internal raw=8/expected=10 mismatch
-    // and writes no profraws on windows-msvc. Both PGO legs are
-    // disabled until the v0.39 follow-up. Assertion: ≥1 PGO platform.
+    // v0.38.3: 2 PGO platforms (linux-x86_64 via cargo-pgo +
+    // windows-x86_64 via build-pgo.ps1).
+    // v0.39 T4: 3 PGO platforms — darwin-arm64 retry on toolchain
+    // 1.96.0. Baseline assertion: ≥ 2 native PGO platforms (linux +
+    // windows always; darwin is the optional 3rd that may flip off
+    // again if the toolchain bump doesn't fix the within-channel
+    // raw=8/expected=10 mismatch). We don't pin the count at 3 so
+    // the darwin retry can be reverted to use_pgo: false without
+    // touching this test.
     let pgo_true_count = yml.matches("use_pgo: true").count();
     assert!(
-        pgo_true_count >= 1,
-        "release.yml should have `use_pgo: true` on at least 1 matrix \
-         entry (currently linux-x86_64 only after v0.38.1 contingency). \
-         Found {pgo_true_count}"
+        pgo_true_count >= 2,
+        "release.yml should have `use_pgo: true` on at least 2 matrix \
+         entries (linux-x86_64 + windows-x86_64 as the v0.39 T4 \
+         baseline; darwin-arm64 may add a 3rd). Found {pgo_true_count}"
     );
 
     // Pin each triple still appears in the matrix (PGO state varies).
@@ -133,6 +143,80 @@ fn release_workflow_enables_pgo_on_at_least_one_native_platform() {
             "release.yml is missing matrix entry for {triple}"
         );
     }
+}
+
+#[test]
+fn release_workflow_includes_bolt_step_on_pgo_platforms() {
+    let yml = read_text(".github/workflows/release.yml");
+    // v0.39 T4: BOLT layout optimisation runs on top of PGO for the
+    // platforms where llvm-bolt is mature. The matrix entry has
+    // `use_bolt: true` and the steps include the cargo-pgo BOLT
+    // subcommands. Asserting both halves so a future edit that
+    // removes one but not the other fails fast.
+    let bolt_true_count = yml.matches("use_bolt: true").count();
+    assert!(
+        bolt_true_count >= 1,
+        "release.yml should have `use_bolt: true` on at least 1 matrix \
+         entry (linux-x86_64 as the v0.39 T4 baseline). Found {bolt_true_count}"
+    );
+
+    // The cargo-pgo BOLT subcommands must be present. cargo-pgo's
+    // BOLT pipeline is: `cargo pgo bolt build` (instrument) → run
+    // training corpus → `cargo pgo bolt optimize` (re-layout). Pin
+    // both calls so a partial revert doesn't ship a half-BOLT build.
+    assert!(
+        yml.contains("cargo pgo bolt build"),
+        "release.yml must run `cargo pgo bolt build` to instrument \
+         the PGO-optimised binary for BOLT layout collection."
+    );
+    assert!(
+        yml.contains("cargo pgo bolt optimize"),
+        "release.yml must run `cargo pgo bolt optimize` to apply the \
+         collected BOLT layout to the final binary."
+    );
+    // And the install step (llvm-bolt isn't on the runner by default).
+    assert!(
+        yml.contains("llvm-bolt"),
+        "release.yml must install llvm-bolt on the BOLT legs (apt-get \
+         install llvm-bolt on ubuntu)."
+    );
+}
+
+#[test]
+fn release_workflow_per_matrix_toolchain_overrides_workspace_pin() {
+    let yml = read_text(".github/workflows/release.yml");
+    // v0.39 T4: per-matrix `toolchain` field lets darwin-arm64 retry
+    // PGO on a newer rust channel without touching the workspace's
+    // rust-toolchain.toml pin. Two structural pins:
+    //
+    //   1. The dtolnay/rust-toolchain step uses ${{ matrix.toolchain }}
+    //      (not a hard-coded "1.95.0" literal).
+    //   2. RUSTUP_TOOLCHAIN is exported into GITHUB_ENV so cargo's
+    //      rust-toolchain.toml resolution is overridden for the rest
+    //      of the job.
+    //
+    // Without (2), the dtolnay action would install 1.96.0 on the
+    // darwin leg but `cargo +1.95.0` (or unprefixed `cargo` honouring
+    // rust-toolchain.toml) would still get 1.95.0, defeating the retry.
+    assert!(
+        yml.contains("toolchain: ${{ matrix.toolchain }}"),
+        "release.yml's Install Rust toolchain step must read from \
+         matrix.toolchain so darwin-arm64 can pin a different channel \
+         than the workspace default."
+    );
+    assert!(
+        yml.contains("RUSTUP_TOOLCHAIN=${{ matrix.toolchain }}"),
+        "release.yml must export RUSTUP_TOOLCHAIN=${{{{ matrix.toolchain }}}} \
+         into GITHUB_ENV to override the workspace rust-toolchain.toml pin."
+    );
+    // Sanity: at least one matrix entry must request the 1.96.0 retry.
+    // If a future revert drops the darwin retry entirely, this test
+    // should fail so the call-site comment + docs stay accurate.
+    assert!(
+        yml.contains("toolchain: \"1.96.0\""),
+        "release.yml should have at least one matrix entry on \
+         toolchain 1.96.0 (the v0.39 T4 darwin-arm64 PGO retry)."
+    );
 }
 
 #[test]
