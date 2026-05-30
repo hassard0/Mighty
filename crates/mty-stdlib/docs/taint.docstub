@@ -65,30 +65,3 @@ let v = raw.in_allowlist().unwrap_or(Verdict.Unclear);
 std.fs.write("v.txt", format!("{:?}", v));
 ##end
 
-##sym sanitize_compose
-##sig fn sanitize_compose(first: Sanitizer, second: Sanitizer) -> Sanitizer
-##desc Chain two sanitisers. The output of `first` feeds `second`. Useful for `HtmlEscape + ShellEscape` belt-and-braces.
-##see sanitize_with, HtmlEscape, ShellEscape, SqlEscape
-##example
-let s = sanitize_compose(HtmlEscape, ShellEscape);
-let safe = sanitize_with(input, s)?;
-##end
-
-##sym named_regex
-##sig fn named_regex(name: Str, pattern: Str) -> NamedRegex
-##desc Cache a regex by name. Subsequent lookups via `matches_regex(name, input)` skip the compile step — important when the pattern is hot.
-##see matches_regex, in_allowlist, sanitize_with
-##example
-named_regex("email", r"^[^@]+@[^@]+\.[a-z]+$");
-if matches_regex("email", input) { /* ok */ }
-##end
-
-##sym Allowlist.from_enum
-##sig fn Allowlist.from_enum[E: AsStr](variants: &[E]) -> Allowlist
-##desc Build an allowlist from a closed enum. Equivalent to `in_allowlist(input, &[v0.as_str(), v1.as_str(), ...])` but type-checked.
-##see in_allowlist, named_regex, sanitize_with
-##example
-let a = Allowlist.from_enum(&[Lang.En, Lang.Fr, Lang.Es]);
-if in_allowlist(input, a) { /* ok */ }
-##end
-

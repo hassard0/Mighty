@@ -93,23 +93,6 @@ let r = m.ask("hi")?;
 log(format!("cost_cents={}", r.cost_cents));
 ##end
 
-##sym Member.weighted
-##sig fn Member.weighted(inner: Member, weight: F32) -> Member
-##desc Wraps `inner` with a vote weight surfaced to `ConsensusStrategy.WeightedVote`. `weight` must be ≥ 0; `0.0` is a silent member (observed but not counted).
-##see ConsensusStrategy.WeightedVote, Member.anthropic, swarm
-##example
-let m = Member.weighted(Member.openai("gpt-4o"), 2.0);
-let panel = [m, Member.anthropic("claude-opus-4-7")];
-##end
-
-##sym Member.panel_of
-##sig fn Member.panel_of(specs: &[Str]) -> List<Member>
-##desc Bulk constructor: parse a list of `provider:model` strings into a panel. Unknown providers yield MT4181 INVALID_MODEL_SPEC.
-##see Member.anthropic, Member.openai, Member.gemini, swarm
-##example
-let panel = Member.panel_of(&["anthropic:claude-opus-4-7", "openai:gpt-4o"]);
-##end
-
 ##sym Member.label
 ##sig fn Member.label(&self) -> Str
 ##desc Human-readable identifier for the member (provider + model + optional alias). Use in logs and dashboards. Stable across calls — safe to use as a group-by key.

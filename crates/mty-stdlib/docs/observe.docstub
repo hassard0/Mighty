@@ -1,31 +1,6 @@
 ##module observe
 ##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
 
-##sym observe.record
-##sig fn observe.record(name: Str, payload: Json) -> Unit
-##desc Append a structured observation to the per-run trace. Sinks decide whether to flush to OTel/file.
-##see observe.query, observe.otel_sink, std.observe
-##example
-observe.record("agent.turn", json({"who": "user", "text": msg}));
-##end
-
-##sym observe.query
-##sig fn observe.query(filter: Str) -> List<Observation>
-##desc Query the in-memory trace store with a dotted-path filter.
-##see observe.record, std.observe
-##example
-let turns = observe.query("agent.turn");
-##end
-
-##sym observe.otel_sink
-##sig fn observe.otel_sink(endpoint: Str) -> Unit
-##cap net.https (the OTLP endpoint)
-##desc Forward every observation to an OTel collector via OTLP/HTTP.
-##see observe.record, std.observe
-##example
-observe.otel_sink("https://otel.example/v1/traces");
-##end
-
 ##sym Window.parse
 ##sig fn Window.parse(spec: Str) -> Result<Window, Str>
 ##desc Parse a Go-style duration spec (`7d`, `12h`, `30m`, `45s`, `500ms`, or `all`). Used by `mty inspect --cost --since`.
@@ -117,32 +92,6 @@ let rows = aggregate_by(&obs.iter().collect::<Vec<_>>(), GroupBy.Provider);
 ##example
 let s = summarize(&obs, Window.All, GroupBy.None, 0);
 log(format!("calls={} cost_cents={}", s.call_count, s.total_cost_cents));
-##end
-
-##sym Window.Recent
-##sig fn Window.Recent(dur: Duration) -> Window
-##desc Half-open window over the last `dur` of telemetry events. Rolls forward as time advances.
-##see Window.Last, Window.parse, observe.query, GroupBy.Model
-##example
-let w = Window.Recent(5.minutes);
-let rows = std.observe.query(w, GroupBy.Model);
-##end
-
-##sym GroupBy.Tenant
-##sig const GroupBy.Tenant: GroupBy
-##desc Bucket telemetry rows by the multi-tenant `tenant_id` tag (when present). Rows lacking the tag fall into the `None` bucket.
-##see GroupBy.Provider, GroupBy.Model, GroupBy.Agent, observe.query
-##example
-let rows = std.observe.query(Window.Last(1), GroupBy.Tenant);
-##end
-
-##sym top_by_cost
-##sig fn top_by_cost(window: Window, n: USize) -> Vec[CostSummary]
-##desc Returns the top `n` cost-emitting buckets in the window, sorted descending. Handy for budget alerting.
-##see CostSummary, observe.query, percentiles, summarize
-##example
-let worst = top_by_cost(Window.Recent(1.hour), 5);
-for row in worst.iter() { log(format!("{} = {}c", row.label, row.cents)); }
 ##end
 
 ##sym std.observe.percentiles

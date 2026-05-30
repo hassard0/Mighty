@@ -212,6 +212,7 @@ if let Err(AeadErr.Decrypt) = std.crypto.aes_gcm.decrypt(&key, &n, aad, &ct) {
 }
 ##end
 
+# concept-doc
 ##sym aead_nonce_uniqueness
 ##sig INVARIANT: nonce MUST be unique per (key, message)
 ##cap crypto.rand (only if you generate the nonce here)
@@ -223,6 +224,7 @@ let nonce = std.crypto.random_bytes(12);
 let ct = std.crypto.aes_gcm.encrypt(&key, &nonce, aad, pt)?;
 ##end
 
+# concept-doc
 ##sym aead_aad_binding
 ##sig AAD = additional authenticated data
 ##desc The `aad` argument to `encrypt`/`decrypt` is NOT encrypted but IS bound into the auth tag. Use it to commit the ciphertext to a version tag, key id, request id, etc. The decryptor MUST pass byte-identical AAD or `AeadErr.Decrypt` fires. Typical pattern: a single-byte version marker that lets you rotate ciphers later without ambiguity.
@@ -234,6 +236,7 @@ let ct = std.crypto.aes_gcm.encrypt(&key, &nonce, aad, payload)?;
 let pt = std.crypto.aes_gcm.decrypt(&key, &nonce, aad, &ct)?;
 ##end
 
+# concept-doc
 ##sym aead_secure_session_pattern
 ##sig secure-session = HMAC-KDF + random nonce + AEAD + URL-safe-base64
 ##cap crypto.rand

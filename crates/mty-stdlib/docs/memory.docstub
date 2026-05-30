@@ -27,22 +27,3 @@ let hits = v.query(q, 5);
 for (k, score) in hits { log(format!("{} -> {}", k, score)); }
 ##end
 
-##sym EpisodicMemory
-##sig struct EpisodicMemory { events: List<MemoryEvent> }
-##desc Append-only event log with time-bounded retention. Designed for agent turn history.
-##see VectorStore.new, std.memory
-##example
-let m = EpisodicMemory.new();
-m.append("user: hi");
-let recent = m.last(10);
-##end
-
-##sym WorkingMemory
-##sig struct WorkingMemory { slots: Map<Str, Str> }
-##desc Bounded key/value scratchpad an agent can inspect each turn.
-##see EpisodicMemory, std.memory
-##example
-let w = WorkingMemory.new(16);
-w.set("task", "summarise");
-##end
-

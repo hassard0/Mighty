@@ -57,7 +57,7 @@ jobs:
       - name: cargo test
         run: cargo test --workspace
 
-      - name: stdlib hover-catalog drift gate (Linux only)
+      - name: stdlib hover-catalog drift + surface audit (Linux only)
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
@@ -66,8 +66,15 @@ jobs:
           # (`crates/mty-stdlib/docs/*.docstub`) must match the curated
           # gold-set (`crates/mty-doc/src/examples.rs::STDLIB_EXAMPLES`)
           # byte-for-byte. Non-zero exit on any drift.
+          #
+          # v0.41 T5 surface gate: `--check-surface` ALSO audits every
+          # catalog entry against the real stdlib surface (prelude +
+          # interp dispatch + host dispatcher + mty-stdlib source).
+          # Entries opted in via `# concept-doc` / `# future` markers
+          # in the docstub are excluded from the hard-fail set.
+          #
           # See `docs/internals/stdlib-docs-pipeline.md`.
-          cargo run -q -p mty-cli -- doc --check
+          cargo run -q -p mty-cli -- doc --check --check-surface
 
       - name: example sweep (Linux only)
         if: matrix.os == 'ubuntu-latest'

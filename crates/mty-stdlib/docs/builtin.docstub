@@ -26,6 +26,7 @@ let h = spawn(Greeter.new());
 h.send(Greet { name: "world" });
 ##end
 
+# concept-doc
 ##sym VEC_HEADER_V2
 ##sig Vec header v2 (32 bytes): len, cap, data, elem_size
 ##desc v0.39 widened the Vec header from 24 bytes (len, cap, data) to 32 bytes by recording per-instance `elem_size`. Storage is now packed at the natural element width — a `Vec[U8]` uses 1 byte/slot instead of 8 — which gives the well-known 8x memory reduction for byte buffers. Old v1 layout is documented for backward-compat reasoning.
@@ -38,6 +39,7 @@ h.send(Greet { name: "world" });
 //  24..32 : elem_size USize  // new in v0.39
 ##end
 
+# concept-doc
 ##sym vec_typed_slot
 ##sig Vec[T] stores elements at sizeof(T) per slot
 ##desc Walkthrough of the v0.39 typed-slot layout: push/get/set read `elem_size` from the header and stride memory by exactly that many bytes. Bounds checks trap on out-of-range writes. Result: `Vec[U8]` stops paying a 7-byte tax per element, while wider element types keep their natural alignment.

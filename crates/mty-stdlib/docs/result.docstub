@@ -1,15 +1,6 @@
 ##module result
 ##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
 
-##sym Result.is_ok
-##sig fn Result.is_ok[T, E](&self) -> Bool
-##desc True when the result is `Ok(_)`. Cheap shortcut over `matches!(r, Ok(_))`.
-##see Result.ok, Result.err, Result.unwrap_or
-##example
-let r: Result[I32, IoError] = Ok(42);
-assert(r.is_ok());
-##end
-
 ##sym Result.ok
 ##sig fn Result.ok[T, E](self) -> Option[T]
 ##desc Convert to `Some(t)` on `Ok(t)`, `None` on `Err(_)`. Drops the error.
@@ -17,15 +8,6 @@ assert(r.is_ok());
 ##example
 let r: Result[I32, IoError] = Ok(7);
 assert_eq(r.ok(), Some(7));
-##end
-
-##sym Result.err
-##sig fn Result.err[T, E](self) -> Option[E]
-##desc Convert to `Some(e)` on `Err(e)`, `None` on `Ok(_)`. Drops the success value.
-##see Result.ok, Result.is_ok
-##example
-let r: Result[I32, IoError] = Err(IoError.NotFound);
-assert(r.err().is_some());
 ##end
 
 ##sym Result.map_err
@@ -52,28 +34,12 @@ let port: I32 = parse_port(input).unwrap_or(8080);
 let n = parse_int(s).and_then(|x| if x > 0 { Ok(x) } else { Err("negative") });
 ##end
 
-##sym Result.context
-##sig fn Result.context[T, E](self, msg: Str) -> Result[T, AnyhowError]
-##desc Attach `msg` to the `Err` branch if there is one. Equivalent to `self.map_err(|e| AnyhowError.from(e).context(msg))`.
-##see Result.map_err, anyhow_error, AnyhowError.context
-##example
-let body = read_file(path).context("reading manifest")?;
-##end
-
 ##sym Result.map
 ##sig fn Result.map[U, F: FnOnce(T) -> U](self, f: F) -> Result[U, E]
 ##desc Apply `f` to the inner value if `Ok`. `Err` is passed through unchanged. The success-side counterpart of `map_err`.
 ##see Result.and_then, Result.map_err, Option.map
 ##example
 let parsed = s.parse::<I32>().map(|n| n * 2);
-##end
-
-##sym Result.is_err
-##sig fn Result.is_err(&self) -> Bool
-##desc True iff the result is `Err`. Complement of `is_ok` — never both true.
-##see Result.is_ok, Result.err
-##example
-if result.is_err() { metrics.errors += 1; }
 ##end
 
 ##sym Result.unwrap
@@ -84,29 +50,12 @@ if result.is_err() { metrics.errors += 1; }
 let v = guaranteed_ok.unwrap();
 ##end
 
-##sym Result.unwrap_err
-##sig fn Result.unwrap_err(self) -> E
-##desc Panic if `Ok`, return the error if `Err`. The dual of `unwrap` — useful in tests where the error path is the asserted outcome.
-##see Result.unwrap, Result.err, Result.is_err
-##example
-let err = expected_to_fail.unwrap_err();
-assert!(matches!(err, MyErr::Specific));
-##end
-
 ##sym Result.expect
 ##sig fn Result.expect(self, msg: &Str) -> T
 ##desc Like `unwrap` but panics with a custom message including the inner error. Use to document the invariant being asserted.
 ##see Result.unwrap, Option.expect
 ##example
 let v = post_condition.expect("checked by validator above");
-##end
-
-##sym Result.or
-##sig fn Result.or(self, alt: Result[T, F]) -> Result[T, F]
-##desc Eager fallback: return `self` if `Ok`, else `alt`. The error type may differ between sides.
-##see Result.or_else, Option.or
-##example
-let v = try_primary().or(try_secondary())?;
 ##end
 
 ##sym Result.or_else
