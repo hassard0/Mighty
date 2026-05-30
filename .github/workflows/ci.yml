@@ -121,6 +121,22 @@ jobs:
         shell: bash
         run: bash scripts/tests/test-build-pgo-paths.sh
 
+      # v0.38 T1: assert the cargo-pgo CI pipeline's tooling is healthy
+      # BEFORE a release tag drives the 20-min fat-LTO build. Installs
+      # cargo-pgo, asserts `cargo pgo --help` works, asserts the rustup
+      # llvm-tools-preview matches rustc's LLVM major version (the
+      # exact v0.37 darwin-arm64 mismatch shape). Linux-only because
+      # the macOS / Windows release legs build cargo-pgo themselves
+      # and an `llvm-tools-preview` skew on Linux is the most common
+      # CI shape we want to gate on.
+      - name: cargo-pgo availability + LLVM-match gate (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          rustup component add llvm-tools-preview --toolchain 1.95.0
+          cargo install cargo-pgo --version 0.2.9 --locked
+          bash scripts/tests/test-cargo-pgo-availability.sh
+
   # ----------------------------------------------------------------
   # `--no-default-features` job catches feature-gated breakage that
   # the default test job hides. Runs on Linux only — features are

@@ -1,6 +1,16 @@
 # scripts/build-pgo.ps1 — v0.22 Profile-Guided Optimization (PGO)
 # build pipeline for the `mty` binary on Windows.
 #
+# v0.38 NOTE: For CI we now use the `cargo-pgo` crate
+# (https://github.com/Kobzol/cargo-pgo) — see
+# `.github/workflows/release.yml` and `docs/internals/pgo.md`. This
+# script is preserved for LOCAL DEV where users may not want to
+# install cargo-pgo.
+#
+# If you're touching the CI PGO pipeline, edit release.yml — NOT this
+# script. The two paths can diverge for local-dev ergonomics without
+# breaking the release build.
+#
 # Mirrors `scripts/build-pgo.sh` but uses PowerShell idioms and the
 # rustup-managed llvm-profdata under the toolchain sysroot (Windows
 # rarely has a system LLVM on PATH).

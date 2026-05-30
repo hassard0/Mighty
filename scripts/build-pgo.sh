@@ -2,6 +2,15 @@
 # scripts/build-pgo.sh — v0.22 Profile-Guided Optimization (PGO)
 # build pipeline for the `mty` binary.
 #
+# v0.38 NOTE: For CI we now use the `cargo-pgo` crate
+# (https://github.com/Kobzol/cargo-pgo) — see `.github/workflows/
+# release.yml` and `docs/internals/pgo.md`. This script is preserved
+# for LOCAL DEV where users may not want to install cargo-pgo.
+#
+# If you're touching the CI PGO pipeline, edit release.yml — NOT this
+# script. The two paths can diverge for local-dev ergonomics without
+# breaking the release build.
+#
 # Two-stage build:
 #
 #   1. Instrumented build:  RUSTFLAGS="-Cprofile-generate=$PROFDIR"
