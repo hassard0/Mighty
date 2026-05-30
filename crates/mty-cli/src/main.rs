@@ -515,6 +515,13 @@ enum Cmd {
         /// exits non-zero on any divergence. No path required.
         #[arg(long)]
         check: bool,
+        /// v0.41 T5: when paired with `--check`, also run the surface
+        /// audit — every docstub symbol must resolve to a real
+        /// prelude / interp / stdlib surface (or carry the
+        /// `# concept-doc` marker to opt in to documentation-only
+        /// status). Fails CI on undocumented divergence.
+        #[arg(long)]
+        check_surface: bool,
         /// With `--check`, write the drift report to this file in
         /// addition to stdout. Useful for CI artefact uploads.
         #[arg(long)]
@@ -709,10 +716,11 @@ fn run_cli(cli: Cli) -> i32 {
             out,
             check_examples,
             check,
+            check_surface,
             report,
         } => {
             if check {
-                cmd::doc::run_check(report.as_deref())
+                cmd::doc::run_check(report.as_deref(), check_surface)
             } else {
                 match path {
                     Some(p) => cmd::doc::run(&p, item, html, markdown, out, check_examples),
