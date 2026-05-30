@@ -1,4 +1,4 @@
-# Extern C signature matrix (v0.36 Track T2 + v0.37 Track T3)
+# Extern C signature matrix (v0.36 T2 + v0.37 T3 + v0.38 T3)
 
 This document is the human-readable mirror of `tests/extern_c_matrix/`.
 It pins which C-ABI shapes Mighty can call end-to-end today, what the
@@ -9,6 +9,11 @@ shapes are deferred to v0.38.
 > rows 3-10 of the matrix to ship via wrapper functions. Real Mighty
 > source code can now spell those shapes directly. See the **v0.37
 > ergonomics** section near the end of this doc.
+
+> v0.38 T3 closes rows 07 (returned struct) and 11 (function pointer),
+> plus adds the `#[ffi_nul_ok]` attribute as a metadata-only marker
+> for the Str→*U8 coercion's fast path. See the **v0.38 surfaces**
+> section.
 
 Audience: anyone shipping an FFI Mighty app — first-class downstream
 consumers are the native-IDE track (`C:\Users\ihass\mighty-ide`) and
@@ -98,11 +103,11 @@ matrix test still proves the .a is reachable.
 | 04 | `extern c fn foo(p: *mut i32)` (out-param) | works (v0.37 direct) | ~~wrapper-pattern~~ — v0.37 T3 lifts the wrapper; `&mut local` produces a `*mut I32` at the call site. Borrow check rules are unchanged. |
 | 05 | `extern c fn foo(s: Struct) -> i32` (by-value) | works (v0.37 direct) | ~~wrapper-pattern~~ — v0.37 T3 ships struct-literal-at-FFI-arg, so `foo(Point { x: 1, y: 2 })` typechecks directly. |
 | 06 | `extern c fn foo(s: *const Struct)` | works (v0.37 direct) | ~~wrapper-pattern~~ — v0.37 T3's `&local` of a struct produces a `*const Struct`. Pattern of choice for FFI handles (HWND, FILE*, wgpu::Device*). |
-| 07 | `extern c fn foo() -> Struct` | works (wrapper) | Small struct returned in a register. The wrapper stays for the matrix because Mighty doesn't yet model returned-struct binding (you can call the fn but discarding the return is awkward — v0.38 follow-up). |
+| 07 | `extern c fn foo() -> Struct` | works (v0.38 direct) | ~~wrapper-pattern~~ — v0.38 T3 ships returned-struct binding. The cranelift backend classifies the return by size: ≤8 bytes use the single-register convention (RAX), 9..=16 bytes use the two-register convention (RAX+RDX), >16 bytes use the hidden sret first param. Caller allocates the slot, folds the return registers in, and hands the slot address upstream. The matrix fixture still ships the original wrapper for ABI coverage; real Mighty code can call directly: `let p: Point = make_point()`. |
 | 08 | `extern c fn foo(arr: *const [i32; 4])` | works (v0.37 direct) | ~~wrapper-pattern~~ — v0.37 T3's `&local_array` produces the array pointer. Identical ABI slot to any other pointer. |
 | 09 | `extern c fn foo(s: *const Str)` (Str ↔ C const char*) | works (v0.37 direct) | ~~wrapper-pattern~~ — v0.37 T3 coerces Mighty Str literals/locals to `*U8` (= `const char *` on every host). |
 | 10 | `extern c fn foo(s: *mut Str) -> usize` (caller-owned buf) | works (wrapper) | The classic `snprintf` shape. Wrapper stays because Mighty doesn't yet expose a mutable `Str` buffer surface (you'd need a `[U8; N]` and pass `&mut buf[0]`, which v0.37 T3 partially covers — full coverage is v0.38). |
-| 11 | `extern c fn foo(cb: extern fn(i32) -> i32)` | works (wrapper) | Function pointer. Wrapper synthesises the callback C-side. Mighty function-pointer surface is a v0.38 follow-up. |
+| 11 | `extern c fn foo(cb: fn(i32) -> i32)` | works (v0.38 direct) | ~~wrapper-pattern~~ — v0.38 T3 ships the function-pointer surface. The Mighty parser already accepts `fn(T1, T2) -> R` as a type. Typeck unifies the Mighty fn's resolved `TyData::Fn { params, ret }` against the param's declared `Fn` type. The cranelift backend lowers a `Const::FnPtr(FnRef::User(fid))` operand via `func_addr` against the local fn's `Linkage::Local` declaration; the linker resolves the address at final-link time. Builtin fn pointers (`log`, `panic`) are not addressable through this surface — use a plain Mighty fn for FFI callbacks. |
 | 12 | Variadic call (`printf(fmt, …)`) | works (v0.38 T2) | `extern c fn printf(fmt: *U8, ...) -> I32` parses + typechecks (v0.37 T6) **and** end-to-end calls with extra varargs lower through a per-call `ir::Signature` + `call_indirect` against `func_addr` of the imported symbol (v0.38 T2). C ABI default promotions applied to extras (`f32→f64`, `i8/i16→i32`, `u8/u16→u32`, `bool/char→i32`). ~~v0.38 follow-up~~ — **v0.38 complete**. Wasm stance unchanged (variadic externs still rejected). |
 
 ## v0.37 ergonomics — the FFI surface is now ergonomic
@@ -200,24 +205,147 @@ arguments all fit.
 | Demo                                 | `demos/11_ffi_winit_stub/` (now uses all three surfaces)                   |
 | Example                              | `examples/41_ffi_clean.mty` (minimal side-by-side showcase)                |
 
-## Remaining v0.38 follow-ups
+## v0.38 surfaces — returned struct, fn pointer, `#[ffi_nul_ok]`
 
-1. ~~**Variadic extern decls** — `extern c fn printf(fmt: *U8, ...)`
-   (row 12). Needs a cranelift `Signature` vararg marker.~~ Shipped in
-   v0.38 T2 via per-call `ir::Signature` + `call_indirect` (see row 12
-   and the `v0.38 T2 — variadic call codegen (complete)` section below).
-2. **Mutable Str / caller-owned buffer ergonomics** for row 10's
+v0.38 Track T3 (commit body tagged `v0.38 T3: FFI returned-struct
++ fn-pointer surface + #[ffi_nul_ok] fast path`) closes rows 07 and
+11 of the matrix and adds the `#[ffi_nul_ok]` attribute.
+
+### Surface 1 — Returned-struct binding (row 07)
+
+```mighty
+struct Point { x: I32, y: I32 }
+
+extern c {
+  fn make_point() -> Point
+}
+
+fn main() {
+  let p: Point = make_point()
+  log("p=({},{})", p.x, p.y)
+}
+```
+
+The cranelift backend's new `build_extern_signature` classifies the
+return type by size:
+
+* ≤ 8 bytes — single-register return (RAX). Caller allocates a stack
+  slot, stores the i64 return value at offset 0, hands the slot
+  address upstream as the call's value.
+* 9..=16 bytes — two-register return (RAX + RDX on SysV; same shape
+  on Windows-x64 via cranelift's calling convention modelling).
+  Caller stores both i64 returns at slot offsets 0 and 8.
+* > 16 bytes — hidden sret first param. Caller allocates the slot,
+  prepends its address as the first arg, ignores any return value.
+
+The 16-byte cut-off mirrors the SysV ABI §3.2.3 INTEGER+INTEGER rule.
+Typical wgpu/winit return shapes (Point, Extent3d, Rect) stay in the
+register regime; large state structs use sret transparently.
+
+### Surface 2 — Function pointer (row 11)
+
+```mighty
+extern c {
+  fn ffi_sort(buf: *U8, n: USize, sz: USize, cmp: fn(*U8, *U8) -> I32) -> Unit
+}
+
+fn my_cmp(a: *U8, b: *U8) -> I32 {
+  0
+}
+
+fn main() {
+  ffi_sort("buf", 4, 4, my_cmp)
+}
+```
+
+The parser already accepted `fn(T1, T2) -> R` as a type since v0.1;
+v0.38 T3 ties it to FFI call sites end-to-end:
+
+* Typeck unifies the Mighty fn's resolved `TyData::Fn { params, ret }`
+  against the declared param type. Arity mismatch and return-type
+  mismatch surface as the usual MT2001.
+* IR lowering already emitted `Const::FnPtr(FnRef::User(fid))` for
+  fn-typed path expressions (since v0.x); v0.38 T3 lights up the
+  cranelift backend's `Const::FnPtr` arm, which takes the fn's
+  address via `func_addr` against the `Linkage::Local` declaration.
+* Builtin fn pointers (`log`, `panic`) intentionally remain
+  unsupported — the runtime helpers don't have stable C-ABI
+  symbols. Use a plain Mighty fn for FFI callbacks.
+
+### Surface 3 — `#[ffi_nul_ok]` attribute
+
+```mighty
+extern c {
+  fn strlen(#[ffi_nul_ok] s: *U8) -> USize
+}
+
+fn main() {
+  let cs = "hello"
+  let n = strlen(cs)
+}
+```
+
+The attribute documents that the caller has guaranteed the bytes
+arrive at the C side as a null-terminated `const char *`. v0.37 T3's
+Str→*U8 coercion already takes the no-copy fast path for both Str
+literals and dynamic Str locals (intern_string null-terminates;
+runtime-built Strs ride a (ptr, len) aggregate whose ptr-half is
+what gets passed). The attribute therefore is a **metadata-only**
+marker today — its purpose is to:
+
+1. Document the safety contract at the call site so downstream
+   reviewers can audit it without re-reading the C side.
+2. Reserve the syntax + side-table for a future hardening pass that
+   inserts a runtime null-terminator check on un-marked Str→*U8
+   coercions when the input came from an effectful source
+   (`std.io.read_line`, `net.body`, …).
+
+Implementation details:
+
+* Parser: `param()` now accepts `#[attr]` prefixes on FN_PARAM nodes.
+  Generic — future per-param attributes land without a re-walk.
+* HIR: `HirParam.attrs: Vec<String>` carries the attribute name list.
+  Empty for the vast majority of params.
+* Typeck: at extern-c call sites where Str→*U8 fires, if the
+  matching FnDef's HIR param has `attrs.contains("ffi_nul_ok")`, the
+  arg also lands in `TypedPackage.coerce_nul_ok` (subset of
+  `coerce_str_to_ptr`).
+* Lowering: no behavioural change today (already on the no-copy
+  path). The side table is read-only for future passes.
+
+## Where the v0.38 T3 wiring lives
+
+| Concern                                      | File                                                                       |
+|----------------------------------------------|----------------------------------------------------------------------------|
+| `#[attr]` prefix on FN_PARAM                 | `crates/mty-syntax/src/parser/items.rs` (`param`)                          |
+| `HirParam.attrs` + lower from CST            | `crates/mty-hir/src/nodes.rs` + `crates/mty-hir/src/lower/items.rs` (`lower_param_attrs`) |
+| `coerce_nul_ok` side table                   | `crates/mty-types/src/lib.rs` (`TypedPackage::coerce_nul_ok`)              |
+| Nul-ok lookup at call site                   | `crates/mty-types/src/check.rs` (`callee_param_has_nul_ok`)               |
+| `AggregateReturnKind` classifier             | `crates/mty-codegen-cranelift/src/abi.rs` (`classify_aggregate_return`, `build_extern_signature`) |
+| `extern_return_kinds` LowerCtx table          | `crates/mty-codegen-cranelift/src/lower.rs` (`LowerCtx::extern_return_kinds`) |
+| Call-site slot + register folding             | `crates/mty-codegen-cranelift/src/lower.rs` (`lower_call` / `FnRef::User`) |
+| `Const::FnPtr` cranelift lowering             | `crates/mty-codegen-cranelift/src/lower.rs` (`eval_const`)                |
+| Tests — typeck                               | `crates/mty-types/tests/ffi_v038_t3.rs` (16 cases)                        |
+| Tests — codegen                              | `crates/mty-codegen-cranelift/tests/ffi_v038_t3.rs` (9 cases)             |
+| Demo                                         | `demos/11_ffi_winit_stub/` (now exercises rows 07 + 11 + nul_ok)          |
+
+## Remaining v0.39 follow-ups
+
+1. **Mutable Str / caller-owned buffer ergonomics** for row 10's
    `snprintf` shape — needs first-class mutable byte-buffer
    binding surface in Mighty (`let mut buf: [U8; 256] = [0u8; 256]`
    and `ffi(buf as *mut U8)` should work cleanly).
-3. **Returned-struct binding** — calling row 07 (`extern c fn make()
-   -> Point`) and binding the result to a `let` should round-trip
-   the small-struct return register correctly.
-4. **Function pointer surface** — Mighty fn values flowing into
-   `extern fn(I32) -> I32` arg slots (row 11).
-5. **Optional `#[ffi_nul_ok]` fast path** — for Str → *U8 where the
-   caller has already null-terminated, skip the safety check. Default
-   in v0.37 is the safe (null-terminated-via-intern_string) path.
+2. ~~**Variadic extern call extension** — per-call-site `ir::Signature`
+   + `call_indirect`.~~ **Shipped in v0.38 T2.** Calls like
+   `printf("%d\n", 42)` now work end-to-end on the cranelift backend
+   with C ABI default promotions applied to extras.
+3. **`#[ffi_nul_ok]` runtime enforcement** — pivot the attribute from
+   metadata-only to opt-in *for the future safety-wrapper pass*.
+   The Mighty Str-builder API (`format!`, runtime accumulators) may
+   eventually start producing non-null-terminated bytes; once that
+   shift lands, the un-marked Str→*U8 coercion path inserts a
+   bounded-length safety wrapper, and `#[ffi_nul_ok]` opts back into
+   the raw pointer.
 
 ## v0.37 T6 — variadic externs (parse / typeck / decl)
 

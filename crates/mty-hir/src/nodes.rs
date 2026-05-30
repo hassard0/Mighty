@@ -109,6 +109,12 @@ pub struct HirParam {
     pub name: String,
     pub ty: Option<TypeId>,
     pub span: SourceSpan,
+    /// v0.38 Track T3 — attribute names attached to this parameter via
+    /// the `#[name]` prefix. Currently only used for extern fn params
+    /// (`#[ffi_nul_ok]`), but the field is generic so future per-param
+    /// attributes can land without touching the data model. Empty for
+    /// the vast majority of params (no attribute syntax used).
+    pub attrs: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

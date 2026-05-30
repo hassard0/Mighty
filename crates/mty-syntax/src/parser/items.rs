@@ -488,6 +488,16 @@ pub(crate) fn fn_params(p: &mut Parser) {
 
 pub(crate) fn param(p: &mut Parser) {
     p.start_node(FN_PARAM);
+    // v0.38 Track T3 — optional per-param attribute prefixes
+    // (e.g. `#[ffi_nul_ok]` on extern fn params). Stays generic so
+    // future attribute names land without a parser change; the lowerer
+    // collects the attribute name strings into `HirParam.attrs` and
+    // downstream typeck consults them where it cares (only the
+    // extern-c Str→*U8 coercion path today).
+    while p.at(HASH) {
+        attribute(p);
+        p.skip_trivia();
+    }
     if p.at(SELF_KW) {
         // `self` parameter in trait/impl methods; no type annotation required.
         p.bump(SELF_KW);

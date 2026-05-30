@@ -34,13 +34,16 @@ $out = & $bin 2>&1 | Out-String
 Write-Host "--- binary output ---"
 Write-Host $out
 
-# Step 4 — assert markers (covers v0.36 + v0.37 T3 surfaces).
+# Step 4 — assert markers (covers v0.36 + v0.37 T3 + v0.38 T3 surfaces).
 $fail = 0
 $markers = @(
     "winit_shim_init: stub ok",
     "winit_shim_open_window: 640x480",
     "winit_shim_set_clip: rect(0,0,640x480)",
     "winit_shim_poll_event: wrote 1 to out slot",
+    "winit_shim_window_info: returning 640x480",
+    "winit_shim_register_cb: cb(0) -> 1",
+    "winit_shim_log: ffi_winit_stub: nul-ok marker",
     "winit_shim_shutdown: stub ok"
 )
 foreach ($marker in $markers) {

@@ -64,10 +64,12 @@ fn lower_fn(ctx: &mut LoweringCtx, f: FnDecl) -> FnId {
                         p.0.children()
                             .find(|c| is_type_node(c.kind()))
                             .map(|n| super::types::lower_type(ctx, n));
+                    let attrs = lower_param_attrs(&p.0);
                     HirParam {
                         name: pname,
                         ty,
                         span: span_of(&p.0),
+                        attrs,
                     }
                 })
                 .collect()
@@ -97,6 +99,35 @@ fn lower_fn(ctx: &mut LoweringCtx, f: FnDecl) -> FnId {
         span: span_of(&f.0),
     };
     ctx.package.fns.alloc(hf)
+}
+
+/// v0.38 Track T3 — collect `#[name]` attribute names attached to a
+/// single `FN_PARAM` CST node. Returns the list of attribute identifiers
+/// in source order. Currently used for `#[ffi_nul_ok]` on extern fn
+/// params; the helper stays generic so future per-param attributes can
+/// land without a re-write.
+///
+/// Walks the FN_PARAM node's direct children for `ATTR` nodes; each
+/// ATTR's first NAME or NAME_REF token text is the attribute identifier.
+/// Anything that doesn't parse cleanly is dropped silently (the parser
+/// already emits a diagnostic for malformed attributes).
+fn lower_param_attrs(param_node: &SyntaxNode) -> Vec<String> {
+    let mut out = Vec::new();
+    for child in param_node.children() {
+        if child.kind() != SyntaxKind::ATTR {
+            continue;
+        }
+        // ATTR child shape: HASH L_BRACK NAME (L_PAREN ... R_PAREN)? R_BRACK.
+        // The attribute name lives as a NAME node inside ATTR.
+        let name = child
+            .descendants()
+            .find(|d| d.kind() == SyntaxKind::NAME)
+            .and_then(|n| n.first_token().map(|t| t.text().to_string()));
+        if let Some(n) = name {
+            out.push(n);
+        }
+    }
+    out
 }
 
 /// v0.27 Track A: lift a `@tool(...)` attribute on a fn decl into the
@@ -441,10 +472,12 @@ fn lower_extern_block(ctx: &mut LoweringCtx, node: SyntaxNode) -> HirExternBlock
                             p.0.children()
                                 .find(|c| is_type_node(c.kind()))
                                 .map(|n| super::types::lower_type(ctx, n));
+                        let attrs = lower_param_attrs(&p.0);
                         HirParam {
                             name: pname,
                             ty,
                             span: span_of(&p.0),
+                            attrs,
                         }
                     })
                     .collect()
