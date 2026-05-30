@@ -1,0 +1,178 @@
+##module regex
+##generated_from STDLIB_EXAMPLES (run `cargo run -p mty-doc --bin regen-stdlib-docstubs` to re-emit)
+
+##sym std.regex.Regex
+##sig struct std.regex.Regex
+##desc Compiled regular expression. Built once via `Regex.new(pat)`; supports `find`, `find_all`, `captures`, `captures_all`, `replace`, `replace_all`, `is_match`, `split`, `as_str`. RE2-style finite automata — linear time, no catastrophic backtracking; look-around is intentionally unsupported.
+##see std.regex.Regex.new, std.regex.Regex.find, std.regex.Captures, std.regex.RegexErr
+##example
+let r = std.regex.Regex.new("\\d+")?;
+if r.is_match("abc 123") { log("ok"); }
+##end
+
+##sym std.regex.Regex.new
+##sig fn std.regex.Regex.new(pattern: Str) -> Result[Regex, RegexErr]
+##desc Compile a regex pattern. Anchors, groups, alternation, repetition, Unicode categories and ASCII shorthands (`\d \w \s`) all supported. Malformed patterns yield `RegexErr.Compile`. Look-around is NOT supported.
+##see std.regex.Regex, std.regex.RegexErr, std.regex.Regex.is_match
+##example
+let r = std.regex.Regex.new(r"\d{4}-\d{2}-\d{2}")?;
+assert(r.is_match("date: 2026-05-30"));
+##end
+
+##sym std.regex.Regex.find
+##sig fn std.regex.Regex.find(&self, haystack: Str) -> Option[Match]
+##desc First match in `haystack`, or `None` if the pattern doesn't fire. Returns an owned [`Match`] carrying the text and byte-offset range.
+##see std.regex.Regex.find_all, std.regex.Regex.captures, std.regex.Match
+##example
+let r = std.regex.Regex.new(r"\d+")?;
+if let Some(m) = r.find("a12 b34") { log(m.text); } // "12"
+##end
+
+##sym std.regex.Regex.find_all
+##sig fn std.regex.Regex.find_all(&self, haystack: Str) -> Vec[Match]
+##desc All non-overlapping matches in `haystack`, left to right. `"aa"` on `"aaaa"` yields **two** matches at offsets 0 and 2 — the engine does not overlap by default.
+##see std.regex.Regex.find, std.regex.Regex.captures_all, std.regex.Match
+##example
+let r = std.regex.Regex.new(r"\d{4}-\d{2}-\d{2}")?;
+let all = r.find_all("2026-05-30 to 2026-06-01");
+assert_eq(all.len(), 2);
+##end
+
+##sym std.regex.Regex.captures
+##sig fn std.regex.Regex.captures(&self, haystack: Str) -> Option[Captures]
+##desc Capture groups for the first match. `groups[0]` is the whole match; `groups[1..]` are the parenthesised subgroups left-to-right. Non-participating groups (e.g. an alternative that didn't fire) are `None`.
+##see std.regex.Captures, std.regex.Captures.get, std.regex.Regex.captures_all
+##example
+let r = std.regex.Regex.new(r"user=(\w+).*ts=(\d+)")?;
+let caps = r.captures("user=ihass ts=1234")?;
+log(caps.get(1).text); // "ihass"
+##end
+
+##sym std.regex.Regex.captures_all
+##sig fn std.regex.Regex.captures_all(&self, haystack: Str) -> Vec[Captures]
+##desc All capture groups for every match. Useful for "scan + extract" loops without zipping `find_all` and `captures` by index.
+##see std.regex.Regex.captures, std.regex.Regex.find_all, std.regex.Captures
+##example
+let r = std.regex.Regex.new(r"(\w+)=(\d+)")?;
+for caps in r.captures_all("a=1 b=2 c=3") {
+  log(caps.get(1).text); // key
+}
+##end
+
+##sym std.regex.Regex.replace
+##sig fn std.regex.Regex.replace(&self, haystack: Str, replacement: Str) -> Str
+##desc Replace only the first match with `replacement`. Replacement supports `$0`, `$1`, ... backrefs to capture groups.
+##see std.regex.Regex.replace_all, std.regex.Regex.find
+##example
+let r = std.regex.Regex.new(r"\bworld\b")?;
+let out = r.replace("hello world world", "Mighty");
+// "hello Mighty world"
+##end
+
+##sym std.regex.Regex.replace_all
+##sig fn std.regex.Regex.replace_all(&self, haystack: Str, replacement: Str) -> Str
+##desc Replace every match with `replacement`. Supports `$N` backrefs into capture groups (e.g. `$1` for the first group).
+##see std.regex.Regex.replace, std.regex.Regex.captures
+##example
+let r = std.regex.Regex.new(r"(\w+)\s+(\w+)")?;
+let swapped = r.replace_all("hello world foo bar", "$2 $1");
+// "world hello bar foo"
+##end
+
+##sym std.regex.Regex.is_match
+##sig fn std.regex.Regex.is_match(&self, haystack: Str) -> Bool
+##desc Cheap predicate: does the haystack contain any match? The engine stops at the first hit so this is strictly faster than `find().is_some()` on long inputs.
+##see std.regex.Regex.find, std.regex.Regex.new
+##example
+let r = std.regex.Regex.new(r"^[A-Za-z0-9_-]{16,64}$")?;
+if !r.is_match(session_id) { return Err("bad session id"); }
+##end
+
+##sym std.regex.Regex.split
+##sig fn std.regex.Regex.split(&self, haystack: Str) -> Vec[Str]
+##desc Split `haystack` on every match. The matches themselves are removed from the output — a CSV-style splitter on `,\s*` is the canonical use.
+##see std.regex.Regex.find_all, String.split
+##example
+let r = std.regex.Regex.new(r",\s*")?;
+let parts = r.split("a, b,c ,  d");
+assert_eq(parts.len(), 4);
+##end
+
+##sym std.regex.Regex.as_str
+##sig fn std.regex.Regex.as_str(&self) -> Str
+##desc The original pattern string passed to `Regex.new`. Useful for logging / debug output without re-storing the source separately.
+##see std.regex.Regex.new, std.regex.Regex
+##example
+let r = std.regex.Regex.new(r"\w+")?;
+assert_eq(r.as_str(), r"\w+");
+##end
+
+##sym std.regex.Match
+##sig struct std.regex.Match { text: Str, start: USize, end: USize }
+##desc One regex match: the matched substring and the BYTE offsets it spans in the haystack. `start`/`end` are byte-accurate (UTF-8); for ASCII this is also the character index but for multi-byte input the offsets remain byte-accurate, which is what every downstream API needs (slicing, error spans, etc).
+##see std.regex.Regex.find, std.regex.Captures, std.regex.Match.len
+##example
+let m = r.find(haystack).unwrap();
+log(m.text);
+log(format("{}..{}", m.start, m.end));
+##end
+
+##sym std.regex.Match.len
+##sig fn std.regex.Match.len(&self) -> USize
+##desc Length of the matched substring in BYTES (= `end - start`). For ASCII this equals the character count; for multi-byte input it does not.
+##see std.regex.Match, std.regex.Match.is_empty
+##example
+let m = r.find(s).unwrap();
+assert_eq(m.len(), m.end - m.start);
+##end
+
+##sym std.regex.Match.is_empty
+##sig fn std.regex.Match.is_empty(&self) -> Bool
+##desc Is the matched substring empty? Empty matches happen with zero-width patterns like `^`, `$`, or `\b`.
+##see std.regex.Match, std.regex.Match.len
+##example
+let r = std.regex.Regex.new(r"\b")?;
+let m = r.find("hello").unwrap();
+assert(m.is_empty());
+##end
+
+##sym std.regex.Captures
+##sig struct std.regex.Captures { groups: Vec[Option[Match]] }
+##desc All capture groups from a single regex match. `groups[0]` is the overall match; `groups[1..]` are the parenthesised subgroups in left-to-right order. A group that did not participate (e.g. an unfired alternative) is `None`.
+##see std.regex.Captures.get, std.regex.Captures.len, std.regex.Regex.captures
+##example
+let caps = r.captures(line)?;
+let whole = caps.get(0)?; // group 0 always present
+let sub = caps.get(1)?;   // first parenthesised group
+##end
+
+##sym std.regex.Captures.get
+##sig fn std.regex.Captures.get(&self, idx: USize) -> Option[&Match]
+##desc Look up a group by index. `0` is the whole match; `1..` are the parenthesised subgroups. Returns `None` for out-of-range or non-participating groups.
+##see std.regex.Captures, std.regex.Captures.len, std.regex.Regex.captures
+##example
+let caps = r.captures("k=v")?;
+let key = caps.get(1)?.text; // "k"
+let val = caps.get(2)?.text; // "v"
+##end
+
+##sym std.regex.Captures.len
+##sig fn std.regex.Captures.len(&self) -> USize
+##desc Number of groups (including group 0). Always >= 1 for a successful match. Use to bounds-check before indexing.
+##see std.regex.Captures.get, std.regex.Captures
+##example
+let caps = r.captures(s)?;
+assert(caps.len() >= 3); // expect 2 subgroups
+##end
+
+##sym std.regex.RegexErr
+##sig enum std.regex.RegexErr { Compile(Str) }
+##desc Error returned by `Regex.new` when the pattern is malformed (unclosed group, invalid escape, unsupported feature like look-around). The payload string carries the underlying `regex` crate diagnostic.
+##see std.regex.Regex.new, std.regex.Regex
+##example
+match std.regex.Regex.new("(unclosed") {
+  Ok(_) => unreachable(),
+  Err(RegexErr.Compile(msg)) => log(msg),
+}
+##end
+
