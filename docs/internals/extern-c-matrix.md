@@ -103,7 +103,7 @@ matrix test still proves the .a is reachable.
 | 09 | `extern c fn foo(s: *const Str)` (Str ↔ C const char*) | works (v0.37 direct) | ~~wrapper-pattern~~ — v0.37 T3 coerces Mighty Str literals/locals to `*U8` (= `const char *` on every host). |
 | 10 | `extern c fn foo(s: *mut Str) -> usize` (caller-owned buf) | works (wrapper) | The classic `snprintf` shape. Wrapper stays because Mighty doesn't yet expose a mutable `Str` buffer surface (you'd need a `[U8; N]` and pass `&mut buf[0]`, which v0.37 T3 partially covers — full coverage is v0.38). |
 | 11 | `extern c fn foo(cb: extern fn(i32) -> i32)` | works (wrapper) | Function pointer. Wrapper synthesises the callback C-side. Mighty function-pointer surface is a v0.38 follow-up. |
-| 12 | Variadic (decl) | parse / typeck / linker decl shipped (v0.37 T6) | `extern c fn printf(fmt: *U8, ...) -> I32` parses, typechecks, and lowers to a `Linkage::Import` declaration. Calls with **only the fixed-arity prefix** work end-to-end on the cranelift backend. Calls passing extra varargs surface a `CodegenError::Unsupported` — cranelift 0.132 has no vararg `Signature` flag, so a per-call-site signature import is the v0.38 follow-up. |
+| 12 | Variadic call (`printf(fmt, …)`) | works (v0.38 T2) | `extern c fn printf(fmt: *U8, ...) -> I32` parses + typechecks (v0.37 T6) **and** end-to-end calls with extra varargs lower through a per-call `ir::Signature` + `call_indirect` against `func_addr` of the imported symbol (v0.38 T2). C ABI default promotions applied to extras (`f32→f64`, `i8/i16→i32`, `u8/u16→u32`, `bool/char→i32`). ~~v0.38 follow-up~~ — **v0.38 complete**. Wasm stance unchanged (variadic externs still rejected). |
 
 ## v0.37 ergonomics — the FFI surface is now ergonomic
 
@@ -202,8 +202,10 @@ arguments all fit.
 
 ## Remaining v0.38 follow-ups
 
-1. **Variadic extern decls** — `extern c fn printf(fmt: *U8, ...)`
-   (row 12). Needs a cranelift `Signature` vararg marker.
+1. ~~**Variadic extern decls** — `extern c fn printf(fmt: *U8, ...)`
+   (row 12). Needs a cranelift `Signature` vararg marker.~~ Shipped in
+   v0.38 T2 via per-call `ir::Signature` + `call_indirect` (see row 12
+   and the `v0.38 T2 — variadic call codegen (complete)` section below).
 2. **Mutable Str / caller-owned buffer ergonomics** for row 10's
    `snprintf` shape — needs first-class mutable byte-buffer
    binding surface in Mighty (`let mut buf: [U8; 256] = [0u8; 256]`
@@ -236,29 +238,46 @@ variadic C signatures. What works today on the cranelift backend:
   fixed-arity prefix (e.g. `printf(fmt)`) lower like any other extern
   C call: the linker resolves the symbol, the declared signature is
   exact, the call instruction validates.
-* **Codegen — variadic call extension.** Calls with extra args
+* **Codegen — variadic call extension.** ~~Calls with extra args
   (`printf(fmt, 1, 2)`) surface a clean `CodegenError::Unsupported`
-  pointing at this doc. Cranelift 0.132's `Signature` has no
-  first-class vararg flag and `declare_function` rejects re-declaring
-  the same symbol with a different signature, so per-call-site
-  signature handling needs `Function::import_signature` +
-  `call_indirect` via `func_addr` of the linked symbol. **Tracked for
-  v0.38.**
+  pointing at this doc.~~ Tracked as v0.38 follow-up — **shipped in
+  v0.38 T2**, see below.
 * **Wasm backend.** Any program containing a variadic extern fn
   fails the wasm compile with `WasmError::Unsupported`, regardless of
   whether the fn is actually called. Core wasm has no varargs ABI
   and the Component Model FFI surface forbids it. Use the cranelift
   backend instead.
 
-### v0.38 follow-up
+### v0.38 T2 — variadic call codegen (complete)
 
-Finish the cranelift call extension: at every call site where a
-variadic extern is invoked with non-empty extras, build a per-call
-`ir::Signature` from the actual SIR arg types, register it via
-`Function::import_signature`, materialise the callee's address via
-`func_addr` against the `Linkage::Import` declaration, and use
-`call_indirect`. The wasm-side stance does NOT change — variadic
-externs stay rejected.
+Per-call signatures + `call_indirect` are wired. Every variadic
+call site whose extras list is non-empty:
+
+1. Builds a fresh `ir::Signature` whose `params` are the declared
+   fixed-prefix types followed by one `AbiParam` per extra under the
+   C ABI default-promotion rules
+   (`crates/mty-codegen-cranelift/src/abi.rs::cl_ty_for_variadic`):
+
+   * `bool` / `char` → `I32`
+   * `I8` / `I16` → `I32` (signed; widens via `sextend`)
+   * `U8` / `U16` → `I32` (unsigned; widens via `uextend`)
+   * `F32` → `F64` (widens via `fpromote`)
+   * pointers / `USize` / `ISize` / wider scalars: pass through
+2. Imports the signature with `FunctionBuilder::import_signature`.
+3. Takes the linked symbol's address with `func_addr(ct::I64, fn_ref)`
+   — the extern is already declared `Linkage::Import` so the JIT
+   symbol-resolver / static linker provides the real address.
+4. Dispatches through `call_indirect(sig_ref, addr, &arg_vals)`.
+
+Zero-extras variadic calls still go through the regular direct `call`
+path (sig matches the declared one exactly). Non-variadic calls with
+unexpected extras emit `CodegenError::Unsupported` instead of trapping
+— defensive guard, since typeck should reject this shape.
+
+The wasm-side stance does NOT change — variadic externs stay rejected
+with `WasmError::Unsupported`. See
+`crates/mty-codegen-cranelift/tests/variadic_call.rs` for the
+codegen + ABI + real-libc-printf-round-trip coverage.
 
 ## Practical examples
 
