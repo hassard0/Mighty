@@ -301,6 +301,11 @@ fn classify_ident(token: &SyntaxToken, doc: &DocAnalysis) -> (u32, u32) {
             DefRef::Variant(_, _) => (T_ENUM_MEMBER, 0),
             DefRef::Module(_) => (T_NAMESPACE, prelude_mod(&name)),
             DefRef::Param(_) => (T_TYPE_PARAMETER, 0),
+            // v0.41 T6 (L16): top-level `const NAME = ...;` declarations
+            // are highlighted as variables for now (no dedicated CONSTANT
+            // token in the table). `M_READONLY` would be ideal but the
+            // current modifier set doesn't include it.
+            DefRef::Const(_) => (T_VARIABLE, 0),
         };
         return (ty, decl_mod | extra);
     }

@@ -118,6 +118,9 @@ pub fn complete(doc: &DocAnalysis, position: Position) -> Option<CompletionRespo
             DefRef::Variant(_, _) => CompletionItemKind::ENUM_MEMBER,
             DefRef::Module(_) => CompletionItemKind::MODULE,
             DefRef::Param(_) => CompletionItemKind::TYPE_PARAMETER,
+            // v0.41 T6 (L16): top-level `const` declarations show up as
+            // CONSTANT in completion.
+            DefRef::Const(_) => CompletionItemKind::CONSTANT,
         };
         add(name.clone(), kind, "def", &mut items, &mut seen);
     }

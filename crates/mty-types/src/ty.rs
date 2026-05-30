@@ -25,6 +25,11 @@ pub struct AdtId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FnDefId(pub u32);
 
+/// v0.41 T6 (L16): identifier for a top-level `const NAME: T = expr;`
+/// declaration in [`crate::defs::DefMap`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ConstDefId(pub u32);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IntKind {
     I8,

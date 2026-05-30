@@ -966,6 +966,16 @@ fn resolve_value_def(
             cx.arena.fn_ty(params, ret, fdef.effects.clone())
         }
         DefRef::Variant(aid, idx) => synth_variant_constructor(cx, aid, idx),
+        DefRef::Const(cid) => {
+            // v0.41 T6 (L16): a value-position reference to a top-level
+            // `const NAME: T = expr;` resolves to the declared type. The
+            // IR lowerer (see `mty-ir::lower::exprs::resolve_path`) inlines
+            // the initializer at the reference site.
+            match cx.defs.const_def(cid) {
+                Some(cd) => cd.ty,
+                None => cx.arena.error,
+            }
+        }
         DefRef::Adt(_) | DefRef::Module(_) | DefRef::Param(_) => {
             // Used as a value position — opaque/permissive.
             cx.fresh()

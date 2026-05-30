@@ -77,3 +77,59 @@ fn neg_trait_coherence() {
 fn neg_dyn_unsafe() {
     assert_emits("dyn_unsafe.mty", &[DYN_REQUIRES_OBJECT_SAFE]);
 }
+
+// ----------------------------------------------------------------------
+// v0.41 T6 (L14) — improved MT4001 diagnostic.
+//
+// The pre-T6 message read:
+//     "public function `f` is missing declared effect(s): alloc"
+// with one terse note "add `effect alloc` to the function signature".
+// Authors hitting this for the first time (every `pub fn` that returns
+// a `Vec` / `String`) didn't know *why* — was it a typecheck bug, an
+// effect-bug? The IDE dogfooding lesson (L14) called for an effect-
+// specific hint + a docs link.
+//
+// This test asserts both the legacy primary-label text (back-compat for
+// MT4001 tests that grep on it) AND the new hint + docs link notes.
+
+#[test]
+fn neg_effect_undeclared_carries_alloc_hint_and_docs_link() {
+    // The driver-side end-to-end source uses an `arena` body to make
+    // alloc-inference fire (the same shape the effect_row_e2e tests
+    // and the inline effect-inference unit tests use). The L14
+    // ergonomics is independent of how the missing effect is inferred:
+    // any MT4001 carrying `alloc` should get the hint + docs link.
+    let src = r#"
+        pub fn make_buf() -> I32 {
+          arena tmp { 0 }
+        }
+    "#;
+    let parsed = parse_source(src.into(), "test.mty".into());
+    let (pkg, mut diags) = lower(&parsed);
+    diags.extend(type_check(&pkg));
+    let d = diags
+        .iter()
+        .find(|d| matches!(d.severity, Severity::Error) && d.code == EFFECT_UNDECLARED)
+        .expect("expected MT4001 effect_undeclared");
+    // Primary label text (unchanged for back-compat).
+    assert!(
+        d.primary
+            .message
+            .contains("is missing declared effect(s): alloc"),
+        "primary message changed: {}",
+        d.primary.message
+    );
+    // T6 adds a `hint:` line explaining alloc.
+    let notes_joined = d.notes.join("\n");
+    assert!(
+        notes_joined.contains("hint: `alloc` is required"),
+        "expected an `alloc`-specific hint, got notes: {:?}",
+        d.notes
+    );
+    // T6 adds a docs link.
+    assert!(
+        notes_joined.contains("docs/internals/effects.md"),
+        "expected a docs/internals/effects.md link, got notes: {:?}",
+        d.notes
+    );
+}

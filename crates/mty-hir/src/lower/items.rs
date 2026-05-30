@@ -2,8 +2,8 @@ use super::{span_of, LoweringCtx};
 use crate::ids::*;
 use crate::nodes::*;
 use mty_ast::{
-    AgentDecl, AstNode, EnumDecl, FnDecl, ModDecl, ProtocolDecl, StructDecl, SupervisorDecl,
-    TypeAlias, UseDecl,
+    AgentDecl, AstNode, ConstDecl, EnumDecl, FnDecl, ModDecl, ProtocolDecl, StructDecl,
+    SupervisorDecl, TypeAlias, UseDecl,
 };
 use mty_syntax::{SyntaxKind, SyntaxNode};
 
@@ -30,7 +30,8 @@ pub fn lower_item(ctx: &mut LoweringCtx, node: SyntaxNode) -> Option<ItemId> {
         SyntaxKind::IMPL_BLOCK => Item::Impl(lower_impl_block(ctx, node)),
         SyntaxKind::TRAIT_DECL => Item::Trait(lower_trait_decl(ctx, node)),
         SyntaxKind::SANDBOX_BLOCK => Item::Sandbox(super::exprs::lower_top_sandbox(ctx, node)),
-        // EXPORT_DECL, MACRO_DECL, CONST_DECL — later slices.
+        SyntaxKind::CONST_DECL => Item::Const(lower_const(ctx, ConstDecl::cast(node)?)),
+        // EXPORT_DECL, MACRO_DECL — later slices.
         _ => return None,
     };
     Some(ctx.package.items.alloc(item))
@@ -401,6 +402,37 @@ fn lower_type_alias(ctx: &mut LoweringCtx, t: TypeAlias) -> TypeAliasId {
         span: span_of(&t.0),
     };
     ctx.package.type_aliases.alloc(h)
+}
+
+/// v0.41 T6 (L16): lower a top-level `const NAME: T = expr;` decl into
+/// [`HirConst`]. The initializer expression is lowered like any other
+/// expression so non-literal forms (e.g. `1 + 1`, `Some(42)`) are
+/// preserved for later const-evaluation; the IR-side `resolve_path`
+/// helper handles the common literal case directly.
+fn lower_const(ctx: &mut LoweringCtx, c: ConstDecl) -> HirConst {
+    let name =
+        c.0.children()
+            .find_map(mty_ast::Name::cast)
+            .map(|n| n.text())
+            .unwrap_or_default();
+    let is_pub = has_visibility(&c.0);
+    let ty =
+        c.0.children()
+            .find(|c| is_type_node(c.kind()))
+            .map(|n| super::types::lower_type(ctx, n))
+            .unwrap_or_else(|| ctx.alloc_type(HirType::Unknown));
+    let value =
+        c.0.children()
+            .find(|c| super::exprs::is_expr_node(c.kind()))
+            .map(|n| super::exprs::lower_expr(ctx, n))
+            .unwrap_or_else(|| ctx.alloc_expr(crate::nodes::HirExpr::Error));
+    HirConst {
+        name,
+        is_pub,
+        ty,
+        value,
+        span: span_of(&c.0),
+    }
 }
 
 fn lower_use(u: UseDecl) -> HirUse {
