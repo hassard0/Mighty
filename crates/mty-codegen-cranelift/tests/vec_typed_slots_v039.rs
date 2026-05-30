@@ -234,7 +234,18 @@ fn main() -> I64 {
 fn vec_i32_distinct_values_via_get() {
     // Push 5 distinct values then read them back via v.get(i) — only
     // path that actually exercises emit_vec_get's typed load.
+    //
+    // v0.41 T3: `v.get(i)` now returns `Option[T]` (matching the
+    // interpreter; pre-v0.41 it returned the bare scalar). Each read
+    // unwraps via `match`; an OOB get falls into the `None` arm and
+    // contributes 0 to the sum.
     let src = r#"
+fn _unwrap(o: Option[I32]) -> I32 {
+  match o {
+    Some(x) => x
+    None => 0_i32
+  }
+}
 fn main() -> I64 {
   let mut v: Vec[I32] = Vec.new()
   v = v.push(10)
@@ -242,7 +253,8 @@ fn main() -> I64 {
   v = v.push(30)
   v = v.push(40)
   v = v.push(50)
-  v.get(0) + v.get(2) + v.get(4)
+  let a = _unwrap(v.get(0)) + _unwrap(v.get(2)) + _unwrap(v.get(4))
+  a as I64
 }
 "#;
     // 10 + 30 + 50 = 90. If the slot width were wrong, neighboring
@@ -437,14 +449,22 @@ fn main() -> I64 {
 fn vec_set_in_bounds_round_trips() {
     // v.set(i, x) — new in v0.39 T3 — overwrite element at i, then
     // .get(i) yields x. Verifies the bounds-checked typed-slot store.
+    // v0.41 T3: `v.get(i)` returns Option — unwrap via match.
     let src = r#"
+fn _unwrap(o: Option[I32]) -> I32 {
+  match o {
+    Some(x) => x
+    None => 0_i32
+  }
+}
 fn main() -> I64 {
   let mut v: Vec[I32] = Vec.new()
   v = v.push(10)
   v = v.push(20)
   v = v.push(30)
   v = v.set(1, 99)
-  v.get(0) + v.get(1) + v.get(2)
+  let a = _unwrap(v.get(0)) + _unwrap(v.get(1)) + _unwrap(v.get(2))
+  a as I64
 }
 "#;
     // 10 + 99 + 30 = 139. v.set on idx 1 must hit the second 4-byte
@@ -524,13 +544,23 @@ fn vec_pop_after_pushes_returns_last() {
     // Pop on a Vec[I32] returns the previously-last element, decrementing
     // len. v0.39 T3 reads through the typed load path so the i32 slot is
     // sign-extended back to i64 correctly.
+    //
+    // v0.41 T3: `v.pop()` returns `Option[T]` (matching the
+    // interpreter). The unwrap lives in `_unwrap`.
     let src = r#"
+fn _unwrap(o: Option[I32]) -> I32 {
+  match o {
+    Some(x) => x
+    None => 0_i32
+  }
+}
 fn main() -> I64 {
   let mut v: Vec[I32] = Vec.new()
   v = v.push(11)
   v = v.push(22)
   v = v.push(33)
-  v.pop()
+  let r = _unwrap(v.pop())
+  r as I64
 }
 "#;
     // Note: pop returns the last value but the receiver still rebinds
@@ -541,13 +571,18 @@ fn main() -> I64 {
 
 #[test]
 fn vec_pop_empty_returns_zero() {
-    // Pop on an empty Vec[U8] doesn't trap — returns 0 per the v0.38
-    // semantics. Confirms the saturating-pop path still works with the
-    // new typed slot width (1 byte for U8).
+    // Pop on an empty Vec[U8] doesn't trap — returns None per the
+    // v0.41 contract (was a saturating-0 in v0.38–v0.40).
     let src = r#"
+fn _unwrap(o: Option[U8]) -> I64 {
+  match o {
+    Some(_) => 1
+    None => 0
+  }
+}
 fn main() -> I64 {
   let v: Vec[U8] = Vec.new()
-  v.pop()
+  _unwrap(v.pop())
 }
 "#;
     assert_eq!(must_run(src), 0);
