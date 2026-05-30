@@ -2278,11 +2278,157 @@ fn eval_method(receiver: &Value, name: &str, args: &[Value]) -> Value {
 }
 
 fn eval_cast(v: Value, ty: &IrTy) -> Value {
-    match (v, ty) {
-        (Value::Int(n, _), IrTy::Int(k)) => Value::Int(n, *k),
-        (Value::Float(f, _), IrTy::Float(k)) => Value::Float(f, *k),
-        (other, _) => other,
+    // v0.42 T2 — `expr as Ty` numeric semantics. Mirrors Rust's `as`:
+    //   * Int → Int    : truncate-low-bits then sign/zero-extend to dst.
+    //   * Int → Float  : standard Rust `as` cast (rounds-to-nearest-even).
+    //   * Float → Int  : Rust `as` saturating semantics — NaN → 0,
+    //                    +inf/huge → dst's max, -inf/huge → dst's min
+    //                    (or 0 for unsigned), in-range → truncate toward
+    //                    zero. (matches LLVM `fptosi.sat` / `fptoui.sat`
+    //                    and cranelift `fcvt_to_sint_sat` /
+    //                    `fcvt_to_uint_sat`.)
+    //   * Float → Float: f32 ↔ f64 via the host's `as`.
+    //   * Bool ↔ Int   : false→0 / true→1; nonzero→true / 0→false.
+    //   * Char ↔ Int   : codepoint round-trip.
+    match (&v, ty) {
+        // ── Int → Int ────────────────────────────────────────────────
+        (Value::Int(n, _), IrTy::Int(dst)) => Value::Int(narrow_int(*n, *dst), *dst),
+        // ── Int → Float ──────────────────────────────────────────────
+        (Value::Int(n, src), IrTy::Float(dst)) => {
+            // Re-interpret unsigned sources via the unsigned mask so
+            // `255_u8 as F32 == 255.0`, not -1.0.
+            let f = if is_unsigned_int_kind(*src) {
+                let mag = (*n as u128) & unsigned_mask_u128(*src);
+                mag as f64
+            } else {
+                *n as f64
+            };
+            let store_kind = match dst {
+                FloatKind::F32 => FloatKind::F32,
+                _ => FloatKind::F64,
+            };
+            let narrowed = match dst {
+                FloatKind::F32 | FloatKind::FloatInfer => (f as f32) as f64,
+                FloatKind::F64 => f,
+            };
+            Value::Float(narrowed, store_kind)
+        }
+        // ── Float → Int ──────────────────────────────────────────────
+        (Value::Float(f, _), IrTy::Int(dst)) => Value::Int(float_to_int_saturating(*f, *dst), *dst),
+        // ── Float → Float ────────────────────────────────────────────
+        (Value::Float(f, _), IrTy::Float(dst)) => {
+            let store_kind = match dst {
+                FloatKind::F32 => FloatKind::F32,
+                _ => FloatKind::F64,
+            };
+            let narrowed = match dst {
+                FloatKind::F32 | FloatKind::FloatInfer => (*f as f32) as f64,
+                FloatKind::F64 => *f,
+            };
+            Value::Float(narrowed, store_kind)
+        }
+        // ── Bool ↔ Int ───────────────────────────────────────────────
+        (Value::Bool(b), IrTy::Int(dst)) => Value::Int(if *b { 1 } else { 0 }, *dst),
+        (Value::Int(n, _), IrTy::Bool) => Value::Bool(*n != 0),
+        // ── Char ↔ Int ───────────────────────────────────────────────
+        (Value::Char(c), IrTy::Int(dst)) => Value::Int(narrow_int(*c as i128, *dst), *dst),
+        (Value::Int(n, _), IrTy::Char) => {
+            // Literal codepoint range was already validated at typeck
+            // (MT2028); for non-literal sources typeck now requires
+            // `Char.from_u32` (MT2027). If one slips through (e.g. via
+            // synthesised SIR) we clamp to U+0000 rather than panic.
+            let cp = (*n) as u32;
+            Value::Char(char::from_u32(cp).unwrap_or('\u{0}'))
+        }
+        _ => v,
     }
+}
+
+// v0.42 T2 helpers ───────────────────────────────────────────────────────
+
+fn is_unsigned_int_kind(k: IntKind) -> bool {
+    matches!(
+        k,
+        IntKind::U8 | IntKind::U16 | IntKind::U32 | IntKind::U64 | IntKind::U128 | IntKind::USize
+    )
+}
+
+fn unsigned_mask_u128(k: IntKind) -> u128 {
+    match k {
+        IntKind::U8 => 0xFF,
+        IntKind::U16 => 0xFFFF,
+        IntKind::U32 => 0xFFFF_FFFF,
+        IntKind::USize | IntKind::U64 => u64::MAX as u128,
+        IntKind::U128 => u128::MAX,
+        // Signed kinds shouldn't hit this path, but identity-mask so
+        // the caller still gets a defined answer.
+        _ => u128::MAX,
+    }
+}
+
+/// v0.42 T2 — narrow / sign-extend an i128 payload into the storage
+/// shape used by `Value::Int(_, k)`. Matches Rust's `as` semantics:
+///   * unsigned dst — zero-extend low bits (mask).
+///   * signed dst   — truncate low bits then sign-extend from the dst
+///     width so e.g. `0xFF_u8 as I8 == -1`.
+fn narrow_int(n: i128, k: IntKind) -> i128 {
+    let bits: u32 = match k {
+        IntKind::I8 | IntKind::U8 => 8,
+        IntKind::I16 | IntKind::U16 => 16,
+        IntKind::I32 | IntKind::U32 | IntKind::IntInfer => 32,
+        IntKind::I64 | IntKind::U64 | IntKind::USize | IntKind::ISize => 64,
+        IntKind::I128 | IntKind::U128 => 128,
+    };
+    if bits == 128 {
+        return n;
+    }
+    let mask: u128 = (1u128 << bits) - 1;
+    let low: u128 = (n as u128) & mask;
+    if is_unsigned_int_kind(k) {
+        low as i128
+    } else {
+        let sign_bit: u128 = 1u128 << (bits - 1);
+        if low & sign_bit != 0 {
+            (low | !mask) as i128
+        } else {
+            low as i128
+        }
+    }
+}
+
+/// v0.42 T2 — Rust-`as` saturating float→int. Mirrors `f32 as i32` /
+/// `f64 as u64` semantics:
+///   * NaN          → 0
+///   * +inf / huge  → dst's max
+///   * -inf / huge  → dst's min  (or 0 for unsigned)
+///   * in-range     → truncate toward zero, store as `Value::Int`.
+fn float_to_int_saturating(f: f64, k: IntKind) -> i128 {
+    if f.is_nan() {
+        return 0;
+    }
+    let (lo, hi): (i128, i128) = match k {
+        IntKind::I8 => (i8::MIN as i128, i8::MAX as i128),
+        IntKind::I16 => (i16::MIN as i128, i16::MAX as i128),
+        IntKind::I32 | IntKind::IntInfer => (i32::MIN as i128, i32::MAX as i128),
+        IntKind::I64 | IntKind::ISize => (i64::MIN as i128, i64::MAX as i128),
+        IntKind::I128 => (i128::MIN, i128::MAX),
+        IntKind::U8 => (0, u8::MAX as i128),
+        IntKind::U16 => (0, u16::MAX as i128),
+        IntKind::U32 => (0, u32::MAX as i128),
+        IntKind::U64 | IntKind::USize => (0, u64::MAX as i128),
+        // u128 doesn't fit i128; clamp the high end to i128::MAX so the
+        // interp representation stays well-formed. Real saturation up
+        // to u128::MAX is reserved for the native back-ends.
+        IntKind::U128 => (0, i128::MAX),
+    };
+    if f >= hi as f64 {
+        return hi;
+    }
+    if f <= lo as f64 {
+        return lo;
+    }
+    // In-range: truncate toward zero.
+    f.trunc() as i128
 }
 
 pub(crate) fn main_exit_for_value(v: &Value) -> RunResult {

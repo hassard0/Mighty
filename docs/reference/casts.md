@@ -148,6 +148,96 @@ shape migrates without manual edits. See
 See the `Char.from_u32` hover entry (`mty doc --hover std.Char.from_u32`)
 for the full prelude reference.
 
+## v0.42 T2 — numeric casts actually convert
+
+v0.37 T2 introduced the `Int ↔ Int`, `Int ↔ Float`, `Float ↔ Float`
+typeck matrix but every back-end left the conversion as a no-op: a
+`U8` operand of `expr as I32` flowed downstream as a U8, a `3.7 as
+I32` stayed a `Float(3.7)` at the IR level, and `(u as F32) * 2.0_f32`
+only typechecked because the multiplier's left side still had the
+original `USize` SIR type. The IDE worked around it for v0.41 by
+keeping every value in one type end-to-end and pushing all
+int↔pixel layout to the FFI shim (lesson L19 in
+`docs/mighty-language-lessons.md`).
+
+v0.42 T2 wires the conversion into the lowering / codegen layers so
+`as` does what it says on every back-end:
+
+| src       | dst        | cranelift                         | LLVM                              | wasm                                | interp           |
+|-----------|------------|-----------------------------------|-----------------------------------|-------------------------------------|------------------|
+| int (s)   | wider int  | `sextend`                         | `sext`                            | `i64.extend_i32_s`                  | `narrow_int` (sign-ext) |
+| int (u)   | wider int  | `uextend`                         | `zext`                            | `i64.extend_i32_u`                  | `narrow_int` (zero-ext) |
+| int       | narrower int | `ireduce`                       | `trunc`                           | `i32.wrap_i64`                      | `narrow_int` (mask) |
+| int (s)   | float      | `fcvt_from_sint`                  | `sitofp`                          | `f32/f64.convert_iN_s`              | `as f64`         |
+| int (u)   | float      | `fcvt_from_uint`                  | `uitofp`                          | `f32/f64.convert_iN_u`              | `as f64` via unsigned mask |
+| float     | int (s)    | `fcvt_to_sint_sat` (saturating)   | `llvm.fptosi.sat.iN.fM`           | `iN.trunc_sat_fM_s`                 | `float_to_int_saturating` |
+| float     | int (u)    | `fcvt_to_uint_sat` (saturating)   | `llvm.fptoui.sat.iN.fM`           | `iN.trunc_sat_fM_u`                 | `float_to_int_saturating` |
+| float     | wider fp   | `fpromote`                        | `fpext`                           | `f64.promote_f32`                   | `as f64`         |
+| float     | narrower fp | `fdemote`                        | `fptrunc`                         | `f32.demote_f64`                    | `(_ as f32) as f64` |
+
+### Float → Int overflow policy: saturating, not trapping
+
+Every back-end uses the saturating conversion (cranelift's `*_sat`,
+wasm's `trunc_sat_*`, LLVM's `fpto*.sat` intrinsic), and the interp
+mirrors Rust's `as` semantics:
+
+- `NaN`        → `0`
+- `+inf` / `> dst::MAX` → `dst::MAX`
+- `-inf` / `< dst::MIN` → `dst::MIN`  (or `0` for unsigned dst)
+- in-range → truncate toward zero
+
+Rationale for **saturating** over **trapping**:
+
+1. **Mighty already has `Result`/`Option` for fallible conversions.**
+   If the author wants the bad case escalated to a typed error they
+   can write `Char.from_u32` (v0.40 T3), or a future
+   `F32.try_to_i32() -> Option[I32]`, instead of weaving a panic into
+   a one-line numeric expression.
+2. **The Rust-`as` rule is well-known.** Mighty's numeric `as` has
+   the same shape as Rust's since v0.37 T2; copying its overflow
+   policy keeps the surface frictionless for Rust-fluent authors.
+3. **Hardware support is universal.** WebAssembly 2.0 mandates the
+   `trunc_sat_*` ops, x86-64 has `vcvttss2si`-with-saturation since
+   AVX-512 (and cranelift / LLVM emit a software fallback below
+   that), and the cranelift `*_sat` instructions are zero-cost on
+   Aarch64 (`fcvtzs`/`fcvtzu`).
+4. **No new diagnostic code needed.** A trapping policy would
+   reserve `MT5082 FLOAT_TO_INT_OUT_OF_RANGE`; saturating keeps the
+   slot free for a real safety boundary later.
+
+Authors who want a trap can spell it explicitly:
+
+```mty
+fn f64_to_i32_or_panic(x: F64) -> I32 {
+  if x.is_nan() || x < (I32.MIN as F64) || x > (I32.MAX as F64) {
+    panic!("float-to-int overflow: {}", x)
+  }
+  x as I32
+}
+```
+
+### What this unblocks
+
+- The IDE no longer has to push `usize → f32` layout math to the
+  shim (lesson L19): pixel coords, scrollbar fractions, animation
+  timing, and arena `usize` totals can all be expressed in pure
+  Mighty.
+- The byte-vector / unicode helpers can drop the
+  `usize_to_i32`-accumulator pattern (which built up an I32 via a
+  `while` loop instead of casting) — `(v.len() as I32)` now works.
+- `std.math` callers can mix `F32` and `F64` in one expression by
+  spelling the precision they want once at the boundary.
+
+### Stdlib conversion methods
+
+v0.42 T2 keeps the surface intentionally minimal: only the
+`as Ty` operator. Method-style wrappers (`i.to_f32()`,
+`u.to_i64()`, …) remain optional sugar — they would be one-line
+`#[inline]` wrappers around `as` and don't carry their weight until
+authors actually reach for them. The casts.md examples will use
+`as Ty` as the canonical spelling; method wrappers may land in a
+later track if the dogfooding pressure justifies them.
+
 ## Rejection table (post-v0.40 T3)
 
 | Cast | Result | Reason |

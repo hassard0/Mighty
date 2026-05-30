@@ -1731,24 +1731,44 @@ impl<'a> Emitter<'a> {
                 // matching wasm conversion (otherwise the validator
                 // sees the source operand width on the operand stack
                 // and rejects the consumer that expects the cast type).
+                //
+                // v0.42 T2 — extended with int↔float conversions
+                // (`f32.convert_i32_s` etc.) and saturating float→int
+                // (`i32.trunc_sat_f32_s` etc.) so the numeric cast
+                // matrix matches the cranelift / LLVM back-ends.
                 self.emit_operand(f, m, src, wfn)?;
                 let src_ty = self.operand_ir_ty(f, src);
                 let src_vt = src_ty.as_ref().and_then(Self::lower_ty);
                 let dst_vt = Self::lower_ty(ty);
+                let src_unsigned = matches!(
+                    src_ty.as_ref(),
+                    Some(
+                        IrTy::Int(
+                            IntKind::U8
+                                | IntKind::U16
+                                | IntKind::U32
+                                | IntKind::U64
+                                | IntKind::USize
+                                | IntKind::U128,
+                        ) | IrTy::Bool
+                            | IrTy::Char,
+                    ),
+                );
+                let dst_unsigned = matches!(
+                    ty,
+                    IrTy::Int(
+                        IntKind::U8
+                            | IntKind::U16
+                            | IntKind::U32
+                            | IntKind::U64
+                            | IntKind::USize
+                            | IntKind::U128,
+                    )
+                );
                 match (src_vt, dst_vt) {
+                    // ── Int → Int (val-width changes) ────────────────
                     (Some(ValType::I32), Some(ValType::I64)) => {
-                        // i32 -> i64. Pick signed/unsigned based on the
-                        // SOURCE type's signedness — matches v0.36 T1's
-                        // cranelift uextend vs sextend fix.
-                        let unsigned = matches!(
-                            src_ty.as_ref(),
-                            Some(
-                                IrTy::Int(IntKind::U8 | IntKind::U16 | IntKind::U32)
-                                    | IrTy::Bool
-                                    | IrTy::Char,
-                            ),
-                        );
-                        if unsigned {
+                        if src_unsigned {
                             wfn.instruction(&I::I64ExtendI32U);
                         } else {
                             wfn.instruction(&I::I64ExtendI32S);
@@ -1757,11 +1777,70 @@ impl<'a> Emitter<'a> {
                     (Some(ValType::I64), Some(ValType::I32)) => {
                         wfn.instruction(&I::I32WrapI64);
                     }
+                    // ── Float → Float ────────────────────────────────
                     (Some(ValType::F32), Some(ValType::F64)) => {
                         wfn.instruction(&I::F64PromoteF32);
                     }
                     (Some(ValType::F64), Some(ValType::F32)) => {
                         wfn.instruction(&I::F32DemoteF64);
+                    }
+                    // ── Int → Float ──────────────────────────────────
+                    (Some(ValType::I32), Some(ValType::F32)) => {
+                        if src_unsigned {
+                            wfn.instruction(&I::F32ConvertI32U);
+                        } else {
+                            wfn.instruction(&I::F32ConvertI32S);
+                        }
+                    }
+                    (Some(ValType::I32), Some(ValType::F64)) => {
+                        if src_unsigned {
+                            wfn.instruction(&I::F64ConvertI32U);
+                        } else {
+                            wfn.instruction(&I::F64ConvertI32S);
+                        }
+                    }
+                    (Some(ValType::I64), Some(ValType::F32)) => {
+                        if src_unsigned {
+                            wfn.instruction(&I::F32ConvertI64U);
+                        } else {
+                            wfn.instruction(&I::F32ConvertI64S);
+                        }
+                    }
+                    (Some(ValType::I64), Some(ValType::F64)) => {
+                        if src_unsigned {
+                            wfn.instruction(&I::F64ConvertI64U);
+                        } else {
+                            wfn.instruction(&I::F64ConvertI64S);
+                        }
+                    }
+                    // ── Float → Int (saturating) ─────────────────────
+                    (Some(ValType::F32), Some(ValType::I32)) => {
+                        if dst_unsigned {
+                            wfn.instruction(&I::I32TruncSatF32U);
+                        } else {
+                            wfn.instruction(&I::I32TruncSatF32S);
+                        }
+                    }
+                    (Some(ValType::F32), Some(ValType::I64)) => {
+                        if dst_unsigned {
+                            wfn.instruction(&I::I64TruncSatF32U);
+                        } else {
+                            wfn.instruction(&I::I64TruncSatF32S);
+                        }
+                    }
+                    (Some(ValType::F64), Some(ValType::I32)) => {
+                        if dst_unsigned {
+                            wfn.instruction(&I::I32TruncSatF64U);
+                        } else {
+                            wfn.instruction(&I::I32TruncSatF64S);
+                        }
+                    }
+                    (Some(ValType::F64), Some(ValType::I64)) => {
+                        if dst_unsigned {
+                            wfn.instruction(&I::I64TruncSatF64U);
+                        } else {
+                            wfn.instruction(&I::I64TruncSatF64S);
+                        }
                     }
                     _ => {
                         // Same ValType (e.g. I32->U16, or U8->I8) — no

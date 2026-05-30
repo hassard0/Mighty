@@ -671,7 +671,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                 let v = self.eval_operand(src)?;
                 let want = self.pl.llvm_ty(ty);
                 let src_ty = self.operand_ir_ty(src);
-                Ok(self.coerce_with_src(v, want, src_ty.as_ref()))
+                Ok(self.cast_value(v, want, src_ty.as_ref(), ty))
             }
             // v0.37 Track T3 — LLVM backend doesn't model Str's
             // (ptr,len) split; treat StrPtr as a pass-through, mirroring
@@ -1237,6 +1237,132 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
         }
         // Non-int-to-int paths fall through to the legacy coerce.
         self.coerce(v, want)
+    }
+
+    /// v0.42 T2 — value-preserving `as Ty` lowering used by
+    /// `Rvalue::Cast`. Picks the right LLVM conversion instruction for
+    /// each combination of source / destination kinds rather than the
+    /// bit-preserving fallback in [`Self::coerce`]:
+    ///
+    /// | src       | dst       | LLVM instruction                       |
+    /// |-----------|-----------|----------------------------------------|
+    /// | int (s)   | wider int | `sext`                                 |
+    /// | int (u)   | wider int | `zext`                                 |
+    /// | int       | smaller int | `trunc`                              |
+    /// | int (s)   | float     | `sitofp`                               |
+    /// | int (u)   | float     | `uitofp`                               |
+    /// | float     | int (s)   | `llvm.fptosi.sat.iN.fM` (NaN→0, ±inf→min/max) |
+    /// | float     | int (u)   | `llvm.fptoui.sat.iN.fM` (NaN→0, +inf→max, -inf→0) |
+    /// | float     | wider fp  | `fpext`                                |
+    /// | float     | smaller fp | `fptrunc`                             |
+    ///
+    /// Bool↔Int is handled at the typecheck side already (Bool stores
+    /// as i8); for unknown source types we fall back to the bit-
+    /// preserving `coerce_with_src` — same conservative behaviour as
+    /// pre-v0.42 T2.
+    fn cast_value(
+        &mut self,
+        v: BasicValueEnum<'ctx>,
+        want: BasicTypeEnum<'ctx>,
+        src_ty: Option<&IrTy>,
+        dst_ty: &IrTy,
+    ) -> BasicValueEnum<'ctx> {
+        let have = v.get_type();
+        if have == want
+            && matches!(
+                (src_ty, dst_ty),
+                (Some(IrTy::Int(_)), IrTy::Int(_)) | (Some(IrTy::Float(_)), IrTy::Float(_))
+            )
+        {
+            return v;
+        }
+        let unsigned_src = src_ty.is_some_and(Self::is_unsigned_int_ty);
+        match (src_ty, dst_ty, have, want) {
+            // ── Int → Float ──────────────────────────────────────────
+            (
+                Some(IrTy::Int(_)),
+                IrTy::Float(_),
+                BasicTypeEnum::IntType(_),
+                BasicTypeEnum::FloatType(ft),
+            ) => {
+                let iv = v.into_int_value();
+                if unsigned_src {
+                    self.pl
+                        .builder
+                        .build_unsigned_int_to_float(iv, ft, "uitofp")
+                        .unwrap()
+                        .into()
+                } else {
+                    self.pl
+                        .builder
+                        .build_signed_int_to_float(iv, ft, "sitofp")
+                        .unwrap()
+                        .into()
+                }
+            }
+            // ── Float → Int ──────────────────────────────────────────
+            (
+                Some(IrTy::Float(_)),
+                IrTy::Int(_),
+                BasicTypeEnum::FloatType(_),
+                BasicTypeEnum::IntType(it),
+            ) => {
+                // Use the saturating LLVM intrinsic so NaN → 0 and
+                // ±inf clamp to dst's min/max — matches the doc'd
+                // semantics in docs/reference/casts.md and the
+                // cranelift `fcvt_to_*_sat` instructions.
+                let dst_unsigned = Self::is_unsigned_int_ty(dst_ty);
+                let name = if dst_unsigned {
+                    "llvm.fptoui.sat"
+                } else {
+                    "llvm.fptosi.sat"
+                };
+                let intrinsic = inkwell::intrinsics::Intrinsic::find(name)
+                    .expect("llvm.fpto[su]i.sat intrinsic must exist");
+                let fn_val = intrinsic
+                    .get_declaration(&self.pl.module, &[it.into(), have])
+                    .expect("intrinsic declaration");
+                let call = self
+                    .pl
+                    .builder
+                    .build_call(fn_val, &[v.into()], "fp_to_int_sat")
+                    .unwrap();
+                call.try_as_basic_value().left().unwrap()
+            }
+            // ── Float → Float ────────────────────────────────────────
+            (
+                Some(IrTy::Float(_)),
+                IrTy::Float(_),
+                BasicTypeEnum::FloatType(_),
+                BasicTypeEnum::FloatType(ft),
+            ) => {
+                let fv = v.into_float_value();
+                let src_bits: u32 = if v.get_type() == self.pl.ctx.f32_type().into() {
+                    32
+                } else {
+                    64
+                };
+                let dst_bits: u32 = if ft == self.pl.ctx.f32_type() { 32 } else { 64 };
+                if src_bits < dst_bits {
+                    self.pl
+                        .builder
+                        .build_float_ext(fv, ft, "fpext")
+                        .unwrap()
+                        .into()
+                } else if src_bits > dst_bits {
+                    self.pl
+                        .builder
+                        .build_float_trunc(fv, ft, "fptrunc")
+                        .unwrap()
+                        .into()
+                } else {
+                    v
+                }
+            }
+            // ── everything else — delegate to coerce_with_src for
+            // Int↔Int and the bit-preserving fallback.
+            _ => self.coerce_with_src(v, want, src_ty),
+        }
     }
 
     /// Coerce a value into the wanted type; handles int<->int, float<->float
