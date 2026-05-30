@@ -1,7 +1,10 @@
 use mty_diagnostics::fix::to_ndjson;
 use mty_diagnostics::render::ariadne::render_all;
 use mty_diagnostics::Severity;
-use mty_driver::{lower, parse_source, type_and_borrow_check};
+use mty_driver::{
+    check_use_resolution, discover_package_sources, find_manifest_root, lower, lower_files,
+    parse_source, type_and_borrow_check, ParsedFile,
+};
 use std::fs;
 use std::path::Path;
 
@@ -44,8 +47,38 @@ pub fn run_with(path: &Path, format: CheckFormat, include_source: bool) -> i32 {
             return 1;
         }
     };
-    let parsed = parse_source(src.clone(), path.display().to_string());
-    let (pkg, mut diags) = lower(&parsed);
+    // v0.41 T2 — if `path` lives inside a Mighty package, assemble
+    // the entire `src/**/*.mty` source set + this file into one HIR
+    // `Package` so `use lib.{fn}` resolves against sibling modules.
+    // Falls back to the single-file shape for standalone scripts.
+    let parsed_target = parse_source(src.clone(), path.display().to_string());
+    let mut diags: Vec<mty_diagnostics::Diagnostic> = Vec::new();
+    let pkg = if let Some(manifest_dir) = find_manifest_root(path) {
+        let src_files = discover_package_sources(&manifest_dir);
+        let mut package_modules: std::collections::BTreeSet<String> =
+            std::collections::BTreeSet::new();
+        for p in &src_files {
+            if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                package_modules.insert(stem.to_string());
+            }
+        }
+        let target_id = path.display().to_string();
+        let mut all_parsed: Vec<ParsedFile> = src_files
+            .iter()
+            .filter(|p| p.display().to_string() != target_id)
+            .filter_map(|p| std::fs::read_to_string(p).ok().map(|s| (p.clone(), s)))
+            .map(|(p, s)| parse_source(s, p.display().to_string()))
+            .collect();
+        all_parsed.push(parsed_target);
+        let (pkg, lower_diags) = lower_files(&all_parsed);
+        diags.extend(lower_diags);
+        diags.extend(check_use_resolution(&all_parsed, &pkg, &package_modules));
+        pkg
+    } else {
+        let (pkg, lower_diags) = lower(&parsed_target);
+        diags.extend(lower_diags);
+        pkg
+    };
     // Run type + borrow check only if lowering produced no hard errors.
     let lower_errors = diags.iter().any(|d| matches!(d.severity, Severity::Error));
     if !lower_errors {

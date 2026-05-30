@@ -83,6 +83,28 @@ pub const INVALID_CAST: DiagCode = DiagCode::new(2027);
 /// validity" + docs/reference/std-char.md.
 pub const INVALID_CODEPOINT: DiagCode = DiagCode::new(2028);
 
+/// MT2029 (v0.41 T2): `use mod.{...}` references a module that does
+/// not exist in the current package. The package source set (`src/`
+/// under the manifest dir, plus the test file itself) was walked and
+/// no `src/<mod>.mty` was found. Surfaced by
+/// `mty_driver::pipeline::check_use_resolution` after the multi-file
+/// lowerer has assembled every package file into one HIR Package; fires
+/// only for single-segment local module paths (multi-segment
+/// `use std.http...` chains route to the stdlib resolver instead).
+pub const UNRESOLVED_MODULE: DiagCode = DiagCode::new(2029);
+
+/// MT2030 (v0.41 T2): `use mod.{name}` references a real package
+/// module but no top-level symbol named `<name>` exists. Mighty's
+/// resolution model is flat — every `pub fn` / struct / enum the
+/// package's `src/**/*.mty` defines lives in the same namespace —
+/// so the symbol-existence check is just a lookup against the union
+/// of top-level names produced by `lower_files`. Fires for the same
+/// surface as MT2029 (single-segment local module imports) and
+/// complements it by catching renamed-but-still-imported symbols
+/// (the silent-default failure mode the IDE worked around with
+/// inlined test impls before v0.41 T2).
+pub const SYMBOL_NOT_IN_MODULE: DiagCode = DiagCode::new(2030);
+
 // Effects + capabilities + traits + protocol strict: MT4001..MT4099
 pub const EFFECT_UNDECLARED: DiagCode = DiagCode::new(4001);
 pub const ALLOC_IN_CORE: DiagCode = DiagCode::new(4002);
@@ -590,6 +612,37 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
              use `Char.from_u32(value)` which returns `Option[Char]`.\n\
              Spec:    \u{a7}5.4 (scalar conversions) + docs/reference/casts.md \
              + docs/reference/std-char.md."
+        }
+        2029 => {
+            "MT2029: Unresolved module in `use` declaration.\n\
+             \n\
+             Cause:   A `use <mod>.{...}` declaration references a sibling \
+             module that the package doesn't contain. The driver searched \
+             every `.mty` file under `src/` (relative to the package's \
+             `mighty.toml`) and didn't find one whose stem matches \
+             `<mod>`.\n\
+             Example: `use lib.{answer};`   // no `src/lib.mty` in package\n\
+             Fix:     Create the module file (`src/<mod>.mty`) and define \
+             the symbol there, or fix the typo in the `use` path. Multi- \
+             segment paths like `use std.http.{serve}` go through the \
+             stdlib resolver instead and are not subject to this check.\n\
+             Spec:    docs/internals/package-resolution.md (v0.41 T2)."
+        }
+        2030 => {
+            "MT2030: Symbol not found in `use` declaration's module.\n\
+             \n\
+             Cause:   `use <mod>.{name}` named a module that exists in the \
+             package, but no top-level `pub fn`, struct, enum, type alias \
+             or protocol named `<name>` is defined anywhere in the merged \
+             package source set.\n\
+             Example: `use lib.{ansewr};`   // typo, lib::answer is the\n\
+                                            //   actual definition\n\
+             Fix:     Correct the symbol name, or add the missing \
+             definition to the named module. Mighty's v0.41 resolution \
+             model is flat — every top-level fn in the package is in scope \
+             by its bare name, so the check is the union over all package \
+             modules' top-level names.\n\
+             Spec:    docs/internals/package-resolution.md (v0.41 T2)."
         }
         2028 => {
             "MT2028: Invalid Unicode codepoint in `as Char` cast.\n\

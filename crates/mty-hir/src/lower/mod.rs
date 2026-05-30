@@ -30,6 +30,28 @@ impl LoweringCtx {
         }
     }
 
+    /// v0.41 T2 — resume lowering on top of an in-progress `Package`.
+    /// Used by `mty_driver::pipeline::lower_files` to fold multiple
+    /// `.mty` source files (a package's `src/**` + a single test file,
+    /// for instance) into one HIR `Package` so the v0.4 def-map sees
+    /// every top-level fn / struct / enum at once.
+    ///
+    /// Diagnostics start empty — the driver is expected to accumulate
+    /// diagnostics across files itself (it has per-file source IDs and
+    /// renderer wants them grouped per file).
+    pub fn from_partial(package: Package) -> Self {
+        Self {
+            package,
+            diagnostics: vec![],
+        }
+    }
+
+    /// v0.41 T2 — drain the accumulated `Package`. Pair with
+    /// `from_partial` for the multi-file folding flow.
+    pub fn into_package(self) -> Package {
+        self.package
+    }
+
     pub fn lower_file(mut self, file: mty_ast::File) -> (Package, Vec<Diagnostic>) {
         // v0.4: pre-expand declarative macros (see mty_macros). If the
         // file has macro decls AND call sites, we rewrite the source,
