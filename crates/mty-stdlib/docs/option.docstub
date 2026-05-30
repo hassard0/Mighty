@@ -52,3 +52,69 @@ let n = parse_int(s).unwrap_or(0);
 let r: Result[I32, Str] = parse_int(s).ok_or("bad int");
 ##end
 
+##sym Option.flatten
+##sig fn Option.flatten[T](self: Option[Option[T]]) -> Option[T]
+##desc Collapse one level of optional: `Some(Some(x)) → Some(x)`, `Some(None) → None`, `None → None`. Useful when chained `Option`-returning lookups would otherwise nest.
+##see Option.and_then, Option.map, Result.and_then
+##example
+let inner: Option[I32] = map.get("k").map(|v| v.parse().ok()).flatten();
+##end
+
+##sym Option.or
+##sig fn Option.or(self, alt: Option[T]) -> Option[T]
+##desc Eager fallback: return `self` if `Some`, else `alt`. For lazy fallback (only evaluate the alt when needed) use `or_else`.
+##see Option.or_else, Option.unwrap_or, Result.or
+##example
+let v = primary.or(backup);
+##end
+
+##sym Option.or_else
+##sig fn Option.or_else[F: FnOnce() -> Option[T]](self, f: F) -> Option[T]
+##desc Lazy fallback: return `self` if `Some`, else invoke `f()` for the alternative. Prefer this over `or` when the alternative is expensive.
+##see Option.or, Option.unwrap_or_else, Result.or_else
+##example
+let v = cache.get(k).copied().or_else(|| db.lookup(k));
+##end
+
+##sym Option.take
+##sig fn Option.take(&mut self) -> Option[T]
+##desc Replace `self` with `None` and return the old value. The canonical way to move a value out of an `Option` field without disturbing surrounding state.
+##see Option.replace, Option.unwrap
+##example
+if let Some(handle) = self.connection.take() {
+  handle.close()?;
+}
+##end
+
+##sym Option.replace
+##sig fn Option.replace(&mut self, value: T) -> Option[T]
+##desc Replace `self` with `Some(value)` and return the previous content. Combine with `take` for swap-style updates.
+##see Option.take, Option.unwrap
+##example
+let old = self.handler.replace(new_handler);
+##end
+
+##sym Option.unwrap
+##sig fn Option.unwrap(self) -> T
+##desc Panic if `None`, return the wrapped value if `Some`. Use ONLY when the absence of value is structurally impossible (post-condition of an earlier check). Prefer `unwrap_or` / `?` for runtime input.
+##see Option.unwrap_or, Option.expect, Option.is_some
+##example
+let v = guaranteed_some.unwrap();
+##end
+
+##sym Option.unwrap_or_else
+##sig fn Option.unwrap_or_else[F: FnOnce() -> T](self, f: F) -> T
+##desc Lazy default: return the value if `Some`, else invoke `f()` for the default. Prefer over `unwrap_or` when the default is expensive to construct.
+##see Option.unwrap_or, Option.or_else
+##example
+let v = cache.get(k).copied().unwrap_or_else(|| recompute());
+##end
+
+##sym Option.expect
+##sig fn Option.expect(self, msg: &Str) -> T
+##desc Like `unwrap` but panics with a custom message. The message should describe the INVARIANT, not the failure ("channel must be open here" — not "channel was closed").
+##see Option.unwrap, Option.unwrap_or, Result.expect
+##example
+let v = invariant_some.expect("checked above at line 42");
+##end
+

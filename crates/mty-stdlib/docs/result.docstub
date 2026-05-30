@@ -60,3 +60,60 @@ let n = parse_int(s).and_then(|x| if x > 0 { Ok(x) } else { Err("negative") });
 let body = read_file(path).context("reading manifest")?;
 ##end
 
+##sym Result.map
+##sig fn Result.map[U, F: FnOnce(T) -> U](self, f: F) -> Result[U, E]
+##desc Apply `f` to the inner value if `Ok`. `Err` is passed through unchanged. The success-side counterpart of `map_err`.
+##see Result.and_then, Result.map_err, Option.map
+##example
+let parsed = s.parse::<I32>().map(|n| n * 2);
+##end
+
+##sym Result.is_err
+##sig fn Result.is_err(&self) -> Bool
+##desc True iff the result is `Err`. Complement of `is_ok` — never both true.
+##see Result.is_ok, Result.err
+##example
+if result.is_err() { metrics.errors += 1; }
+##end
+
+##sym Result.unwrap
+##sig fn Result.unwrap(self) -> T
+##desc Panic if `Err`, return the inner value if `Ok`. Use only when an `Err` is structurally impossible at the call site. Prefer `?` for forwarding and `unwrap_or` for fallback.
+##see Result.unwrap_or, Result.expect, Result.is_ok
+##example
+let v = guaranteed_ok.unwrap();
+##end
+
+##sym Result.unwrap_err
+##sig fn Result.unwrap_err(self) -> E
+##desc Panic if `Ok`, return the error if `Err`. The dual of `unwrap` — useful in tests where the error path is the asserted outcome.
+##see Result.unwrap, Result.err, Result.is_err
+##example
+let err = expected_to_fail.unwrap_err();
+assert!(matches!(err, MyErr::Specific));
+##end
+
+##sym Result.expect
+##sig fn Result.expect(self, msg: &Str) -> T
+##desc Like `unwrap` but panics with a custom message including the inner error. Use to document the invariant being asserted.
+##see Result.unwrap, Option.expect
+##example
+let v = post_condition.expect("checked by validator above");
+##end
+
+##sym Result.or
+##sig fn Result.or(self, alt: Result[T, F]) -> Result[T, F]
+##desc Eager fallback: return `self` if `Ok`, else `alt`. The error type may differ between sides.
+##see Result.or_else, Option.or
+##example
+let v = try_primary().or(try_secondary())?;
+##end
+
+##sym Result.or_else
+##sig fn Result.or_else[F: FnOnce(E) -> Result[T, X]](self, f: F) -> Result[T, X]
+##desc Lazy fallback: return `self` if `Ok`, else invoke `f(err)` for the recovery path. Receives the error so the recovery can specialise on the failure kind.
+##see Result.or, Option.or_else, Result.map_err
+##example
+let v = primary().or_else(|e| { log(e); fallback() })?;
+##end
+

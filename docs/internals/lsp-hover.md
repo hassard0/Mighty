@@ -202,19 +202,25 @@ The "See also" list is curated-first, then back-filled by
 - `crates/mty-doc/src/examples.rs` carries a `tests` module asserting
   that the table has at least 50 entries (v0.33 T6 floor), at least
   140 entries (v0.34 T3 floor), at least 300 entries (v0.38 T4 floor),
-  and at least 400 entries (v0.39 T5 floor); that every symbol is
-  unique; that every entry has a signature and example body; that
-  lookup hits for both qualified and bare forms; that the content hash
-  is deterministic; that the rendered Markdown contains every expected
-  section header; and that the per-version module-coverage probes
-  light up entries for the v0.34 T3 surfaces (`std.rag`,
-  `std.computer`, `std.swarm`, `std.observe`, `std.taint`, `std.eval`,
-  `std.web`, `std.fs`, `std.json`, `std.string`, `std.vec`), the
-  v0.38 T4 surfaces (FFI / cast / env vars / std.process / std.io /
-  std.path / std.collections / std.iter / std.result / std.option /
-  std.error), and the v0.39 T5 surfaces (`std.crypto`,
-  `std.encoding`, `std.url`, `std.uuid` plus the v0.38-backlog
-  gap-fillers).
+  at least 400 entries (v0.39 T5 floor), and at least 500 entries
+  (v0.40 T5 floor); that every symbol is unique; that every entry has
+  a signature and example body; that lookup hits for both qualified
+  and bare forms; that the content hash is deterministic; that the
+  rendered Markdown contains every expected section header; and that
+  the per-version module-coverage probes light up entries for the
+  v0.34 T3 surfaces (`std.rag`, `std.computer`, `std.swarm`,
+  `std.observe`, `std.taint`, `std.eval`, `std.web`, `std.fs`,
+  `std.json`, `std.string`, `std.vec`), the v0.38 T4 surfaces (FFI /
+  cast / env vars / std.process / std.io / std.path / std.collections
+  / std.iter / std.result / std.option / std.error), the v0.39 T5
+  surfaces (`std.crypto`, `std.encoding`, `std.url`, `std.uuid` plus
+  the v0.38-backlog gap-fillers), and the v0.40 T5 surfaces
+  (`std.regex`, `std.crypto.aes_gcm`, `std.crypto.chacha20_poly1305`,
+  `Char.from_u32`, plus the v0.39 gap-fillers: std.iter advanced
+  combinators, std.collections BTreeMap/BTreeSet/HashSet polish,
+  std.json / std.path / std.string / std.vec / std.option /
+  std.result polish, std.swarm Member helpers, std.observe percentiles
+  / aggregate_by, std.eval Replay glue, std.fs cap helpers).
 - `crates/mty-lsp/tests/integration.rs` exercises the full hover path
   end-to-end on:
   - `log` (bare builtin, capability-less),

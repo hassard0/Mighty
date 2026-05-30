@@ -158,3 +158,51 @@ for entry in Path.new("./src").walk(FsCap.rooted("./src")) {
 }
 ##end
 
+##sym Path.with_file_name
+##sig fn Path.with_file_name(&self, name: &Str) -> PathBuf
+##desc Return a new path with the final component replaced by `name`. `Path::new("/a/b/c").with_file_name("d")` → `"/a/b/d"`. Useful for sibling-file derivations (e.g. `foo.mty` → `foo.mty.ll`).
+##see Path.file_name, Path.with_extension, Path.parent
+##example
+let out = src.with_file_name("out.ll");
+##end
+
+##sym Path.file_stem
+##sig fn Path.file_stem(&self) -> Option[&Str]
+##desc File name with the final extension removed. `"a/b/c.tar.gz".file_stem()` → `Some("c.tar")` — only the LAST extension is stripped. Use the `file_name` + manual split for full multi-extension handling.
+##see Path.file_name, Path.extension, Path.with_extension
+##example
+let stem = p.file_stem().unwrap_or("");
+##end
+
+##sym Path.has_root
+##sig fn Path.has_root(&self) -> Bool
+##desc Does the path start with a root component (`/` on Unix, drive letter or `\` on Windows)? Distinct from `is_absolute` on Windows where `\foo` has a root but no prefix.
+##see Path.is_absolute, Path.is_relative, Path.components
+##example
+if !p.has_root() { p = cwd.join(&p); }
+##end
+
+##sym Path.is_relative
+##sig fn Path.is_relative(&self) -> Bool
+##desc True iff the path is NOT absolute. Complement of `is_absolute` — never both true.
+##see Path.is_absolute, Path.has_root
+##example
+if p.is_relative() { p = root.join(&p); }
+##end
+
+##sym Path.starts_with
+##sig fn Path.starts_with(&self, base: impl AsRef[Path]) -> Bool
+##desc True iff `self`'s components begin with `base`'s components. Component-wise — `Path::new("/etc/foo").starts_with("/etc")` is true; `"/etcfoo"` is not.
+##see Path.components, Path.canonicalize, PathBoundary
+##example
+if !p.starts_with(&root) { return Err("path-escape"); }
+##end
+
+##sym Path.ends_with
+##sig fn Path.ends_with(&self, child: impl AsRef[Path]) -> Bool
+##desc True iff `self`'s last components match `child`. Component-wise — `"a/b/foo.rs".ends_with("foo.rs")` is true; `"oo.rs"` is not.
+##see Path.starts_with, Path.file_name
+##example
+if p.ends_with("Cargo.toml") { /* ... */ }
+##end
+

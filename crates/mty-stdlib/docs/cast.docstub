@@ -178,3 +178,45 @@ let s: Str = "hi";
 let n: I32 = s as I32; // ERROR
 ##end
 
+##sym Char.from_u32
+##sig fn Char.from_u32(value: U32) -> Option[Char]
+##desc v0.40 T3 — explicit constructor for a `Char` from a runtime `U32` codepoint. Returns `Some(c)` iff `value` is a valid Unicode scalar value (`< 0x110000` and NOT in the surrogate gap `0xD800..=0xDFFF`); otherwise `None`. Mirrors Rust's `char::from_u32`. **Replaces** the v0.39 T2 non-literal `Int as Char` surface, which is now rejected with MT2027 (the fix engine auto-rewrites the old shape).
+##see char_from_u32, cast_int_to_char, cast_char_to_u32, cast_invalid_mt2028
+##example
+let a: Option[Char] = Char.from_u32(0x41_u32);     // Some('A')
+let bad: Option[Char] = Char.from_u32(0xD800_u32); // None (surrogate)
+let safe: Char = Char.from_u32(v).unwrap_or('?');
+##end
+
+##sym cast_char_from_u32_runtime
+##sig MIGRATION: non-literal `Int as Char` → `Char.from_u32(value)`
+##desc v0.40 T3 migration note. The v0.39 T2 surface accepted any `Int as Char` cast and panicked at runtime on out-of-range values. v0.40 T3 rejects non-literal sources at typeck (MT2027 INVALID_CAST) — authors must spell `Char.from_u32(value)` which returns `Option[Char]`. Literal casts (`0x41 as Char`) still work and are still compile-time-checked against MT2028 INVALID_CODEPOINT.
+##see Char.from_u32, cast_int_to_char, cast_invalid_mt2027, cast_invalid_mt2028
+##example
+// OLD (v0.39): runtime panic on invalid codepoint.
+// let c: Char = v as Char;            // MT2027 today
+
+// NEW (v0.40 T3): explicit Option fallback.
+let c: Char = Char.from_u32(v).unwrap_or('?');
+##end
+
+##sym char_from_u32_surrogate
+##sig INVARIANT: 0xD800..=0xDFFF → None
+##desc Surrogates (UTF-16 high/low surrogate halves) are NOT Unicode scalar values — they only have meaning as pairs in UTF-16 encoding, never as a standalone `Char`. `Char.from_u32` returns `None` for every value in `0xD800..=0xDFFF` even though they fit in a U32. Same rule the literal `Int as Char` cast applies as MT2028 INVALID_CODEPOINT.
+##see Char.from_u32, cast_invalid_mt2028, char_from_u32
+##example
+assert_eq(Char.from_u32(0xD800), None);
+assert_eq(Char.from_u32(0xDFFF), None);
+assert_eq(Char.from_u32(0xD7FF).is_some(), true);  // last valid before gap
+assert_eq(Char.from_u32(0xE000).is_some(), true);  // first valid after gap
+##end
+
+##sym char_from_u32_value_range
+##sig INVARIANT: value < 0x110000 (Unicode scalar value range)
+##desc Unicode scalar values are exactly the codepoints in `0..0x110000` minus the surrogate gap. `Char.from_u32(0x110000)` returns `None`; higher values likewise. This matches the UCS / Unicode 15 definition and guards every downstream UTF-8 invariant when the `Char` flows into a `String`.
+##see Char.from_u32, cast_invalid_mt2028, char_from_u32_surrogate
+##example
+assert_eq(Char.from_u32(0x10FFFF).is_some(), true); // max valid
+assert_eq(Char.from_u32(0x110000), None);            // one past max
+##end
+
