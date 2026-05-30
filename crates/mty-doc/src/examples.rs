@@ -2018,11 +2018,19 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
     },
     StdlibExample {
         symbol: "cast_int_to_char",
-        signature: "int_expr as Char",
-        description: "Integer-to-codepoint cast. Literals are checked at compile time against the Unicode scalar value range (0..0x110000 minus the UTF-16 surrogate gap 0xD800..=0xDFFF); out-of-range literals emit MT2028 INVALID_CODEPOINT. Non-literal sources currently pass typeck and produce the raw bit pattern — v0.40 will tighten this with either a runtime trap or an `Option[Char]` surface (see docs/reference/casts.md).",
+        signature: "<int-literal> as Char  (literal only; non-literal -> Char.from_u32)",
+        description: "Integer-to-codepoint cast. **Literals** are checked at compile time against the Unicode scalar value range (0..0x110000 minus the UTF-16 surrogate gap 0xD800..=0xDFFF); out-of-range literals emit MT2028 INVALID_CODEPOINT. **Non-literal sources are rejected at the cast surface** as of v0.40 T3 (MT2027) — authors must spell `Char.from_u32(value)` which returns `Option[Char]`. The fix engine auto-rewrites the old shape; see docs/reference/casts.md + docs/reference/std-char.md.",
         capability: "",
-        example: "let a: Char = 0x41 as Char;       // 'A' — ok\nlet hi: Char = 0xD7FF as Char;    // last value before surrogate gap\n// let bad: Char = 0xD800 as Char; // MT2028 INVALID_CODEPOINT\n",
-        see_also: "cast_as, cast_char_to_u32, cast_invalid_mt2028",
+        example: "// Literals — compile-time checked.\nlet a: Char = 0x41 as Char;       // 'A' — ok\nlet hi: Char = 0xD7FF as Char;    // last value before surrogate gap\n// let bad: Char = 0xD800 as Char; // MT2028 INVALID_CODEPOINT\n\n// Runtime-computed — use Char.from_u32.\nfn from_input(v: U32) -> Option[Char] { Char.from_u32(v) }\nlet safe: Char = Char.from_u32(v).unwrap_or('?');\n",
+        see_also: "cast_as, cast_char_to_u32, cast_invalid_mt2028, char_from_u32",
+    },
+    StdlibExample {
+        symbol: "char_from_u32",
+        signature: "fn Char.from_u32(value: U32) -> Option[Char]",
+        description: "v0.40 T3 — explicit constructor for a `Char` from a runtime `U32` codepoint. Returns `Some(c)` iff `value` is a valid Unicode scalar value (`< 0x110000` and not in the surrogate gap `0xD800..=0xDFFF`); otherwise `None`. Mirrors Rust's `char::from_u32`. Replaces the v0.39 T2 non-literal `Int as Char` surface, which is now rejected with MT2027.",
+        capability: "",
+        example: "let a: Option[Char] = Char.from_u32(0x41_u32);       // Some('A')\nlet bad: Option[Char] = Char.from_u32(0xD800_u32);   // None (surrogate)\nlet safe: Char = Char.from_u32(v).unwrap_or('?');\n",
+        see_also: "cast_int_to_char, cast_char_to_u32, cast_invalid_mt2028",
     },
     StdlibExample {
         symbol: "cast_ref_to_ptr",

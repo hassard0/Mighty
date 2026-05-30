@@ -201,6 +201,7 @@ fn fix_for(
         2024 => fix_lambda_arity_mismatch(source_id, source, span),
         2025 => fix_cannot_take_ref(source_id, source, span),
         2026 => fix_protocol_msg_unknown(diag, source_id, source, span),
+        2027 => fix_invalid_cast_int_to_char(source_id, source, span),
 
         // Borrow
         3001 => fix_use_after_move(source_id, source, span),
@@ -1957,6 +1958,120 @@ fn fix_cannot_take_ref(
             .diff(String::new())
             .build(),
         ],
+    })
+}
+
+// -------- MT2027 (v0.40 T3): `<int> as Char` -> `Char.from_u32(...)?` --
+
+/// v0.40 T3 — propose `Char.from_u32(expr)?` when the rejected cast is
+/// `<int-expr> as Char`. Detects the shape with a tolerant scan of the
+/// offending source line:
+///
+///   `let c: Char = expr as Char`
+///                 ^^^^^^^^^^^^^
+///
+/// becomes
+///
+///   `let c: Char = Char.from_u32(expr)?`
+///
+/// Confidence is high (0.85) when the line contains exactly one
+/// ` as Char` occurrence and the chunk before it parses as a single
+/// balanced expression; otherwise we skip (return `None`) and let the
+/// caller render the diagnostic prose-only.
+fn fix_invalid_cast_int_to_char(
+    source_id: &str,
+    source: &str,
+    span: &crate::fix::SpanInfo,
+) -> Option<Fix> {
+    let line = current_line(source, span.line)?;
+    // The rejected shape: ... <expr> as Char ...
+    // We split on the LAST ` as Char` so an inline `let c: Char = ... as Char`
+    // takes the trailing cast, not the type annotation.
+    let cast_pat = " as Char";
+    let cast_at = line.rfind(cast_pat)?;
+    let before = &line[..cast_at];
+    let after = &line[cast_at + cast_pat.len()..];
+
+    // Extract the source expression: walk backwards from `cast_at`
+    // collapsing matched brackets/braces/parens and stopping at the
+    // first unbalanced delimiter or at the start of the line. A leading
+    // `=` (from `let x = foo as Char`) or `,` / `(` (from `f(foo as Char)`)
+    // is the natural stop.
+    let bytes = before.as_bytes();
+    let mut depth_paren: i32 = 0;
+    let mut depth_bracket: i32 = 0;
+    let mut depth_brace: i32 = 0;
+    let mut start = before.len();
+    while start > 0 {
+        let b = bytes[start - 1];
+        match b {
+            b')' => depth_paren += 1,
+            b'(' => {
+                if depth_paren == 0 {
+                    break;
+                }
+                depth_paren -= 1;
+            }
+            b']' => depth_bracket += 1,
+            b'[' => {
+                if depth_bracket == 0 {
+                    break;
+                }
+                depth_bracket -= 1;
+            }
+            b'}' => depth_brace += 1,
+            b'{' => {
+                if depth_brace == 0 {
+                    break;
+                }
+                depth_brace -= 1;
+            }
+            b'=' | b',' | b';' if depth_paren == 0 && depth_bracket == 0 && depth_brace == 0 => {
+                break;
+            }
+            _ => {}
+        }
+        start -= 1;
+    }
+    // Trim leading/trailing whitespace inside the captured expression.
+    let mut expr_start = start;
+    while expr_start < before.len() && (bytes[expr_start] as char).is_whitespace() {
+        expr_start += 1;
+    }
+    let expr = before[expr_start..].trim_end();
+    if expr.is_empty() {
+        return None;
+    }
+    let lead = &before[..expr_start];
+
+    // Build the rewrite. Two alternatives:
+    //   1. Use `?` (forces the surrounding fn to return `Option[Char]`).
+    //   2. Use `match` / `if let Some(c) = ...` for a panic-free fallback.
+    let new_with_question = format!("{lead}Char.from_u32({expr})?{after}");
+    let alt_question = FixBuilder::new(
+        "Replace cast with `Char.from_u32(...)?`",
+        "`Char.from_u32` returns `Option[Char]`; `?` propagates `None` to \
+         the surrounding fn (which must therefore return `Option[Char]` or \
+         a compatible type).",
+        0.85,
+    )
+    .replace_line(source_id, span.line, line, &new_with_question)
+    .build();
+
+    let new_with_unwrap = format!("{lead}Char.from_u32({expr}).unwrap_or('?'){after}");
+    let alt_unwrap = FixBuilder::new(
+        "Use `Char.from_u32(...).unwrap_or('?')` as a replacement-character fallback",
+        "Returns U+003F ('?') for out-of-range codepoints. Pick a different \
+         replacement character if your domain has a more meaningful default.",
+        0.7,
+    )
+    .replace_line(source_id, span.line, line, &new_with_unwrap)
+    .build();
+
+    Some(Fix {
+        kind: FixKind::TypeConversion.as_str().to_string(),
+        confidence: 0.85,
+        alternatives: vec![alt_question, alt_unwrap],
     })
 }
 

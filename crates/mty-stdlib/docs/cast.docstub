@@ -112,13 +112,28 @@ assert_eq(code, 65);
 ##end
 
 ##sym cast_int_to_char
-##sig int_expr as Char
-##desc Integer-to-codepoint cast. Literals are checked at compile time against the Unicode scalar value range (0..0x110000 minus the UTF-16 surrogate gap 0xD800..=0xDFFF); out-of-range literals emit MT2028 INVALID_CODEPOINT. Non-literal sources currently pass typeck and produce the raw bit pattern — v0.40 will tighten this with either a runtime trap or an `Option[Char]` surface (see docs/reference/casts.md).
-##see cast_as, cast_char_to_u32, cast_invalid_mt2028
+##sig <int-literal> as Char  (literal only; non-literal -> Char.from_u32)
+##desc Integer-to-codepoint cast. **Literals** are checked at compile time against the Unicode scalar value range (0..0x110000 minus the UTF-16 surrogate gap 0xD800..=0xDFFF); out-of-range literals emit MT2028 INVALID_CODEPOINT. **Non-literal sources are rejected at the cast surface** as of v0.40 T3 (MT2027) — authors must spell `Char.from_u32(value)` which returns `Option[Char]`. The fix engine auto-rewrites the old shape; see docs/reference/casts.md + docs/reference/std-char.md.
+##see cast_as, cast_char_to_u32, cast_invalid_mt2028, char_from_u32
 ##example
+// Literals — compile-time checked.
 let a: Char = 0x41 as Char;       // 'A' — ok
 let hi: Char = 0xD7FF as Char;    // last value before surrogate gap
 // let bad: Char = 0xD800 as Char; // MT2028 INVALID_CODEPOINT
+
+// Runtime-computed — use Char.from_u32.
+fn from_input(v: U32) -> Option[Char] { Char.from_u32(v) }
+let safe: Char = Char.from_u32(v).unwrap_or('?');
+##end
+
+##sym char_from_u32
+##sig fn Char.from_u32(value: U32) -> Option[Char]
+##desc v0.40 T3 — explicit constructor for a `Char` from a runtime `U32` codepoint. Returns `Some(c)` iff `value` is a valid Unicode scalar value (`< 0x110000` and not in the surrogate gap `0xD800..=0xDFFF`); otherwise `None`. Mirrors Rust's `char::from_u32`. Replaces the v0.39 T2 non-literal `Int as Char` surface, which is now rejected with MT2027.
+##see cast_int_to_char, cast_char_to_u32, cast_invalid_mt2028
+##example
+let a: Option[Char] = Char.from_u32(0x41_u32);       // Some('A')
+let bad: Option[Char] = Char.from_u32(0xD800_u32);   // None (surrogate)
+let safe: Char = Char.from_u32(v).unwrap_or('?');
 ##end
 
 ##sym cast_ref_to_ptr

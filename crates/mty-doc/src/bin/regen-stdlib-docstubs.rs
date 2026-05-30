@@ -140,6 +140,7 @@ fn module_of(symbol: &str) -> &'static str {
         | "coerce_str_to_u8" | "addr_of_local" | "addr_of_mut" | "returned_struct" => "extern",
         // v0.38 T4: cast expressions (v0.37 T2 — MT2027 INVALID_CAST)
         // v0.39 T2: cast polish — Bool↔Int, &T as *T, Int as Char codepoint check (MT2028)
+        // v0.40 T3: cast Char runtime — Char.from_u32 Option API (non-literal Int as Char rejected)
         "cast_as"
         | "cast_u8_to_i64"
         | "cast_i64_to_u8"
@@ -155,7 +156,8 @@ fn module_of(symbol: &str) -> &'static str {
         | "cast_ref_to_ptr"
         | "cast_ptr_to_usize"
         | "cast_invalid_mt2027"
-        | "cast_invalid_mt2028" => "cast",
+        | "cast_invalid_mt2028"
+        | "char_from_u32" => "cast",
         // v0.38 T4: runtime / build env vars
         "MTY_LINKER"
         | "MTY_OTLP_ENDPOINT"

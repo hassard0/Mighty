@@ -595,6 +595,36 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
     });
     defs.by_name.insert("null".into(), DefRef::Fn(null_id));
 
+    // ---- v0.40 T3 — Char.from_u32(value: U32) -> Option[Char] ----
+    //
+    // Mighty's `Char` is a Unicode scalar value (0..0xD7FF or
+    // 0xE000..=0x10FFFF). Non-literal `Int as Char` casts were
+    // rejected in v0.40 T3 because the codepoint validity can't be
+    // verified at compile time; authors must instead spell
+    // `Char.from_u32(v)` which returns `Option[Char]` and lets the
+    // call site match on `Some` / `None` (or use `?`).
+    //
+    // Real impl: the SIR interpreter's `try_stdlib_ctor`
+    // (`crates/mty-ir/src/interp/run.rs`) intercepts the
+    // `"Char.from_u32"` builtin call name and returns the matching
+    // tagged `Value::Enum` (Some/None).
+    let char_from_u32_ret = arena.adt(option_id, vec![arena.char_]);
+    let char_from_u32_id = defs.alloc_fn(FnDef {
+        name: "Char.from_u32".into(),
+        generics: vec![],
+        param_ids: vec![],
+        params: vec![("value".into(), arena.u32)],
+        ret: char_from_u32_ret,
+        effects: vec![],
+        is_pub: true,
+        body: None,
+        hir_fn: None,
+        extern_abi: None,
+        is_variadic: false,
+    });
+    defs.by_name
+        .insert("Char.from_u32".into(), DefRef::Fn(char_from_u32_id));
+
     // fetch: fn(Url) -> Bytes!NetErr — referenced by example 04
     if let Some(DefRef::Adt(url_adt)) = defs.lookup("Url") {
         let url_ty = arena.adt(url_adt, vec![]);

@@ -270,14 +270,17 @@ fn char_literal_just_below_surrogate_accepted() {
 }
 
 #[test]
-fn char_non_literal_cast_accepted_no_mt2028() {
-    // Per v0.39 T2 docs: non-literal sources pass typeck. v0.40 will
-    // add a runtime check (trap or Option). For now we document that
-    // MT2028 fires literal-time only.
+fn char_non_literal_cast_rejected_v040() {
+    // v0.40 T3 flipped the v0.39 T2 stance: non-literal `Int as Char`
+    // now rejects at the cast surface with MT2027 + a fix-suggestion
+    // pointing at `Char.from_u32(value) -> Option[Char]`. The full
+    // suite for the v0.40 T3 behaviour lives in
+    // `v040_cast_char_runtime.rs`; this entry preserves the historical
+    // test slot so a `git blame` of the test name picks up the pivot.
     let codes = diag_codes("fn f(x: U32) -> Char { x as Char }");
     assert!(
-        !codes.contains(&"MT2028".to_string()) && !codes.contains(&"MT2027".to_string()),
-        "non-literal U32 → Char must NOT fire MT2028 (literal-time only); got {:?}",
+        codes.contains(&"MT2027".to_string()) && !codes.contains(&"MT2028".to_string()),
+        "non-literal U32 → Char must emit MT2027 (v0.40 T3); got {:?}",
         codes
     );
 }
