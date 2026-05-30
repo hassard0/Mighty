@@ -535,8 +535,25 @@ fn resolve_path(ctx: &mut LowerCtx, fb: &mut FnBuilder, segments: &[String]) -> 
     if segments.len() >= 2 {
         if let Some(local) = fb.locals_by_name.get(&segments[0]).copied() {
             let mut cur = Operand::Copy(Place::local(local));
+            // v0.41 T1 — Resolve each segment's field index against the
+            // receiver's HIR-resolved type when one was recorded
+            // (`fb.local_ty(local)` populated by `bind_pat_assign` /
+            // param lowering). Step the type forward across each
+            // projection by looking up the field's declared ty in the
+            // def-map. Falls back to `stdlib_field_index` only when
+            // the receiver type is unknown (was the pre-v0.41 behaviour
+            // for every multi-segment path on a local; that's what
+            // caused L15 — every user-struct field collapsed to 0).
+            let mut cur_ty: Option<mty_types::TyId> = fb.local_ty(local);
             for seg in &segments[1..] {
-                let field_idx = stdlib_field_index(seg).unwrap_or(0);
+                let field_idx = cur_ty
+                    .and_then(|t| field_index_for_ty(ctx, t, seg))
+                    .or_else(|| stdlib_field_index(seg))
+                    .unwrap_or(0);
+                // Step type forward for the next iteration: lift the
+                // ADT field's declared ty so a chain like
+                // `outer.inner.x` walks through each typed slot.
+                cur_ty = cur_ty.and_then(|t| field_ty_for_ty(ctx, t, seg));
                 let projected = fb.fresh_temp(IrTy::Error);
                 let recv_place = operand_to_place(fb, cur);
                 fb.push_stmt(Stmt::Assign(
@@ -1016,9 +1033,15 @@ fn lower_assign(
 ) -> Operand {
     use HirBinOp::*;
     let rhs_op = lower_expr(ctx, fb, rhs);
-    // For compound ops, compute lhs first, then bin-op, then write.
-    let lhs_op = lower_expr(ctx, fb, lhs);
-    let lhs_place = operand_to_place(fb, lhs_op);
+    // v0.41 T1 — Lower the LHS directly to a Place so an assignment
+    // through a field projection (`p.y = 42`) writes into the
+    // receiver's slot, not into the intermediate temp the read-side
+    // would have synthesised. Pre-v0.41 the LHS was lowered via
+    // `lower_expr` + `operand_to_place`, which for `p.y` produced a
+    // freshly-allocated temp holding the *read* of the field — the
+    // subsequent store wrote 42 into the temp and `p.y` was never
+    // mutated. See L15 in `mighty-ide/docs/mighty-language-lessons.md`.
+    let lhs_place = lower_expr_to_place(ctx, fb, lhs);
     let final_rhs = if matches!(op, Assign) {
         rhs_op
     } else {
@@ -1045,6 +1068,75 @@ fn lower_assign(
     fb.push_stmt(Stmt::Assign(lhs_place, Rvalue::Use(final_rhs)));
     let _ = ctx;
     Operand::Const(Const::Unit)
+}
+
+/// v0.41 T1 — Lower an HIR expression to a [`Place`] (an addressable
+/// location) rather than an [`Operand`] (a value). Used by the LHS of
+/// `Assign` / compound-assign so writes through field projections
+/// (`p.y = v`) target the receiver's slot, not a freshly-read temp.
+///
+/// Handles three l-value shapes:
+/// * Single-segment `Path(["x"])` — direct local.
+/// * Multi-segment `Path(["x", "field", ...])` — receiver local with
+///   one or more `Projection::Field(idx)` segments. Field-name → index
+///   resolution is the same typed-ADT lookup used by `resolve_path`.
+/// * `Field { receiver, name }` — receiver place plus one extra
+///   `Projection::Field` step.
+///
+/// Anything else falls through to the legacy `lower_expr` +
+/// `operand_to_place` path (which materialises a temp, matching the
+/// pre-v0.41 behaviour). The borrow / type checker is expected to have
+/// already rejected genuinely illegal LHS shapes.
+fn lower_expr_to_place(ctx: &mut LowerCtx, fb: &mut FnBuilder, eid: ExprId) -> Place {
+    let e = ctx.pkg.exprs[eid].clone();
+    match e {
+        HirExpr::Path(segs) => path_to_place(ctx, fb, &segs).unwrap_or_else(|| {
+            let op = lower_expr(ctx, fb, eid);
+            operand_to_place(fb, op)
+        }),
+        HirExpr::Field { receiver, name } => {
+            // Recurse on the receiver to get its place, then append a
+            // Field projection. Field index resolves through the
+            // receiver's HIR-typed ADT (same path as `resolve_path`).
+            let recv_place = lower_expr_to_place(ctx, fb, receiver);
+            let recv_ty = ctx.expr_ty(receiver);
+            let idx = field_index_for_ty(ctx, recv_ty, &name)
+                .or_else(|| stdlib_field_index(&name))
+                .unwrap_or(0);
+            let mut p = recv_place;
+            p.proj.push(Projection::Field(idx));
+            p
+        }
+        _ => {
+            let op = lower_expr(ctx, fb, eid);
+            operand_to_place(fb, op)
+        }
+    }
+}
+
+/// v0.41 T1 — Convert a multi-segment Path on a local into a
+/// projection-style [`Place`] (`x.f0.f1.f2`). Returns `None` if the
+/// first segment isn't a known local — callers should fall back to
+/// the value-producing path.
+fn path_to_place(ctx: &LowerCtx, fb: &mut FnBuilder, segments: &[String]) -> Option<Place> {
+    if segments.is_empty() {
+        return None;
+    }
+    let local = fb.locals_by_name.get(&segments[0]).copied()?;
+    if segments.len() == 1 {
+        return Some(Place::local(local));
+    }
+    let mut place = Place::local(local);
+    let mut cur_ty: Option<mty_types::TyId> = fb.local_ty(local);
+    for seg in &segments[1..] {
+        let idx = cur_ty
+            .and_then(|t| field_index_for_ty(ctx, t, seg))
+            .or_else(|| stdlib_field_index(seg))
+            .unwrap_or(0);
+        cur_ty = cur_ty.and_then(|t| field_ty_for_ty(ctx, t, seg));
+        place.proj.push(Projection::Field(idx));
+    }
+    Some(place)
 }
 
 fn lower_if(
@@ -1504,21 +1596,54 @@ fn stdlib_field_index(name: &str) -> Option<usize> {
 fn resolve_field_index(ctx: &LowerCtx, receiver: ExprId, name: &str) -> Option<usize> {
     // Use the receiver's typed Adt to look up the field index.
     let ty = ctx.expr_ty(receiver);
+    field_index_for_ty(ctx, ty, name)
+}
+
+/// v0.41 T1 — Resolve a field-name to its index using the receiver's
+/// resolved Ty. Lifted out of `resolve_field_index` so multi-segment
+/// path projection (`p.y` parsed as `Path(["p","y"])`) can also
+/// consult the typed ADT defs instead of falling back to 0 for every
+/// user field name.
+fn field_index_for_ty(ctx: &LowerCtx, mut ty: mty_types::TyId, name: &str) -> Option<usize> {
+    // Auto-deref single `&T`/`&mut T`.
+    if let mty_types::TyData::Ref { inner, .. } = ctx.typed.ty_arena.get(ty) {
+        ty = *inner;
+    }
     let td = ctx.typed.ty_arena.get(ty);
     let adt_id = match td {
-        mty_types::TyData::Adt(id, _) => Some(*id),
-        mty_types::TyData::Ref { inner, .. } => match ctx.typed.ty_arena.get(*inner) {
-            mty_types::TyData::Adt(id, _) => Some(*id),
-            _ => None,
-        },
-        _ => None,
-    }?;
+        mty_types::TyData::Adt(id, _) => *id,
+        _ => return None,
+    };
     let def = ctx.typed.def_map.adt(adt_id)?;
     def.variants
         .first()?
         .fields
         .iter()
         .position(|f| f.name.as_deref() == Some(name))
+}
+
+/// v0.41 T1 — Companion to [`field_index_for_ty`]: return the declared
+/// `TyId` of the named field on the receiver's ADT, or `None` if the
+/// receiver isn't a struct or the field doesn't exist. Used by
+/// multi-segment `resolve_path` to walk a chain like
+/// `outer.inner.x` — each step needs the next field's type so the
+/// following step's index resolves against the right ADT.
+fn field_ty_for_ty(ctx: &LowerCtx, mut ty: mty_types::TyId, name: &str) -> Option<mty_types::TyId> {
+    if let mty_types::TyData::Ref { inner, .. } = ctx.typed.ty_arena.get(ty) {
+        ty = *inner;
+    }
+    let td = ctx.typed.ty_arena.get(ty);
+    let adt_id = match td {
+        mty_types::TyData::Adt(id, _) => *id,
+        _ => return None,
+    };
+    let def = ctx.typed.def_map.adt(adt_id)?;
+    def.variants
+        .first()?
+        .fields
+        .iter()
+        .find(|f| f.name.as_deref() == Some(name))
+        .map(|f| f.ty)
 }
 
 fn receiver_module_path(ctx: &LowerCtx, receiver: ExprId) -> Option<Vec<String>> {
