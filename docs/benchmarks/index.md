@@ -1,11 +1,12 @@
 # Mighty cross-language microbenchmark results
 
-> **Last refreshed: v0.33 (2026-05-28).** Numbers below were rerun on
-> the vulcan benchmark host (Dell, Intel Xeon, 4× NVIDIA V100, Ubuntu
-> 24.04, Rust 1.95.0). Mighty + Rust comparator numbers are v0.33;
-> Go + C++ comparators retain the v0.6 baseline pending a comparator
-> toolchain refresh on the benchmark host. To collect current
-> measurements yourself, see [How to rerun](#how-to-rerun) below.
+> **Last refreshed: v0.38 (2026-05-29).** Numbers below were rerun on
+> the vulcan benchmark host (Dell, Intel Xeon, 16 cores, Ubuntu 24.04,
+> Rust 1.95.0, PGO release-pgo profile). Mighty + Rust + C++
+> comparator numbers are v0.38; Go comparator retains the v0.6
+> baseline because the Go toolchain is not installed on vulcan
+> (tracked as a v0.39 follow-up). To collect current measurements
+> yourself, see [How to rerun](#how-to-rerun) below.
 
 This page is the canonical landing for the **language-level
 microbenchmarks** that put Mighty's performance in context against
@@ -26,45 +27,49 @@ instead — that's a different concern with a different cadence.
 | Compile to native | Build time for ~1 KLOC Mighty → wasm | [compile_to_native.md](compile_to_native.md) |
 | Wasm size | Output size for a 50-unit fixture | [wasm_size.md](wasm_size.md) |
 
-## Headline summary (v0.33)
+## Headline summary (v0.38)
 
 (all numbers are median over 30 runs on vulcan; ~ symbol indicates
-the value moved within noise vs the v0.6 baseline)
+the value moved within noise vs the v0.33 refresh)
 
-| Category | Mighty v0.33 | Δ vs v0.6 | Notes |
+| Category | Mighty v0.38 | Δ vs v0.33 | Notes |
 |---|---|---|---|
-| Agent send latency | 0.2 µs | -50% | sub-µs P50; tokio mpsc + slab admit |
-| Mailbox 1k msgs | 0.24 ms | ~ | ~4.2M msgs/sec single-thread |
-| HTTP GET round-trip | 0.11 ms | -56% | in-process, std.http serve_in_memory |
-| Parse 10 KLOC | 5.6 ms | -10% | ~24 MB/s logos-based pipeline |
-| Compile 1 KLOC → wasm | 8.0 ms | ~ | wasm-core release path |
-| Wasm size (50 units) | 2698 bytes | +30% | core module; growth comes from v0.15+ stdlib intrinsics |
+| Agent send latency | 0.19 µs | -8% | sub-µs P50; tokio mpsc + slab admit |
+| Mailbox 1k msgs | 0.22 ms | -6% | ~4.5M msgs/sec single-thread |
+| HTTP GET round-trip | 0.10 ms | -5% | in-process, std.http serve_in_memory |
+| Parse 10 KLOC | 5.58 ms | -1% | ~24 MB/s logos-based pipeline |
+| Compile 1 KLOC → wasm | 7.95 ms | -1% | wasm-core release-pgo path |
+| Wasm size (50 units) | 2698 bytes | ~ | byte-exact reproduction; deterministic emit |
 
-These are first-cut Mighty numbers re-run on a different host (vulcan)
-than the v0.6 baseline (Windows 11 dev laptop). Apples-to-apples
-deltas need both runs on the same host — the cross-host delta
-column is for shape, not absolute claims. They are **not** a claim
+Apples-to-apples with v0.33 on the same host (vulcan), same
+toolchain (rustc 1.95.0). The release-pgo profile (fat LTO + PGO
+from a 30-example training corpus) trims a few ns off agent_send +
+mailbox per-msg cost and ~5% off the http accept loop; parse +
+compile sit inside the 1-2% noise band; wasm_size is byte-exact
+(the wasm-core emitter is deterministic). They are **not** a claim
 of being faster than C++/Rust/Go on every workload — see each
-category page for the honest interpretation against the cross-language
-comparators.
+category page for the honest interpretation against the
+cross-language comparators.
 
-## Environment (v0.33 refresh)
+## Environment (v0.38 refresh)
 
 | | |
 |---|---|
 | Host | vulcan (Dell server, Ubuntu 24.04) |
-| CPU | Intel Xeon (NUMA, multi-socket) |
+| CPU | Intel Xeon, 16 cores (NUMA, multi-socket) |
 | GPU | 4× NVIDIA V100-SXM2 16GB NVLinked (not on the bench path) |
-| Mighty | v0.33, commit `eb9cb2b+` |
-| Toolchain | rustc 1.95.0 (cargo 1.95.0) |
+| Mighty | v0.38, commit `8c443be` |
+| Toolchain | rustc 1.95.0 (cargo 1.95.0), PGO release-pgo profile (fat LTO, 1 codegen unit) |
 | Bench harness | criterion 0.5 + `mty-bench-runner --all --iters 30` |
 
-The Rust comparator was rerun on this host for v0.33 (parse,
-agent-send-latency, mailbox; the hyper http server has a
-pre-existing comparator compile error tracked as a v0.34 backlog
-item). Go + C++ comparators were **not run** on vulcan; their impls
-ship as code, the v0.6-baseline pending rows on each category page
-are retained as such.
+The Rust comparator was rerun on this host for v0.38 (parse,
+agent-send-latency, mailbox; the hyper http server still has its
+pre-existing comparator compile error tracked since v0.34). The C++
+comparators were also rerun for v0.38 (parse, agent-send via cv
+fallback, mailbox SPSC, http POSIX-sockets); g++ 13.3.0 is the
+toolchain. The Go comparators **were not run** on vulcan because Go
+is not installed there — their impls ship as code, the v0.6-baseline
+pending rows on each category page are retained as such.
 
 ## How to rerun
 

@@ -1,10 +1,12 @@
 # http_server_throughput
 
-> **Last refreshed: v0.33 (2026-05-28) on vulcan** (Dell, Intel Xeon,
-> Ubuntu 24.04, Rust 1.95.0). Mighty numbers are v0.33; comparator
-> rows pending. The Rust+Hyper comparator has a pre-existing compile
-> error against the v0.33 toolchain (tracked in v0.34 backlog —
-> `http-server-throughput-rust-hyper` `BodyExt::collect` E0790).
+> **Last refreshed: v0.38 (2026-05-29) on vulcan** (Dell, Intel Xeon,
+> 16 cores, Ubuntu 24.04, Rust 1.95.0, PGO release-pgo profile).
+> Mighty + C++ POSIX-sockets comparator numbers are v0.38 (rerun on
+> this host). The Rust+Hyper comparator still hits the pre-existing
+> compile error (`BodyExt::collect` E0790, tracked since v0.34); fixing
+> the comparator + wiring a Go toolchain on vulcan is in the v0.39
+> follow-up bucket.
 
 **Workload:** HTTP/1.1 GET round-trip on the in-process `std.http`
 server (`sdust_runtime::http::serve_in_memory`). Connection per
@@ -16,20 +18,27 @@ request, small body ("ok").
 
 | Impl | Median | p95 | p99 | Notes |
 |---|---|---|---|---|
-| Mighty v0.33 std.http (in-process) | 0.11 ms | 0.23 ms | 0.34 ms | bare TCP read/write loop |
+| Mighty v0.38 std.http (in-process) | 0.10 ms | 0.26 ms | 0.32 ms | bare TCP read/write loop |
 | Rust + Hyper (in-process) | (comparator broken — see callout) | | | hyper 1.x service_fn |
-| Go stdlib net/http (httptest) | (pending — Reference env) | | | net/http handler |
-| C++ POSIX sockets (in-process) | (pending — Reference env) | | | bare socket loop |
+| C++ POSIX sockets (in-process) | 0.10 ms | 0.13 ms | 0.28 ms | bare socket loop |
+| Go stdlib net/http (httptest) | (pending — Go not installed on vulcan) | | | net/http handler |
 
-### Recorded values (vulcan, 2026-05-28, v0.33)
+### Recorded values (vulcan, 2026-05-29, v0.38)
 
 ```
-http_server_throughput median=     0.106 ms  p95=     0.227 ms  p99=     0.338 ms
+http_server_throughput    median=     0.101 ms  p95=     0.259 ms  p99=     0.319 ms
+cpp_sockets_http_server   median=     0.098 ms  p95=     0.134 ms  p99=     0.280 ms
 ```
 
-The 56% drop vs v0.6 is mostly the host change (vulcan's Xeon vs
-the v0.6 dev laptop). Sequential 100-GET batch (criterion bench):
-see `target/criterion/` HTML report.
+The Mighty std.http median is within **3%** of the C++ POSIX-sockets
+comparator at the median — both are dominated by loopback TCP
+setup. The C++ impl has tighter p95/p99 because it doesn't spawn a
+new tokio task per connection (Mighty's accept loop pays a tokio
+task spawn per request, which adds tail-latency jitter). Holds
+within noise of the v0.33 refresh (0.106 ms → 0.101 ms median —
+a ~5% improvement from release-pgo's fat LTO + PGO on the accept
+loop). Sequential 100-GET batch (criterion bench): see
+`target/criterion/` HTML report.
 
 ### v0.6 baseline (Windows 11 dev laptop, 2026-05-24)
 

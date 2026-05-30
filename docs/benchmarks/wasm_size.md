@@ -1,9 +1,12 @@
 # wasm_size
 
-> **Last refreshed: v0.33 (2026-05-28) on vulcan** (Dell, Intel Xeon,
-> Ubuntu 24.04, Rust 1.95.0). Mighty number is v0.33; Rust / TinyGo
-> / Emscripten comparators retain the v0.6 baseline pending a
-> toolchain refresh on the benchmark host.
+> **Last refreshed: v0.38 (2026-05-29) on vulcan** (Dell, Intel Xeon,
+> 16 cores, Ubuntu 24.04, Rust 1.95.0, PGO release-pgo profile).
+> Mighty number is v0.38 (byte-exact reproduction of the v0.33
+> output — wasm-core emit is deterministic, so this is a confirmation
+> not a re-measurement). Rust / TinyGo / Emscripten comparators
+> retain the v0.6 baseline pending a wasm-toolchain refresh on the
+> benchmark host (tracked as v0.39 follow-up).
 
 **Workload:** emit a 50-unit (~500-line) synthetic Mighty source as
 a wasm-core module, release mode, no Component-Model wrapper, no
@@ -17,12 +20,12 @@ matter.
 
 | Impl | Bytes | Bytes/unit | Notes |
 |---|---|---|---|
-| Mighty v0.33 → wasm-core (release) | 2 698 | ~54 | 50 structs + 50 fns; no debug info |
+| Mighty v0.38 → wasm-core (release-pgo) | 2 698 | ~54 | 50 structs + 50 fns; no debug info |
 | Rust → wasm32-unknown-unknown (release) | (pending) | | `cargo build --release --target wasm32` |
 | TinyGo → wasi (release) | (pending) | | `tinygo build -target=wasi -no-debug` |
 | Emscripten → wasm | (pending) | | `emcc -O3 -s STANDALONE_WASM` |
 
-### Recorded values (vulcan, 2026-05-28, v0.33)
+### Recorded values (vulcan, 2026-05-29, v0.38)
 
 ```
 wasm_size: 2698 bytes

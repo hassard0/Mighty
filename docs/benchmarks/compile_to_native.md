@@ -1,9 +1,11 @@
 # compile_to_native
 
-> **Last refreshed: v0.33 (2026-05-28) on vulcan** (Dell, Intel Xeon,
-> Ubuntu 24.04, Rust 1.95.0). Mighty numbers are v0.33; Rust/Go/C++
-> comparators retain the v0.6 baseline pending a toolchain refresh
-> on the benchmark host (vulcan has no Go installed).
+> **Last refreshed: v0.38 (2026-05-29) on vulcan** (Dell, Intel Xeon,
+> 16 cores, Ubuntu 24.04, Rust 1.95.0, PGO release-pgo profile).
+> Mighty number is v0.38; Rust/Go/C++ compile-comparators retain the
+> v0.6 baseline — the comparator scripts measure full subprocess
+> invocation of each toolchain and need a controlled wrapper to be
+> a fair number (tracked as v0.39 follow-up).
 
 **Workload:** end-to-end compile of a 1 002-line synthetic Mighty
 source (`synth_source(100)`) to a wasm-core module (release mode).
@@ -25,20 +27,23 @@ edit-compile cycle is the user-visible metric here.
 
 | Impl | Median | Lines | Lines/sec | Notes |
 |---|---|---|---|---|
-| Mighty v0.33 → wasm-core (release) | 8.03 ms | 1002 | ~125k LoC/sec | full pipeline |
-| Rust 1.95 → release native | (pending — Reference env) | 1002 | | `cargo build --release` |
-| Go 1.22 → native | (pending — Reference env) | 1002 | | `go build` |
-| C++ clang++ -O2 → native | (pending — Reference env) | 1002 | | `clang++ -O2 -std=c++20` |
+| Mighty v0.38 → wasm-core (release-pgo) | 7.95 ms | 1002 | ~126k LoC/sec | full pipeline |
+| Rust 1.95 → release native | (pending — comparator subprocess wrapper) | 1002 | | `cargo build --release` |
+| Go 1.22 → native | (pending — Go not installed on vulcan) | 1002 | | `go build` |
+| C++ clang++ -O2 → native | (pending — comparator subprocess wrapper) | 1002 | | `clang++ -O2 -std=c++20` |
 
-### Recorded values (vulcan, 2026-05-28, v0.33)
+### Recorded values (vulcan, 2026-05-29, v0.38)
 
 ```
-compile_to_native      median=     8.029 ms  p95=     8.241 ms  p99=     8.241 ms
+compile_to_native      median=     7.947 ms  p95=     8.057 ms  p99=     8.057 ms
 ```
 
-Holds within noise of the v0.6 baseline (8.03 ms ≈ 7.88 ms on a
-different host) — which is the expected shape: the v0.33 tracks
-added stdlib + LSP + CLI surface area, not pipeline cost.
+Holds within noise of the v0.33 refresh (8.029 → 7.947 ms = -1%) —
+which is the expected shape: v0.37's variadic-extern + Rvalue::Cast
+cleanups grew the codegen surface marginally but didn't move
+pipeline cost. The release-pgo profile holds the v0.33 8.0 ms ms
+neighbourhood on this category — wasm-core emission is dominated by
+serialise-bytes, not branch-prediction, so PGO has limited upside.
 
 ### v0.6 baseline (Windows 11 dev laptop, 2026-05-24)
 

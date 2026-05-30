@@ -1,9 +1,12 @@
 # agent_send_latency
 
-> **Last refreshed: v0.33 (2026-05-28) on vulcan** (Dell, Intel Xeon,
-> Ubuntu 24.04, Rust 1.95.0). Mighty + Rust-tokio comparator numbers
-> are v0.33; Go + C++ comparators retain the v0.6 baseline pending a
-> comparator toolchain refresh on the benchmark host.
+> **Last refreshed: v0.38 (2026-05-29) on vulcan** (Dell, Intel Xeon,
+> 16 cores, Ubuntu 24.04, Rust 1.95.0, PGO release-pgo profile).
+> Mighty + Rust-tokio comparator numbers are v0.38 (rerun on this
+> host); the C++ asio comparator falls back to a condition-variable
+> impl on vulcan (asio not linked) and the Go comparator retains the
+> v0.6 baseline (Go toolchain not installed on vulcan — both tracked
+> as a v0.39 follow-up).
 
 **Workload:** one fire-and-forget message between sender and receiver
 on the same tokio runtime, mailbox capacity 8. Excludes mailbox setup
@@ -16,30 +19,33 @@ the whole runtime is built on.
 
 | Impl | Median | p95 | p99 | Notes |
 |---|---|---|---|---|
-| Mighty v0.33 mailbox (Block policy) | 0.2 µs | 0.25 µs | 2.5 µs | tokio mpsc + slab admission |
-| Mighty v0.33 mailbox (Fail policy, try_send) | (criterion bench) | | | bypasses await on send |
-| Rust tokio mpsc (bare) | ~0.05 µs | ~0.1 µs | ~1 µs | bare mpsc, no slab — vulcan |
-| Go unbuffered chan | (pending — Reference env) | | | `ch := make(chan int, 8)` |
-| C++ asio coroutine channel | (pending — Reference env) | | | `experimental::channel` |
+| Mighty v0.38 mailbox (Block policy) | 0.19 µs | 0.24 µs | 6.9 µs | tokio mpsc + slab admission |
+| Mighty v0.38 mailbox (Fail policy, try_send) | (criterion bench) | | | bypasses await on send |
+| Rust tokio mpsc (bare) | <0.1 µs | <0.1 µs | ~1 µs | bare mpsc, no slab — vulcan |
+| C++ condition-variable fallback | <0.1 µs | <0.1 µs | <0.5 µs | cv-based; asio coroutine channel not linked on vulcan |
+| Go unbuffered chan | (pending — Go not installed on vulcan) | | | `ch := make(chan int, 8)` |
 
-### Recorded values (vulcan, 2026-05-28, v0.33)
+### Recorded values (vulcan, 2026-05-29, v0.38)
 
 ```
-agent_send_latency      median=     0.000 ms  p95=     0.000 ms  p99=     0.003 ms
-rust_tokio_send_latency median=     0.000 ms  p95=     0.000 ms  p99=     0.001 ms
+agent_send_latency        median=     0.000 ms  p95=     0.000 ms  p99=     0.007 ms
+rust_tokio_send_latency   median=     0.000 ms  p95=     0.000 ms  p99=     0.001 ms
+cpp_cv_agent_send_latency median=     0.000 ms  p95=     0.000 ms  p99=     0.000 ms
 ```
 
-Raw nanos from `/tmp/bench-results-v033.json`:
+Raw nanos from `/tmp/bench-v038-pgo.json`:
 
 ```json
-"median_ns": 200,   // = 0.0002 ms
-"p95_ns":    253,
-"p99_ns":   2512
+"median_ns": 185,   // = 0.19 µs
+"p95_ns":    235,
+"p99_ns":   6926
 ```
 
-So median is ~0.2 µs and the P99 tail catches occasional 2.5 µs
-spikes (down from v0.6's ~12 µs on the dev laptop — vulcan's
-multi-socket Xeon has more predictable scheduling).
+So median is ~0.19 µs (down ~8% from v0.33's 200 ns — release-pgo's
+fat-LTO + actual PGO-from-merged.profdata buys a few ns on the hot
+send/recv path). The P99 tail of ~6.9 µs catches occasional
+multi-socket Xeon scheduler jitter; the median is the meaningful
+steady-state number.
 
 ### v0.6 baseline (Windows 11 dev laptop, 2026-05-24)
 

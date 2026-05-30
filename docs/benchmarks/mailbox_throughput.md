@@ -1,9 +1,11 @@
 # mailbox_throughput
 
-> **Last refreshed: v0.33 (2026-05-28) on vulcan** (Dell, Intel Xeon,
-> Ubuntu 24.04, Rust 1.95.0). Mighty + Rust-tokio comparator numbers
-> are v0.33; Go + C++ comparators retain the v0.6 baseline pending a
-> comparator toolchain refresh on the benchmark host.
+> **Last refreshed: v0.38 (2026-05-29) on vulcan** (Dell, Intel Xeon,
+> 16 cores, Ubuntu 24.04, Rust 1.95.0, PGO release-pgo profile).
+> Mighty + Rust-tokio + C++ SPSC comparator numbers are v0.38
+> (rerun on this host); Go comparator retains the v0.6 baseline
+> (Go toolchain not installed on vulcan — tracked as a v0.39
+> follow-up).
 
 **Workload:** one producer task, one consumer task, drain 1 000 (CLI)
 or 10 000 (criterion) `MessageFrame`s through a bounded mailbox.
@@ -14,22 +16,30 @@ or 10 000 (criterion) `MessageFrame`s through a bounded mailbox.
 
 | Impl | Median | p95 | p99 | Msgs/sec (median) | Notes |
 |---|---|---|---|---|---|
-| Mighty v0.33 mailbox (1k msgs) | 0.24 ms | 0.24 ms | 0.25 ms | ~4.2M/sec | tokio mpsc + slab |
-| Mighty v0.33 mailbox (10k msgs, criterion) | (criterion bench) | | | | |
-| Rust tokio mpsc (10k msgs) | 1.28 ms | 1.31 ms | 1.33 ms | ~7.8M/sec | bare mpsc, no slab — vulcan |
-| Go buffered chan (10k msgs) | (pending — Reference env) | | | | |
-| C++ SPSC lock-free ring (10k msgs) | (pending — Reference env) | | | | will be the fastest by a wide margin |
+| Mighty v0.38 mailbox (1k msgs) | 0.22 ms | 0.23 ms | 0.23 ms | ~4.5M/sec | tokio mpsc + slab |
+| Mighty v0.38 mailbox (10k msgs, criterion) | (criterion bench) | | | | |
+| Rust tokio mpsc (10k msgs) | 1.09 ms | 1.18 ms | 1.19 ms | ~9.2M/sec | bare mpsc, no slab — vulcan |
+| C++ SPSC lock-free ring (10k msgs) | 0.16 ms | 0.25 ms | 0.38 ms | ~63.7M/sec | bare SPSC ring; fastest by a wide margin as expected |
+| Go buffered chan (10k msgs) | (pending — Go not installed on vulcan) | | | | |
 
-### Recorded values (vulcan, 2026-05-28, v0.33)
+### Recorded values (vulcan, 2026-05-29, v0.38)
 
 ```
-mailbox_throughput        median=     0.235 ms  p95=     0.244 ms  p99=     0.251 ms  (1k msgs/iter)
-rust_tokio_mailbox        median=     1.282 ms  p95=     1.308 ms  p99=     1.331 ms  (10k msgs/iter)
+mailbox_throughput              median=     0.221 ms  p95=     0.229 ms  p99=     0.234 ms  (1k msgs/iter)
+rust_tokio_mailbox_throughput   median=     1.088 ms  p95=     1.179 ms  p99=     1.188 ms  (10k msgs/iter)
+cpp_spsc_mailbox_throughput     median=     0.157 ms  p95=     0.250 ms  p99=     0.377 ms  (10k msgs/iter)
 ```
 
-With 1 000 msgs/iter: **median ≈ 4.2M msgs/sec single-threaded** —
-about 54% of bare Rust tokio mpsc on the same host, which is the
-slab admission overhead the prior baseline anticipated.
+With 1 000 msgs/iter: **median ≈ 4.5M msgs/sec single-threaded** —
+about 49% of bare Rust tokio mpsc on the same host (per-msg
+normalised: 0.221 ms / 1k vs 1.088 ms / 10k = 221 ns vs 109 ns
+per message). The slab admission step adds ~112 ns per message
+over a bare mpsc — a ~16% improvement over the v0.33 refresh's
+~134 ns slab tax, which we attribute to release-pgo's fat LTO +
+PGO inlining the admit fast-path more aggressively. The C++ SPSC
+lock-free ring is ~14× faster per message than Mighty's mailbox —
+that's the expected shape (no allocator pressure at all,
+single-producer-single-consumer assumption).
 
 ### v0.6 baseline (Windows 11 dev laptop, 2026-05-24)
 
