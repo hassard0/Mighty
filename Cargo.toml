@@ -145,6 +145,29 @@ debug = false
 strip = true
 
 # ----------------------------------------------------------------
+# v0.40 T1: BOLT-specific profile.
+#
+# `cargo pgo bolt build` needs `--emit-relocs` so llvm-bolt has the
+# relocation table to rewrite the binary's basic-block layout. But
+# `[profile.release-pgo]` sets `strip = true` (== `strip = "symbols"`),
+# which the rustc → rust-lld pipeline lowers to `--strip-all`. The
+# two linker flags are mutually exclusive — v0.39.0's Release run
+# died with:
+#
+#   rust-lld: error: --strip-all and --emit-relocs may not be used together
+#
+# `release-pgo-bolt` inherits everything from `release-pgo` (fat LTO,
+# single codegen unit) and only overrides `strip = "none"` so the
+# BOLT instrumentation pass can keep the relocs it needs. The final
+# BOLT-optimised binary is stripped manually after the optimise step
+# (`strip target/<triple>/release-pgo/mty-bolt-optimized`) so the
+# shipped artefact still drops debug bloat.
+# ----------------------------------------------------------------
+[profile.release-pgo-bolt]
+inherits = "release-pgo"
+strip = "none"
+
+# ----------------------------------------------------------------
 # Workspace-wide clippy lint policy. v0.11 makes the `clippy
 # (strict)` CI job required by allow-listing the pedantic lints
 # that are style preferences (not bugs) and keeping the rest at

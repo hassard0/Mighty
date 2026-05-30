@@ -26,6 +26,12 @@
 //!      `cargo pgo bolt build` step. BOLT layout shipped in v0.39 T4
 //!      on linux-x86_64 (the only ELF platform in the matrix; bolt
 //!      PE/COFF + Mach-O support is too rough to ship).
+//!   5. v0.40 T1: BOLT steps must use `--profile release-pgo-bolt`
+//!      (not `release-pgo`) so the linker doesn't try to combine
+//!      `--strip-all` (from release-pgo's `strip = true`) with
+//!      `--emit-relocs` (which BOLT needs). The dedicated profile
+//!      sets `strip = "none"` so the relocs survive. A v0.39.0
+//!      regression that bit prod ships forward as a structural pin.
 
 #![cfg(feature = "host-toolchain")]
 
@@ -279,5 +285,109 @@ fn release_workflow_cache_keys_segregate_pgo() {
     assert!(
         yml.contains("cargo-release-noPGO-"),
         "release.yml cache key must include `cargo-release-noPGO-` for non-PGO legs"
+    );
+}
+
+#[test]
+fn release_workflow_uses_release_pgo_bolt_profile_when_bolting() {
+    let yml = read_text(".github/workflows/release.yml");
+    // v0.40 T1: BOLT steps MUST invoke `--profile release-pgo-bolt`
+    // (not `release-pgo`). The release-pgo profile sets `strip = true`
+    // which lowers to `--strip-all` at link time and is incompatible
+    // with the `--emit-relocs` that `cargo pgo bolt build` injects for
+    // BOLT instrumentation. v0.39.0 hit:
+    //   rust-lld: error: --strip-all and --emit-relocs may not be used together
+    // The dedicated release-pgo-bolt profile inherits everything else
+    // and only overrides `strip = "none"`.
+    //
+    // Scan the BOLT-related steps (lines mentioning `cargo pgo bolt`)
+    // and check each one passes the new profile flag.
+    let mut in_bolt_step = false;
+    let mut bolt_profile_lines = 0usize;
+    let mut wrong_profile_lines: Vec<String> = Vec::new();
+    for line in yml.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("cargo pgo bolt ") {
+            in_bolt_step = true;
+        }
+        if in_bolt_step {
+            if line.contains("--profile release-pgo-bolt") {
+                bolt_profile_lines += 1;
+                in_bolt_step = false;
+            } else if line.contains("--profile release-pgo")
+                && !line.contains("--profile release-pgo-bolt")
+            {
+                wrong_profile_lines.push(line.to_string());
+                in_bolt_step = false;
+            }
+            // Stop the lookahead when we hit a blank line so we don't
+            // accidentally pick up a `--profile release-pgo` from a
+            // later, non-BOLT step.
+            if trimmed.is_empty() {
+                in_bolt_step = false;
+            }
+        }
+    }
+    assert!(
+        wrong_profile_lines.is_empty(),
+        "release.yml BOLT steps must pass `--profile release-pgo-bolt`, \
+         not `--profile release-pgo` (strip-all/emit-relocs conflict). \
+         Offending lines: {wrong_profile_lines:?}"
+    );
+    assert!(
+        bolt_profile_lines >= 2,
+        "release.yml must invoke `cargo pgo bolt build` AND `cargo pgo \
+         bolt optimize` with `--profile release-pgo-bolt`. Found only \
+         {bolt_profile_lines} such invocation(s)."
+    );
+}
+
+#[test]
+fn release_pgo_bolt_profile_disables_strip() {
+    let toml = read_text("Cargo.toml");
+    // v0.40 T1: the `[profile.release-pgo-bolt]` section must exist
+    // and must set `strip = "none"`. This is the structural fix for
+    // the v0.39.0 BOLT failure — without `strip = "none"`, the linker
+    // emits `--strip-all` which conflicts with `--emit-relocs` that
+    // cargo-pgo's BOLT step injects.
+    let start = toml.find("[profile.release-pgo-bolt]").unwrap_or_else(|| {
+        panic!(
+            "[profile.release-pgo-bolt] missing from workspace Cargo.toml. \
+             v0.40 T1 added it to fix the BOLT strip-all/emit-relocs conflict."
+        )
+    });
+    // Slice from the section marker to the start of the next section
+    // (or EOF) so we only inspect this profile's body.
+    let rest = &toml[start..];
+    let body_end = rest[1..].find("\n[").map_or(rest.len(), |i| i + 1);
+    let body = &rest[..body_end];
+
+    assert!(
+        body.contains("inherits = \"release-pgo\""),
+        "release-pgo-bolt must inherit from release-pgo so it picks up \
+         fat LTO + codegen-units=1. Got:\n{body}"
+    );
+    assert!(
+        body.contains("strip = \"none\""),
+        "release-pgo-bolt MUST set `strip = \"none\"` to avoid the \
+         strip-all/emit-relocs linker conflict that bricked v0.39.0. \
+         Got:\n{body}"
+    );
+    // And the parent release-pgo profile must NOT have been changed
+    // to strip = "none" itself — non-BOLT PGO legs (windows-x86_64,
+    // darwin-arm64) still want the strip = true behaviour.
+    let parent_start = toml
+        .find("[profile.release-pgo]")
+        .expect("[profile.release-pgo] missing from workspace Cargo.toml");
+    let parent_rest = &toml[parent_start..];
+    let parent_body_end = parent_rest[1..]
+        .find("\n[")
+        .map_or(parent_rest.len(), |i| i + 1);
+    let parent_body = &parent_rest[..parent_body_end];
+    assert!(
+        parent_body.contains("strip = true"),
+        "release-pgo profile must keep `strip = true` so non-BOLT PGO \
+         legs (windows-x86_64, darwin-arm64) still drop debug bloat. \
+         Got:\n{parent_body}"
     );
 }

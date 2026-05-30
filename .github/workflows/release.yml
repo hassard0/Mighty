@@ -144,12 +144,18 @@ jobs:
             # The `[profile.release-pgo]` workspace profile has
             # `strip = "symbols"` (= --strip-all) and `cargo pgo
             # bolt build` injects --emit-relocs for the BOLT
-            # instrumentation pass. v0.40 fix: pass RUSTFLAGS
-            # -Cstrip=none during the BOLT step OR define a
-            # separate release-pgo-bolt profile without strip.
-            # Reverting use_bolt to false until then; PGO alone
-            # still gives the main wins.
-            use_bolt: false
+            # instrumentation pass.
+            #
+            # v0.40 T1 FIX: BOLT RESTORED. Solution A — separate
+            # `[profile.release-pgo-bolt]` profile inheriting from
+            # release-pgo with `strip = "none"`. BOLT steps now pass
+            # `--profile release-pgo-bolt`; the resulting binary is
+            # stripped manually after `cargo pgo bolt optimize` so
+            # the shipped artefact still drops debug bloat. The
+            # release-pgo profile itself stays unchanged — non-BOLT
+            # PGO platforms (windows-x86_64, darwin-arm64) still get
+            # the `strip = true` behaviour they had in v0.38/v0.39.
+            use_bolt: true
             toolchain: "1.95.0"
           # v0.32 (Track D): Intel macOS via cross-compile on Apple
           # Silicon runner. v0.32.1 pivoted from `macos-13` to
@@ -327,17 +333,22 @@ jobs:
             ~/.cargo/git/db
             target/${{ matrix.target }}/release-pgo/build
             target/${{ matrix.target }}/release-pgo/deps
-          # v0.39 T4: cache key bumped to invalidate any v0.38.x cached
-          # `target/release-pgo/mty` that doesn't have BOLT applied —
-          # we cp the BOLT output over the same path, but bumping the
-          # discriminator means the BOLT leg starts from a clean slate.
+            target/${{ matrix.target }}/release-pgo-bolt/build
+            target/${{ matrix.target }}/release-pgo-bolt/deps
+          # v0.40 T1: cache key bumped (bolt2 discriminator) to invalidate
+          # any v0.39.x cached state because:
+          #   - v0.39.x BOLT legs failed at the linker (strip-all/emit-relocs
+          #     conflict) so any cached release-pgo artefacts from that run
+          #     are partial/inconsistent.
+          #   - v0.40 BOLT now writes to `target/<triple>/release-pgo-bolt/`
+          #     (separate profile), so we ALSO cache that new dir.
           # Per-matrix toolchain also discriminates so darwin-arm64's
           # 1.96.0 cache stays separate from the 1.95.0 cache.
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-pgo-cargopgo0.2.9-bolt-tc${{ matrix.toolchain }}-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-pgo-cargopgo0.2.9-bolt2-tc${{ matrix.toolchain }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.target }}-cargo-release-pgo-cargopgo0.2.9-bolt-tc${{ matrix.toolchain }}-
+            ${{ runner.os }}-${{ matrix.target }}-cargo-release-pgo-cargopgo0.2.9-bolt2-tc${{ matrix.toolchain }}-
+            ${{ runner.os }}-${{ matrix.target }}-cargo-release-pgo-cargopgo0.2.9-bolt2-
             ${{ runner.os }}-${{ matrix.target }}-cargo-release-pgo-cargopgo0.2.9-
-            ${{ runner.os }}-${{ matrix.target }}-cargo-release-pgo-
 
       # v0.35 (Track T4): Three build paths now —
       #   1. native + PGO   → scripts/build-pgo.{sh,ps1}
@@ -446,11 +457,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # v0.40 T1: use `release-pgo-bolt` (not `release-pgo`) so
+          # `strip = "none"` lets the linker keep relocs that BOLT
+          # needs. See Cargo.toml `[profile.release-pgo-bolt]` for
+          # the strip-all/emit-relocs conflict that v0.39.0 hit.
+          #
           # `cargo pgo bolt build` takes the PGO-optimised binary from
           # the prior step and rewrites it with BOLT instrumentation.
-          # Output lands at target/<triple>/release-pgo/<bin>-bolt-instrumented.
+          # Output lands at target/<triple>/release-pgo-bolt/<bin>-bolt-instrumented.
           cargo pgo bolt build -- \
-            --profile release-pgo \
+            --profile release-pgo-bolt \
             --bin mty -p mty-cli \
             --target ${{ matrix.target }}
 
@@ -459,10 +475,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BIN="target/${{ matrix.target }}/release-pgo/mty-bolt-instrumented"
+          BIN="target/${{ matrix.target }}/release-pgo-bolt/mty-bolt-instrumented"
           if [[ ! -x "$BIN" ]]; then
             echo "ERROR: BOLT-instrumented mty not found at $BIN" >&2
-            ls -la "target/${{ matrix.target }}/release-pgo/" || true
+            ls -la "target/${{ matrix.target }}/release-pgo-bolt/" || true
             exit 1
           fi
           # Same corpus as the PGO training pass. BOLT writes per-PID
@@ -485,22 +501,31 @@ jobs:
         run: |
           set -euo pipefail
           cargo pgo bolt optimize -- \
-            --profile release-pgo \
+            --profile release-pgo-bolt \
             --bin mty -p mty-cli \
             --target ${{ matrix.target }}
           # cargo-pgo lands the BOLT-optimised binary as
-          # target/<triple>/release-pgo/mty-bolt-optimized. Promote it
-          # into the canonical `mty` slot so the existing staging step
-          # picks it up without branching on use_bolt.
-          BOLT_BIN="target/${{ matrix.target }}/release-pgo/mty-bolt-optimized"
-          DST="target/${{ matrix.target }}/release-pgo/mty"
+          # target/<triple>/release-pgo-bolt/mty-bolt-optimized.
+          #
+          # v0.40 T1: because release-pgo-bolt disables strip (so BOLT
+          # can use --emit-relocs), the shipped binary still carries
+          # debug symbols. Strip them manually now — the BOLT layout
+          # wins ride on the basic-block re-ordering, not the symbol
+          # table, so stripping is safe post-optimise.
+          BOLT_BIN="target/${{ matrix.target }}/release-pgo-bolt/mty-bolt-optimized"
           if [[ ! -x "$BOLT_BIN" ]]; then
             echo "ERROR: BOLT-optimised mty not found at $BOLT_BIN" >&2
-            ls -la "target/${{ matrix.target }}/release-pgo/" || true
+            ls -la "target/${{ matrix.target }}/release-pgo-bolt/" || true
             exit 1
           fi
+          strip "$BOLT_BIN"
+          # Promote into the canonical release-pgo path so the existing
+          # staging step picks it up without branching on use_bolt.
+          DST_DIR="target/${{ matrix.target }}/release-pgo"
+          mkdir -p "$DST_DIR"
+          DST="$DST_DIR/mty"
           cp "$BOLT_BIN" "$DST"
-          echo "BOLT-optimised binary promoted to $DST"
+          echo "BOLT-optimised binary (stripped) promoted to $DST"
 
       # v0.38.3: Windows PGO uses the v0.37.3 manual ps1 script.
       # cargo-pgo on windows-msvc writes no profraws (Phase 2 succeeds
