@@ -9,36 +9,31 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-v0.40 candidates (rolled up across the 5 v0.39 tracks + v0.38 carryovers):
+v0.41 candidates (rolled up across the 6 v0.40 tracks + v0.39 carryovers):
 
-- **T2 — cast Char runtime trap decision.** v0.39 T2 left non-literal
-  `Int as Char` passing typeck and emitting the raw bit pattern; v0.40
-  picks between a runtime trap and an `Option[Char]` surface that
-  forces the caller to handle invalid codepoints.
-- **T3 — LLVM Vec typed-slot port.** v0.39 T3 changed only the
-  Cranelift native layout; the LLVM backend still uses the v1 24-byte
-  header. v0.40 ports it for parity.
-- **T1 follow-ups — `std.regex`** (next obvious stdlib module after
-  url; ICU unicode tables behind a feature flag) and **`std.crypto`
-  cipher modes** (ChaCha20-Poly1305 + AES-GCM — symmetric encryption
-  was deferred from v0.39 to give v0.40 time on the capability story).
-- **T4 — darwin-arm64 PGO durability.** v0.39 T4 retries via
-  toolchain 1.96.0. If the retry holds, v0.40 pins a specific rustc
-  nightly as a stability lever; if it breaks, the matrix flips back
-  and a post-mortem becomes a v0.40 task.
-- **T4 — Windows-MSVC cargo-pgo profile-write investigation.**
-  v0.38.1 disabled Windows PGO under cargo-pgo because the training
-  step produced no .profraw shards. v0.38.3 restored the v0.37.3
-  in-tree `build-pgo.ps1` path; v0.40 chases the upstream cargo-pgo
-  bug or upstreams the ps1 logic.
-- **T4 — BOLT on darwin / Windows.** v0.39 T4 ships BOLT on
-  linux-x86_64 only. Mach-O BOLT support is improving in llvm-bolt 20;
-  PE/COFF remains too rough. v0.40 re-evaluates per upstream.
-- **T6 — SWE-bench actual run.** v0.39 deferred T6; v0.40 picks it
-  back up with the user's API key and posts the comparison on the
-  v0.39 PGO+BOLT binary vs. the v0.38 PGO-only binary.
+- **T4 follow-ups — Ed25519 / X25519 / Argon2 / HKDF.** v0.40 T4
+  added AES-GCM + ChaCha20-Poly1305 (AEAD); v0.41 picks up the
+  asymmetric primitives + KDF surface so `std.crypto` covers the rest
+  of the "real-world web service" floor.
+- **T4 — RegexSet multi-pattern matching.** Rust's `regex` crate
+  exposes `RegexSet` for "which of these N patterns matched?" in a
+  single pass. v0.41 surfaces it as `std.regex.RegexSet`.
+- **T4 — Raw-string literals.** v0.40 T4 demos paper over the lack
+  of raw strings with double-backslash escapes; v0.41 lands
+  `r"..."` / `r#"..."#` so regex/crypto code reads naturally.
+- **T4 — Dynamic-string log() codegen.** v0.40 T4 demo 13 routes
+  runtime-built strings through a wrapper because the Cranelift
+  `log()` codegen still assumes a literal symbol. v0.41 unblocks the
+  dynamic path.
+- **T1 — BOLT on darwin / Windows.** v0.40 T1 restored BOLT on
+  linux-x86_64 via the separate `release-pgo-bolt` profile. Mach-O
+  BOLT support keeps improving in llvm-bolt 20; PE/COFF remains too
+  rough. v0.41 re-evaluates per upstream.
+- **T6 — SWE-bench actual run.** Still deferred behind the user's
+  API key. v0.41 picks it up alongside the v0.40 PGO+BOLT vs. v0.38
+  PGO-only comparison.
 - **T5 — Hover catalog field-mismatch check.** Drift gate currently
-  flags only missing/extra symbols. v0.40 extends the comparison to
+  flags only missing/extra symbols. v0.41 extends the comparison to
   signature + description + example bodies so a curated-side edit
   that doesn't round-trip is caught.
 - **T2 — variadic typeck tightening** (carryover from v0.38) — when
@@ -68,6 +63,79 @@ The v1.0 freeze-gate is unchanged: 8 RFC comment windows opened
 2026-05-26, earliest close 2026-06-09 (RFC-005), latest close
 2026-07-25 (RFC-002 + RFC-006). Proposed v1.0 freeze date
 2026-09-01; earliest tag 2026-07-26.
+
+## [0.40.0] - 2026-05-30
+
+### Added — Real-world crypto + parsing, LLVM Vec parity, BOLT restored
+
+- **T1 — BOLT layout optimization restored on linux-x86_64.** v0.39.1
+  reverted BOLT after the v0.39.0 build collided with the
+  `release-pgo` profile's `strip = "symbols"` (BOLT needs the symbol
+  table to rewrite the binary, plus `emit-relocs` from the linker).
+  v0.40 T1 introduces a separate `release-pgo-bolt` profile that
+  inherits from `release-pgo` but sets `strip = "none"` and uses
+  `RUSTFLAGS=-C link-arg=-Wl,-q` for emit-relocs; the BOLT-optimised
+  binary ships alongside the plain PGO binary as a release asset.
+  +2 tests in `pgo_scripts.rs` asserting the profile + RUSTFLAGS
+  combination is wired into `release.yml`.
+- **T2 — LLVM backend Vec typed-slot port.** v0.39 T3 landed the
+  Cranelift native typed-slot port; v0.40 T2 brings the LLVM backend
+  to parity. New header v2 (32 bytes: len, cap, data, elem_size),
+  per-elem-size load/store via `i8` / `i16` / `i32` / `i64` typed
+  pointers, bounds check that emits the same `mty_runtime_panic`
+  call + LLVM `unreachable` as the Cranelift path. AOT and JIT
+  Vec[U8] memory footprint now matches the v0.39 native numbers.
+  +16 tests in `vec_typed_slots_v040.rs` (LLVM-gated behind
+  `--features llvm`).
+- **T3 — `Char.from_u32(U32) -> Option<Char>` + non-literal
+  `Int as Char` rejected.** v0.39 T2 left non-literal `Int as Char`
+  passing typeck and emitting the raw bit pattern. v0.40 T3 picks
+  the `Option` route: `Char.from_u32` is the safe constructor
+  (returns `None` for surrogates `0xD800..=0xDFFF` and codepoints
+  ≥ `0x110000`); non-literal `Int as Char` is now a compile error
+  MT2027 (REQUIRE_CHAR_FROM_U32) with a fix-suggestion pointing at
+  the new API. Literal casts still compile (the v0.39 MT2028
+  validator covers them). +8 tests across `mty-types` + runtime.
+- **T4 — std.regex + std.crypto.aes_gcm + std.crypto.chacha20_poly1305.**
+  Three foundational stdlib surfaces that close the "real-world web
+  service" gap left by v0.39. **`std.regex`** — `Regex.new` / `find`
+  / `find_all` / `captures` / `captures_all` / `replace` /
+  `replace_all` / `is_match` / `split` / `as_str` backed by the Rust
+  `regex` crate (RE2-style linear-time, no look-around). Surfaces
+  `Match { text, start, end }` and `Captures` with `get` / `len`.
+  **`std.crypto.aes_gcm`** — AES-256-GCM authenticated encryption
+  via RustCrypto `aes-gcm` 0.10; KAT-tested against NIST CAVP
+  vectors. **`std.crypto.chacha20_poly1305`** — ChaCha20-Poly1305
+  AEAD via RustCrypto `chacha20poly1305` 0.10; KAT-tested against
+  RFC 8439 vectors. Identical encrypt/decrypt shape across both
+  ciphers so callers swap by changing one function name. +58 tests
+  total. Examples: `examples/43_secure_session.mty`.
+- **T5 — Hover catalog 425 → 564.** 18 regex entries (Regex +
+  methods + Match + Captures + RegexErr), 6 AEAD entries
+  (aes_gcm / chacha20_poly1305 module + encrypt + decrypt), the T3
+  `Char.from_u32` symbol, and ~30 v0.39 gap-fillers across
+  std.string / std.vec / std.collections / std.json. Drift gate
+  byte-for-byte clean (564 curated / 564 extracted).
+- **T6 — Demo 12 (web auth) + Demo 13 (RAG with regex).** Two new
+  end-to-end demos showcasing the v0.40 surface. **Demo 12** —
+  cookie-based web auth using `std.crypto.hmac_sha256` for session
+  signing + `std.uuid.v7` for monotonically-sortable session IDs +
+  `std.crypto.aes_gcm` for cookie-payload encryption + `std.url`
+  builder for the redirect target. **Demo 13** — RAG over a small
+  markdown corpus that uses `std.regex` for paragraph-level chunking
+  and section-heading extraction, then `std.memory.VectorStore` for
+  retrieval. Demo count 11 → 13. Both ship `smoke.sh`.
+
+### Deps added
+- `regex` 1.12.3 (promoted from transitive — was a build dep of
+  cargo, now a direct mty-stdlib dep)
+- `aes-gcm` 0.10.3 (RustCrypto AEAD trait family)
+- `chacha20poly1305` 0.10.1 (RustCrypto AEAD trait family)
+
+### Test counts
+- v0.39.1 workspace: ~3417 tests (estimate).
+- v0.40.0 workspace: **3555 tests on vulcan** (0 failing, 24
+  ignored). Net add: ~+138 tests across the 6 tracks.
 
 ## [0.39.0] - 2026-05-30
 

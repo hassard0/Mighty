@@ -165,8 +165,8 @@ mty run   src/main.mty
 
 **Tooling**
 - `mty lsp` — LSP 3.17 (hover ships extracted `///` examples +
-  See-also references + capability hints across **425 stdlib catalog
-  entries** spanning 32 modules, completion, go-to-def, semantic
+  See-also references + capability hints across **564 stdlib catalog
+  entries** spanning 33 modules, completion, go-to-def, semantic
   tokens, rename, inlay hints, code actions, signature help)
 - `mty find` — capability-tagged stdlib search ("write files" →
   `fs.write` APIs); pretty / NDJSON / short formats
@@ -228,12 +228,12 @@ Live docs site: <https://hassard0.github.io/Mighty/>
 | `mty-pkg` | package manager (sigstore-real signing) |
 | `mty-lsp` | LSP 3.17 server |
 | `mty-doc` | doc generator |
-| `mty-stdlib` | `std.{json,tls,http,fs,time,test,llm,mcp,memory,web,fmt,crypto,encoding,url,uuid}` |
+| `mty-stdlib` | `std.{json,tls,http,fs,time,test,llm,mcp,memory,web,fmt,crypto,encoding,url,uuid,regex}` |
 | `mty-macros` | declarative macros + `format!` + `@tool` builtin attributes |
 | `mty-cli` | the `mty` binary |
 
-Adjacent trees: `examples/` (38 canonical programs), `demos/`
-(10 runnable apps with `smoke.sh`), `benches/` + `bench/swe/`
+Adjacent trees: `examples/` (43 canonical programs), `demos/`
+(13 runnable apps with `smoke.sh`), `benches/` + `bench/swe/`
 (criterion + SWE-bench Verified harness), `selfhost/` (bootstrap
 in Mighty), `tests/conformance/` + `tests/web-smoke/` (159-case
 normative kit + headless-browser visual smoke).
@@ -264,8 +264,9 @@ live agent migration, Polonius borrows, distributed agents, hot
 reload, DWARF v5, PGO/ThinLTO, work-stealing — has landed pre-v1.0.
 The next reach is into v1.1+ territory: cluster placement policies,
 multi-agent swarm consensus primitives, MCP federation, expanded
-BOLT layout-optimisation coverage (Mach-O + PE/COFF), `std.regex`,
-symmetric cipher modes for `std.crypto`.
+BOLT layout-optimisation coverage (Mach-O + PE/COFF), additional
+crypto primitives (Ed25519/X25519/Argon2/HKDF), `RegexSet`
+multi-pattern matching.
 
 Per-version detail lives in `CHANGELOG.md` and
 `dev/history/releases/RELEASE-v0.X.md`. This README tracks the
@@ -273,14 +274,14 @@ current state of the language, not its history.
 
 ## Status
 
-Mighty is **pre-alpha**. Internal milestones tagged through v0.39.
-The toolchain is exercised by **~3417 Rust tests** across 20 crates
+Mighty is **pre-alpha**. Internal milestones tagged through v0.40.
+The toolchain is exercised by **~3555 Rust tests** across 20 crates
 plus **490 Python 2nd-impl tests** plus **159 normative conformance
-cases** plus **23 self-host driver codegen tests** — combined **~4089
+cases** plus **23 self-host driver codegen tests** — combined **~4227
 tests, 0 failing**. All four LLM providers full (with multi-modal
 vision-language Image input); `std.swarm` votes consensus across
 them; `std.eval` regression-tests agents under byte-identical
-replay; `std.rag` is the canonical RAG path. All 10 demos pass
+replay; `std.rag` is the canonical RAG path. All 13 demos pass
 `smoke.sh`; 3 web demos opt into headless-browser visual smoke; 2
 agent demos into mock-LLM end-to-end smoke. KNOWN_ISSUES P1 closed;
 P2 holds one entry (#9 demo 06 RAF-mid-frame phash flake; 4-of-5
