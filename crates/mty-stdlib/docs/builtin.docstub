@@ -26,6 +26,31 @@ let h = spawn(Greeter.new());
 h.send(Greet { name: "world" });
 ##end
 
+##sym VEC_HEADER_V2
+##sig Vec header v2 (32 bytes): len, cap, data, elem_size
+##desc v0.39 widened the Vec header from 24 bytes (len, cap, data) to 32 bytes by recording per-instance `elem_size`. Storage is now packed at the natural element width — a `Vec[U8]` uses 1 byte/slot instead of 8 — which gives the well-known 8x memory reduction for byte buffers. Old v1 layout is documented for backward-compat reasoning.
+##see Vec.set, Vec.push, vec_typed_slot
+##example
+// header v2 layout (bytes):
+//   0..8  : len      USize
+//   8..16 : cap      USize
+//  16..24 : data     *Void
+//  24..32 : elem_size USize  // new in v0.39
+##end
+
+##sym vec_typed_slot
+##sig Vec[T] stores elements at sizeof(T) per slot
+##desc Walkthrough of the v0.39 typed-slot layout: push/get/set read `elem_size` from the header and stride memory by exactly that many bytes. Bounds checks trap on out-of-range writes. Result: `Vec[U8]` stops paying a 7-byte tax per element, while wider element types keep their natural alignment.
+##see Vec.set, Vec.push, VEC_HEADER_V2
+##example
+// Vec[U8]: 1 byte per slot (was 8 in v0.38)
+let mut bytes: Vec[U8] = Vec.with_capacity(1024);
+for i in 0..1024 { bytes.push(i as U8); }
+assert_eq(bytes.len(), 1024);
+// Out-of-range set traps:
+// bytes.set(99999, 0u8); // TRAP
+##end
+
 ##sym eprintln
 ##sig macro eprintln!(fmt: Str, args: ...) -> Unit
 ##cap io.stderr

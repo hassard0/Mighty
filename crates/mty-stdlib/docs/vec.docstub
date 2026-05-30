@@ -121,6 +121,18 @@ let board = Vec.from_elem(0_u32, 200);
 assert_eq(board.len(), 200);
 ##end
 
+##sym Vec.set
+##sig fn Vec.set[T](&mut self, idx: USize, value: T)
+##desc In-place update at `idx`. Bounds-checked: out-of-range index traps. With v0.39's typed-slot storage the element is written using the header's `elem_size`, so a `Vec[U8]` writes exactly one byte per slot (8x smaller than the old word-per-slot layout).
+##see Vec.get, Vec.push, VEC_HEADER_V2, vec_typed_slot
+##example
+let mut v: Vec[U8] = Vec.with_capacity(4);
+v.push(1u8);
+v.push(2u8);
+v.set(0, 9u8);
+assert_eq(v.get(0), Some(&9u8));
+##end
+
 ##sym Vec.contains
 ##sig fn Vec.contains[T: PartialEq](&self, needle: &T) -> Bool
 ##desc Linear scan — true iff any element equals `needle` by `PartialEq`. O(n). Use a `HashSet` for hot lookups.

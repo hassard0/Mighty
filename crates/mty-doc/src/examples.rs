@@ -1837,6 +1837,31 @@ pub const STDLIB_EXAMPLES: &[StdlibExample] = &[
         example: "let board = Vec.from_elem(0_u32, 200);\nassert_eq(board.len(), 200);\n",
         see_also: "Vec.with_capacity, Vec.new, Vec.push",
     },
+    // ---- v0.39 T3: Vec typed-slot storage ----
+    StdlibExample {
+        symbol: "Vec.set",
+        signature: "fn Vec.set[T](&mut self, idx: USize, value: T)",
+        description: "In-place update at `idx`. Bounds-checked: out-of-range index traps. With v0.39's typed-slot storage the element is written using the header's `elem_size`, so a `Vec[U8]` writes exactly one byte per slot (8x smaller than the old word-per-slot layout).",
+        capability: "",
+        example: "let mut v: Vec[U8] = Vec.with_capacity(4);\nv.push(1u8);\nv.push(2u8);\nv.set(0, 9u8);\nassert_eq(v.get(0), Some(&9u8));\n",
+        see_also: "Vec.get, Vec.push, VEC_HEADER_V2, vec_typed_slot",
+    },
+    StdlibExample {
+        symbol: "VEC_HEADER_V2",
+        signature: "Vec header v2 (32 bytes): len, cap, data, elem_size",
+        description: "v0.39 widened the Vec header from 24 bytes (len, cap, data) to 32 bytes by recording per-instance `elem_size`. Storage is now packed at the natural element width — a `Vec[U8]` uses 1 byte/slot instead of 8 — which gives the well-known 8x memory reduction for byte buffers. Old v1 layout is documented for backward-compat reasoning.",
+        capability: "",
+        example: "// header v2 layout (bytes):\n//   0..8  : len      USize\n//   8..16 : cap      USize\n//  16..24 : data     *Void\n//  24..32 : elem_size USize  // new in v0.39\n",
+        see_also: "Vec.set, Vec.push, vec_typed_slot",
+    },
+    StdlibExample {
+        symbol: "vec_typed_slot",
+        signature: "Vec[T] stores elements at sizeof(T) per slot",
+        description: "Walkthrough of the v0.39 typed-slot layout: push/get/set read `elem_size` from the header and stride memory by exactly that many bytes. Bounds checks trap on out-of-range writes. Result: `Vec[U8]` stops paying a 7-byte tax per element, while wider element types keep their natural alignment.",
+        capability: "",
+        example: "// Vec[U8]: 1 byte per slot (was 8 in v0.38)\nlet mut bytes: Vec[U8] = Vec.with_capacity(1024);\nfor i in 0..1024 { bytes.push(i as U8); }\nassert_eq(bytes.len(), 1024);\n// Out-of-range set traps:\n// bytes.set(99999, 0u8); // TRAP\n",
+        see_also: "Vec.set, Vec.push, VEC_HEADER_V2",
+    },
     // ---- v0.38 T4: extern c / FFI surfaces (v0.37 T3, T6) ----
     StdlibExample {
         symbol: "extern_block",
