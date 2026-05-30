@@ -229,7 +229,6 @@ pub fn build_extern_signature(
     (sig, kind)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
