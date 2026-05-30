@@ -253,6 +253,30 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
         }
     }
 
+    // v0.41 T6 (L16): pass 2 for `const NAME: T = expr;` — now that
+    // structs/enums/aliases are registered, resolve each const's declared
+    // type to a real `TyId`. The initializer's HIR ExprId was stored at
+    // pass 1; backends materialise the value at IR lower time.
+    for item_id in &pkg.top_level {
+        let item = &pkg.items[*item_id];
+        if let HirItem::Const(c) = item {
+            let ty = resolve_hir_type(
+                c.ty,
+                pkg,
+                &defs,
+                arena,
+                &ParamScope::default(),
+                &mut diagnostics,
+            );
+            // Find the ConstDefId we allocated in pass 1.
+            if let Some(DefRef::Const(cid)) = defs.lookup(&c.name) {
+                if let Some(cd) = defs.consts.get_mut(cid.0 as usize) {
+                    cd.ty = ty;
+                }
+            }
+        }
+    }
+
     // Agents: register methods. The ADT itself was already declared in
     // pass 1 (declare_item) so fn signatures resolve `AgentRef[Foo]`.
     let mut agent_method_ids: Vec<(AdtId, mty_hir::FnId, FnDefId)> = vec![];
@@ -688,6 +712,21 @@ fn declare_item(
             // parser may not produce these yet for slice 4, so we leave
             // the leaf path for slice 5+).
         }
+        HirItem::Const(c) => {
+            // v0.41 T6 (L16): pre-allocate a ConstDefId with a placeholder
+            // type. Pass 2 resolves the declared `HirType` to a real
+            // `TyId` and patches `consts[id].ty` in place. Doing it in
+            // two phases mirrors how Fn / ADT signatures are filled in
+            // — pass 1 just makes the name resolvable as `DefRef::Const`,
+            // pass 2 backfills the resolved type.
+            let cid = defs.alloc_const(ConstDef {
+                name: c.name.clone(),
+                ty: arena.error,
+                init: c.value,
+                is_pub: c.is_pub,
+            });
+            defs.by_name.insert(c.name.clone(), DefRef::Const(cid));
+        }
         HirItem::Protocol(_)
         | HirItem::Supervisor(_)
         | HirItem::Mod(_)
@@ -695,7 +734,6 @@ fn declare_item(
         | HirItem::Macro(_)
         | HirItem::Impl(_)
         | HirItem::Trait(_)
-        | HirItem::Const(_)
         | HirItem::Sandbox(_) => {
             // Handled separately or unsupported in slice 4.
         }
@@ -929,7 +967,7 @@ fn resolve_def_to_ty(
         }
         DefRef::Module(_) => arena.error,
         DefRef::Param(p) => arena.param(p),
-        DefRef::Variant(_, _) | DefRef::Fn(_) => {
+        DefRef::Variant(_, _) | DefRef::Fn(_) | DefRef::Const(_) => {
             // Used as a type — not valid. Emit unresolved.
             diag_out.push(diag::unresolved_type(
                 name,

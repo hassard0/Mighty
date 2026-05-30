@@ -563,6 +563,53 @@ pub fn effect_undeclared(fn_name: &str, missing: &[String], span: &SourceSpan) -
         "add `effect {}` to the function signature",
         missing.join(", ")
     ));
+    // v0.41 T6 (L14): the existing one-line note tells authors *what*
+    // to add but not *why*. The L14 lesson from dogfooding the IDE was
+    // that the most common trigger — `pub fn foo() -> Vec[U8] { ... }`
+    // missing `effect alloc` — left authors guessing. Append a
+    // one-line, effect-specific hint plus a docs link so the
+    // fix-the-error path is self-contained without needing to grep the
+    // spec. Hint text is tailored for the most common effects; less
+    // common effects fall back to the generic docs link only.
+    let mut hint_lines: Vec<String> = Vec::new();
+    for eff in missing {
+        match eff.as_str() {
+            "alloc" => hint_lines.push(
+                "hint: `alloc` is required for any `pub` fn that constructs a `Vec`, \
+                 `String`, or other heap value (declare it on the signature: \
+                 `pub fn name(...) -> T effect alloc { ... }`)"
+                    .to_string(),
+            ),
+            "fs" => hint_lines.push(
+                "hint: `fs` is required for `pub` fns that read or write the file system \
+                 (`std.fs.*`); declare it on the signature: \
+                 `pub fn name(...) -> T effect fs { ... }`"
+                    .to_string(),
+            ),
+            "net" => hint_lines.push(
+                "hint: `net` is required for `pub` fns that perform network I/O \
+                 (`std.http.*`, `std.net.*`); declare it on the signature: \
+                 `pub fn name(...) -> T effect net { ... }`"
+                    .to_string(),
+            ),
+            "io" => hint_lines.push(
+                "hint: `io` is required for `pub` fns that print to stdout/stderr \
+                 (`log`, `print`); declare it on the signature: \
+                 `pub fn name(...) -> T effect io { ... }`"
+                    .to_string(),
+            ),
+            _ => {}
+        }
+    }
+    for line in hint_lines {
+        d.notes.push(line);
+    }
+    // Docs link as the trailing note so the user can read the broader
+    // story on effect rows + the `pub` contract.
+    d.notes.push(
+        "see: docs/internals/effects.md (the `effect` clause documents a `pub` fn's contract)"
+            .into(),
+    );
     d
 }
 

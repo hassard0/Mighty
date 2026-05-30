@@ -62,16 +62,22 @@ if ! cargo clippy --workspace --all-targets -- -D warnings; then
 fi
 
 echo "[mty pre-push] mty fmt --check on .mty files"
-# Build mty-cli (cached after first call) so target/release/mty exists.
-# Funnel stderr to the user only if the build itself failed; otherwise
-# keep the hook output quiet on the happy path.
+# Build mty-cli (cached after first call) so $TARGET_DIR/release/mty
+# exists. Funnel stderr to the user only if the build itself failed;
+# otherwise keep the hook output quiet on the happy path.
 if ! cargo build --release -p mty-cli >/dev/null 2>&1; then
   echo "[mty pre-push] failed to build mty-cli — cannot run mty fmt --check" >&2
   echo "[mty pre-push] re-run with MTY_PRE_PUSH_SKIP=1 to bypass, or fix the build." >&2
   exit 1
 fi
 
-MTY_BIN="./target/release/mty"
+# v0.41 T6: honor `$CARGO_TARGET_DIR` so parallel-worktree agents don't
+# have to copy `target-tN/release/mty.exe` over `./target/release/mty.exe`
+# before every push. When `$CARGO_TARGET_DIR` is unset the path is the
+# cargo default `./target` — matches pre-T6 behavior so single-worktree
+# dev flows are unchanged.
+TARGET_DIR="${CARGO_TARGET_DIR:-./target}"
+MTY_BIN="${TARGET_DIR}/release/mty"
 if [ ! -x "$MTY_BIN" ] && [ -x "${MTY_BIN}.exe" ]; then
   MTY_BIN="${MTY_BIN}.exe"
 fi

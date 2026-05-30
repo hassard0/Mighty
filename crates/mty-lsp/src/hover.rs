@@ -150,6 +150,13 @@ fn render_named_def(doc: &DocAnalysis, name: &str) -> Option<String> {
         }
         DefRef::Module(_) => Some(format!("```mty\nmod {}\n```", name)),
         DefRef::Param(_) => Some(format!("```mty\ntype param {}\n```", name)),
+        DefRef::Const(id) => {
+            // v0.41 T6 (L16): hover for a top-level `const NAME: T = ...;`.
+            let c = doc.typed.def_map.const_def(*id)?;
+            let vis = if c.is_pub { "pub " } else { "" };
+            let ty = pretty_ty(c.ty, &doc.typed.ty_arena, None, Some(&doc.typed.def_map));
+            Some(format!("```mty\n{vis}const {}: {}\n```", c.name, ty))
+        }
     }
 }
 

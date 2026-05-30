@@ -594,6 +594,23 @@ fn resolve_path(ctx: &mut LowerCtx, fb: &mut FnBuilder, segments: &[String]) -> 
                     ));
                     return Operand::Move(Place::local(temp));
                 }
+                DefRef::Const(cid) => {
+                    // v0.41 T6 (L16): inline the const's initializer at
+                    // the reference site. The initializer was lowered to
+                    // HIR by `mty-hir::lower::items::lower_const`; we
+                    // re-lower it here in the local function context so
+                    // it picks up the surrounding block / locals.
+                    // The L16 root cause was: the path-resolver fell
+                    // through to step 6 (`Operand::Const(Const::Unit)`),
+                    // so every `KIND_KW` reference evaluated to Unit,
+                    // which the interpreter then default-coerced to the
+                    // declared type's zero value (0 for I32, etc.) —
+                    // hence the IDE's `if KIND_KW != 1_u8` always firing.
+                    if let Some(cd) = ctx.typed.def_map.const_def(cid) {
+                        let init = cd.init;
+                        return lower_expr(ctx, fb, init);
+                    }
+                }
                 _ => {}
             }
         }

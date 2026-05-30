@@ -39,6 +39,7 @@ ast_node!(ExternBlock, EXTERN_BLOCK);
 ast_node!(ExternFn, EXTERN_FN);
 ast_node!(ExportDecl, EXPORT_DECL);
 ast_node!(MacroDecl, MACRO_DECL);
+ast_node!(ConstDecl, CONST_DECL);
 ast_node!(UnsafeBlock, UNSAFE_BLOCK);
 ast_node!(Block, BLOCK);
 ast_node!(LetStmt, LET_STMT);

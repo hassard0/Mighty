@@ -1,7 +1,7 @@
 //! Type-namespace and value-namespace definitions. The `DefMap` is the
 //! central name-resolution table the inference engine consults.
 
-use crate::ty::{AdtId, EffectId, FnDefId, ParamId, TyId};
+use crate::ty::{AdtId, ConstDefId, EffectId, FnDefId, ParamId, TyId};
 use mty_hir::SourceSpan;
 use std::collections::{HashMap, HashSet};
 
@@ -85,6 +85,23 @@ pub enum DefRef {
     Variant(AdtId, usize),
     Module(ModuleId),
     Param(ParamId),
+    /// v0.41 T6 (L16): a top-level `const NAME: T = expr;` declaration.
+    /// The `ConstDef` carries the declared type and the HIR-level
+    /// initializer expression id; backends materialise the value at IR
+    /// lower time.
+    Const(ConstDefId),
+}
+
+/// v0.41 T6 (L16): record for a top-level `const`. The type checker uses
+/// `ty` for typechecking const references; the IR lowerer reads `init`
+/// from the HIR package to materialise an `Operand::Const(...)` at the
+/// reference site (resolving the L16 default-value bug).
+#[derive(Debug, Clone)]
+pub struct ConstDef {
+    pub name: String,
+    pub ty: TyId,
+    pub init: mty_hir::ExprId,
+    pub is_pub: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -126,6 +143,10 @@ pub type RowSigFactory = fn() -> crate::effects::row::RowPolySig;
 pub struct DefMap {
     pub adts: Vec<AdtDef>,
     pub fns: Vec<FnDef>,
+    /// v0.41 T6 (L16): top-level `const` declarations, indexed by
+    /// [`ConstDefId`]. Looked up via the matching [`DefRef::Const`] entry
+    /// in `by_name`.
+    pub consts: Vec<ConstDef>,
     /// Top-level name lookup. May contain duplicates only for value/type
     /// disambiguation handled by `lookup_value` vs `lookup_type`.
     pub by_name: HashMap<String, DefRef>,
@@ -256,6 +277,21 @@ impl DefMap {
         let id = FnDefId(self.fns.len() as u32);
         self.fns.push(def);
         id
+    }
+
+    /// v0.41 T6 (L16): register a top-level `const` declaration. The
+    /// returned [`ConstDefId`] is used in the `DefRef::Const` entry in
+    /// `by_name` so name lookups land on it.
+    pub fn alloc_const(&mut self, def: ConstDef) -> ConstDefId {
+        let id = ConstDefId(self.consts.len() as u32);
+        self.consts.push(def);
+        id
+    }
+
+    /// v0.41 T6 (L16): look up the [`ConstDef`] record for a given
+    /// [`ConstDefId`]. Returns `None` for out-of-range ids.
+    pub fn const_def(&self, id: ConstDefId) -> Option<&ConstDef> {
+        self.consts.get(id.0 as usize)
     }
 
     pub fn alloc_module(&mut self, name: impl Into<String>) -> ModuleId {
