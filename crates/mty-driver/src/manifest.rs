@@ -265,20 +265,102 @@ pub enum DepSourceKind {
     Git,
 }
 
-/// Build-script sandbox configuration scaffold (spec §5.4).
+/// `[build]` manifest block.
 ///
-/// Lists the network domains and filesystem paths a `build.mty` script
-/// is allowed to access. v0.2 only parses + records; enforcement is
-/// deferred to a later slice. Documented in
-/// `docs/internals/package-manager.md`.
+/// Two distinct responsibilities live here:
+///
+/// 1. **Build-script sandbox scaffold (spec §5.4).** `script` /
+///    `allow_net` / `allow_fs` describe a future `build.mty` step. v0.2
+///    only parses + records these; enforcement is deferred.
+///
+/// 2. **Native FFI linking surface (v0.41 T4).** A simpler, kebab-cased
+///    alternative to `[[extern_lib]]`. Project-wide linker knobs:
+///
+///    ```toml
+///    [build]
+///    native-libs = ["foo", "bar"]          # → -lfoo -lbar
+///    link-search = ["/opt/whatever/lib"]    # → -L/opt/whatever/lib
+///    frameworks = ["Cocoa"]                 # macOS only → -framework Cocoa
+///    link-args  = ["--gc-sections"]         # raw passthrough
+///    ```
+///
+///    On MSVC linkers these are auto-rewritten:
+///    * `-lfoo` → `foo.lib`
+///    * `-L<path>` → `/LIBPATH:<path>`
+///    * `--gc-sections` → `/OPT:REF`
+///
+///    Use `[build]` for whole-program knobs ("link libm everywhere"); use
+///    `[[extern_lib]]` for per-library shape (a specific vendored static
+///    archive with its own `link_args_*` matrix).
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct BuildConfig {
+    // Build-script sandbox scaffold (spec §5.4).
     #[serde(default)]
     pub script: Option<String>,
     #[serde(default)]
     pub allow_net: Vec<String>,
     #[serde(default)]
     pub allow_fs: Vec<String>,
+
+    // v0.41 T4 — native link knobs. Kebab-case in TOML for readability;
+    // mapped to snake_case Rust fields via serde.
+    /// Bare library names. Each becomes `-l<name>` (or `<name>.lib` on
+    /// MSVC). Equivalent to clang's `-l` flag.
+    #[serde(default, rename = "native-libs", skip_serializing_if = "Vec::is_empty")]
+    pub native_libs: Vec<String>,
+
+    /// Extra library search directories. Each becomes `-L<path>` (or
+    /// `/LIBPATH:<path>` on MSVC). Paths are passed through verbatim;
+    /// the manifest dir is *not* prepended (use absolute paths or paths
+    /// that make sense at link time on the host).
+    #[serde(default, rename = "link-search", skip_serializing_if = "Vec::is_empty")]
+    pub link_search: Vec<String>,
+
+    /// macOS-only frameworks. Each becomes `-framework <Name>` on
+    /// Darwin hosts and is silently dropped on other hosts. The MSVC
+    /// rewriter also drops these (frameworks have no Windows analogue).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub frameworks: Vec<String>,
+
+    /// Raw linker arguments. Cross-platform shapes are auto-translated
+    /// by [`crate::link_flavor::rewrite_for_flavor`] when the host
+    /// linker is MSVC-flavoured (`link.exe` / `lld-link`). Anything that
+    /// looks unfamiliar passes through unchanged — escape hatch for
+    /// linker-specific flags that don't have a portable spelling.
+    #[serde(default, rename = "link-args", skip_serializing_if = "Vec::is_empty")]
+    pub link_args: Vec<String>,
+}
+
+impl BuildConfig {
+    /// Build the flat linker-arg vector contributed by this `[build]`
+    /// block on the given host, in canonical (GNU) form. The caller is
+    /// expected to feed the result through
+    /// [`crate::link_flavor::rewrite_for_flavor`] before invoking an
+    /// MSVC linker.
+    ///
+    /// Order:
+    /// 1. `-L<path>` for each `link-search` entry
+    /// 2. `-l<name>` for each `native-libs` entry
+    /// 3. `-framework <Name>` pairs for each `frameworks` entry (macOS only)
+    /// 4. Raw `link-args` last
+    pub fn linker_args(&self, host: HostOs) -> Vec<String> {
+        let mut out: Vec<String> =
+            Vec::with_capacity(self.native_libs.len() + self.link_search.len() * 2);
+        for s in &self.link_search {
+            out.push(format!("-L{s}"));
+        }
+        for n in &self.native_libs {
+            out.push(format!("-l{n}"));
+        }
+        if matches!(host, HostOs::Macos) {
+            for f in &self.frameworks {
+                out.push("-framework".to_string());
+                out.push(f.clone());
+            }
+        }
+        out.extend(self.link_args.iter().cloned());
+        out
+    }
 }
 
 /// v0.36 Track T2 — declarative shape of a `[[extern_lib]]` entry.

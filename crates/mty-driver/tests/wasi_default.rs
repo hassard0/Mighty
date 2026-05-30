@@ -48,6 +48,7 @@ fn default_wasi_preview_produces_p2_component_for_wasm() {
         extern_libs: Vec::new(),
 
         manifest_dir: None,
+        build_config: None,
     };
     // v0.17 dropped the standing `wasi:cli/log` shim, so a P2 build
     // only emits the new direct-import surface for code that actually
@@ -120,6 +121,7 @@ fn explicit_p1_still_works_for_wasm() {
         extern_libs: Vec::new(),
 
         manifest_dir: None,
+        build_config: None,
     };
     let outcome = build_wasm(
         "fn main() {}\n".into(),

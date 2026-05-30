@@ -275,6 +275,7 @@ fn run_row(row_dir: &Path, marker: Option<&str>) {
             },
         ],
         manifest_dir: Some(work_dir.to_path_buf()),
+        build_config: None,
     };
     let outcome = build_native(app_src, row_dir.display().to_string(), &opts);
     let bin = match outcome {

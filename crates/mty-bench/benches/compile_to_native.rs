@@ -36,6 +36,7 @@ fn bench_compile(c: &mut Criterion) {
                 extern_libs: Vec::new(),
 
                 manifest_dir: None,
+                build_config: None,
             };
             let outcome = build_wasm(src.clone(), "compile.mty".into(), &opts, WasmTarget::Wasi);
             black_box(outcome);

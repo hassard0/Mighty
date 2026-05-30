@@ -154,6 +154,7 @@ fn run_synth_compile(mode: Mode) {
         extern_libs: Vec::new(),
 
         manifest_dir: None,
+        build_config: None,
     };
     let t0 = Instant::now();
     let _ = build_wasm(src, "pgo_synth.mty".into(), &opts, WasmTarget::Wasi);

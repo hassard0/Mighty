@@ -69,6 +69,45 @@ Multiple `[[extern_lib]]` entries are honored in source order. The
 linker walks them in the same order, so put archives that need other
 archives' symbols *first*.
 
+## Project-wide link knobs — `[build]` (v0.41 T4)
+
+`[[extern_lib]]` describes one specific library; `[build]` carries
+project-wide linker knobs that apply to every binary the package
+produces. Use `[build]` when you don't need a per-library shape — "link
+libm everywhere" or "search `/opt/whatever/lib`" — and `[[extern_lib]]`
+when you need a vendored archive with its own `link_args_*` matrix.
+
+```toml
+[build]
+# Each name becomes -l<name> (rewritten to <name>.lib on MSVC linkers).
+native-libs = ["m", "pthread"]
+
+# Each path becomes -L<path> (rewritten to /LIBPATH:<path> on MSVC).
+link-search = ["/opt/whatever/lib"]
+
+# macOS-only. Becomes `-framework <Name>` on Darwin; dropped on other
+# hosts. Also dropped by the MSVC rewriter (no Windows analogue).
+frameworks = ["Cocoa", "Foundation"]
+
+# Raw linker arguments. Cross-platform shapes are auto-translated by
+# the MSVC rewriter:
+#   --gc-sections / -Wl,--gc-sections → /OPT:REF
+#   -Wl,-rpath,...                    → dropped (MSVC has no rpath)
+# Anything unrecognised passes through unchanged — escape hatch for
+# linker-specific flags that lack a portable spelling.
+link-args = ["--gc-sections"]
+```
+
+The driver concatenates the `[build]` argv after the per-`[[extern_lib]]`
+argv. A vendored static archive listed via `[[extern_lib]]` therefore
+takes precedence when both contribute the same symbol.
+
+Detecting the linker flavor: the driver looks at the resolved linker's
+basename. `link.exe` and `lld-link.exe` are treated as MSVC; everything
+else (including `clang-cl` invoked as a frontend) is fed GNU-ld syntax.
+Override with `MTY_LINKER_FLAVOR=gnu|msvc` when your linker is a custom
+wrapper.
+
 ## Mighty `extern c` block
 
 ```mighty

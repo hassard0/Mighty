@@ -82,6 +82,49 @@ clang target/01_hello.o -o target/01_hello
 ./target/01_hello
 ```
 
+### Environment variables
+
+| Variable | Purpose |
+|----------|---------|
+| `MTY_LINKER` | Override linker discovery. Absolute path or bare name on PATH (`clang`, `gcc`, `link.exe`, `lld-link`). |
+| `MTY_LINKER_FLAVOR` | Force the arg-rewrite flavor regardless of basename. Values: `gnu` (default) or `msvc` (rewrites `-lfoo`→`foo.lib`, `-L<p>`→`/LIBPATH:<p>`, `--gc-sections`→`/OPT:REF`). Use when `MTY_LINKER` points at a custom wrapper that the basename heuristic can't classify. |
+| `STARDUST_LINKER` | Legacy spelling of `MTY_LINKER`. Honoured with a one-shot deprecation warning. |
+| `MACOSX_DEPLOYMENT_TARGET` | Set the `LC_BUILD_VERSION` minimum macOS version baked into the produced Mach-O object. Defaults to 11.0.0. |
+| `MTY_MACOSX_SDK_VERSION` | Override the `LC_BUILD_VERSION` SDK field. Defaults to 14.0.0. |
+
+### Manifest link knobs (`[build]`)
+
+`mighty.toml` carries an optional `[build]` block whose link-related
+keys are wired into every native build of the package. Use these for
+project-wide knobs ("link libm everywhere"); use `[[extern_lib]]` for
+per-library shape (a vendored static archive with its own
+`link_args_*` matrix).
+
+```toml
+[build]
+# Each name becomes -l<name> (rewritten to <name>.lib on MSVC linkers).
+native-libs = ["m", "pthread"]
+
+# Each path becomes -L<path> (rewritten to /LIBPATH:<path> on MSVC).
+link-search = ["/opt/whatever/lib"]
+
+# macOS-only. Becomes `-framework <Name>`. Silently dropped on other
+# hosts (and dropped by the MSVC rewriter — no Windows analogue).
+frameworks = ["Cocoa", "Foundation"]
+
+# Raw linker arguments. Cross-platform shapes are translated by the
+# MSVC rewriter:
+#   --gc-sections → /OPT:REF
+#   -Wl,-rpath,/x → dropped (MSVC has no rpath)
+# Anything unrecognised passes through unchanged — escape hatch for
+# linker-specific flags that lack a portable spelling.
+link-args = ["--gc-sections"]
+```
+
+These args are appended after the per-`[[extern_lib]]` argv, so a
+vendored static archive can shadow a `[build] native-libs` entry that
+contributes the same symbol.
+
 ## Examples
 
 ```bash
