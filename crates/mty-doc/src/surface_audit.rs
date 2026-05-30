@@ -124,6 +124,12 @@ impl RealSurface {
                 }
                 // Type params are never named at the catalog level.
                 Param(_) => {}
+                // v0.41 T6: top-level `const NAME: T = expr;` — a
+                // value-position binding like a fn, so treat it the
+                // same way for catalog purposes.
+                Const(_) => {
+                    s.builtin_fns.insert(name.clone());
+                }
             }
         }
         for name in defs.builtin_methods.keys() {
