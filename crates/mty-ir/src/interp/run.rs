@@ -1216,7 +1216,7 @@ fn try_stdlib_ctor(name: &str, args: &[Value]) -> Option<Value> {
                 Some(Int(n, _)) => *n,
                 _ => return Some(none_v()),
             };
-            if v < 0 || v >= 0x110000 || (0xD800..=0xDFFF).contains(&v) {
+            if !(0..0x110000).contains(&v) || (0xD800..=0xDFFF).contains(&v) {
                 return Some(none_v());
             }
             let cp = v as u32;
