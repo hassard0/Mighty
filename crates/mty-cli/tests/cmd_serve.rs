@@ -117,7 +117,24 @@ fn http_get(port: u16, path: &str) -> HttpResp {
         .timeout_connect(Duration::from_secs(2))
         .timeout(Duration::from_secs(5))
         .build();
-    let resp = match agent.get(&url).call() {
+    // v0.40.2: retry ConnectionRefused. wait_for_listen does a TCP
+    // probe + drops it; on GHA Ubuntu the server can briefly stop
+    // accepting between the probe and the next real request. Retry
+    // for up to 3s before giving up.
+    let mut resp_result = agent.get(&url).call();
+    let retry_deadline = Instant::now() + Duration::from_secs(3);
+    while let Err(ref e) = resp_result {
+        let is_refused = matches!(
+            e,
+            ureq::Error::Transport(t) if format!("{t:?}").contains("ConnectionRefused")
+        );
+        if !is_refused || Instant::now() >= retry_deadline {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+        resp_result = agent.get(&url).call();
+    }
+    let resp = match resp_result {
         Ok(r) => r,
         Err(ureq::Error::Status(_, r)) => r,
         Err(e) => panic!("ureq GET {url} failed: {e:?}"),
