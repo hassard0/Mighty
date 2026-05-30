@@ -258,3 +258,62 @@ if email.to_lowercase() == canonical { /* match */ }
 let shout = greeting.to_uppercase();
 ##end
 
+##sym String.repeat
+##sig fn String.repeat(&self, n: USize) -> Str
+##desc Return a new string consisting of `n` copies of `self`. `"ab".repeat(3)` → `"ababab"`. Allocates a fresh `String` — for streaming output use a loop.
+##see String.push_str, String.with_capacity
+##example
+let separator = "-".repeat(40);
+##end
+
+##sym String.replace
+##sig fn String.replace(&self, pat: &Str, to: &Str) -> Str
+##desc Return a new string with every occurrence of `pat` replaced by `to`. For one-shot replacement use `Str.replacen(pat, to, 1)`. For regex-shaped replacement use `std.regex.Regex.replace_all`.
+##see std.regex.Regex.replace_all, String.contains, String.split
+##example
+let out = body.replace("<TOKEN>", &actual);
+##end
+
+##sym String.replacen
+##sig fn String.replacen(&self, pat: &Str, to: &Str, n: USize) -> Str
+##desc Replace up to `n` occurrences of `pat`. `replacen(pat, to, 1)` is the canonical "replace first occurrence" idiom.
+##see String.replace, std.regex.Regex.replace
+##example
+let first = body.replacen("foo", "bar", 1);
+##end
+
+##sym String.lines
+##sig fn String.lines(&self) -> Iterator[&Str]
+##desc Iterate over the LF-/CRLF-terminated lines, WITHOUT the line terminator. Trailing empty line (no terminator after) is yielded as an empty string if present. Mirrors Rust's `str::lines`.
+##see String.split, String.trim, std.fs.read_to_string
+##example
+for line in input.lines() {
+  if line.trim().is_empty() { continue; }
+  process(line);
+}
+##end
+
+##sym String.split_whitespace
+##sig fn String.split_whitespace(&self) -> Iterator[&Str]
+##desc Split on runs of Unicode whitespace, skipping empty fragments. Use this over `split(" ")` for any input that might have tabs, double spaces, NBSP, etc.
+##see String.split, String.trim, std.regex.Regex.split
+##example
+let words: Vec[&Str] = line.split_whitespace().collect();
+##end
+
+##sym String.parse
+##sig fn String.parse[T: FromStr](&self) -> Result[T, T.Err]
+##desc Generic parse-from-string. `T` decides the parse semantics (number, IP, custom). Returns the `FromStr` error type on failure — no panicking variant.
+##see String.find, std.json.parse
+##example
+let n: I32 = s.parse()?;
+##end
+
+##sym String.to_string
+##sig fn String.to_string[T: Display](value: T) -> Str
+##desc Format any `Display`-shaped value as a string. Builtin idiom for stringification — preferred over `format("{}", v)` for single-value cases.
+##see format, String.from_str
+##example
+let s = (42).to_string();
+##end
+

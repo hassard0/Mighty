@@ -103,3 +103,65 @@ let st = std.fs.stat(&fs, p)?;
 if st.kind == 1 { log("dir"); }
 ##end
 
+##sym std.fs.read_file
+##sig fn std.fs.read_file(cap: &FsCap, path: &Path) -> Result[Vec[U8], IoErr]
+##cap fs.read
+##desc Alias for `std.fs.read` (raw bytes). Surfaced under both names so docstring searches hit either spelling.
+##see std.fs.read, std.fs.read_to_string, std.fs.write_file
+##example
+let bytes = std.fs.read_file(&cap, p)?;
+##end
+
+##sym std.fs.write_file
+##sig fn std.fs.write_file(cap: &FsCap, path: &Path, data: &[U8]) -> Result[(), IoErr]
+##cap fs.write
+##desc Alias for `std.fs.write`. Atomic in the same sense as `write` (truncates + writes; not crash-safe — for that use a temp-file-then-rename pattern).
+##see std.fs.write, std.fs.read_file
+##example
+std.fs.write_file(&cap, p, payload)?;
+##end
+
+##sym std.fs.install_default_write_cap
+##sig fn std.fs.install_default_write_cap(cap: FsCap) -> FsCap
+##desc Set the process-wide default WRITE capability and return the PREVIOUS cap (for restore). Mirror of `install_default_read_cap` for the write surface.
+##see std.fs.install_default_read_cap, FsCap.rooted, std.fs.current_default_write_cap
+##example
+let prev = std.fs.install_default_write_cap(FsCap.rooted(["/tmp"]));
+// ... do work ...
+std.fs.install_default_write_cap(prev);
+##end
+
+##sym std.fs.current_default_write_cap
+##sig fn std.fs.current_default_write_cap() -> FsCap
+##desc Return a copy of the process-wide default WRITE capability. Mirror of `current_default_read_cap`.
+##see std.fs.install_default_write_cap, std.fs.current_default_read_cap, FsCap.rooted
+##example
+let cur = std.fs.current_default_write_cap();
+##end
+
+##sym FsCap.allows
+##sig fn FsCap.allows(&self, path: &Path) -> Bool
+##desc Predicate: would this cap permit access to `path`? Use to fail-fast before constructing a long IO chain that would reject anyway.
+##see FsCap.rooted, FsCap.unrestricted
+##example
+if !cap.allows(&p) { return Err(IoErr.Denied(p)); }
+##end
+
+##sym std.fs.install_default_read_cap
+##sig fn std.fs.install_default_read_cap(cap: FsCap) -> FsCap
+##desc Set the process-wide default read capability and return the PREVIOUS cap (for restore). Mighty's `fs::read*` family consults this when no explicit cap is passed.
+##see std.fs.install_default_write_cap, FsCap.rooted, std.fs.current_default_read_cap
+##example
+let prev = std.fs.install_default_read_cap(FsCap.rooted(["/tmp"]));
+// ... do work ...
+std.fs.install_default_read_cap(prev);
+##end
+
+##sym std.fs.current_default_read_cap
+##sig fn std.fs.current_default_read_cap() -> FsCap
+##desc Return a copy of the process-wide default read capability. Useful for layering — derive a tighter cap from the current one.
+##see std.fs.install_default_read_cap, FsCap.rooted
+##example
+let base = std.fs.current_default_read_cap();
+##end
+

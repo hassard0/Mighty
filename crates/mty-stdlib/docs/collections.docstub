@@ -130,3 +130,141 @@ seen.insert(id);
 for (k, v) in scores.range("a".."m") { use(k, v); }
 ##end
 
+##sym BTreeMap.iter
+##sig fn BTreeMap.iter[K: Ord, V](&self) -> Iterator[(&K, &V)]
+##desc Iterate entries in KEY-SORTED order. The fundamental advantage `BTreeMap` has over `HashMap`. O(n) total, O(1) amortised per item.
+##see BTreeMap.range, BTreeMap.new, HashMap.iter
+##example
+for (k, v) in scores.iter() {
+  log(format("{}: {}", k, v));
+}
+##end
+
+##sym BTreeMap.insert
+##sig fn BTreeMap.insert[K: Ord, V](&mut self, key: K, value: V) -> Option[V]
+##desc Insert `value` under `key`. Returns the previous value if `key` was already present, else `None`. O(log n).
+##see BTreeMap.get, BTreeMap.remove, HashMap.insert
+##example
+let prev = scores.insert("alice", 42);
+##end
+
+##sym BTreeMap.get
+##sig fn BTreeMap.get[K: Ord, V](&self, key: &K) -> Option[&V]
+##desc Look up the value under `key`. O(log n). Returns `None` if absent.
+##see BTreeMap.insert, BTreeMap.contains_key, HashMap.get
+##example
+if let Some(score) = scores.get("alice") { use(score); }
+##end
+
+##sym BTreeMap.remove
+##sig fn BTreeMap.remove[K: Ord, V](&mut self, key: &K) -> Option[V]
+##desc Remove and return the value under `key`, or `None` if absent. O(log n).
+##see BTreeMap.insert, BTreeMap.get, HashMap.remove
+##example
+let removed = scores.remove("alice");
+##end
+
+##sym BTreeMap.contains_key
+##sig fn BTreeMap.contains_key[K: Ord, V](&self, key: &K) -> Bool
+##desc True iff `key` is in the map. O(log n). Use over `get(&k).is_some()` when you don't need the value.
+##see BTreeMap.get, HashMap.contains_key
+##example
+if scores.contains_key("alice") { /* ... */ }
+##end
+
+##sym BTreeMap.len
+##sig fn BTreeMap.len[K: Ord, V](&self) -> USize
+##desc Number of entries. O(1).
+##see BTreeMap.is_empty, HashMap.len
+##example
+log(format("{} entries", scores.len()));
+##end
+
+##sym BTreeSet.insert
+##sig fn BTreeSet.insert[T: Ord](&mut self, value: T) -> Bool
+##desc Insert `value`. Returns `true` if it was NEW, `false` if already present. O(log n).
+##see BTreeSet.contains, BTreeSet.new, HashSet.insert
+##example
+if seen.insert(id) { /* first time we see this id */ }
+##end
+
+##sym BTreeSet.contains
+##sig fn BTreeSet.contains[T: Ord](&self, value: &T) -> Bool
+##desc True iff `value` is in the set. O(log n).
+##see BTreeSet.insert, BTreeSet.range, HashSet.contains
+##example
+if seen.contains(&id) { return; }
+##end
+
+##sym BTreeSet.range
+##sig fn BTreeSet.range[T: Ord](&self, range: Range[T]) -> Iterator[&T]
+##desc Iterate the values whose order falls in the half-open range `low..high`. Set counterpart of `BTreeMap.range`.
+##see BTreeSet.contains, BTreeMap.range, BTreeSet.new
+##example
+for v in nums.range(10..20) { use(v); }
+##end
+
+##sym BTreeSet.iter
+##sig fn BTreeSet.iter[T: Ord](&self) -> Iterator[&T]
+##desc Iterate values in SORTED order — the differentiator vs `HashSet.iter`.
+##see BTreeSet.range, HashSet.iter, BTreeMap.iter
+##example
+for v in nums.iter() { log(format("{}", v)); }
+##end
+
+##sym HashSet.remove
+##sig fn HashSet.remove[T: Hash + Eq](&mut self, value: &T) -> Bool
+##desc Remove `value`. Returns `true` if it was present, `false` if absent. O(1) average.
+##see HashSet.insert, HashSet.contains, HashMap.remove
+##example
+let was_there = seen.remove(&id);
+##end
+
+##sym HashSet.iter
+##sig fn HashSet.iter[T: Hash + Eq](&self) -> Iterator[&T]
+##desc Iterate values in UNSPECIFIED order — the hash-table ordering is intentionally not stable across runs. Use `BTreeSet.iter` if you need sorted iteration.
+##see HashSet.contains, BTreeSet.iter, HashMap.iter
+##example
+for v in seen.iter() { log(format("{}", v)); }
+##end
+
+##sym HashSet.intersection
+##sig fn HashSet.intersection[T: Hash + Eq](&self, other: &HashSet[T]) -> Iterator[&T]
+##desc Items in BOTH sets. Lazy iterator — doesn't materialise a new set. O(min(|a|, |b|)) on average.
+##see HashSet.union, HashSet.difference, HashSet.contains
+##example
+let common: Vec[&Str] = a.intersection(&b).collect();
+##end
+
+##sym HashSet.union
+##sig fn HashSet.union[T: Hash + Eq](&self, other: &HashSet[T]) -> Iterator[&T]
+##desc Items in EITHER set. Lazy iterator. Items present in both are yielded only once.
+##see HashSet.intersection, HashSet.difference
+##example
+let everything: Vec<_> = a.union(&b).cloned().collect();
+##end
+
+##sym HashSet.difference
+##sig fn HashSet.difference[T: Hash + Eq](&self, other: &HashSet[T]) -> Iterator[&T]
+##desc Items in `self` but NOT in `other`. Lazy iterator. Asymmetric — `a.difference(b) != b.difference(a)` in general.
+##see HashSet.intersection, HashSet.union, HashSet.symmetric_difference
+##example
+let only_in_a: Vec<_> = a.difference(&b).cloned().collect();
+##end
+
+##sym HashMap.keys
+##sig fn HashMap.keys[K: Hash + Eq, V](&self) -> Iterator[&K]
+##desc Iterate the keys in UNSPECIFIED order. The key-only counterpart of `iter`.
+##see HashMap.values, HashMap.iter, BTreeMap.iter
+##example
+for k in m.keys() { log(format("{}", k)); }
+##end
+
+##sym HashMap.values
+##sig fn HashMap.values[K: Hash + Eq, V](&self) -> Iterator[&V]
+##desc Iterate the values in UNSPECIFIED order. Value-only counterpart of `iter`.
+##see HashMap.keys, HashMap.iter
+##example
+let total: I64 = scores.values().sum();
+##end
+

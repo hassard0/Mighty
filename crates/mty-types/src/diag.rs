@@ -394,11 +394,62 @@ pub fn invalid_cast(
     )
 }
 
+/// v0.40 T3 (MT2027 specialisation): a *non-literal* `Int as Char`
+/// cast was used. v0.39 T2 let this through and produced the raw bit
+/// pattern at runtime; v0.40 T3 rejects it because the codepoint
+/// validity (0..0x110000 minus the UTF-16 surrogate gap) can only be
+/// verified at runtime, and Mighty's general direction is
+/// `Option` / `Result` for fallible operations rather than silent
+/// pass-through or runtime traps. Authors must use `Char.from_u32(v)`
+/// which returns `Option[Char]`.
+///
+/// Reuses `INVALID_CAST` (MT2027) because the surface-level message is
+/// the same family ("this cast isn't accepted at the surface — use the
+/// explicit constructor"); the per-code fix engine in
+/// `mty-diagnostics::codes_fix` recognises the Int-to-Char shape and
+/// suggests `Char.from_u32(<expr>)?`.
+pub fn int_to_char_needs_from_u32(
+    src: TyId,
+    span: &SourceSpan,
+    arena: &TyArena,
+    subst: &Substitution,
+    defs: &DefMap,
+) -> Diagnostic {
+    let s = pretty_ty(src, arena, Some(subst), Some(defs));
+    let mut d = Diagnostic::error(
+        INVALID_CAST,
+        label(
+            span,
+            format!(
+                "cannot cast non-literal `{}` to `Char` with `as` — \
+                 codepoint validity can't be verified at compile time",
+                s
+            ),
+        ),
+    );
+    d.notes.push(
+        "Mighty's `Char` is a Unicode scalar value (0..0xD7FF or \
+         0xE000..=0x10FFFF). `as Char` is only accepted for integer \
+         literals (checked at compile time, cf. MT2028); runtime-\
+         computed codepoints must go through the explicit constructor."
+            .into(),
+    );
+    d.helps.push(
+        "use `Char.from_u32(value)` which returns `Option[Char]` — \
+         pattern-match on `Some` / `None`, or use `?` inside a function \
+         that returns `Option[Char]` to early-return on an invalid \
+         codepoint. See docs/reference/casts.md."
+            .into(),
+    );
+    d
+}
+
 /// v0.39 T2 (MT2028 emit-site): an integer literal cast to `Char`
 /// evaluates to a value outside the Unicode scalar value range
 /// (0..0x110000 minus the surrogate gap 0xD800..=0xDFFF). Fires at
-/// compile time for literals; non-literal `Int as Char` casts pass
-/// typeck and are documented in docs/reference/casts.md.
+/// compile time for literals; non-literal `Int as Char` casts are
+/// rejected at the cast surface entirely as of v0.40 T3 (see
+/// `int_to_char_needs_from_u32` above + docs/reference/casts.md).
 pub fn invalid_codepoint(value: i128, span: &SourceSpan) -> Diagnostic {
     // Format the offending value as hex when it is a positive literal —
     // that's the form authors used at the source level, so showing it
@@ -429,8 +480,9 @@ pub fn invalid_codepoint(value: i128, span: &SourceSpan) -> Diagnostic {
     );
     d.notes.push(
         "Mighty's `Char` is a Unicode scalar value (0..0xD7FF or \
-         0xE000..=0x10FFFF). Pick a valid codepoint, or use a \
-         runtime-validated constructor (post-v0.39)."
+         0xE000..=0x10FFFF). Pick a valid codepoint, or for a \
+         runtime-computed value use `Char.from_u32(v) -> Option[Char]` \
+         (v0.40 T3)."
             .into(),
     );
     d

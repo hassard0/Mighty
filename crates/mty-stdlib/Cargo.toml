@@ -75,6 +75,22 @@ hmac = "0.12"
 base64 = "0.22"
 blake3 = { version = "1", default-features = false, features = ["std"] }
 url = "2"
+# v0.40 T4 — std.regex + AES-GCM + ChaCha20-Poly1305.
+#
+# `regex` (1.x) is the RE2-style finite-automata engine — guaranteed
+# linear time matching, no catastrophic backtracking. Drives every
+# `std.regex.Regex` call. Already in the lockfile transitively
+# (tracing-subscriber / env_logger pull it in for filter expressions);
+# promoting it to a direct dep keeps things explicit.
+#
+# `aes-gcm` (0.10) and `chacha20poly1305` (0.10) are the RustCrypto
+# audited AEAD implementations. Both pull in the same RustCrypto
+# `aead` 0.5 trait crate. We surface both ciphers because TLS 1.3
+# mandates ChaCha20-Poly1305 as a fallback for hardware without
+# AES-NI; users can pick by function name.
+regex = "1"
+aes-gcm = "0.10"
+chacha20poly1305 = "0.10"
 
 [features]
 # `runner` pulls the full driver/diagnostics stack so `std.test`

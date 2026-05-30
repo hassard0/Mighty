@@ -126,3 +126,123 @@ match std.crypto.uniform_int(5, 5) {
 }
 ##end
 
+##sym std.crypto.aes_gcm.encrypt
+##sig fn std.crypto.aes_gcm.encrypt(key: &[U8; 32], nonce: &[U8; 12], aad: &[U8], pt: &[U8]) -> Result[Vec[U8], AeadErr]
+##desc AES-256-GCM authenticated encryption. Returns `plaintext_len + 16` bytes — the ciphertext followed by the 128-bit GCM auth tag. **Nonce MUST be unique for every (key, message)** — reuse catastrophically breaks GCM (an attacker can recover the GHASH authentication key). AAD is bound into the tag but not encrypted; the decryptor must pass the same AAD bytes.
+##see std.crypto.aes_gcm.decrypt, std.crypto.AeadErr, std.crypto.random_bytes, std.crypto.chacha20_poly1305.encrypt
+##example
+let ct = std.crypto.aes_gcm.encrypt(&key, &nonce, b"v=1", b"payload")?;
+let b64 = std.encoding.base64.encode_url_no_pad(ct);
+##end
+
+##sym std.crypto.aes_gcm.decrypt
+##sig fn std.crypto.aes_gcm.decrypt(key: &[U8; 32], nonce: &[U8; 12], aad: &[U8], ct: &[U8]) -> Result[Vec[U8], AeadErr]
+##desc AES-256-GCM decrypt. Verifies the 128-bit auth tag in CONSTANT TIME before returning plaintext. Any tampering with ciphertext, AAD, key, or nonce yields `AeadErr.Decrypt` — intentionally opaque (no padding-oracle leak distinguishing wrong key from wrong AAD).
+##see std.crypto.aes_gcm.encrypt, std.crypto.AeadErr, std.crypto.chacha20_poly1305.decrypt
+##example
+let pt = std.crypto.aes_gcm.decrypt(&key, &nonce, b"v=1", &ct)?;
+assert_eq(pt, b"payload");
+##end
+
+##sym std.crypto.aes_gcm
+##sig module std.crypto.aes_gcm
+##desc AES-256-GCM authenticated encryption (NIST CAVP-tested). Workhorse AEAD that backs TLS 1.3, AWS S3-SSE, Signal, etc. Pick this on hardware with AES-NI (x86_64); pick `chacha20_poly1305` on ARM / embedded / hosts without AES instructions. Backed by RustCrypto's audited `aes-gcm` crate.
+##see std.crypto.aes_gcm.encrypt, std.crypto.aes_gcm.decrypt, std.crypto.chacha20_poly1305, std.crypto.AeadErr
+##example
+use std.crypto.aes_gcm.{encrypt, decrypt};
+let ct = encrypt(&key, &nonce, b"v=1", b"hi")?;
+let pt = decrypt(&key, &nonce, b"v=1", &ct)?;
+##end
+
+##sym std.crypto.chacha20_poly1305.encrypt
+##sig fn std.crypto.chacha20_poly1305.encrypt(key: &[U8; 32], nonce: &[U8; 12], aad: &[U8], pt: &[U8]) -> Result[Vec[U8], AeadErr]
+##desc RFC 8439 ChaCha20-Poly1305 AEAD encrypt. Identical shape to `aes_gcm.encrypt` on purpose so the caller can swap the cipher by changing one function name. Returns `plaintext_len + 16` bytes (ciphertext + Poly1305 tag). Same nonce-uniqueness requirement as AES-GCM.
+##see std.crypto.chacha20_poly1305.decrypt, std.crypto.AeadErr, std.crypto.aes_gcm.encrypt
+##example
+let ct = std.crypto.chacha20_poly1305.encrypt(&key, &nonce, b"v=1", b"payload")?;
+##end
+
+##sym std.crypto.chacha20_poly1305.decrypt
+##sig fn std.crypto.chacha20_poly1305.decrypt(key: &[U8; 32], nonce: &[U8; 12], aad: &[U8], ct: &[U8]) -> Result[Vec[U8], AeadErr]
+##desc RFC 8439 ChaCha20-Poly1305 AEAD decrypt. Verifies the 128-bit Poly1305 tag in constant time. Tamper / wrong-key / wrong-AAD all yield the opaque `AeadErr.Decrypt`.
+##see std.crypto.chacha20_poly1305.encrypt, std.crypto.AeadErr, std.crypto.aes_gcm.decrypt
+##example
+let pt = std.crypto.chacha20_poly1305.decrypt(&key, &nonce, b"v=1", &ct)?;
+##end
+
+##sym std.crypto.chacha20_poly1305
+##sig module std.crypto.chacha20_poly1305
+##desc ChaCha20-Poly1305 AEAD (RFC 8439). Mandatory TLS 1.3 ciphersuite; the right pick on hardware without AES-NI (ARM, embedded). Constant-time C/assembly ChaCha is faster than software AES on those platforms. Backed by RustCrypto's audited `chacha20poly1305` crate.
+##see std.crypto.chacha20_poly1305.encrypt, std.crypto.chacha20_poly1305.decrypt, std.crypto.aes_gcm
+##example
+use std.crypto.chacha20_poly1305.{encrypt, decrypt};
+let ct = encrypt(&key, &nonce, b"v=1", b"hi")?;
+##end
+
+##sym std.crypto.AeadErr
+##sig enum std.crypto.AeadErr { Encrypt(Str), Decrypt }
+##desc Errors from both AES-GCM and ChaCha20-Poly1305. `Encrypt(msg)` fires only on pathological input (plaintext > 2^36 - 32 bytes — not reachable in practice). `Decrypt` is intentionally opaque: the variant carries no payload so an attacker can't distinguish "wrong key" from "wrong AAD" from "tampered ciphertext".
+##see std.crypto.aes_gcm.encrypt, std.crypto.chacha20_poly1305.encrypt
+##example
+match std.crypto.aes_gcm.decrypt(&key, &nonce, b"v=1", &ct) {
+  Ok(pt) => use(pt),
+  Err(AeadErr.Decrypt) => return Err("auth failed"),
+  Err(AeadErr.Encrypt(_)) => unreachable(),
+}
+##end
+
+##sym std.crypto.AeadErr.Encrypt
+##sig variant AeadErr.Encrypt(msg: Str)
+##desc Encryption rejected the input — only reachable for plaintext longer than 2^36 - 32 bytes, which Mighty programs can't realistically construct. Surfaced for completeness so the variant table is exhaustive.
+##see std.crypto.AeadErr, std.crypto.aes_gcm.encrypt
+##example
+match std.crypto.aes_gcm.encrypt(&key, &nonce, aad, pt) {
+  Err(AeadErr.Encrypt(msg)) => log(msg),
+  _ => {},
+}
+##end
+
+##sym std.crypto.AeadErr.Decrypt
+##sig variant AeadErr.Decrypt
+##desc Decryption failed. Either the auth tag didn't verify (ciphertext/AAD/key/nonce tampered or wrong) OR the ciphertext is shorter than the 16-byte tag. INTENTIONALLY OPAQUE — leaking which failure happened helps padding-oracle-style attackers.
+##see std.crypto.AeadErr, std.crypto.aes_gcm.decrypt, std.crypto.chacha20_poly1305.decrypt
+##example
+if let Err(AeadErr.Decrypt) = std.crypto.aes_gcm.decrypt(&key, &n, aad, &ct) {
+  return Err("session tampered");
+}
+##end
+
+##sym aead_nonce_uniqueness
+##sig INVARIANT: nonce MUST be unique per (key, message)
+##cap crypto.rand (only if you generate the nonce here)
+##desc Both AES-GCM and ChaCha20-Poly1305 require a 96-bit nonce that is unique for every encryption under a given key. Reuse catastrophically breaks the construction. Two safe patterns: (1) sequential counter persisted in storage (best for messages with a natural order); (2) `std.crypto.random_bytes(12)` with the understanding that ~2^32 messages per key is the safe ceiling for random nonces (collision probability ~2^-32 at that count).
+##see std.crypto.aes_gcm.encrypt, std.crypto.random_bytes, std.crypto.chacha20_poly1305.encrypt
+##example
+// Random nonce per message (safe up to ~2^32 messages per key).
+let nonce = std.crypto.random_bytes(12);
+let ct = std.crypto.aes_gcm.encrypt(&key, &nonce, aad, pt)?;
+##end
+
+##sym aead_aad_binding
+##sig AAD = additional authenticated data
+##desc The `aad` argument to `encrypt`/`decrypt` is NOT encrypted but IS bound into the auth tag. Use it to commit the ciphertext to a version tag, key id, request id, etc. The decryptor MUST pass byte-identical AAD or `AeadErr.Decrypt` fires. Typical pattern: a single-byte version marker that lets you rotate ciphers later without ambiguity.
+##see std.crypto.aes_gcm.encrypt, std.crypto.aes_gcm.decrypt
+##example
+let aad = b"v=1";
+let ct = std.crypto.aes_gcm.encrypt(&key, &nonce, aad, payload)?;
+// Later: must pass the SAME aad.
+let pt = std.crypto.aes_gcm.decrypt(&key, &nonce, aad, &ct)?;
+##end
+
+##sym aead_secure_session_pattern
+##sig secure-session = HMAC-KDF + random nonce + AEAD + URL-safe-base64
+##cap crypto.rand
+##desc Canonical v0.40 T4 stack: derive a per-session key with `hmac_sha256(master, session_id)`, generate a 12-byte random nonce, seal the payload with `aes_gcm.encrypt`, and URL-encode the ciphertext with `base64.encode_url_no_pad`. The full pattern lives at `examples/43_secure_session.mty`.
+##see std.crypto.aes_gcm.encrypt, std.crypto.hmac_sha256, std.crypto.random_bytes, std.encoding.base64.encode_url_no_pad
+##example
+let key = std.crypto.hmac_sha256(master, session_id);
+let nonce = std.crypto.random_bytes(12);
+let ct = std.crypto.aes_gcm.encrypt(&key, &nonce, b"v=1", payload)?;
+let cookie = std.encoding.base64.encode_url_no_pad(&ct);
+##end
+

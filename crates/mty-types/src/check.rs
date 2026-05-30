@@ -527,21 +527,47 @@ fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
                     cx.defs,
                 ));
             } else {
-                // v0.39 T2 (MT2028 emit-site): when the cast is
-                // `<int-literal> as Char`, verify the codepoint is a
-                // valid Unicode scalar value at compile time. Non-literal
-                // sources are documented as UB in docs/reference/casts.md
-                // — v0.40 will add a runtime check.
+                // v0.39 T2 + v0.40 T3 — `<int> as Char`:
+                //
+                //  * **Literal source** (v0.39 T2): verify the codepoint
+                //    is a valid Unicode scalar value at compile time;
+                //    emit `MT2028 INVALID_CODEPOINT` on a bad literal.
+                //  * **Non-literal source** (v0.40 T3): we used to let
+                //    this pass through and produce the raw bit pattern
+                //    at runtime. v0.40 T3 picks **option (b)** from the
+                //    casts.md design table — instead of either a silent
+                //    pass-through or a runtime trap, we **reject the
+                //    `as` surface entirely** and force the author to
+                //    spell `Char.from_u32(v)` which returns
+                //    `Option[Char]`. This is more discoverable than a
+                //    runtime trap and matches Mighty's Result/Option
+                //    bias for fallible operations.
                 let target_resolved = cx.subst.resolve(target, cx.arena);
                 if matches!(cx.arena.get(target_resolved), TyData::Char) {
-                    if let HirExpr::Literal(HirLiteral::Int(v, _)) = &cx.pkg.exprs[lhs] {
-                        let cv = *v;
-                        let is_valid =
-                            (0..0x110000).contains(&cv) && !(0xD800..=0xDFFF).contains(&cv);
-                        if !is_valid {
-                            cx.diag
-                                .push(diag::invalid_codepoint(cv, &cx.span_of_expr(expr_id)));
+                    let src_resolved = cx.subst.resolve(lhs_ty, cx.arena);
+                    let src_is_int = matches!(cx.arena.get(src_resolved), TyData::Int(_));
+                    match &cx.pkg.exprs[lhs] {
+                        HirExpr::Literal(HirLiteral::Int(v, _)) => {
+                            let cv = *v;
+                            let is_valid =
+                                (0..0x110000).contains(&cv) && !(0xD800..=0xDFFF).contains(&cv);
+                            if !is_valid {
+                                cx.diag
+                                    .push(diag::invalid_codepoint(cv, &cx.span_of_expr(expr_id)));
+                            }
                         }
+                        _ if src_is_int => {
+                            // v0.40 T3: non-literal int → Char rejected
+                            // — point the author at `Char.from_u32`.
+                            cx.diag.push(diag::int_to_char_needs_from_u32(
+                                lhs_ty,
+                                &cx.span_of_expr(expr_id),
+                                cx.arena,
+                                cx.subst,
+                                cx.defs,
+                            ));
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -560,7 +586,13 @@ fn synth_expr_inner(cx: &mut Cx, expr_id: ExprId) -> TyId {
 ///   - int   ↔ float (truncate / round)
 ///   - float ↔ float (widen / narrow)
 ///   - bool  ↔ int   (v0.39 T2; false→0, true→1; zero→false, nonzero→true)
-///   - char  ↔ int   (codepoint round-trip; cf. MT2028 for literal codepoint validity)
+///   - char  → int   (codepoint round-trip; always defined)
+///   - int   → char   (codepoint round-trip; **literal only** post-v0.40 T3
+///     — non-literal sources are rejected at the Cast emit-site with a
+///     hint pointing at `Char.from_u32` which returns `Option[Char]`.
+///     `is_valid_cast` still returns true so the emit-site can produce a
+///     specific MT2027 instead of the generic "no scalar conversion path"
+///     message. cf. MT2028 for literal codepoint validity)
 ///   - &T    ↔ *T    (v0.39 T2; only when the inner types unify — `&I32 as
 ///     *I32` is fine, `&U8 as *I32` is not).  At the surface `*T` and `&T`
 ///     share the `TyData::Ref` representation, so this rule reads as

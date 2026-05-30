@@ -167,3 +167,64 @@ let s = Suite.new("qa")
   .compare_with(Compare.semantic_similarity(0.8));
 ##end
 
+##sym Compare.semantic_with_threshold
+##sig fn Compare.semantic_similarity(threshold: F32) -> Compare
+##desc Constructs a semantic-similarity comparator with the given cosine-similarity cutoff. Threshold 0.85 is a reasonable default for English; 0.95 is conservative; 0.7 is loose. Combine with `Compare.semantic_similarity_with(threshold, embedder)` to pin the embedding model.
+##see Compare.semantic_similarity, Compare.semantic_similarity_with, Compare.equal, Suite.compare_with
+##example
+let cmp = Compare.semantic_similarity(0.85);
+let suite = Suite.new("qa").compare_with(cmp).run_with(member);
+##end
+
+##sym Replay.with_provider
+##sig fn Replay.with_provider(provider: impl TurnProvider) -> Replay
+##desc Plug a turn provider into a replay run. The provider drives the actual model calls during replay (vs the baseline trace). Use `MemberTurnProvider.new(member, budget)` to drive replay through a Member + budget cap; use `MemberTurnProvider.unbounded(member)` to run without a budget.
+##see MemberTurnProvider.new, MemberTurnProvider.unbounded, Case.from_trace, Suite.run_with
+##example
+let provider = MemberTurnProvider.unbounded(Member.anthropic("claude-opus-4-7"));
+let replay = Replay.from_trace("baseline.bin").with_provider(provider);
+##end
+
+##sym MemberTurnProvider.new
+##sig fn MemberTurnProvider.new(member: Member, budget: SharedDollarBudget) -> MemberTurnProvider
+##desc Build a budget-aware turn provider for replay. The budget is shared across calls so a budget trip inside a multi-case suite stops the whole run cleanly.
+##see MemberTurnProvider.unbounded, Replay.with_provider, SharedDollarBudget.from_dollars
+##example
+let budget = SharedDollarBudget.from_dollars(5.00);
+let p = MemberTurnProvider.new(member, budget);
+##end
+
+##sym MemberTurnProvider.unbounded
+##sig fn MemberTurnProvider.unbounded(member: Member) -> MemberTurnProvider
+##desc Budget-free turn provider for replay. Use in tests and CI where the call count is bounded by the trace's recorded turns.
+##see MemberTurnProvider.new, Replay.with_provider
+##example
+let p = MemberTurnProvider.unbounded(Member.mock("m", "reply", 0));
+##end
+
+##sym Report.passed
+##sig fn Report.passed(&self) -> Bool
+##desc Did every case in the suite verdict `Match`? Convenience for the CI exit-code path — `exit(if report.passed() { 0 } else { 1 })`.
+##see Report.failure_count, Verdict.Match, Suite.run_with
+##example
+let report = suite.run_with(member);
+if !report.passed() { exit(1); }
+##end
+
+##sym Report.failure_count
+##sig fn Report.failure_count(&self) -> USize
+##desc Number of cases whose verdict was not `Match`. Useful for summary lines like "3 / 50 cases failed".
+##see Report.passed, Verdict.Diverge, Verdict.Error
+##example
+let report = suite.run_with(member);
+log(format("{} failed", report.failure_count()));
+##end
+
+##sym Verdict.Fail
+##sig alias for Verdict.Diverge | Verdict.Error
+##desc v0.39 polish — predicate-shaped helper. A case "failed" iff its verdict is either `Diverge` (output didn't match expected) or `Error` (the call panicked / errored out). `Verdict.Match` and `Verdict.SingleMember` are the success-shape verdicts.
+##see Verdict.Match, Verdict.Diverge, Verdict.Error, Report.failure_count
+##example
+let failed = matches!(verdict, Verdict.Diverge(_) | Verdict.Error(_));
+##end
+

@@ -62,6 +62,7 @@ pub mod memory;
 pub mod observe;
 pub mod rag;
 pub mod random;
+pub mod regex;
 pub mod string;
 pub mod swarm;
 pub mod test;

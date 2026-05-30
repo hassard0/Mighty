@@ -96,43 +96,58 @@ let c3 = 0xD800_u32 as Char     // MT2028 (UTF-16 surrogate)
 let c4 = 0xD7FF_u32 as Char     // ok — last value before the gap
 ```
 
-**Non-literal sources** (variables, fn returns, arithmetic expressions)
-**pass typeck** and produce the raw bit pattern at runtime. This is a
-deliberate v0.39 T2 trade-off:
+### v0.40 T3 — non-literal `Int as Char` rejected; use `Char.from_u32`
 
-- Authors who hand-code constants in their source see the diagnostic
-  immediately — the most common authoring footgun.
-- Computed codepoints that come from a real Unicode-aware source
-  (parser output, MIDI byte stream, etc.) flow through without a
-  spurious runtime overhead.
+v0.39 T2 left non-literal sources as a documented pass-through that
+produced the raw bit pattern at runtime. v0.40 T3 closes that surface:
 
-v0.40 will tighten the non-literal path. Two designs are on the table
-and a decision is deferred until the call-site frequency data lands:
+**Non-literal `Int as Char` is now rejected at the cast emit-site with
+`MT2027 INVALID_CAST`** plus a fix-suggestion that auto-rewrites the
+expression to `Char.from_u32(value)?`. The shape was picked from the
+v0.39 T2 design table (options (a) runtime trap vs (b) `Option[Char]`
+surface):
 
-1. **Runtime trap.** Emit a check in IR that traps with a new
-   `MT5081 INVALID_CODEPOINT_RUNTIME` if `v >= 0x110000 ||
-   (0xD800..=0xDFFF).contains(&v)` at the cast site. Mirrors the
-   v0.36 T3 `MT5080 STRING_NOT_CHAR_BOUNDARY` pattern.
-2. **`Option[Char]` surface.** Change the result type of non-literal
-   `Int as Char` to `Option[Char]`, so the call site is forced to
-   match on `Some` / `None`. Equivalent to Rust's
-   `char::from_u32(x)`. Better DX but breaks the
-   `let c: Char = x as Char` ergonomics that v0.37 T2 established.
+- **(b) Option[Char] won.** Mighty's general direction is
+  `Result` / `Option` for fallible operations, not panics. Non-literal
+  codepoint validity isn't a memory-safety boundary (so a runtime trap
+  in the v0.39 T3 `MT5081` sense isn't warranted) — it's an input-
+  validation problem, which the call site should pattern-match on.
+- The literal-time path is unchanged: `0x41 as Char` is still a valid
+  compile-time cast (with MT2028 on out-of-range literals).
+- The `as` surface for `Char` is now **one-directional**: `Char as IntN`
+  remains accepted (codepoint round-trip is total), but `IntN as Char`
+  requires the explicit constructor for non-literal sources.
 
-Until v0.40 picks one, the safe pattern for runtime-computed
-codepoints is a manual guard:
+Authors get a typed `Option[Char]` so the surrounding code is forced to
+say what it wants for the invalid case:
 
 ```mty
+// Surfaces the failure to the caller via `?`
+fn parse_codepoint(s: Str) -> Option[Char] {
+  let n: U32 = s.parse()?
+  Char.from_u32(n)?
+}
+
+// Replacement-character fallback
 fn safe_char(v: U32) -> Char {
-  if v < 0xD800_u32 || (v >= 0xE000_u32 && v < 0x110000_u32) {
-    v as Char
-  } else {
-    '?'    // or whatever your replacement strategy is
-  }
+  Char.from_u32(v).unwrap_or('?')
+}
+
+// Pattern match for a custom strategy
+match Char.from_u32(v) {
+  Some(c) => emit(c),
+  None    => emit_diagnostic("bad codepoint"),
 }
 ```
 
-## Rejection table (post-v0.39 T2)
+The fix engine (`mty fix --apply`) auto-converts an existing
+`<expr> as Char` line to `Char.from_u32(<expr>)?`, so the v0.39 T2
+shape migrates without manual edits. See
+`crates/mty-diagnostics/src/codes_fix.rs::fix_invalid_cast_int_to_char`.
+
+See [std-char.md](std-char.md) for the full `Char.from_u32` reference.
+
+## Rejection table (post-v0.40 T3)
 
 | Cast | Result | Reason |
 |------|--------|--------|
@@ -140,6 +155,7 @@ fn safe_char(v: U32) -> Char {
 | `Bool → Float` | MT2027 | Spelling out `if b { 1.0 } else { 0.0 }` is cheaper and clearer. |
 | `Bool → Char` | MT2027 | No defined codepoint mapping (`true → U+0001`?). |
 | `Char → Bool` | MT2027 | Same — no defined nonzero-codepoint policy. |
+| `<non-literal Int> → Char` | MT2027 (v0.40 T3) | Codepoint validity not verifiable at compile time — use `Char.from_u32(value) -> Option[Char]`. |
 | `Str / Bytes / Tuple / Array / Adt → anything` | MT2027 | No scalar-conversion path; use a parser / constructor. |
 | `Int → *T`, `*T → Int` | MT2027 | Surface `as` doesn't admit pointer arithmetic; use `unsafe { raw_ptr(addr) }`. |
 | `&U8 as *I32` (and friends) | MT2027 | Inner type mismatch — pointer-pointee bit-casts must be explicit unsafe. |
@@ -148,9 +164,10 @@ fn safe_char(v: U32) -> Char {
 
 | Code | Fires at | Introduced |
 |------|----------|------------|
-| `MT2027 INVALID_CAST` | typeck cast emit-site | v0.37 T2 |
-| `MT2028 INVALID_CODEPOINT` | literal `Int as Char` with out-of-range value | **v0.39 T2** |
+| `MT2027 INVALID_CAST` | typeck cast emit-site | v0.37 T2 (extended v0.40 T3 to cover non-literal `Int as Char`) |
+| `MT2028 INVALID_CODEPOINT` | literal `Int as Char` with out-of-range value | v0.39 T2 |
 
-`MT5081 INVALID_CODEPOINT_RUNTIME` is **reserved** for the v0.40
-runtime check. The diagnostic family currently registers MT5080
-(`STRING_NOT_CHAR_BOUNDARY`); the next entry will sit alongside it.
+`MT5081 INVALID_CODEPOINT_RUNTIME` was **reserved** for a v0.40 runtime
+trap design that v0.40 T3 ultimately rejected in favour of the
+`Char.from_u32` constructor surface. The reservation is released
+(the next freed slot is available for a future runtime diagnostic).

@@ -207,3 +207,155 @@ let evens: Vec[I32] = (0..10).step_by(2).collect();
 assert_eq(evens, [0, 2, 4, 6, 8]);
 ##end
 
+##sym Iterator.scan
+##sig fn Iterator.scan[B, F: FnMut(&mut St, T) -> Option[B]](self, init: St, f: F) -> Scan[Self, St, F]
+##desc Like `fold` but emits each intermediate state as an iterator item. Stops when `f` returns `None`. Canonical use: running totals, parser state machines, cumulative sums.
+##see Iterator.fold, Iterator.map, Iterator.take_while
+##example
+let running_sums: Vec[I64] = [1, 2, 3, 4]
+  .iter()
+  .scan(0, |acc, x| { *acc += x; Some(*acc) })
+  .collect();
+// [1, 3, 6, 10]
+##end
+
+##sym Iterator.take_while
+##sig fn Iterator.take_while[P: FnMut(&T) -> Bool](self, pred: P) -> TakeWhile[Self, P]
+##desc Yield items while `pred` returns true; stop at the first false. Unlike `filter`, the iterator terminates after the first rejection — useful for sorted streams and parse-prefix idioms.
+##see Iterator.skip_while, Iterator.filter, Iterator.take
+##example
+let small: Vec[I64] = nums.iter().take_while(|&n| *n < 100).collect();
+##end
+
+##sym Iterator.skip_while
+##sig fn Iterator.skip_while[P: FnMut(&T) -> Bool](self, pred: P) -> SkipWhile[Self, P]
+##desc Skip items while `pred` returns true; from the first false on, yield everything (including subsequent items where `pred` would be true again). Mirror image of `take_while`.
+##see Iterator.take_while, Iterator.skip, Iterator.filter
+##example
+let from_first_neg: Vec[I64] = nums.iter().skip_while(|&n| *n >= 0).copied().collect();
+##end
+
+##sym Iterator.partition
+##sig fn Iterator.partition[B: Default + Extend[T], P: FnMut(&T) -> Bool](self, pred: P) -> (B, B)
+##desc Split the iterator into two collections by predicate: `(matching, rejected)`. Single pass; both collections preserve original order. The canonical "sort items into two buckets" combinator.
+##see Iterator.filter, Iterator.group_by, Iterator.collect
+##example
+let (evens, odds): (Vec[I32], Vec[I32]) = (1..10).partition(|&n| n % 2 == 0);
+##end
+
+##sym Iterator.group_by
+##sig fn Iterator.group_by[K: Eq, F: FnMut(&T) -> K](self, key: F) -> GroupBy[Self, F]
+##desc Group CONSECUTIVE items sharing the same key. NOT a SQL-style global GROUP BY — the input must already be sorted by key for total grouping. Each group yields `(key, sub-iterator)`.
+##see Iterator.partition, Iterator.fold, GroupBy.Provider
+##example
+let sorted: Vec<_> = items.iter().sorted_by_key(|x| x.kind).collect();
+for (kind, group) in sorted.iter().group_by(|x| x.kind) {
+  log(format("{}: {}", kind, group.count()));
+}
+##end
+
+##sym Iterator.position
+##sig fn Iterator.position[P: FnMut(T) -> Bool](&mut self, pred: P) -> Option[USize]
+##desc Index of the first item for which `pred` returns true, or `None`. Consumes the iterator up to (but not including) the next item. The index counterpart of `find`.
+##see Iterator.find, Iterator.any, Iterator.enumerate
+##example
+let idx = nums.iter().position(|&n| n > 100);
+##end
+
+##sym Iterator.last
+##sig fn Iterator.last(self) -> Option[T]
+##desc Consume the iterator and return the last yielded item, or `None` on an empty iterator. O(n) for the general case (specialised on `DoubleEndedIterator` for O(1) `.rev().next()`).
+##see Iterator.next, Iterator.rev, Iterator.count
+##example
+let last_line = std.fs.read_to_string(p)?.lines().last();
+##end
+
+##sym Iterator.nth
+##sig fn Iterator.nth(&mut self, n: USize) -> Option[T]
+##desc Return the nth item (zero-indexed), or `None` if the iterator runs out first. Advances the iterator — subsequent `next()` calls start AFTER the returned item.
+##see Iterator.next, Iterator.skip, Iterator.position
+##example
+let third = (10..100).nth(3); // Some(13)
+##end
+
+##sym Iterator.product
+##sig fn Iterator.product[T: Mul + One](self) -> T
+##desc Multiply every item. Empty iterator → `T::one()` (`1` for integers, `1.0` for floats). The `product` half of the sum/product pair.
+##see Iterator.sum, Iterator.fold, Iterator.max
+##example
+let factorial: U64 = (1u64..=5).product(); // 120
+##end
+
+##sym Iterator.copied
+##sig fn Iterator.copied[T: Copy](self) -> Copied[Self]
+##desc Transform an iterator of `&T` into an iterator of `T` by `Copy`. Cheaper than `.cloned()` because it dispatches on `Copy` rather than `Clone`. The right move after `Vec.iter()` on a primitive element type.
+##see Iterator.cloned, Iterator.map, Iterator.collect
+##example
+let doubled: Vec[I32] = nums.iter().copied().map(|n| n * 2).collect();
+##end
+
+##sym Iterator.cloned
+##sig fn Iterator.cloned[T: Clone](self) -> Cloned[Self]
+##desc Transform an iterator of `&T` into an iterator of `T` by `Clone`. Use when `T: Clone` but not `Copy` (e.g. `String`).
+##see Iterator.copied, Iterator.map, Iterator.collect
+##example
+let owned: Vec[String] = strs.iter().cloned().collect();
+##end
+
+##sym Iterator.max_by
+##sig fn Iterator.max_by[F: FnMut(&T, &T) -> Ordering](self, cmp: F) -> Option[T]
+##desc Maximum by an arbitrary comparator. Use when `T` doesn't impl `Ord` (e.g. floats — `f64::total_cmp` is the safe choice).
+##see Iterator.max, Iterator.min_by, Iterator.fold
+##example
+let largest = floats.iter().copied().max_by(|a, b| a.total_cmp(b));
+##end
+
+##sym Iterator.min_by
+##sig fn Iterator.min_by[F: FnMut(&T, &T) -> Ordering](self, cmp: F) -> Option[T]
+##desc Minimum by an arbitrary comparator. Mirror of `max_by`.
+##see Iterator.min, Iterator.max_by, Iterator.fold
+##example
+let smallest = floats.iter().copied().min_by(|a, b| a.total_cmp(b));
+##end
+
+##sym Iterator.max_by_key
+##sig fn Iterator.max_by_key[K: Ord, F: FnMut(&T) -> K](self, key: F) -> Option[T]
+##desc Item with the maximum projected key. Compared to `max_by`, this is the right choice when there's a natural "size" projection.
+##see Iterator.max, Iterator.min_by_key, Iterator.max_by
+##example
+let longest = strs.iter().max_by_key(|s| s.len());
+##end
+
+##sym Iterator.min_by_key
+##sig fn Iterator.min_by_key[K: Ord, F: FnMut(&T) -> K](self, key: F) -> Option[T]
+##desc Item with the minimum projected key. Mirror of `max_by_key`.
+##see Iterator.min, Iterator.max_by_key, Iterator.min_by
+##example
+let shortest = strs.iter().min_by_key(|s| s.len());
+##end
+
+##sym Iterator.by_ref
+##sig fn Iterator.by_ref(&mut self) -> &mut Self
+##desc Borrow the iterator so a combinator chain doesn't consume it. Lets you split a stream — take the first N items, then consume the rest separately.
+##see Iterator.take, Iterator.skip, Iterator.peekable
+##example
+let head: Vec<_> = iter.by_ref().take(3).collect();
+let tail: Vec<_> = iter.collect();
+##end
+
+##sym Iterator.inspect
+##sig fn Iterator.inspect[F: FnMut(&T)](self, f: F) -> Inspect[Self, F]
+##desc Run `f` on each item as it passes through, but pass the item unchanged downstream. The lazy print-debug equivalent of `map(|x| { dbg!(x); x })`.
+##see Iterator.map, Iterator.for_each, log
+##example
+let total: I64 = nums.iter().inspect(|n| log(format("{}", n))).sum();
+##end
+
+##sym Iterator.for_each
+##sig fn Iterator.for_each[F: FnMut(T)](self, f: F)
+##desc Run `f` on each item, consuming the iterator. The functional counterpart to `for x in iter { f(x) }`. Returns `()` — use `fold` if you want an accumulator.
+##see Iterator.fold, Iterator.inspect, Iterator.map
+##example
+items.iter().for_each(|x| log(format("{}", x)));
+##end
+

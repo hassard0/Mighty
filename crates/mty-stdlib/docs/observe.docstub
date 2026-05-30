@@ -145,3 +145,51 @@ let worst = top_by_cost(Window.Recent(1.hour), 5);
 for row in worst.iter() { log(format!("{} = {}c", row.label, row.cents)); }
 ##end
 
+##sym std.observe.percentiles
+##sig fn std.observe.percentiles(samples: &[U64]) -> LatencyPercentiles
+##desc p50 / p95 / p99 over a slice of latencies in milliseconds. Uses the NEAREST-RANK method (matches the std `summarize` aggregator). Empty input → zeros — the caller can distinguish via `samples.is_empty()`.
+##see std.observe.summarize, std.observe.LatencyPercentiles, percentiles
+##example
+let lats: Vec<U64> = obs.iter().map(|o| o.latency_ms).collect();
+let p = std.observe.percentiles(&lats);
+log(format("p50={} p95={} p99={}", p.p50_ms, p.p95_ms, p.p99_ms));
+##end
+
+##sym std.observe.LatencyPercentiles
+##sig struct std.observe.LatencyPercentiles { p50_ms: U64, p95_ms: U64, p99_ms: U64 }
+##desc p50 / p95 / p99 latencies across an observation slice. Returned by `percentiles`. Embedded inside `CostSummary` and every `AggregateRow`.
+##see std.observe.percentiles, std.observe.CostSummary, std.observe.AggregateRow
+##example
+let p = std.observe.percentiles(&lats);
+assert(p.p50_ms <= p.p95_ms);
+assert(p.p95_ms <= p.p99_ms);
+##end
+
+##sym std.observe.aggregate_by
+##sig fn std.observe.aggregate_by(obs: &[&LlmObservation], by: GroupBy) -> Vec[AggregateRow]
+##desc Group observations by `Provider`, `Model`, `Agent`, or `Tenant` and emit one row per group with count, dollar spend, and p50/p95/p99 latency. The companion of `summarize` for breakdowns.
+##see aggregate_by, std.observe.summarize, std.observe.AggregateRow, GroupBy.Provider
+##example
+let rows = std.observe.aggregate_by(&obs, GroupBy.Model);
+for row in rows { log(format("{}: ${:.4}", row.label, row.cost_dollars)); }
+##end
+
+##sym std.observe.AggregateRow
+##sig struct std.observe.AggregateRow { label: Str, count: USize, cost_dollars: F64, p50_latency_ms: U64, p95_latency_ms: U64, p99_latency_ms: U64 }
+##desc One row of an `aggregate_by` breakdown: a group label (model name, provider, etc) plus the call count, dollar spend, and latency percentiles for that group.
+##see std.observe.aggregate_by, std.observe.CostSummary, std.observe.LatencyPercentiles
+##example
+for row in std.observe.aggregate_by(&obs, GroupBy.Provider) {
+  log(format("{}: {} calls, ${:.2}", row.label, row.count, row.cost_dollars));
+}
+##end
+
+##sym std.observe.CostSummary
+##sig struct std.observe.CostSummary { calls: USize, cost_dollars: F64, latency: LatencyPercentiles, by_provider: Vec[AggregateRow], by_model: Vec[AggregateRow] }
+##desc Top-level result of `summarize`: total count + spend, p50/p95/p99 latency, plus per-provider and per-model breakdowns. Drop-in for dashboards and cost emails.
+##see CostSummary, std.observe.summarize, std.observe.AggregateRow, std.observe.LatencyPercentiles
+##example
+let s = std.observe.summarize(&obs, Window.Last("24h"));
+log(format("24h spend: ${:.2}", s.cost_dollars));
+##end
+

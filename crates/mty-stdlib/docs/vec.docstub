@@ -189,3 +189,88 @@ v.extend([3, 4].iter().copied());
 assert_eq(v, [1, 2, 3, 4]);
 ##end
 
+##sym Vec.insert
+##sig fn Vec.insert[T](&mut self, index: USize, element: T)
+##desc Insert `element` at position `index`, shifting later elements right. O(n) in the tail length. Panics if `index > len()`. For amortised-O(1) appends use `Vec.push`.
+##see Vec.push, Vec.remove, Vec.append
+##example
+items.insert(0, head); // prepend
+##end
+
+##sym Vec.remove
+##sig fn Vec.remove[T](&mut self, index: USize) -> T
+##desc Remove and return the element at `index`, shifting later elements left. O(n). Panics on out-of-bounds. For O(1) removal that doesn't preserve order use `Vec.swap_remove`.
+##see Vec.insert, Vec.swap_remove, Vec.pop
+##example
+let head = items.remove(0);
+##end
+
+##sym Vec.swap_remove
+##sig fn Vec.swap_remove[T](&mut self, index: USize) -> T
+##desc Remove the element at `index` by swapping in the last element. O(1) but DOES NOT preserve order. Use over `remove` when iteration order doesn't matter.
+##see Vec.remove, Vec.pop
+##example
+let some_item = items.swap_remove(idx);
+##end
+
+##sym Vec.truncate
+##sig fn Vec.truncate[T](&mut self, len: USize)
+##desc Shorten the vector to `len`, dropping every element past that. No-op if `len >= self.len()`. Useful for clipping logs to a tail.
+##see Vec.clear, Vec.drain, Vec.pop
+##example
+if log.len() > 10_000 { log.truncate(10_000); }
+##end
+
+##sym Vec.first
+##sig fn Vec.first[T](&self) -> Option[&T]
+##desc First element, or `None` if empty. The `vec[0]` shape without the out-of-bounds panic risk.
+##see Vec.last, Vec.get
+##example
+if let Some(head) = items.first() { use(head); }
+##end
+
+##sym Vec.last
+##sig fn Vec.last[T](&self) -> Option[&T]
+##desc Last element, or `None` if empty. Cheap — O(1).
+##see Vec.first, Vec.pop, Vec.get
+##example
+if let Some(tail) = items.last() { use(tail); }
+##end
+
+##sym Vec.split_at
+##sig fn Vec.split_at[T](&self, mid: USize) -> (&[T], &[T])
+##desc Split into `(head, tail)` at index `mid` without copying. Panics on out-of-bounds. The slice-shaped counterpart of `String.split_at_byte`.
+##see Vec.chunks, Vec.iter
+##example
+let (head, tail) = items.split_at(5);
+##end
+
+##sym Vec.dedup
+##sig fn Vec.dedup[T: PartialEq](&mut self)
+##desc Remove consecutive duplicate elements in place. NOT a global dedup — sort the vec first or use a `HashSet` accumulator for that.
+##see Vec.sort, HashSet.new, Vec.retain
+##example
+items.sort();
+items.dedup();
+##end
+
+##sym Vec.chunks
+##sig fn Vec.chunks[T](&self, size: USize) -> Iterator[&[T]]
+##desc Slice the vec into non-overlapping windows of length `size` (the LAST chunk may be shorter). The slice-of-slices counterpart of `Iterator.chunks`.
+##see Iterator.chunks, Vec.split_at, Vec.windows
+##example
+for batch in records.chunks(100) {
+  flush(batch);
+}
+##end
+
+##sym Vec.windows
+##sig fn Vec.windows[T](&self, size: USize) -> Iterator[&[T]]
+##desc Sliding window of length `size`, ONE-STEP stride. `[1,2,3,4].windows(2)` → `[[1,2], [2,3], [3,4]]`. The non-chunked counterpart of `chunks`.
+##see Vec.chunks, Iterator.windowed, Vec.iter
+##example
+for pair in nums.windows(2) {
+  let diff = pair[1] - pair[0];
+}
+##end
+

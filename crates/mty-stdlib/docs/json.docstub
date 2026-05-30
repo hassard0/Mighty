@@ -114,3 +114,46 @@ for item in v.get("items").and_then(|a| a.as_array()).iter().flat_map(|a| a.iter
 }
 ##end
 
+##sym Json.as_bool
+##sig fn Json.as_bool(&self) -> Option[Bool]
+##desc Return the value if the node is `Json.Bool`, else `None`. The boolean counterpart of `as_str` / `as_i64`.
+##see Json.as_i64, Json.as_str, Json.Bool
+##example
+let active = config.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+##end
+
+##sym Json.as_f64
+##sig fn Json.as_f64(&self) -> Option[F64]
+##desc Return the value as `F64` if the node is `Json.Num`. Numbers parsed from JSON live in F64 regardless of whether they look integer-shaped; use `as_i64` if you want integer narrowing semantics.
+##see Json.as_i64, Json.Num
+##example
+let temperature = sample.get("temp").and_then(|v| v.as_f64()).unwrap_or(0.0);
+##end
+
+##sym Json.as_object
+##sig fn Json.as_object(&self) -> Option[&HashMap[Str, Json]]
+##desc Return the underlying object map if the node is `Json.Obj`, else `None`. Mirrors `as_array` for `Json.Arr`.
+##see Json.as_array, Json.Obj, Json.get
+##example
+if let Some(obj) = node.as_object() {
+  for (k, v) in obj { use(k, v); }
+}
+##end
+
+##sym Json.is_null
+##sig fn Json.is_null(&self) -> Bool
+##desc True iff the node is `Json.Null`. The `null` JSON value is distinct from "absent key" — use `Json.get(k).is_none()` for the latter.
+##see Json.Null, Json.get
+##example
+let explicitly_null = node.get("opt").map(|v| v.is_null()).unwrap_or(false);
+##end
+
+##sym Json.pretty
+##sig fn std.json.encode_pretty(value: &Json) -> Str
+##desc Encode JSON with 2-space indentation suitable for human-readable output (logs, debug dumps, config files). For wire-format use `std.json.encode`.
+##see std.json.encode, std.json.parse
+##example
+let s = std.json.encode_pretty(&value);
+std.fs.write(p, s.as_bytes())?;
+##end
+

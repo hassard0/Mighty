@@ -109,6 +109,8 @@ fn module_of(symbol: &str) -> &'static str {
             "encoding" => "encoding",
             "url" => "url",
             "uuid" => "uuid",
+            // v0.40 T5 — v0.40 T4 std.regex
+            "regex" => "regex",
             _ => "builtin",
         };
     }
@@ -119,9 +121,12 @@ fn module_of(symbol: &str) -> &'static str {
         | "SimilarityMode" => "swarm",
         "McpServer" | "McpClient" | "ToolRegistry" => "mcp",
         "VectorStore" | "EpisodicMemory" | "WorkingMemory" => "memory",
-        "Suite" | "Compare" | "Verdict" | "Case" => "eval",
+        "Suite" | "Compare" | "Verdict" | "Case" | "Report" | "Replay"
+        | "MemberTurnProvider" => "eval",
         "observe" | "Window" | "GroupBy" | "summarize" | "percentiles" | "aggregate_by"
         | "CostSummary" | "top_by_cost" => "observe",
+        // v0.40 T5 — AEAD invariants and pattern entries (bare, no `std.` prefix)
+        "aead_nonce_uniqueness" | "aead_aad_binding" | "aead_secure_session_pattern" => "crypto",
         "HtmlEscape" | "ShellEscape" | "SqlEscape" | "PathBoundary" | "sanitize_with"
         | "matches_regex" | "in_allowlist" | "sanitize_compose" | "named_regex" | "Allowlist" => {
             "taint"
@@ -140,6 +145,7 @@ fn module_of(symbol: &str) -> &'static str {
         | "coerce_str_to_u8" | "addr_of_local" | "addr_of_mut" | "returned_struct" => "extern",
         // v0.38 T4: cast expressions (v0.37 T2 — MT2027 INVALID_CAST)
         // v0.39 T2: cast polish — Bool↔Int, &T as *T, Int as Char codepoint check (MT2028)
+        // v0.40 T3: cast Char runtime — Char.from_u32 Option API (non-literal Int as Char rejected)
         "cast_as"
         | "cast_u8_to_i64"
         | "cast_i64_to_u8"
@@ -155,7 +161,14 @@ fn module_of(symbol: &str) -> &'static str {
         | "cast_ref_to_ptr"
         | "cast_ptr_to_usize"
         | "cast_invalid_mt2027"
-        | "cast_invalid_mt2028" => "cast",
+        | "cast_invalid_mt2028"
+        | "char_from_u32"
+        // v0.40 T5 — v0.40 T3 cast Char runtime extras
+        | "cast_char_from_u32_runtime"
+        | "char_from_u32_surrogate"
+        | "char_from_u32_value_range" => "cast",
+        // v0.40 T5 — Char.from_u32 qualified form
+        "Char" => "cast",
         // v0.38 T4: runtime / build env vars
         "MTY_LINKER"
         | "MTY_OTLP_ENDPOINT"

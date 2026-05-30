@@ -110,3 +110,61 @@ let panel = [m, Member.anthropic("claude-opus-4-7")];
 let panel = Member.panel_of(&["anthropic:claude-opus-4-7", "openai:gpt-4o"]);
 ##end
 
+##sym Member.label
+##sig fn Member.label(&self) -> Str
+##desc Human-readable identifier for the member (provider + model + optional alias). Use in logs and dashboards. Stable across calls — safe to use as a group-by key.
+##see Member.model, Member.anthropic, GroupBy.Provider
+##example
+log(format("{}: {} cents", member.label(), reply.cost_cents));
+##end
+
+##sym Member.model
+##sig fn Member.model(&self) -> Str
+##desc Just the model string (e.g. `"claude-opus-4-7"`). For the full provider/model breadcrumb use `label`.
+##see Member.label, Member.anthropic, Member.openai
+##example
+log(member.model());
+##end
+
+##sym Member.mock_error
+##sig fn Member.mock_error(name: Str, body: Str) -> Member
+##desc Mock member that always errors with `body`. Use in tests to exercise error-path policy without hitting a real provider.
+##see Member.mock, Member.mock_with_tool_uses
+##example
+let bad = Member.mock_error("flaky", "503 upstream timeout");
+##end
+
+##sym Member.mock_with_tool_uses
+##sig fn Member.mock_with_tool_uses(name: Str, reply: Str, tools: Vec[ToolUse], cost_cents: U64) -> Member
+##desc Mock member that responds with `reply` AND advertises `tools` as the tool-uses the reply executed. Use to test consumer code that branches on `MemberReply.tool_uses`.
+##see Member.mock, MemberReply.tool_uses, ToolUse
+##example
+let m = Member.mock_with_tool_uses("agent", "done", vec![tool_use("fs.read")], 0);
+##end
+
+##sym MemberReply.tool_uses
+##sig fn MemberReply.tool_uses(&self) -> &[ToolUse]
+##desc Tool invocations the model emitted as part of this reply. Empty for non-tool-using replies.
+##see MemberReply.tool_names, Member.mock_with_tool_uses, ToolUse
+##example
+for tool in reply.tool_uses() {
+  log(tool.name);
+}
+##end
+
+##sym MemberReply.tool_names
+##sig fn MemberReply.tool_names(&self) -> Vec[Str]
+##desc Just the tool names from `tool_uses`. Convenience for assertions and budget gates that key off the tool surface only.
+##see MemberReply.tool_uses, Compare.tool_call_set_equal
+##example
+assert!(reply.tool_names().contains(&"fs.read".to_string()));
+##end
+
+##sym MemberReply.cost
+##sig fn MemberReply.cost(&self) -> F64
+##desc Dollar cost of this reply (= `cost_cents / 100.0`). Convenience over `cost_cents` when you want to display dollars.
+##see MemberReply.cost_cents, MemberReply.tokens_used
+##example
+log(format("${:.4}", reply.cost()));
+##end
+

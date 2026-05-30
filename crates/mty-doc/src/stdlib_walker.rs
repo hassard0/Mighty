@@ -392,6 +392,8 @@ pub const EMBEDDED_DOCSTUBS: &[(&str, &str)] = &[
     ),
     ("url", include_str!("../../mty-stdlib/docs/url.docstub")),
     ("uuid", include_str!("../../mty-stdlib/docs/uuid.docstub")),
+    // v0.40 T5 — v0.40 T4 std.regex surface.
+    ("regex", include_str!("../../mty-stdlib/docs/regex.docstub")),
 ];
 
 /// Parse every embedded docstub and return the flat catalog.
