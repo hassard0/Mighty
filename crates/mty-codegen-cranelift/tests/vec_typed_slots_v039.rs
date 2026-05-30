@@ -494,49 +494,34 @@ fn main() -> I64 {
     assert_eq!(r.unwrap(), 0);
 }
 
-/// v0.39 T3 — observe the OOB trap via a subprocess so the trap
-/// signal doesn't tear down `cargo test`. Uses the test binary's own
-/// `--exact` shape via the env var `MTY_RUN_OOB_PROBE=1` plus an
-/// inner test entry point. Disabled on Windows where SIGILL surfaces
-/// as STATUS_ILLEGAL_INSTRUCTION (0xC000001D) without a stable
-/// `ExitStatus::code()` translation across Rust versions.
-#[cfg(not(target_os = "windows"))]
+/// v0.41 T3 — OOB `v.get(i)` now returns `Option::None` instead of
+/// trapping (closes L1 gap #1; see RELEASE-v0.41). The pre-v0.41
+/// subprocess/trap test that lived here was retired with the
+/// trap-based OOB contract. We now assert the Option-shape directly
+/// in-process: an OOB index falls through the `None` arm and
+/// contributes the sentinel value 99.
 #[test]
-fn vec_oob_aborts_subprocess() {
-    use std::process::Command;
-    let exe = std::env::current_exe().expect("current exe");
-    let out = Command::new(&exe)
-        .args(["--exact", "vec_oob_probe", "--nocapture", "--ignored"])
-        .env("MTY_RUN_OOB_PROBE", "1")
-        .output()
-        .expect("spawn subprocess");
-    // The trap surfaces as a non-zero exit (typically signalled).
-    assert!(
-        !out.status.success(),
-        "OOB probe must exit non-zero (trap fired); stdout: {}",
-        String::from_utf8_lossy(&out.stdout)
-    );
-}
-
-#[test]
-#[ignore]
-fn vec_oob_probe() {
-    // Inner probe — exits non-zero (via JIT trap) when invoked with
-    // MTY_RUN_OOB_PROBE=1. Returns Ok(()) when invoked normally so
-    // the parent harness sees the test pass on its quick path.
-    if std::env::var("MTY_RUN_OOB_PROBE").is_err() {
-        return;
-    }
+fn vec_oob_get_returns_none_v041() {
     let src = r#"
+fn _probe(o: Option[I32]) -> I64 {
+  match o {
+    Some(_) => 0
+    None => 99
+  }
+}
 fn main() -> I64 {
   let mut v: Vec[I32] = Vec.new()
   v = v.push(1)
-  v.get(5)
+  _probe(v.get(5))
 }
 "#;
-    let _ = jit_run_i64(src);
-    // If the trap didn't fire we exit normally — the parent test will
-    // see status==success and fail. Either way we don't return Ok here.
+    let r = jit_run_i64(src);
+    assert!(r.is_ok(), "compile must succeed: {r:?}");
+    assert_eq!(
+        r.unwrap(),
+        99,
+        "OOB get must take the None arm (v0.41 T3 L1 fix); pre-v0.41 this trapped"
+    );
 }
 
 #[test]
