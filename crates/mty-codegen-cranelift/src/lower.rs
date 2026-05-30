@@ -2721,9 +2721,8 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
             if cty == ct::I8 || cty == ct::I16 || cty == ct::I32 {
                 if signed {
                     return self.b.ins().sextend(ct::I64, raw);
-                } else {
-                    return self.b.ins().uextend(ct::I64, raw);
                 }
+                return self.b.ins().uextend(ct::I64, raw);
             }
             return raw;
         }
