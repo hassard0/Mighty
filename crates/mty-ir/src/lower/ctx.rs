@@ -6,6 +6,13 @@ use mty_hir::{ExprId, FnId, Package, SourceSpan};
 use mty_types::{TyArena, TyData, TyId, TypedPackage};
 use std::collections::{HashMap, HashSet};
 
+// v0.41 T1 — Lowering-time per-fn map of `Local -> TyId` (see the
+// `local_tys` field on `FnBuilder` below). Used to recover the
+// receiver's resolved ADT type when projecting a multi-segment
+// `Path` (`p.y` is parsed as `Path(["p","y"])`, not `Field`) so the
+// field-name → index lookup hits the user struct's def-map entry
+// instead of the stdlib whitelist fallback.
+
 pub struct LowerCtx<'a> {
     pub pkg: &'a Package,
     pub typed: &'a TypedPackage,
@@ -132,6 +139,14 @@ pub struct FnBuilder {
     /// model agent fields with non-primitive types). Per-fn keeps the
     /// detection cheap and avoids cross-fn aliasing footguns.
     pub canvas_locals: HashSet<Local>,
+    /// v0.41 T1 — Map `Local -> TyId` for bindings whose HIR-resolved
+    /// type is known at lower-time. Populated by `bind_pat_assign`
+    /// from the let-statement's `init_ty` and by parameter lowering.
+    /// Consulted by `resolve_path` / `resolve_field_index` so user
+    /// struct field projections resolve to the correct field index
+    /// instead of falling back to 0. See L15 in
+    /// `mighty-ide/docs/mighty-language-lessons.md`.
+    pub local_tys: HashMap<Local, TyId>,
 }
 
 #[derive(Clone, Copy)]
@@ -165,6 +180,7 @@ impl FnBuilder {
             cur_span: SourceSpan { start: 0, end: 0 },
             spans: FnSpanTable::new(),
             canvas_locals: HashSet::new(),
+            local_tys: HashMap::new(),
         };
         s.cur = entry;
         s
@@ -283,6 +299,20 @@ impl FnBuilder {
     /// to the generic `Rvalue::MethodCall` fallback.
     pub fn is_canvas_local(&self, l: Local) -> bool {
         self.canvas_locals.contains(&l)
+    }
+
+    /// v0.41 T1 — Record the HIR-resolved type for a local. Caller
+    /// should pass the binding's `TyId` if known (otherwise skip the
+    /// call). Idempotent: re-binds overwrite.
+    pub fn set_local_ty(&mut self, l: Local, ty: TyId) {
+        self.local_tys.insert(l, ty);
+    }
+
+    /// v0.41 T1 — Look up the HIR-resolved type for a local. Returns
+    /// `None` if no type was recorded (the lowerer should then fall
+    /// back to the legacy permissive behaviour).
+    pub fn local_ty(&self, l: Local) -> Option<TyId> {
+        self.local_tys.get(&l).copied()
     }
 
     pub fn fresh_arena(&mut self) -> ArenaId {

@@ -315,6 +315,10 @@ fn lower_one_fn(ctx: &mut LowerCtx, hir_id: mty_hir::FnId, sir_id: IrFnId) {
             LocalSource::Param,
         );
         fb.params.push(l);
+        // v0.41 T1 — record the param's HIR-resolved type so
+        // `resolve_path` can resolve user struct field projections
+        // on parameter receivers (`fn f(p: Point) -> I32 { p.y }`).
+        fb.set_local_ty(l, *ty);
         // v0.26 Track D — if the source-level param type is
         // `std.web.Canvas`, mark the local as a canvas handle so
         // `is_canvas_handle_receiver` (in `exprs.rs`) routes

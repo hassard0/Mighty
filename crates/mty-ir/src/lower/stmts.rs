@@ -113,6 +113,17 @@ pub(crate) fn bind_pat_assign(
             if rhs_is_canvas {
                 fb.mark_canvas_local(l);
             }
+            // v0.41 T1 — track the HIR-resolved init type for this
+            // local so multi-segment `Path(["x","field"])` projection
+            // can resolve `field` to the correct ADT field index
+            // instead of falling back to 0 (L15 / struct-field-read
+            // collapse). We record the type *whether or not* the
+            // codegen-typed slot above kept it, because the path
+            // lowerer only needs the def-map resolution, not the
+            // IR-level slot type.
+            if let Some(tyid) = init_ty {
+                fb.set_local_ty(l, tyid);
+            }
             fb.push_stmt(Stmt::Assign(Place::local(l), Rvalue::Use(rhs)));
             if let Some(sp) = sub {
                 bind_pat_assign(
