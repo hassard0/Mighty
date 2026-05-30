@@ -2717,6 +2717,19 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
             self.b.ins().store(mf, narrowed, slot, 0);
             return;
         }
+        // v0.39 T3 — preserve the v0.38 fallback semantics for unknown
+        // element types: when lds is None and elem_size matches the
+        // fallback (8 bytes), `val` is a scalar i64 (eval_operand
+        // returned the value, not an address). Routes like
+        // `String.push(' ')` reach this branch — `push` is dispatched
+        // to emit_vec_push for any receiver type, and String is not
+        // a Vec, so vec_elem_info returns the 8-byte fallback. The
+        // v0.38 behaviour was to store the i64 word; do the same.
+        if elem_size == Self::VEC_FALLBACK_ELEM_SIZE {
+            let narrowed = self.coerce_to(val, ct::I64);
+            self.b.ins().store(mf, narrowed, slot, 0);
+            return;
+        }
         // Aggregate slot: val is the source aggregate's address.
         // Copy elem_size bytes byte-granularly.
         let _ = elem_ty;
@@ -2748,9 +2761,14 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
             }
             return raw;
         }
+        // v0.39 T3 — fallback unknown-element-type path mirrors v0.38:
+        // load the slot as an i64 word. (Same rationale as
+        // vec_store_elem's fallback.)
+        if elem_size == Self::VEC_FALLBACK_ELEM_SIZE {
+            return self.b.ins().load(ct::I64, mf, slot, 0);
+        }
         // Aggregate: hand back the slot pointer; copying is the
         // caller's job. (matches the v0.38 8-byte path's contract.)
-        let _ = elem_size;
         slot
     }
 

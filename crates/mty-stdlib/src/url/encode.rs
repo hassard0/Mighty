@@ -18,10 +18,14 @@ fn unreserved(c: u8) -> bool {
 /// Percent-encode `s` per RFC 3986. Bytes are emitted as their UTF-8
 /// representation, and any non-unreserved byte becomes `%HH`.
 ///
+/// `percent_encode` keeps `/` literal — it's intended for whole
+/// query-parameter values where path-style slashes are expected. Use
+/// [`percent_encode_component`] when `/` must also be escaped.
+///
 /// ```
 /// # use mty_stdlib::url::encode::percent_encode;
 /// assert_eq!(percent_encode("hello world"), "hello%20world");
-/// assert_eq!(percent_encode("a+b/c"), "a%2Bb%2Fc");
+/// assert_eq!(percent_encode("a+b/c"), "a%2Bb/c");
 /// ```
 #[must_use]
 pub fn percent_encode(s: &str) -> String {
