@@ -833,10 +833,34 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
 
         // Lower each block.
         // We need to clone block ids first to avoid double-borrow.
+        // v0.41 T3 (L1 fix): push an implicit arena frame at `main`
+        // entry — see the rationale below. We thread the push INTO
+        // the entry block's lowering instead of doing it before the
+        // dispatch loop, because cranelift's debug-mode
+        // `switch_to_block` asserts that the previous block was
+        // filled (terminated) before re-switching.
         let block_ids: Vec<_> = self.f.blocks.iter().map(|b| b.id).collect();
+        let entry_id = self.f.entry;
+        let is_main = self.f.name == "main";
         for id in block_ids {
             let cl_blk = self.blocks[&id];
             self.b.switch_to_block(cl_blk);
+            if is_main && id == entry_id {
+                // The runtime's `mty_runtime_alloc` returns 0 (null)
+                // when no arena frame is active, so any source-level
+                // use of `Vec.new()` / `String.with_capacity()` /
+                // `format!(...)` from a plain `fn main()` (with no
+                // surrounding `arena {}` block) would dereference null
+                // and segfault under native codegen. Examples
+                // 26/30/42/43 all hit this. The interpreter's
+                // allocation path doesn't require an explicit arena,
+                // so the bug is native-only. We auto-push at
+                // main-entry (not all fns — SIR's explicit
+                // `ArenaPush`/`ArenaPop` already nests around `arena
+                // {}` blocks). The frame is implicitly torn down at
+                // process exit, matching the JIT's lifetime.
+                self.call_rt_no_args("mty_runtime_arena_push", Some(ct::I64))?;
+            }
             self.lower_one_block(id)?;
         }
         Ok(())
@@ -1672,14 +1696,64 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 // returns the *same* pointer, so the `v = v.push(x)`
                 // capture-rebind threads a stable value across the loop
                 // back-edge (the bug was that every Vec op stubbed to 0).
-                match method.as_str() {
-                    "push" => return self.emit_vec_push(receiver, args),
-                    "len" => return self.emit_vec_len(receiver),
-                    "get" => return self.emit_vec_get(receiver, args),
-                    "set" => return self.emit_vec_set(receiver, args),
-                    "pop" => return self.emit_vec_pop(receiver),
-                    "clear" => return self.emit_vec_clear(receiver),
-                    _ => {}
+                //
+                // v0.41 T3 (L1 fix): only dispatch to the Vec lowerings
+                // when the receiver is actually a `Vec[T]` — pre-fix we
+                // also caught `String.clear()` / `String.push_str(...)`
+                // and read the String's (ptr,len) pair as a Vec header,
+                // dereferencing junk → infinite loop / segfault on the
+                // very next allocation pass (caught by example 26's
+                // `_scratchpad` helper).
+                let recv_is_vec = matches!(
+                    self.operand_ir_ty(receiver),
+                    Some(IrTy::Adt(id, _)) if self.prog.adt_by_id(id).map(|a| a.name.as_str()) == Some("Vec")
+                );
+                if recv_is_vec {
+                    match method.as_str() {
+                        "push" => return self.emit_vec_push(receiver, args),
+                        "len" => return self.emit_vec_len(receiver),
+                        "get" => return self.emit_vec_get(receiver, args),
+                        "set" => return self.emit_vec_set(receiver, args),
+                        "pop" => return self.emit_vec_pop(receiver),
+                        "clear" => return self.emit_vec_clear(receiver),
+                        _ => {}
+                    }
+                }
+                // v0.41 T3 (L1 fix): when the destination type is an
+                // `Option[T]` aggregate (e.g. `Stream.next()`, opaque
+                // methods returning `Option`), synthesise a defensive
+                // `None` aggregate rather than handing back a raw
+                // scalar. The interpreter returns `None` for opaque
+                // receivers (`mty-ir::interp::run::eval_method` "next"
+                // arm). Pre-fix the caller would dereference the
+                // scalar as an Option address and segfault (examples
+                // 30/42/43).
+                //
+                // Detection is two-pronged: (a) current_dest_ty IS the
+                // `Option[T]` ADT (rare — the lowerer types the temp
+                // as `IrTy::Error`); (b) the method name is one of
+                // the known Option-returning shapes (`next`, plus
+                // others added as the corpus grows). Without (b),
+                // example 30's `stream.next()` falls through with a
+                // scalar 0 and the consuming `switch_variant` reads
+                // tag from address 0 → segfault.
+                let dest_is_option = matches!(
+                    self.current_dest_ty.as_ref(),
+                    Some(IrTy::Adt(id, _)) if self
+                        .prog
+                        .adt_by_id(*id)
+                        .map(|a| a.name.as_str())
+                        == Some("Option")
+                );
+                let method_returns_option =
+                    matches!(method.as_str(), "next" | "peek" | "front" | "back");
+                if dest_is_option || method_returns_option {
+                    let (slot_addr, _payload_off) = self.alloc_option_slot_for(None)?;
+                    let tag_none = self.b.ins().iconst(ct::I32, 1);
+                    self.b
+                        .ins()
+                        .store(MemFlags::trusted(), tag_none, slot_addr, TAG_OFFSET as i32);
+                    return Ok(slot_addr);
                 }
                 // Fallback: route through the extern bridge as a last
                 // resort. Real trait-method dispatch needs resolution
@@ -2890,8 +2964,16 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
             .load(ct::I64, MemFlags::trusted(), hdr, Self::VEC_LEN_OFF))
     }
 
-    /// `v.get(i)` — bounds-checked element load. Out-of-range indices
-    /// trigger a runtime panic + MT5xxx trap (TrapCode::user(5)).
+    /// `v.get(i)` — returns `Option[T]`. In-range indices return
+    /// `Some(elem)`; out-of-range returns `None` (matching the
+    /// interpreter in `mty-ir::interp::run::eval_method`).
+    ///
+    /// v0.41 T3 (L1 fix): pre-v0.41 this raised a runtime panic + trap
+    /// on OOB and returned a bare scalar element value, but the
+    /// destination is an `Option[T]` aggregate. The caller's match arm
+    /// would then dereference the scalar as an aggregate address and
+    /// segfault (example 26 `_vec_get_oob`). Now we synthesise a real
+    /// Option aggregate: bounds-check folds into the Some/None branch.
     ///
     /// v0.39 T3: typed slot — width and sign-extension are picked from
     /// the receiver's element type. Vec[U8] reads 1 byte and
@@ -2902,7 +2984,7 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         args: &[Operand],
     ) -> CompileResult<cranelift_codegen::ir::Value> {
         let mf = MemFlags::trusted();
-        let (elem_size, lds, _elem_ty) = self.vec_elem_info(receiver);
+        let (elem_size, lds, elem_ty) = self.vec_elem_info(receiver);
         let hdr = self.vec_header(receiver)?;
         let len = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_LEN_OFF);
         let data = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_DATA_OFF);
@@ -2912,10 +2994,133 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         } else {
             self.b.ins().iconst(ct::I64, 0)
         };
-        self.vec_bounds_check(idx, len)?;
+        // Synthesise an Option[T] aggregate. Tag: 0 = Some, 1 = None.
+        let (slot_addr, payload_off) = self.alloc_option_slot_for(elem_ty.as_ref())?;
+        let some_block = self.b.create_block();
+        let none_block = self.b.create_block();
+        let join_block = self.b.create_block();
+        let is_oob = self.b.ins().icmp(
+            cranelift_codegen::ir::condcodes::IntCC::UnsignedGreaterThanOrEqual,
+            idx,
+            len,
+        );
+        self.b.ins().brif(is_oob, none_block, &[], some_block, &[]);
+        // --- Some(elem) ---
+        self.b.switch_to_block(some_block);
+        self.b.seal_block(some_block);
+        let tag0 = self.b.ins().iconst(ct::I32, 0);
+        self.b.ins().store(mf, tag0, slot_addr, TAG_OFFSET as i32);
         let byte_off = self.b.ins().imul_imm(idx, elem_size);
         let slot = self.b.ins().iadd(data, byte_off);
-        Ok(self.vec_load_elem(slot, elem_size, lds))
+        let elem = self.vec_load_elem(slot, elem_size, lds);
+        let payload_addr = self.b.ins().iadd_imm(slot_addr, payload_off as i64);
+        if let Some(ty) = elem_ty.as_ref() {
+            // store_scalar handles width-correct narrowing for U8/I32 etc.
+            self.store_scalar(payload_addr, elem, ty)?;
+        } else {
+            self.b.ins().store(mf, elem, payload_addr, 0);
+        }
+        self.b.ins().jump(join_block, &[]);
+        // --- None ---
+        self.b.switch_to_block(none_block);
+        self.b.seal_block(none_block);
+        let tag1 = self.b.ins().iconst(ct::I32, 1);
+        self.b.ins().store(mf, tag1, slot_addr, TAG_OFFSET as i32);
+        self.b.ins().jump(join_block, &[]);
+        // --- join ---
+        self.b.switch_to_block(join_block);
+        self.b.seal_block(join_block);
+        Ok(slot_addr)
+    }
+
+    /// Allocate a stack slot for an Option-shaped aggregate. Returns
+    /// (slot_addr, payload_offset) where payload_offset matches the
+    /// layout the consuming match arm reads via `variant_field_offset`.
+    ///
+    /// Selection order:
+    ///   1. `current_dest_ty` is `IrTy::Adt(option_id, _)` — exact
+    ///      match: build a stack slot sized for the Option ADT and
+    ///      use `variant_field_offset` for the payload offset.
+    ///   2. `payload_ty` was passed (Vec element type known) — locate
+    ///      the prelude `Option` ADT by name and substitute the
+    ///      payload type into its `Some(T)` field for the layout
+    ///      computation. This is the common case: the SIR temp for
+    ///      `v.get(i)` carries `IrTy::Error` (lowerer convention),
+    ///      but the receiver's `Vec[T]` pins `T`.
+    ///   3. Neither — fall back to a 16-byte slot with payload@8,
+    ///      which is correct for any scalar ≤8 bytes.
+    ///
+    /// v0.41 T3.
+    fn alloc_option_slot_for(
+        &mut self,
+        payload_ty: Option<&IrTy>,
+    ) -> CompileResult<(cranelift_codegen::ir::Value, u32)> {
+        // (1) dest_ty is exactly Option[T].
+        if let Some(IrTy::Adt(id, _)) = self.current_dest_ty.clone() {
+            if let Some(adt) = self.prog.adt_by_id(id).cloned() {
+                if adt.name == "Option" && adt.variants.len() == 2 {
+                    let (off, _) = variant_field_offset(&adt, 0, 0, &self.prog.adts)
+                        .unwrap_or((8, crate::layout::Layout::scalar(8)));
+                    let size = type_size(&IrTy::Adt(id, vec![]), &self.prog.adts).max(8);
+                    let align = type_align(&IrTy::Adt(id, vec![]), &self.prog.adts).max(8);
+                    let log2_align = (align.next_power_of_two().trailing_zeros()).min(16) as u8;
+                    let slot = self.b.create_sized_stack_slot(StackSlotData::new(
+                        StackSlotKind::ExplicitSlot,
+                        slot_size(size),
+                        log2_align,
+                    ));
+                    let addr = self.b.ins().stack_addr(ct::I64, slot, 0);
+                    return Ok((addr, off));
+                }
+            }
+        }
+        // (2) Look up the prelude Option ADT by name and substitute
+        // the known payload type into its Some(T) field for the layout
+        // computation. The Some variant is always variant 0 (see
+        // `mty-types/src/prelude.rs`).
+        if let Some(pt) = payload_ty {
+            if let Some(opt_adt) = self.prog.adts.iter().find(|a| a.name == "Option") {
+                let mut adt = opt_adt.clone();
+                if !adt.variants.is_empty() && !adt.variants[0].fields.is_empty() {
+                    adt.variants[0].fields[0].ty = pt.clone();
+                    let (off, _) = variant_field_offset(&adt, 0, 0, &self.prog.adts)
+                        .unwrap_or((8, crate::layout::Layout::scalar(8)));
+                    // Layout the synthetic Option[T] to size the slot.
+                    let tmp_ty = IrTy::Adt(adt.adt, vec![pt.clone()]);
+                    // Use type_size with a transient adts list that
+                    // overrides our Option with the payload-specialised
+                    // copy. The prelude Option in `self.prog.adts` has
+                    // a generic param payload (Param), so its size
+                    // there is wrong — but the override gives us the
+                    // right answer for `T`.
+                    let mut adts = self.prog.adts.clone();
+                    if let Some(slot_in_list) = adts
+                        .iter_mut()
+                        .find(|a| a.adt == adt.adt && a.name == "Option")
+                    {
+                        *slot_in_list = adt.clone();
+                    }
+                    let size = type_size(&tmp_ty, &adts).max(8);
+                    let align = type_align(&tmp_ty, &adts).max(8);
+                    let log2_align = (align.next_power_of_two().trailing_zeros()).min(16) as u8;
+                    let slot = self.b.create_sized_stack_slot(StackSlotData::new(
+                        StackSlotKind::ExplicitSlot,
+                        slot_size(size),
+                        log2_align,
+                    ));
+                    let addr = self.b.ins().stack_addr(ct::I64, slot, 0);
+                    return Ok((addr, off));
+                }
+            }
+        }
+        // (3) Fallback: 16-byte slot, payload@8 — correct for any
+        // scalar payload ≤8 bytes (i64/USize/F64/pointer/Str-handle/etc.).
+        let slot = self.b.create_sized_stack_slot(StackSlotData::new(
+            StackSlotKind::ExplicitSlot,
+            16,
+            3, // log2(8)
+        ));
+        Ok((self.b.ins().stack_addr(ct::I64, slot, 0), 8))
     }
 
     /// `v.set(i, x)` — bounds-checked element store. v0.39 T3 surface;
@@ -2949,8 +3154,14 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         Ok(hdr)
     }
 
-    /// `v.pop()` — decrement len (saturating at 0) and return the
-    /// previously-last element. Returns 0 when empty.
+    /// `v.pop()` — returns `Option[T]`. `Some(last)` when non-empty
+    /// (also decrements len); `None` when empty (no mutation).
+    ///
+    /// v0.41 T3 (L1 fix): pre-v0.41 returned a bare i64 scalar (0 on
+    /// empty) — but the destination is `Option[T]` (aggregate), so the
+    /// consuming `match` would dereference a scalar value as an
+    /// aggregate address and segfault. Now we synthesise a real
+    /// Option aggregate, matching the interpreter.
     ///
     /// v0.39 T3: guard the load behind a real branch (not a select).
     /// `Vec.new()` initialises `data` to null; a select-based load
@@ -2959,15 +3170,12 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
     /// from `data + new_len * elem_size` on the non-empty arm.
     fn emit_vec_pop(&mut self, receiver: &Operand) -> CompileResult<cranelift_codegen::ir::Value> {
         let mf = MemFlags::trusted();
-        let (elem_size, lds, _elem_ty) = self.vec_elem_info(receiver);
+        let (elem_size, lds, elem_ty) = self.vec_elem_info(receiver);
         let hdr = self.vec_header(receiver)?;
         let len = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_LEN_OFF);
         let zero = self.b.ins().iconst(ct::I64, 0);
 
-        // result_var: holds the popped value (or 0 on empty). Seeded
-        // in both arms via def_var so cranelift's SSA construction
-        // sees a definition on every path to the join.
-        let result_var = self.b.declare_var(ct::I64);
+        let (slot_addr, payload_off) = self.alloc_option_slot_for(elem_ty.as_ref())?;
         let empty_block = self.b.create_block();
         let pop_block = self.b.create_block();
         let join_block = self.b.create_block();
@@ -2980,13 +3188,16 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
             .ins()
             .brif(is_empty, empty_block, &[], pop_block, &[]);
 
-        // --- empty_block: return 0, don't touch len/data ---
+        // --- empty_block: tag=1 (None), don't touch len/data ---
         self.b.switch_to_block(empty_block);
         self.b.seal_block(empty_block);
-        self.b.def_var(result_var, zero);
+        let tag_none = self.b.ins().iconst(ct::I32, 1);
+        self.b
+            .ins()
+            .store(mf, tag_none, slot_addr, TAG_OFFSET as i32);
         self.b.ins().jump(join_block, &[]);
 
-        // --- pop_block: decrement len, load tail element ---
+        // --- pop_block: decrement len, load tail element, tag=0 (Some) ---
         self.b.switch_to_block(pop_block);
         self.b.seal_block(pop_block);
         let new_len = self.b.ins().iadd_imm(len, -1);
@@ -2995,14 +3206,22 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         let byte_off = self.b.ins().imul_imm(new_len, elem_size);
         let slot = self.b.ins().iadd(data, byte_off);
         let elem = self.vec_load_elem(slot, elem_size, lds);
-        let elem_i64 = self.coerce_to(elem, ct::I64);
-        self.b.def_var(result_var, elem_i64);
+        let tag_some = self.b.ins().iconst(ct::I32, 0);
+        self.b
+            .ins()
+            .store(mf, tag_some, slot_addr, TAG_OFFSET as i32);
+        let payload_addr = self.b.ins().iadd_imm(slot_addr, payload_off as i64);
+        if let Some(ty) = elem_ty.as_ref() {
+            self.store_scalar(payload_addr, elem, ty)?;
+        } else {
+            self.b.ins().store(mf, elem, payload_addr, 0);
+        }
         self.b.ins().jump(join_block, &[]);
 
         // --- join ---
         self.b.switch_to_block(join_block);
         self.b.seal_block(join_block);
-        Ok(self.b.use_var(result_var))
+        Ok(slot_addr)
     }
 
     /// `v.clear()` — reset len to 0 (keeps the allocation). Returns the
