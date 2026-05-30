@@ -29,6 +29,12 @@ extern "C" fn arena_pop(_h: i64) {}
 // Vec[I64] (8 bytes per elem). Cell isn't Send so we wrap a u64.
 static ALLOC_BYTES: Mutex<u64> = Mutex::new(0);
 
+// Serialises tests that read ALLOC_BYTES against other tests that also
+// invoke the JIT (every other test in this file will land allocations
+// in the shared counter under default cargo-test parallelism). Held
+// from before the JIT run starts until after the counter is read.
+static ALLOC_SERIAL: Mutex<()> = Mutex::new(());
+
 extern "C" fn rt_alloc(size: i64, align: i64, _zero: i64) -> i64 {
     let size = size.max(1) as usize;
     let align = (align.max(1) as usize).next_power_of_two();
@@ -105,6 +111,11 @@ fn jit_run_i64(src: &str) -> Result<i64, String> {
 }
 
 fn must_run(src: &str) -> i64 {
+    // Serialise against the memory-footprint test — it reads
+    // ALLOC_BYTES, which every JIT run mutates. Without this, parallel
+    // test execution lets two `must_run` calls race the counter and the
+    // memory-footprint assert flakes.
+    let _guard = ALLOC_SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     jit_run_i64(src).unwrap_or_else(|e| panic!("compile/run failure: {e}\nsource:\n{src}"))
 }
 
@@ -155,6 +166,14 @@ fn vec_u8_memory_footprint_is_one_byte_per_elem() {
     // double 8-byte slots: 32 → 64 → ... → 8192 bytes. Asserting
     // <= 2KB cleanly separates the two regimes (the surplus comes
     // from intermediate buffers each growth leaks into the arena).
+    //
+    // The serial guard is held across the whole test (must_run +
+    // counter read) so a parallel test in the same binary can't
+    // mutate ALLOC_BYTES between the assert_eq!(len, 1000) and the
+    // bytes read. `must_run` re-takes the same mutex; recursive lock
+    // on the same thread would deadlock with std::sync::Mutex, so we
+    // inline the JIT call here.
+    let _serial = ALLOC_SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     reset_alloc_counter();
     let src = r#"
 fn main() -> I64 {
@@ -173,7 +192,8 @@ fn main() -> I64 {
   n
 }
 "#;
-    let len = must_run(src);
+    let len =
+        jit_run_i64(src).unwrap_or_else(|e| panic!("compile/run failure: {e}\nsource:\n{src}"));
     assert_eq!(len, 1000);
     let bytes = *ALLOC_BYTES.lock().unwrap();
     // v0.39 actual: 2076 bytes (one 32-byte header + sum of leaked
