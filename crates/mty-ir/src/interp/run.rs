@@ -2138,6 +2138,21 @@ fn eval_method(receiver: &Value, name: &str, args: &[Value]) -> Value {
             },
             _ => none(),
         },
+        // v0.39 T3 — `v.set(i, x)`. Returns the modified Vec so the
+        // capture-rebind shape `v = v.set(i, x)` works the same way
+        // as `v = v.push(x)` (see the cranelift backend's
+        // `emit_vec_set` for the native counterpart). Out-of-range
+        // indices return the unchanged receiver — the codegen path
+        // traps; the interpreter is permissive here so type-checked
+        // demo code doesn't crash mid-run.
+        "set" => match (receiver, arg_usize(args, 0), args.get(1)) {
+            (Array(xs), Some(i), Some(v)) if i < xs.len() => {
+                let mut out = xs.clone();
+                out[i] = v.clone();
+                Array(out)
+            }
+            _ => receiver.clone(),
+        },
         "first" => match receiver {
             Array(xs) => match xs.first() {
                 Some(v) => some(v.clone()),
