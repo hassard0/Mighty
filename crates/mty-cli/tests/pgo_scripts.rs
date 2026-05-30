@@ -16,9 +16,10 @@
 //!      collides with PGO's `CG Profile` module metadata on
 //!      linux-x86_64 (`LLVM ERROR: Broken module found, module flag
 //!      identifiers must be unique !"CG Profile"`).
-//!   3. The release workflow's `use_pgo: true` matrix entries must
-//!      stay enabled across linux-x86_64, darwin-arm64, and
-//!      windows-x86_64 (the 3 native-PGO platforms).
+//!   3. The release workflow's `use_pgo: true` matrix must stay
+//!      enabled on at least one native platform. v0.38.1 contingency:
+//!      linux-x86_64 only (darwin-arm64 + windows-msvc PGO disabled
+//!      after cargo-pgo migration surfaces; v0.39 follow-up).
 
 #![cfg(feature = "host-toolchain")]
 
@@ -106,19 +107,22 @@ fn build_pgo_ps1_does_not_pass_linker_plugin_lto() {
 }
 
 #[test]
-fn release_workflow_enables_pgo_on_three_native_platforms() {
+fn release_workflow_enables_pgo_on_at_least_one_native_platform() {
     let yml = read_text(".github/workflows/release.yml");
-    // The 3 native-PGO platforms must each show `use_pgo: true`. We
-    // can't easily parse YAML in a unit test without a dep, but we
-    // can pin the triples + the literal use_pgo line counts.
+    // v0.38.1: cargo-pgo migration retained only linux-x86_64 PGO
+    // after the Release-run revealed cargo-pgo doesn't fix
+    // darwin-arm64's toolchain-internal raw=8/expected=10 mismatch
+    // and writes no profraws on windows-msvc. Both PGO legs are
+    // disabled until the v0.39 follow-up. Assertion: ≥1 PGO platform.
     let pgo_true_count = yml.matches("use_pgo: true").count();
     assert!(
-        pgo_true_count >= 3,
-        "release.yml should have `use_pgo: true` on at least 3 matrix \
-         entries (linux-x86_64 + darwin-arm64 + windows-x86_64). Found {pgo_true_count}"
+        pgo_true_count >= 1,
+        "release.yml should have `use_pgo: true` on at least 1 matrix \
+         entry (currently linux-x86_64 only after v0.38.1 contingency). \
+         Found {pgo_true_count}"
     );
 
-    // Pin each triple appears in the matrix.
+    // Pin each triple still appears in the matrix (PGO state varies).
     for triple in [
         "x86_64-unknown-linux-gnu",
         "aarch64-apple-darwin",
