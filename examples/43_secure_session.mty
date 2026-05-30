@@ -1,0 +1,122 @@
+// 43_secure_session.mty — v0.40 Track T4: real-world crypto + parsing.
+//
+// v0.39 T1 shipped the foundational `std.crypto` surface (hash + HMAC
+// + rand) plus `std.encoding`, `std.url`, and `std.uuid`. v0.40 T4
+// closes the remaining real-world gaps:
+//
+//   * `std.regex.Regex` — every web app, log parser, validation
+//     pipeline needs regular expressions.
+//   * `std.crypto.aes_gcm` — AES-256-GCM authenticated encryption.
+//   * `std.crypto.chacha20_poly1305` — RFC 8439 AEAD for hardware
+//     without AES-NI (mandatory TLS 1.3 fallback ciphersuite).
+//
+// This example pins the SHAPE of the combined v0.39 + v0.40 surface
+// against a single realistic workflow: validate a user-supplied
+// session id, derive a per-session AEAD key, encrypt session payload,
+// URL-encode for a cookie. Every helper returns a plain value so the
+// example stays inside the v0.2 codegen sweep.
+//
+// Build:
+//   mty fmt examples/43_secure_session.mty
+//   mty check examples/43_secure_session.mty
+// ----- std.regex: validate a user-supplied id ---------------------------
+// A session id from a cookie / header must look like an opaque token
+// before we even attempt to use it. `Regex.new` returns a compiled
+// pattern; `is_match` is a cheap predicate over the haystack.
+fn _validate_session_id(raw: Str) -> Bool {
+  let r = std.regex.Regex.new("^[A-Za-z0-9_-]{16,64}$")
+  r.is_match(raw)
+}
+
+// Extract the user identifier and timestamp from a structured log
+// line. Demonstrates `captures` + named groups for typical scan-
+// and-parse workflows.
+fn _parse_audit_line(line: Str) -> Str {
+  let r = std.regex.Regex.new("user=([A-Za-z0-9]+).*ts=(\\d+)")
+  let caps = r.captures(line)
+  // Group 1 = user id. (Real code would also extract group 2 for
+  // the timestamp; this helper just returns the user id so the
+  // example stays inside the v0.2 codegen sweep.)
+  caps.get(1).text
+}
+
+// ----- std.crypto.hmac_sha256: derive a per-session key ------------------
+// Classic key-derivation pattern: HMAC the session id under a fixed
+// master key to get a per-session AEAD key. (In production reach for
+// HKDF — v0.41 will surface it directly. The HMAC shape here is the
+// same primitive HKDF is built on.)
+fn _derive_session_key(master_key: Str, session_id: Str) -> Str {
+  let derived = std.crypto.hmac_sha256(master_key, session_id)
+  std.encoding.hex.encode(derived)
+}
+
+// ----- std.crypto.rand: fresh nonce per session message ------------------
+// AES-GCM nonces MUST be unique per (key, message). For a session
+// payload that's encrypted at most once per session, a 12-byte random
+// nonce is safe (collision probability ~2^-96 across the universe of
+// sessions).
+fn _fresh_nonce() -> Str {
+  let bytes = std.crypto.random_bytes(12)
+  std.encoding.base64.encode_url_no_pad(bytes)
+}
+
+// ----- std.crypto.aes_gcm: encrypt session payload ----------------------
+// Authenticated encryption with associated data:
+//   * key   — derived per-session above.
+//   * nonce — fresh per-message above.
+//   * aad   — version tag bound into the auth tag (rotation marker).
+//   * pt    — the actual session payload (user id, expiry, scopes ...).
+// Returns ciphertext + 16-byte GCM auth tag. Decryption verifies the
+// tag in constant time; any tamper yields a clean error.
+fn _seal_session(key: Str, nonce: Str, version: Str, payload: Str) -> Str {
+  let ct = std.crypto.aes_gcm.encrypt(key, nonce, version, payload)
+  std.encoding.base64.encode_url_no_pad(ct)
+}
+
+fn _open_session(key: Str, nonce: Str, version: Str, sealed: Str) -> Str {
+  let ct = std.encoding.base64.decode_url_no_pad(sealed)
+  let pt = std.crypto.aes_gcm.decrypt(key, nonce, version, ct)
+  pt
+}
+
+// ----- std.crypto.chacha20_poly1305: same shape, alternate cipher --------
+// Pick this on platforms without AES-NI (ARM, embedded). The function
+// signature is identical to AES-GCM by design — callers swap one name.
+fn _seal_session_chacha(key: Str, nonce: Str, version: Str, payload: Str) -> Str {
+  let ct = std.crypto.chacha20_poly1305.encrypt(key, nonce, version, payload)
+  std.encoding.base64.encode_url_no_pad(ct)
+}
+
+// ----- std.url: URL-encode the sealed cookie + build the redirect -------
+// The base64-url-no-pad output already passes URL safety; the surrounding
+// query string still gets the percent-encoded treatment in case the
+// caller bolts on a `?session=...&next=...` redirect target.
+fn _build_callback_url(sealed: Str, next: Str) -> Str {
+  let u = std.url.Url.builder("https")
+    .host("auth.example.com")
+    .path("/v1/callback")
+    .query_param("session", sealed)
+    .query_param("next", next)
+    .build()
+  u.to_string()
+}
+
+fn main() {
+  // 1) Validate the user-supplied session id BEFORE doing any crypto.
+  let _ok = _validate_session_id("abc123XYZ_session-token")
+  // 2) Parse an audit line to recover the actor.
+  let _actor = _parse_audit_line("user=ihassard ip=10.0.0.1 ts=1748563200")
+  // 3) Derive a per-session AEAD key.
+  let key = _derive_session_key("master-key-from-kms", "session-id-42")
+  // 4) Fresh nonce per message.
+  let nonce = _fresh_nonce()
+  // 5) Seal the session payload (AES-GCM and ChaCha20-Poly1305 share
+  //    the same shape — only the function name differs).
+  let sealed_a = _seal_session(key, nonce, "v=1", "uid=42;scope=read")
+  let _sealed_b = _seal_session_chacha(key, nonce, "v=1", "uid=42;scope=read")
+  // 6) Hand back the sealed cookie inside a redirect URL.
+  let _redirect = _build_callback_url(sealed_a, "/dashboard")
+  // 7) On the next request, open the sealed payload (AAD must match).
+  let _payload = _open_session(key, nonce, "v=1", sealed_a)
+  log("43_secure_session: std.regex + AEAD (v0.40 T4)")
+}
