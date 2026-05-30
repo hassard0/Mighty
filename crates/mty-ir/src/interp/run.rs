@@ -1191,6 +1191,40 @@ fn try_stdlib_ctor(name: &str, args: &[Value]) -> Option<Value> {
         // ---- Vec[T] constructors ----
         "Vec.new" => Some(Array(Vec::new())),
         "Vec.with_capacity" => Some(Array(Vec::with_capacity(usize_arg(0)))),
+        // ---- v0.40 T3 — Char.from_u32(value: U32) -> Option[Char] ----
+        // Validates the value is a Unicode scalar (0..0x110000 minus
+        // the UTF-16 surrogate gap 0xD800..=0xDFFF) and returns the
+        // matching `Some(Char)` / `None`. The matching typeck-side
+        // registration lives in `crate::prelude::build_prelude`.
+        // Mirrors Rust's `char::from_u32`.
+        //
+        // Local helpers `ok` / `err` above are shaped for `Result`
+        // (variant 1 carries a `Unit` payload); `Option::None` has no
+        // payload, so we spell the Option variants inline here.
+        "Char.from_u32" => {
+            let some_v = |c: char| Value::Enum {
+                adt: mty_types::AdtId(0),
+                variant: 0,
+                payload: vec![Char(c)],
+            };
+            let none_v = || Value::Enum {
+                adt: mty_types::AdtId(0),
+                variant: 1,
+                payload: vec![],
+            };
+            let v = match args.first() {
+                Some(Int(n, _)) => *n,
+                _ => return Some(none_v()),
+            };
+            if v < 0 || v >= 0x110000 || (0xD800..=0xDFFF).contains(&v) {
+                return Some(none_v());
+            }
+            let cp = v as u32;
+            match char::from_u32(cp) {
+                Some(c) => Some(some_v(c)),
+                None => Some(none_v()),
+            }
+        }
         // ---- v0.29 Track A: std.swarm typed-handle constructors ----
         //
         // The SIR interpreter can't link against `mty_stdlib::swarm`
