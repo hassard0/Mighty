@@ -151,13 +151,43 @@ pub struct Cx<'a> {
     /// already-null-terminated ptr verbatim. Always a subset of
     /// `coerce_str_to_ptr`.
     pub coerce_nul_ok: &'a mut std::collections::HashSet<ExprId>,
+    /// v0.42 T6 (L22 fix 3) — opt-in strict name resolution. When `true`
+    /// the permissive `cx.fresh()` fallback in `synth_path` (taken in
+    /// non-strict scopes like `TopLevelFn`) is replaced with an MT2021
+    /// emit, so a top-level body like `log(undefined_thing)` produces a
+    /// diagnostic instead of silently typing the argument as a fresh
+    /// inference variable. `mty check` flips this on; downstream
+    /// consumers (the borrow checker driver, agent-mode JSON envelopes,
+    /// etc.) leave it `false` so the slice-3 A21 fresh-var policy
+    /// continues to apply to the legacy permissive scopes — see
+    /// `ScopeKind`'s table for the inventory. The strict-scope MT2021
+    /// path (agent / handler / supervisor / cap-narrow bodies) is
+    /// unaffected: it always fires regardless of this flag.
+    pub strict_resolution: bool,
 }
 
 impl<'a> Cx<'a> {
-    fn span_of_expr(&self, _e: ExprId) -> SourceSpan {
-        // Expression spans are not directly stored per HirExpr in slice 2's
-        // arena; placeholder. The diag still includes the message.
-        SourceSpan { start: 0, end: 0 }
+    fn span_of_expr(&self, e: ExprId) -> SourceSpan {
+        // v0.42 T6 (L22 fix 1) — every `ExprId` allocated from a real
+        // CST node was already recorded in `Package.expr_spans` by the
+        // expression lowerer (`mty-hir::lower::exprs::lower_expr`, see
+        // v0.34 T4). Previously this method ignored the side-table and
+        // returned a `(0, 0)` placeholder, which collapsed every
+        // type-mismatch / arg-mismatch / borrow-of-non-place / cast /
+        // match-mismatch / etc. error onto the enclosing fn's `1:1`
+        // header. The IDE's inline underlines and `Problems` panel
+        // both depend on per-error positioning — see lesson L22 in
+        // `mighty-ide/docs/mighty-language-lessons.md`.
+        //
+        // We still fall back to the `(0, 0)` placeholder when the
+        // ExprId is synthetic (no entry in `expr_spans`, e.g. the
+        // `HirExpr::Error` arm) so the diagnostic still emits — it
+        // just lands at the file head instead of an arbitrary offset.
+        self.pkg
+            .expr_spans
+            .get(&e)
+            .cloned()
+            .unwrap_or(SourceSpan { start: 0, end: 0 })
     }
 
     fn fresh(&mut self) -> TyId {
@@ -818,8 +848,26 @@ fn synth_path(cx: &mut Cx, segments: &[String], expr_id: ExprId) -> TyId {
             return cx.fresh();
         }
         if !cx.scope_kind.is_strict() {
-            // Permissive scope: keep slice-3 A21 fresh-var policy.
-            return cx.fresh();
+            // Permissive scope: keep slice-3 A21 fresh-var policy by default.
+            //
+            // v0.42 T6 (L22 fix 3) — when `mty check` is the driver it
+            // flips `strict_resolution` on, which promotes the
+            // unresolved-name case to MT2021 *even in permissive
+            // scopes*. This is what surfaces a top-level
+            // `log(undefined_thing)` as an error instead of silently
+            // typing the arg as a fresh inference variable. Other
+            // entry points (`mty run`, `mty build`, agent JSON
+            // envelopes, the borrow-check driver) keep the historic
+            // fresh-var fallback.
+            if !cx.strict_resolution {
+                return cx.fresh();
+            }
+            cx.diag.push(diag::unresolved_value_strict(
+                name,
+                cx.scope_kind.label(),
+                &cx.span_of_expr(expr_id),
+            ));
+            return cx.arena.error;
         }
         // Strict scope: hard error.
         cx.diag.push(diag::unresolved_value_strict(
@@ -885,9 +933,20 @@ fn synth_path(cx: &mut Cx, segments: &[String], expr_id: ExprId) -> TyId {
     if cx.defs.is_handler_safe_name(first) {
         return cx.fresh();
     }
-    // v0.3 (A65): permissive scope keeps slice-3 fresh-var fallback.
+    // v0.3 (A65): permissive scope keeps slice-3 fresh-var fallback by default.
+    // v0.42 T6 (L22 fix 3): under `mty check`'s strict_resolution mode,
+    // promote the unresolved-first-segment case to MT2021 in permissive
+    // scopes too — same widening as the single-segment branch above.
     if !cx.scope_kind.is_strict() {
-        return cx.fresh();
+        if !cx.strict_resolution {
+            return cx.fresh();
+        }
+        cx.diag.push(diag::unresolved_value_strict(
+            first,
+            cx.scope_kind.label(),
+            &cx.span_of_expr(expr_id),
+        ));
+        return cx.arena.error;
     }
     // Strict scope: truly unresolved multi-segment path errors on first.
     cx.diag.push(diag::unresolved_value_strict(

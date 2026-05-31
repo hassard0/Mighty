@@ -14,8 +14,26 @@ use mty_diagnostics::Diagnostic;
 use mty_hir::*;
 use std::collections::{HashMap, HashSet};
 
+/// v0.42 T6 (L22 fix 3) — knobs that tune what `check_typed` surfaces.
+/// Defaults reproduce the historic permissive behavior (slice-3 A21 fresh
+/// vars for unresolved names in permissive scopes). `mty check` flips
+/// `strict_resolution` on to widen the report to include MT2021 for
+/// undefined top-level identifiers; downstream consumers (the agent
+/// envelope, the borrow-check driver, the SIR lowerer when called from
+/// `mty run/build`) leave it off so their existing semantics are
+/// preserved.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CheckOpts {
+    pub strict_resolution: bool,
+}
+
 /// Slice-4 entry point: returns the typed package along with diagnostics.
 pub fn check_typed(pkg: &Package) -> TypedPackage {
+    check_typed_with_opts(pkg, CheckOpts::default())
+}
+
+/// v0.42 T6 (L22 fix 3) — opts-aware entry point. See `CheckOpts`.
+pub fn check_typed_with_opts(pkg: &Package, opts: CheckOpts) -> TypedPackage {
     let mut arena = TyArena::new();
     let r = build_def_map(pkg, &mut arena);
     let mut defs = r.defs;
@@ -146,6 +164,7 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
             coerce_str_to_ptr: &mut coerce_str_to_ptr,
             coerce_addr_of: &mut coerce_addr_of,
             coerce_nul_ok: &mut coerce_nul_ok,
+            strict_resolution: opts.strict_resolution,
         };
         cx.locals.enter();
         for (name, ty) in &params {
@@ -238,6 +257,7 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
                         coerce_str_to_ptr: &mut coerce_str_to_ptr,
                         coerce_addr_of: &mut coerce_addr_of,
                         coerce_nul_ok: &mut coerce_nul_ok,
+                        strict_resolution: opts.strict_resolution,
                     };
                     let _ = synth_expr(&mut cx, init);
                     diagnostics.extend(cx_diag);
@@ -289,6 +309,7 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
                     coerce_str_to_ptr: &mut coerce_str_to_ptr,
                     coerce_addr_of: &mut coerce_addr_of,
                     coerce_nul_ok: &mut coerce_nul_ok,
+                    strict_resolution: opts.strict_resolution,
                 };
                 cx.locals.enter();
                 // Bind handler params: prefer protocol-declared types,
@@ -427,6 +448,7 @@ pub fn check_typed(pkg: &Package) -> TypedPackage {
                     coerce_str_to_ptr: &mut coerce_str_to_ptr,
                     coerce_addr_of: &mut coerce_addr_of,
                     coerce_nul_ok: &mut coerce_nul_ok,
+                    strict_resolution: opts.strict_resolution,
                 };
                 let _ = synth_expr(&mut cx, *child_expr);
                 diagnostics.extend(cx_diag);

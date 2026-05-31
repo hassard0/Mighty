@@ -31,7 +31,15 @@ fn let_stmt(p: &mut Parser) {
     // Optional `mut` makes the binding mutable.
     p.eat(MUT_KW);
     p.skip_trivia();
-    patterns::pattern(p);
+    // v0.42 T6 (L22 fix 3) — `patterns::pattern` returns `false` when
+    // the next token doesn't start any known pattern (e.g. `let = 42`,
+    // `let : I32 = 0`). Pre-v0.42 we ignored the return and let the
+    // parser silently produce a `LET_STMT` with no binding child,
+    // which fell through `mty check` clean. Emit MT0001 so the parse
+    // glitch is surfaced as an error before lowering/type-check.
+    if !patterns::pattern(p) {
+        p.error("expected binding pattern after `let`");
+    }
     if p.eat(COLON) {
         types::type_expr(p);
     }
