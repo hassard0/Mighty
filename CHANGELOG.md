@@ -11,6 +11,12 @@ For the full per-release notes, see
 
 v0.43 candidates (rolled up from v0.42's IDE-dogfooding lessons log):
 
+- Fixed **L10** native build diagnostics: `mty build` now distinguishes
+  a genuinely missing linker from a linker invocation that ran and
+  failed. Link failures now return an error with the emitted object
+  path and linker stderr instead of reporting "no linker found" as a
+  successful object-only build.
+
 ### Known issues — carry forward
 - **L18 (P1):** `std.fs` is a Rust-internal capability API, not
   Mighty-callable.

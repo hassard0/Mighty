@@ -200,6 +200,7 @@ pub fn build_linker_args(libs: &[ExternLib], manifest_dir: Option<&Path>) -> Vec
 pub enum BuildOutcome {
     NativeOk(PathBuf),
     NativeOkNoLinker(PathBuf), // emitted .o but no linker available
+    NativeLinkError { object_path: PathBuf, error: String },
     WasmOk(PathBuf),
     FrontendError, // diagnostics already rendered
     BackendError(String),
@@ -253,15 +254,14 @@ pub fn build_native(src: String, source_id: String, opts: &BuildOptions) -> Buil
     let extra_link_args = rewrite_for_flavor(&extra_link_args, flavor);
     match link_executable_with_libs(&obj, &exe_path, opts.mode, &extra_link_args) {
         Ok(a) => BuildOutcome::NativeOk(a.binary_path),
-        // The object emitted cleanly but the linker rejected it
-        // (e.g. Windows link.exe LNK1120 on missing C-runtime
-        // `main` entry; macOS ld refusing pre-v0.10 objects). The
-        // .o is still a real artifact downstream tooling can use,
-        // and returning `BackendError` would surface a linking
-        // problem as if codegen itself were broken. v0.11+ should
-        // wire a proper `main` entry shim per target so this path
-        // becomes rare.
-        Err(_) => BuildOutcome::NativeOkNoLinker(obj.object_path),
+        // The object emitted cleanly, but the configured/discovered
+        // linker ran and rejected the link. Keep the .o path visible,
+        // but report this distinctly from "no linker installed" so
+        // `mty build` fails loudly instead of claiming success.
+        Err(e) => BuildOutcome::NativeLinkError {
+            object_path: obj.object_path,
+            error: e.to_string(),
+        },
     }
 }
 
@@ -446,6 +446,9 @@ fn symbols_from_runtime() -> Vec<(String, *const u8)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static LINKER_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn jit_run_empty_main_returns_zero() {
@@ -458,6 +461,7 @@ mod tests {
 
     #[test]
     fn build_native_creates_object() {
+        let _guard = LINKER_ENV_LOCK.lock().expect("linker env lock");
         let dir = tempfile::tempdir().expect("tempdir");
         let opts = BuildOptions::native_debug(dir.path().to_path_buf(), "hello");
         let outcome = build_native("fn main() {}\n".into(), "x.mty".into(), &opts);
@@ -465,9 +469,79 @@ mod tests {
         match outcome {
             BuildOutcome::NativeOk(p) => assert!(p.exists()),
             BuildOutcome::NativeOkNoLinker(p) => assert!(p.exists()),
+            BuildOutcome::NativeLinkError { object_path, error } => {
+                panic!(
+                    "link error after writing {}: {error}",
+                    object_path.display()
+                )
+            }
             BuildOutcome::BackendError(e) => panic!("backend error: {e}"),
             BuildOutcome::FrontendError => panic!("frontend error"),
             BuildOutcome::WasmOk(_) => panic!("wrong outcome"),
+        }
+    }
+
+    #[test]
+    fn build_native_reports_linker_failure_separately_from_missing_linker() {
+        let _guard = LINKER_ENV_LOCK.lock().expect("linker env lock");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let fake = failing_linker_path(dir.path());
+        let old_mty = std::env::var_os("MTY_LINKER");
+        let old_stardust = std::env::var_os("STARDUST_LINKER");
+        unsafe {
+            std::env::set_var("MTY_LINKER", &fake);
+            std::env::remove_var("STARDUST_LINKER");
+        }
+
+        let opts = BuildOptions::native_debug(dir.path().to_path_buf(), "bad_link");
+        let outcome = build_native("fn main() {}\n".into(), "x.mty".into(), &opts);
+
+        restore_env("MTY_LINKER", old_mty);
+        restore_env("STARDUST_LINKER", old_stardust);
+
+        match outcome {
+            BuildOutcome::NativeLinkError { object_path, error } => {
+                assert!(object_path.exists(), "object should still be written");
+                assert!(
+                    error.contains("fake linker failure") || error.contains("exit"),
+                    "unexpected linker error: {error}"
+                );
+            }
+            other => panic!("expected NativeLinkError, got {other:?}"),
+        }
+    }
+
+    fn failing_linker_path(dir: &Path) -> PathBuf {
+        #[cfg(windows)]
+        {
+            let path = dir.join("fake-linker.cmd");
+            std::fs::write(
+                &path,
+                "@echo off\r\necho fake linker failure 1>&2\r\nexit /b 42\r\n",
+            )
+            .expect("write fake linker");
+            path
+        }
+        #[cfg(not(windows))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let path = dir.join("fake-linker.sh");
+            std::fs::write(&path, "#!/bin/sh\necho fake linker failure >&2\nexit 42\n")
+                .expect("write fake linker");
+            let mut perms = std::fs::metadata(&path).expect("metadata").permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&path, perms).expect("chmod fake linker");
+            path
+        }
+    }
+
+    fn restore_env(key: &str, value: Option<std::ffi::OsString>) {
+        unsafe {
+            if let Some(value) = value {
+                std::env::set_var(key, value);
+            } else {
+                std::env::remove_var(key);
+            }
         }
     }
 

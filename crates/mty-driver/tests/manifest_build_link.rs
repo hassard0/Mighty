@@ -249,14 +249,19 @@ fn build_native_with_build_block_threads_native_libs() {
         }),
     };
     let outcome = build_native("fn main() {}\n".into(), "smoke.mty".into(), &opts);
-    // `build_native` collapses "no linker" and "linker rejected" into
-    // the same outcome, so we accept both NativeOk and
-    // NativeOkNoLinker. The fail mode we're guarding against is a
-    // backend panic / FrontendError, both of which would mean the
-    // manifest plumbing broke.
+    // This test guards manifest plumbing, not the host linker setup:
+    // success, no-linker, and a real linker rejection are all
+    // acceptable as long as codegen produced the object.
     match outcome {
         BuildOutcome::NativeOk(p) | BuildOutcome::NativeOkNoLinker(p) => {
             assert!(p.exists(), "expected artifact at {}", p.display());
+        }
+        BuildOutcome::NativeLinkError { object_path, .. } => {
+            assert!(
+                object_path.exists(),
+                "expected object artifact at {}",
+                object_path.display()
+            );
         }
         BuildOutcome::FrontendError => panic!("frontend error from a 1-line program"),
         BuildOutcome::BackendError(e) => panic!("backend error: {e}"),
@@ -288,6 +293,9 @@ fn build_native_with_default_build_block_is_no_op() {
     let outcome = build_native("fn main() {}\n".into(), "noop.mty".into(), &opts);
     match outcome {
         BuildOutcome::NativeOk(_) | BuildOutcome::NativeOkNoLinker(_) => {}
+        BuildOutcome::NativeLinkError { object_path, .. } => {
+            assert!(object_path.exists(), "expected emitted object")
+        }
         other => panic!("expected NativeOk*, got {other:?}"),
     }
 }

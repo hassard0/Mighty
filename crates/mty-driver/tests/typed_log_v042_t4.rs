@@ -43,6 +43,13 @@ fn must_native_object(name: &str, src: &str) {
             let bytes = std::fs::read(&p).expect("read artifact");
             assert!(!bytes.is_empty(), "artifact is empty");
         }
+        BuildOutcome::NativeLinkError { object_path, .. } => {
+            assert!(
+                object_path.exists(),
+                "expected object artifact at {}",
+                object_path.display()
+            );
+        }
         BuildOutcome::BackendError(e) => panic!(
             "v0.42 T4 regression: typed `log` shouldn't raise Unsupported — got {e}\nsource:\n{src}"
         ),

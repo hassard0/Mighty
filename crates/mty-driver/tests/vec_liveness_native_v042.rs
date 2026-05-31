@@ -284,6 +284,13 @@ fn build_and_run(name: &str, src: &str) -> Option<(i32, String)> {
             );
             return None;
         }
+        BuildOutcome::NativeLinkError { object_path, error } => {
+            eprintln!(
+                "[vec_liveness_native_v042] {name}: linker failed after emitting .o ({}); skipping execute step: {error}",
+                object_path.display()
+            );
+            return None;
+        }
         BuildOutcome::BackendError(e) => panic!("[{name}] build_native: {e}"),
         BuildOutcome::FrontendError => panic!("[{name}] frontend rejected the source"),
         BuildOutcome::WasmOk(_) => panic!("[{name}] wrong outcome (wasm) for native build"),
