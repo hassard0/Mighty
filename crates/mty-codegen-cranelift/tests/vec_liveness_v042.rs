@@ -28,6 +28,7 @@ use mty_codegen_cranelift::jit::{build_jit, symbols_from};
 use mty_ir::lower_package;
 use mty_syntax::parse;
 use std::alloc::{alloc, Layout};
+use std::sync::{Mutex, OnceLock};
 
 extern "C" fn no_op(_p: i64, _l: i64) {}
 extern "C" fn no_op_i64(_v: i64) {}
@@ -106,6 +107,11 @@ fn jit_run_i64(src: &str) -> Result<i64, String> {
 }
 
 fn must_run(src: &str) -> i64 {
+    static JIT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _guard = JIT_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("JIT test lock poisoned");
     jit_run_i64(src).unwrap_or_else(|e| panic!("compile/run failure: {e}\nsource:\n{src}"))
 }
 
