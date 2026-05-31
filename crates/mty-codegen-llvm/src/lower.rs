@@ -407,10 +407,27 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
             let _ = self.ensure_block(blk.id);
         }
 
+        // v0.42 T1 — mirror the cranelift backend's L1/L28 fix
+        // (`crates/mty-codegen-cranelift/src/lower.rs::lower_blocks`):
+        // `mty_runtime_alloc` returns 0 when no arena frame is active,
+        // so a plain `fn main()` doing `Vec.new()` / `String.with_capacity()`
+        // would dereference null under a built native binary (LLVM
+        // backend included). Auto-push an implicit arena frame at the
+        // entry block of `main`. SIR's explicit `ArenaPush`/`ArenaPop`
+        // pair already nests around source-level `arena {}` blocks, so
+        // we only push for `main` (not every fn). The frame is
+        // implicitly torn down at process exit, matching the cranelift
+        // path and the JIT lifetime.
+        let is_main = self.f.name == "main";
+        let entry_id = self.f.entry;
         let block_ids: Vec<_> = self.f.blocks.iter().map(|b| b.id).collect();
         for id in block_ids {
             let bb = self.blocks[&id];
             self.pl.builder.position_at_end(bb);
+            if is_main && id == entry_id {
+                let f = self.pl.runtime_fns["mty_runtime_arena_push"];
+                let _ = self.pl.builder.build_call(f, &[], "auto_arena_push");
+            }
             self.lower_block(id)?;
         }
         Ok(())

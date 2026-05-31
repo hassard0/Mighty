@@ -1,0 +1,29 @@
+// v0.42 T1 (L28/L21 regression coverage in the examples-conformance
+// sweep). Pre-v0.41 T3 the native binary path returned `v.len()==0`
+// after this loop (the `mty_runtime_alloc` import returned NULL when
+// no arena frame was active, so the first `Vec.new()` came back zero
+// and every `v = v.push(x)` quietly fell on the floor). The
+// interpreter never tripped because its allocation path doesn't
+// require an explicit arena.
+//
+// The examples-conformance suite in
+// `crates/mty-cli/tests/conformance_examples.rs` diffs `mty run
+// --legacy-interp` against `mty run` (the JIT/native lowering); both
+// must produce identical stdout + exit code. This program prints a
+// fixed string per loop iteration so the diff catches any
+// liveness/spill regression that drops elements before the readback.
+fn main() {
+  let mut v: Vec[I32] = Vec.new()
+  let mut i: USize = 0
+  while i < 5 {
+    v = v.push(65)
+    i = i + 1
+  }
+  // Walk the grown vec back out — both backends MUST agree this
+  // prints "iter" five times.
+  let mut j: USize = 0
+  while j < v.len() {
+    log("iter")
+    j = j + 1
+  }
+}

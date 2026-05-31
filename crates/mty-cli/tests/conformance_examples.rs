@@ -310,10 +310,14 @@ fn examples_passing_floor_holds() {
             passing += 1;
         }
     }
-    // v0.41 T3 ships 27 cleanly-passing examples (out of ~43 total,
-    // depending on add/remove). Floor lets a v0.42 example land
-    // without tripping CI on day 1 — pre-fixes the count was 24.
-    const FLOOR: usize = 27;
+    // v0.42 T1 bumps the floor to 28: the L28/L21 regression
+    // example (`examples/44_vec_growth_in_loop.mty`) joins the
+    // clean-passing set so any future regression in the
+    // Vec-rebind-across-loop lowering trips this assertion on top
+    // of the per-example diff in `examples_conformance_sweep`.
+    // v0.41 T3 baseline was 27 (out of ~43 total, depending on
+    // add/remove); pre-v0.41-T3 the count was 24.
+    const FLOOR: usize = 28;
     assert!(
         passing >= FLOOR,
         "expected >= {FLOOR} examples to pass interp/JIT diff, only {passing} did",
