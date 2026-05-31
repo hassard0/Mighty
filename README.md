@@ -14,13 +14,14 @@
 
 Compiler, runtime, formatter, package manager, doc generator, LSP,
 and stdlib all live in one Rust workspace and one `mty` binary.
-v0.42 is the IDE-blocker closure round: the Mighty IDE is itself
-written in Mighty, and every bug it surfaces lands as a release-gate
-fix in the next cycle. v0.42 closes the last 5 IDE-blocking lessons
-(L19 numeric `as` casts, L20 paren-juxtaposition parse error, L22
-diagnostics polish, L23 native `log()` computed args, L26 `mty fmt`
-safety) and locks in the v0.41 T3 Vec-liveness fix across both
-back-ends.
+v0.42 is the current release: the Mighty IDE is itself written in
+Mighty, and every bug it surfaces lands as a release-gate fix in the
+next cycle. v0.42 closes the last 5 IDE-blocking lessons (L19 numeric
+`as` casts, L20 paren-juxtaposition parse error, L22 diagnostics
+polish, L23 native `log()` computed args, L26 `mty fmt` safety) and
+locks in the v0.41 T3 Vec-liveness fix across both back-ends. v0.43
+development is underway with the L12 interpreter fix for statement-form
+`Vec`/`String` mutators (`v.push(x)`, `v.pop()`, `v.clear()`).
 
 ## Why Mighty
 
