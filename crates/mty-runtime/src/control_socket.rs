@@ -487,14 +487,13 @@ mod windows_impl {
             }
         };
         let task = handle.spawn(accept_loop(ctx, pipe_path.clone(), server));
-        Some(ControlSocketHandle { task, sock_path: pipe_path })
+        Some(ControlSocketHandle {
+            task,
+            sock_path: pipe_path,
+        })
     }
 
-    async fn accept_loop(
-        ctx: ControlContext,
-        pipe_path: String,
-        mut server: NamedPipeServer,
-    ) {
+    async fn accept_loop(ctx: ControlContext, pipe_path: String, mut server: NamedPipeServer) {
         loop {
             match server.connect().await {
                 Ok(()) => {
