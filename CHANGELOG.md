@@ -16,6 +16,10 @@ v0.43 candidates (rolled up from v0.42's IDE-dogfooding lessons log):
   declarations, canonicalizing declaration spacing, generic type args,
   and simple initializer expressions while preserving optional
   semicolons.
+- Fixed **L46** parser precedence: prefix operators now let postfix
+  calls/indexes bind to their operand, so `!pred(x)` parses as
+  `!(pred(x))` while still rejecting calls of non-callable unary values
+  such as `(-f)(x)`.
 
 ### Known issues — carry forward
 - **L18 (P1):** `std.fs` is a Rust-internal capability API, not

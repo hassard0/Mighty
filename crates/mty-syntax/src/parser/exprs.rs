@@ -169,6 +169,8 @@ fn infix_bp(p: &Parser) -> Option<u8> {
     Some(bp)
 }
 
+const PREFIX_BP: u8 = 13;
+
 fn unary_or_primary(p: &mut Parser) -> Option<PrimaryShape> {
     p.skip_trivia();
     match p.peek() {
@@ -176,7 +178,7 @@ fn unary_or_primary(p: &mut Parser) -> Option<PrimaryShape> {
             p.start_node(UNARY_EXPR);
             p.bump_any();
             p.skip_trivia();
-            unary_or_primary(p);
+            expr_bp(p, PREFIX_BP);
             p.finish_node();
             // `-(f)` / `!(g)` / `*(h)` are not callable themselves —
             // `(-f)(x)` should not parse as a call of `-f`.

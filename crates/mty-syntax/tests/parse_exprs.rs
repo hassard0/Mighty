@@ -334,6 +334,35 @@ fn l20_indexed_callable_still_works() {
 }
 
 #[test]
+fn l46_unary_not_consumes_call_operand() {
+    // L46: `!pred(1)` should parse as `!(pred(1))`, not as `(!pred)(1)`.
+    use mty_syntax::{parser::parse_expr, SyntaxKind, SyntaxNode};
+    let r = parse_expr("!pred(1)");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::UNARY_EXPR));
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::CALL_EXPR));
+}
+
+#[test]
+fn l46_unary_not_call_operand_stops_before_binary() {
+    use mty_syntax::{parser::parse_expr, SyntaxKind, SyntaxNode};
+    let r = parse_expr("!pred(1) && ready");
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::BINARY_EXPR));
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::CALL_EXPR));
+}
+
+#[test]
 fn l20_tuple_literal_not_a_callee() {
     // `(a, b)(c)` is a tuple literal applied to `(c)` — must NOT be a
     // call.
