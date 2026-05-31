@@ -11,13 +11,20 @@ For the full per-release notes, see
 
 v0.43 candidates (rolled up from v0.42's IDE-dogfooding lessons log):
 
+- Advanced **L26** formatter follow-up: `mty fmt` now uses the
+  syntax-aware item formatter for comment-free top-level `const`
+  declarations, canonicalizing declaration spacing, generic type args,
+  and simple initializer expressions while preserving optional
+  semicolons.
+
 ### Known issues — carry forward
 - **L18 (P1):** `std.fs` is a Rust-internal capability API, not
   Mighty-callable.
 - **L26 follow-up:** `mty fmt` is no longer destructive (v0.42 T5
-  shipped the safety pass) but the actual formatter is still a no-op
-  on `.mty`. v0.43 picks up the formatter proper once the 65+
-  pre-push-gated files have an agreed reformat path.
+  shipped the safety pass) and v0.43 has started syntax-aware item
+  formatting with comment-free top-level `const`; the broader
+  formatter still needs per-item rollout once the 65+ pre-push-gated
+  files have an agreed reformat path.
 - **Pending:** #253 SWE-bench numbers, #262 BOLT training profile path.
 
 ### v0.40-era candidates (still open)

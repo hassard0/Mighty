@@ -198,6 +198,14 @@ fn mty_fmt_stdin_passes_canonical_through() {
     assert_eq!(stdout, src);
 }
 
+#[test]
+fn mty_fmt_stdin_canonicalizes_const_decl() {
+    let src = "const ANSWER:I32=40+2\n";
+    let (code, stdout, stderr) = run_fmt_stdin(&["--stdin"], src.as_bytes());
+    assert_eq!(code, 0, "stderr={stderr}");
+    assert_eq!(stdout, "const ANSWER: I32 = 40 + 2\n");
+}
+
 // ---------------------------------------------------------------------
 // Existing pre-push hook invariant: --check on examples/ and stdlib/.
 // ---------------------------------------------------------------------

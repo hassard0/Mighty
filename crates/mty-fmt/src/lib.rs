@@ -10,10 +10,9 @@ use mty_syntax::{GreenNode, SyntaxNode};
 /// Format a parsed source tree, given its `GreenNode` root.
 ///
 /// Slice 2 applies file-level canonical rules (exactly one trailing
-/// newline, normalized inter-item spacing). Per-item content is still
-/// emitted verbatim — the per-node printers in `fmt::types`,
-/// `fmt::patterns`, and `fmt::exprs` are exposed for direct use but
-/// don't yet drive top-level formatting.
+/// newline, normalized inter-item spacing). v0.43 starts routing safe
+/// top-level item shapes through canonical printers; item kinds without
+/// a dedicated printer still emit verbatim.
 pub fn format(green: GreenNode) -> String {
     let root = SyntaxNode::new_root(green);
     let d = fmt::file(&root);

@@ -27,10 +27,9 @@ pub fn verbatim(n: &SyntaxNode) -> Doc {
 /// * No leading whitespace before the first item; no trailing
 ///   whitespace after the last newline.
 ///
-/// Per-item content stays verbatim (each item emits its own source
-/// text), so round-trip and idempotence both hold by construction:
-/// re-parsing produces the same CST, re-formatting normalizes the
-/// already-normal inter-item spacing to itself.
+/// Item kinds with dedicated printers are canonicalized; the rest stay
+/// verbatim, so the formatter can advance incrementally while retaining
+/// round-trip and idempotence coverage.
 pub fn file(node: &SyntaxNode) -> Doc {
     items::file(node)
 }
