@@ -75,6 +75,12 @@ file. The exit message is:
 wrote object target/<name>.o (no linker found; set $MTY_LINKER)
 ```
 
+If a linker is found and returns a non-zero status, `mty build`
+reports a build error instead of treating the run as object-only
+success. The error includes the emitted object path and linker stderr,
+which lets CI and agent workflows separate "install a linker" from
+"fix unresolved symbols or bad link arguments."
+
 You can then invoke the linker yourself:
 
 ```bash
