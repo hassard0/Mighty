@@ -74,21 +74,47 @@ pub(crate) fn bind_pat_assign(
             // breaks the Str / String let-rebind path (the agg slot
             // gets created mid-rebind and overwrites the source
             // string-pair address).
+            // v0.42 T4 (L23 fix) — also keep scalar IrTy on the local
+            // slot. Pre-fix, every non-`Vec` let-binding was typed as
+            // `IrTy::Error` to avoid mid-rebind aggregate-slot
+            // breakage on Str/String (see Vec carve-out below). That
+            // hid the operand type from codegen's typed-log dispatch
+            // (`log(n)` for `n: I32` couldn't tell which
+            // `mty_runtime_log_*` to call). We now propagate scalar
+            // shapes (Int / Float / Bool / Char / Size / Duration)
+            // onto the slot too; aggregates (Str/String/Tuple/Adt
+            // other than Vec) still fall back to `IrTy::Error` so the
+            // existing string-rebind path stays intact.
             let ty = match init_ty {
                 Some(tyid) => {
                     let lowered = crate::lower::ty::lower_ty(tyid, &ctx.typed.ty_arena);
-                    if let IrTy::Adt(id, _) = &lowered {
-                        let is_vec = matches!(
-                            ctx.typed.def_map.lookup("Vec"),
-                            Some(mty_types::DefRef::Adt(a)) if a == *id
-                        );
-                        if is_vec {
-                            lowered
-                        } else {
-                            IrTy::Error
+                    match &lowered {
+                        IrTy::Adt(id, _) => {
+                            let is_vec = matches!(
+                                ctx.typed.def_map.lookup("Vec"),
+                                Some(mty_types::DefRef::Adt(a)) if a == *id
+                            );
+                            if is_vec {
+                                lowered
+                            } else {
+                                IrTy::Error
+                            }
                         }
-                    } else {
-                        IrTy::Error
+                        // Scalars + Size/Duration: keep the real
+                        // shape on the slot so codegen typed dispatch
+                        // (v0.42 T4 log/print, future to_str on
+                        // scalars) reads the right kind.
+                        IrTy::Int(_)
+                        | IrTy::Float(_)
+                        | IrTy::Bool
+                        | IrTy::Char
+                        | IrTy::Size
+                        | IrTy::Duration => lowered,
+                        // Str/String/Bytes/Tuple/etc. — keep the
+                        // pre-v0.42 behaviour (Error) so the
+                        // aggregate-slot lazy-init in let-rebind keeps
+                        // working.
+                        _ => IrTy::Error,
                     }
                 }
                 None => IrTy::Error,

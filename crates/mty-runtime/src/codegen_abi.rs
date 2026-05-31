@@ -128,6 +128,240 @@ pub extern "C" fn mty_runtime_log_i64(v: i64) {
     println!("{v}");
 }
 
+// ---- v0.42 T4: typed log/print/format runtime surface (L23) --------
+//
+// Native `log(...)` and computed-value tracing previously required an
+// FFI shim because the codegen only lowered the `(ptr,len)` string
+// case. v0.42 T4 adds a small family of typed runtime entry points
+// that the codegen dispatches to based on the operand's SIR type, so
+// `log(n)` for an `I32`/`F64`/`Bool` etc. just works.
+//
+// Two parallel families:
+//
+//   `mty_runtime_log_*`   — println-style (one value + newline)
+//   `mty_runtime_print_*` — print-style (one value, no newline)
+//
+// Plus a `_sep` helper that prints a single space, and `_newline` that
+// terminates a multi-arg `log(a, b, c)` series.
+//
+// And the `mty_runtime_fmt_*` family — formats a value to UTF-8 bytes
+// and writes a (ptr@+0, len@+8) pair into a 16-byte caller-supplied
+// stack slot. The bytes live in a thread-local owned-strings table so
+// the slot pointer stays valid for the lifetime of the Mighty run
+// (these are trace-style formatters; we deliberately don't try to
+// route through the arena's per-turn lifetimes, which would surprise
+// callers that `let s = n.to_str()` and use `s` across turn
+// boundaries). The interner deduplicates by `(kind, bits)` so common
+// values like `0`, `1`, `-1` only allocate once per process.
+
+thread_local! {
+    /// Owned UTF-8 strings produced by `mty_runtime_fmt_*`. Each entry
+    /// is a `Box<str>` kept alive for the lifetime of the program so
+    /// the (ptr,len) pair we return into the caller's slot stays
+    /// valid. The `Box<str>` (rather than `String`) freezes the
+    /// underlying allocation — no reallocation can move the bytes out
+    /// from under the caller's pointer.
+    static FMT_STRINGS: RefCell<Vec<Box<str>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Intern an owned string into the per-thread `FMT_STRINGS` table and
+/// return a `(ptr, len)` pair into the frozen allocation.
+fn intern_fmt(s: std::string::String) -> (i64, i64) {
+    FMT_STRINGS.with(|t| {
+        let boxed: Box<str> = s.into_boxed_str();
+        let ptr = boxed.as_ptr() as i64;
+        let len = boxed.len() as i64;
+        t.borrow_mut().push(boxed);
+        (ptr, len)
+    })
+}
+
+/// Write a (ptr, len) pair to a caller-supplied 16-byte stack slot at
+/// `dst`. The codegen allocates the slot with the same layout it uses
+/// for any other `Str`/`String` aggregate (ptr@+0, len@+8, 8-byte
+/// aligned), so the caller can pipe the result straight into
+/// `log(...)` or any other Str consumer.
+///
+/// SAFETY: `dst` must be a writable 16-byte region. The cranelift /
+/// LLVM lowerings allocate it from a per-fn stack slot before calling.
+unsafe fn write_str_pair(dst: i64, ptr: i64, len: i64) {
+    if dst == 0 {
+        return;
+    }
+    let p = dst as usize as *mut i64;
+    p.write(ptr);
+    p.add(1).write(len);
+}
+
+// ---- log_* family (println) ----
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_log_i32(v: i32) {
+    println!("{v}");
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_log_u32(v: u32) {
+    println!("{v}");
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_log_u64(v: u64) {
+    println!("{v}");
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_log_usize(v: i64) {
+    // The codegen passes `USize` as i64 (matches the platform pointer
+    // width on the targets we support). Format unsigned.
+    println!("{}", v as u64);
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_log_f32(v: f32) {
+    println!("{v}");
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_log_f64(v: f64) {
+    println!("{v}");
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_log_bool(v: i8) {
+    println!("{}", v != 0);
+}
+
+// ---- print_* family (no newline) ----
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_print_i32(v: i32) {
+    print!("{v}");
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_print_i64(v: i64) {
+    print!("{v}");
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_print_u32(v: u32) {
+    print!("{v}");
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_print_u64(v: u64) {
+    print!("{v}");
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_print_usize(v: i64) {
+    print!("{}", v as u64);
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_print_f32(v: f32) {
+    print!("{v}");
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_print_f64(v: f64) {
+    print!("{v}");
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_print_bool(v: i8) {
+    print!("{}", v != 0);
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_print_sep() {
+    print!(" ");
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_print_newline() {
+    println!();
+}
+
+// ---- fmt_* family (to_str on scalars) ----
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fmt_i32(v: i32, dst: i64) {
+    let s = v.to_string();
+    let (p, l) = intern_fmt(s);
+    unsafe { write_str_pair(dst, p, l) };
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fmt_i64_to_slot(v: i64, dst: i64) {
+    let s = v.to_string();
+    let (p, l) = intern_fmt(s);
+    unsafe { write_str_pair(dst, p, l) };
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fmt_u32(v: u32, dst: i64) {
+    let s = v.to_string();
+    let (p, l) = intern_fmt(s);
+    unsafe { write_str_pair(dst, p, l) };
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fmt_u64(v: u64, dst: i64) {
+    let s = v.to_string();
+    let (p, l) = intern_fmt(s);
+    unsafe { write_str_pair(dst, p, l) };
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fmt_usize(v: i64, dst: i64) {
+    // Same convention as log_usize: i64 carries the platform-width
+    // unsigned value.
+    let s = (v as u64).to_string();
+    let (p, l) = intern_fmt(s);
+    unsafe { write_str_pair(dst, p, l) };
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fmt_f32(v: f32, dst: i64) {
+    let s = v.to_string();
+    let (p, l) = intern_fmt(s);
+    unsafe { write_str_pair(dst, p, l) };
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fmt_f64(v: f64, dst: i64) {
+    let s = v.to_string();
+    let (p, l) = intern_fmt(s);
+    unsafe { write_str_pair(dst, p, l) };
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fmt_bool(v: i8, dst: i64) {
+    let s = (v != 0).to_string();
+    let (p, l) = intern_fmt(s);
+    unsafe { write_str_pair(dst, p, l) };
+}
+
+// ---- v0.42 T4: String + String concat runtime helper --------------
+//
+// Writes a (ptr, len) pair for the concatenation of two Str/String
+// (ptr,len) pairs into a caller-supplied 16-byte slot. The bytes go
+// into the same `FMT_STRINGS` interner so the slot stays valid for
+// the lifetime of the program. Codegen uses this to lower the `+`
+// operator when both operands are Str/String.
+#[no_mangle]
+pub extern "C" fn mty_runtime_str_concat(aptr: i64, alen: i64, bptr: i64, blen: i64, dst: i64) {
+    let a = unsafe { read_str(aptr, alen) };
+    let b = unsafe { read_str(bptr, blen) };
+    let mut s = std::string::String::with_capacity(a.len() + b.len());
+    s.push_str(a);
+    s.push_str(b);
+    let (p, l) = intern_fmt(s);
+    unsafe { write_str_pair(dst, p, l) };
+}
+
 // ---- helpers --------------------------------------------------------
 
 /// SAFETY: `ptr` must point to `len` valid utf-8 bytes that outlive
@@ -162,6 +396,33 @@ pub fn symbol_table() -> Vec<(String, *const u8)> {
         entry!("mty_runtime_spawn", mty_runtime_spawn),
         entry!("mty_runtime_extern_call", mty_runtime_extern_call),
         entry!("mty_runtime_log_i64", mty_runtime_log_i64),
+        // v0.42 T4 — typed log/print/format surface (L23 fix).
+        entry!("mty_runtime_log_i32", mty_runtime_log_i32),
+        entry!("mty_runtime_log_u32", mty_runtime_log_u32),
+        entry!("mty_runtime_log_u64", mty_runtime_log_u64),
+        entry!("mty_runtime_log_usize", mty_runtime_log_usize),
+        entry!("mty_runtime_log_f32", mty_runtime_log_f32),
+        entry!("mty_runtime_log_f64", mty_runtime_log_f64),
+        entry!("mty_runtime_log_bool", mty_runtime_log_bool),
+        entry!("mty_runtime_print_i32", mty_runtime_print_i32),
+        entry!("mty_runtime_print_i64", mty_runtime_print_i64),
+        entry!("mty_runtime_print_u32", mty_runtime_print_u32),
+        entry!("mty_runtime_print_u64", mty_runtime_print_u64),
+        entry!("mty_runtime_print_usize", mty_runtime_print_usize),
+        entry!("mty_runtime_print_f32", mty_runtime_print_f32),
+        entry!("mty_runtime_print_f64", mty_runtime_print_f64),
+        entry!("mty_runtime_print_bool", mty_runtime_print_bool),
+        entry!("mty_runtime_print_sep", mty_runtime_print_sep),
+        entry!("mty_runtime_print_newline", mty_runtime_print_newline),
+        entry!("mty_runtime_fmt_i32", mty_runtime_fmt_i32),
+        entry!("mty_runtime_fmt_i64_to_slot", mty_runtime_fmt_i64_to_slot),
+        entry!("mty_runtime_fmt_u32", mty_runtime_fmt_u32),
+        entry!("mty_runtime_fmt_u64", mty_runtime_fmt_u64),
+        entry!("mty_runtime_fmt_usize", mty_runtime_fmt_usize),
+        entry!("mty_runtime_fmt_f32", mty_runtime_fmt_f32),
+        entry!("mty_runtime_fmt_f64", mty_runtime_fmt_f64),
+        entry!("mty_runtime_fmt_bool", mty_runtime_fmt_bool),
+        entry!("mty_runtime_str_concat", mty_runtime_str_concat),
     ]
 }
 
@@ -198,5 +459,112 @@ mod tests {
     fn read_str_handles_null() {
         let s = unsafe { read_str(0, 0) };
         assert!(s.is_empty());
+    }
+
+    // ---- v0.42 T4 — typed log/print/format surface tests -----------
+
+    #[test]
+    fn fmt_i32_writes_ptr_len_pair_into_slot() {
+        let mut slot = [0i64; 2];
+        let dst = slot.as_mut_ptr() as i64;
+        mty_runtime_fmt_i32(42, dst);
+        let (ptr, len) = (slot[0], slot[1]);
+        assert!(ptr != 0, "ptr must be non-null");
+        assert_eq!(len, 2, "\"42\" is two bytes");
+        let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
+        assert_eq!(bytes, b"42");
+    }
+
+    #[test]
+    fn fmt_i32_handles_negative_values() {
+        let mut slot = [0i64; 2];
+        let dst = slot.as_mut_ptr() as i64;
+        mty_runtime_fmt_i32(-7, dst);
+        let bytes = unsafe { std::slice::from_raw_parts(slot[0] as *const u8, slot[1] as usize) };
+        assert_eq!(bytes, b"-7");
+    }
+
+    #[test]
+    fn fmt_f32_renders_via_display() {
+        let mut slot = [0i64; 2];
+        let dst = slot.as_mut_ptr() as i64;
+        mty_runtime_fmt_f32(3.5, dst);
+        let bytes = unsafe { std::slice::from_raw_parts(slot[0] as *const u8, slot[1] as usize) };
+        // f32 Display is well-defined for exact values like 3.5
+        assert_eq!(bytes, b"3.5");
+    }
+
+    #[test]
+    fn fmt_bool_renders_true_false() {
+        let mut slot = [0i64; 2];
+        let dst = slot.as_mut_ptr() as i64;
+        mty_runtime_fmt_bool(1, dst);
+        let bytes = unsafe { std::slice::from_raw_parts(slot[0] as *const u8, slot[1] as usize) };
+        assert_eq!(bytes, b"true");
+        mty_runtime_fmt_bool(0, dst);
+        let bytes = unsafe { std::slice::from_raw_parts(slot[0] as *const u8, slot[1] as usize) };
+        assert_eq!(bytes, b"false");
+    }
+
+    #[test]
+    fn fmt_to_null_slot_is_a_noop() {
+        // Must not segfault.
+        mty_runtime_fmt_i32(99, 0);
+    }
+
+    #[test]
+    fn str_concat_writes_joined_bytes() {
+        let a = b"count=";
+        let b = b"42";
+        let mut slot = [0i64; 2];
+        let dst = slot.as_mut_ptr() as i64;
+        mty_runtime_str_concat(
+            a.as_ptr() as i64,
+            a.len() as i64,
+            b.as_ptr() as i64,
+            b.len() as i64,
+            dst,
+        );
+        let bytes = unsafe { std::slice::from_raw_parts(slot[0] as *const u8, slot[1] as usize) };
+        assert_eq!(bytes, b"count=42");
+    }
+
+    #[test]
+    fn typed_log_symbols_are_registered() {
+        let st = symbol_table();
+        for name in [
+            "mty_runtime_log_i32",
+            "mty_runtime_log_i64",
+            "mty_runtime_log_u32",
+            "mty_runtime_log_u64",
+            "mty_runtime_log_usize",
+            "mty_runtime_log_f32",
+            "mty_runtime_log_f64",
+            "mty_runtime_log_bool",
+            "mty_runtime_print_i32",
+            "mty_runtime_print_i64",
+            "mty_runtime_print_u32",
+            "mty_runtime_print_u64",
+            "mty_runtime_print_usize",
+            "mty_runtime_print_f32",
+            "mty_runtime_print_f64",
+            "mty_runtime_print_bool",
+            "mty_runtime_print_sep",
+            "mty_runtime_print_newline",
+            "mty_runtime_fmt_i32",
+            "mty_runtime_fmt_i64_to_slot",
+            "mty_runtime_fmt_u32",
+            "mty_runtime_fmt_u64",
+            "mty_runtime_fmt_usize",
+            "mty_runtime_fmt_f32",
+            "mty_runtime_fmt_f64",
+            "mty_runtime_fmt_bool",
+            "mty_runtime_str_concat",
+        ] {
+            assert!(
+                st.iter().any(|(n, _)| n == name),
+                "missing symbol-table entry for {name}"
+            );
+        }
     }
 }

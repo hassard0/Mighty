@@ -1049,13 +1049,33 @@ impl<'a> Interp<'a> {
     ) -> Result<Value, (&'static str, String)> {
         match b {
             BuiltinId::Log => {
-                let s = args.first().map(|v| v.as_str()).unwrap_or_default();
-                host.println(&s);
+                // v0.42 T4 (L23 fix) — multi-arg `log(a, b, c)` joins
+                // each arg's string form with single-space separators
+                // and ends with a newline (matching the native
+                // codegen's print/print_sep/print_newline policy).
+                // Single-arg keeps the pre-v0.42 behaviour: just
+                // `println(arg.as_str())`.
+                if args.is_empty() {
+                    host.println("");
+                } else if args.len() == 1 {
+                    host.println(&args[0].as_str());
+                } else {
+                    let parts: Vec<String> = args.iter().map(|v| v.as_str()).collect();
+                    host.println(&parts.join(" "));
+                }
                 Ok(Value::Unit)
             }
             BuiltinId::Print => {
-                let s = args.first().map(|v| v.as_str()).unwrap_or_default();
-                host.print(&s);
+                // Mirror the log multi-arg policy without the trailing
+                // newline.
+                if args.is_empty() {
+                    // No-op.
+                } else if args.len() == 1 {
+                    host.print(&args[0].as_str());
+                } else {
+                    let parts: Vec<String> = args.iter().map(|v| v.as_str()).collect();
+                    host.print(&parts.join(" "));
+                }
                 Ok(Value::Unit)
             }
             BuiltinId::Panic => {
@@ -1080,6 +1100,15 @@ impl<'a> Interp<'a> {
             BuiltinId::Valid => Ok(Value::Bool(true)),
             BuiltinId::Null => Ok(Value::Int(0, IntKind::USize)),
             BuiltinId::Extern(name) => {
+                // v0.42 T4 (L23 fix) — synthetic `__mty_str_concat`
+                // builtin emitted by the IR lowering for `Str + Str`.
+                // Concatenates the two args' string forms and returns
+                // a `Value::Str`.
+                if name == "__mty_str_concat" && args.len() == 2 {
+                    let mut s = args[0].as_str();
+                    s.push_str(&args[1].as_str());
+                    return Ok(Value::Str(s));
+                }
                 // v0.25 Track E: receiver-less stdlib constructors
                 // (`String.new`, `Vec.with_capacity`, ...) lower
                 // through the path-call fall-through as

@@ -1,3 +1,10 @@
+// v0.42 T4 (L23 fix) — `log(42)` used to raise MT2001 because the
+// `log` builtin's param was typed as `Str`. Native codegen now
+// accepts any scalar arg, so the typechecker no longer rejects
+// `log(42)`. This negative case has been re-pointed at `panic(42)`,
+// which still requires a Str arg (the typed runtime surface is
+// log-/print-only — panic intentionally keeps the strict shape so
+// the runtime always gets a readable diagnostic message).
 fn main() {
-  log(42)
+  panic(42)
 }

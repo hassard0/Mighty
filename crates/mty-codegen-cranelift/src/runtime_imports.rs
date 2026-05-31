@@ -73,6 +73,137 @@ pub const RUNTIME_IMPORTS: &[RuntimeImport] = &[
         params: &[ct::I64],
         ret: None,
     },
+    // v0.42 T4 — typed log/print/format surface (L23 fix).
+    RuntimeImport {
+        name: "mty_runtime_log_i32",
+        params: &[ct::I32],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_log_u32",
+        params: &[ct::I32],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_log_u64",
+        params: &[ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_log_usize",
+        params: &[ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_log_f32",
+        params: &[ct::F32],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_log_f64",
+        params: &[ct::F64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_log_bool",
+        params: &[ct::I8],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_print_i32",
+        params: &[ct::I32],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_print_i64",
+        params: &[ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_print_u32",
+        params: &[ct::I32],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_print_u64",
+        params: &[ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_print_usize",
+        params: &[ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_print_f32",
+        params: &[ct::F32],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_print_f64",
+        params: &[ct::F64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_print_bool",
+        params: &[ct::I8],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_print_sep",
+        params: &[],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_print_newline",
+        params: &[],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_fmt_i32",
+        params: &[ct::I32, ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_fmt_i64_to_slot",
+        params: &[ct::I64, ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_fmt_u32",
+        params: &[ct::I32, ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_fmt_u64",
+        params: &[ct::I64, ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_fmt_usize",
+        params: &[ct::I64, ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_fmt_f32",
+        params: &[ct::F32, ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_fmt_f64",
+        params: &[ct::F64, ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_fmt_bool",
+        params: &[ct::I8, ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_str_concat",
+        params: &[ct::I64, ct::I64, ct::I64, ct::I64, ct::I64],
+        ret: None,
+    },
 ];
 
 #[derive(Debug, Clone, Copy)]

@@ -225,6 +225,77 @@ impl<'ctx, 'a, 'b> ProgramLowerer<'ctx, 'a, 'b> {
             self.module
                 .add_function("mty_runtime_alloc", sig, Some(Linkage::External)),
         );
+        // v0.42 T4 (L23 fix) — typed log/print/format runtime surface.
+        // The cranelift backend declares the same symbols in
+        // `crates/mty-codegen-cranelift/src/runtime_imports.rs`; both
+        // backends resolve them against the same Rust impls in
+        // `mty_runtime::codegen_abi`.
+        let i32t = self.i32_ty();
+        let f32t = self.ctx.f32_type();
+        let f64t = self.ctx.f64_type();
+        // log_* (newline). Each call: void(value).
+        let cases_log: &[(&str, BasicMetadataTypeEnum<'ctx>)] = &[
+            ("mty_runtime_log_i32", i32t.into()),
+            ("mty_runtime_log_u32", i32t.into()),
+            ("mty_runtime_log_u64", i64.into()),
+            ("mty_runtime_log_usize", i64.into()),
+            ("mty_runtime_log_f32", f32t.into()),
+            ("mty_runtime_log_f64", f64t.into()),
+            ("mty_runtime_log_bool", i8.into()),
+            ("mty_runtime_print_i32", i32t.into()),
+            ("mty_runtime_print_i64", i64.into()),
+            ("mty_runtime_print_u32", i32t.into()),
+            ("mty_runtime_print_u64", i64.into()),
+            ("mty_runtime_print_usize", i64.into()),
+            ("mty_runtime_print_f32", f32t.into()),
+            ("mty_runtime_print_f64", f64t.into()),
+            ("mty_runtime_print_bool", i8.into()),
+        ];
+        for (name, pt) in cases_log {
+            let s = void.fn_type(&[*pt], false);
+            self.runtime_fns.insert(
+                name,
+                self.module.add_function(name, s, Some(Linkage::External)),
+            );
+        }
+        // print_sep / print_newline — void().
+        for name in ["mty_runtime_print_sep", "mty_runtime_print_newline"] {
+            let s = void.fn_type(&[], false);
+            self.runtime_fns.insert(
+                name,
+                self.module.add_function(name, s, Some(Linkage::External)),
+            );
+        }
+        // fmt_* — void(value, dst_ptr_as_i64).
+        let cases_fmt: &[(&str, BasicMetadataTypeEnum<'ctx>)] = &[
+            ("mty_runtime_fmt_i32", i32t.into()),
+            ("mty_runtime_fmt_i64_to_slot", i64.into()),
+            ("mty_runtime_fmt_u32", i32t.into()),
+            ("mty_runtime_fmt_u64", i64.into()),
+            ("mty_runtime_fmt_usize", i64.into()),
+            ("mty_runtime_fmt_f32", f32t.into()),
+            ("mty_runtime_fmt_f64", f64t.into()),
+            ("mty_runtime_fmt_bool", i8.into()),
+        ];
+        for (name, pt) in cases_fmt {
+            let s = void.fn_type(&[*pt, i64.into()], false);
+            self.runtime_fns.insert(
+                name,
+                self.module.add_function(name, s, Some(Linkage::External)),
+            );
+        }
+        // str_concat — void(aptr, alen, bptr, blen, dst). All i64
+        // (pointers are passed as i64 to match the cranelift signature
+        // and the runtime impl).
+        let s = void.fn_type(
+            &[i64.into(), i64.into(), i64.into(), i64.into(), i64.into()],
+            false,
+        );
+        self.runtime_fns.insert(
+            "mty_runtime_str_concat",
+            self.module
+                .add_function("mty_runtime_str_concat", s, Some(Linkage::External)),
+        );
     }
 
     fn llvm_ty(&self, t: &IrTy) -> BasicTypeEnum<'ctx> {
@@ -1020,20 +1091,39 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
     ) -> CompileResult<BasicValueEnum<'ctx>> {
         match func {
             FnRef::Builtin(BuiltinId::Log) | FnRef::Builtin(BuiltinId::Print) => {
-                if args.len() != 1 {
-                    return Err(LlvmError::Unsupported("log arity".into()));
+                // v0.42 T4 (L23 fix) — typed log/print lowering on the
+                // LLVM backend. Mirrors the cranelift `lower_call`
+                // arm: dispatch on each operand's SIR type to the
+                // matching `mty_runtime_log_*` / `_print_*` runtime
+                // symbol. Multi-arg uses `print_*` per element + a
+                // trailing `print_newline` (for `log`). Str operands
+                // still go through the literal-only `string_pair` —
+                // the LLVM backend doesn't model dynamic Str
+                // aggregates the way cranelift does.
+                let is_log = matches!(func, FnRef::Builtin(BuiltinId::Log));
+                let visible: Vec<&Operand> = args
+                    .iter()
+                    .filter(|a| !matches!(a, Operand::Const(Const::Unit)))
+                    .collect();
+                if visible.is_empty() {
+                    if is_log {
+                        let f = self.pl.runtime_fns["mty_runtime_print_newline"];
+                        let _ = self.pl.builder.build_call(f, &[], "nl");
+                    }
+                    return Ok(self.pl.i64_ty().const_zero().into());
                 }
-                let (ptr, len) = self.string_pair(&args[0])?;
-                let sym = if matches!(func, FnRef::Builtin(BuiltinId::Log)) {
-                    "mty_runtime_log"
-                } else {
-                    "mty_runtime_print"
-                };
-                let f = self.pl.runtime_fns[sym];
-                let _ = self
-                    .pl
-                    .builder
-                    .build_call(f, &[ptr.into(), len.into()], "log");
+                let single = visible.len() == 1;
+                for (i, op) in visible.iter().enumerate() {
+                    if i > 0 {
+                        let f = self.pl.runtime_fns["mty_runtime_print_sep"];
+                        let _ = self.pl.builder.build_call(f, &[], "sep");
+                    }
+                    self.emit_one_log_arg_llvm(op, single, is_log)?;
+                }
+                if !single && is_log {
+                    let f = self.pl.runtime_fns["mty_runtime_print_newline"];
+                    let _ = self.pl.builder.build_call(f, &[], "nl");
+                }
                 Ok(self.pl.i64_ty().const_zero().into())
             }
             FnRef::Builtin(BuiltinId::Extern(name))
@@ -1121,6 +1211,146 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                 Ok(self.pl.i64_ty().const_zero().into())
             }
         }
+    }
+
+    /// v0.42 T4 (L23 fix) — emit a single typed `log`/`print` arg on
+    /// the LLVM backend. Mirrors the cranelift `emit_one_log_arg`.
+    fn emit_one_log_arg_llvm(
+        &mut self,
+        op: &Operand,
+        single_arg: bool,
+        is_log: bool,
+    ) -> CompileResult<()> {
+        let op_ty = self.operand_ir_ty(op);
+        let use_newline_variant = single_arg && is_log;
+        match op_ty.as_ref() {
+            Some(IrTy::Str | IrTy::String | IrTy::Bytes) => {
+                // LLVM backend keeps the literal-only string_pair —
+                // dynamic Str aggregates aren't modeled here yet. We
+                // still route through it so literal `log("hi")` keeps
+                // working end-to-end.
+                let (ptr, len) = self.string_pair(op)?;
+                let sym = if use_newline_variant {
+                    "mty_runtime_log"
+                } else {
+                    "mty_runtime_print"
+                };
+                let f = self.pl.runtime_fns[sym];
+                let _ = self
+                    .pl
+                    .builder
+                    .build_call(f, &[ptr.into(), len.into()], "log");
+            }
+            Some(IrTy::Bool) => {
+                let v = self.eval_operand(op)?;
+                let v_i8 = self.coerce_with_src(v, self.pl.i8_ty().into(), op_ty.as_ref());
+                let sym = if use_newline_variant {
+                    "mty_runtime_log_bool"
+                } else {
+                    "mty_runtime_print_bool"
+                };
+                let f = self.pl.runtime_fns[sym];
+                let _ = self.pl.builder.build_call(f, &[v_i8.into()], "log");
+            }
+            Some(IrTy::Char) => {
+                // Treat Char as U32 — surface the codepoint value.
+                let v = self.eval_operand(op)?;
+                let v_i32 = self.coerce_with_src(v, self.pl.i32_ty().into(), op_ty.as_ref());
+                let sym = if use_newline_variant {
+                    "mty_runtime_log_u32"
+                } else {
+                    "mty_runtime_print_u32"
+                };
+                let f = self.pl.runtime_fns[sym];
+                let _ = self.pl.builder.build_call(f, &[v_i32.into()], "log");
+            }
+            Some(IrTy::Int(k)) => {
+                let (sym_log, sym_print, want_ty) = match k {
+                    IntKind::I8 | IntKind::I16 | IntKind::I32 | IntKind::IntInfer => (
+                        "mty_runtime_log_i32",
+                        "mty_runtime_print_i32",
+                        self.pl.i32_ty().as_basic_type_enum(),
+                    ),
+                    IntKind::I64 | IntKind::ISize => (
+                        "mty_runtime_log_i64",
+                        "mty_runtime_print_i64",
+                        self.pl.i64_ty().as_basic_type_enum(),
+                    ),
+                    IntKind::U8 | IntKind::U16 | IntKind::U32 => (
+                        "mty_runtime_log_u32",
+                        "mty_runtime_print_u32",
+                        self.pl.i32_ty().as_basic_type_enum(),
+                    ),
+                    IntKind::U64 => (
+                        "mty_runtime_log_u64",
+                        "mty_runtime_print_u64",
+                        self.pl.i64_ty().as_basic_type_enum(),
+                    ),
+                    IntKind::USize => (
+                        "mty_runtime_log_usize",
+                        "mty_runtime_print_usize",
+                        self.pl.i64_ty().as_basic_type_enum(),
+                    ),
+                    IntKind::I128 | IntKind::U128 => (
+                        "mty_runtime_log_i64",
+                        "mty_runtime_print_i64",
+                        self.pl.i64_ty().as_basic_type_enum(),
+                    ),
+                };
+                let v = self.eval_operand(op)?;
+                let v = self.coerce_with_src(v, want_ty, op_ty.as_ref());
+                let sym = if use_newline_variant {
+                    sym_log
+                } else {
+                    sym_print
+                };
+                let f = self.pl.runtime_fns[sym];
+                let _ = self.pl.builder.build_call(f, &[v.into()], "log");
+            }
+            Some(IrTy::Float(k)) => {
+                let (sym_log, sym_print) = match k {
+                    FloatKind::F32 => ("mty_runtime_log_f32", "mty_runtime_print_f32"),
+                    FloatKind::F64 | FloatKind::FloatInfer => {
+                        ("mty_runtime_log_f64", "mty_runtime_print_f64")
+                    }
+                };
+                let v = self.eval_operand(op)?;
+                let sym = if use_newline_variant {
+                    sym_log
+                } else {
+                    sym_print
+                };
+                let f = self.pl.runtime_fns[sym];
+                let _ = self.pl.builder.build_call(f, &[v.into()], "log");
+            }
+            Some(IrTy::Size | IrTy::Duration) => {
+                let v = self.eval_operand(op)?;
+                let v = self.coerce_with_src(v, self.pl.i64_ty().into(), op_ty.as_ref());
+                let sym = if use_newline_variant {
+                    "mty_runtime_log_usize"
+                } else {
+                    "mty_runtime_print_usize"
+                };
+                let f = self.pl.runtime_fns[sym];
+                let _ = self.pl.builder.build_call(f, &[v.into()], "log");
+            }
+            Some(_) | None => {
+                // Best-effort: fall back to the literal string path.
+                if let Ok((ptr, len)) = self.string_pair(op) {
+                    let sym = if use_newline_variant {
+                        "mty_runtime_log"
+                    } else {
+                        "mty_runtime_print"
+                    };
+                    let f = self.pl.runtime_fns[sym];
+                    let _ = self
+                        .pl
+                        .builder
+                        .build_call(f, &[ptr.into(), len.into()], "log");
+                }
+            }
+        }
+        Ok(())
     }
 
     fn string_pair(&mut self, op: &Operand) -> CompileResult<(PointerValue<'ctx>, IntValue<'ctx>)> {

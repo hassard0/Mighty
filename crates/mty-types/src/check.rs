@@ -1232,6 +1232,17 @@ fn synth_call(cx: &mut Cx, callee: ExprId, args: &[HirArg], expr_id: ExprId) -> 
             .unwrap_or(false),
         _ => false,
     };
+    // v0.42 T4 (L23 fix) — `log(...)` and `print(...)` are now fully
+    // polymorphic over arg type AND arity (native codegen + interp
+    // both handle integers / floats / bools / strings / multi-arg).
+    // Detect them by name so the typechecker stops rejecting
+    // `log(42)` with MT2001 "expected Str, found I32". Behaves like
+    // an unrestricted variadic for arity AND skips per-arg type
+    // unification.
+    let is_log_or_print_builtin = matches!(
+        &cx.pkg.exprs[callee],
+        HirExpr::Path(segs) if segs.len() == 1 && (segs[0] == "log" || segs[0] == "print")
+    );
     let callee_ty = synth_expr(cx, callee);
     let callee_resolved = cx.subst.resolve(callee_ty, cx.arena);
     let data = cx.arena.get(callee_resolved).clone();
@@ -1242,8 +1253,11 @@ fn synth_call(cx: &mut Cx, callee: ExprId, args: &[HirArg], expr_id: ExprId) -> 
             let fixed = params.len();
             // Arity check: variadic fns require at least the fixed-arity
             // prefix; non-variadic fns require exact match (legacy
-            // MT2005 emit).
-            let arity_ok = if is_variadic_callee {
+            // MT2005 emit). `log` / `print` (v0.42 T4) accept any
+            // arity, including zero.
+            let arity_ok = if is_log_or_print_builtin {
+                true
+            } else if is_variadic_callee {
                 args.len() >= fixed
             } else {
                 args.len() == fixed
@@ -1254,6 +1268,15 @@ fn synth_call(cx: &mut Cx, callee: ExprId, args: &[HirArg], expr_id: ExprId) -> 
                     args.len(),
                     &cx.span_of_expr(expr_id),
                 ));
+            }
+            // v0.42 T4 (L23 fix) — `log`/`print` are polymorphic over
+            // arg type. Just synth each arg to record taint flow and
+            // type-flow info; skip the unify-against-Str check.
+            if is_log_or_print_builtin {
+                for arg in args {
+                    let _ = synth_expr(cx, arg.value);
+                }
+                return ret;
             }
             for (i, arg) in args.iter().enumerate() {
                 let expected = params.get(i).copied().unwrap_or_else(|| cx.fresh());

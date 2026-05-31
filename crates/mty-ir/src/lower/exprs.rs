@@ -881,7 +881,14 @@ fn lower_call(ctx: &mut LowerCtx, fb: &mut FnBuilder, callee: ExprId, args: &[Hi
 
     // Inspect the callee to figure out which fn to call.
     let func = resolve_callee(ctx, callee);
-    let temp = fb.fresh_temp(IrTy::Error);
+    // v0.42 T4 (L23 fix) — type the call-result temp from the typed
+    // package's per-expr type map when the result is a scalar. This
+    // unblocks codegen typed dispatch (`log(double(21))` now knows
+    // `double` returns I32 and routes to `mty_runtime_log_i32`).
+    // Aggregates still fall back to `IrTy::Error` — the existing
+    // aggregate-slot path expects untyped temps.
+    let result_ty = scalar_call_result_ty(ctx, callee).unwrap_or(IrTy::Error);
+    let temp = fb.fresh_temp(result_ty);
     fb.push_stmt(Stmt::Assign(
         Place::local(temp),
         Rvalue::Call {
@@ -890,6 +897,55 @@ fn lower_call(ctx: &mut LowerCtx, fb: &mut FnBuilder, callee: ExprId, args: &[Hi
         },
     ));
     Operand::Move(Place::local(temp))
+}
+
+/// v0.42 T4 (L23 fix) — true iff the typed package reports `expr`
+/// has type `Str` or `String`. Used by the binop lowering to detect
+/// `Str + Str` concat and route it through the synthetic
+/// `__mty_str_concat` builtin (so cranelift / LLVM can call
+/// `mty_runtime_str_concat` without needing to re-derive the type
+/// from a backend-side `IrTy::Error` local slot).
+fn is_str_typed_expr(ctx: &LowerCtx, expr: ExprId) -> bool {
+    let Some(tyid) = ctx.typed.expr_ty.get(&expr).copied() else {
+        return false;
+    };
+    matches!(
+        super::ty::lower_ty(tyid, &ctx.typed.ty_arena),
+        IrTy::Str | IrTy::String
+    )
+}
+
+/// v0.42 T4 (L23 fix) — peek the typed package for the call expr's
+/// result type; lift it to `IrTy` only if it's a scalar Int/Float/
+/// Bool/Char/Size/Duration. Aggregates return `None` so the caller
+/// keeps the legacy `IrTy::Error` slot.
+fn scalar_call_result_ty(ctx: &LowerCtx, callee: ExprId) -> Option<IrTy> {
+    // The call expression's id isn't passed here; `callee` is only
+    // the callee subexpression. We approximate by reading the
+    // callee's resolved fn signature via the def-map and lifting its
+    // return type. For builtins (`log`, `print`) the type is `Unit`
+    // which doesn't affect typed dispatch.
+    let segments = match &ctx.pkg.exprs[callee] {
+        HirExpr::Path(segs) => segs.clone(),
+        HirExpr::PathGeneric { segments, .. } => segments.clone(),
+        _ => return None,
+    };
+    if segments.len() != 1 {
+        return None;
+    }
+    let def = ctx.typed.def_map.lookup(&segments[0])?;
+    let DefRef::Fn(fid) = def else {
+        return None;
+    };
+    let fn_def = ctx.typed.def_map.fn_def(fid)?;
+    let ret_ty = fn_def.ret;
+    let lowered = super::ty::lower_ty(ret_ty, &ctx.typed.ty_arena);
+    match &lowered {
+        IrTy::Int(_) | IrTy::Float(_) | IrTy::Bool | IrTy::Char | IrTy::Size | IrTy::Duration => {
+            Some(lowered)
+        }
+        _ => None,
+    }
 }
 
 /// v0.15 — resolve a call's callee path to a variant constructor if
@@ -1007,6 +1063,26 @@ fn lower_binop(
         fb.push_stmt(Stmt::Assign(
             Place::local(temp),
             Rvalue::TupleInit(vec![lo, hi, Operand::Const(Const::Bool(inclusive))]),
+        ));
+        return Operand::Move(Place::local(temp));
+    }
+    // v0.42 T4 (L23 fix) — Str + Str (`String + String`) lowers to a
+    // call of the synthetic builtin `__mty_str_concat`. The cranelift
+    // / LLVM backends recognise the name and route it through
+    // `mty_runtime_str_concat`; the SIR interpreter handles it via
+    // its existing string-coercing `as_str` path (see interp::run
+    // `__mty_str_concat` arm). Detect this BEFORE lowering rhs so we
+    // don't burn a temp on the binop fallback path.
+    if matches!(op, Add) && is_str_typed_expr(ctx, lhs) && is_str_typed_expr(ctx, rhs) {
+        let l = lower_expr(ctx, fb, lhs);
+        let r = lower_expr(ctx, fb, rhs);
+        let temp = fb.fresh_temp(IrTy::Error);
+        fb.push_stmt(Stmt::Assign(
+            Place::local(temp),
+            Rvalue::Call {
+                func: FnRef::Builtin(BuiltinId::Extern("__mty_str_concat".into())),
+                args: vec![l, r],
+            },
         ));
         return Operand::Move(Place::local(temp));
     }
