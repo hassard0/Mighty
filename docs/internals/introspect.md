@@ -13,7 +13,7 @@ behaviour see `docs/reference/cli/mty-inspect.md`.
 ```
 crates/mty-runtime/src/
   introspect.rs       — AgentIntrospectState + RuntimeSnapshot + AgentSnapshot
-  control_socket.rs   — Unix-domain socket server (POSIX only)
+  control_socket.rs   — Unix-domain socket / Windows named-pipe server
   runtime.rs          — spawns introspect state alongside each agent
   agent.rs            — AgentRegistry::iter snapshot helper
 ```
@@ -22,7 +22,7 @@ The control socket is **off by default**. Two env vars gate it:
 
 | Env var                              | Effect                                                                                   |
 |--------------------------------------|------------------------------------------------------------------------------------------|
-| `MTY_RUNTIME_CONTROL_SOCK=<path>`    | Boots the Unix-domain control-socket server at `<path>` on `RuntimeBuilder::build`.      |
+| `MTY_RUNTIME_CONTROL_SOCK=<path>`    | Boots the local control endpoint at `<path>` on `RuntimeBuilder::build`.                 |
 | `MTY_INSPECT_CAPTURE_BODIES=1`       | Captures message names in each agent's last-N ring so `mty inspect` can show activity.   |
 
 Telemetry that doesn't require user permission (mailbox depth,
@@ -44,10 +44,11 @@ The snapshot payload carries `version: 1` (constant
 
 ## Control-socket protocol
 
-Newline-delimited JSON over a Unix-domain socket. Each request is
-one JSON object per line; each response is one JSON object per line.
-The server keeps the connection alive so `mty inspect --watch` can
-re-use it without reconnecting on every poll.
+Newline-delimited JSON over a Unix-domain socket on Unix platforms or
+a named pipe on Windows. Each request is one JSON object per line; each
+response is one JSON object per line. The server keeps the connection
+alive so `mty inspect --watch` can re-use it without reconnecting on
+every poll.
 
 | Request                                | Response                                          |
 |----------------------------------------|---------------------------------------------------|
@@ -118,14 +119,17 @@ struct RuntimeSnapshot {
 
 ## Windows status
 
-Windows uses named pipes instead of Unix-domain sockets, and tokio's
-named-pipe API has different ergonomics. v0.16 ships **Unix-only**;
-`spawn_control_socket_at` returns `None` and logs a warning on
-Windows, and `mty inspect` returns a stub error. The `cfg(unix)`
-control-socket integration test is skipped on Windows.
+Windows uses named pipes instead of Unix-domain sockets. The runtime
+maps `MTY_RUNTIME_CONTROL_SOCK` to a local named pipe:
 
-Windows named-pipe backend is tracked as a v0.19 (or later) follow-up;
-the wire shape is identical, so the CLI doesn't change.
+* Values that already start with `\\.\pipe\` are used directly.
+* Ordinary path-shaped values are sanitized into deterministic
+  `\\.\pipe\mty_*` names, so existing `.sock` configuration keeps
+  working across platforms.
+
+The wire shape is identical to Unix: newline-delimited JSON over a
+single local connection. `mty inspect` and `mty reload` apply the same
+mapping on the client side.
 
 ## Test coverage
 
@@ -137,7 +141,10 @@ the wire shape is identical, so the CLI doesn't change.
   * `introspect_state_high_water_tracks_max`
   * `snapshot_serializes_to_json`
   * `control_socket_responds_to_snapshot_op` (`cfg(unix)`)
-* 4 unit tests each in `introspect.rs` and `control_socket.rs`.
+* Named-pipe unit coverage on Windows:
+  * `windows_pipe_name_maps_paths_deterministically`
+  * `control_named_pipe_responds_to_snapshot_op`
+* Unit tests in `introspect.rs` and `control_socket.rs`.
 
 ## Cross-references with replay + telemetry
 
@@ -161,7 +168,6 @@ overhead when their env var is absent.
   scheduler's worker stats.
 * **OpenTelemetry trace-id pivot** — carry trace IDs in the snapshot
   so operators can pivot from a snapshot row to the matching trace.
-* **Windows named-pipe backend** — see Windows status above.
 * **Per-handler latency histograms** — a small reservoir sampler per
   (agent, handler) for p50/p99 without growing the wire shape
   significantly.

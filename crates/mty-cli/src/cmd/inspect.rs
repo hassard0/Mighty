@@ -110,21 +110,20 @@ fn watch_loop(sock_path: &str, agent: Option<u64>, json: bool, ms: u64) -> i32 {
 }
 
 /// Send one request to the control socket and return the JSON reply
-/// as a string. Cross-platform shim: Unix uses `UnixStream`, Windows
-/// returns an error explaining the v0.16 limitation.
+/// as a string. Unix uses `UnixStream`; Windows uses Tokio named pipes.
 fn query(sock_path: &str, agent: Option<u64>) -> Result<String, String> {
     #[cfg(unix)]
     {
         unix_query(sock_path, agent)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        windows_query(sock_path, agent)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (sock_path, agent);
-        Err(
-            "the Windows named-pipe control socket is not yet implemented \
-             (v0.16 Unix-only). Tracking: dev/history/notes/INTROSPECT_V0_16_NOTES.md."
-                .into(),
-        )
+        Err("control sockets are not supported on this platform".into())
     }
 }
 
@@ -151,6 +150,45 @@ fn unix_query(sock_path: &str, agent: Option<u64>) -> Result<String, String> {
         return Err("control socket returned an empty reply".into());
     }
     Ok(line.trim_end().to_string())
+}
+
+#[cfg(windows)]
+fn windows_query(sock_path: &str, agent: Option<u64>) -> Result<String, String> {
+    let pipe = mty_runtime::control_socket::windows_pipe_name(sock_path);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .build()
+        .map_err(|e| format!("tokio runtime: {e}"))?;
+    rt.block_on(async move {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        use tokio::net::windows::named_pipe::ClientOptions;
+
+        let mut stream = ClientOptions::new()
+            .open(&pipe)
+            .map_err(|e| format!("connect {pipe}: {e}"))?;
+        let req = match agent {
+            Some(id) => format!(r#"{{"op":"snapshot_agent","id":{id}}}"#),
+            None => r#"{"op":"snapshot"}"#.to_string(),
+        };
+        stream
+            .write_all(req.as_bytes())
+            .await
+            .map_err(|e| format!("write: {e}"))?;
+        stream
+            .write_all(b"\n")
+            .await
+            .map_err(|e| format!("write: {e}"))?;
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        reader
+            .read_line(&mut line)
+            .await
+            .map_err(|e| format!("read: {e}"))?;
+        if line.trim().is_empty() {
+            return Err("control pipe returned an empty reply".into());
+        }
+        Ok(line.trim_end().to_string())
+    })
 }
 
 // ---------------------------------------------------------------------

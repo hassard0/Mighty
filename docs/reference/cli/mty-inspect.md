@@ -27,7 +27,7 @@ mty inspect [--sock <PATH>] [--agent <ID>] [--json] [--watch <MS>]
 
 The Mighty runtime listens on a control socket **only** when the
 environment variable `MTY_RUNTIME_CONTROL_SOCK` is set at the time
-the runtime starts. The value is a filesystem path:
+the runtime starts. On Unix the value is a filesystem path:
 
 ```sh
 # Server side: start a Mighty program with introspection enabled.
@@ -45,9 +45,10 @@ If the env var is unset, the runtime does not bind any socket and
 ## Platform support
 
 - **Unix** (Linux, macOS, *BSD): the path is a Unix-domain socket.
-- **Windows**: the named-pipe backend is not yet implemented; the
-  runtime logs a warning and `mty inspect` reports a stub error.
-  Tracking: see `INTROSPECT_V0_16_NOTES.md` "Tier-1 followups".
+- **Windows**: values beginning with `\\.\pipe\` are treated as named
+  pipe names; ordinary path-shaped values are sanitized into stable
+  `\\.\pipe\mty_*` names. Use the same `--sock` value on the runtime
+  and CLI side.
 
 ## Example output
 

@@ -11,6 +11,11 @@ For the full per-release notes, see
 
 v0.43 candidates (rolled up from v0.42's IDE-dogfooding lessons log):
 
+### Added
+- Windows control endpoints now use Tokio named pipes, so
+  `MTY_RUNTIME_CONTROL_SOCK` works for `mty inspect` and `mty reload`
+  on Windows instead of returning the old stub path.
+
 ### Known issues — carry forward
 - **L18 (P1):** `std.fs` is a Rust-internal capability API, not
   Mighty-callable.

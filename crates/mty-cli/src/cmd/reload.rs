@@ -13,7 +13,7 @@
 
 use std::io::Write;
 use std::path::PathBuf;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::time::Duration;
 
 const DEFAULT_ENV: &str = "MTY_RUNTIME_CONTROL_SOCK";
@@ -164,9 +164,8 @@ fn parse_error(payload: &str) -> Option<(String, Option<String>)> {
 }
 
 /// Send one reload request to the control socket and return the JSON
-/// reply as a string. Cross-platform shim: Unix uses `UnixStream`,
-/// Windows currently returns an explanatory error (the control-socket
-/// listener doesn't bind on Windows in v0.20 either).
+/// reply as a string. Unix uses `UnixStream`; Windows uses Tokio named
+/// pipes.
 fn send_reload_request(
     sock_path: &str,
     agent_type: &str,
@@ -177,15 +176,14 @@ fn send_reload_request(
     {
         unix_query(sock_path, agent_type, module_bytes, deadline_ms)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        windows_query(sock_path, agent_type, module_bytes, deadline_ms)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (sock_path, agent_type, module_bytes, deadline_ms);
-        Err(
-            "the Windows named-pipe control socket is not yet implemented \
-             (v0.20 Unix-only — same as `mty inspect`). \
-             Tracking: dev/history/notes/INTROSPECT_V0_16_NOTES.md."
-                .into(),
-        )
+        Err("control sockets are not supported on this platform".into())
     }
 }
 
@@ -243,6 +241,66 @@ fn unix_query(
         );
     }
     Ok(trimmed)
+}
+
+#[cfg(windows)]
+fn windows_query(
+    sock_path: &str,
+    agent_type: &str,
+    module_bytes: &[u8],
+    deadline_ms: u64,
+) -> Result<String, String> {
+    let pipe = mty_runtime::control_socket::windows_pipe_name(sock_path);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .map_err(|e| format!("tokio runtime: {e}"))?;
+    let b64 = base64_encode(module_bytes);
+    let req = format!(
+        r#"{{"op":"reload","agent_type":{q_type},"module_b64":"{b64}","deadline_ms":{deadline_ms}}}"#,
+        q_type = json_str(agent_type),
+        b64 = b64,
+        deadline_ms = deadline_ms,
+    );
+    rt.block_on(async move {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        use tokio::net::windows::named_pipe::ClientOptions;
+
+        let mut stream = ClientOptions::new()
+            .open(&pipe)
+            .map_err(|e| format!("connect {pipe}: {e}"))?;
+        stream
+            .write_all(req.as_bytes())
+            .await
+            .map_err(|e| format!("write: {e}"))?;
+        stream
+            .write_all(b"\n")
+            .await
+            .map_err(|e| format!("write: {e}"))?;
+
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        let read = tokio::time::timeout(
+            Duration::from_millis(deadline_ms.saturating_add(2_000).max(1_000)),
+            reader.read_line(&mut line),
+        )
+        .await
+        .map_err(|_| "read: timed out waiting for control pipe reply".to_string())?
+        .map_err(|e| format!("read: {e}"))?;
+        if read == 0 || line.trim().is_empty() {
+            return Err("control pipe returned an empty reply (is the runtime alive?)".into());
+        }
+        let trimmed = line.trim_end().to_string();
+        if trimmed.contains("\"unknown_op\"") {
+            return Err(
+                "the runtime's control socket doesn't recognise op=reload — \
+                 this runtime is too old for hot reload."
+                    .into(),
+            );
+        }
+        Ok(trimmed)
+    })
 }
 
 /// Quote a string for embedding in JSON. Handles the minimum-viable

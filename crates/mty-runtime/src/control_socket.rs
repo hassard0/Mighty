@@ -2,8 +2,7 @@
 //!
 //! Off by default. Enable by setting `MTY_RUNTIME_CONTROL_SOCK` to a
 //! filesystem path. On Unix the path is a Unix-domain socket; on
-//! Windows the path is currently a TODO — `mty inspect` warns and
-//! returns gracefully. See
+//! Windows the path is mapped to a local named pipe. See
 //! [INTROSPECT_V0_16_NOTES.md](../../../dev/history/notes/INTROSPECT_V0_16_NOTES.md).
 //!
 //! ## Wire protocol
@@ -403,11 +402,34 @@ pub fn sock_path_from_env() -> Option<String> {
     }
 }
 
+/// Map the public control-socket string to a Windows named-pipe path.
+/// `\\.\pipe\...` values are honored directly; ordinary path-shaped values are
+/// converted deterministically so the runtime and CLI can use the same env var.
+#[cfg(windows)]
+pub fn windows_pipe_name(raw: &str) -> String {
+    let raw = raw.trim();
+    if raw.starts_with(r"\\.\pipe\") {
+        return raw.to_string();
+    }
+    let mut name = String::from(r"\\.\pipe\mty_");
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+            name.push(ch);
+        } else {
+            name.push('_');
+        }
+    }
+    if name.ends_with("mty_") {
+        name.push_str("control");
+    }
+    name
+}
+
 /// Spawn the control-socket listener on the given tokio handle.
 /// Returns `None` when the env var is unset, when the platform is
-/// unsupported (Windows in v0.16), or when binding fails. Failures
-/// are logged via `eprintln!` and swallowed — introspection is a
-/// best-effort observability surface, never a correctness gate.
+/// unsupported, or when binding fails. Failures are logged via `eprintln!`
+/// and swallowed — introspection is a best-effort observability surface,
+/// never a correctness gate.
 pub fn spawn_control_socket(
     ctx: ControlContext,
     handle: TokioHandle,
@@ -429,22 +451,114 @@ pub fn spawn_control_socket_at(
     }
     #[cfg(windows)]
     {
-        // Tokio's named-pipe API doesn't expose a stable
-        // listener-loop ergonomic in the same shape; deferred to v0.17.
-        // See INTROSPECT_V0_16_NOTES.md "Tier-1 followups".
-        let _ = (ctx, handle, path);
-        eprintln!(
-            "[mty-runtime] {} is set but the Windows named-pipe control \
-             socket is not yet implemented (v0.16 Unix-only); disable the \
-             env var to silence this message",
-            CONTROL_SOCK_ENV
-        );
-        None
+        windows_impl::spawn(ctx, &handle, path)
     }
     #[cfg(not(any(unix, windows)))]
     {
         let _ = (ctx, handle, path);
         None
+    }
+}
+
+#[cfg(windows)]
+mod windows_impl {
+    use super::{windows_pipe_name, ControlContext, ControlSocketHandle, Request, Response};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
+    use tokio::runtime::Handle as TokioHandle;
+
+    pub fn spawn(
+        ctx: ControlContext,
+        handle: &TokioHandle,
+        path: &str,
+    ) -> Option<ControlSocketHandle> {
+        let pipe_path = windows_pipe_name(path);
+        let server = match ServerOptions::new()
+            .first_pipe_instance(true)
+            .create(&pipe_path)
+        {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!(
+                    "[mty-runtime] failed to bind control pipe {}: {}",
+                    pipe_path, e
+                );
+                return None;
+            }
+        };
+        let task = handle.spawn(accept_loop(ctx, pipe_path.clone(), server));
+        Some(ControlSocketHandle { task, sock_path: pipe_path })
+    }
+
+    async fn accept_loop(
+        ctx: ControlContext,
+        pipe_path: String,
+        mut server: NamedPipeServer,
+    ) {
+        loop {
+            match server.connect().await {
+                Ok(()) => {
+                    let connected = server;
+                    server = match ServerOptions::new().create(&pipe_path) {
+                        Ok(next) => next,
+                        Err(e) => {
+                            eprintln!(
+                                "[mty-runtime] control pipe {} recreate error: {}",
+                                pipe_path, e
+                            );
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                            match ServerOptions::new().create(&pipe_path) {
+                                Ok(next) => next,
+                                Err(_) => break,
+                            }
+                        }
+                    };
+                    let ctx2 = ctx.clone();
+                    tokio::spawn(serve_conn(ctx2, connected));
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[mty-runtime] control pipe {} connect error: {}",
+                        pipe_path, e
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    server = match ServerOptions::new().create(&pipe_path) {
+                        Ok(next) => next,
+                        Err(_) => break,
+                    };
+                }
+            }
+        }
+    }
+
+    async fn serve_conn(ctx: ControlContext, stream: NamedPipeServer) {
+        let (rd, mut wr) = tokio::io::split(stream);
+        let mut lines = BufReader::new(rd).lines();
+        loop {
+            let line = match lines.next_line().await {
+                Ok(Some(l)) => l,
+                Ok(None) => break,
+                Err(_) => break,
+            };
+            if line.trim().is_empty() {
+                continue;
+            }
+            let resp = match serde_json::from_str::<Request>(&line) {
+                Ok(req) => ctx.handle(req),
+                Err(_) => Response::Error {
+                    error: "bad_json".into(),
+                    code: None,
+                },
+            };
+            let mut bytes = match serde_json::to_vec(&resp) {
+                Ok(b) => b,
+                Err(_) => br#"{"error":"encode_failed"}"#.to_vec(),
+            };
+            bytes.push(b'\n');
+            if wr.write_all(&bytes).await.is_err() {
+                break;
+            }
+        }
     }
 }
 
@@ -632,6 +746,51 @@ mod tests {
     fn env_unset_returns_none() {
         std::env::remove_var(CONTROL_SOCK_ENV);
         assert!(sock_path_from_env().is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_pipe_name_maps_paths_deterministically() {
+        assert_eq!(
+            windows_pipe_name(r"\\.\pipe\mty-control-test"),
+            r"\\.\pipe\mty-control-test"
+        );
+        assert_eq!(
+            windows_pipe_name(r"C:\tmp\mty.sock"),
+            r"\\.\pipe\mty_C__tmp_mty_sock"
+        );
+    }
+
+    #[cfg(windows)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn control_named_pipe_responds_to_snapshot_op() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        use tokio::net::windows::named_pipe::ClientOptions;
+
+        let ctx = fixture_ctx();
+        let raw = format!("mty-control-test-{}", std::process::id());
+        let handle = spawn_control_socket_at(ctx, tokio::runtime::Handle::current(), &raw)
+            .expect("control pipe spawn");
+        let pipe = windows_pipe_name(&raw);
+
+        let mut stream = None;
+        for _ in 0..20 {
+            match ClientOptions::new().open(&pipe) {
+                Ok(s) => {
+                    stream = Some(s);
+                    break;
+                }
+                Err(_) => tokio::time::sleep(Duration::from_millis(25)).await,
+            }
+        }
+        let mut stream = stream.expect("connect named pipe");
+        stream.write_all(br#"{"op":"snapshot"}"#).await.unwrap();
+        stream.write_all(b"\n").await.unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        assert!(line.contains(r#""worker_count":2"#), "{line}");
+        handle.task.abort();
     }
 
     // -----------------------------------------------------------------
