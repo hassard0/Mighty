@@ -9,6 +9,11 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
+### Fixed
+- **L47:** `&&` and `||` now lower through short-circuit control flow
+  instead of eager binary evaluation, so guard-then-use expressions do
+  not evaluate the protected RHS.
+
 v0.43 candidates (rolled up from v0.42's IDE-dogfooding lessons log):
 
 ### Known issues — carry forward
