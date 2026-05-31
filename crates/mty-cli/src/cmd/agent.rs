@@ -693,6 +693,21 @@ impl Session {
         };
         let path_buf = PathBuf::from(path);
         let check = req.bool("check");
+        // v0.42 T5 L26 safety: refuse non-`.mty` extensions up-front so the
+        // structured-protocol surface inherits the same destructive-truncation
+        // guard as the human CLI.
+        if path_buf.is_file() && path_buf.extension().and_then(|s| s.to_str()) != Some("mty") {
+            emit(
+                out,
+                &Response::Error {
+                    message: format!(
+                        "fmt: {}: refusing — `fmt` only formats `.mty` files",
+                        path_buf.display()
+                    ),
+                },
+            );
+            return 1;
+        }
         let src = match fs::read_to_string(&path_buf) {
             Ok(s) => s,
             Err(e) => {
@@ -711,6 +726,24 @@ impl Session {
             src.clone()
         };
         let parsed = parse_source(norm.clone(), path_buf.display().to_string());
+        // v0.42 T5 L26 safety: refuse to write when the input did not parse
+        // cleanly. The structured-protocol caller still gets a clear error
+        // back (mirroring the CLI's stderr message).
+        if !parsed.diagnostics.is_empty() {
+            let first = &parsed.diagnostics[0];
+            emit(
+                out,
+                &Response::Error {
+                    message: format!(
+                        "fmt: {}: parse failed: {} ({})",
+                        path_buf.display(),
+                        first.primary.message,
+                        first.code.as_str()
+                    ),
+                },
+            );
+            return 1;
+        }
         let formatted = mty_fmt::format(parsed.green);
         let needs_reformat = formatted != norm;
         if !check && needs_reformat {
@@ -2008,6 +2041,56 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         let code = s.handle(&req, &mut buf);
         assert_eq!(code, 2);
+    }
+
+    // v0.42 T5 L26 — destructive-truncation guard, agent surface.
+    #[test]
+    fn session_fmt_refuses_non_mty_extension() {
+        let tmp = tempfile::tempdir().unwrap();
+        let f = tmp.path().join("notes.txt");
+        let payload = b"plain text, not Mighty code at all.\n";
+        std::fs::write(&f, payload).unwrap();
+        let mut s = Session::new();
+        let req = Request {
+            op: "fmt".into(),
+            fields: serde_json::from_str(&format!(
+                r#"{{"path":"{}"}}"#,
+                f.display().to_string().replace('\\', "\\\\")
+            ))
+            .unwrap(),
+        };
+        let mut buf: Vec<u8> = Vec::new();
+        let code = s.handle(&req, &mut buf);
+        assert_eq!(code, 1, "non-.mty input must exit non-zero");
+        // File must be unchanged.
+        assert_eq!(std::fs::read(&f).unwrap(), payload);
+        let s_out = String::from_utf8(buf).unwrap();
+        assert!(s_out.contains(".mty"));
+    }
+
+    // v0.42 T5 L26 — parse-failure guard, agent surface.
+    #[test]
+    fn session_fmt_refuses_parse_failure() {
+        let tmp = tempfile::tempdir().unwrap();
+        let f = tmp.path().join("bad.mty");
+        let payload = b"fn ( {\n}\n";
+        std::fs::write(&f, payload).unwrap();
+        let mut s = Session::new();
+        let req = Request {
+            op: "fmt".into(),
+            fields: serde_json::from_str(&format!(
+                r#"{{"path":"{}"}}"#,
+                f.display().to_string().replace('\\', "\\\\")
+            ))
+            .unwrap(),
+        };
+        let mut buf: Vec<u8> = Vec::new();
+        let code = s.handle(&req, &mut buf);
+        assert_eq!(code, 1, "parse-fail input must exit non-zero");
+        // File must be unchanged.
+        assert_eq!(std::fs::read(&f).unwrap(), payload);
+        let s_out = String::from_utf8(buf).unwrap();
+        assert!(s_out.to_lowercase().contains("parse"));
     }
 
     #[test]
