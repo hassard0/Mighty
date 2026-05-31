@@ -28,7 +28,12 @@ v0.42 candidates (rolled up from v0.41's IDE-dogfooding lessons log):
   policy (NaN→0, ±inf clamp to dst's min/max — see
   `docs/reference/casts.md` §v0.42 T2). Char cast already shipped
   v0.40 T3.
-- **L20 (P1):** `(a)(b)` parses as call → MT2008 not callable.
+- **L20 (P1) — FIXED (v0.42 T3):** `(a + b)(c)` no longer mis-parses as
+  a CALL_EXPR. The postfix-`(` rule in `expr_bp` now only treats a
+  following `(` as a call when the preceding primary is callable-shaped
+  (path / call / field / index / lambda / parens wrapping any of those).
+  Arithmetic/boolean paren groups (`(a + b)`, `(-f)`, `()`, `(a, b)`)
+  surface a clearer parse error than the downstream MT2008.
 - **L23 (P1):** native `log(...)` only takes string literals; no
   computed-value tracing on the native path.
 - **L18 (P1):** `std.fs` is a Rust-internal capability API, not

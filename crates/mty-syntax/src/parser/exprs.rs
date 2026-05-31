@@ -45,20 +45,49 @@ fn next_nontrivia_index(p: &Parser, from: usize) -> usize {
 }
 
 pub fn expr(p: &mut Parser) -> bool {
-    expr_bp(p, 0)
+    expr_bp(p, 0).is_some()
 }
 
-fn expr_bp(p: &mut Parser, min_bp: u8) -> bool {
+/// v0.42 L20: parse an expression and return its primary shape (so
+/// `paren_or_tuple` can decide whether the wrapped expression is itself
+/// callable). Returns `NonCallable` on parse failure to be safe.
+pub(crate) fn expr_shape(p: &mut Parser) -> PrimaryShape {
+    expr_bp(p, 0).unwrap_or(PrimaryShape::NonCallable)
+}
+
+/// v0.42 L20: shape of a parsed primary expression for the purpose of
+/// the postfix `(` rule. Only `Callable` primaries may be followed by
+/// `(args)` and turned into a CALL_EXPR. A `Parsed(NonCallable)` primary
+/// (an arithmetic/logical paren group such as `(a + b)`) is **not** a
+/// callable, so `(a + b)(c)` no longer mis-parses as a call.
+///
+/// Postfixes themselves (`.field`, `[i]`, `(args)`, `?Msg(args)`,
+/// `!Msg(args)`, `@dur`) always produce a callable-eligible shape
+/// (a field-of, indexed element, or call result might hold a function),
+/// so once one postfix runs, subsequent `(...)` are accepted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PrimaryShape {
+    /// Path / call / method / field / index / lambda / `?` / `!` / `@`,
+    /// or a parenthesised primary whose inner expression was itself
+    /// callable-shaped. Allows postfix `(args)` as a CALL_EXPR.
+    Callable,
+    /// Literal, binary, unary, control-flow, struct/map/array/tuple
+    /// literal, or a parenthesised primary wrapping any of the above.
+    /// Disallows postfix `(args)` as a CALL_EXPR — `(a + b)(c)` is a
+    /// parse error rather than a silent mis-call.
+    NonCallable,
+}
+
+fn expr_bp(p: &mut Parser, min_bp: u8) -> Option<PrimaryShape> {
     p.skip_trivia();
     let cp = p.checkpoint();
-    if !unary_or_primary(p) {
-        return false;
-    }
+    let mut shape = unary_or_primary(p)?;
 
     loop {
         p.skip_trivia();
         // postfix first (highest precedence)
-        if try_postfix(p, cp) {
+        if let Some(next_shape) = try_postfix(p, cp, shape) {
+            shape = next_shape;
             continue;
         }
 
@@ -81,6 +110,10 @@ fn expr_bp(p: &mut Parser, min_bp: u8) -> bool {
                 p.error("expected type after `as`");
             }
             p.finish_node();
+            // The cast result is a value of the target type — could be a
+            // function pointer in unsafe contexts. Keep callable so
+            // existing `(p as fn(...) -> ...)(args)` shapes still parse.
+            shape = PrimaryShape::Callable;
             continue;
         }
         let right_bp = if infix_right_assoc(p.peek()) {
@@ -93,8 +126,11 @@ fn expr_bp(p: &mut Parser, min_bp: u8) -> bool {
         p.skip_trivia();
         expr_bp(p, right_bp);
         p.finish_node();
+        // The result of a binary operation is an arithmetic / logical /
+        // comparison value — not a callable.
+        shape = PrimaryShape::NonCallable;
     }
-    true
+    Some(shape)
 }
 
 fn infix_right_assoc(k: SyntaxKind) -> bool {
@@ -133,7 +169,7 @@ fn infix_bp(p: &Parser) -> Option<u8> {
     Some(bp)
 }
 
-fn unary_or_primary(p: &mut Parser) -> bool {
+fn unary_or_primary(p: &mut Parser) -> Option<PrimaryShape> {
     p.skip_trivia();
     match p.peek() {
         MINUS | BANG | STAR => {
@@ -142,7 +178,9 @@ fn unary_or_primary(p: &mut Parser) -> bool {
             p.skip_trivia();
             unary_or_primary(p);
             p.finish_node();
-            true
+            // `-(f)` / `!(g)` / `*(h)` are not callable themselves —
+            // `(-f)(x)` should not parse as a call of `-f`.
+            Some(PrimaryShape::NonCallable)
         }
         AMP => {
             p.start_node(BORROW_EXPR);
@@ -151,7 +189,7 @@ fn unary_or_primary(p: &mut Parser) -> bool {
             p.eat(MUT_KW);
             unary_or_primary(p);
             p.finish_node();
-            true
+            Some(PrimaryShape::NonCallable)
         }
         MOVE_KW => {
             p.start_node(MOVE_EXPR);
@@ -159,7 +197,9 @@ fn unary_or_primary(p: &mut Parser) -> bool {
             p.skip_trivia();
             unary_or_primary(p);
             p.finish_node();
-            true
+            // `move f` is still semantically a function reference — keep
+            // it callable so `(move f)(x)` works.
+            Some(PrimaryShape::Callable)
         }
         SPAWN_KW => {
             p.start_node(SPAWN_EXPR);
@@ -169,13 +209,13 @@ fn unary_or_primary(p: &mut Parser) -> bool {
             p.eat(TASK_KW);
             expr(p);
             p.finish_node();
-            true
+            Some(PrimaryShape::NonCallable)
         }
         _ => primary(p),
     }
 }
 
-fn primary(p: &mut Parser) -> bool {
+fn primary(p: &mut Parser) -> Option<PrimaryShape> {
     p.skip_trivia();
     match p.peek() {
         INT_LITERAL | HEX_INT_LITERAL | BIN_INT_LITERAL | OCT_INT_LITERAL | FLOAT_LITERAL
@@ -183,22 +223,40 @@ fn primary(p: &mut Parser) -> bool {
             p.start_node(LITERAL_EXPR);
             p.bump_any();
             p.finish_node();
-            true
+            Some(PrimaryShape::NonCallable)
         }
         HTML_LITERAL => {
             p.start_node(HTML_EXPR);
             p.bump(HTML_LITERAL);
             p.finish_node();
-            true
+            Some(PrimaryShape::NonCallable)
         }
-        L_PAREN => paren_or_tuple(p),
-        L_BRACK => array_lit(p),
-        L_BRACE => block_or_map_or_struct(p),
-        IF_KW => super::stmts::if_expr(p),
-        MATCH_KW => super::stmts::match_expr(p),
-        FOR_KW => super::stmts::for_expr(p),
-        WHILE_KW => super::stmts::while_expr(p),
-        LOOP_KW => super::stmts::loop_expr(p),
+        L_PAREN => Some(paren_or_tuple(p)),
+        L_BRACK => Some(array_lit(p)),
+        L_BRACE => Some(block_or_map_or_struct(p)),
+        IF_KW => {
+            super::stmts::if_expr(p);
+            // `if` produces a value but it's a control-flow value, not
+            // a function. Disallow `(if c { f } else { g })(x)` for now;
+            // users can bind to a let if they want this.
+            Some(PrimaryShape::NonCallable)
+        }
+        MATCH_KW => {
+            super::stmts::match_expr(p);
+            Some(PrimaryShape::NonCallable)
+        }
+        FOR_KW => {
+            super::stmts::for_expr(p);
+            Some(PrimaryShape::NonCallable)
+        }
+        WHILE_KW => {
+            super::stmts::while_expr(p);
+            Some(PrimaryShape::NonCallable)
+        }
+        LOOP_KW => {
+            super::stmts::loop_expr(p);
+            Some(PrimaryShape::NonCallable)
+        }
         RETURN_KW => {
             p.start_node(RETURN_EXPR);
             p.bump(RETURN_KW);
@@ -207,7 +265,7 @@ fn primary(p: &mut Parser) -> bool {
                 expr(p);
             }
             p.finish_node();
-            true
+            Some(PrimaryShape::NonCallable)
         }
         BREAK_KW => {
             // `break` or `break <expr>`. v0.5 ships without label support;
@@ -219,26 +277,46 @@ fn primary(p: &mut Parser) -> bool {
                 expr(p);
             }
             p.finish_node();
-            true
+            Some(PrimaryShape::NonCallable)
         }
         CONTINUE_KW => {
             // Unlabelled `continue`. v0.6 will add label support.
             p.start_node(CONTINUE_EXPR);
             p.bump(CONTINUE_KW);
             p.finish_node();
-            true
+            Some(PrimaryShape::NonCallable)
         }
-        UNSAFE_KW => super::unsafe_::unsafe_block(p),
-        ARENA_KW => super::concurrency::arena_block(p),
-        TASK_KW => super::concurrency::task_scope_or_call(p),
-        SANDBOX_KW => super::concurrency::sandbox_block(p),
+        UNSAFE_KW => {
+            super::unsafe_::unsafe_block(p);
+            Some(PrimaryShape::NonCallable)
+        }
+        ARENA_KW => {
+            super::concurrency::arena_block(p);
+            Some(PrimaryShape::NonCallable)
+        }
+        TASK_KW => {
+            // `task_scope_or_call` re-emits `task` as a PATH_EXPR when the
+            // next non-trivia token is DOT (so postfix `.method(...)` works);
+            // otherwise it parses a TASK_SCOPE block.
+            let next_is_dot = next_nontrivia_kind(p, p.pos + 1) == DOT;
+            super::concurrency::task_scope_or_call(p);
+            Some(if next_is_dot {
+                PrimaryShape::Callable
+            } else {
+                PrimaryShape::NonCallable
+            })
+        }
+        SANDBOX_KW => {
+            super::concurrency::sandbox_block(p);
+            Some(PrimaryShape::NonCallable)
+        }
         DETACH_KW => {
             p.start_node(DETACH_EXPR);
             p.bump(DETACH_KW);
             p.skip_trivia();
             expr(p);
             p.finish_node();
-            true
+            Some(PrimaryShape::NonCallable)
         }
         JOIN_KW => {
             p.start_node(JOIN_EXPR);
@@ -246,10 +324,18 @@ fn primary(p: &mut Parser) -> bool {
             p.skip_trivia();
             expr(p);
             p.finish_node();
-            true
+            Some(PrimaryShape::NonCallable)
         }
-        FN_KW => lambda_expr(p),
-        RUN_KW => run_expr(p),
+        FN_KW => {
+            lambda_expr(p);
+            // Closures ARE callable — `(fn() { 1 })()` and the historical
+            // `(|| 1)()` shape should keep working.
+            Some(PrimaryShape::Callable)
+        }
+        RUN_KW => {
+            run_expr(p);
+            Some(PrimaryShape::NonCallable)
+        }
         IDENT => {
             // v0.29 Track E: soft keyword `budget`. When we see
             // `budget { ident expr ...`, dispatch to the budget-block
@@ -258,9 +344,10 @@ fn primary(p: &mut Parser) -> bool {
             // `Foo { x: 1 }` and plain identifiers `let budget = 5` keep
             // the regular IDENT path.
             if p.tokens[p.pos].text == "budget" && lookahead_is_budget_block(p) {
-                return super::concurrency::budget_block(p);
+                super::concurrency::budget_block(p);
+                return Some(PrimaryShape::NonCallable);
             }
-            path_expr_or_call(p)
+            Some(path_expr_or_call(p))
         }
         SELF_KW => {
             // `self` parses as a single-segment path expression so postfix `.field`,
@@ -275,27 +362,33 @@ fn primary(p: &mut Parser) -> bool {
             p.finish_node();
             p.finish_node();
             p.skip_trivia();
-            true
+            Some(PrimaryShape::Callable)
         }
-        _ => false,
+        _ => None,
     }
 }
 
-fn paren_or_tuple(p: &mut Parser) -> bool {
+fn paren_or_tuple(p: &mut Parser) -> PrimaryShape {
     let cp = p.checkpoint();
     p.bump(L_PAREN);
     p.skip_trivia();
     if p.at(R_PAREN) {
+        // `()` — empty tuple (unit). Not callable.
         p.start_node_at(cp, TUPLE_EXPR);
         p.bump(R_PAREN);
         p.finish_node();
-        return true;
+        return PrimaryShape::NonCallable;
     }
     // Inside parentheses, struct literals are unambiguous again.
+    let mut shape = PrimaryShape::NonCallable;
     p.with_struct_literal(|p| {
-        expr(p);
+        // v0.42 L20: capture the shape of the bare inner expression so
+        // `(f)(x)` (Callable inner) keeps parsing as a call while
+        // `(a + b)(c)` (NonCallable inner) does not.
+        let inner_shape = expr_shape(p);
         p.skip_trivia();
         if p.at(COMMA) {
+            // Tuple literal `(a, b, ...)` — never callable as a whole.
             p.start_node_at(cp, TUPLE_EXPR);
             p.bump(COMMA);
             p.skip_trivia();
@@ -308,15 +401,19 @@ fn paren_or_tuple(p: &mut Parser) -> bool {
             }
             p.expect(R_PAREN);
             p.finish_node();
+            shape = PrimaryShape::NonCallable;
         } else {
             p.expect(R_PAREN);
             // bare parenthesized expr — leave as the inner expr (no wrapper).
+            // The parenthesised group inherits the inner expression's
+            // callability so that `(f)(x)` works but `(a + b)(c)` is rejected.
+            shape = inner_shape;
         }
     });
-    true
+    shape
 }
 
-fn array_lit(p: &mut Parser) -> bool {
+fn array_lit(p: &mut Parser) -> PrimaryShape {
     p.start_node(ARRAY_EXPR);
     p.bump(L_BRACK);
     p.skip_trivia();
@@ -333,10 +430,12 @@ fn array_lit(p: &mut Parser) -> bool {
     }
     p.expect(R_BRACK);
     p.finish_node();
-    true
+    // Array literal `[a, b, c]` is not directly callable; the user must
+    // index first.
+    PrimaryShape::NonCallable
 }
 
-fn block_or_map_or_struct(p: &mut Parser) -> bool {
+fn block_or_map_or_struct(p: &mut Parser) -> PrimaryShape {
     // Disambiguate by peeking past `{` and the first non-trivia token.
     // Map literal: { IDENT : ... } or { } we treat as block.
     // Otherwise: plain block (for now an inline brace-balanced consumer; TODO(task-11): replace with stmts::block).
@@ -370,10 +469,13 @@ fn block_or_map_or_struct(p: &mut Parser) -> bool {
     } else {
         super::stmts::block(p);
     }
-    true
+    // A block expression yields its tail expression's value, but we don't
+    // know its shape here; conservatively non-callable. Map literals are
+    // never callable.
+    PrimaryShape::NonCallable
 }
 
-fn path_expr_or_call(p: &mut Parser) -> bool {
+fn path_expr_or_call(p: &mut Parser) -> PrimaryShape {
     let cp = p.checkpoint();
     p.start_node(PATH_EXPR);
     paths::path(p);
@@ -388,7 +490,10 @@ fn path_expr_or_call(p: &mut Parser) -> bool {
         p.skip_trivia();
         token_tree(p);
         p.finish_node();
-        return true;
+        // Macro invocations expand to arbitrary expressions; conservatively
+        // non-callable so `(some_macro!(...))(x)` doesn't silently flip
+        // shape.
+        return PrimaryShape::NonCallable;
     }
     // struct literal: Path { field: expr, ... }
     // Suppress when parsing control-flow conditions (`if`/`while`/`for`) so
@@ -411,8 +516,11 @@ fn path_expr_or_call(p: &mut Parser) -> bool {
         }
         p.expect(R_BRACE);
         p.finish_node();
+        return PrimaryShape::NonCallable;
     }
-    true
+    // Bare path expression — callable if it later resolves to a function
+    // or callable type. The typechecker has the final say.
+    PrimaryShape::Callable
 }
 
 /// v0.29 Track E: lookahead for the soft-keyword `budget` block.
@@ -479,7 +587,7 @@ fn lookahead_is_struct_literal(p: &Parser) -> bool {
     false
 }
 
-fn try_postfix(p: &mut Parser, cp: rowan::Checkpoint) -> bool {
+fn try_postfix(p: &mut Parser, cp: rowan::Checkpoint, prev: PrimaryShape) -> Option<PrimaryShape> {
     p.skip_trivia();
     match p.peek() {
         DOT => {
@@ -490,7 +598,7 @@ fn try_postfix(p: &mut Parser, cp: rowan::Checkpoint) -> bool {
             let name_kind = next_nontrivia_kind(p, p.pos + 1);
             let name_is_word = name_kind == IDENT || name_kind.is_keyword();
             if !name_is_word {
-                return false;
+                return None;
             }
             let is_method_call = next_nontrivia_kind(p, after_dot + 1) == L_PAREN;
             if is_method_call {
@@ -507,13 +615,30 @@ fn try_postfix(p: &mut Parser, cp: rowan::Checkpoint) -> bool {
                 paths::name_or_keyword(p);
                 p.finish_node();
             }
-            true
+            // Both `x.method(...)` results and `x.field` (which may hold a
+            // closure) are callable-eligible for the next iteration.
+            Some(PrimaryShape::Callable)
         }
         L_PAREN => {
+            // v0.42 L20: only treat `expr(...)` as a CALL_EXPR when `expr`
+            // is callable-shaped (path / call / field / index / lambda /
+            // parens around any of those). For arithmetic/logical/literal
+            // expressions, emit a clearer parse error than the downstream
+            // MT2008 "value is not callable" the typechecker used to raise
+            // (the user's intent is ambiguous: was a binary op meant or did
+            // they really want to call this value?).
+            if prev != PrimaryShape::Callable {
+                p.error(
+                    "expected operator before `(` — to call an arithmetic \
+                     or boolean expression, bind it to a `let` first \
+                     (Mighty does not auto-apply parens to non-callable values)",
+                );
+                return None;
+            }
             p.start_node_at(cp, CALL_EXPR);
             args(p);
             p.finish_node();
-            true
+            Some(PrimaryShape::Callable)
         }
         L_BRACK => {
             p.start_node_at(cp, INDEX_EXPR);
@@ -523,7 +648,8 @@ fn try_postfix(p: &mut Parser, cp: rowan::Checkpoint) -> bool {
             p.skip_trivia();
             p.expect(R_BRACK);
             p.finish_node();
-            true
+            // Indexed element might be a closure stored in an array.
+            Some(PrimaryShape::Callable)
         }
         QUESTION => {
             // Disambiguate: `?Msg(args)` is ask; bare `?` is propagate.
@@ -546,7 +672,9 @@ fn try_postfix(p: &mut Parser, cp: rowan::Checkpoint) -> bool {
                 p.bump(QUESTION);
                 p.finish_node();
             }
-            true
+            // `expr?` unwraps a Result/Option — the unwrapped value may
+            // itself be callable.
+            Some(PrimaryShape::Callable)
         }
         BANG => {
             // `!Msg(args)` is send; `!expr` is boolean-not (handled in unary, not postfix).
@@ -561,9 +689,9 @@ fn try_postfix(p: &mut Parser, cp: rowan::Checkpoint) -> bool {
                     args(p);
                 }
                 p.finish_node();
-                true
+                Some(PrimaryShape::NonCallable)
             } else {
-                false
+                None
             }
         }
         AT => {
@@ -580,9 +708,11 @@ fn try_postfix(p: &mut Parser, cp: rowan::Checkpoint) -> bool {
                 expr(p);
             }
             p.finish_node();
-            true
+            // Deadline wraps an expr — preserve the previous callability so
+            // `(f @2s)(x)` still works if `f` was callable.
+            Some(prev)
         }
-        _ => false,
+        _ => None,
     }
 }
 
