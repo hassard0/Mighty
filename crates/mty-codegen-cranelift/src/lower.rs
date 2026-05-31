@@ -1502,6 +1502,107 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         val
     }
 
+    /// v0.42 T2 — value-preserving `as Ty` lowering used by
+    /// `Rvalue::Cast`. Picks the right Cranelift conversion instruction
+    /// for each combination of source / destination kinds rather than
+    /// the bit-preserving fallback in [`Self::coerce_to`]:
+    ///
+    /// | src         | dst       | instructions                           |
+    /// |-------------|-----------|----------------------------------------|
+    /// | int (s)     | wider int | `sextend`                              |
+    /// | int (u)     | wider int | `uextend`                              |
+    /// | int         | smaller int | `ireduce`                            |
+    /// | int (s)     | float     | `fcvt_from_sint`                       |
+    /// | int (u)     | float     | `fcvt_from_uint`                       |
+    /// | float       | int (s)   | `fcvt_to_sint_sat` (NaN→0, ±inf→min/max) |
+    /// | float       | int (u)   | `fcvt_to_uint_sat` (NaN→0, +inf→max, -inf→0) |
+    /// | float       | wider fp  | `fpromote`                             |
+    /// | float       | smaller fp | `fdemote`                             |
+    ///
+    /// Bool↔Int and `Ref↔Ref` are handled at the caller; for unknown
+    /// source types (Use rvalues where `operand_ir_ty` returned None) we
+    /// fall back to `coerce_to_with_src` which itself falls back to the
+    /// bit-preserving coerce — same conservative behaviour as before
+    /// v0.42 T2.
+    fn cast_value(
+        &mut self,
+        v: cranelift_codegen::ir::Value,
+        want: cranelift_codegen::ir::Type,
+        src_ty: Option<&IrTy>,
+        dst_ty: &IrTy,
+    ) -> cranelift_codegen::ir::Value {
+        let have = self.b.func.dfg.value_type(v);
+        if have == want
+            && matches!(
+                (src_ty, dst_ty),
+                (Some(IrTy::Int(_)), IrTy::Int(_)) | (Some(IrTy::Float(_)), IrTy::Float(_))
+            )
+        {
+            // Same Cranelift width but a kind/sign change (e.g. I32→U32).
+            // The bits are identical; no instruction needed.
+            return v;
+        }
+        let unsigned_src = src_ty.is_some_and(Self::is_unsigned_int_ty);
+        match (src_ty, dst_ty) {
+            // ── Int → Float ──────────────────────────────────────────
+            (Some(IrTy::Int(_)), IrTy::Float(_)) if want.is_float() && have.is_int() => {
+                // Cranelift's fcvt_from_* only accepts I32/I64 inputs;
+                // narrow ints (I8/I16) must be widened first via
+                // sextend / uextend.
+                let widened = if have.bits() < 32 {
+                    let i32t = cranelift_codegen::ir::types::I32;
+                    if unsigned_src {
+                        self.b.ins().uextend(i32t, v)
+                    } else {
+                        self.b.ins().sextend(i32t, v)
+                    }
+                } else {
+                    v
+                };
+                if unsigned_src {
+                    self.b.ins().fcvt_from_uint(want, widened)
+                } else {
+                    self.b.ins().fcvt_from_sint(want, widened)
+                }
+            }
+            // ── Float → Int ──────────────────────────────────────────
+            (Some(IrTy::Float(_)), IrTy::Int(_)) if want.is_int() && have.is_float() => {
+                // fcvt_to_*_sat targets I32 / I64 directly; narrow dst
+                // (I8/I16) needs an extra ireduce afterwards.
+                let dst_unsigned = Self::is_unsigned_int_ty(dst_ty);
+                let wide_int = if want.bits() < 32 {
+                    cranelift_codegen::ir::types::I32
+                } else {
+                    want
+                };
+                let wide = if dst_unsigned {
+                    self.b.ins().fcvt_to_uint_sat(wide_int, v)
+                } else {
+                    self.b.ins().fcvt_to_sint_sat(wide_int, v)
+                };
+                if wide_int == want {
+                    wide
+                } else {
+                    self.b.ins().ireduce(want, wide)
+                }
+            }
+            // ── Float → Float ────────────────────────────────────────
+            (Some(IrTy::Float(_)), IrTy::Float(_)) if want.is_float() && have.is_float() => {
+                if have.bits() < want.bits() {
+                    self.b.ins().fpromote(want, v)
+                } else if have.bits() > want.bits() {
+                    self.b.ins().fdemote(want, v)
+                } else {
+                    v
+                }
+            }
+            // ── everything else — delegate to coerce_to_with_src,
+            // which handles Int↔Int (sextend / uextend / ireduce) and
+            // the bit-preserving fallback for unknown SIR types.
+            _ => self.coerce_to_with_src(v, want, src_ty),
+        }
+    }
+
     fn eval_rvalue(&mut self, rv: &Rvalue) -> CompileResult<cranelift_codegen::ir::Value> {
         match rv {
             Rvalue::Use(op) => self.eval_operand(op),
@@ -1544,7 +1645,21 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                     // `Bool` — no further coerce needed.
                     return Ok(self.coerce_to_with_src(cmp, want, Some(&IrTy::Bool)));
                 }
-                Ok(self.coerce_to_with_src(v, want, src_ty.as_ref()))
+                // v0.42 T2 — full numeric `as` matrix. Int↔Int already
+                // works through `coerce_to_with_src` (sextend / uextend
+                // / ireduce); int↔float and float↔float used to fall
+                // into `coerce_to`'s bitcast path, which preserves bits
+                // but NOT value. Route those through proper Cranelift
+                // conversion instructions:
+                //   * Int → Float  : fcvt_from_sint / fcvt_from_uint
+                //   * Float → Int  : fcvt_to_sint_sat / fcvt_to_uint_sat
+                //                    (saturating — NaN → 0, ±inf → min/max;
+                //                    matches docs/reference/casts.md §"Float
+                //                    → Int" and Rust's `as` semantics).
+                //   * Float → Float: fpromote / fdemote (already in
+                //                    coerce_to; routed through cast_value
+                //                    for symmetry).
+                Ok(self.cast_value(v, want, src_ty.as_ref(), ty))
             }
             Rvalue::StrPtr(src) => {
                 // v0.37 Track T3 — read the ptr half (offset 0) of the

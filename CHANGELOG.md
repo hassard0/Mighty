@@ -16,8 +16,18 @@ v0.42 candidates (rolled up from v0.41's IDE-dogfooding lessons log):
   capture-rebind `v = v.push(x)`; works under interp.
 - **L21 (P0):** Vec param read in nested loops SIGSEGVs under native
   codegen (likely same liveness/spill family as L28).
-- **L19 (P0):** `expr as T` numeric casts don't actually convert
-  (Char cast shipped v0.40 T3; int/float widening still broken).
+- **L19 — FIXED in v0.42 T2:** `expr as T` numeric casts now actually
+  convert across all back-ends (cranelift + LLVM + wasm + interp).
+  Int↔Int picks `sextend` / `uextend` / `ireduce` (LLVM:
+  `sext`/`zext`/`trunc`; wasm: `i64.extend_i32_*` / `i32.wrap_i64`);
+  int↔float picks `fcvt_from_*` / `fcvt_to_*_sat` (LLVM:
+  `sitofp`/`uitofp` + `llvm.fpto[su]i.sat`; wasm: `f*.convert_i*_*`
+  / `i*.trunc_sat_f*_*`); float↔float picks `fpromote` / `fdemote`
+  (LLVM: `fpext`/`fptrunc`; wasm: `f64.promote_f32` /
+  `f32.demote_f64`). Float→Int overflow follows Rust's saturating-`as`
+  policy (NaN→0, ±inf clamp to dst's min/max — see
+  `docs/reference/casts.md` §v0.42 T2). Char cast already shipped
+  v0.40 T3.
 - **L20 (P1):** `(a)(b)` parses as call → MT2008 not callable.
 - **L23 (P1):** native `log(...)` only takes string literals; no
   computed-value tracing on the native path.
