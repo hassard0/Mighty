@@ -1,7 +1,8 @@
 //! Unit tests for the per-node canonical printers in
 //! `mty_fmt::fmt::{types, patterns, exprs}`. These printers are
-//! exposed as library surface; the file-level formatter still emits
-//! items verbatim, so we exercise the printers directly here.
+//! exposed as library surface; file-level canonicalization is advancing
+//! item-by-item, so most tests exercise printers directly and the
+//! top-level tests pin each newly routed item shape.
 
 use mty_fmt::doc::Doc;
 use mty_fmt::printer::{pretty, Layout};
@@ -35,6 +36,10 @@ fn expr_node(src: &str) -> SyntaxNode {
     let r = parser::parse_expr(src);
     let root = SyntaxNode::new_root(r.green);
     root.first_child().expect("expected expression node")
+}
+
+fn format_file(src: &str) -> String {
+    mty_fmt::format(mty_syntax::parse(src).green)
 }
 
 #[test]
@@ -121,4 +126,35 @@ fn exprs_run() {
     let e = expr_node("run job(input)");
     let out = render(mty_fmt::fmt::exprs::expr(&e));
     assert_eq!(out, "run job(input)");
+}
+
+#[test]
+fn file_const_decl_canonicalizes_spacing() {
+    let src = "const   ANSWER:I32=40+2\n";
+    assert_eq!(format_file(src), "const ANSWER: I32 = 40 + 2\n");
+}
+
+#[test]
+fn file_pub_const_decl_preserves_semicolon() {
+    let src = "pub const ITEMS:Vec[I32]=Vec.new();\n";
+    assert_eq!(format_file(src), "pub const ITEMS: Vec[I32] = Vec.new();\n");
+}
+
+#[test]
+fn file_const_decl_with_attached_comments_stays_verbatim() {
+    let src = "\
+const BG_COLOR:    U32 = 487724799_u32   // 0x1d2230ff
+
+// Key constants
+const KEY_LEFT:    U32 = 37_u32
+";
+    assert_eq!(
+        format_file(src),
+        "\
+const BG_COLOR:    U32 = 487724799_u32   // 0x1d2230ff
+
+// Key constants
+const KEY_LEFT: U32 = 37_u32
+"
+    );
 }

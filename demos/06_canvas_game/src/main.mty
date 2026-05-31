@@ -84,20 +84,20 @@ const HUD_COLOR:   U32 = 3886908159_u32  // 0xe7ecf3ff — fg
 const DIM_COLOR:   U32 = 2139655935_u32  // 0x7f8a9cff — dim
 const ACCENT:      U32 = 3066101759_u32  // 0xb66ffeff — accent
 
-const W_PX:        U32 = 240_u32
-const H_PX:        U32 = 480_u32
-const CELL_PX:     U32 = 24_u32
-const HUD_X:       I32 = 250_i32
+const W_PX: U32 = 240_u32
+const H_PX: U32 = 480_u32
+const CELL_PX: U32 = 24_u32
+const HUD_X: I32 = 250_i32
 const BOARD_CELLS: U32 = 200_u32         // 10 cols x 20 rows
 
 // Browser KeyboardEvent.keyCode constants — the host shim forwards
 // `ev.keyCode` straight into `keydown(k)` so the source matches on
 // these literals. Matches the v0.24 keycode vocabulary.
-const KEY_LEFT:    U32 = 37_u32
-const KEY_UP:      U32 = 38_u32
-const KEY_RIGHT:   U32 = 39_u32
-const KEY_DOWN:    U32 = 40_u32
-const KEY_SPACE:   U32 = 32_u32
+const KEY_LEFT: U32 = 37_u32
+const KEY_UP: U32 = 38_u32
+const KEY_RIGHT: U32 = 39_u32
+const KEY_DOWN: U32 = 40_u32
+const KEY_SPACE: U32 = 32_u32
 const KEY_R:       U32 = 82_u32
 
 // ---------------------------------------------------------------------
