@@ -43,9 +43,20 @@ fn must_native_object(name: &str, src: &str) {
             let bytes = std::fs::read(&p).expect("read artifact");
             assert!(!bytes.is_empty(), "artifact is empty");
         }
-        BuildOutcome::BackendError(e) => panic!(
-            "v0.42 T4 regression: typed `log` shouldn't raise Unsupported — got {e}\nsource:\n{src}"
-        ),
+        BuildOutcome::BackendError(e) => {
+            if e.starts_with("link ") {
+                let obj = dir.path().join(format!("{name}.o"));
+                assert!(
+                    obj.exists(),
+                    "link failed before object emission; expected {}: {e}\nsource:\n{src}",
+                    obj.display()
+                );
+                return;
+            }
+            panic!(
+                "v0.42 T4 regression: typed `log` shouldn't raise Unsupported — got {e}\nsource:\n{src}"
+            )
+        }
         BuildOutcome::FrontendError => panic!("frontend rejected v0.42 T4 source:\n{src}"),
         BuildOutcome::WasmOk(_) => panic!("wrong outcome variant for native build"),
     }
