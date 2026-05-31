@@ -16,6 +16,12 @@ For the full per-release notes, see
 
 v0.43 candidates (rolled up from v0.42's IDE-dogfooding lessons log):
 
+- Fixed **L12 (P0)** for the interpreter: mutating `Vec`/`String`
+  methods with an addressable receiver now write the updated receiver
+  back, so statement-form `v.push(x)`, `v.pop()`, and `v.clear()`
+  behave consistently with native Cranelift instead of silently
+  discarding the mutation.
+
 ### Known issues — carry forward
 - **L18 (P1):** `std.fs` is a Rust-internal capability API, not
   Mighty-callable.

@@ -663,6 +663,14 @@ impl<'a> Interp<'a> {
             } => {
                 let rv = self.eval_operand(receiver);
                 let arg_vals: Vec<Value> = args.iter().map(|a| self.eval_operand(a)).collect();
+                if let Some(place) = operand_place(receiver) {
+                    if let Some((next_receiver, result)) =
+                        eval_mutating_method(&rv, method, &arg_vals)
+                    {
+                        self.assign_place(&place, next_receiver);
+                        return EvalOutcome::Value(result);
+                    }
+                }
                 EvalOutcome::Value(eval_method(&rv, method, &arg_vals))
             }
             Rvalue::AgentSpawn { agent, args: _args } => {
@@ -1599,6 +1607,102 @@ fn eval_unop(op: UnOp, v: &Value) -> Value {
         (UnOp::Not, Value::Bool(b)) => Value::Bool(!b),
         (UnOp::Not, Value::Int(n, k)) => Value::Int(!*n, *k),
         _ => v.clone(),
+    }
+}
+
+fn operand_place(o: &Operand) -> Option<Place> {
+    match o {
+        Operand::Copy(p) | Operand::Move(p) => Some(p.clone()),
+        Operand::Const(_) => None,
+    }
+}
+
+/// Mutating receiver methods in the interpreter.
+///
+/// The native backend already mutates Vec headers in place for these
+/// calls. The tree-walking interpreter stores Vec/String values
+/// directly, so it writes back an updated receiver when the receiver is
+/// an addressable place. The returned value stays method-shaped:
+/// `push` / `clear` return the updated receiver for capture-rebind
+/// compatibility, while `pop` returns `Option[T]`.
+fn eval_mutating_method(receiver: &Value, name: &str, args: &[Value]) -> Option<(Value, Value)> {
+    use Value::*;
+
+    fn arg_str(args: &[Value], i: usize) -> Option<String> {
+        match args.get(i)? {
+            Str(s) => Some(s.clone()),
+            Char(c) => Some(c.to_string()),
+            other => Some(other.as_str()),
+        }
+    }
+    fn some(v: Value) -> Value {
+        Value::Enum {
+            adt: mty_types::AdtId(0),
+            variant: 0,
+            payload: vec![v],
+        }
+    }
+    fn none() -> Value {
+        Value::Enum {
+            adt: mty_types::AdtId(0),
+            variant: 1,
+            payload: vec![],
+        }
+    }
+
+    match (name, receiver) {
+        ("push", Str(s)) => match args.first() {
+            Some(Char(c)) => {
+                let mut out = s.clone();
+                out.push(*c);
+                let next = Str(out);
+                Some((next.clone(), next))
+            }
+            _ => None,
+        },
+        ("push", Array(xs)) => match args.first() {
+            Some(v) => {
+                let mut out = xs.clone();
+                out.push(v.clone());
+                let next = Array(out);
+                Some((next.clone(), next))
+            }
+            _ => None,
+        },
+        ("push_str", Str(s)) => match arg_str(args, 0) {
+            Some(t) => {
+                let mut out = s.clone();
+                out.push_str(&t);
+                let next = Str(out);
+                Some((next.clone(), next))
+            }
+            None => None,
+        },
+        ("clear", Str(_)) => {
+            let next = Str(String::new());
+            Some((next.clone(), next))
+        }
+        ("clear", Array(_)) => {
+            let next = Array(vec![]);
+            Some((next.clone(), next))
+        }
+        ("pop", Str(s)) => {
+            let mut next_s = s.clone();
+            let result = match next_s.pop() {
+                Some(c) => some(Char(c)),
+                None => none(),
+            };
+            Some((Str(next_s), result))
+        }
+        ("pop", Array(xs)) => {
+            let mut next_xs = xs.clone();
+            let result = match next_xs.pop() {
+                Some(v) => some(v),
+                None => none(),
+            };
+            Some((Array(next_xs), result))
+        }
+        _ => None,
     }
 }
 
