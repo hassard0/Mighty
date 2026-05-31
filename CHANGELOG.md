@@ -9,39 +9,15 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-v0.42 candidates (rolled up from v0.41's IDE-dogfooding lessons log):
+v0.43 candidates (rolled up from v0.42's IDE-dogfooding lessons log):
 
 ### Known issues — carry forward
-- **L28 (P0):** native `mty build` Vec growth still broken under
-  capture-rebind `v = v.push(x)`; works under interp.
-- **L21 (P0):** Vec param read in nested loops SIGSEGVs under native
-  codegen (likely same liveness/spill family as L28).
-- **L19 — FIXED in v0.42 T2:** `expr as T` numeric casts now actually
-  convert across all back-ends (cranelift + LLVM + wasm + interp).
-  Int↔Int picks `sextend` / `uextend` / `ireduce` (LLVM:
-  `sext`/`zext`/`trunc`; wasm: `i64.extend_i32_*` / `i32.wrap_i64`);
-  int↔float picks `fcvt_from_*` / `fcvt_to_*_sat` (LLVM:
-  `sitofp`/`uitofp` + `llvm.fpto[su]i.sat`; wasm: `f*.convert_i*_*`
-  / `i*.trunc_sat_f*_*`); float↔float picks `fpromote` / `fdemote`
-  (LLVM: `fpext`/`fptrunc`; wasm: `f64.promote_f32` /
-  `f32.demote_f64`). Float→Int overflow follows Rust's saturating-`as`
-  policy (NaN→0, ±inf clamp to dst's min/max — see
-  `docs/reference/casts.md` §v0.42 T2). Char cast already shipped
-  v0.40 T3.
-- **L20 (P1) — FIXED (v0.42 T3):** `(a + b)(c)` no longer mis-parses as
-  a CALL_EXPR. The postfix-`(` rule in `expr_bp` now only treats a
-  following `(` as a call when the preceding primary is callable-shaped
-  (path / call / field / index / lambda / parens wrapping any of those).
-  Arithmetic/boolean paren groups (`(a + b)`, `(-f)`, `()`, `(a, b)`)
-  surface a clearer parse error than the downstream MT2008.
-- **L23 (P1):** native `log(...)` only takes string literals; no
-  computed-value tracing on the native path.
 - **L18 (P1):** `std.fs` is a Rust-internal capability API, not
   Mighty-callable.
-- **L26 (sharp):** `mty fmt` no-op stub on `.mty`; DESTRUCTIVE on
-  non-`.mty` input (truncates).
-- **L22 (P2):** type-error spans collapse to enclosing fn start;
-  ANSI always on; `mty check` ≠ a full lint.
+- **L26 follow-up:** `mty fmt` is no longer destructive (v0.42 T5
+  shipped the safety pass) but the actual formatter is still a no-op
+  on `.mty`. v0.43 picks up the formatter proper once the 65+
+  pre-push-gated files have an agreed reformat path.
 - **Pending:** #253 SWE-bench numbers, #262 BOLT training profile path.
 
 ### v0.40-era candidates (still open)
@@ -100,6 +76,67 @@ The v1.0 freeze-gate is unchanged: 8 RFC comment windows opened
 2026-05-26, earliest close 2026-06-09 (RFC-005), latest close
 2026-07-25 (RFC-002 + RFC-006). Proposed v1.0 freeze date
 2026-09-01; earliest tag 2026-07-26.
+
+## [0.42.0] - 2026-05-30
+
+### Fixed — IDE-blocker closure release; L19 / L20 / L22 / L23 / L26 closed, L28 / L21 verified-fixed-and-locked
+
+- **T1 — L28 + L21 verified fixed and pinned (Vec liveness).** v0.41
+  T3's auto-arena-push at `main` entry was the actual root cause; T1
+  ports the same fix into the LLVM backend (which still lacked it) and
+  locks it in with 6 JIT regression tests + 4 native-binary
+  end-to-end tests in
+  `crates/mty-codegen-cranelift/tests/vec_liveness_v042.rs` and
+  `crates/mty-driver/tests/vec_liveness_native_v042.rs`. New
+  `examples/44_vec_growth_in_loop.mty`; examples conformance FLOOR
+  bumped 27 → 28 so any future regression breaks CI.
+- **T2 — `expr as T` numeric casts actually convert (L19).** Cranelift
+  uses `sextend`/`uextend`/`ireduce`/`fcvt_from_*`/`fcvt_to_*_sat`/
+  `fpromote`/`fdemote`; LLVM uses `sext`/`zext`/`trunc`/
+  `sitofp`/`uitofp` + `llvm.fpto[su]i.sat` + `fpext`/`fptrunc`; wasm
+  uses `i64.extend_i32_*` / `i32.wrap_i64` / `f*.convert_i*_*` /
+  `i*.trunc_sat_f*_*` / `f64.promote_f32` / `f32.demote_f64`; interp
+  follows the same policy. Float→Int overflow is saturating (NaN→0,
+  ±inf clamp). +14 tests in `crates/mty-ir/tests/v042_numeric_casts.rs`;
+  new `docs/reference/casts.md §v0.42 T2`.
+- **T3 — paren-juxtaposition no longer mis-parses as call (L20).**
+  `(a + b)(c)` and arithmetic / unary / binary / tuple paren groups now
+  surface a clear MT0001 parse error instead of MT2008
+  "not callable". The Pratt postfix-`(` rule threads a
+  `PrimaryShape::{Callable, NonCallable}` token through expression
+  parsing. Edge cases preserved: `(f)(x)`, `g()()`, `(|| 1)()`,
+  `obj.method(x)`, `(p as fn(...) -> ...)(args)`. +12 tests in
+  `crates/mty-syntax/tests/parse_exprs.rs`.
+- **T4 — native `log(...)` accepts computed args (L23).** Lowers via
+  typed runtime ABI
+  (`mty_runtime_log_i32`/`_i64`/`_f32`/`_f64`/`_usize`). Scalar
+  `to_str()` methods + String concat (`+`) operator landed alongside.
+  Example 05 updated. Tests:
+  `crates/mty-codegen-cranelift/tests/{to_str,typed_log}_v042_t4.rs`,
+  `crates/mty-driver/tests/typed_log_v042_t4.rs`,
+  `crates/mty-ir/tests/to_str_v042_t4.rs`.
+- **T6 — diagnostics polish, three sub-fixes (L22).** (a) Type-error
+  diagnostics carry real expression spans instead of collapsing to the
+  enclosing fn start. (b) `NO_COLOR=1` and `TERM=dumb` are honored by
+  the ariadne renderer. (c) `mty check` widened to surface parse +
+  name-resolution errors, not just typecheck. E2E coverage in
+  `crates/mty-cli/tests/cmd_check.rs`.
+- **T5 — `mty fmt` stopped being destructive (L26 partial).**
+  `mty fmt` (+ `--check`/`--stdin`) refuses non-.mty extensions,
+  parse-failed inputs, and the empty-tree-on-non-trivial-input shape.
+  Destructive truncation eliminated. +10 tests + agent surface
+  mirrored; all 65 existing `.mty` files still pass `--check`. The
+  formatter proper is deferred to v0.43.
+
+### Added
+
+- Scalar `to_str()` methods on `i32` / `i64` / `f32` / `f64` /
+  `usize`, and String `+` concat — both as part of T4's typed
+  `log(...)` story.
+- Examples conformance FLOOR bumped 27 → 28 with
+  `examples/44_vec_growth_in_loop.mty`.
+- `NO_COLOR` and `TERM=dumb` env-var opt-out for the ariadne
+  diagnostics renderer (POSIX convention).
 
 ## [0.41.0] - 2026-05-30
 

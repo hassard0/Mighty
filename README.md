@@ -14,9 +14,13 @@
 
 Compiler, runtime, formatter, package manager, doc generator, LSP,
 and stdlib all live in one Rust workspace and one `mty` binary.
-v0.41 is an IDE-dogfooding-driven correctness round: the Mighty IDE
-is itself written in Mighty, and every bug it surfaces lands as a
-release-gate fix in the next cycle.
+v0.42 is the IDE-blocker closure round: the Mighty IDE is itself
+written in Mighty, and every bug it surfaces lands as a release-gate
+fix in the next cycle. v0.42 closes the last 5 IDE-blocking lessons
+(L19 numeric `as` casts, L20 paren-juxtaposition parse error, L22
+diagnostics polish, L23 native `log()` computed args, L26 `mty fmt`
+safety) and locks in the v0.41 T3 Vec-liveness fix across both
+back-ends.
 
 ## Why Mighty
 
@@ -277,7 +281,7 @@ current state of the language, not its history.
 
 ## Status
 
-Mighty is **pre-alpha**. Internal milestones tagged through v0.41.
+Mighty is **pre-alpha**. Internal milestones tagged through v0.42.
 The toolchain is exercised by **~3555 Rust tests** across 20 crates
 plus **490 Python 2nd-impl tests** plus **159 normative conformance
 cases** plus **23 self-host driver codegen tests** — combined **~4227
