@@ -461,6 +461,16 @@ mod tests {
         match outcome {
             BuildOutcome::NativeOk(p) => assert!(p.exists()),
             BuildOutcome::NativeOkNoLinker(p) => assert!(p.exists()),
+            BuildOutcome::BackendError(e) if e.starts_with("link ") => {
+                // A plain native build emits the object first, then links with
+                // whatever host linker CI provides. Since link failures are now
+                // reported truthfully, this unit test should still accept a
+                // produced object when the host linker cannot produce an exe.
+                assert!(
+                    dir.path().join("hello.o").exists(),
+                    "link failed before object emission: {e}"
+                );
+            }
             BuildOutcome::BackendError(e) => panic!("backend error: {e}"),
             BuildOutcome::FrontendError => panic!("frontend error"),
             BuildOutcome::WasmOk(_) => panic!("wrong outcome"),
