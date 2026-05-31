@@ -45,7 +45,7 @@ use mty_ir::ir::{
     Program, Projection, Rvalue, Stmt, Term, UnOp,
 };
 #[allow(unused_imports)]
-use mty_types::IntKind;
+use mty_types::{FloatKind, IntKind};
 use std::collections::HashMap;
 use target_lexicon::Triple;
 
@@ -1511,6 +1511,12 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 let bv = self.eval_operand(b)?;
                 let sa = self.operand_ir_ty(a);
                 let sb = self.operand_ir_ty(b);
+                // NB v0.42 T4 (L23 fix): Str + Str concat now arrives
+                // here as a `Rvalue::Call { func:
+                // BuiltinId::Extern("__mty_str_concat"), ... }`
+                // pre-routed by the SIR lowerer (see
+                // `lower_binop` in mty-ir::lower::exprs). So this
+                // arm only sees true numeric/bool binops.
                 self.lower_binop_typed(*op, av, bv, sa.as_ref(), sb.as_ref())
             }
             Rvalue::UnOp(op, a) => {
@@ -1717,6 +1723,17 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                         "pop" => return self.emit_vec_pop(receiver),
                         "clear" => return self.emit_vec_clear(receiver),
                         _ => {}
+                    }
+                }
+                // v0.42 T4 (L23 fix) — `to_str()` / `to_string()` on
+                // scalar receivers (integers, floats, bools, char).
+                // Allocates a 16-byte (ptr,len) slot, calls the
+                // appropriate `mty_runtime_fmt_*` to fill it, returns
+                // the slot address — same aggregate shape any other
+                // Str rvalue uses.
+                if matches!(method.as_str(), "to_str" | "to_string") {
+                    if let Some(addr) = self.try_emit_scalar_to_str(receiver)? {
+                        return Ok(addr);
                     }
                 }
                 // v0.41 T3 (L1 fix): when the destination type is an
@@ -2084,22 +2101,53 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
     ) -> CompileResult<cranelift_codegen::ir::Value> {
         match func {
             FnRef::Builtin(BuiltinId::Log | BuiltinId::Print) => {
-                // Args are (str). Slice-8 expects exactly one Operand
-                // that is either a Const::Str or a local of Str type.
-                if args.len() != 1 {
-                    return Err(CodegenError::Unsupported(format!(
-                        "log/print arity {}",
-                        args.len()
-                    )));
+                // v0.42 T4 (L23 fix) — typed log/print lowering.
+                //
+                // Pre-fix the cranelift backend only accepted a single
+                // Str operand for `log(...)`. Now we dispatch on each
+                // arg's SIR type: Str → ptr/len (existing); integer /
+                // float / bool → call a typed runtime variant so the
+                // built binary can trace any computed value without an
+                // FFI shim.
+                //
+                // Multi-arg policy: for `log(a, b, c)` we emit a
+                // sequence of `print_*` calls separated by single
+                // spaces, terminated with a newline (so `log` still
+                // ends a line). The "is this log or print" choice
+                // controls only whether the terminating newline is
+                // emitted.
+                let is_log = matches!(func, FnRef::Builtin(BuiltinId::Log));
+                // Drop any Unit-typed sentinel args (the lowering can
+                // synthesize one for empty-call shapes).
+                let visible: Vec<&Operand> = args
+                    .iter()
+                    .filter(|a| !matches!(a, Operand::Const(Const::Unit)))
+                    .collect();
+                if visible.is_empty() {
+                    // `log()` with no args — just emit the newline (if
+                    // log) so existing programs that only used `log` for
+                    // milestones don't regress.
+                    if is_log {
+                        self.call_rt("mty_runtime_print_newline", &[], None)?;
+                    }
+                    return Ok(self.b.ins().iconst(ct::I64, 0));
                 }
-                // Get (ptr, len) pair.
-                let (ptr, len) = self.string_pair(&args[0])?;
-                let sym = if matches!(func, FnRef::Builtin(BuiltinId::Log)) {
-                    "mty_runtime_log"
-                } else {
-                    "mty_runtime_print"
-                };
-                self.call_rt(sym, &[ptr, len], None)?;
+                let single = visible.len() == 1;
+                for (i, op) in visible.iter().enumerate() {
+                    if i > 0 {
+                        // Separator between adjacent args.
+                        self.call_rt("mty_runtime_print_sep", &[], None)?;
+                    }
+                    // Pick the right runtime symbol from the operand's
+                    // SIR type.
+                    let op_ty = self.operand_ir_ty(op);
+                    self.emit_one_log_arg(op, op_ty.as_ref(), single, is_log)?;
+                }
+                if !single && is_log {
+                    // Multi-arg log: we used `print_*` per element, so
+                    // close with the terminating newline.
+                    self.call_rt("mty_runtime_print_newline", &[], None)?;
+                }
                 Ok(self.b.ins().iconst(ct::I64, 0))
             }
             FnRef::Builtin(BuiltinId::Panic) => {
@@ -2109,6 +2157,18 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 let (ptr, len) = self.string_pair(&args[0])?;
                 self.call_rt("mty_runtime_panic", &[ptr, len], None)?;
                 Ok(self.b.ins().iconst(ct::I64, 0))
+            }
+            FnRef::Builtin(BuiltinId::Extern(name)) if name == "__mty_str_concat" => {
+                // v0.42 T4 (L23 fix) — synthetic builtin emitted by
+                // the IR lowering for `Str + Str`. Routes to
+                // `mty_runtime_str_concat`; returns the (ptr,len)
+                // slot address as the result aggregate.
+                if args.len() != 2 {
+                    return Err(CodegenError::Unsupported(
+                        "__mty_str_concat arity != 2".into(),
+                    ));
+                }
+                self.emit_str_concat(&args[0], &args[1])
             }
             FnRef::User(callee_id) => {
                 let func_id = *self.mod_ctx.fn_ids.get(callee_id).ok_or_else(|| {
@@ -2559,6 +2619,257 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 "non-string constant in log/print".into(),
             )),
         }
+    }
+
+    /// v0.42 T4 (L23 fix) — `String + String` concat.
+    ///
+    /// Builds a 16-byte stack slot for the result aggregate
+    /// (ptr@+0, len@+8) and calls `mty_runtime_str_concat` to write
+    /// the joined (ptr, len) pair into it. Returns the slot address —
+    /// same shape as any other Str aggregate value.
+    fn emit_str_concat(
+        &mut self,
+        a: &Operand,
+        b: &Operand,
+    ) -> CompileResult<cranelift_codegen::ir::Value> {
+        let (aptr, alen) = self.string_pair(a)?;
+        let (bptr, blen) = self.string_pair(b)?;
+        let slot = self.b.create_sized_stack_slot(StackSlotData::new(
+            StackSlotKind::ExplicitSlot,
+            16,
+            3, // log2(8)
+        ));
+        let slot_addr = self.b.ins().stack_addr(ct::I64, slot, 0);
+        self.call_rt(
+            "mty_runtime_str_concat",
+            &[aptr, alen, bptr, blen, slot_addr],
+            None,
+        )?;
+        Ok(slot_addr)
+    }
+
+    /// v0.42 T4 (L23 fix) — `n.to_str()` on a scalar receiver.
+    ///
+    /// Allocates a fresh 16-byte stack slot for the resulting String
+    /// aggregate (ptr@+0, len@+8), then calls the type-appropriate
+    /// `mty_runtime_fmt_*` runtime helper to format the value and
+    /// write the (ptr,len) pair into the slot. Returns `Some(slot)`
+    /// when the receiver is a scalar we know how to format. Returns
+    /// `None` for non-scalar receivers so the caller can fall through
+    /// to the generic extern-bridge path.
+    fn try_emit_scalar_to_str(
+        &mut self,
+        receiver: &Operand,
+    ) -> CompileResult<Option<cranelift_codegen::ir::Value>> {
+        let Some(ty) = self.operand_ir_ty(receiver) else {
+            return Ok(None);
+        };
+        // Pick the runtime fmt symbol + the cranelift type the value
+        // must be coerced to for the call's first param.
+        let (sym, cl_ty) = match &ty {
+            IrTy::Bool => ("mty_runtime_fmt_bool", ct::I8),
+            IrTy::Char => ("mty_runtime_fmt_u32", ct::I32),
+            IrTy::Int(k) => match k {
+                IntKind::I8 | IntKind::I16 | IntKind::I32 | IntKind::IntInfer => {
+                    ("mty_runtime_fmt_i32", ct::I32)
+                }
+                IntKind::I64 | IntKind::ISize | IntKind::I128 => {
+                    ("mty_runtime_fmt_i64_to_slot", ct::I64)
+                }
+                IntKind::U8 | IntKind::U16 | IntKind::U32 => ("mty_runtime_fmt_u32", ct::I32),
+                IntKind::U64 | IntKind::U128 => ("mty_runtime_fmt_u64", ct::I64),
+                IntKind::USize => ("mty_runtime_fmt_usize", ct::I64),
+            },
+            IrTy::Float(k) => match k {
+                FloatKind::F32 => ("mty_runtime_fmt_f32", ct::F32),
+                FloatKind::F64 | FloatKind::FloatInfer => ("mty_runtime_fmt_f64", ct::F64),
+            },
+            IrTy::Size | IrTy::Duration => ("mty_runtime_fmt_usize", ct::I64),
+            // Str/String already are strings — `to_str()` is the
+            // identity; return the receiver's address as a 16-byte
+            // aggregate so downstream consumers see a Str shape.
+            IrTy::Str | IrTy::String | IrTy::Bytes => {
+                let addr = self.eval_operand(receiver)?;
+                return Ok(Some(addr));
+            }
+            _ => return Ok(None),
+        };
+        // Allocate the (ptr,len) slot — same layout as Const::Str.
+        let slot = self.b.create_sized_stack_slot(StackSlotData::new(
+            StackSlotKind::ExplicitSlot,
+            16,
+            3, // log2(8)
+        ));
+        let slot_addr = self.b.ins().stack_addr(ct::I64, slot, 0);
+        // Coerce the receiver value to the runtime fmt symbol's
+        // expected first-arg type.
+        let v = self.eval_operand(receiver)?;
+        let have_ty = self.b.func.dfg.value_type(v);
+        let v = if have_ty == cl_ty {
+            v
+        } else if have_ty.is_float() && cl_ty.is_float() {
+            if have_ty.bits() < cl_ty.bits() {
+                self.b.ins().fpromote(cl_ty, v)
+            } else {
+                self.b.ins().fdemote(cl_ty, v)
+            }
+        } else {
+            self.coerce_to_with_src(v, cl_ty, Some(&ty))
+        };
+        self.call_rt(sym, &[v, slot_addr], None)?;
+        Ok(Some(slot_addr))
+    }
+
+    /// v0.42 T4 (L23 fix) — emit a single typed `log`/`print` arg.
+    ///
+    /// Dispatches on the operand's SIR type to the right runtime
+    /// symbol. `single_arg` controls whether the line-terminating
+    /// behavior fires for `log` (single-arg uses the existing
+    /// `log_*` variants; multi-arg uses `print_*` per element +
+    /// caller emits the newline).
+    fn emit_one_log_arg(
+        &mut self,
+        op: &Operand,
+        op_ty: Option<&IrTy>,
+        single_arg: bool,
+        is_log: bool,
+    ) -> CompileResult<()> {
+        // For single-arg log we use the `log_*` newline variant; for
+        // any other shape (multi-arg log, print) we use `print_*` and
+        // the caller decides whether to terminate with a newline.
+        let use_newline_variant = single_arg && is_log;
+        match op_ty {
+            Some(IrTy::Str | IrTy::String | IrTy::Bytes) => {
+                let (ptr, len) = self.string_pair(op)?;
+                let sym = if use_newline_variant {
+                    "mty_runtime_log"
+                } else {
+                    "mty_runtime_print"
+                };
+                self.call_rt(sym, &[ptr, len], None)?;
+            }
+            Some(IrTy::Bool) => {
+                let v = self.eval_operand(op)?;
+                let v = self.coerce_to(v, ct::I8);
+                let sym = if use_newline_variant {
+                    "mty_runtime_log_bool"
+                } else {
+                    "mty_runtime_print_bool"
+                };
+                self.call_rt(sym, &[v], None)?;
+            }
+            Some(IrTy::Char) => {
+                // Treat Char as a U32 print so user gets the code-point
+                // number. The interpreter prints the literal char via
+                // `to_string`, but the i32 codepoint is more useful for
+                // probe output and avoids needing a runtime UTF-8
+                // encoder for a single value.
+                let v = self.eval_operand(op)?;
+                let v = self.coerce_to(v, ct::I32);
+                let sym = if use_newline_variant {
+                    "mty_runtime_log_u32"
+                } else {
+                    "mty_runtime_print_u32"
+                };
+                self.call_rt(sym, &[v], None)?;
+            }
+            Some(IrTy::Int(k)) => {
+                let v = self.eval_operand(op)?;
+                let (sym_log, sym_print, cl_ty) = match k {
+                    IntKind::I8 | IntKind::I16 | IntKind::I32 | IntKind::IntInfer => {
+                        ("mty_runtime_log_i32", "mty_runtime_print_i32", ct::I32)
+                    }
+                    IntKind::I64 | IntKind::ISize => {
+                        ("mty_runtime_log_i64", "mty_runtime_print_i64", ct::I64)
+                    }
+                    IntKind::U8 | IntKind::U16 | IntKind::U32 => {
+                        ("mty_runtime_log_u32", "mty_runtime_print_u32", ct::I32)
+                    }
+                    IntKind::U64 => ("mty_runtime_log_u64", "mty_runtime_print_u64", ct::I64),
+                    IntKind::USize => ("mty_runtime_log_usize", "mty_runtime_print_usize", ct::I64),
+                    IntKind::I128 | IntKind::U128 => {
+                        // No i128 runtime symbol — narrow lossily to i64.
+                        // v0.42 T4 scope is the common width family;
+                        // wider ints can land in a follow-up.
+                        ("mty_runtime_log_i64", "mty_runtime_print_i64", ct::I64)
+                    }
+                };
+                // coerce_to_with_src already picks zext vs sext from
+                // the SIR type — feed it through with the original kind
+                // so unsigned widening (U8 → I32 for the i32 print
+                // path) zero-extends rather than sign-extends.
+                let v = self.coerce_to_with_src(v, cl_ty, Some(&IrTy::Int(*k)));
+                let sym = if use_newline_variant {
+                    sym_log
+                } else {
+                    sym_print
+                };
+                self.call_rt(sym, &[v], None)?;
+            }
+            Some(IrTy::Float(k)) => {
+                let v = self.eval_operand(op)?;
+                let (sym_log, sym_print, cl_ty) = match k {
+                    FloatKind::F32 => ("mty_runtime_log_f32", "mty_runtime_print_f32", ct::F32),
+                    FloatKind::F64 | FloatKind::FloatInfer => {
+                        ("mty_runtime_log_f64", "mty_runtime_print_f64", ct::F64)
+                    }
+                };
+                let have_ty = self.b.func.dfg.value_type(v);
+                let v = if have_ty == cl_ty {
+                    v
+                } else if have_ty == ct::F32 && cl_ty == ct::F64 {
+                    self.b.ins().fpromote(ct::F64, v)
+                } else if have_ty == ct::F64 && cl_ty == ct::F32 {
+                    self.b.ins().fdemote(ct::F32, v)
+                } else {
+                    v
+                };
+                let sym = if use_newline_variant {
+                    sym_log
+                } else {
+                    sym_print
+                };
+                self.call_rt(sym, &[v], None)?;
+            }
+            Some(IrTy::Size | IrTy::Duration) => {
+                // Both lower to i64 (see eval_const). Print unsigned.
+                let v = self.eval_operand(op)?;
+                let v = self.coerce_to(v, ct::I64);
+                let sym = if use_newline_variant {
+                    "mty_runtime_log_usize"
+                } else {
+                    "mty_runtime_print_usize"
+                };
+                self.call_rt(sym, &[v], None)?;
+            }
+            Some(_) | None => {
+                // Pre-v0.42 T4 behaviour: try the string path. We
+                // only do this if the operand is *plausibly* a Str —
+                // a literal `Const::Str` or an aggregate-shaped local
+                // that the lowerer left untyped (`IrTy::Error`). For
+                // a scalar local that we can't otherwise classify we
+                // would otherwise misread an i32 slot as a 16-byte
+                // (ptr,len) pair and segfault.
+                let plausibly_str = matches!(op, Operand::Const(Const::Str(_)))
+                    || matches!(
+                        (op, &op_ty),
+                        (Operand::Copy(_) | Operand::Move(_), Some(IrTy::Error))
+                    );
+                if plausibly_str {
+                    if let Ok((ptr, len)) = self.string_pair(op) {
+                        let sym = if use_newline_variant {
+                            "mty_runtime_log"
+                        } else {
+                            "mty_runtime_print"
+                        };
+                        self.call_rt(sym, &[ptr, len], None)?;
+                    }
+                }
+                // Truly unknown — silently drop the trace rather than
+                // segfault. Trace-call robustness > strict failure.
+            }
+        }
+        Ok(())
     }
 
     // ---- v0.38 native growable Vec (L28 fix) -----------------------

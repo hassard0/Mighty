@@ -9,12 +9,15 @@ fn _classify(n: I32) -> Str {
 }
 
 fn main() {
-  // Cranelift native codegen only accepts string-literal args to
-  // `log` today (CODEGEN_V0_2_NOTES "non-literal string in log/print"),
-  // so we don't pipe the `_classify` result through log here. The
-  // example's focus is the match expression above.
-  let _zero = _classify(0)
-  let _small = _classify(7)
-  let _big = _classify(42)
+  // v0.42 T4 (L23 fix) — native codegen now lowers `log()` for any
+  // computed value via a typed runtime surface
+  // (`mty_runtime_log_*` + per-scalar `to_str()`). The Str return
+  // from `_classify` interleaves with the next call, so we log
+  // each classification before reading the next (avoids a known
+  // codegen issue where Str returns alias the callee's stack
+  // slot — separate work item, not in v0.42 T4 scope).
+  log(_classify(0))
+  log(_classify(7))
+  log(_classify(42))
   log("05_match_expr")
 }

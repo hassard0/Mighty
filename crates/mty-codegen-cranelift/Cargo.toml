@@ -39,6 +39,12 @@ mty-syntax = { path = "../mty-syntax" }
 mty-ast = { path = "../mty-ast" }
 mty-borrow = { path = "../mty-borrow" }
 rowan = { workspace = true }
+# v0.42 T4 (L23 fix) — `to_str_v042_t4.rs` exercises the typed
+# `mty_runtime_fmt_*` / `mty_runtime_str_concat` symbols by name.
+# The runtime crate is the only place those Rust impls live; we
+# link it as a dev-dep so the test JIT sees real formatted bytes
+# (not a no-op stub).
+mty-runtime = { path = "../mty-runtime" }
 
 [[bench]]
 name = "typeck_parallel"

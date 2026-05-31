@@ -169,6 +169,38 @@ int64_t mty_runtime_extern_call(int64_t a, int64_t b, int64_t c) {
     return 0;
 }
 void mty_runtime_log_i64(int64_t v) { (void)v; }
+/* v0.42 T4 (L23 fix) — typed log/print/format runtime surface. The
+ * matrix tests never call any of these from Mighty, but every entry
+ * in `RUNTIME_IMPORTS` lands in the .o symbol table so the linker
+ * still needs a no-op definition. */
+void mty_runtime_log_i32(int32_t v) { (void)v; }
+void mty_runtime_log_u32(int32_t v) { (void)v; }
+void mty_runtime_log_u64(int64_t v) { (void)v; }
+void mty_runtime_log_usize(int64_t v) { (void)v; }
+void mty_runtime_log_f32(float v) { (void)v; }
+void mty_runtime_log_f64(double v) { (void)v; }
+void mty_runtime_log_bool(int8_t v) { (void)v; }
+void mty_runtime_print_i32(int32_t v) { (void)v; }
+void mty_runtime_print_i64(int64_t v) { (void)v; }
+void mty_runtime_print_u32(int32_t v) { (void)v; }
+void mty_runtime_print_u64(int64_t v) { (void)v; }
+void mty_runtime_print_usize(int64_t v) { (void)v; }
+void mty_runtime_print_f32(float v) { (void)v; }
+void mty_runtime_print_f64(double v) { (void)v; }
+void mty_runtime_print_bool(int8_t v) { (void)v; }
+void mty_runtime_print_sep(void) {}
+void mty_runtime_print_newline(void) {}
+void mty_runtime_fmt_i32(int32_t v, int64_t d) { (void)v; (void)d; }
+void mty_runtime_fmt_i64_to_slot(int64_t v, int64_t d) { (void)v; (void)d; }
+void mty_runtime_fmt_u32(int32_t v, int64_t d) { (void)v; (void)d; }
+void mty_runtime_fmt_u64(int64_t v, int64_t d) { (void)v; (void)d; }
+void mty_runtime_fmt_usize(int64_t v, int64_t d) { (void)v; (void)d; }
+void mty_runtime_fmt_f32(float v, int64_t d) { (void)v; (void)d; }
+void mty_runtime_fmt_f64(double v, int64_t d) { (void)v; (void)d; }
+void mty_runtime_fmt_bool(int8_t v, int64_t d) { (void)v; (void)d; }
+void mty_runtime_str_concat(int64_t a, int64_t al, int64_t b, int64_t bl, int64_t d) {
+    (void)a; (void)al; (void)b; (void)bl; (void)d;
+}
 "#,
     )
     .unwrap();

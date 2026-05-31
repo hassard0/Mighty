@@ -3133,6 +3133,7 @@ dependencies = [
  "mty-diagnostics",
  "mty-hir",
  "mty-ir",
+ "mty-runtime",
  "mty-syntax",
  "mty-types",
  "object 0.39.1",
