@@ -790,4 +790,3 @@ jobs:
             out/mty-*.tar.gz
             out/mty-*.zip
             out/*.sha256
-            out/mty-conformance-kit-*.tar.gz
