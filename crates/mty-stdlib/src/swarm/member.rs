@@ -599,15 +599,30 @@ mod tests {
 
         let m = Member::mock("alpha", "hello world", 2);
         let b = SharedDollarBudget::new(100);
-        let _ = m.ask("greet?", &b).await.unwrap();
+        let prompt = "member-recorder-unique-greet?";
+        let _ = m.ask(prompt, &b).await.unwrap();
 
-        // Confirm one LlmCall event landed in the recorder buffer.
+        // Confirm our LlmCall event landed in the recorder buffer. The
+        // recorder is process-wide, so unrelated parallel tests may also
+        // record turns while this recorder is installed.
         let events = rec.events_snapshot();
         let llm_count = events
             .iter()
-            .filter(|e| matches!(e, mty_runtime::replay::TraceEvent::LlmCall { .. }))
+            .filter(|e| {
+                matches!(
+                    e,
+                    mty_runtime::replay::TraceEvent::LlmCall {
+                        prompt: p,
+                        reply,
+                        ..
+                    } if p == prompt && reply == "hello world"
+                )
+            })
             .count();
-        assert_eq!(llm_count, 1, "expected exactly one recorded LlmCall");
+        assert_eq!(
+            llm_count, 1,
+            "expected exactly one matching recorded LlmCall"
+        );
 
         let _ = uninstall();
     }
@@ -646,7 +661,8 @@ mod tests {
         }];
         let m = Member::mock_with_tool_uses("alpha", "computing", 1, canned);
         let b = SharedDollarBudget::new(100);
-        let _ = m.ask("2+2?", &b).await.unwrap();
+        let prompt = "member-recorder-unique-tool-use?";
+        let _ = m.ask(prompt, &b).await.unwrap();
 
         let events = rec.events_snapshot();
         let mut found = false;
@@ -659,7 +675,10 @@ mod tests {
                 ..
             } = ev
             {
-                assert_eq!(prompt, "2+2?");
+                if prompt != "member-recorder-unique-tool-use?" {
+                    continue;
+                }
+                assert_eq!(prompt, "member-recorder-unique-tool-use?");
                 assert_eq!(reply, "computing");
                 assert_eq!(tool_uses.len(), 1);
                 assert_eq!(tool_uses[0].name, "calc");
@@ -688,9 +707,9 @@ mod tests {
 
         let m = Member::mock("alpha", "reply-a", 1);
         let b = SharedDollarBudget::new(100);
-        let _ = m.ask("q1", &b).await.unwrap();
-        let _ = m.ask("q2", &b).await.unwrap();
-        let _ = m.ask("q3", &b).await.unwrap();
+        let _ = m.ask("member-recorder-unique-q1", &b).await.unwrap();
+        let _ = m.ask("member-recorder-unique-q2", &b).await.unwrap();
+        let _ = m.ask("member-recorder-unique-q3", &b).await.unwrap();
 
         let events = rec.events_snapshot();
         let prompts: Vec<String> = events
@@ -699,8 +718,16 @@ mod tests {
                 TraceEvent::LlmCall { prompt, .. } => Some(prompt.clone()),
                 _ => None,
             })
+            .filter(|prompt| prompt.starts_with("member-recorder-unique-q"))
             .collect();
-        assert_eq!(prompts, vec!["q1", "q2", "q3"]);
+        assert_eq!(
+            prompts,
+            vec![
+                "member-recorder-unique-q1",
+                "member-recorder-unique-q2",
+                "member-recorder-unique-q3"
+            ]
+        );
         let _ = uninstall();
     }
 }

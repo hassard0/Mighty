@@ -122,11 +122,11 @@ pub fn run(
             0
         }
         BuildOutcome::NativeOkNoLinker(p) => {
-            println!(
+            eprintln!(
                 "wrote object {} (no linker found; set $MTY_LINKER)",
                 p.display()
             );
-            0
+            2
         }
         BuildOutcome::WasmOk(p) => {
             println!("wrote {}", p.display());

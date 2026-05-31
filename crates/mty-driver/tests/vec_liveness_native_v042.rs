@@ -194,6 +194,40 @@ int64_t mty_runtime_extern_call(int64_t a, int64_t b, int64_t c) {
     (void)a; (void)b; (void)c; return 0;
 }
 void mty_runtime_log_i64(int64_t v) { printf("%lld\n", (long long)v); fflush(stdout); }
+void mty_runtime_log_i32(int32_t v) { (void)v; }
+void mty_runtime_log_u32(uint32_t v) { (void)v; }
+void mty_runtime_log_u64(uint64_t v) { (void)v; }
+void mty_runtime_log_usize(uint64_t v) { (void)v; }
+void mty_runtime_log_f32(float v) { (void)v; }
+void mty_runtime_log_f64(double v) { (void)v; }
+void mty_runtime_log_bool(int8_t v) { (void)v; }
+void mty_runtime_print_i32(int32_t v) { (void)v; }
+void mty_runtime_print_i64(int64_t v) { (void)v; }
+void mty_runtime_print_u32(uint32_t v) { (void)v; }
+void mty_runtime_print_u64(uint64_t v) { (void)v; }
+void mty_runtime_print_usize(uint64_t v) { (void)v; }
+void mty_runtime_print_f32(float v) { (void)v; }
+void mty_runtime_print_f64(double v) { (void)v; }
+void mty_runtime_print_bool(int8_t v) { (void)v; }
+void mty_runtime_print_sep(void) {}
+void mty_runtime_print_newline(void) {}
+void mty_runtime_fmt_i32(int32_t v, int64_t slot) { (void)v; (void)slot; }
+void mty_runtime_fmt_i64_to_slot(int64_t v, int64_t slot) { (void)v; (void)slot; }
+void mty_runtime_fmt_u32(uint32_t v, int64_t slot) { (void)v; (void)slot; }
+void mty_runtime_fmt_u64(uint64_t v, int64_t slot) { (void)v; (void)slot; }
+void mty_runtime_fmt_usize(uint64_t v, int64_t slot) { (void)v; (void)slot; }
+void mty_runtime_fmt_f32(float v, int64_t slot) { (void)v; (void)slot; }
+void mty_runtime_fmt_f64(double v, int64_t slot) { (void)v; (void)slot; }
+void mty_runtime_fmt_bool(int8_t v, int64_t slot) { (void)v; (void)slot; }
+void mty_runtime_str_concat(
+    int64_t lhs_ptr,
+    int64_t lhs_len,
+    int64_t rhs_ptr,
+    int64_t rhs_len,
+    int64_t out_slot
+) {
+    (void)lhs_ptr; (void)lhs_len; (void)rhs_ptr; (void)rhs_len; (void)out_slot;
+}
 
 /* FFI printer — Mighty's `log()` only accepts string literals (L23),
  * so a computed `v.len()` round-trips through this scalar printer.

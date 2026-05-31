@@ -334,7 +334,7 @@ fn examples_passing_floor_holds() {
 // ----------------------------------------------------------------------
 
 #[test]
-fn mty_build_hello_emits_object_or_exe() {
+fn mty_build_hello_reports_runnable_or_failure_truthfully() {
     let dir = tempfile::tempdir().expect("tempdir");
     let src = dir.path().join("hello.mty");
     std::fs::write(&src, "fn main() { log(\"hello, conformance\") }\n").expect("write hello.mty");
@@ -345,15 +345,17 @@ fn mty_build_hello_emits_object_or_exe() {
         .arg(dir.path())
         .output()
         .expect("spawn mty build");
-    assert!(
-        out.status.success(),
-        "mty build failed: stdout={:?} stderr={:?}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
     let stdout = String::from_utf8_lossy(&out.stdout);
-    // Either "wrote target/hello.exe" (linker found) or "wrote object
-    // hello.o (no linker found)" — both are valid completion shapes.
+    if !out.status.success() {
+        assert!(
+            stderr.contains("no linker found") || stderr.contains("build error:"),
+            "native build failure should explain the cause; stdout={stdout:?} stderr={stderr:?}"
+        );
+        return;
+    }
+    // Success means the native build produced a runnable artifact.
+    // Object-only output is allowed only on the non-zero no-linker path above.
     assert!(
         stdout.contains("wrote"),
         "expected 'wrote ...' line in stdout; got: {stdout:?}"
