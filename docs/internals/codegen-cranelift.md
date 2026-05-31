@@ -184,6 +184,12 @@ Linker discovery (A52, extended in v0.2):
 If none found, `compile_object` succeeds but `link_executable` is
 skipped and the caller is told to set `$MTY_LINKER`.
 
+If a linker is found and returns a non-zero status, `mty build` now
+reports a link error with the object path and linker stderr. That path
+is intentionally separate from the missing-linker case so unresolved
+symbols and bad linker arguments fail loudly instead of being reported
+as a successful object-only build.
+
 ### Why `clang` first
 
 `clang` (and `lld` underneath it) speaks every host's linker line:

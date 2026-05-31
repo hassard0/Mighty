@@ -313,13 +313,10 @@ fn run_row(row_dir: &Path, marker: Option<&str>) {
     let bin = match outcome {
         BuildOutcome::NativeOk(p) => p,
         BuildOutcome::NativeOkNoLinker(p) => {
-            // `build_native` collapses "no linker found" and "linker
-            // returned non-zero" into the same outcome (see the
-            // `Err(_)` arm in `build_native`). That keeps the slice-8
-            // single-file-run flow tolerant, but the matrix test
-            // needs the difference so a real link failure surfaces.
-            // Reproduce the link step manually so the assertion fires
-            // with the linker's full stderr instead of a silent skip.
+            // No linker was discovered during the driver build. The
+            // matrix needs a runnable binary, so try the link step
+            // directly and surface its exact error instead of silently
+            // skipping execution.
             let exe = work_dir.join(if cfg!(windows) {
                 "mty_row_bin.exe"
             } else {
@@ -345,6 +342,11 @@ fn run_row(row_dir: &Path, marker: Option<&str>) {
                 ),
             }
         }
+        BuildOutcome::NativeLinkError { object_path, error } => panic!(
+            "linker failed for {} after writing {}: {error}",
+            row_dir.display(),
+            object_path.display()
+        ),
         BuildOutcome::FrontendError => panic!("frontend error in {}", row_dir.display()),
         BuildOutcome::BackendError(e) => panic!("backend error: {e}"),
         BuildOutcome::WasmOk(_) => panic!("wrong outcome shape"),

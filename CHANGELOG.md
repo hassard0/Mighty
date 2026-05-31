@@ -9,13 +9,11 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-### Fixed
-- **L47:** `&&` and `||` now lower through short-circuit control flow
-  instead of eager binary evaluation, so guard-then-use expressions do
-  not evaluate the protected RHS.
-
 v0.43 candidates (rolled up from v0.42's IDE-dogfooding lessons log):
 
+- Fixed **L47:** `&&` and `||` now lower through short-circuit control
+  flow instead of eager binary evaluation, so guard-then-use
+  expressions do not evaluate the protected RHS.
 - Fixed **L12 (P0)** for the interpreter: mutating `Vec`/`String`
   methods with an addressable receiver now write the updated receiver
   back, so statement-form `v.push(x)`, `v.pop()`, and `v.clear()`
@@ -30,6 +28,11 @@ v0.43 candidates (rolled up from v0.42's IDE-dogfooding lessons log):
   calls/indexes bind to their operand, so `!pred(x)` parses as
   `!(pred(x))` while still rejecting calls of non-callable unary values
   such as `(-f)(x)`.
+- Fixed **L10** native build diagnostics: `mty build` now distinguishes
+  a genuinely missing linker from a linker invocation that ran and
+  failed. Link failures now return an error with the emitted object
+  path and linker stderr instead of reporting "no linker found" as a
+  successful object-only build.
 
 ### Known issues — carry forward
 - **L18 (P1):** `std.fs` is a Rust-internal capability API, not

@@ -28,19 +28,6 @@ fn opts(dir: &tempfile::TempDir, name: &str) -> BuildOptions {
     }
 }
 
-fn assert_object_after_link_error(dir: &tempfile::TempDir, name: &str, err: &str) {
-    assert!(
-        err.starts_with("link "),
-        "expected only a truthful link failure after object emission, got {err}"
-    );
-    let obj = dir.path().join(format!("{name}.o"));
-    assert!(
-        obj.exists(),
-        "link failed before object emission; expected {}: {err}",
-        obj.display()
-    );
-}
-
 #[test]
 fn native_build_with_dynamic_log_succeeds() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -63,7 +50,16 @@ fn native_build_with_dynamic_log_succeeds() {
             let bytes = std::fs::read(&p).expect("read artifact");
             assert!(!bytes.is_empty(), "artifact is empty");
         }
-        BuildOutcome::BackendError(e) => assert_object_after_link_error(&dir, "dyn_log", &e),
+        BuildOutcome::NativeLinkError { object_path, .. } => {
+            assert!(
+                object_path.exists(),
+                "expected object artifact at {}",
+                object_path.display()
+            );
+        }
+        BuildOutcome::BackendError(e) => panic!(
+            "v0.36 T1 regression: dynamic log shouldn't raise Unsupported any more — got {e}"
+        ),
         BuildOutcome::FrontendError => panic!("frontend rejected dynamic-log source"),
         BuildOutcome::WasmOk(_) => panic!("wrong outcome variant for native build"),
     }
@@ -94,7 +90,10 @@ fn native_build_with_u8_widening_succeeds() {
         BuildOutcome::NativeOk(p) | BuildOutcome::NativeOkNoLinker(p) => {
             assert!(p.exists());
         }
-        BuildOutcome::BackendError(e) => assert_object_after_link_error(&dir, "widen_main", &e),
+        BuildOutcome::NativeLinkError { object_path, .. } => {
+            assert!(object_path.exists(), "expected emitted object");
+        }
+        BuildOutcome::BackendError(e) => panic!("U8 widening backend error: {e}"),
         BuildOutcome::FrontendError => panic!("frontend rejected U8 widening source"),
         BuildOutcome::WasmOk(_) => panic!("wrong outcome variant for native build"),
     }
@@ -121,7 +120,10 @@ fn native_build_with_hex_suffix_literals() {
         BuildOutcome::NativeOk(p) | BuildOutcome::NativeOkNoLinker(p) => {
             assert!(p.exists());
         }
-        BuildOutcome::BackendError(e) => assert_object_after_link_error(&dir, "hex_literals", &e),
+        BuildOutcome::NativeLinkError { object_path, .. } => {
+            assert!(object_path.exists(), "expected emitted object");
+        }
+        BuildOutcome::BackendError(e) => panic!("hex-suffix backend error: {e}"),
         BuildOutcome::FrontendError => panic!("frontend rejected hex literal source"),
         BuildOutcome::WasmOk(_) => panic!("wrong outcome variant for native build"),
     }

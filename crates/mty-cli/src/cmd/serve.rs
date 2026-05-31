@@ -268,7 +268,9 @@ fn build_once(pkg_root: &Path) -> Result<PathBuf, BuildErr> {
         BuildOutcome::BackendError(e) => Err(BuildErr::Backend(e)),
         // Native outcomes can't be returned from a wasm build, but
         // we map them defensively rather than panic.
-        BuildOutcome::NativeOk(_) | BuildOutcome::NativeOkNoLinker(_) => {
+        BuildOutcome::NativeOk(_)
+        | BuildOutcome::NativeOkNoLinker(_)
+        | BuildOutcome::NativeLinkError { .. } => {
             Err(BuildErr::Backend("unexpected native outcome".into()))
         }
     }
