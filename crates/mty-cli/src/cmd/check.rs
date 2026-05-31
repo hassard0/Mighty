@@ -3,7 +3,7 @@ use mty_diagnostics::render::ariadne::render_all;
 use mty_diagnostics::Severity;
 use mty_driver::{
     check_use_resolution, discover_package_sources, find_manifest_root, lower, lower_files,
-    parse_source, type_and_borrow_check, ParsedFile,
+    parse_source, type_and_borrow_check_with_opts, ParsedFile,
 };
 use std::fs;
 use std::path::Path;
@@ -80,9 +80,18 @@ pub fn run_with(path: &Path, format: CheckFormat, include_source: bool) -> i32 {
         pkg
     };
     // Run type + borrow check only if lowering produced no hard errors.
+    // v0.42 T6 (L22 fix 3) — `mty check` opts into strict name
+    // resolution so an unresolved top-level identifier (e.g.
+    // `log(undefined_thing)`) surfaces as MT2021 instead of being
+    // silently typed as a fresh inference variable. Other entry points
+    // (`mty run`/`mty build`/agent envelopes) keep the historic
+    // permissive policy.
     let lower_errors = diags.iter().any(|d| matches!(d.severity, Severity::Error));
     if !lower_errors {
-        diags.extend(type_and_borrow_check(&pkg));
+        let opts = mty_types::items::CheckOpts {
+            strict_resolution: true,
+        };
+        diags.extend(type_and_borrow_check_with_opts(&pkg, opts));
     }
     let has_error = diags.iter().any(|d| matches!(d.severity, Severity::Error));
     match format {

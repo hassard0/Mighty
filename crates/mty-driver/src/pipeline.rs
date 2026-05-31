@@ -332,7 +332,20 @@ pub fn type_check(pkg: &Package) -> Vec<Diagnostic> {
 /// only if type-check produced no *errors* (warnings are tolerated).
 /// Returns the union of both diagnostic lists.
 pub fn type_and_borrow_check(pkg: &Package) -> Vec<Diagnostic> {
-    let typed = mty_types::check_package_typed(pkg);
+    type_and_borrow_check_with_opts(pkg, mty_types::items::CheckOpts::default())
+}
+
+/// v0.42 T6 (L22 fix 3) — opts-aware variant. `mty check` flips
+/// `opts.strict_resolution = true` to widen the surface to MT2021 for
+/// undefined-name uses in top-level fn bodies that the permissive
+/// slice-3 A21 fresh-var policy would silently accept. Other entry
+/// points (`mty run`, `mty build`, agent JSON envelopes) keep the
+/// default opts to preserve legacy semantics.
+pub fn type_and_borrow_check_with_opts(
+    pkg: &Package,
+    opts: mty_types::items::CheckOpts,
+) -> Vec<Diagnostic> {
+    let typed = mty_types::check_package_typed_with_opts(pkg, opts);
     let mut diags = typed.diagnostics.clone();
     let any_type_err = diags
         .iter()

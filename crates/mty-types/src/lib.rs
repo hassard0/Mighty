@@ -124,3 +124,13 @@ pub fn check_package(pkg: &Package) -> Vec<Diagnostic> {
 pub fn check_package_typed(pkg: &Package) -> TypedPackage {
     items::check_typed(pkg)
 }
+
+/// v0.42 T6 (L22 fix 3) — opts-aware variant. The default opts
+/// reproduce the historic behavior; `mty check` sets
+/// `strict_resolution = true` to surface MT2021 for top-level
+/// `log(undefined_thing)`-style undefined-identifier uses that the
+/// permissive scope policy would otherwise paper over with a fresh
+/// inference variable.
+pub fn check_package_typed_with_opts(pkg: &Package, opts: items::CheckOpts) -> TypedPackage {
+    items::check_typed_with_opts(pkg, opts)
+}

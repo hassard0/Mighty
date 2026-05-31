@@ -14,8 +14,8 @@ pub use build::{build_native, build_wasm, jit_run, BuildOptions, BuildOutcome, B
 pub use manifest::Manifest;
 pub use pipeline::{
     check_use_resolution, discover_package_sources, find_manifest_root, lower, lower_files,
-    lower_files_with_ownership, lower_to_sir, parse_source, type_and_borrow_check, type_check,
-    ParsedFile,
+    lower_files_with_ownership, lower_to_sir, parse_source, type_and_borrow_check,
+    type_and_borrow_check_with_opts, type_check, ParsedFile,
 };
 #[cfg(feature = "host-toolchain")]
 pub use pipeline::{run_file, run_file_with_runtime};
