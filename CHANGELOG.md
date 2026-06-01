@@ -9,7 +9,11 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-v0.43 candidates (rolled up from v0.42's IDE-dogfooding lessons log):
+- Next-cycle work remains tracked in GitHub issues and the docs backlog.
+
+## [0.43.0] - 2026-05-31
+
+v0.43 is the IDE-dogfooding correctness rollup from v0.42's lessons log:
 
 - Fixed **L47:** `&&` and `||` now lower through short-circuit control
   flow instead of eager binary evaluation, so guard-then-use
