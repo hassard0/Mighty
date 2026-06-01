@@ -1,6 +1,6 @@
 # mty fmt
 
-Format `.sd` files in place, or format from standard input.
+Format `.mty` files in place, or format from standard input.
 
 ## Synopsis
 
@@ -12,7 +12,7 @@ mty fmt [OPTIONS] [PATHS]...
 
 | Name | Description |
 |---|---|
-| `PATHS` | Files or directories to format. Directories are walked recursively for `*.sd`. Ignored when `--stdin` is set. |
+| `PATHS` | Files or directories to format. Directories are walked recursively for `*.mty`. Ignored when `--stdin` is set. |
 
 ## Options
 
@@ -45,10 +45,10 @@ mty fmt [OPTIONS] [PATHS]...
 Format a single file in place:
 
 ```bash
-mty fmt src/main.sd
+mty fmt src/main.mty
 ```
 
-Format every `.sd` file under `src/`:
+Format every `.mty` file under `src/`:
 
 ```bash
 mty fmt src/
@@ -63,5 +63,5 @@ mty fmt --check src/
 Pipe through stdin:
 
 ```bash
-cat src/main.sd | mty fmt --stdin
+cat src/main.mty | mty fmt --stdin
 ```

@@ -3,8 +3,9 @@
 //! The file printer walks the FILE node's `children_with_tokens` and
 //! emits a canonical whitespace layout:
 //!
-//! * Each top-level item's textual content is preserved verbatim,
-//!   with trailing whitespace stripped.
+//! * Each top-level item's textual content is preserved verbatim unless
+//!   the item has a dedicated canonical printer, with trailing
+//!   whitespace stripped.
 //! * Between two adjacent items, the separator is `\n\n` (one blank
 //!   line) if the original source had a blank line between them, else
 //!   `\n` (immediate succession).
@@ -90,7 +91,112 @@ fn item_body_and_trailing_blank(item: &SyntaxNode) -> (Doc, bool) {
     let stripped = text.trim_end_matches(|c: char| c.is_whitespace());
     let tail = &text[stripped.len()..];
     let blank_after = tail.matches('\n').count() >= 2;
-    (Doc::text(stripped.to_string()), blank_after)
+    let body = match item.kind() {
+        SyntaxKind::CONST_DECL if can_canonicalize_const(item, stripped) => const_decl(item),
+        _ => Doc::text(stripped.to_string()),
+    };
+    (body, blank_after)
+}
+
+fn can_canonicalize_const(item: &SyntaxNode, stripped: &str) -> bool {
+    // Some parser paths attach same-line or following comments to the
+    // declaration node. Keep those declarations verbatim until the item
+    // printer can preserve attached trivia explicitly.
+    item.kind() == SyntaxKind::CONST_DECL && !stripped.contains("//") && !stripped.contains("/*")
+}
+
+fn const_decl(item: &SyntaxNode) -> Doc {
+    let is_pub = item.children().any(|c| c.kind() == SyntaxKind::VISIBILITY);
+    let name = item
+        .children()
+        .find(|c| c.kind() == SyntaxKind::NAME)
+        .map(|n| Doc::text(n.text().to_string()))
+        .unwrap_or(Doc::nil());
+    let ty = item
+        .children()
+        .find(|c| is_type_node(c.kind()))
+        .map(|n| super::types::type_expr(&n))
+        .unwrap_or(Doc::nil());
+    let value = item
+        .children()
+        .find(|c| is_expr_node(c.kind()))
+        .map(|n| super::exprs::expr(&n))
+        .unwrap_or(Doc::nil());
+    let has_semi = item
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .any(|t| t.kind() == SyntaxKind::SEMI);
+    let head = if is_pub { "pub const " } else { "const " };
+    let mut out = Doc::concat(
+        Doc::text(head),
+        Doc::concat(
+            name,
+            Doc::concat(
+                Doc::text(": "),
+                Doc::concat(ty, Doc::concat(Doc::text(" = "), value)),
+            ),
+        ),
+    );
+    if has_semi {
+        out = Doc::concat(out, Doc::text(";"));
+    }
+    out
+}
+
+fn is_type_node(k: SyntaxKind) -> bool {
+    use SyntaxKind::*;
+    matches!(
+        k,
+        TYPE_PATH
+            | TYPE_REF
+            | TYPE_BORROW
+            | TYPE_TUPLE
+            | TYPE_ARRAY
+            | TYPE_FN
+            | TYPE_DYN
+            | TYPE_RESULT_SUGAR
+            | TYPE_UNION
+    )
+}
+
+fn is_expr_node(k: SyntaxKind) -> bool {
+    use SyntaxKind::*;
+    matches!(
+        k,
+        LITERAL_EXPR
+            | PATH_EXPR
+            | BINARY_EXPR
+            | UNARY_EXPR
+            | POSTFIX_EXPR
+            | CALL_EXPR
+            | METHOD_CALL_EXPR
+            | INDEX_EXPR
+            | FIELD_EXPR
+            | CAST_EXPR
+            | IF_EXPR
+            | MATCH_EXPR
+            | FOR_EXPR
+            | WHILE_EXPR
+            | LOOP_EXPR
+            | RETURN_EXPR
+            | BREAK_EXPR
+            | CONTINUE_EXPR
+            | YIELD_EXPR
+            | TUPLE_EXPR
+            | ARRAY_EXPR
+            | STRUCT_EXPR
+            | MAP_EXPR
+            | LAMBDA_EXPR
+            | SEND_EXPR
+            | ASK_EXPR
+            | DEADLINE_EXPR
+            | QUESTION_EXPR
+            | HTML_EXPR
+            | MOVE_EXPR
+            | BORROW_EXPR
+            | SPAWN_EXPR
+            | RUN_EXPR
+    )
 }
 
 /// Returns true if the given trivia text contains at least one blank

@@ -13,11 +13,12 @@ use mty_lsp::completion::complete;
 use mty_lsp::definition::definition;
 use mty_lsp::diagnostics::build_publish;
 use mty_lsp::docs::{apply_change, DocAnalysis};
+use mty_lsp::document_symbols::document_symbols;
 use mty_lsp::hover::hover;
 use mty_lsp::line_index::LineIndex;
 use tower_lsp::lsp_types::{
-    CompletionResponse, GotoDefinitionResponse, HoverContents, Position, Range,
-    TextDocumentContentChangeEvent, Url,
+    CompletionResponse, DocumentSymbolResponse, GotoDefinitionResponse, HoverContents, Position,
+    Range, SymbolKind, TextDocumentContentChangeEvent, Url,
 };
 
 fn analyze(src: &str) -> DocAnalysis {
@@ -258,6 +259,80 @@ fn definition_on_struct_name_returns_decl_span() {
     };
     assert_eq!(loc.range.start.line, 0);
     assert_eq!(loc.range.start.character, 0);
+}
+
+// ---------------------------------------------------------------------
+// document symbols
+// ---------------------------------------------------------------------
+
+#[test]
+fn document_symbols_include_top_level_declarations() {
+    let src = "\
+        const ANSWER: I32 = 42\n\
+        struct Point { x: I32, y: I32 }\n\
+        enum Mode { Normal, Insert }\n\
+        fn main() { }\n";
+    let doc = analyze(src);
+    let DocumentSymbolResponse::Nested(symbols) = document_symbols(&doc).expect("document symbols")
+    else {
+        panic!("expected nested document symbols")
+    };
+
+    let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+    assert!(names.contains(&"ANSWER"), "symbols: {names:?}");
+    assert!(names.contains(&"Point"), "symbols: {names:?}");
+    assert!(names.contains(&"Mode"), "symbols: {names:?}");
+    assert!(names.contains(&"main"), "symbols: {names:?}");
+    assert_eq!(
+        symbols.iter().find(|s| s.name == "main").unwrap().kind,
+        SymbolKind::FUNCTION
+    );
+}
+
+#[test]
+fn document_symbols_include_struct_and_enum_children() {
+    let src = "struct Point { x: I32, y: I32 }\nenum Mode { Normal, Insert }\n";
+    let doc = analyze(src);
+    let DocumentSymbolResponse::Nested(symbols) = document_symbols(&doc).expect("document symbols")
+    else {
+        panic!("expected nested document symbols")
+    };
+
+    let point = symbols.iter().find(|s| s.name == "Point").unwrap();
+    let point_children: Vec<&str> = point
+        .children
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
+    assert_eq!(point_children, vec!["x", "y"]);
+
+    let mode = symbols.iter().find(|s| s.name == "Mode").unwrap();
+    let mode_children: Vec<&str> = mode
+        .children
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
+    assert_eq!(mode_children, vec!["Normal", "Insert"]);
+}
+
+#[test]
+fn document_symbols_include_protocol_messages() {
+    let src = "protocol Search { Query(text: String) -> String }\n";
+    let doc = analyze(src);
+    let DocumentSymbolResponse::Nested(symbols) = document_symbols(&doc).expect("document symbols")
+    else {
+        panic!("expected nested document symbols")
+    };
+
+    let protocol = symbols.iter().find(|s| s.name == "Search").unwrap();
+    assert_eq!(protocol.kind, SymbolKind::INTERFACE);
+    let children = protocol.children.as_ref().unwrap();
+    assert_eq!(children[0].name, "Query");
+    assert_eq!(children[0].kind, SymbolKind::METHOD);
 }
 
 // ---------------------------------------------------------------------

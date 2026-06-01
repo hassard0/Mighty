@@ -2,7 +2,7 @@
 
 Mighty is a statically typed, ownership-based, agent-first systems
 language that compiles to native code and to WebAssembly components.
-These docs cover the language at toolchain **v0.36** tracking
+These docs cover the language at toolchain **v0.42** tracking
 spec **v1.0-RC5**.
 
 > **Pre-1.0 warning.** The language surface is frozen for v1.0 but
@@ -20,10 +20,10 @@ spec **v1.0-RC5**.
 - [Tour of Mighty](tour/README.md) — work through the 15 tour
   chapters one at a time. Every chapter has a `Try it:` block that
   runs the corresponding canonical example.
-- [Language specification v1.0-RC2](spec/v1.0-rc.md) — the
+- [Language specification v1.0-RC5](spec/v1.0-rc.md) — the
   normative reference.
 - [Spec amendments register (A1..A109)](spec/v0.1-amendments.md) —
-  the per-decision archive that the consolidated RC2 spec is built
+  the per-decision archive that the consolidated RC5 spec is built
   on.
 - [Conformance coverage](spec/conformance-coverage.md) — what the
   conformance corpus exercises (88% of FROZEN surface as of v0.10).
@@ -84,18 +84,18 @@ spec **v1.0-RC5**.
 - [Upstream issues](upstream-issues/) — bugs filed against
   Cranelift / wasmtime / etc. that affect Mighty.
 
-## Status snapshot (v0.36)
+## Status snapshot (v0.42, v0.43 in progress)
 
 | Component                            | State                                            |
 |--------------------------------------|--------------------------------------------------|
 | Lexer, parser, CST                   | shipped                                          |
 | Typed AST + HIR + lowering           | shipped                                          |
 | Diagnostics engine                   | shipped                                          |
-| Formatter (per-node)                 | shipped                                          |
+| Formatter (per-node)                 | shipped; v0.43 starts syntax-aware top-level `const` formatting |
 | Type checker                         | shipped                                          |
 | Borrow / move / affine checker       | shipped                                          |
 | Effect / capability checker          | shipped                                          |
-| Codegen (Cranelift) native           | shipped (v0.36 T1: U8 widening + dynamic log)    |
+| Codegen (Cranelift) native           | shipped; v0.42 fixed typed log + Vec liveness, v0.43 adds truthful link diagnostics |
 | Codegen (Wasm) P2 + cabi_realloc     | shipped (v0.18)                                  |
 | Codegen (LLVM)                       | opt-in backend                                   |
 | Runtime (scheduler, mailboxes)       | shipped                                          |
@@ -107,12 +107,17 @@ spec **v1.0-RC5**.
 | Replay (`mty replay --byte-identical`)| shipped (v0.17/18)                              |
 | Cluster (distributed agents)         | shipped (v0.18 Tier 4.1)                         |
 | LLM-agent stack (std.llm/mcp/memory/swarm) | shipped (v0.26–v0.30)                      |
-| Extern C + `[[extern_lib]]`          | shipped (v0.36 T2)                               |
+| Extern C + `[[extern_lib]]`          | shipped (v0.36 T2); v0.43 reports real linker failures distinctly from missing linkers |
 | String position/range ops + MT5080   | shipped (v0.36 T3)                               |
 | Stardust→Mighty rebrand compat       | shipped (v0.36 T4 — STARDUST_* env legacy)       |
 | PGO release binaries                 | shipped (v0.36 T5 — Linux + macOS-x86_64 + Win)  |
 | `mty find` / `mty fix` / `mty hooks` | shipped (v0.33/v0.34/v0.35)                      |
 | Self-host (lexer..min-typeck)        | 40/40 tests passing                              |
+
+Current v0.43 candidates are driven by the Mighty IDE lessons log:
+short-circuit logical lowering, interpreter writeback for
+statement-form `Vec`/`String` mutators, top-level `const` formatting,
+prefix-call parsing, and native link diagnostics.
 
 See
 [`CHANGELOG.md`](https://github.com/hassard0/Mighty/blob/main/CHANGELOG.md)

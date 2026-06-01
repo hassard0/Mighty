@@ -28,7 +28,7 @@ mty new <NAME> [--template <TEMPLATE>]
 <NAME>/
 ├── mighty.toml
 └── src/
-    └── main.sd
+    └── main.mty
 ```
 
 `mighty.toml`:
@@ -43,9 +43,9 @@ profile = "host"
 [deps]
 ```
 
-`src/main.sd`:
+`src/main.mty`:
 
-```sd
+```mty
 fn main() {
   log("hello, Mighty")
 }

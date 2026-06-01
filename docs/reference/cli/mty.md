@@ -13,7 +13,7 @@ mty <COMMAND>
 | Command | Purpose |
 |---|---|
 | [`new`](mty-new.md) | Scaffold a new Mighty package |
-| [`fmt`](mty-fmt.md) | Format `.sd` files (or stdin) |
+| [`fmt`](mty-fmt.md) | Format `.mty` files (or stdin) |
 | [`check`](mty-check.md) | Parse + HIR-lower; emit diagnostics |
 | [`dump`](mty-dump.md) | Dump intermediate representations |
 | [`explain`](mty-explain.md) | Print a human-readable explanation of a diagnostic code |

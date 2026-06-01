@@ -19,6 +19,7 @@ crates/mty-lsp/
 │   ├── diagnostics.rs      # build PublishDiagnosticsParams
 │   ├── hover.rs            # textDocument/hover
 │   ├── definition.rs       # textDocument/definition
+│   ├── document_symbols.rs # textDocument/documentSymbol
 │   ├── completion.rs       # textDocument/completion (v0.5: locals + receiver)
 │   ├── semantic_tokens.rs  # textDocument/semanticTokens/full + /range
 │   ├── rename.rs           # textDocument/rename + prepareRename
@@ -136,6 +137,20 @@ cursor and looks it up in the top-level item list. Returns the item's
 a name → DefRef map, but the per-expression resolution side-tables
 aren't exposed in a form the LSP can consume. A future amendment will
 surface them.
+
+## Document symbols
+
+`document_symbols::document_symbols(doc)` walks the CST root's top-level
+declaration nodes and returns `DocumentSymbolResponse::Nested`.
+
+Top-level symbols include functions, constants, structs, enums, type
+aliases, agents, protocols, traits, and impl blocks. Structured children
+are emitted for fields, enum variants, protocol messages, trait methods,
+agent state/handlers, and impl methods. Ranges come from the CST node,
+while `selectionRange` points at the declaration name token.
+
+The implementation is CST-backed rather than HIR-backed so outline panels
+keep working while a user is editing through temporarily invalid code.
 
 ## Completion (v0.5)
 

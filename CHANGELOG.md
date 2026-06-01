@@ -11,7 +11,37 @@ For the full per-release notes, see
 
 v0.43 candidates (rolled up from v0.42's IDE-dogfooding lessons log):
 
+- Fixed **L47:** `&&` and `||` now lower through short-circuit control
+  flow instead of eager binary evaluation, so guard-then-use
+  expressions do not evaluate the protected RHS.
+- Fixed **L12 (P0)** for the interpreter: mutating `Vec`/`String`
+  methods with an addressable receiver now write the updated receiver
+  back, so statement-form `v.push(x)`, `v.pop()`, and `v.clear()`
+  behave consistently with native Cranelift instead of silently
+  discarding the mutation.
+- Advanced **L26** formatter follow-up: `mty fmt` now uses the
+  syntax-aware item formatter for comment-free top-level `const`
+  declarations, canonicalizing declaration spacing, generic type args,
+  and simple initializer expressions while preserving optional
+  semicolons.
+- Fixed **L46** parser precedence: prefix operators now let postfix
+  calls/indexes bind to their operand, so `!pred(x)` parses as
+  `!(pred(x))` while still rejecting calls of non-callable unary values
+  such as `(-f)(x)`.
+- Fixed **L10** native build diagnostics: `mty build` now distinguishes
+  a genuinely missing linker from a linker invocation that ran and
+  failed. Link failures now return an error with the emitted object
+  path and linker stderr instead of reporting "no linker found" as a
+  successful object-only build.
+
 ### Added
+- **L35 — LSP document symbols.** `mty-lsp` now advertises and
+  implements `textDocument/documentSymbol`, returning CST-backed
+  outline symbols for functions, consts, structs, enum variants,
+  protocols, agents, traits, and impl members. This removes the
+  Mighty IDE's shim-side outline scanner fallback for normal `.mty`
+  files and gives agents a structured navigation surface. +3 LSP
+  integration tests.
 - Windows control endpoints now use Tokio named pipes, so
   `MTY_RUNTIME_CONTROL_SOCK` works for `mty inspect` and `mty reload`
   on Windows instead of returning the old stub path.
@@ -20,9 +50,10 @@ v0.43 candidates (rolled up from v0.42's IDE-dogfooding lessons log):
 - **L18 (P1):** `std.fs` is a Rust-internal capability API, not
   Mighty-callable.
 - **L26 follow-up:** `mty fmt` is no longer destructive (v0.42 T5
-  shipped the safety pass) but the actual formatter is still a no-op
-  on `.mty`. v0.43 picks up the formatter proper once the 65+
-  pre-push-gated files have an agreed reformat path.
+  shipped the safety pass) and v0.43 has started syntax-aware item
+  formatting with comment-free top-level `const`; the broader
+  formatter still needs per-item rollout once the 65+ pre-push-gated
+  files have an agreed reformat path.
 - **Pending:** #253 SWE-bench numbers, #262 BOLT training profile path.
 
 ### v0.40-era candidates (still open)

@@ -13,7 +13,7 @@ mty check <PATH>
 
 | Name | Description |
 |---|---|
-| `PATH` | Path to a `.sd` file to check. |
+| `PATH` | Path to a `.mty` file to check. |
 
 ## Options
 
@@ -57,12 +57,12 @@ See the [diagnostic codes](../diagnostics.md) page for the registry of
 ## Examples
 
 ```bash
-mty check src/main.sd
-mty check examples/07_agent_echo.sd
+mty check src/main.mty
+mty check examples/07_agent_echo.mty
 ```
 
 In CI:
 
 ```bash
-for f in examples/*.sd; do mty check "$f" || exit 1; done
+for f in examples/*.mty; do mty check "$f" || exit 1; done
 ```

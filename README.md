@@ -14,13 +14,19 @@
 
 Compiler, runtime, formatter, package manager, doc generator, LSP,
 and stdlib all live in one Rust workspace and one `mty` binary.
-v0.42 is the IDE-blocker closure round: the Mighty IDE is itself
-written in Mighty, and every bug it surfaces lands as a release-gate
-fix in the next cycle. v0.42 closes the last 5 IDE-blocking lessons
-(L19 numeric `as` casts, L20 paren-juxtaposition parse error, L22
-diagnostics polish, L23 native `log()` computed args, L26 `mty fmt`
-safety) and locks in the v0.41 T3 Vec-liveness fix across both
-back-ends.
+v0.42 is the current release: the Mighty IDE is itself written in
+Mighty, and every bug it surfaces lands as a release-gate fix in the
+next cycle. v0.42 closes the last 5 IDE-blocking lessons (L19 numeric
+`as` casts, L20 paren-juxtaposition parse error, L22 diagnostics
+polish, L23 native `log()` computed args, L26 `mty fmt` safety) and
+locks in the v0.41 T3 Vec-liveness fix across both back-ends.
+
+v0.43 development is underway as an IDE-dogfooding correctness rollup:
+short-circuit `&&`/`||` lowering, interpreter writeback for
+statement-form `Vec`/`String` mutators (`v.push(x)`, `v.pop()`,
+`v.clear()`), syntax-aware top-level `const` formatting, prefix-call
+parsing (`!pred(x)`), and truthful native-link diagnostics after object
+emission are all queued for release.
 
 ## Why Mighty
 
@@ -169,12 +175,17 @@ mty run   src/main.mty
   and `[[extern_lib]]` manifest entries with per-platform `link_args`
   for static + dynamic library linking
   (see [`docs/internals/extern-c-matrix.md`](docs/internals/extern-c-matrix.md))
+- Native builds distinguish "no linker installed" from "linker ran and
+  failed": missing linkers preserve the emitted object as an object-only
+  success, while real linker failures exit with an error that includes
+  the object path and linker stderr.
 
 **Tooling**
 - `mty lsp` — LSP 3.17 (hover ships extracted `///` examples +
   See-also references + capability hints across **564 stdlib catalog
   entries** spanning 33 modules, completion, go-to-def, semantic
-  tokens, rename, inlay hints, code actions, signature help)
+  tokens, document symbols, rename, inlay hints, code actions,
+  signature help)
 - `mty find` — capability-tagged stdlib search ("write files" →
   `fs.write` APIs); pretty / NDJSON / short formats
 - `mty pkg` — resolver, lockfile, GitHub-Releases-backed registry,

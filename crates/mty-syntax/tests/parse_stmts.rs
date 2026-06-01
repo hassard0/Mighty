@@ -149,3 +149,24 @@ fn parse_plain_while_still_parses() {
         .any(|t| t.kind() == SyntaxKind::LET_KW);
     assert!(!has_let, "plain while must not carry LET_KW");
 }
+
+#[test]
+fn parse_if_condition_unary_not_call_operand() {
+    use mty_syntax::{parse, SyntaxKind, SyntaxNode};
+    // L46: `!pred(1)` must parse as `!(pred(1))` in statement conditions.
+    let src = r#"
+fn pred(x: I32) -> Bool { x > 0 }
+fn main() {
+  if !pred(1) { panic("bad") }
+}
+"#;
+    let r = parse(src);
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::UNARY_EXPR));
+    assert!(root
+        .descendants()
+        .any(|n| n.kind() == SyntaxKind::CALL_EXPR));
+}

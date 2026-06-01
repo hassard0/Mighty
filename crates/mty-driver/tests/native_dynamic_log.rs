@@ -50,6 +50,13 @@ fn native_build_with_dynamic_log_succeeds() {
             let bytes = std::fs::read(&p).expect("read artifact");
             assert!(!bytes.is_empty(), "artifact is empty");
         }
+        BuildOutcome::NativeLinkError { object_path, .. } => {
+            assert!(
+                object_path.exists(),
+                "expected object artifact at {}",
+                object_path.display()
+            );
+        }
         BuildOutcome::BackendError(e) => panic!(
             "v0.36 T1 regression: dynamic log shouldn't raise Unsupported any more — got {e}"
         ),
@@ -83,6 +90,9 @@ fn native_build_with_u8_widening_succeeds() {
         BuildOutcome::NativeOk(p) | BuildOutcome::NativeOkNoLinker(p) => {
             assert!(p.exists());
         }
+        BuildOutcome::NativeLinkError { object_path, .. } => {
+            assert!(object_path.exists(), "expected emitted object");
+        }
         BuildOutcome::BackendError(e) => panic!("U8 widening backend error: {e}"),
         BuildOutcome::FrontendError => panic!("frontend rejected U8 widening source"),
         BuildOutcome::WasmOk(_) => panic!("wrong outcome variant for native build"),
@@ -109,6 +119,9 @@ fn native_build_with_hex_suffix_literals() {
     match outcome {
         BuildOutcome::NativeOk(p) | BuildOutcome::NativeOkNoLinker(p) => {
             assert!(p.exists());
+        }
+        BuildOutcome::NativeLinkError { object_path, .. } => {
+            assert!(object_path.exists(), "expected emitted object");
         }
         BuildOutcome::BackendError(e) => panic!("hex-suffix backend error: {e}"),
         BuildOutcome::FrontendError => panic!("frontend rejected hex literal source"),

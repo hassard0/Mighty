@@ -28,7 +28,7 @@ flag.
 
 | Flag | Description |
 |------|-------------|
-| `<PATH>` | Path to a `.sd` source file. |
+| `<PATH>` | Path to a `.mty` source file. |
 | `--debug` | Build in debug mode (default). Smaller compile time, no optimization, *debug info emitted* (DWARF on native; `name` + `.wasm.map` on wasm). |
 | `--release` | Build in release mode. Cranelift `opt_level = speed`. Debug info stripped. |
 | `--target <TARGET>` | One of `native` (default), `wasm32-wasi`, `wasm32-web`. |
@@ -52,7 +52,7 @@ both modes — downstream tools can read it from the artifact
 metadata.
 
 The binary's name is derived from the source file's stem
-(`examples/01_hello.sd` → `01_hello`).
+(`examples/01_hello.mty` → `01_hello`).
 
 ## Linker discovery (A52)
 
@@ -74,6 +74,12 @@ file. The exit message is:
 ```
 wrote object target/<name>.o (no linker found; set $MTY_LINKER)
 ```
+
+If a linker is found and returns a non-zero status, `mty build`
+reports a build error instead of treating the run as object-only
+success. The error includes the emitted object path and linker stderr,
+which lets CI and agent workflows separate "install a linker" from
+"fix unresolved symbols or bad link arguments."
 
 You can then invoke the linker yourself:
 
@@ -129,22 +135,22 @@ contributes the same symbol.
 
 ```bash
 # Default: native debug build → target/01_hello (or .exe)
-mty build examples/01_hello.sd
+mty build examples/01_hello.mty
 
 # Native release build with a custom out dir:
-mty build --release --out-dir dist/ src/main.sd
+mty build --release --out-dir dist/ src/main.mty
 
 # Wasm WASI build → Component Model component (v0.2 default):
-mty build --target wasm32-wasi examples/01_hello.sd
+mty build --target wasm32-wasi examples/01_hello.mty
 # Wasmtime requires the component-model flag:
 wasmtime --wasm component-model target/01_hello.wasm
 
 # Bare core wasm module (skip component wrapper):
-mty build --no-component --target wasm32-wasi examples/01_hello.sd
+mty build --no-component --target wasm32-wasi examples/01_hello.mty
 wasmtime target/01_hello.wasm                          # works without --wasm component-model
 
 # Browser-targeted Wasm → Component Model, transpile via jco:
-mty build --target wasm32-web src/widget.sd
+mty build --target wasm32-web src/widget.mty
 jco transpile target/widget.wasm -o dist/widget       # emits ESM glue + .wasm core
 # then load dist/widget/widget.js as a module in your page
 ```
@@ -168,10 +174,10 @@ the v0.2 coverage matrix, format details, and known limitations
 (coarse line table, no `.debug_loc` location lists yet).
 
 ```bash
-mty build --debug examples/01_hello.sd
+mty build --debug examples/01_hello.mty
 objdump --dwarf=info target/01_hello.o   # native DWARF
 
-mty build --debug --target wasm32-wasi examples/01_hello.sd
+mty build --debug --target wasm32-wasi examples/01_hello.mty
 ls target/01_hello.wasm target/01_hello.wasm.map
 ```
 
