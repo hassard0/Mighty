@@ -128,6 +128,14 @@ pub fn run(
             );
             0
         }
+        BuildOutcome::NativeLinkError { object_path, error } => {
+            eprintln!(
+                "link error after writing object {}: {}",
+                object_path.display(),
+                error
+            );
+            2
+        }
         BuildOutcome::WasmOk(p) => {
             println!("wrote {}", p.display());
             0

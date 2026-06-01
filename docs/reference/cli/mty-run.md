@@ -14,7 +14,7 @@ for diagnostic comparison.
 mty run [--legacy-interp] <file>
 ```
 
-`<file>` is a single `.sd` source file. Slice 7 does not yet support
+`<file>` is a single `.mty` source file. Slice 7 does not yet support
 package-aware execution; only the items in the named file are visible.
 
 ## Process model
@@ -78,12 +78,12 @@ a `STARDUST_*` name emits a one-shot deprecation warning on stderr.
 ## Example
 
 ```sh
-$ cat hello.sd
+$ cat hello.mty
 fn main() {
   log("hello, Mighty")
 }
 
-$ mty run hello.sd
+$ mty run hello.mty
 hello, Mighty
 $ echo $?
 0
@@ -92,7 +92,7 @@ $ echo $?
 Spawn + ask an agent:
 
 ```sh
-$ cat echoer.sd
+$ cat echoer.mty
 protocol Echo { Ping(m: Str) -> Str }
 agent Echoer: Echo { on Ping(m) -> m }
 
@@ -102,7 +102,7 @@ fn main() {
   log(r)
 }
 
-$ mty run echoer.sd
+$ mty run echoer.mty
 hi
 ```
 

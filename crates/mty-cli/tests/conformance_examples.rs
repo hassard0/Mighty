@@ -345,17 +345,30 @@ fn mty_build_hello_emits_object_or_exe() {
         .arg(dir.path())
         .output()
         .expect("spawn mty build");
-    assert!(
-        out.status.success(),
-        "mty build failed: stdout={:?} stderr={:?}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
     let stdout = String::from_utf8_lossy(&out.stdout);
-    // Either "wrote target/hello.exe" (linker found) or "wrote object
-    // hello.o (no linker found)" — both are valid completion shapes.
-    assert!(
-        stdout.contains("wrote"),
-        "expected 'wrote ...' line in stdout; got: {stdout:?}"
-    );
+    if out.status.success() {
+        // Either "wrote target/hello.exe" (linker found) or "wrote
+        // object hello.o (no linker found)" is a valid completion shape.
+        assert!(
+            stdout.contains("wrote"),
+            "expected 'wrote ...' line in stdout; got: {stdout:?}"
+        );
+    } else {
+        assert_eq!(
+            out.status.code(),
+            Some(2),
+            "unexpected mty build exit: stdout={stdout:?} stderr={stderr:?}"
+        );
+        assert!(
+            stderr.contains("link error after writing object"),
+            "expected explicit link error; stderr={stderr:?}"
+        );
+        let obj = dir.path().join("hello.o");
+        assert!(
+            obj.exists(),
+            "link error must still leave object artifact at {}",
+            obj.display()
+        );
+    }
 }

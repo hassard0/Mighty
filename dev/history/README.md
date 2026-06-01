@@ -50,6 +50,11 @@ and later (the track-driven era) consult the individual
 - v0.36 — native codegen fixes (U8 + dynamic log), `extern c` + extern_libs,
   String position/range ops, Stardust→Mighty rename compat finished, Windows
   `cli-min` install + macOS PGO re-enabled
+- v0.42 — Mighty IDE blocker closure: numeric casts, parser diagnostics,
+  native computed `log()`, formatter safety, and Vec-liveness regression locks
+- v0.43 draft — IDE dogfooding correctness rollup: short-circuit lowering,
+  interpreter mutator writeback, top-level `const` formatting, prefix-call
+  parsing, and native link diagnostics
 
 | File | Headline |
 |---|---|

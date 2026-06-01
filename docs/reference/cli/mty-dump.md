@@ -12,7 +12,7 @@ mty dump [OPTIONS] <PATH>
 
 | Name | Description |
 |---|---|
-| `PATH` | Path to a `.sd` file. |
+| `PATH` | Path to a `.mty` file. |
 
 ## Options
 
@@ -46,7 +46,7 @@ flags may be combined; the dumps appear in CST, AST, HIR order.
 ## Examples
 
 ```bash
-mty dump --cst examples/01_hello.sd
-mty dump --ast examples/02_struct_enum.sd
-mty dump --hir examples/07_agent_echo.sd
+mty dump --cst examples/01_hello.mty
+mty dump --ast examples/02_struct_enum.mty
+mty dump --hir examples/07_agent_echo.mty
 ```

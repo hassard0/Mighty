@@ -3,7 +3,7 @@
 Run the Mighty Language Server over stdio. Used by editor plugins
 (VS Code, Neovim, Helix, Emacs, etc.) to provide live diagnostics,
 hover, go-to-definition, formatting, completion, semantic tokens,
-rename, inlay hints, code actions, and signature help for `.sd` files.
+rename, inlay hints, code actions, and signature help for `.mty` files.
 
 ## Synopsis
 
@@ -122,7 +122,7 @@ lspconfig.mighty.setup({})
 Plus a filetype mapping:
 
 ```vim
-autocmd BufNewFile,BufRead *.sd set filetype=mighty
+autocmd BufNewFile,BufRead *.mty set filetype=mighty
 ```
 
 ### Helix
@@ -132,7 +132,7 @@ autocmd BufNewFile,BufRead *.sd set filetype=mighty
 [[language]]
 name = "mighty"
 scope = "source.mighty"
-file-types = ["sd"]
+file-types = ["mty"]
 comment-token = "//"
 language-servers = ["mty"]
 indent = { tab-width = 4, unit = "    " }

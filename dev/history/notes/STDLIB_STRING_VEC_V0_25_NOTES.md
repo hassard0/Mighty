@@ -102,6 +102,12 @@ board.push(0_u32)
 board[0] = 7_u32
 ```
 
+As of the v0.43 L12 interpreter fix, statement-form mutators write
+back to an addressable receiver in both interpreter and native paths:
+`board.push(x)`, `board.pop()`, and `board.clear()` update `board`
+without the older `board = board.push(x)` capture-rebind workaround.
+The capture-rebind form remains accepted for compatibility.
+
 Typechecks via `cargo run -q -p mty-cli -- check examples/26_string_vec.mty`.
 
 ## Build / test gate

@@ -4,7 +4,7 @@ This page walks through installing the Mighty compiler, scaffolding
 a package, running your first program, writing your first agent,
 running your first test, and pointing you at the next read.
 
-> **Pre-alpha status.** Mighty is at **v0.30.1** (toolchain)
+> **Pre-alpha status.** Mighty is at **v0.42.0** (toolchain)
 > tracking spec **v1.0-RC5**. The language surface is feature-
 > complete for v1.0 and frozen pending the eight open RFC comment
 > windows. Pre-built binaries ship on every release; treat the
@@ -20,7 +20,7 @@ The fastest path. Releases page:
 x86_64, macOS arm64, and Windows x86_64.
 
 ```bash
-# Linux / macOS — replace <v> with the latest tag (e.g. v0.30.1).
+# Linux / macOS — replace <v> with the latest tag (e.g. v0.42.0).
 curl -L https://github.com/hassard0/Mighty/releases/download/<v>/mty-<v>-linux-x86_64.tar.gz | tar xz
 sudo mv mty /usr/local/bin/
 mty --version
@@ -172,7 +172,10 @@ mty build --target wasm32-wasi src/main.mty
 uses Cranelift to emit a host-format `.o`, then links via the
 platform C linker. If no linker is on PATH, the `.o` is left in
 `target/` and a helpful message tells you how to link manually
-(see `MT8008`).
+(see `MT8008`). If a linker is found but the link fails, `mty build`
+exits with code 2 and prints the emitted object path plus the linker
+error so agents and CI can distinguish a real native build failure
+from an object-only fallback.
 
 Override the linker with `$MTY_LINKER` (an absolute path or a bare
 name on PATH; legacy `$STARDUST_LINKER` is still accepted). Force

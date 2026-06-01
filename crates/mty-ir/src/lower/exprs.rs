@@ -1066,6 +1066,9 @@ fn lower_binop(
         ));
         return Operand::Move(Place::local(temp));
     }
+    if matches!(op, And | Or) {
+        return lower_short_circuit_bool(ctx, fb, op, lhs, rhs);
+    }
     // v0.42 T4 (L23 fix) — Str + Str (`String + String`) lowers to a
     // call of the synthetic builtin `__mty_str_concat`. The cranelift
     // / LLVM backends recognise the name and route it through
@@ -1115,6 +1118,47 @@ fn lower_binop(
         Rvalue::BinOp(sir_op, l, r),
     ));
     Operand::Move(Place::local(temp))
+}
+
+fn lower_short_circuit_bool(
+    ctx: &mut LowerCtx,
+    fb: &mut FnBuilder,
+    op: HirBinOp,
+    lhs: ExprId,
+    rhs: ExprId,
+) -> Operand {
+    let result = fb.fresh_temp(IrTy::Bool);
+    let lhs_op = lower_expr(ctx, fb, lhs);
+    let rhs_block = fb.new_block();
+    let short_block = fb.new_block();
+    let join = fb.new_block();
+
+    let (then, else_) = match op {
+        HirBinOp::And => (rhs_block, short_block),
+        HirBinOp::Or => (short_block, rhs_block),
+        _ => unreachable!("only && and || lower through short-circuit control flow"),
+    };
+    fb.set_term(Term::If {
+        cond: lhs_op,
+        then,
+        else_,
+    });
+
+    fb.switch_to(rhs_block);
+    let rhs_op = lower_expr(ctx, fb, rhs);
+    fb.push_stmt(Stmt::Assign(Place::local(result), Rvalue::Use(rhs_op)));
+    fb.set_term(Term::Goto(join));
+
+    fb.switch_to(short_block);
+    let short_value = matches!(op, HirBinOp::Or);
+    fb.push_stmt(Stmt::Assign(
+        Place::local(result),
+        Rvalue::Const(Const::Bool(short_value)),
+    ));
+    fb.set_term(Term::Goto(join));
+
+    fb.switch_to(join);
+    Operand::Move(Place::local(result))
 }
 
 fn lower_assign(
