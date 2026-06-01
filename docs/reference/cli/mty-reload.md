@@ -96,8 +96,9 @@ newline-delimited JSON contract `mty inspect` uses
 ```
 
 The module bytes are base64-encoded so the request stays one line.
-On Windows the listener isn't yet bound — see the same v0.16 caveat
-that gates `mty inspect`.
+On Windows the same value maps to the runtime's local named pipe; use
+the same `--sock` value that the runtime received through
+`MTY_RUNTIME_CONTROL_SOCK`.
 
 ## See also
 
