@@ -18,6 +18,14 @@
 #[cfg(feature = "host-toolchain")]
 pub mod cmd;
 
+/// User-facing Mighty language/toolchain milestone.
+///
+/// The Rust workspace crates intentionally keep their internal crate
+/// version while the public toolchain advances by Mighty milestones
+/// (`v0.43.0`, `v0.44.0-dev`, ...). Keep this aligned with
+/// `CHANGELOG.md` and release tags.
+pub const MIGHTY_VERSION: &str = "0.44.0-dev";
+
 // v0.35 T1 — browser playground exports. `wasm-pack build --target web`
 // reads this cdylib's `#[wasm_bindgen]` symbols (`init` / `check` /
 // `run`) and emits the JS glue under

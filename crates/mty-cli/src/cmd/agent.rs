@@ -1492,7 +1492,7 @@ async fn http_handle(
     match (method.as_str(), path.as_str()) {
         ("GET", "/v1/agent/version") => {
             let body = serde_json::json!({
-                "mty_version": env!("CARGO_PKG_VERSION"),
+                "mty_version": crate::MIGHTY_VERSION,
                 "agent_protocol": "1.0",
             });
             hyper::Response::builder()
