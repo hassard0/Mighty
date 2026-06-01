@@ -601,13 +601,22 @@ mod tests {
         let b = SharedDollarBudget::new(100);
         let _ = m.ask("greet?", &b).await.unwrap();
 
-        // Confirm one LlmCall event landed in the recorder buffer.
+        // Confirm our LlmCall event landed in the recorder buffer. The recorder
+        // is process-global, so unrelated mock tests can race while it is
+        // installed under the default parallel harness.
         let events = rec.events_snapshot();
-        let llm_count = events
-            .iter()
-            .filter(|e| matches!(e, mty_runtime::replay::TraceEvent::LlmCall { .. }))
-            .count();
-        assert_eq!(llm_count, 1, "expected exactly one recorded LlmCall");
+        let found = events.iter().any(|e| {
+            matches!(
+                e,
+                mty_runtime::replay::TraceEvent::LlmCall {
+                    prompt,
+                    reply,
+                    cost_cents,
+                    ..
+                } if prompt == "greet?" && reply == "hello world" && *cost_cents == 2
+            )
+        });
+        assert!(found, "expected the greet? LlmCall in the recorder buffer");
 
         let _ = uninstall();
     }
@@ -659,6 +668,9 @@ mod tests {
                 ..
             } = ev
             {
+                if prompt != "2+2?" {
+                    continue;
+                }
                 assert_eq!(prompt, "2+2?");
                 assert_eq!(reply, "computing");
                 assert_eq!(tool_uses.len(), 1);
@@ -699,6 +711,7 @@ mod tests {
                 TraceEvent::LlmCall { prompt, .. } => Some(prompt.clone()),
                 _ => None,
             })
+            .filter(|prompt| matches!(prompt.as_str(), "q1" | "q2" | "q3"))
             .collect();
         assert_eq!(prompts, vec!["q1", "q2", "q3"]);
         let _ = uninstall();

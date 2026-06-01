@@ -27,20 +27,6 @@ on:
       - "crates/mty-diagnostics/**"
       - ".github/workflows/playground.yml"
   pull_request:
-    paths:
-      - "tools/playground/**"
-      - "tools/gallery/**"
-      - "crates/mty-cli/src/playground.rs"
-      - "crates/mty-cli/Cargo.toml"
-      - "crates/mty-driver/**"
-      - "crates/mty-syntax/**"
-      - "crates/mty-ast/**"
-      - "crates/mty-hir/**"
-      - "crates/mty-types/**"
-      - "crates/mty-borrow/**"
-      - "crates/mty-ir/**"
-      - "crates/mty-diagnostics/**"
-      - ".github/workflows/playground.yml"
   workflow_dispatch:
 
 permissions:

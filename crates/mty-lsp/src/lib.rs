@@ -22,6 +22,7 @@
 //! - `textDocument/inlayHint` (inferred-type hints for `let` + params)
 //! - `textDocument/codeAction` (MT2021 / MT2002 / MT3001 / MT4001 fixes)
 //! - `textDocument/signatureHelp` (call + method-call sites)
+//! - `textDocument/documentSymbol` (CST-backed outline symbols)
 //! - `workspace/didChangeWorkspaceFolders` (re-analyzes per-folder open
 //!   files; cross-file resolution remains single-file inside the LSP)
 //! - lifecycle: `initialize` / `initialized` / `shutdown` / `exit`
@@ -43,6 +44,7 @@ pub mod definition;
 pub mod diagnostics;
 pub mod diff_apply;
 pub mod docs;
+pub mod document_symbols;
 pub mod hover;
 pub mod inlay_hints;
 pub mod line_index;

@@ -5,6 +5,7 @@ use crate::completion;
 use crate::definition;
 use crate::diagnostics as diag_module;
 use crate::docs::{apply_change, DocStore};
+use crate::document_symbols;
 use crate::hover;
 use crate::inlay_hints;
 use crate::rename as rename_mod;
@@ -18,14 +19,14 @@ use tower_lsp::lsp_types::{
     CodeActionProviderCapability, CodeActionResponse, CompletionOptions, CompletionParams,
     CompletionResponse, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DocumentFormattingParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
-    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, InlayHint,
-    InlayHintParams, InlayHintServerCapabilities, MessageType, OneOf, Position,
-    PrepareRenameResponse, PublishDiagnosticsParams, Range, RenameOptions, RenameParams,
-    SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
-    SemanticTokensRangeParams, SemanticTokensRangeResult, SemanticTokensResult,
-    SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, SignatureHelp,
-    SignatureHelpOptions, SignatureHelpParams, TextDocumentPositionParams,
+    DocumentFormattingParams, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability, InitializeParams,
+    InitializeResult, InitializedParams, InlayHint, InlayHintParams, InlayHintServerCapabilities,
+    MessageType, OneOf, Position, PrepareRenameResponse, PublishDiagnosticsParams, Range,
+    RenameOptions, RenameParams, SemanticTokensFullOptions, SemanticTokensOptions,
+    SemanticTokensParams, SemanticTokensRangeParams, SemanticTokensRangeResult,
+    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo,
+    SignatureHelp, SignatureHelpOptions, SignatureHelpParams, TextDocumentPositionParams,
     TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, WorkDoneProgressOptions,
     WorkspaceEdit, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
 };
@@ -100,6 +101,7 @@ impl LanguageServer for Backend {
                     ..Default::default()
                 }),
                 document_formatting_provider: Some(OneOf::Left(true)),
+                document_symbol_provider: Some(OneOf::Left(true)),
                 rename_provider: Some(OneOf::Right(RenameOptions {
                     prepare_provider: Some(true),
                     work_done_progress_options: WorkDoneProgressOptions::default(),
@@ -361,6 +363,16 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
         Ok(sig_help::signature_help(&doc, pos))
+    }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> LspResult<Option<DocumentSymbolResponse>> {
+        let Some(doc) = self.docs.get(&params.text_document.uri) else {
+            return Ok(None);
+        };
+        Ok(document_symbols::document_symbols(&doc))
     }
 
     async fn did_change_workspace_folders(&self, params: DidChangeWorkspaceFoldersParams) {
