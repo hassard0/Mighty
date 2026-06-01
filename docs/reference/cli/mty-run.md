@@ -2,8 +2,8 @@
 
 Compile a Mighty source file and execute it.
 
-**Slice 7 (`v0.7.0-runtime`):** `mty run` now defaults to the
-slice-7 runtime — a tokio-backed concurrent executor with mailboxes,
+**Slice 7 (`v0.7.0-runtime`):** `mty run` defaults to the slice-7
+runtime, a tokio-backed concurrent executor with mailboxes,
 supervisors, deadline timers, and budget/sandbox enforcement. Pass
 `--legacy-interp` to fall back to the slice-6 synchronous interpreter
 for diagnostic comparison.
@@ -27,29 +27,27 @@ executing:
 3. Effect inference + capability subsumption
 4. Borrow check
 5. MtyIR lowering
-6. **Runtime execution** (slice 7): build a `Runtime`, run `main` on
-   the slice-6 evaluator inside `tokio::block_on`; any agents spawned
-   during `main` use the runtime's per-agent task loops. Long-running
-   services that want explicit shutdown control should instead embed
-   via the programmatic `sdust_runtime::Runtime` API.
+6. Runtime execution: build a `Runtime`, run `main` on the evaluator
+   inside `tokio::block_on`, and run spawned agents on the runtime's
+   per-agent task loops.
 
-If any earlier stage reports an *error*, `mty run` prints the
-diagnostics (Ariadne-style with source spans) and exits **1**.
+If any earlier stage reports an error, `mty run` prints diagnostics
+with source spans and exits 1.
 
-Otherwise the interpreter starts at the fn named `main`. Slice 6/7's
-`main` takes zero arguments and may return:
+Otherwise execution starts at the fn named `main`. `main` takes zero
+arguments today and may return:
 
-- `()` / `Unit` — exit 0
-- `I32` (or another integer) — that value as the exit code
-- `Result::Ok(...)` — exit 0
-- `Result::Err(...)` — exit 1 (printed err payload)
+- `()` / `Unit` - exit 0
+- `I32` or another integer - that value as the exit code
+- `Result::Ok(...)` - exit 0
+- `Result::Err(...)` - exit 1, with the err payload printed
 
-A runtime trap (`panic(msg)`, divide-by-zero, missing handler, …)
-prints `trap SD5xxx: message` to stderr and exits **1**.
+A runtime trap (`panic(msg)`, divide-by-zero, missing handler, and so
+on) prints `trap SD5xxx: message` to stderr and exits 1.
 
-If the program has no `fn main`, `mty run` returns the runtime to
-shut down all agents and exits **0** (this matches example 07/08/10
-which lack a `main` in their canonical form).
+If the program has no `fn main`, `mty run` returns the runtime to shut
+down all agents and exits 0. This matches examples 07, 08, and 10,
+which lack a `main` in their canonical form.
 
 ## Exit codes
 
@@ -67,13 +65,14 @@ which lack a `main` in their canonical form).
 | `MTY_TRACE=stderr`        | emit JSON telemetry lines to stderr    |
 | `MTY_TRACE=file:/path`    | append JSON telemetry to file          |
 | `MTY_RUNTIME_THREADS=N`   | tokio worker thread count (default 1)  |
-| `MTY_DET_SEED=N`          | (reserved) seed for deterministic mode |
-| `MTY_HTTP_MOCK=1`         | (reserved) skip TCP bind for tests     |
+| `MTY_DET_SEED=N`          | reserved seed for deterministic mode   |
+| `MTY_HTTP_MOCK=1`         | reserved skip-TCP-bind flag for tests  |
 
 The legacy `STARDUST_*` spellings (`STARDUST_TRACE`,
-`STARDUST_RUNTIME_THREADS`, …) are still honoured for back-compat
-with v0.6-era deployments; the first lookup that falls through to
-a `STARDUST_*` name emits a one-shot deprecation warning on stderr.
+`STARDUST_RUNTIME_THREADS`, and so on) are still honoured for
+back-compat with v0.6-era deployments; the first lookup that falls
+through to a `STARDUST_*` name emits a one-shot deprecation warning on
+stderr.
 
 ## Example
 
@@ -108,26 +107,25 @@ hi
 
 ## Effect handling
 
-Effect calls (`fs.read`, `net.get`, …) are routed through the
-runtime's `StdHost`. Slice 7's host honours sandbox allowlists when
-they are set on the active budget (host:port for `net.*`, prefix
-match for `fs.*`) but does not yet perform real I/O — the call
-returns `Unit` after the check. Real I/O wires in slice 8 along with
-the codegen.
+Effect calls (`std.fs.read`, `std.fs.write`, `std.fs.exists`,
+`std.fs.list_dir`, and their documented aliases) are routed through
+the runtime's host dispatcher. If the native Cranelift path reaches a
+host-backed filesystem call, `mty run` falls back to the interpreter
+so the operation uses the same capability checks and real file I/O as
+`--legacy-interp`.
 
 ## Related commands
 
-- `mty check <file>` — parse + lower + type-check without executing
-- `mty dump --sir <file>` — print the MtyIR program
-- `mty dump --hir <file>` — print the lowered HIR
-- `mty dump --ast <file>` — print the AST item summary
-- `mty explain SD5xxx` — explain a runtime diagnostic
+- `mty check <file>` - parse + lower + type-check without executing
+- `mty dump --sir <file>` - print the MtyIR program
+- `mty dump --hir <file>` - print the lowered HIR
+- `mty dump --ast <file>` - print the AST item summary
+- `mty explain SD5xxx` - explain a runtime diagnostic
 
-## Future work (slice 8+)
+## Future work
 
 - Forward command-line args to `main(args: &[Str])`
 - Honour environment variables when the program reads `std.env`
-- Wire automatic supervisor restart (the policy is in place; the
-  orchestrator lands with codegen)
-- Real arena allocator (replaces the slice-7 approximate mem budget)
-- Native + Wasm codegen via LLVM / Cranelift
+- Wire automatic supervisor restart; the policy is in place, and the
+  orchestrator lands with codegen
+- Native capability ABI for host-backed stdlib calls in JIT/AOT output

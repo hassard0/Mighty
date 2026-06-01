@@ -23,6 +23,13 @@ trust gaps that make agent-built apps harder to diagnose.
   iteratively, so agent-generated command routers and IDE key
   dispatchers can grow without tripping `thread 'main' has overflowed
   its stack`.
+- **L18:** default `mty run` now treats host-backed `std.fs` calls as
+  interpreter-hosted when the Cranelift JIT sees them, returning the
+  normal fallback signal instead of compiling them through the generic
+  native extern stub. The stdlib host dispatcher also accepts common
+  agent spellings (`read_file`, `read_to_string`, `write_file`,
+  `write_string`, and `read_dir`) alongside the existing `std.fs`
+  names.
 
 ## [0.43.0] - 2026-05-31
 

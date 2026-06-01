@@ -226,8 +226,10 @@ fn is_typeck_pending(src: &str) -> bool {
 }
 
 /// Sweep all ship examples through the cranelift JIT path. Each
-/// example should produce a valid object — failures here surface as
-/// codegen regressions. (Linker-availability is not required.)
+/// example should produce a valid object unless it intentionally
+/// exercises an interpreter-hosted stdlib surface that `mty run`
+/// falls back for. Failures here surface as codegen regressions.
+/// Linker availability is not required.
 #[test]
 fn all_examples_compile_native() {
     let examples_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -249,7 +251,11 @@ fn all_examples_compile_native() {
         let st = codegen_abi::symbol_table();
         let syms = symbols_from(&st.iter().map(|(n, p)| (n.as_str(), *p)).collect::<Vec<_>>());
         if let Err(e) = build_jit(&prog, &syms) {
-            failed.push((name, format!("{e}")));
+            let err = format!("{e}");
+            if is_interpreter_hosted_std_fs_codegen(&err) {
+                continue;
+            }
+            failed.push((name, err));
         }
     }
     assert!(
@@ -262,6 +268,10 @@ fn all_examples_compile_native() {
             .collect::<Vec<_>>()
             .join("\n")
     );
+}
+
+fn is_interpreter_hosted_std_fs_codegen(err: &str) -> bool {
+    err.contains("std.fs.") && err.contains("is interpreter-hosted")
 }
 
 /// JIT-run smoke: for each adt/match/result/agent/mono case, JIT the

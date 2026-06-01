@@ -27,8 +27,9 @@ emission, LSP document symbols, and Windows control pipes.
 `mty 0.44.0-dev` so bug reports and agent telemetry point at the
 Mighty milestone rather than the internal Rust crate version. v0.44 is
 also hardening agent-generated app shapes: long `else if` command
-routers now parse iteratively, preserving the normal tree while
-avoiding stack overflow in large IDE-style dispatch ladders.
+routers now parse iteratively, and default `mty run` falls back to the
+interpreter for host-backed `std.fs` calls instead of routing them
+through the native extern stub.
 
 ## Why Mighty
 

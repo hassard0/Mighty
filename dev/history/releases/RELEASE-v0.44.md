@@ -25,6 +25,12 @@ versions, silent defaults, or process-level stack overflows.
   nested `IF_EXPR` CST shape. A 512-arm ladder now passes parser
   regression coverage and `mty check`, removing the practical ceiling
   hit by Mighty IDE key/command dispatch growth.
+- **L18:** host-backed `std.fs` calls now force the default `mty run`
+  path onto the interpreter fallback instead of compiling through the
+  Cranelift generic extern stub. The host dispatcher accepts
+  agent-friendly aliases (`read_file`, `read_to_string`, `write_file`,
+  `write_string`, and `read_dir`) so generated app code and docs can
+  use the common file-operation names directly.
 
 ## Validation plan
 
@@ -39,8 +45,8 @@ versions, silent defaults, or process-level stack overflows.
 
 ## Carry-forward priorities
 
-- **L18 (P1):** expose `std.fs` as a Mighty-callable capability API so
-  built Mighty apps can save/load without a Rust shim owning file I/O.
+- Continue expanding `std.fs` from interpreter-hosted calls toward a
+  fully native capability ABI for AOT/JIT output.
 - Broaden formatter rollout beyond safe top-level item shapes.
 - Continue replacing scalar ABI pain points with structured result and
   command surfaces that agents can generate without manual id mirrors.
