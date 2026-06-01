@@ -52,33 +52,39 @@ fn let_stmt(p: &mut Parser) {
 }
 
 pub fn if_expr(p: &mut Parser) -> bool {
-    p.start_node(IF_EXPR);
-    p.bump(IF_KW);
-    p.skip_trivia();
-    // `if let Pattern = scrutinee { ... }` — optional leading let-binding.
-    // The CST shape is the same IF_EXPR; HIR lowering branches on whether
-    // a LET_KW token is present.
-    if p.at(LET_KW) {
-        p.bump(LET_KW);
+    let mut open_ifs = 0usize;
+    loop {
+        p.start_node(IF_EXPR);
+        open_ifs += 1;
+        p.bump(IF_KW);
         p.skip_trivia();
-        patterns::pattern(p);
-        p.expect(EQ);
-        p.skip_trivia();
-    }
-    // Disable struct-literal parsing for the condition so `if x { ... }`
-    // parses as condition + body, not as `x { ... }` struct expr.
-    p.with_no_struct_literal(|p| {
-        exprs::expr(p);
-    });
-    block(p);
-    if p.eat(ELSE_KW) {
-        if p.at(IF_KW) {
-            if_expr(p);
-        } else {
+        // `if let Pattern = scrutinee { ... }` — optional leading let-binding.
+        // The CST shape is the same IF_EXPR; HIR lowering branches on whether
+        // a LET_KW token is present.
+        if p.at(LET_KW) {
+            p.bump(LET_KW);
+            p.skip_trivia();
+            patterns::pattern(p);
+            p.expect(EQ);
+            p.skip_trivia();
+        }
+        // Disable struct-literal parsing for the condition so `if x { ... }`
+        // parses as condition + body, not as `x { ... }` struct expr.
+        p.with_no_struct_literal(|p| {
+            exprs::expr(p);
+        });
+        block(p);
+        if !p.eat(ELSE_KW) {
+            break;
+        }
+        if !p.at(IF_KW) {
             block(p);
+            break;
         }
     }
-    p.finish_node();
+    for _ in 0..open_ifs {
+        p.finish_node();
+    }
     true
 }
 

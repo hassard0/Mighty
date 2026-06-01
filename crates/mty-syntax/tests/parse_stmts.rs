@@ -170,3 +170,23 @@ fn main() {
         .descendants()
         .any(|n| n.kind() == SyntaxKind::CALL_EXPR));
 }
+
+#[test]
+fn parse_long_else_if_ladder_without_stack_growth() {
+    use mty_syntax::{parse, SyntaxKind, SyntaxNode};
+
+    let mut src = String::from("fn f(x: I32) -> I32 { if x == 0 { 0 }");
+    for i in 1..512 {
+        src.push_str(&format!(" else if x == {i} {{ {i} }}"));
+    }
+    src.push_str(" else { -1 } }");
+
+    let r = parse(&src);
+    assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    let root = SyntaxNode::new_root(r.green);
+    let if_count = root
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::IF_EXPR)
+        .count();
+    assert_eq!(if_count, 512);
+}

@@ -25,7 +25,10 @@ emission, LSP document symbols, and Windows control pipes.
 
 `main` is now the v0.44 development line; dev builds report
 `mty 0.44.0-dev` so bug reports and agent telemetry point at the
-Mighty milestone rather than the internal Rust crate version.
+Mighty milestone rather than the internal Rust crate version. v0.44 is
+also hardening agent-generated app shapes: long `else if` command
+routers now parse iteratively, preserving the normal tree while
+avoiding stack overflow in large IDE-style dispatch ladders.
 
 ## Why Mighty
 
