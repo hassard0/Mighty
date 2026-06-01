@@ -1,8 +1,8 @@
-# Mighty v0.44 - Draft Release Notes
+# Mighty v0.44 Release Notes
 
 **Tag:** `v0.44.0`
-**Date:** TBD
-**Status:** DRAFT - agentic app reliability and release identity.
+**Date:** 2026-06-01
+**Status:** SHIPPED - agentic app reliability and release identity.
 
 **Headline:** make Mighty easier for agents to build and debug by
 closing trust gaps surfaced by Mighty IDE dogfooding.
@@ -15,10 +15,10 @@ agent-authored command routers. The theme for this release is simple:
 generated app code should fail with useful diagnostics, not with stale
 versions, silent defaults, or process-level stack overflows.
 
-## Release candidates
+## Shipped
 
 - **L9:** `mty --version` reports the Mighty language/toolchain
-  milestone (`0.44.0-dev` on main) instead of the internal Rust crate
+  milestone (`0.44.0`) instead of the internal Rust crate
   version `0.1.0`. The agent HTTP `/v1/agent/version` endpoint uses
   the same public version source.
 - **L37:** `else if` ladders parse iteratively while preserving the
@@ -32,16 +32,15 @@ versions, silent defaults, or process-level stack overflows.
   `write_string`, and `read_dir`) so generated app code and docs can
   use the common file-operation names directly.
 
-## Validation plan
+## Validation
 
-- Keep the full CI matrix green before tagging: Ubuntu, macOS,
-  Windows, minimal features, strict clippy, MSRV, build smoke,
-  `mty-bench`, and `cargo audit`.
-- Run focused parser, CLI, and driver checks for every IDE-dogfooding
-  fix included in the release.
-- Keep `main` protected. Use admin merge only to move green PRs through
-  branch rules; do not weaken checks, force-push protection, or delete
-  protection.
+- PR #18, #19, and #20 passed their required checks before merge.
+- Main CI passed after rerunning two infrastructure-failed jobs that
+  hit GitHub runner disk exhaustion.
+- The `v0.44.0` Release workflow completed successfully and published
+  platform binaries plus the conformance kit.
+- `main` stayed protected; admin merge was used only to move green PRs
+  through branch rules.
 
 ## Carry-forward priorities
 
