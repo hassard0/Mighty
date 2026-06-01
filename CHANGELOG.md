@@ -9,7 +9,14 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-- Next-cycle work remains tracked in GitHub issues and the docs backlog.
+v0.44 development focuses on removing the remaining IDE-dogfooding
+trust gaps that make agent-built apps harder to diagnose.
+
+### Fixed
+- **L9:** `mty --version` now reports the Mighty language/toolchain
+  milestone (`0.44.0-dev` on main) instead of the internal Rust crate
+  version `0.1.0`. The agent HTTP `/v1/agent/version` endpoint uses
+  the same public version source.
 
 ## [0.43.0] - 2026-05-31
 

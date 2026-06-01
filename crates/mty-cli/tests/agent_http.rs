@@ -135,7 +135,7 @@ fn version_endpoint_returns_protocol_and_mty_version() {
         .any(|(k, v)| k == "content-type" && v.contains("application/json")));
     let v: serde_json::Value = serde_json::from_slice(&body).expect("json");
     assert_eq!(v["agent_protocol"], "1.0");
-    assert!(v["mty_version"].as_str().unwrap().contains('.'));
+    assert_eq!(v["mty_version"], mty_cli::MIGHTY_VERSION);
     kill(&mut child);
 }
 

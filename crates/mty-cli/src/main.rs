@@ -8,7 +8,7 @@ use clap::{Args, Parser, Subcommand};
 use mty_cli::cmd;
 
 #[derive(Parser)]
-#[command(name = "mty", version, about = "Mighty compiler CLI")]
+#[command(name = "mty", version = mty_cli::MIGHTY_VERSION, about = "Mighty compiler CLI")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,

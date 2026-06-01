@@ -23,6 +23,10 @@ statement-form `Vec`/`String` mutators (`v.push(x)`, `v.pop()`,
 parsing (`!pred(x)`), truthful native-link diagnostics after object
 emission, LSP document symbols, and Windows control pipes.
 
+`main` is now the v0.44 development line; dev builds report
+`mty 0.44.0-dev` so bug reports and agent telemetry point at the
+Mighty milestone rather than the internal Rust crate version.
+
 ## Why Mighty
 
 Mighty is the first compiler-backed agent language with
