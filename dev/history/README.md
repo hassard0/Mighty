@@ -55,6 +55,8 @@ and later (the track-driven era) consult the individual
 - v0.43 draft — IDE dogfooding correctness rollup: short-circuit lowering,
   interpreter mutator writeback, top-level `const` formatting, prefix-call
   parsing, and native link diagnostics
+- v0.44 draft — public Mighty milestone versioning plus parser resilience for
+  long agent-generated `else if` command ladders
 
 | File | Headline |
 |---|---|

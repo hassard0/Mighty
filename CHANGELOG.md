@@ -17,6 +17,12 @@ trust gaps that make agent-built apps harder to diagnose.
   milestone (`0.44.0-dev` on main) instead of the internal Rust crate
   version `0.1.0`. The agent HTTP `/v1/agent/version` endpoint uses
   the same public version source.
+- **L37:** long top-level `else if` ladders now parse without growing
+  the Rust call stack once per arm. The CST shape remains the same for
+  downstream lowering/typechecking, but the parser consumes the ladder
+  iteratively, so agent-generated command routers and IDE key
+  dispatchers can grow without tripping `thread 'main' has overflowed
+  its stack`.
 
 ## [0.43.0] - 2026-05-31
 
