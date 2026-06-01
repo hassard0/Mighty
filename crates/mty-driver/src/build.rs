@@ -460,6 +460,24 @@ mod tests {
     }
 
     #[test]
+    fn jit_run_interpreter_hosted_std_fs_returns_fallback_signal() {
+        let src = r#"
+use std.fs
+
+fn main() {
+  std.fs.write("__mighty_jit_fallback_probe__.txt", "hello")
+  let body = std.fs.read("__mighty_jit_fallback_probe__.txt")
+  if body != "hello" { panic(body) }
+}
+"#
+        .to_string();
+        match jit_run(src, "fs.mty".into()) {
+            Ok(None) => {}
+            other => panic!("expected JIT fallback signal for std.fs, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn build_native_creates_object() {
         let _guard = LINKER_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().expect("tempdir");

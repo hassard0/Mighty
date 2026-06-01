@@ -925,9 +925,16 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 // Slice-8 stub: route through extern_call with the
                 // method name. The runtime stub returns 0 — the
                 // compiled program continues with a zero-default value.
-                let method = match op {
-                    mty_ir::ir::EffectOp::GenericCall { path: _, method } => method.clone(),
+                let (path, method) = match op {
+                    mty_ir::ir::EffectOp::GenericCall { path, method } => (path, method),
                 };
+                let full_name = effect_full_name(path, method);
+                if is_interpreter_hosted_stdlib(&full_name) {
+                    return Err(CodegenError::Unsupported(format!(
+                        "{full_name} is interpreter-hosted"
+                    )));
+                }
+                let method = method.clone();
                 let id = self.mod_ctx.intern_string(&method)?;
                 let gv = self.mod_ctx.module.declare_data_in_func(id, self.b.func);
                 let nptr = self.b.ins().symbol_value(ct::I64, gv);
@@ -2634,6 +2641,11 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 self.emit_vec_new()
             }
             FnRef::Builtin(BuiltinId::Extern(name)) => {
+                if is_interpreter_hosted_stdlib(name) {
+                    return Err(CodegenError::Unsupported(format!(
+                        "{name} is interpreter-hosted"
+                    )));
+                }
                 // Generic extern: route through the runtime ABI bridge.
                 // Slice-8 lowers this to a no-op-return stub (the
                 // runtime's extern_call returns i64). Real argument
@@ -3734,6 +3746,29 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         _ret_ty: Option<cranelift_codegen::ir::Type>,
     ) -> CompileResult<Option<cranelift_codegen::ir::Value>> {
         self.call_rt(name, &[], _ret_ty)
+    }
+}
+
+fn is_interpreter_hosted_stdlib(name: &str) -> bool {
+    matches!(
+        name,
+        "std.fs.read"
+            | "std.fs.read_file"
+            | "std.fs.read_to_string"
+            | "std.fs.write"
+            | "std.fs.write_file"
+            | "std.fs.write_string"
+            | "std.fs.exists"
+            | "std.fs.list_dir"
+            | "std.fs.read_dir"
+    )
+}
+
+fn effect_full_name(path: &[String], method: &str) -> String {
+    if path.is_empty() {
+        method.to_string()
+    } else {
+        format!("{}.{}", path.join("."), method)
     }
 }
 

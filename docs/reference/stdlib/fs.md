@@ -11,6 +11,14 @@ fn exists(fs: Fs, path: Path) -> Bool
 fn list_dir(fs: Fs, path: Path) -> Vec[Path]!IoErr
 ```
 
+The interpreter-backed host dispatcher also accepts the agent-friendly
+aliases `read_file`, `read_to_string`, `write_file`, `write_string`,
+and `read_dir`. Those names map to the same capability checks as the
+canonical operations above. When default `mty run` sees one of these
+host-backed calls in the Cranelift path, it falls back to interpreter
+execution so app code gets real file I/O instead of the native extern
+placeholder.
+
 In Rust:
 
 ```rust

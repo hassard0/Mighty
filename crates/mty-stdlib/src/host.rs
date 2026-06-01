@@ -36,10 +36,10 @@ pub fn dispatch(path: &[String], method: &str, args: &[Value]) -> Value {
         ("std.time", "now") => time_now(),
         ("std.time", "sleep") => time_sleep(args),
         // -------- fs --------
-        ("std.fs", "read") => fs_read(args),
-        ("std.fs", "write") => fs_write(args),
+        ("std.fs", "read" | "read_file" | "read_to_string") => fs_read(args),
+        ("std.fs", "write" | "write_file" | "write_string") => fs_write(args),
         ("std.fs", "exists") => fs_exists(args),
-        ("std.fs", "list_dir") => fs_list_dir(args),
+        ("std.fs", "list_dir" | "read_dir") => fs_list_dir(args),
         // -------- http (sync wrapper around tokio runtime) --------
         ("std.http", "get") => http_get(args),
         ("std.http", "post") => http_post(args),
@@ -268,5 +268,45 @@ fn http_post(args: &[Value]) -> Value {
     match rt.block_on(crate::http::post(&url, body)) {
         Ok(resp) => Value::Str(resp.body_str().to_string()),
         Err(_) => Value::Unit,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fs_host_dispatch_accepts_agent_friendly_aliases() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("notes").join("one.txt");
+        let path = path.display().to_string();
+
+        let write = dispatch(
+            &["std".into(), "fs".into()],
+            "write_file",
+            &[Value::Str(path.clone()), Value::Str("hello".into())],
+        );
+        assert!(matches!(write, Value::Unit));
+
+        let read = dispatch(
+            &["std".into(), "fs".into()],
+            "read_to_string",
+            &[Value::Str(path.clone())],
+        );
+        assert!(matches!(read, Value::Str(ref value) if value == "hello"));
+
+        let exists = dispatch(
+            &["std".into(), "fs".into()],
+            "exists",
+            &[Value::Str(path.clone())],
+        );
+        assert!(matches!(exists, Value::Bool(true)));
+
+        let listing = dispatch(
+            &["std".into(), "fs".into()],
+            "read_dir",
+            &[Value::Str(dir.path().join("notes").display().to_string())],
+        );
+        assert!(matches!(listing, Value::Array(entries) if entries.len() == 1));
     }
 }
