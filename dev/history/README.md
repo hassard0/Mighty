@@ -52,12 +52,14 @@ and later (the track-driven era) consult the individual
   `cli-min` install + macOS PGO re-enabled
 - v0.42 — Mighty IDE blocker closure: numeric casts, parser diagnostics,
   native computed `log()`, formatter safety, and Vec-liveness regression locks
-- v0.43 draft — IDE dogfooding correctness rollup: short-circuit lowering,
+- v0.43 — IDE dogfooding correctness rollup: short-circuit lowering,
   interpreter mutator writeback, top-level `const` formatting, prefix-call
   parsing, and native link diagnostics
-- v0.44 draft — public Mighty milestone versioning, parser resilience for
+- v0.44 — public Mighty milestone versioning, parser resilience for
   long agent-generated `else if` command ladders, and default `mty run`
   fallback for host-backed `std.fs` calls
+- v0.45 draft — native capability ABI coverage, broader formatter rollout,
+  and structured command/result surfaces for agent-built apps
 
 | File | Headline |
 |---|---|

@@ -9,12 +9,18 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-v0.44 development focuses on removing the remaining IDE-dogfooding
-trust gaps that make agent-built apps harder to diagnose.
+v0.45 development focuses on making agent-authored apps easier to
+ship: native capability ABI coverage, broader formatter rollout, and
+structured command/result surfaces that reduce shim code.
+
+## [0.44.0] - 2026-06-01
+
+v0.44 removed release-identity and IDE-dogfooding trust gaps that make
+agent-built apps harder to diagnose.
 
 ### Fixed
 - **L9:** `mty --version` now reports the Mighty language/toolchain
-  milestone (`0.44.0-dev` on main) instead of the internal Rust crate
+  milestone (`0.44.0`) instead of the internal Rust crate
   version `0.1.0`. The agent HTTP `/v1/agent/version` endpoint uses
   the same public version source.
 - **L37:** long top-level `else if` ladders now parse without growing
@@ -30,6 +36,7 @@ trust gaps that make agent-built apps harder to diagnose.
   agent spellings (`read_file`, `read_to_string`, `write_file`,
   `write_string`, and `read_dir`) alongside the existing `std.fs`
   names.
+[Release notes](dev/history/releases/RELEASE-v0.44.md).
 
 ## [0.43.0] - 2026-05-31
 
@@ -2531,7 +2538,8 @@ new` / `check` / `fmt` / `dump` / `run` / `build` / `explain`. 65+
 diagnostic codes across MT0xxx..MT8xxx. MSRV Rust 1.85. **376 tests
 passing.** [Release notes](dev/history/releases/RELEASE-v0.1.md).
 
-[Unreleased]: https://github.com/hassard0/Mighty/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/hassard0/Mighty/compare/v0.44.0...HEAD
+[0.44.0]: https://github.com/hassard0/Mighty/releases/tag/v0.44.0
 [0.11.0]: https://github.com/hassard0/Mighty/releases/tag/v0.11.0
 [0.10.0]: https://github.com/hassard0/Mighty/releases/tag/v0.10.0
 [0.9.0]: https://github.com/hassard0/Mighty/releases/tag/v0.9.0

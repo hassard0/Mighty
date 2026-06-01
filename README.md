@@ -14,22 +14,19 @@
 
 Compiler, runtime, formatter, package manager, doc generator, LSP,
 and stdlib all live in one Rust workspace and one `mty` binary.
-v0.43 is the current release: the Mighty IDE is itself written in
+v0.44 is the current release: the Mighty IDE is itself written in
 Mighty, and every bug it surfaces lands as a release-gate fix in the
-next cycle. v0.43 is the IDE-dogfooding correctness rollup for
-short-circuit `&&`/`||` lowering, interpreter writeback for
-statement-form `Vec`/`String` mutators (`v.push(x)`, `v.pop()`,
-`v.clear()`), syntax-aware top-level `const` formatting, prefix-call
-parsing (`!pred(x)`), truthful native-link diagnostics after object
-emission, LSP document symbols, and Windows control pipes.
+next cycle. v0.44 makes dev builds identify as the public Mighty
+milestone, parses long agent-generated `else if` command routers
+iteratively, and makes default `mty run` fall back to the interpreter
+for host-backed `std.fs` calls instead of routing them through the
+native extern stub.
 
-`main` is now the v0.44 development line; dev builds report
-`mty 0.44.0-dev` so bug reports and agent telemetry point at the
-Mighty milestone rather than the internal Rust crate version. v0.44 is
-also hardening agent-generated app shapes: long `else if` command
-routers now parse iteratively, and default `mty run` falls back to the
-interpreter for host-backed `std.fs` calls instead of routing them
-through the native extern stub.
+`main` is now the v0.45 development line; dev builds report
+`mty 0.45.0-dev`. The v0.45 focus is turning more interpreter-hosted
+stdlib behavior into native capability ABI coverage, broadening the
+safe formatter rollout, and replacing shim-heavy scalar command
+surfaces with structured result shapes agents can generate directly.
 
 ## Why Mighty
 
