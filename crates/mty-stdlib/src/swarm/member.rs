@@ -606,22 +606,20 @@ mod tests {
         // recorder is process-wide, so unrelated parallel tests may also
         // record turns while this recorder is installed.
         let events = rec.events_snapshot();
-        let llm_count = events
-            .iter()
-            .filter(|e| {
-                matches!(
-                    e,
-                    mty_runtime::replay::TraceEvent::LlmCall {
-                        prompt: p,
-                        reply,
-                        ..
-                    } if p == prompt && reply == "hello world"
-                )
-            })
-            .count();
-        assert_eq!(
-            llm_count, 1,
-            "expected exactly one matching recorded LlmCall"
+        let found = events.iter().any(|e| {
+            matches!(
+                e,
+                mty_runtime::replay::TraceEvent::LlmCall {
+                    prompt: p,
+                    reply,
+                    cost_cents,
+                    ..
+                } if p == prompt && reply == "hello world" && *cost_cents == 2
+            )
+        });
+        assert!(
+            found,
+            "expected the unique greet LlmCall in the recorder buffer"
         );
 
         let _ = uninstall();

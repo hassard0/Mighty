@@ -34,6 +34,15 @@ v0.43 candidates (rolled up from v0.42's IDE-dogfooding lessons log):
   path and linker stderr instead of reporting "no linker found" as a
   successful object-only build.
 
+### Added
+- **L35 — LSP document symbols.** `mty-lsp` now advertises and
+  implements `textDocument/documentSymbol`, returning CST-backed
+  outline symbols for functions, consts, structs, enum variants,
+  protocols, agents, traits, and impl members. This removes the
+  Mighty IDE's shim-side outline scanner fallback for normal `.mty`
+  files and gives agents a structured navigation surface. +3 LSP
+  integration tests.
+
 ### Known issues — carry forward
 - **L18 (P1):** `std.fs` is a Rust-internal capability API, not
   Mighty-callable.

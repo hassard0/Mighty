@@ -184,7 +184,8 @@ mty run   src/main.mty
 - `mty lsp` — LSP 3.17 (hover ships extracted `///` examples +
   See-also references + capability hints across **564 stdlib catalog
   entries** spanning 33 modules, completion, go-to-def, semantic
-  tokens, rename, inlay hints, code actions, signature help)
+  tokens, document symbols, rename, inlay hints, code actions,
+  signature help)
 - `mty find` — capability-tagged stdlib search ("write files" →
   `fs.write` APIs); pretty / NDJSON / short formats
 - `mty pkg` — resolver, lockfile, GitHub-Releases-backed registry,
