@@ -18,7 +18,8 @@
 
 use mty_runtime::abi_export::{
     signatures_json, signatures_text, RUNTIME_ABI_HEADER, RUNTIME_ABI_SIGNATURES,
-    RUNTIME_ABI_VERSION,
+    RUNTIME_ABI_VERSION, RUNTIME_ABI_VERSION_MAJOR, RUNTIME_ABI_VERSION_MINOR,
+    RUNTIME_ABI_VERSION_PATCH,
 };
 
 /// The three `mty abi` sub-commands. Kept in this module instead of
@@ -55,10 +56,19 @@ pub fn run(cmd: AbiCmd) -> i32 {
         AbiCmd::List { format } => match format {
             ListFormat::Plain => {
                 print!("{}", signatures_text());
+                // v0.47 T3 — surface the deprecation count so a quick
+                // `mty abi list` flags any pending removals.
+                let deprecated = RUNTIME_ABI_SIGNATURES
+                    .iter()
+                    .filter(|s| s.deprecated.is_some())
+                    .count();
                 println!(
-                    "# {} symbols, version {}",
+                    "# {} symbols, version {} (major={} minor={} patch={}), {deprecated} deprecated",
                     RUNTIME_ABI_SIGNATURES.len(),
-                    RUNTIME_ABI_VERSION
+                    RUNTIME_ABI_VERSION,
+                    RUNTIME_ABI_VERSION_MAJOR,
+                    RUNTIME_ABI_VERSION_MINOR,
+                    RUNTIME_ABI_VERSION_PATCH,
                 );
                 0
             }
@@ -103,5 +113,26 @@ mod tests {
     fn header_contains_version_guard() {
         assert!(RUNTIME_ABI_HEADER.contains("#define MTY_RUNTIME_ABI_VERSION"));
         assert!(RUNTIME_ABI_HEADER.contains("MTY_RUNTIME_ABI_H"));
+    }
+
+    #[test]
+    fn header_contains_numeric_version_macros() {
+        // v0.47 T3 — consumers can soft-pin with
+        //   #if MTY_RUNTIME_ABI_VERSION_MINOR >= N
+        // …which requires the three numeric macros below to live in
+        // the header alongside the string version.
+        assert!(RUNTIME_ABI_HEADER.contains("#define MTY_RUNTIME_ABI_VERSION_MAJOR"));
+        assert!(RUNTIME_ABI_HEADER.contains("#define MTY_RUNTIME_ABI_VERSION_MINOR"));
+        assert!(RUNTIME_ABI_HEADER.contains("#define MTY_RUNTIME_ABI_VERSION_PATCH"));
+    }
+
+    #[test]
+    fn json_surfaces_since_and_deprecated_fields() {
+        // v0.47 T3 — `mty abi list --format json` exposes these for
+        // adoption checks and compat-lint tooling.
+        let j = signatures_json();
+        assert!(j.contains("\"since\""));
+        assert!(j.contains("\"deprecated\""));
+        assert!(j.contains("\"version_minor\""));
     }
 }
