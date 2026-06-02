@@ -80,6 +80,14 @@ enum KnownReason {
     /// v0.42 typeck-side follow-up (the codegen side is correct;
     /// the SIR loses the type info before lowering sees it).
     VecOfAggregate,
+    /// v0.45 T1 native `std.fs` now actually touches disk under the
+    /// JIT path. Examples that write to absolute hard-coded paths
+    /// (`/tmp/...`) succeed under the interpreter's hosted dispatcher
+    /// but fail under JIT on hosts without that prefix (Windows) or
+    /// where the path is otherwise unwritable. v0.46 follow-up: rework
+    /// these examples to use a per-run tempdir before re-enabling the
+    /// JIT parity check.
+    NativeFsRealDisk,
 }
 
 /// v0.41 ships the suite green-on-everything-else by closing the top
@@ -152,6 +160,13 @@ const KNOWN_FAILING: &[KnownFailing] = &[
     KnownFailing {
         name: "43_secure_session",
         reason: KnownReason::VecOfAggregate,
+    },
+    // v0.45 T1 native std.fs exposes hard-coded absolute-path writes
+    // that previously no-op'd under the interpreter's hosted dispatcher.
+    // v0.46 follow-up rewrites these examples to use a per-run tempdir.
+    KnownFailing {
+        name: "34_taint_untaint",
+        reason: KnownReason::NativeFsRealDisk,
     },
 ];
 
@@ -310,14 +325,15 @@ fn examples_passing_floor_holds() {
             passing += 1;
         }
     }
-    // v0.42 T1 bumps the floor to 28: the L28/L21 regression
-    // example (`examples/44_vec_growth_in_loop.mty`) joins the
-    // clean-passing set so any future regression in the
-    // Vec-rebind-across-loop lowering trips this assertion on top
-    // of the per-example diff in `examples_conformance_sweep`.
-    // v0.41 T3 baseline was 27 (out of ~43 total, depending on
-    // add/remove); pre-v0.41-T3 the count was 24.
-    const FLOOR: usize = 28;
+    // v0.42 T1 bumped the floor to 28 with the L28/L21 regression
+    // example (`examples/44_vec_growth_in_loop.mty`) joining the
+    // clean-passing set. v0.45 T1 native std.fs reclaims one slot
+    // (`34_taint_untaint` now writes to a hard-coded `/tmp/...`
+    // path under the JIT — v0.46 follow-up), so the net floor sits
+    // at 27 until that example is reworked. v0.41 T3 baseline was
+    // 27 (out of ~43 total, depending on add/remove); pre-v0.41-T3
+    // the count was 24.
+    const FLOOR: usize = 27;
     assert!(
         passing >= FLOOR,
         "expected >= {FLOOR} examples to pass interp/JIT diff, only {passing} did",
