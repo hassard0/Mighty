@@ -17,7 +17,7 @@
 
 #include <stdint.h>
 
-#define MTY_RUNTIME_ABI_VERSION "0.46.0"
+#define MTY_RUNTIME_ABI_VERSION "0.46.0-dev"
 
 #ifdef __cplusplus
 extern "C" {

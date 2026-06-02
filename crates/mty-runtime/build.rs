@@ -43,6 +43,12 @@ fn main() {
     let abi_src = manifest_dir.join("src").join("codegen_abi.rs");
     println!("cargo:rerun-if-changed={}", abi_src.display());
     println!("cargo:rerun-if-changed=build.rs");
+    // Tagged-release CI sets MTY_ABI_VERSION to pin the artifact
+    // version (`v0.46.0` → `0.46.0`); dev builds leave it unset and
+    // pick up `MIGHTY_VERSION` from `crates/mty-cli/src/lib.rs`. Both
+    // paths must rebuild the generated header when the env flips so
+    // cached artifacts don't survive a release-tag bump.
+    println!("cargo:rerun-if-env-changed=MTY_ABI_VERSION");
 
     // Resolve the user-facing toolchain version. The workspace
     // `version.workspace = true` pin is still `0.1.0` (a holdover
