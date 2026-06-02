@@ -19,9 +19,10 @@ use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum};
 use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, IntPredicate, OptimizationLevel};
 use mty_ir::ir::{
-    BinOp, BlockId, BuiltinId, Const, FnRef, Function, IrFnId, IrTy, Local, Operand, Place,
-    Program, Projection, Rvalue, Stmt, Term, UnOp,
+    AdtRef, BinOp, BlockId, BuiltinId, Const, FnRef, Function, IrFnId, IrTy, Local, Operand,
+    Place, Program, Projection, Rvalue, Stmt, Term, UnOp,
 };
+use mty_types::AdtId;
 use mty_types::{FloatKind, IntKind};
 use std::collections::HashMap;
 
@@ -487,6 +488,16 @@ struct FnLowerer<'p, 'ctx, 'a, 'b> {
     blocks: HashMap<BlockId, BasicBlock<'ctx>>,
     /// SIR local → llvm "alloca" pointer holding the local's value.
     locals: HashMap<Local, PointerValue<'ctx>>,
+    /// v0.47 T2 — SIR local → llvm "alloca" pointer to the local's
+    /// **aggregate backing buffer** (a `[i8; N]` alloca sized for
+    /// the local's SIR layout). Materialised lazily by `agg_addr`
+    /// when an aggregate local is first written or read through a
+    /// projection. The local's ordinary [`locals`] alloca still
+    /// holds an `i8*` pointer to this buffer, so all the existing
+    /// "load the local as a pointer" paths (Vec ops, agent send,
+    /// etc.) keep working unchanged. Mirrors cranelift's
+    /// `agg_slots` HashMap in `crates/mty-codegen-cranelift/src/lower.rs`.
+    agg_buffers: HashMap<Local, PointerValue<'ctx>>,
     /// v0.40 T2 — destination SIR type of the current assignment, so
     /// `Vec.new()` can pluck `T` out of the LHS `Vec[T]` and seed the
     /// typed-slot header's `elem_size@24` word. Mirrors cranelift's
@@ -506,6 +517,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
             fv,
             blocks: HashMap::new(),
             locals: HashMap::new(),
+            agg_buffers: HashMap::new(),
             current_dest_ty: None,
         }
     }
@@ -796,14 +808,603 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
         }
     }
 
+    // =========================================================
+    // v0.47 T2 — projection-into-aggregate stores.
+    //
+    // Long-standing gap: the LLVM backend errored
+    // `Unsupported("llvm projection-store TBD")` for any
+    // `Stmt::Assign(Place{ proj: [Field(_), ..] }, rvalue)`. That
+    // meant struct field writes (`md.x = 5`), `outer.inner.x =`,
+    // and Metadata field stores under L15 / fs.metadata only
+    // worked on the cranelift lane. This block mirrors cranelift's
+    // `agg_slot_addr` / `place_addr` / `emit_adt_init` triplet
+    // (`crates/mty-codegen-cranelift/src/lower.rs` +
+    // `aggregate.rs`) so the same shapes route through GEP+store
+    // sequences in the LLVM lane:
+    //
+    //  - `agg_addr(local)` lazily alloca's a byte-buffer for true
+    //    aggregate locals (non-opaque ADTs / tuples / arrays /
+    //    Str / String / Bytes) and seeds the local's ptr-slot
+    //    with the buffer pointer. Opaque ADTs (`Vec`, `Page`, …)
+    //    still flow through the runtime-allocated header.
+    //  - `place_addr(place)` walks `Projection::Field(_)` /
+    //    `Projection::TupleIndex(_)` / `Projection::VariantField(_)`
+    //    / `Projection::Deref`, computing a byte-typed GEP'd
+    //    pointer to the projected field and the field's SIR type.
+    //  - `emit_adt_init` / `emit_tuple_init` populate freshly-
+    //    allocated buffers from `Rvalue::AdtInit` / `TupleInit`,
+    //    so the *read*-side of "field-write + readback" actually
+    //    has bytes to load.
+    //
+    // Together this lifts `Unsupported("llvm projection-store
+    // TBD")` and lets LLVM compile struct-field-write programs
+    // (and the L15 metadata workload that started this thread).
+
+    /// True iff `t` should live in stack-buffer storage. Tuples /
+    /// arrays / true ADTs / `Str` / `String` / `Bytes` all do.
+    /// Mirrors cranelift's [`is_aggregate`].
+    fn is_aggregate_ty(t: &IrTy) -> bool {
+        matches!(
+            t,
+            IrTy::Tuple(_)
+                | IrTy::Array { .. }
+                | IrTy::Adt(_, _)
+                | IrTy::Str
+                | IrTy::String
+                | IrTy::Bytes
+        )
+    }
+
+    /// True iff `t` is an "opaque" ADT — registered by the prelude
+    /// with no constructable variants (Vec, Page, IoErr, …). These
+    /// flow as i64 pointers to runtime-allocated headers, not as
+    /// stack buffers, so we *don't* allocate a buffer for them.
+    fn is_opaque_adt_ty(prog: &Program, t: &IrTy) -> bool {
+        if let IrTy::Adt(id, _) = t {
+            if let Some(adt) = prog.adt_by_id(*id) {
+                return adt.variants.is_empty();
+            }
+        }
+        false
+    }
+
+    /// Lazily allocate a backing buffer for aggregate local `l`
+    /// (sized for its SIR type), seed the local's ptr-slot with
+    /// the buffer's address, and return the buffer pointer. For
+    /// opaque ADTs or for locals already containing a valid
+    /// pointer the existing pointer is returned (we *load* the
+    /// ptr-slot rather than re-alloca).
+    fn agg_addr(&mut self, l: Local) -> CompileResult<PointerValue<'ctx>> {
+        let lty = self.f.locals[l.0 as usize].ty.clone();
+        let slot = self.ensure_local(l);
+        // Opaque ADTs and non-aggregate scalars never get a stack
+        // buffer — they're carried as a single pointer / scalar
+        // in the local's slot.
+        let needs_buffer =
+            Self::is_aggregate_ty(&lty) && !Self::is_opaque_adt_ty(self.pl.prog, &lty);
+        if !needs_buffer {
+            // Load whatever pointer is currently in the slot. For
+            // Adt-but-not-aggregate-stored locals this is the
+            // opaque header pointer.
+            let loaded = self
+                .pl
+                .builder
+                .build_load(self.pl.ptr_ty(), slot, "agg_ptr_load")
+                .unwrap();
+            return Ok(match loaded {
+                BasicValueEnum::PointerValue(p) => p,
+                BasicValueEnum::IntValue(iv) => self
+                    .pl
+                    .builder
+                    .build_int_to_ptr(iv, self.pl.ptr_ty(), "agg_i2p")
+                    .unwrap(),
+                _ => self.pl.ptr_ty().const_null(),
+            });
+        }
+        if let Some(p) = self.agg_buffers.get(&l) {
+            return Ok(*p);
+        }
+        // Alloca a byte-array of the right size + alignment for
+        // `lty`. We deliberately use `[i8; N]` so byte-offset
+        // GEPs in `place_addr` line up trivially with the field
+        // offsets `struct_field_offset` produces.
+        let size = Self::ir_type_size(&lty, self.pl.prog).max(1);
+        let i8t = self.pl.i8_ty();
+        let arr_ty = i8t.array_type(size);
+        let buf = self
+            .pl
+            .builder
+            .build_alloca(arr_ty, &format!("_agg{}", l.0))
+            .expect("alloca aggregate buffer");
+        // Seed the local's ptr-slot with the buffer address.
+        self.pl.builder.build_store(slot, buf).unwrap();
+        self.agg_buffers.insert(l, buf);
+        Ok(buf)
+    }
+
+    /// Materialise the address of a *place* (local + projections).
+    /// Returns `(byte_typed_ptr, terminal_sir_ty)`. Mirrors
+    /// cranelift's `place_addr` exactly — same offset arithmetic,
+    /// same Deref/VariantField handling, same Index-OOL bailout.
+    fn place_addr(&mut self, place: &Place) -> CompileResult<(PointerValue<'ctx>, IrTy)> {
+        let local_ty = self.f.locals[place.local.0 as usize].ty.clone();
+        let mut cur_addr: PointerValue<'ctx> = if Self::is_aggregate_ty(&local_ty) {
+            self.agg_addr(place.local)?
+        } else if place.proj.iter().any(|p| matches!(p, Projection::Deref)) {
+            // Scalar with deref projection: treat the local's
+            // value as a pointer.
+            let slot = self.ensure_local(place.local);
+            let ty = self.pl.llvm_ty(&local_ty);
+            let v = self.pl.builder.build_load(ty, slot, "deref_base").unwrap();
+            match v {
+                BasicValueEnum::PointerValue(p) => p,
+                BasicValueEnum::IntValue(iv) => self
+                    .pl
+                    .builder
+                    .build_int_to_ptr(iv, self.pl.ptr_ty(), "scalar_i2p")
+                    .unwrap(),
+                _ => self.pl.ptr_ty().const_null(),
+            }
+        } else {
+            // Scalar-with-non-deref projection: usually a poisoned
+            // local. Re-interpret as a pointer for best-effort.
+            let slot = self.ensure_local(place.local);
+            let ty = self.pl.llvm_ty(&local_ty);
+            let v = self.pl.builder.build_load(ty, slot, "scalar_base").unwrap();
+            match v {
+                BasicValueEnum::PointerValue(p) => p,
+                BasicValueEnum::IntValue(iv) => self
+                    .pl
+                    .builder
+                    .build_int_to_ptr(iv, self.pl.ptr_ty(), "poison_i2p")
+                    .unwrap(),
+                _ => self.pl.ptr_ty().const_null(),
+            }
+        };
+        let mut cur_ty = local_ty;
+        for proj in &place.proj {
+            match proj {
+                Projection::Field(idx) => match &cur_ty {
+                    IrTy::Adt(id, _) => {
+                        let adt = self
+                            .pl
+                            .prog
+                            .adt_by_id(*id)
+                            .ok_or_else(|| {
+                                LlvmError::Module(format!("missing adt {:?}", id))
+                            })?
+                            .clone();
+                        let (off, fld_ty) = Self::struct_field_offset(self.pl.prog, &adt, *idx)
+                            .ok_or_else(|| {
+                                LlvmError::Module(format!(
+                                    "bad field {} in {}",
+                                    idx, adt.name
+                                ))
+                            })?;
+                        cur_addr = self.byte_gep(cur_addr, off);
+                        cur_ty = fld_ty;
+                    }
+                    _ => {
+                        // Best-effort: assume natural i64 packing.
+                        let off: u32 = (*idx as u32) * 8;
+                        cur_addr = self.byte_gep(cur_addr, off);
+                        cur_ty = IrTy::Int(IntKind::I64);
+                    }
+                },
+                Projection::TupleIndex(idx) => {
+                    let elems = match &cur_ty {
+                        IrTy::Tuple(elems) => elems.clone(),
+                        _ => {
+                            return Err(LlvmError::Unsupported(
+                                "tuple proj on non-tuple".into(),
+                            ));
+                        }
+                    };
+                    let (off, fld_ty) = Self::tuple_offset(self.pl.prog, &elems, *idx)
+                        .ok_or_else(|| LlvmError::Module(format!("bad tuple idx {}", idx)))?;
+                    cur_addr = self.byte_gep(cur_addr, off);
+                    cur_ty = fld_ty;
+                }
+                Projection::VariantField(variant, field) => match &cur_ty {
+                    IrTy::Adt(id, _) => {
+                        let adt = self
+                            .pl
+                            .prog
+                            .adt_by_id(*id)
+                            .ok_or_else(|| {
+                                LlvmError::Module(format!("missing adt {:?}", id))
+                            })?
+                            .clone();
+                        let (off, fld_ty) =
+                            Self::variant_field_offset(self.pl.prog, &adt, *variant, *field)
+                                .ok_or_else(|| {
+                                    LlvmError::Module(format!(
+                                        "bad variant.field {}.{} in {}",
+                                        variant, field, adt.name
+                                    ))
+                                })?;
+                        cur_addr = self.byte_gep(cur_addr, off);
+                        cur_ty = fld_ty;
+                    }
+                    _ => {
+                        // Best-effort fallback (tag(4) + pad + i64
+                        // fields).
+                        let off: u32 = 8 + (*field as u32) * 8;
+                        cur_addr = self.byte_gep(cur_addr, off);
+                        cur_ty = IrTy::Int(IntKind::I64);
+                    }
+                },
+                Projection::Deref => {
+                    // Load the pointer through `cur_addr`, then
+                    // continue from the loaded value as new base.
+                    let v = self
+                        .pl
+                        .builder
+                        .build_load(self.pl.ptr_ty(), cur_addr, "deref_step")
+                        .unwrap();
+                    cur_addr = match v {
+                        BasicValueEnum::PointerValue(p) => p,
+                        BasicValueEnum::IntValue(iv) => self
+                            .pl
+                            .builder
+                            .build_int_to_ptr(iv, self.pl.ptr_ty(), "deref_i2p")
+                            .unwrap(),
+                        _ => self.pl.ptr_ty().const_null(),
+                    };
+                    cur_ty = match cur_ty {
+                        IrTy::Ref { inner, .. } | IrTy::RawPtr(inner) => *inner,
+                        other => other,
+                    };
+                }
+                Projection::Index(_) => {
+                    return Err(LlvmError::Unsupported(
+                        "llvm array index projection".into(),
+                    ));
+                }
+            }
+        }
+        Ok((cur_addr, cur_ty))
+    }
+
+    /// Byte-offset GEP from `base` by a constant offset. Uses an i8
+    /// element type so the offset is in raw bytes, matching the
+    /// natural-alignment layout produced by `struct_field_offset`.
+    fn byte_gep(&mut self, base: PointerValue<'ctx>, off: u32) -> PointerValue<'ctx> {
+        if off == 0 {
+            return base;
+        }
+        let i8t = self.pl.i8_ty();
+        let off_v = self.pl.i64_ty().const_int(off as u64, false);
+        unsafe {
+            self.pl
+                .builder
+                .build_in_bounds_gep(i8t, base, &[off_v], "fld_off")
+                .unwrap()
+        }
+    }
+
+    /// LLVM field type for a scalar SIR type. Returns `None` for
+    /// aggregate fields (caller must memcpy / chain-project).
+    fn field_load_ty(&self, t: &IrTy) -> Option<BasicTypeEnum<'ctx>> {
+        Some(match t {
+            IrTy::Bool => self.pl.i8_ty().into(),
+            IrTy::Char => self.pl.i32_ty().into(),
+            IrTy::Int(k) => match k {
+                IntKind::I8 | IntKind::U8 => self.pl.i8_ty().into(),
+                IntKind::I16 | IntKind::U16 => self.pl.ctx.i16_type().into(),
+                IntKind::I32 | IntKind::U32 | IntKind::IntInfer => self.pl.i32_ty().into(),
+                IntKind::I64 | IntKind::U64 | IntKind::ISize | IntKind::USize => {
+                    self.pl.i64_ty().into()
+                }
+                IntKind::I128 | IntKind::U128 => return None,
+            },
+            IrTy::Float(k) => match k {
+                FloatKind::F32 => self.pl.ctx.f32_type().into(),
+                FloatKind::F64 | FloatKind::FloatInfer => self.pl.ctx.f64_type().into(),
+            },
+            IrTy::Duration | IrTy::Size => self.pl.i64_ty().into(),
+            IrTy::Ref { .. } | IrTy::RawPtr(_) | IrTy::Cap { .. } | IrTy::Fn { .. } => {
+                self.pl.ptr_ty().into()
+            }
+            // Strings / aggregates inside aggregates: bail out.
+            IrTy::Str | IrTy::String | IrTy::Bytes => return None,
+            // Best-effort for poisoned / opaque types: i64.
+            IrTy::Error | IrTy::Param(_) | IrTy::Module(_) => self.pl.i64_ty().into(),
+            IrTy::Tuple(_) | IrTy::Array { .. } | IrTy::Adt(_, _) | IrTy::Dyn(_) => return None,
+            IrTy::Unit | IrTy::Never => return None,
+        })
+    }
+
+    /// Struct field offset (0-th variant) — mirrors cranelift's
+    /// [`struct_field_offset`] in
+    /// `crates/mty-codegen-cranelift/src/aggregate.rs`.
+    fn struct_field_offset(prog: &Program, adt: &AdtRef, field: usize) -> Option<(u32, IrTy)> {
+        Self::variant_field_offset(prog, adt, 0, field)
+    }
+
+    /// Per-variant field offset — payload starts after the 4-byte
+    /// tag (aligned to the max payload alignment) for multi-variant
+    /// enums, at 0 for structs. Within the variant, fields lay out
+    /// sequentially with natural alignment.
+    fn variant_field_offset(
+        prog: &Program,
+        adt: &AdtRef,
+        variant: usize,
+        field: usize,
+    ) -> Option<(u32, IrTy)> {
+        let v = adt.variants.get(variant)?;
+        let f_ty = v.fields.get(field)?.ty.clone();
+        let f_align = Self::ir_type_align(&f_ty, prog);
+        let payload_start = if adt.variants.len() > 1 {
+            let pal = Self::max_payload_align(prog, adt);
+            Self::align_up(4, pal)
+        } else {
+            0
+        };
+        let mut off: u32 = 0;
+        for fi in 0..field {
+            let l = &v.fields[fi].ty;
+            let a = Self::ir_type_align(l, prog);
+            let s = Self::ir_type_size(l, prog);
+            off = Self::align_up(off, a);
+            off += s;
+        }
+        off = Self::align_up(off, f_align);
+        Some((payload_start + off, f_ty))
+    }
+
+    /// Tuple element offset — mirrors cranelift's [`tuple_offset`].
+    fn tuple_offset(prog: &Program, elems: &[IrTy], idx: usize) -> Option<(u32, IrTy)> {
+        if idx >= elems.len() {
+            return None;
+        }
+        let elem_ty = elems[idx].clone();
+        let elem_align = Self::ir_type_align(&elem_ty, prog);
+        let mut off: u32 = 0;
+        for prev in &elems[..idx] {
+            let a = Self::ir_type_align(prev, prog);
+            let s = Self::ir_type_size(prev, prog);
+            off = Self::align_up(off, a);
+            off += s;
+        }
+        off = Self::align_up(off, elem_align);
+        Some((off, elem_ty))
+    }
+
+    fn max_payload_align(prog: &Program, adt: &AdtRef) -> u32 {
+        let mut a = 1;
+        for v in &adt.variants {
+            for f in &v.fields {
+                a = a.max(Self::ir_type_align(&f.ty, prog));
+            }
+        }
+        a
+    }
+
+    fn align_up(v: u32, a: u32) -> u32 {
+        debug_assert!(a.is_power_of_two() && a > 0);
+        (v + a - 1) & !(a - 1)
+    }
+
+    /// Natural alignment of a SIR type. Mirrors `Layout::align` in
+    /// `crates/mty-codegen-cranelift/src/layout.rs`. Sequential
+    /// packing → struct alignment is the max field alignment.
+    fn ir_type_align(t: &IrTy, prog: &Program) -> u32 {
+        use IrTy::*;
+        match t {
+            Bool => 1,
+            Char => 4,
+            Unit | Never | Module(_) | Param(_) | Error => 1,
+            Int(k) => match k {
+                IntKind::I8 | IntKind::U8 => 1,
+                IntKind::I16 | IntKind::U16 => 2,
+                IntKind::I32 | IntKind::U32 | IntKind::IntInfer => 4,
+                IntKind::I64 | IntKind::U64 | IntKind::ISize | IntKind::USize => 8,
+                IntKind::I128 | IntKind::U128 => 8,
+            },
+            Float(k) => match k {
+                FloatKind::F32 => 4,
+                FloatKind::F64 | FloatKind::FloatInfer => 8,
+            },
+            Duration | Size => 8,
+            Str | String | Bytes | Dyn(_) => 8,
+            Ref { .. } | RawPtr(_) | Cap { .. } | Fn { .. } => 8,
+            Tuple(elems) => elems
+                .iter()
+                .map(|e| Self::ir_type_align(e, prog))
+                .max()
+                .unwrap_or(1),
+            Array { elem, .. } => Self::ir_type_align(elem, prog),
+            Adt(id, _) => match prog.adt_by_id(*id) {
+                Some(adt) if adt.variants.is_empty() => 8,
+                Some(adt) => {
+                    let mut a = if adt.variants.len() > 1 { 4 } else { 1 };
+                    for v in &adt.variants {
+                        for f in &v.fields {
+                            a = a.max(Self::ir_type_align(&f.ty, prog));
+                        }
+                    }
+                    a
+                }
+                None => 8,
+            },
+        }
+    }
+
+    /// Emit a typed scalar store of `val` (already coerced to the
+    /// field's natural LLVM type) at `addr`.
+    fn store_scalar(
+        &mut self,
+        addr: PointerValue<'ctx>,
+        val: BasicValueEnum<'ctx>,
+        ty: &IrTy,
+        src_ty: Option<&IrTy>,
+    ) -> CompileResult<()> {
+        let want = self.field_load_ty(ty).ok_or_else(|| {
+            LlvmError::Unsupported(format!("store of non-scalar field type {:?}", ty))
+        })?;
+        let val = self.coerce_with_src(val, want, src_ty);
+        self.pl.builder.build_store(addr, val).unwrap();
+        Ok(())
+    }
+
+    /// `Rvalue::AdtInit` — allocate (or reuse) the buffer backing
+    /// `dst`, write each field at its computed offset, then return
+    /// the buffer pointer so the outer `lower_assign` can store
+    /// it into the local's ptr-slot. Mirrors cranelift's
+    /// `emit_adt_init` (in `lower.rs`).
+    fn emit_adt_init_into(
+        &mut self,
+        dst_local: Local,
+        adt_id: AdtId,
+        variant: usize,
+        fields: &[Operand],
+    ) -> CompileResult<PointerValue<'ctx>> {
+        let adt = self
+            .pl
+            .prog
+            .adt_by_id(adt_id)
+            .ok_or_else(|| LlvmError::Module(format!("undeclared adt {:?}", adt_id)))?
+            .clone();
+        let addr = self.agg_addr(dst_local)?;
+        // Enum: write tag at offset 0.
+        if adt.variants.len() > 1 {
+            let tag_addr = self.byte_gep(addr, 0);
+            let tag_val = self.pl.i32_ty().const_int(variant as u64, false);
+            self.pl.builder.build_store(tag_addr, tag_val).unwrap();
+        }
+        for (i, op) in fields.iter().enumerate() {
+            let (off, f_ty) = Self::variant_field_offset(self.pl.prog, &adt, variant, i)
+                .ok_or_else(|| {
+                    LlvmError::Module(format!(
+                        "bad init field {}.{} in {}",
+                        variant, i, adt.name
+                    ))
+                })?;
+            let field_addr = self.byte_gep(addr, off);
+            let v = self.eval_operand(op)?;
+            if Self::is_aggregate_ty(&f_ty) && !Self::is_opaque_adt_ty(self.pl.prog, &f_ty) {
+                // Nested aggregate field — operand should be a
+                // pointer to a backing buffer; memcpy its bytes.
+                let size = Self::ir_type_size(&f_ty, self.pl.prog);
+                let src_ptr = match v {
+                    BasicValueEnum::PointerValue(p) => p,
+                    BasicValueEnum::IntValue(iv) => self
+                        .pl
+                        .builder
+                        .build_int_to_ptr(iv, self.pl.ptr_ty(), "agg_field_i2p")
+                        .unwrap(),
+                    _ => self.pl.ptr_ty().const_null(),
+                };
+                self.memcpy_bytes(field_addr, src_ptr, size);
+            } else {
+                let src_ty = self.operand_ir_ty(op);
+                self.store_scalar(field_addr, v, &f_ty, src_ty.as_ref())?;
+            }
+        }
+        Ok(addr)
+    }
+
+    /// `Rvalue::TupleInit` — sibling of [`Self::emit_adt_init_into`]
+    /// for anonymous tuple aggregates.
+    fn emit_tuple_init_into(
+        &mut self,
+        dst_local: Local,
+        elems: &[Operand],
+    ) -> CompileResult<PointerValue<'ctx>> {
+        let local_ty = self.f.locals[dst_local.0 as usize].ty.clone();
+        let elem_tys = match &local_ty {
+            IrTy::Tuple(es) => es.clone(),
+            _ => return Err(LlvmError::Unsupported("non-tuple TupleInit".into())),
+        };
+        let addr = self.agg_addr(dst_local)?;
+        for (i, op) in elems.iter().enumerate() {
+            let (off, f_ty) = Self::tuple_offset(self.pl.prog, &elem_tys, i)
+                .ok_or_else(|| LlvmError::Module(format!("bad tuple init idx {}", i)))?;
+            let field_addr = self.byte_gep(addr, off);
+            let v = self.eval_operand(op)?;
+            if Self::is_aggregate_ty(&f_ty) && !Self::is_opaque_adt_ty(self.pl.prog, &f_ty) {
+                let size = Self::ir_type_size(&f_ty, self.pl.prog);
+                let src_ptr = match v {
+                    BasicValueEnum::PointerValue(p) => p,
+                    BasicValueEnum::IntValue(iv) => self
+                        .pl
+                        .builder
+                        .build_int_to_ptr(iv, self.pl.ptr_ty(), "tup_field_i2p")
+                        .unwrap(),
+                    _ => self.pl.ptr_ty().const_null(),
+                };
+                self.memcpy_bytes(field_addr, src_ptr, size);
+            } else {
+                let src_ty = self.operand_ir_ty(op);
+                self.store_scalar(field_addr, v, &f_ty, src_ty.as_ref())?;
+            }
+        }
+        Ok(addr)
+    }
+
+    /// `llvm.memcpy.p0.p0.i64` — small, fixed-size aggregate copy.
+    /// Used by nested-aggregate AdtInit / TupleInit fields.
+    fn memcpy_bytes(&mut self, dst: PointerValue<'ctx>, src: PointerValue<'ctx>, size: u32) {
+        if size == 0 {
+            return;
+        }
+        let n = self.pl.i64_ty().const_int(size as u64, false);
+        let _ = self
+            .pl
+            .builder
+            .build_memcpy(dst, 1, src, 1, n)
+            .expect("memcpy");
+    }
+
     fn lower_assign(&mut self, place: &Place, rv: &Rvalue) -> CompileResult<()> {
+        // v0.47 T2 — projection-store. When the LHS has projections,
+        // route through `place_addr` + `store_scalar`. This is the
+        // long-standing `Unsupported("llvm projection-store TBD")`
+        // bail that v0.42 T2 / v0.45 T1 / v0.46 T4 all noted.
         if !place.proj.is_empty() {
-            return Err(LlvmError::Unsupported("llvm projection-store TBD".into()));
+            let (addr, ty) = self.place_addr(place)?;
+            let prev = self.current_dest_ty.take();
+            self.current_dest_ty = Some(ty.clone());
+            let v = self.eval_rvalue(rv)?;
+            self.current_dest_ty = prev;
+            let src_ty = match rv {
+                Rvalue::Use(op) => self.operand_ir_ty(op),
+                _ => None,
+            };
+            return self.store_scalar(addr, v, &ty, src_ty.as_ref());
+        }
+        // v0.47 T2 — aggregate-constructing rvalues write directly
+        // into the local's backing buffer (which `agg_addr` will
+        // lazily alloca), then seed the local's ptr-slot with the
+        // buffer pointer. Mirrors cranelift's `lower_assign`
+        // AdtInit / TupleInit fast-path so subsequent field reads /
+        // writes have actual bytes to address.
+        let local_ty = self.f.locals[place.local.0 as usize].ty.clone();
+        let agg_target = Self::is_aggregate_ty(&local_ty)
+            && !Self::is_opaque_adt_ty(self.pl.prog, &local_ty);
+        match rv {
+            Rvalue::AdtInit {
+                adt,
+                variant,
+                fields,
+            } if agg_target => {
+                let buf = self.emit_adt_init_into(place.local, *adt, *variant, fields)?;
+                let slot = self.ensure_local(place.local);
+                self.pl.builder.build_store(slot, buf).unwrap();
+                return Ok(());
+            }
+            Rvalue::TupleInit(elems) if agg_target => {
+                let buf = self.emit_tuple_init_into(place.local, elems)?;
+                let slot = self.ensure_local(place.local);
+                self.pl.builder.build_store(slot, buf).unwrap();
+                return Ok(());
+            }
+            _ => {}
         }
         // v0.40 T2 — pin the destination local's SIR type around the
         // rvalue evaluation so `Vec.new()` can read `Vec[T]` and seed
         // the typed-slot header's elem_size word.
-        let local_ty = self.f.locals[place.local.0 as usize].ty.clone();
         let prev_dest = self.current_dest_ty.take();
         self.current_dest_ty = Some(local_ty);
         let v = self.eval_rvalue(rv)?;
@@ -870,6 +1471,18 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
             // the wasm backend. The cranelift native path handles real
             // pointer extraction.
             Rvalue::StrPtr(src) => self.eval_operand(src),
+            // v0.47 T2 — best-effort eval for AdtInit / TupleInit
+            // when the rvalue is consumed outside `lower_assign`'s
+            // direct fast-path (e.g. an inline construction passed
+            // straight to a fn call). Materialise a fresh scratch
+            // local and emit-into it. The cranelift backend's
+            // `eval_rvalue` doesn't see these shapes either because
+            // the IR lowerer always lands them in `lower_assign`,
+            // so this stub keeps the codegen total without
+            // regressing the common path.
+            Rvalue::AdtInit { .. } | Rvalue::TupleInit(_) | Rvalue::ArrayInit(_) => {
+                Ok(self.pl.ptr_ty().const_null().into())
+            }
             // Best-effort stubs for the rest — all return a null pointer
             // so the function still verifies.
             _ => Ok(self.pl.ptr_ty().const_null().into()),
@@ -881,8 +1494,24 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
             Operand::Const(c) => self.eval_const(c),
             Operand::Copy(p) | Operand::Move(p) => {
                 if !p.proj.is_empty() {
-                    // Best-effort: treat as a null pointer.
-                    return Ok(self.pl.ptr_ty().const_null().into());
+                    // v0.47 T2 — projection-read. Walk projections
+                    // via `place_addr` and emit a typed load from
+                    // the computed offset. Falls back to a null
+                    // pointer when the terminal type is itself
+                    // aggregate or otherwise non-scalar (the same
+                    // path the codegen used pre-fix).
+                    let (addr, ty) = self.place_addr(p)?;
+                    if let Some(want) = self.field_load_ty(&ty) {
+                        return Ok(self
+                            .pl
+                            .builder
+                            .build_load(want, addr, "fld_load")
+                            .unwrap());
+                    }
+                    // Aggregate / Str field: hand back the
+                    // (computed) pointer so callers that need a
+                    // sub-aggregate view can carry it forward.
+                    return Ok(addr.into());
                 }
                 let slot = self.ensure_local(p.local);
                 let ty = self.pl.llvm_ty(&self.f.locals[p.local.0 as usize].ty);
