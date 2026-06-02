@@ -491,3 +491,34 @@ fn row_11_fn_ptr() {
     p.push("row_11_fn_ptr");
     run_row(&p, Some("row11:"));
 }
+
+#[test]
+fn row_12_str_slice_ascii() {
+    // v0.46 T3 (L52 fix): `extern c fn f(s: Str)` expands to
+    // `void f(const char*, size_t)` at the call site. The Mighty
+    // source `mty_row12_echo("hello-from-mighty")` passes the literal's
+    // ptr and 17 (the byte count) — the C side prints the echo'd bytes
+    // and the marker line lands in stdout.
+    let mut p = matrix_root();
+    p.push("row_12_str_slice");
+    run_row(&p, Some("row12:echo='hello-from-mighty',len=17"));
+}
+
+#[test]
+fn row_12_str_slice_empty() {
+    // Empty string round trip — len=0, ptr arg is irrelevant on the C
+    // side. Pins that the call still survives the trip without
+    // dereferencing whatever the codegen picks as the ptr operand.
+    let mut p = matrix_root();
+    p.push("row_12_str_slice");
+    run_row(&p, Some("row12:empty,len=0"));
+}
+
+#[test]
+fn row_12_str_slice_utf8() {
+    // UTF-8 multi-byte round trip — pins that `len` is the BYTE count,
+    // not the codepoint count. "héllo" is 6 bytes.
+    let mut p = matrix_root();
+    p.push("row_12_str_slice");
+    run_row(&p, Some("row12:utf8='héllo',bytes=6"));
+}

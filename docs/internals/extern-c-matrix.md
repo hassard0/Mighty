@@ -1,4 +1,4 @@
-# Extern C signature matrix (v0.36 T2 + v0.37 T3 + v0.38 T3)
+# Extern C signature matrix (v0.36 T2 + v0.37 T3 + v0.38 T3 + v0.46 T3)
 
 This document is the human-readable mirror of `tests/extern_c_matrix/`.
 It pins which C-ABI shapes Mighty can call end-to-end today, what the
@@ -14,6 +14,13 @@ shapes are deferred to v0.38.
 > plus adds the `#[ffi_nul_ok]` attribute as a metadata-only marker
 > for the Str→*U8 coercion's fast path. See the **v0.38 surfaces**
 > section.
+
+> v0.46 T3 adds row 12 — Mighty `Str` / `String` at an extern-c param
+> slot now lowers to an ABI `(const char* ptr, size_t len)` pair. The
+> Mighty source spells the call with a single Str arg; the cranelift
+> backend expands it into two i64 ABI args at the call site. No more
+> char-by-char staging through scalar helpers (L52). See the
+> **v0.46 T3 — (ptr, len) Str slice FFI** section.
 
 Audience: anyone shipping an FFI Mighty app — first-class downstream
 consumers are the native-IDE track (`C:\Users\ihass\mighty-ide`) and
@@ -148,6 +155,7 @@ matrix test still proves the .a is reachable.
 | 10 | `extern c fn foo(s: *mut Str) -> usize` (caller-owned buf) | works (wrapper) | The classic `snprintf` shape. Wrapper stays because Mighty doesn't yet expose a mutable `Str` buffer surface (you'd need a `[U8; N]` and pass `&mut buf[0]`, which v0.37 T3 partially covers — full coverage is v0.38). |
 | 11 | `extern c fn foo(cb: fn(i32) -> i32)` | works (v0.38 direct) | ~~wrapper-pattern~~ — v0.38 T3 ships the function-pointer surface. The Mighty parser already accepts `fn(T1, T2) -> R` as a type. Typeck unifies the Mighty fn's resolved `TyData::Fn { params, ret }` against the param's declared `Fn` type. The cranelift backend lowers a `Const::FnPtr(FnRef::User(fid))` operand via `func_addr` against the local fn's `Linkage::Local` declaration; the linker resolves the address at final-link time. Builtin fn pointers (`log`, `panic`) are not addressable through this surface — use a plain Mighty fn for FFI callbacks. |
 | 12 | Variadic call (`printf(fmt, …)`) | works (v0.38 T2) | `extern c fn printf(fmt: *U8, ...) -> I32` parses + typechecks (v0.37 T6) **and** end-to-end calls with extra varargs lower through a per-call `ir::Signature` + `call_indirect` against `func_addr` of the imported symbol (v0.38 T2). C ABI default promotions applied to extras (`f32→f64`, `i8/i16→i32`, `u8/u16→u32`, `bool/char→i32`). ~~v0.38 follow-up~~ — **v0.38 complete**. Wasm stance unchanged (variadic externs still rejected). |
+| 13 | `extern c fn foo(s: Str) -> I32` (Str slice) | works (v0.46 T3 direct) | Mighty `Str` / `String` at an extern-c param slot expands to `(const char* ptr, size_t len)` at the ABI boundary. Mighty source spells the call with one Str arg; the cranelift backend emits two consecutive i64 args (the ptr-half and the byte-len half from the Str aggregate). Documented + tested in row 12 of `tests/extern_c_matrix/` plus `crates/mty-codegen-cranelift/tests/ffi_str_slice_v046_t3.rs`. See **v0.46 T3** section. |
 
 ## v0.37 ergonomics — the FFI surface is now ergonomic
 
@@ -367,6 +375,167 @@ Implementation details:
 | Tests — typeck                               | `crates/mty-types/tests/ffi_v038_t3.rs` (16 cases)                        |
 | Tests — codegen                              | `crates/mty-codegen-cranelift/tests/ffi_v038_t3.rs` (9 cases)             |
 | Demo                                         | `demos/11_ffi_winit_stub/` (now exercises rows 07 + 11 + nul_ok)          |
+
+## v0.46 T3 — (ptr, len) Str slice FFI (L52 fix)
+
+Mighty `Str` / `String` values are (ptr, len) aggregates internally —
+the ptr-half points at the UTF-8 byte blob (`intern_string`
+null-terminates literals; runtime-built Strs ride a real heap pointer),
+and the len-half is the BYTE count.
+
+Before v0.46 T3 the only path for passing string data across `extern c`
+was the v0.37 `Str → *U8` coercion, which:
+
+1. Required the caller's *param type* to be `*U8` (not `Str`).
+2. Implicitly read the ptr-half only — the C side had to call `strlen`
+   or rely on null-termination to recover the length.
+
+That worked for shapes like `strlen(s)` (row 09), but broke down for
+ANY shape where the C side wanted to handle non-null-terminated bytes,
+dispatch on the byte length first, or avoid the O(n) `strlen` walk.
+L52 documents the IDE's downstream pain: every prompt-driven command
+in `src/main.mty` (`Open`, `New Folder`, `Rename`, `Delete`, …) had to
+copy its query buffer through the Rust shim ONE CODEPOINT AT A TIME via
+`mui_path_push(handle, mui_prompt_char(handle, i))` because there was
+no way to hand a single Mighty string across the FFI boundary.
+
+v0.46 T3 closes the gap with a transparent compiler transform: write
+the Mighty signature with a `Str` (or `String`) param, write the C
+signature with a `(const char* ptr, size_t len)` pair, and the
+cranelift backend bridges the two at the call site.
+
+### Surface — `Str` at an extern-c param slot
+
+```mighty
+extern c {
+  fn mui_file_rename(handle: I64, path: Str) -> Unit
+}
+
+fn main() {
+  let h: I64 = 1
+  mui_file_rename(h, "newname.txt")
+}
+```
+
+The C header declares:
+
+```c
+#include <stddef.h>
+#include <stdint.h>
+
+void mui_file_rename(int64_t handle, const char *path_ptr, size_t path_len);
+```
+
+Each `Str` / `String` param expands to **two consecutive ABI args**:
+
+* `ptr_half`  : `int64_t` carrying the byte-pointer (same shape as
+                `Str → *U8`'s ptr extraction).
+* `len_half`  : `int64_t` (`size_t`) carrying the BYTE count.
+
+The expansion happens uniformly in:
+
+* `mty_codegen_cranelift::abi::build_extern_signature` — the extern
+  signature has the doubled slot count.
+* `mty_codegen_cranelift::lower::lower_call` — at the call site, every
+  `Str`/`String`-typed arg pulls both halves from the Str aggregate
+  via `string_pair` and pushes them in (ptr, len) order.
+* `mty_codegen_llvm::lower::fn_type_of` + `lower_call` — same
+  expansion for the LLVM backend (literal-Str only; dynamic-Str
+  routes through cranelift today).
+
+### Ownership + lifetime contract
+
+* The bytes are **owned by the Mighty caller**. The pointer is live
+  for the duration of the call expression and no longer.
+* The C side **must not store the pointer** in a heap structure or
+  return it through a global — Mighty may free / move / reuse the
+  backing arena after the call returns.
+* The C side **must read at most `len` bytes** from the pointer.
+* `len == 0` is legal; the pointer arg is undefined in that case (the
+  cranelift backend usually passes the literal's symbol address even
+  for `""`, but C must not dereference unless `len > 0`).
+* Multi-byte UTF-8 is preserved as-is; `len` is the BYTE count, NOT
+  the codepoint count.
+
+### Interaction with the v0.37 `Str → *U8` coercion
+
+The two surfaces compose:
+
+| Mighty source | Param type     | Lowering                                                          |
+|---------------|----------------|-------------------------------------------------------------------|
+| `f("hi")`     | `*U8`          | v0.37 — passes one i64 (ptr-half), C reads via `strlen` / nul.   |
+| `f("hi")`     | `Str`/`String` | v0.46 T3 — passes two i64s (ptr, len), C reads exactly `len`.    |
+
+Same Mighty source, different C contract — pick `*U8` when the C side
+is a libc-style nul-terminated function, pick `Str` when you want the
+length up front. Mixed-arg calls (`fn foo(slice: Str, cstr: *U8)`)
+work without ceremony.
+
+### Wasm backend stance
+
+Wasm core doesn't have a 64-bit-style C ABI; the wasm backend treats
+the existing `Rvalue::StrPtr` as a pass-through and an `extern c fn
+foo(s: Str)` call still surfaces a single-arg call to the import. If
+you target wasm and need the byte length too, declare a separate
+`extern js fn foo_len()` and lower per-target. Same stance as
+variadics.
+
+### IDE simplification example
+
+Pre-v0.46 T3 (the L52 staging-loop pattern from `mighty-ide/src/main.mty`):
+
+```mighty
+// Stage the prompt string char-by-char into a shim buffer.
+mui_path_clear(handle)
+let mut i: USize = 0
+while i < mui_prompt_len(handle) {
+  mui_path_push(handle, mui_prompt_char(handle, i))
+  i = i + 1
+}
+// Call the real op against the shim's staged buffer.
+mui_file_rename_active(handle)
+```
+
+Post-v0.46 T3 — direct call, no shim buffer:
+
+```mighty
+extern c {
+  fn mui_file_rename_active(handle: I64, path: Str) -> Unit
+}
+
+// Pull the prompt text into a Mighty String, hand it across as-is.
+let path: String = mui_prompt_text(handle)
+mui_file_rename_active(handle, path)
+```
+
+The shim's C-side `mui_file_rename_active` declaration changes from
+`void mui_file_rename_active(int64_t)` to
+`void mui_file_rename_active(int64_t, const char*, size_t)`; it can
+delete `mui_path_clear` / `mui_path_push` / `mui_prompt_char` / the
+backing per-handle staging buffer. The L52 pattern survives only for
+backwards compatibility with pre-v0.46 callers.
+
+### Where the wiring lives
+
+| Concern                                            | File                                                                          |
+|----------------------------------------------------|-------------------------------------------------------------------------------|
+| Signature expansion (cranelift)                    | `crates/mty-codegen-cranelift/src/abi.rs` (`build_extern_signature`, `is_str_slice_param`) |
+| Call-site Str→(ptr, len) emit (cranelift fixed)    | `crates/mty-codegen-cranelift/src/lower.rs` (`lower_call`, `FnRef::User` arm) |
+| Call-site Str→(ptr, len) emit (cranelift variadic) | `crates/mty-codegen-cranelift/src/lower.rs` (variadic per-call signature)     |
+| Signature expansion (LLVM)                          | `crates/mty-codegen-llvm/src/lower.rs` (`fn_type_of`)                         |
+| Call-site Str→(ptr, len) emit (LLVM)               | `crates/mty-codegen-llvm/src/lower.rs` (`lower_call`)                         |
+| Cranelift object-shape tests (8 cases)              | `crates/mty-codegen-cranelift/tests/ffi_str_slice_v046_t3.rs`                |
+| End-to-end matrix integration (3 cases)            | `crates/mty-driver/tests/extern_c_matrix.rs` (`row_12_*`)                    |
+| Matrix fixture                                      | `tests/extern_c_matrix/row_12_str_slice/{app.mty, impl.c}`                   |
+
+### Unresolved
+
+* **Out-params / mutable buffers** (`mut Vec[U8]` for caller-allocated
+  output buffers) deferred to v0.47. Today the IDE uses fixed shim-
+  side scratch buffers for the C-writes-back pattern; once mutable
+  byte-buffer FFI is in, the shim can vanish too.
+* **String ownership transfer across FFI** (move semantics) is out of
+  scope — the caller-owns model is the safer default.
 
 ## Remaining v0.39 follow-ups
 

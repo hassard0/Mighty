@@ -2351,6 +2351,17 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                     .get(callee_id)
                     .map(|b| b.is_variadic)
                     .unwrap_or(false);
+                // v0.46 T3 (L52 fix) — extern-c callees expand Mighty
+                // Str/String params into (ptr, len) pairs at the ABI
+                // boundary. See `abi::build_extern_signature`. We track
+                // this here so the fixed-arg lowering loop below can
+                // push two i64 values for each Str/String slot.
+                let is_extern_c_callee = self
+                    .prog
+                    .extern_bindings
+                    .get(callee_id)
+                    .map(|b| b.abi == "c")
+                    .unwrap_or(false);
                 // v0.38 Track T3 — returned-struct classification for the
                 // call site. Drives slot allocation, sret arg insertion,
                 // and per-register result store. Non-aggregate callees
@@ -2446,9 +2457,20 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                     None
                 };
                 for va in &visible[..fixed_count] {
+                    let want_ty = callee_param_tys_mut.remove(0);
+                    // v0.46 T3 — Str/String at an extern-c param slot
+                    // expands to (ptr, len). Pull both halves from the
+                    // Str aggregate via `string_pair` and push them in
+                    // the same order the extern signature expects (see
+                    // `abi::build_extern_signature`).
+                    if is_extern_c_callee && crate::abi::is_str_slice_param(&want_ty) {
+                        let (ptr, len) = self.string_pair(va.op)?;
+                        arg_vals.push(ptr);
+                        arg_vals.push(len);
+                        continue;
+                    }
                     let v = self.eval_operand(va.op)?;
                     let src_ty = self.operand_ir_ty(va.op);
-                    let want_ty = callee_param_tys_mut.remove(0);
                     let want = if is_aggregate(&want_ty) {
                         ct::I64
                     } else {
@@ -2459,6 +2481,18 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 }
                 while !callee_param_tys_mut.is_empty() {
                     let t = callee_param_tys_mut.remove(0);
+                    // v0.46 T3 — pad an unfilled Str/String slot at an
+                    // extern-c callee with two zero i64s (ptr=NULL,
+                    // len=0). Matches the signature's two-slot
+                    // expansion so cranelift doesn't see an arity
+                    // mismatch.
+                    if is_extern_c_callee && crate::abi::is_str_slice_param(&t) {
+                        let z = self.b.ins().iconst(ct::I64, 0);
+                        arg_vals.push(z);
+                        let z2 = self.b.ins().iconst(ct::I64, 0);
+                        arg_vals.push(z2);
+                        continue;
+                    }
                     let want = if is_aggregate(&t) {
                         ct::I64
                     } else {
@@ -2543,6 +2577,15 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                         sig.returns.push(AbiParam::new(cl_ty_for(&callee_ret_ty)));
                     }
                     for t in &callee_param_tys {
+                        // v0.46 T3 — Str/String at an extern-c fixed
+                        // param slot expands to (ptr, len). Mirror
+                        // `build_extern_signature` here so the per-call
+                        // variadic signature has the same shape.
+                        if crate::abi::is_str_slice_param(t) {
+                            sig.params.push(AbiParam::new(ct::I64));
+                            sig.params.push(AbiParam::new(ct::I64));
+                            continue;
+                        }
                         let want = if is_aggregate(t) {
                             ct::I64
                         } else {

@@ -182,6 +182,14 @@ pub fn classify_aggregate_return(ret: &IrTy, adts: &[AdtRef]) -> AggregateReturn
 /// Returns the `Signature` paired with the classification so the
 /// call-site lowerer can drive slot setup, sret arg insertion, and
 /// per-register result store.
+///
+/// v0.46 T3 (L52 fix) — Mighty `Str` / `String` params expand to a
+/// `(const char*, size_t)` pair (two i64s at the ABI level). The C
+/// side declares `void f(int64_t handle, const char* path_ptr,
+/// size_t path_len)` and reads `path_len` bytes from `path_ptr`. The
+/// bytes are owned by the Mighty caller — the C side must not store
+/// the pointer past the call. See `docs/internals/extern-c-matrix.md`
+/// "Str slice (ptr, len) FFI" section.
 pub fn build_extern_signature(
     triple: &Triple,
     params: &[IrTy],
@@ -224,9 +232,25 @@ pub fn build_extern_signature(
         if matches!(p, IrTy::Unit | IrTy::Never) {
             continue;
         }
+        // v0.46 T3 — Str / String at an extern-c param slot expands to
+        // a (ptr, len) pair. Each half rides a single i64 register;
+        // the C signature has two consecutive args (`const char *p`,
+        // `size_t n`). Caller (lower_call) pushes both halves in this
+        // same order via `string_pair`.
+        if matches!(p, IrTy::Str | IrTy::String) {
+            sig.params.push(AbiParam::new(ct::I64)); // ptr
+            sig.params.push(AbiParam::new(ct::I64)); // len
+            continue;
+        }
         sig.params.push(AbiParam::new(cl_ty_for(p)));
     }
     (sig, kind)
+}
+
+/// v0.46 T3 — true iff `p` is a Mighty Str/String param that should
+/// be expanded into a (ptr, len) pair at the extern-c ABI boundary.
+pub fn is_str_slice_param(p: &IrTy) -> bool {
+    matches!(p, IrTy::Str | IrTy::String)
 }
 
 #[cfg(test)]
@@ -313,6 +337,90 @@ mod tests {
             cl_ty_for_variadic(&IrTy::Int(IntKind::U64)),
             (ct::I64, true)
         );
+    }
+
+    #[test]
+    fn extern_signature_expands_str_to_ptr_len_pair() {
+        // v0.46 T3 — `extern c fn foo(s: Str) -> I32` should produce a
+        // 2-param signature: (i64 ptr, i64 len) -> i32. No aggregate-
+        // return work, so the kind is `None`.
+        let (sig, kind) =
+            build_extern_signature(&Triple::host(), &[IrTy::Str], &IrTy::Int(IntKind::I32), &[]);
+        assert_eq!(kind, AggregateReturnKind::None);
+        assert_eq!(sig.params.len(), 2, "Str expands to (ptr, len)");
+        assert_eq!(sig.params[0].value_type, ct::I64);
+        assert_eq!(sig.params[1].value_type, ct::I64);
+        assert_eq!(sig.returns.len(), 1);
+        assert_eq!(sig.returns[0].value_type, ct::I32);
+    }
+
+    #[test]
+    fn extern_signature_expands_string_too() {
+        // `String` (owned Mighty heap string) takes the same (ptr, len)
+        // expansion as `Str`. Same ABI shape — the ownership flavor is
+        // not visible at the FFI boundary.
+        let (sig, _) = build_extern_signature(&Triple::host(), &[IrTy::String], &IrTy::Unit, &[]);
+        assert_eq!(sig.params.len(), 2);
+        assert_eq!(sig.params[0].value_type, ct::I64);
+        assert_eq!(sig.params[1].value_type, ct::I64);
+    }
+
+    #[test]
+    fn extern_signature_str_alongside_scalar() {
+        // (I64 handle, Str path) — IDE's prompted-command shape. Three
+        // ABI slots: (handle:i64, ptr:i64, len:i64).
+        let (sig, _) = build_extern_signature(
+            &Triple::host(),
+            &[IrTy::Int(IntKind::I64), IrTy::Str],
+            &IrTy::Unit,
+            &[],
+        );
+        assert_eq!(sig.params.len(), 3);
+        assert_eq!(sig.params[0].value_type, ct::I64);
+        assert_eq!(sig.params[1].value_type, ct::I64);
+        assert_eq!(sig.params[2].value_type, ct::I64);
+    }
+
+    #[test]
+    fn extern_signature_two_strs_expand_independently() {
+        // Each Str gets its own (ptr, len). Two Str args = four i64
+        // slots, not three (no merging).
+        let (sig, _) = build_extern_signature(
+            &Triple::host(),
+            &[IrTy::Str, IrTy::Str],
+            &IrTy::Int(IntKind::I32),
+            &[],
+        );
+        assert_eq!(sig.params.len(), 4);
+    }
+
+    #[test]
+    fn extern_signature_str_interleaved_with_i32() {
+        // (Str, I32, Str) — 2 + 1 + 2 = 5 slots, in order.
+        let (sig, _) = build_extern_signature(
+            &Triple::host(),
+            &[IrTy::Str, IrTy::Int(IntKind::I32), IrTy::Str],
+            &IrTy::Unit,
+            &[],
+        );
+        assert_eq!(sig.params.len(), 5);
+        assert_eq!(sig.params[0].value_type, ct::I64); // a.ptr
+        assert_eq!(sig.params[1].value_type, ct::I64); // a.len
+        assert_eq!(sig.params[2].value_type, ct::I32); // flags
+        assert_eq!(sig.params[3].value_type, ct::I64); // b.ptr
+        assert_eq!(sig.params[4].value_type, ct::I64); // b.len
+    }
+
+    #[test]
+    fn is_str_slice_param_pinned() {
+        assert!(is_str_slice_param(&IrTy::Str));
+        assert!(is_str_slice_param(&IrTy::String));
+        assert!(!is_str_slice_param(&IrTy::Int(IntKind::I64)));
+        assert!(!is_str_slice_param(&IrTy::Bool));
+        assert!(!is_str_slice_param(&IrTy::Bytes));
+        assert!(!is_str_slice_param(&IrTy::RawPtr(Box::new(IrTy::Int(
+            IntKind::U8
+        )))));
     }
 
     #[test]
