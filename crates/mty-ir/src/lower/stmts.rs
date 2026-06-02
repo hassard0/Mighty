@@ -119,6 +119,47 @@ pub(crate) fn bind_pat_assign(
                 }
                 None => IrTy::Error,
             };
+            // v0.46 T4 — when typeck returned a fresh-var / Error type
+            // but the rhs's IR temp resolves to a typed ADT we know
+            // the codegen needs (Metadata's named-field projection,
+            // DirIter's `.next()` method dispatch), promote the
+            // binding's slot type to that ADT. Without this hand-off,
+            // `let md = std.fs.metadata(p); if md.is_file { ... }` would
+            // keep `md` at `IrTy::Error`, and `place_addr`'s
+            // best-effort `idx*8` fallback would mis-resolve
+            // is_file@+16 / is_dir@+17 (would land at 16 / 24
+            // instead of 16 / 17). Same logic carries the DirIter
+            // handle's opaque-ADT typing across the binding so the
+            // method-dispatch arm matches.
+            let ty = if matches!(ty, IrTy::Error) {
+                if let Operand::Move(p) | Operand::Copy(p) = &rhs {
+                    if p.proj.is_empty() {
+                        let rhs_ty = fb.locals[p.local.0 as usize].ty.clone();
+                        if let IrTy::Adt(id, _) = &rhs_ty {
+                            let is_fs_record = matches!(
+                                ctx.typed.def_map.lookup("Metadata"),
+                                Some(mty_types::DefRef::Adt(a)) if a == *id
+                            ) || matches!(
+                                ctx.typed.def_map.lookup("DirIter"),
+                                Some(mty_types::DefRef::Adt(a)) if a == *id
+                            );
+                            if is_fs_record {
+                                rhs_ty
+                            } else {
+                                ty
+                            }
+                        } else {
+                            ty
+                        }
+                    } else {
+                        ty
+                    }
+                } else {
+                    ty
+                }
+            } else {
+                ty
+            };
             // v0.25 — propagate the per-fn `canvas_locals` taint across
             // let-binding. `let canvas = std.web.Canvas.new(W, H)`
             // lowers the rhs to a `Move(temp)` whose temp is already

@@ -271,6 +271,29 @@ pub const RUNTIME_IMPORTS: &[RuntimeImport] = &[
         params: &[ct::I64, ct::I64],
         ret: Some(ct::I32),
     },
+    // v0.46 T4 — read_dir iterator handle ABI.
+    // dir_open: (path_ptr, path_len) -> i64 handle (0 = open failed).
+    RuntimeImport {
+        name: "mty_runtime_fs_dir_open",
+        params: &[ct::I64, ct::I64],
+        ret: Some(ct::I64),
+    },
+    // dir_next: (handle, dst_slot) -> i32; writes the next entry's
+    // (ptr, len, ok) triple into the 24-byte slot. Returns 1 if a
+    // name was written (more entries follow) / 0 on EOF / -errno
+    // on I/O failure during iteration.
+    RuntimeImport {
+        name: "mty_runtime_fs_dir_next",
+        params: &[ct::I64, ct::I64],
+        ret: Some(ct::I32),
+    },
+    // dir_close: (handle) -> (); frees the iterator state. Safe to
+    // call with 0 so Drop on a never-opened DirIter is a no-op.
+    RuntimeImport {
+        name: "mty_runtime_fs_dir_close",
+        params: &[ct::I64],
+        ret: None,
+    },
 ];
 
 #[derive(Debug, Clone, Copy)]

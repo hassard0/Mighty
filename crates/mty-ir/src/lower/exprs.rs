@@ -90,7 +90,19 @@ pub fn lower_expr(ctx: &mut LowerCtx, fb: &mut FnBuilder, eid: ExprId) -> Operan
             if let Some(path) = receiver_module_path(ctx, receiver) {
                 let effect = ctx.typed.def_map.effects.get(&infer_effect(&path)).copied();
                 if let Some(eff) = effect {
-                    let temp = fb.fresh_temp(IrTy::Error);
+                    // v0.46 T4 — when the call's full path is a
+                    // recognised std.fs.* surface whose return type is
+                    // a known stdlib ADT (`Metadata` for metadata/stat,
+                    // `DirIter` for read_dir), type the result temp as
+                    // that ADT so field projections (`md.size`) and
+                    // method dispatch (`it.next()`) resolve through
+                    // the right struct/opaque layout. Without this
+                    // override the temp stays `IrTy::Error` and field
+                    // projection falls back to `idx*8` — which would
+                    // misread Metadata's is_file@+16 / is_dir@+17 as
+                    // 16/24 instead of 16/17.
+                    let result_ty = fs_module_result_ty(ctx, &path, &method);
+                    let temp = fb.fresh_temp(result_ty);
                     fb.push_stmt(Stmt::EffectInvoke {
                         effect: eff,
                         op: EffectOp::GenericCall {
@@ -840,7 +852,11 @@ fn lower_call(ctx: &mut LowerCtx, fb: &mut FnBuilder, callee: ExprId, args: &[Hi
                 // `BuiltinId::CanvasOp(...)` via
                 // `is_canvas_handle_receiver`.
                 let full_path = format!("{}.{}", path.join("."), method);
-                let temp = fb.fresh_temp(IrTy::Error);
+                // v0.46 T4 — recognise std.fs.* return-type ADTs
+                // (`Metadata`, `DirIter`). See the matching override
+                // in the MethodCall arm above for the rationale.
+                let result_ty = fs_module_result_ty(ctx, &path, &method);
+                let temp = fb.fresh_temp(result_ty);
                 if full_path == CANVAS_CONSTRUCTOR_PATH {
                     fb.mark_canvas_local(temp);
                 }
@@ -1885,6 +1901,51 @@ fn infer_effect(path: &[String]) -> String {
         "model" => "model".into(),
         "time" | "clock" => "time".into(),
         _ => "io".into(),
+    }
+}
+
+/// v0.46 T4 — type the result temp of a `std.fs.*` effect-invoke call
+/// when the runtime ABI hands back a typed stdlib aggregate (Metadata
+/// record, DirIter handle). Returns `IrTy::Adt(adt, [])` so downstream
+/// field-projection / method-dispatch logic resolves through the
+/// prelude struct/opaque layout instead of the `IrTy::Error` fallback.
+///
+/// Recognised shapes (both `std.fs.foo` and bare-`fs.foo` after a
+/// `use std.fs`):
+///
+///   - `fs.metadata(path)` / `fs.stat(path)` -> Metadata
+///   - `fs.read_dir(path)` / `fs.list_dir(path)` -> DirIter
+///
+/// Every other std.fs method (read / write / exists / ...) stays
+/// `IrTy::Error` — its result is either a string aggregate the
+/// existing codegen path already handles correctly, or a scalar i32
+/// that doesn't need a struct layout.
+fn fs_module_result_ty(ctx: &LowerCtx, path: &[String], method: &str) -> IrTy {
+    // Path normalises both `["fs"]` (after `use std.fs`) and
+    // `["std", "fs"]` (qualified) onto the same surface. Anything
+    // else is not a std.fs call.
+    let is_fs_path = match path {
+        [a] if a == "fs" => true,
+        [a, b] if a == "std" && b == "fs" => true,
+        _ => false,
+    };
+    if !is_fs_path {
+        return IrTy::Error;
+    }
+    let lookup_adt = |name: &str| {
+        ctx.typed.def_map.lookup(name).and_then(|d| match d {
+            mty_types::DefRef::Adt(aid) => Some(aid),
+            _ => None,
+        })
+    };
+    match method {
+        "metadata" | "stat" => lookup_adt("Metadata")
+            .map(|aid| IrTy::Adt(aid, vec![]))
+            .unwrap_or(IrTy::Error),
+        "read_dir" | "list_dir" => lookup_adt("DirIter")
+            .map(|aid| IrTy::Adt(aid, vec![]))
+            .unwrap_or(IrTy::Error),
+        _ => IrTy::Error,
     }
 }
 

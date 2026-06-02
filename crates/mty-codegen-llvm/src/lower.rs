@@ -346,6 +346,34 @@ impl<'ctx, 'a, 'b> ProgramLowerer<'ctx, 'a, 'b> {
                     .add_function("mty_runtime_fs_metadata", s, Some(Linkage::External)),
             );
         }
+        // v0.46 T4 — read_dir iterator handle ABI.
+        // dir_open : (path_ptr_i64, path_len_i64) -> i64 (handle, 0 = err)
+        {
+            let s = i64.fn_type(&[i64.into(), i64.into()], false);
+            self.runtime_fns.insert(
+                "mty_runtime_fs_dir_open",
+                self.module
+                    .add_function("mty_runtime_fs_dir_open", s, Some(Linkage::External)),
+            );
+        }
+        // dir_next : (handle, dst_slot_i64) -> i32
+        {
+            let s = i32t.fn_type(&[i64.into(), i64.into()], false);
+            self.runtime_fns.insert(
+                "mty_runtime_fs_dir_next",
+                self.module
+                    .add_function("mty_runtime_fs_dir_next", s, Some(Linkage::External)),
+            );
+        }
+        // dir_close : (handle) -> ()
+        {
+            let s = void.fn_type(&[i64.into()], false);
+            self.runtime_fns.insert(
+                "mty_runtime_fs_dir_close",
+                self.module
+                    .add_function("mty_runtime_fs_dir_close", s, Some(Linkage::External)),
+            );
+        }
     }
 
     fn llvm_ty(&self, t: &IrTy) -> BasicTypeEnum<'ctx> {
@@ -1594,6 +1622,19 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                 );
                 LlvmFsRet::Slot(slot)
             }
+            LlvmFsAbiKind::DirOpenHandle { symbol } => {
+                let f = self.pl.runtime_fns[symbol];
+                let call = self
+                    .pl
+                    .builder
+                    .build_call(f, &[path_ptr_i64.into(), path_len.into()], "fs_call")
+                    .unwrap();
+                let raw = call
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap_or_else(|| i64_ty.const_zero().into());
+                LlvmFsRet::I64(raw)
+            }
         };
 
         if let Some(p) = out {
@@ -1615,6 +1656,13 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                         let _ = self.pl.builder.build_store(slot, coerced);
                     }
                     LlvmFsRet::I32(raw) => {
+                        let coerced = self.coerce(raw, want);
+                        let _ = self.pl.builder.build_store(slot, coerced);
+                    }
+                    LlvmFsRet::I64(raw) => {
+                        // v0.46 T4 — DirIter handle. Coerce to the
+                        // local's declared LLVM type (usually a
+                        // pointer for the opaque `DirIter` ADT).
                         let coerced = self.coerce(raw, want);
                         let _ = self.pl.builder.build_store(slot, coerced);
                     }
@@ -2674,6 +2722,7 @@ fn is_native_fs_method_llvm(full_name: &str) -> bool {
             | "fs.read_to_string"
             | "fs.read_dir"
             | "fs.list_dir"
+            | "fs.read_dir_lines"
             | "fs.write"
             | "fs.write_file"
             | "fs.write_string"
@@ -2689,10 +2738,27 @@ fn is_native_fs_method_llvm(full_name: &str) -> bool {
 
 #[derive(Debug, Clone, Copy)]
 enum LlvmFsAbiKind {
-    ReadStrSlot { symbol: &'static str },
-    WriteI32 { symbol: &'static str },
-    PathI32 { symbol: &'static str },
-    MetadataSlot { symbol: &'static str },
+    ReadStrSlot {
+        symbol: &'static str,
+    },
+    WriteI32 {
+        symbol: &'static str,
+    },
+    PathI32 {
+        symbol: &'static str,
+    },
+    MetadataSlot {
+        symbol: &'static str,
+    },
+    /// v0.46 T4 — `read_dir` returns an i64 DirIter handle through
+    /// `mty_runtime_fs_dir_open`. The LLVM backend's projection /
+    /// method-dispatch story is more limited than cranelift's, but
+    /// the bare open-call still flows correctly so source code can
+    /// at least drive the open through the LLVM lane without
+    /// hitting `Unsupported`.
+    DirOpenHandle {
+        symbol: &'static str,
+    },
 }
 
 impl LlvmFsAbiKind {
@@ -2705,7 +2771,10 @@ impl LlvmFsAbiKind {
             "fs.read_to_string" => LlvmFsAbiKind::ReadStrSlot {
                 symbol: "mty_runtime_fs_read_to_string",
             },
-            "fs.read_dir" | "fs.list_dir" => LlvmFsAbiKind::ReadStrSlot {
+            "fs.read_dir" | "fs.list_dir" => LlvmFsAbiKind::DirOpenHandle {
+                symbol: "mty_runtime_fs_dir_open",
+            },
+            "fs.read_dir_lines" => LlvmFsAbiKind::ReadStrSlot {
                 symbol: "mty_runtime_fs_read_dir",
             },
             "fs.write" | "fs.write_file" => LlvmFsAbiKind::WriteI32 {
@@ -2741,4 +2810,8 @@ impl LlvmFsAbiKind {
 enum LlvmFsRet<'ctx> {
     Slot(PointerValue<'ctx>),
     I32(BasicValueEnum<'ctx>),
+    /// v0.46 T4 — `read_dir` returns an opaque i64 DirIter handle
+    /// from `mty_runtime_fs_dir_open`. Stored straight into the
+    /// out local through the standard scalar coerce path.
+    I64(BasicValueEnum<'ctx>),
 }

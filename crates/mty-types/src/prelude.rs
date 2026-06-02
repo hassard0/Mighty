@@ -311,6 +311,81 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
     });
     defs.by_name.insert("Vec".into(), DefRef::Adt(vec_id));
 
+    // ---- v0.46 T4 — std.fs.Metadata (Struct) + std.fs.DirIter (Opaque) ----
+    //
+    // Both are surfaced under their bare names (`Metadata`, `DirIter`) and
+    // also under the `std.fs.*` qualified path so source code reading
+    // `let md: std.fs.Metadata = ...` resolves cleanly. The struct
+    // layout MUST stay in lock-step with the runtime ABI writer (see
+    // `mty_runtime::codegen_abi::mty_runtime_fs_metadata`):
+    //
+    //   size:     U64  @ +0   (8 bytes)
+    //   mtime_ms: I64  @ +8   (8 bytes)
+    //   is_file:  Bool @ +16  (1 byte)
+    //   is_dir:   Bool @ +17  (1 byte)
+    //
+    // Natural alignment under cranelift's `struct_field_offset` /
+    // LLVM's standard struct GEP both reproduce these offsets given the
+    // field order below, so the runtime's raw-ptr writes line up with
+    // the codegen's projection arithmetic. `md.size` / `md.is_file`
+    // etc. resolve through this Struct ADT (L15 fix path — see
+    // `mty_ir::lower::exprs::resolve_field_index`).
+    let metadata_id = defs.alloc_adt(AdtDef {
+        name: "Metadata".into(),
+        kind: AdtKind::Struct,
+        generics: vec![],
+        param_ids: vec![],
+        variants: vec![VariantDef {
+            name: "Metadata".into(),
+            fields: vec![
+                FieldDef {
+                    name: Some("size".into()),
+                    ty: arena.u64,
+                },
+                FieldDef {
+                    name: Some("mtime_ms".into()),
+                    ty: arena.i64,
+                },
+                FieldDef {
+                    name: Some("is_file".into()),
+                    ty: arena.bool_,
+                },
+                FieldDef {
+                    name: Some("is_dir".into()),
+                    ty: arena.bool_,
+                },
+            ],
+        }],
+    });
+    defs.by_name
+        .insert("Metadata".into(), DefRef::Adt(metadata_id));
+    // Metadata is a plain record — fully handler-safe (no resource
+    // semantics to constrain inside an `on Ask(...)` handler body).
+    defs.handler_safe_adts.insert(metadata_id);
+
+    // DirIter — opaque handle returned by `std.fs.read_dir(path)`. The
+    // runtime ABI holds a Box<DirIterState> behind a single i64
+    // handle; the codegen treats it as a scalar pointer (`Layout::scalar(8)`
+    // via the empty-variants opaque-ADT path — same shape as `Vec`).
+    // Source-side surface: `.next() -> Option<String>` + Drop closes the
+    // handle. Handler-safe so a handler body can call `read_dir` and
+    // iterate without tripping MT2021.
+    //
+    // Registered under the bare name only (parallels `Vec`); fully-
+    // qualified paths like `std.fs.DirIter` resolve through
+    // `lookup_path` walking the std.fs module then drilling into the
+    // bare name.
+    let dir_iter_id = defs.alloc_adt(AdtDef {
+        name: "DirIter".into(),
+        kind: AdtKind::Opaque,
+        generics: vec![],
+        param_ids: vec![],
+        variants: vec![],
+    });
+    defs.by_name
+        .insert("DirIter".into(), DefRef::Adt(dir_iter_id));
+    defs.handler_safe_adts.insert(dir_iter_id);
+
     // ---- opaque types referenced by examples ----
     let opaque_names = [
         "Url",
