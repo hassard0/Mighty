@@ -449,6 +449,138 @@ pub fn to_ndjson(
     out
 }
 
+// ---------------------------------------------------------------------------
+// v0.45 T3 — structured `mty check --json` result document
+// ---------------------------------------------------------------------------
+//
+// The pre-existing `--format json` route emits one *envelope* per
+// diagnostic on its own NDJSON line. That shape is rich (it carries
+// fix proposals, prose, see_also, snippet) and has real consumers
+// (`mty fix --apply --from-stdin`, the agent-mode protocol).
+//
+// v0.45 T3 adds a *new*, simpler, single-document shape — the same
+// JSON skeleton CLI/LSP/runtime control paths are migrating to under
+// the v0.45 "agent command surfaces" track:
+//
+// ```json
+// {
+//   "ok": false,
+//   "path": "src/main.mty",
+//   "diagnostics": [
+//     {
+//       "code": "MT2001",
+//       "severity": "error",
+//       "message": "type mismatch: expected Str, found I32",
+//       "span": {
+//         "file": "src/main.mty",
+//         "line": 12, "col": 5,
+//         "end_line": 12, "end_col": 18
+//       }
+//     }
+//   ]
+// }
+// ```
+//
+// Differences from the NDJSON envelope path, intentional:
+//
+// * **Single document, not NDJSON.** Agents that want one
+//   `serde_json::from_str(&stdout)` call get one. NDJSON consumers
+//   keep `--format json`.
+// * **Both start AND end** line/col are exposed. The IDE used to
+//   default `end_col = col + 1`; T3 threads the real end through
+//   when the diagnostic carries an `end > start` byte span, and
+//   falls back to `col + 1` when it doesn't.
+// * **No fix / prose / see_also.** Those stay on the envelope path.
+//   The structured-result shape is the *minimum* every agent
+//   surface in v0.45 agrees on; richer needs continue to flow
+//   through `--format json`.
+
+/// One diagnostic, as the `mty check --json` result shape sees it.
+/// Lean by design: code + severity + message + span.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CheckDiagnostic {
+    pub code: String,
+    pub severity: String,
+    pub message: String,
+    pub span: CheckSpan,
+}
+
+/// 1-indexed span carrying BOTH start and end positions.
+///
+/// Falls back to `end_col = col + 1` when the underlying diagnostic
+/// didn't carry a real end byte offset (matches the IDE's pre-T6
+/// workaround).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CheckSpan {
+    pub file: String,
+    pub line: u32,
+    pub col: u32,
+    pub end_line: u32,
+    pub end_col: u32,
+}
+
+/// The whole `mty check --json` document.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CheckResult {
+    /// True iff every diagnostic is below `Error` severity.
+    pub ok: bool,
+    /// The path `mty check` was invoked against (the source-id).
+    pub path: String,
+    /// Every diagnostic emitted, in the order the pipeline produced
+    /// them. Warnings/notes/helps included.
+    pub diagnostics: Vec<CheckDiagnostic>,
+}
+
+/// Build a [`CheckResult`] from a flat diagnostic list + the source
+/// the check ran against.
+///
+/// `path` is used verbatim both as the top-level `path` field and as
+/// each diagnostic's `span.file`, matching the pretty/ariadne path's
+/// "all spans live in the file we just checked" assumption.
+pub fn build_check_result(diags: &[Diagnostic], path: &str, source: &str) -> CheckResult {
+    let mut out = Vec::with_capacity(diags.len());
+    for d in diags {
+        let start = d.primary.start;
+        let end = d.primary.end;
+        let (line, col) = offset_to_line_col(source, start);
+        let (end_line, end_col) = if end > start {
+            offset_to_line_col(source, end)
+        } else {
+            // Fallback matches the IDE's pre-T6 workaround: collapsed
+            // span renders as a single-char highlight.
+            (line, col + 1)
+        };
+        out.push(CheckDiagnostic {
+            code: d.code.as_str(),
+            severity: severity_str(d.severity).to_string(),
+            message: d.primary.message.clone(),
+            span: CheckSpan {
+                file: path.to_string(),
+                line,
+                col,
+                end_line,
+                end_col,
+            },
+        });
+    }
+    let ok = !diags.iter().any(|d| matches!(d.severity, Severity::Error));
+    CheckResult {
+        ok,
+        path: path.to_string(),
+        diagnostics: out,
+    }
+}
+
+/// Serialize a [`CheckResult`] as a single JSON document with a
+/// trailing newline. Used by `mty check --json` and the `mty agent`
+/// `check` op when called with `structured: true`.
+pub fn to_check_result_json(diags: &[Diagnostic], path: &str, source: &str) -> String {
+    let result = build_check_result(diags, path, source);
+    let mut s = serde_json::to_string(&result).expect("check result serializes");
+    s.push('\n');
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -777,5 +909,142 @@ mod tests {
         let out = to_ndjson(&[d], "x.mty", src, true);
         let env: DiagnosticEnvelope = serde_json::from_str(out.trim_end()).unwrap();
         assert!(env.source.is_some());
+    }
+
+    // ---- v0.45 T3: structured `mty check --json` result document ----
+
+    #[test]
+    fn check_result_clean_file_is_ok() {
+        let result = build_check_result(&[], "src/main.mty", "fn main() {}\n");
+        assert!(result.ok);
+        assert_eq!(result.path, "src/main.mty");
+        assert!(result.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn check_result_threads_real_end_span() {
+        // `let x: Str = 42;` — point at the `42` literal on line 2.
+        // The diagnostic carries the start AND end byte of the literal.
+        let src = "fn demo() {\n    let x: Str = 42;\n}\n";
+        let start = src.find("42").unwrap();
+        let end = start + 2;
+        let d = Diagnostic::error(
+            DiagCode::new(2001),
+            crate::diagnostic::Label {
+                start,
+                end,
+                message: "type mismatch".into(),
+            },
+        );
+        let r = build_check_result(&[d], "demo.mty", src);
+        assert!(!r.ok);
+        assert_eq!(r.diagnostics.len(), 1);
+        let dg = &r.diagnostics[0];
+        assert_eq!(dg.code, "MT2001");
+        assert_eq!(dg.severity, "error");
+        assert_eq!(dg.span.line, 2);
+        assert_eq!(dg.span.end_line, 2);
+        // end_col MUST be col + 2 (the literal is 2 chars wide).
+        assert_eq!(dg.span.end_col, dg.span.col + 2);
+    }
+
+    #[test]
+    fn check_result_falls_back_to_col_plus_one_when_no_end() {
+        // Diagnostic with start == end (no real range). end_col must
+        // default to col + 1.
+        let d = Diagnostic::error(
+            DiagCode::new(2021),
+            crate::diagnostic::Label {
+                start: 4,
+                end: 4,
+                message: "undefined".into(),
+            },
+        );
+        let r = build_check_result(&[d], "x.mty", "abc\nfoo\n");
+        let dg = &r.diagnostics[0];
+        assert_eq!(dg.span.end_line, dg.span.line);
+        assert_eq!(dg.span.end_col, dg.span.col + 1);
+    }
+
+    #[test]
+    fn check_result_two_errors_distinct_positions() {
+        // Pre-v0.42 T6 both errors would collapse to 1:1. Make sure
+        // T3 surfaces them as two distinct line:col positions.
+        let src = "fn demo() {\n    let x: I32 = \"hello\";\n    let y: Str = 42;\n}\n";
+        let s1 = src.find("\"hello\"").unwrap();
+        let e1 = s1 + "\"hello\"".len();
+        let s2 = src.find("42;").unwrap();
+        let e2 = s2 + 2;
+        let d1 = Diagnostic::error(
+            DiagCode::new(2001),
+            crate::diagnostic::Label {
+                start: s1,
+                end: e1,
+                message: "expected I32, found Str".into(),
+            },
+        );
+        let d2 = Diagnostic::error(
+            DiagCode::new(2001),
+            crate::diagnostic::Label {
+                start: s2,
+                end: e2,
+                message: "expected Str, found I32".into(),
+            },
+        );
+        let r = build_check_result(&[d1, d2], "demo.mty", src);
+        assert!(!r.ok);
+        assert_eq!(r.diagnostics.len(), 2);
+        let (a, b) = (&r.diagnostics[0], &r.diagnostics[1]);
+        assert_eq!(a.span.line, 2);
+        assert_eq!(b.span.line, 3);
+        assert!(
+            a.span.col != b.span.col || a.span.line != b.span.line,
+            "two errors must report distinct line:col"
+        );
+        // Neither anchors at the fn header.
+        for d in &r.diagnostics {
+            assert!(!(d.span.line == 1 && d.span.col == 1));
+        }
+    }
+
+    #[test]
+    fn check_result_json_is_single_document() {
+        let d = Diagnostic::error(
+            DiagCode::new(2001),
+            crate::diagnostic::Label {
+                start: 0,
+                end: 3,
+                message: "boom".into(),
+            },
+        );
+        let out = to_check_result_json(&[d], "x.mty", "abc\n");
+        // Must parse as ONE document, not NDJSON.
+        let parsed: CheckResult = serde_json::from_str(out.trim_end()).expect("single document");
+        assert!(!parsed.ok);
+        assert_eq!(parsed.path, "x.mty");
+        assert_eq!(parsed.diagnostics.len(), 1);
+        // Trailing newline so `tee`/`jq` pipelines stay tidy.
+        assert!(out.ends_with('\n'));
+        // Exactly one newline at the very end — i.e. no NDJSON splits.
+        let nl_count = out.matches('\n').count();
+        assert_eq!(nl_count, 1, "result must be single-line JSON, got: {out}");
+    }
+
+    #[test]
+    fn check_result_only_warnings_is_ok() {
+        // ok is true iff there are no error-severity diagnostics.
+        let mut d = Diagnostic::error(
+            DiagCode::new(2015),
+            crate::diagnostic::Label {
+                start: 0,
+                end: 1,
+                message: "non-exhaustive".into(),
+            },
+        );
+        d.severity = Severity::Warning;
+        let r = build_check_result(&[d], "x.mty", "ab\n");
+        assert!(r.ok, "ok must be true when only warnings are present");
+        assert_eq!(r.diagnostics.len(), 1);
+        assert_eq!(r.diagnostics[0].severity, "warning");
     }
 }
