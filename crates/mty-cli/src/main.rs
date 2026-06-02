@@ -87,15 +87,28 @@ enum Cmd {
     /// `--include-source` to embed a 3-line source snippet in every
     /// envelope. The default `pretty` output (ariadne-rendered) is
     /// unchanged from previous releases.
+    ///
+    /// v0.45 T3 — `--json` emits a single structured-result document
+    /// on stdout (`{ok, path, diagnostics:[{code, severity, message,
+    /// span}]}`) and suppresses every ariadne byte. This is the
+    /// "agent command surfaces" shape every other v0.45 surface (LSP,
+    /// runtime control paths) is migrating to. The NDJSON envelope
+    /// path (`--format json`) is unchanged for existing consumers
+    /// like `mty fix --apply --from-stdin`.
     Check {
         path: std::path::PathBuf,
-        /// `pretty` (default) or `json`.
+        /// `pretty` (default), `json` (NDJSON envelopes), or
+        /// `json-result` (single structured-result document).
         #[arg(long, default_value = "pretty")]
         format: String,
         /// Only meaningful with `--format json`: embed a 3-line source
         /// snippet around each diagnostic's primary span.
         #[arg(long)]
         include_source: bool,
+        /// v0.45 T3 — emit a single structured-result JSON document
+        /// on stdout (no ariadne text). Wins over `--format` when set.
+        #[arg(long)]
+        json: bool,
     },
     /// Dump intermediate representations.
     Dump {
@@ -604,8 +617,10 @@ fn run_cli(cli: Cli) -> i32 {
             path,
             format,
             include_source,
+            json,
         } => {
-            let fmt = cmd::check::CheckFormat::parse(&format);
+            let base = cmd::check::CheckFormat::parse(&format);
+            let fmt = cmd::check::CheckFormat::from_json_flag(json, base);
             cmd::check::run_with(&path, fmt, include_source)
         }
         Cmd::Dump {

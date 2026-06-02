@@ -242,6 +242,65 @@ fn single_shot_check_with_diagnostic_streams_envelope() {
     assert!(results[0]["diagnostics_count"].as_u64().unwrap_or(0) >= 1);
 }
 
+/// v0.45 T3 — the `check` op `result` line now carries a
+/// structured-result document under `result.*` matching `mty check
+/// --json`'s wire shape. Mirrors the migration spelled out in the
+/// v0.45 "agent command surfaces" track.
+#[test]
+fn single_shot_check_carries_structured_result_v45t3() {
+    let (_tmp, p) = write_tmp("bad.mty", "fn main() -> Unit {\n  let x = (\n}\n");
+    let req = format!(r#"{{"op":"check","path":"{}"}}"#, path_json(&p));
+    let (_code, lines, _) = single_shot(&req);
+    let results = find_kind(&lines, "result");
+    assert_eq!(results.len(), 1);
+    let r = &results[0];
+    assert_eq!(r["op"], "check");
+    // Structured result document piggybacks under `result`.
+    let result = &r["result"];
+    assert!(
+        result.is_object(),
+        "expected result.result object, got: {r}"
+    );
+    assert_eq!(result["ok"], false);
+    assert_eq!(
+        result["path"].as_str().unwrap_or(""),
+        p.display().to_string()
+    );
+    let diags = result["diagnostics"]
+        .as_array()
+        .expect("result.diagnostics array");
+    assert!(!diags.is_empty(), "expected ≥1 diagnostic, got: {result}");
+    let first = &diags[0];
+    // Each entry has code/severity/message/span(line,col,end_line,end_col).
+    assert!(first["code"].as_str().unwrap_or("").starts_with("MT"));
+    assert!(matches!(
+        first["severity"].as_str().unwrap_or(""),
+        "error" | "warning" | "note" | "help"
+    ));
+    assert!(first["message"].is_string());
+    let span = &first["span"];
+    assert!(span["line"].is_u64());
+    assert!(span["col"].is_u64());
+    assert!(span["end_line"].is_u64());
+    assert!(span["end_col"].is_u64());
+}
+
+/// v0.45 T3 — clean file under the agent `check` op also gets a
+/// structured-result document; consumers can stop checking
+/// `diagnostics_count == 0` and look directly at `result.ok`.
+#[test]
+fn single_shot_check_clean_carries_structured_result_v45t3() {
+    let (_tmp, p) = write_tmp("ok.mty", "fn main() -> Unit { }\n");
+    let req = format!(r#"{{"op":"check","path":"{}"}}"#, path_json(&p));
+    let (_code, lines, _) = single_shot(&req);
+    let results = find_kind(&lines, "result");
+    assert_eq!(results.len(), 1);
+    let result = &results[0]["result"];
+    assert!(result.is_object());
+    assert_eq!(result["ok"], true);
+    assert!(result["diagnostics"].as_array().unwrap().is_empty());
+}
+
 #[test]
 fn single_shot_check_include_source_embeds_snippet() {
     let (_tmp, p) = write_tmp("bad.mty", "fn main() -> Unit {\n  let x = (\n}\n");

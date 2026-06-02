@@ -1,4 +1,4 @@
-use mty_diagnostics::fix::to_ndjson;
+use mty_diagnostics::fix::{to_check_result_json, to_ndjson};
 use mty_diagnostics::render::ariadne::render_all;
 use mty_diagnostics::Severity;
 use mty_driver::{
@@ -10,26 +10,48 @@ use std::path::Path;
 
 /// Output mode for `mty check`.
 ///
-/// v0.33 T4 adds the `Json` route: instead of the pretty
-/// human-readable report, each diagnostic is emitted as one JSON line
-/// (NDJSON) on stdout, conforming to the agent-mode envelope schema
-/// documented at `docs/internals/diagnostic-envelopes.md`. With
-/// `include_source = true` (`--include-source`) each envelope also
-/// carries a 3-line source snippet around the primary span so an
-/// agent can render the location without re-reading the file.
+/// v0.33 T4 added the NDJSON envelope route (`--format json`).
+/// v0.45 T3 adds the single-document structured-result route
+/// (`--json`, exposed via [`CheckFormat::ResultJson`]):
+///
+/// * `Pretty` — ariadne colored report on stderr (default).
+/// * `Json` — NDJSON envelopes on stdout (one per diagnostic).
+///   Used by `mty fix --apply --from-stdin` and the agent protocol.
+/// * `ResultJson` — single JSON document on stdout. Same fields
+///   every other v0.45 agent surface (LSP, runtime control paths)
+///   is migrating to: `{ok, path, diagnostics: [{code, severity,
+///   message, span}]}`. See `docs/internals/check-result-json.md`.
 #[derive(Debug, Clone, Copy)]
 pub enum CheckFormat {
     /// Default — `ariadne` colored report on stderr.
     Pretty,
     /// One JSON envelope per diagnostic, NDJSON-style, on stdout.
     Json,
+    /// v0.45 T3 — single JSON document on stdout with a flat
+    /// `{ok, path, diagnostics}` shape.
+    ResultJson,
 }
 
 impl CheckFormat {
     pub fn parse(s: &str) -> CheckFormat {
         match s {
             "json" => CheckFormat::Json,
+            // v0.45 T3: accept both `--format=json-result` and the
+            // shorter `--format=result`. The flag-driven path uses
+            // `--json` which lands here through `from_json_flag`.
+            "json-result" | "result" => CheckFormat::ResultJson,
             _ => CheckFormat::Pretty,
+        }
+    }
+
+    /// v0.45 T3 — pick the format from the boolean `--json` flag.
+    /// True picks the single-document structured-result route;
+    /// false leaves the caller's choice (`--format`) untouched.
+    pub fn from_json_flag(json: bool, base: CheckFormat) -> CheckFormat {
+        if json {
+            CheckFormat::ResultJson
+        } else {
+            base
         }
     }
 }
@@ -115,6 +137,19 @@ pub fn run_with(path: &Path, format: CheckFormat, include_source: bool) -> i32 {
                 return 1;
             }
             // No "ok:" line under JSON mode — clean = zero output.
+        }
+        CheckFormat::ResultJson => {
+            // v0.45 T3 — single JSON document on stdout. Always
+            // emitted (even on success) so the agent gets a
+            // deterministic "ok:true, diagnostics:[]" handshake
+            // it can `serde_json::from_str` without checking
+            // whether stdout was empty. NO ariadne text — clean
+            // parseable output only.
+            let doc = to_check_result_json(&diags, &path.display().to_string(), &src);
+            print!("{}", doc);
+            if has_error {
+                return 1;
+            }
         }
     }
     0

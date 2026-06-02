@@ -28,7 +28,7 @@ use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 
 use mty_diagnostics::diagnostic::Diagnostic;
-use mty_diagnostics::fix::{to_ndjson, DiagnosticEnvelope, ToEnvelope};
+use mty_diagnostics::fix::{build_check_result, to_ndjson, DiagnosticEnvelope, ToEnvelope};
 use mty_diagnostics::{codes, Severity};
 use mty_driver::{lower, parse_source, type_and_borrow_check};
 use serde::{Deserialize, Serialize};
@@ -400,6 +400,14 @@ impl Session {
             emit(out, &Response::Envelope(Box::new(EnvelopeMsg { env })));
         }
 
+        // v0.45 T3 — structured-result document piggybacks on every
+        // `check` response under the `result` extra field. Mirrors the
+        // shape `mty check --json` emits and lets agents stop
+        // line-by-line envelope-stitching when they only need the
+        // flat code+span+message tuple.
+        let check_result = build_check_result(&diags, &path_buf.display().to_string(), &src);
+        let result_value = serde_json::to_value(&check_result).expect("check result serializes");
+
         self.last_path = Some(path_buf);
         self.last_source = Some(src);
         self.last_envelopes = envelopes;
@@ -410,6 +418,7 @@ impl Session {
             JsonValue::from(diags.len() as u64),
         );
         extra.insert("fix_count".into(), JsonValue::from(fix_count as u64));
+        extra.insert("result".into(), result_value);
         emit(
             out,
             &Response::Result(ResultMsg {
