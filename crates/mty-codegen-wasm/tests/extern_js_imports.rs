@@ -120,6 +120,7 @@ fn program_with_extern_js(
             abi: "js".into(),
             name: fn_name.into(),
             is_variadic: false,
+            mut_params: vec![],
         },
     );
 

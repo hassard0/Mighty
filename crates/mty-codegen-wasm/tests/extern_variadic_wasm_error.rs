@@ -63,6 +63,7 @@ fn variadic_extern_program(abi: &str) -> Program {
             // ★ the only material difference from the non-variadic
             // tests in `extern_js_imports.rs`.
             is_variadic: true,
+            mut_params: vec![],
         },
     );
 

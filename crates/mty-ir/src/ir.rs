@@ -707,6 +707,17 @@ pub struct ExternBinding {
     /// wasm backend hard-errors on variadic extern fns (no FFI ABI
     /// exists in wasm core).
     pub is_variadic: bool,
+    /// v0.47 T1 — per-param `mut` flags, parallel to the fn's params.
+    /// `true` at index `i` iff the i-th param was declared
+    /// `mut <name>: ...` in source. Today this is only meaningful for
+    /// `mut Vec[U8]`: the codegen ABI builder expands such a slot into
+    /// a `(ptr, capacity, len_ptr)` i64 triple at the call site so the
+    /// C callee can write back into a Mighty-owned buffer. An empty
+    /// `Vec` is treated as "no mut on any param" — that's the historic
+    /// shape preserved for test fixtures that build ExternBinding by
+    /// hand. The wasm backend ignores this field (no FFI ABI exists
+    /// in wasm core); the LLVM and cranelift backends mirror it.
+    pub mut_params: Vec<bool>,
 }
 
 impl Program {

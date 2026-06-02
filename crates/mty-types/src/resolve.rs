@@ -312,6 +312,7 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
                     hir_fn: Some(*mfid),
                     extern_abi: None,
                     is_variadic: false,
+                    mut_params: vec![],
                 };
                 let id = defs.alloc_fn(fdef);
                 defs.hir_fn_to_def.insert(*mfid, id);
@@ -426,6 +427,7 @@ pub fn build_def_map(pkg: &Package, arena: &mut TyArena) -> ResolveOutput {
                     hir_fn: Some(*mfid),
                     extern_abi: None,
                     is_variadic: false,
+                    mut_params: vec![],
                 });
                 defs.hir_fn_to_def.insert(*mfid, fdef_id);
                 if let Some(aid) = self_adt {
@@ -636,6 +638,7 @@ fn declare_item(
                 hir_fn: Some(*fid),
                 extern_abi: None,
                 is_variadic: false,
+                mut_params: vec![],
             });
             defs.by_name.insert(hf.name.clone(), DefRef::Fn(fdef_id));
             fn_ids.push((*fid, fdef_id));
@@ -644,6 +647,14 @@ fn declare_item(
             let abi = eb.abi.clone();
             for fid in &eb.fns {
                 let hf = &pkg.fns[*fid];
+                // v0.47 T1 — record per-param `mut` flags so the
+                // codegen ABI builder can expand `mut Vec[U8]` into
+                // a (ptr, capacity, len_ptr) triple at the call site.
+                // Only meaningful for extern-c; for non-extern fns
+                // the parser still accepts the prefix but the type
+                // checker rejects it via MT2031.
+                let mut_params: Vec<bool> =
+                    hf.params.iter().map(|p| p.is_mut).collect();
                 let fdef_id = defs.alloc_fn(FnDef {
                     name: hf.name.clone(),
                     generics: vec![],
@@ -664,6 +675,7 @@ fn declare_item(
                     // FnDef.is_variadic can be `true`; all other FnDef
                     // constructors hard-code `false`.
                     is_variadic: hf.is_variadic,
+                    mut_params,
                 });
                 defs.by_name
                     .entry(hf.name.clone())

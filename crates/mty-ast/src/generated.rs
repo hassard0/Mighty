@@ -115,6 +115,23 @@ impl FnDecl {
     }
 }
 
+impl FnParam {
+    /// v0.47 T1 — true iff the param was declared with the `mut`
+    /// keyword prefix (e.g. `out: mut Vec[U8]` in an `extern c { ... }`
+    /// block). At extern-c call sites the lowering expands a mut
+    /// `Vec[U8]` into a `(ptr, capacity, len_ptr)` triple so the C
+    /// callee can write back into a Mighty-owned buffer. The type
+    /// checker rejects `mut` on non-extern-c params and on non-
+    /// `Vec[U8]` types. See `docs/internals/extern-c-matrix.md` §
+    /// "v0.47 T1 — mut Vec[U8] OUT params".
+    pub fn is_mut(&self) -> bool {
+        self.0
+            .children_with_tokens()
+            .filter_map(|e| e.into_token())
+            .any(|t| t.kind() == SyntaxKind::MUT_KW)
+    }
+}
+
 impl AgentDecl {
     pub fn name(&self) -> Option<Name> {
         self.0.children().find_map(Name::cast)

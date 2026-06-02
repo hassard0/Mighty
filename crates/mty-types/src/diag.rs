@@ -1263,3 +1263,46 @@ pub fn cap_resolution_error(err: &CapResolutionError, span: &SourceSpan) -> Diag
         } => cap_constraint_invalid(family, method, reason, span),
     }
 }
+
+/// v0.47 T1 — `mut` parameter declared on a non-extern-c fn. The `mut`
+/// prefix is FFI-only; for Mighty-side mutable params authors should
+/// use `&mut T` (a mutable reference).
+pub fn mut_param_only_on_extern_c(name: &str, span: &SourceSpan) -> Diagnostic {
+    Diagnostic::error(
+        MUT_PARAM_INVALID,
+        label(
+            span,
+            format!(
+                "`mut` on parameter `{}` is only allowed inside an \
+                 `extern c {{ ... }}` block (use `&mut T` for a Mighty-side mutable reference)",
+                name
+            ),
+        ),
+    )
+}
+
+/// v0.47 T1 — `mut` parameter on an extern-c fn whose type is not
+/// `Vec[U8]`. Only the byte-buffer shape has a defined OUT-buffer
+/// ABI today; other shapes (Str/String, scalars, structs, Vec[T] for
+/// T != U8) are rejected with this code.
+pub fn mut_param_must_be_vec_u8(
+    name: &str,
+    found: TyId,
+    span: &SourceSpan,
+    arena: &TyArena,
+    subst: &Substitution,
+    defs: &DefMap,
+) -> Diagnostic {
+    let f = pretty_ty(found, arena, Some(subst), Some(defs));
+    Diagnostic::error(
+        MUT_PARAM_INVALID,
+        label(
+            span,
+            format!(
+                "`mut` extern-c parameter `{}` must have type `Vec[U8]`, found `{}` \
+                 (only the byte-buffer shape has a defined caller-allocated OUT ABI)",
+                name, f
+            ),
+        ),
+    )
+}

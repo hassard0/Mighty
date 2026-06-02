@@ -190,9 +190,41 @@ pub fn classify_aggregate_return(ret: &IrTy, adts: &[AdtRef]) -> AggregateReturn
 /// bytes are owned by the Mighty caller — the C side must not store
 /// the pointer past the call. See `docs/internals/extern-c-matrix.md`
 /// "Str slice (ptr, len) FFI" section.
+///
+/// v0.47 T1 (L52 follow-up) — Backwards-compatible wrapper that
+/// assumes no `mut` params. For callees with a non-empty mut-flag
+/// list (extern-c with `mut Vec[U8]` OUT buffers) use
+/// [`build_extern_signature_with_mut`].
 pub fn build_extern_signature(
     triple: &Triple,
     params: &[IrTy],
+    ret: &IrTy,
+    adts: &[AdtRef],
+) -> (Signature, AggregateReturnKind) {
+    build_extern_signature_with_mut(triple, params, &[], ret, adts)
+}
+
+/// v0.47 T1 — extern-c signature builder honouring per-param `mut`
+/// flags. A `mut Vec[U8]` param expands into a three-i64 ABI triple
+/// at the call site: `(out_ptr: *u8, out_capacity: usize,
+/// out_len: *usize)`. The C callee writes up to `capacity` bytes to
+/// `out_ptr` and stores the actual byte count via `out_len`. The
+/// Vec's len field lives at offset 0 of the runtime Vec header, so
+/// the cranelift lowerer just passes `header_ptr` for the
+/// `out_len` slot (Vec layout: `{len, cap, data, elem_size}` —
+/// `VEC_LEN_OFF == 0`). See
+/// `docs/internals/extern-c-matrix.md` §"v0.47 T1 — mut Vec[U8]".
+///
+/// `mut_params` is parallel to `params`; an empty slice (or one
+/// shorter than `params`) is treated as "no mut anywhere", which
+/// matches the v0.46-and-earlier behaviour. Non-`Vec`-shaped
+/// `mut` flags are silently ignored at the ABI level — the type
+/// checker (MT2031) rejects them upstream, so by the time codegen
+/// runs the only `mut` slot left is a Vec[U8].
+pub fn build_extern_signature_with_mut(
+    triple: &Triple,
+    params: &[IrTy],
+    mut_params: &[bool],
     ret: &IrTy,
     adts: &[AdtRef],
 ) -> (Signature, AggregateReturnKind) {
@@ -228,8 +260,18 @@ pub fn build_extern_signature(
                 .push(AbiParam::special(ct::I64, ArgumentPurpose::StructReturn));
         }
     }
-    for p in params {
+    for (i, p) in params.iter().enumerate() {
         if matches!(p, IrTy::Unit | IrTy::Never) {
+            continue;
+        }
+        let is_mut = mut_params.get(i).copied().unwrap_or(false);
+        // v0.47 T1 — `mut Vec[U8]` expands to a (ptr, cap, len_ptr)
+        // triple of three i64 ABI slots. See
+        // `build_extern_signature_with_mut` doc + extern-c-matrix.md.
+        if is_mut && is_mut_vec_u8_param(p, adts) {
+            sig.params.push(AbiParam::new(ct::I64)); // out_ptr (uint8_t*)
+            sig.params.push(AbiParam::new(ct::I64)); // out_capacity (size_t)
+            sig.params.push(AbiParam::new(ct::I64)); // out_len (size_t*)
             continue;
         }
         // v0.46 T3 — Str / String at an extern-c param slot expands to
@@ -251,6 +293,29 @@ pub fn build_extern_signature(
 /// be expanded into a (ptr, len) pair at the extern-c ABI boundary.
 pub fn is_str_slice_param(p: &IrTy) -> bool {
     matches!(p, IrTy::Str | IrTy::String)
+}
+
+/// v0.47 T1 — true iff `p` is a Mighty `Vec[U8]` param. Used together
+/// with the per-param `mut` flag to decide whether to expand a slot
+/// into the (ptr, cap, len_ptr) OUT-buffer triple. Resolves through
+/// the ADT catalog by NAME so the prelude-registered `Vec` opaque
+/// ADT matches without needing a stable `AdtId`.
+///
+/// Element type check is strict: only `IrTy::Int(IntKind::U8)`
+/// qualifies today. `mut Vec[T]` for T != U8 is rejected at the type
+/// checker (MT2031); the codegen guard here is defensive.
+pub fn is_mut_vec_u8_param(p: &IrTy, adts: &[AdtRef]) -> bool {
+    let IrTy::Adt(id, args) = p else {
+        return false;
+    };
+    if args.len() != 1 {
+        return false;
+    }
+    if !matches!(&args[0], IrTy::Int(mty_types::IntKind::U8)) {
+        return false;
+    }
+    adts.iter()
+        .any(|a| a.adt == *id && a.name == "Vec")
 }
 
 #[cfg(test)]
