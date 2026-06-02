@@ -71,6 +71,9 @@ int32_t mty_runtime_fs_create_dir_all(int64_t path_ptr, int64_t path_len);
 int32_t mty_runtime_fs_remove_file(int64_t path_ptr, int64_t path_len);
 int32_t mty_runtime_fs_remove_dir_all(int64_t path_ptr, int64_t path_len);
 void mty_runtime_fs_read_dir(int64_t path_ptr, int64_t path_len, int64_t dst);
+int64_t mty_runtime_fs_dir_open(int64_t path_ptr, int64_t path_len);
+int32_t mty_runtime_fs_dir_next(int64_t handle, int64_t dst);
+void mty_runtime_fs_dir_close(int64_t handle);
 void mty_runtime_str_concat(int64_t aptr, int64_t alen, int64_t bptr, int64_t blen, int64_t dst);
 
 #ifdef __cplusplus
