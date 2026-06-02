@@ -296,6 +296,56 @@ impl<'ctx, 'a, 'b> ProgramLowerer<'ctx, 'a, 'b> {
             self.module
                 .add_function("mty_runtime_str_concat", s, Some(Linkage::External)),
         );
+        // v0.45 T1 (L18 fix) — native `std.fs.*` surface. Each call
+        // lowers to one of the symbols declared below; the parameter
+        // shapes mirror the cranelift `runtime_imports::RUNTIME_IMPORTS`
+        // entries.
+        //   read* / read_dir : void(path_ptr_i64, path_len_i64, dst_i64)
+        //   write* / append  : i32 (path_ptr, path_len, data_ptr, data_len)
+        //   exists / mkdir / rm: i32 (path_ptr, path_len)
+        //   metadata         : i32 (path_ptr, path_len, dst_slot)
+        for name in [
+            "mty_runtime_fs_read",
+            "mty_runtime_fs_read_to_string",
+            "mty_runtime_fs_read_dir",
+        ] {
+            let s = void.fn_type(&[i64.into(), i64.into(), i64.into()], false);
+            self.runtime_fns.insert(
+                name,
+                self.module.add_function(name, s, Some(Linkage::External)),
+            );
+        }
+        for name in [
+            "mty_runtime_fs_write",
+            "mty_runtime_fs_write_string",
+            "mty_runtime_fs_append",
+        ] {
+            let s = i32t.fn_type(&[i64.into(), i64.into(), i64.into(), i64.into()], false);
+            self.runtime_fns.insert(
+                name,
+                self.module.add_function(name, s, Some(Linkage::External)),
+            );
+        }
+        for name in [
+            "mty_runtime_fs_exists",
+            "mty_runtime_fs_create_dir_all",
+            "mty_runtime_fs_remove_file",
+            "mty_runtime_fs_remove_dir_all",
+        ] {
+            let s = i32t.fn_type(&[i64.into(), i64.into()], false);
+            self.runtime_fns.insert(
+                name,
+                self.module.add_function(name, s, Some(Linkage::External)),
+            );
+        }
+        {
+            let s = i32t.fn_type(&[i64.into(), i64.into(), i64.into()], false);
+            self.runtime_fns.insert(
+                "mty_runtime_fs_metadata",
+                self.module
+                    .add_function("mty_runtime_fs_metadata", s, Some(Linkage::External)),
+            );
+        }
     }
 
     fn llvm_ty(&self, t: &IrTy) -> BasicTypeEnum<'ctx> {
@@ -536,10 +586,24 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                 Ok(())
             }
             Stmt::Assign(p, rv) => self.lower_assign(p, rv),
-            Stmt::EffectInvoke { op, out, .. } => {
-                let method = match op {
-                    mty_ir::ir::EffectOp::GenericCall { method, .. } => method.clone(),
+            Stmt::EffectInvoke { op, args, out, .. } => {
+                let (path, method) = match op {
+                    mty_ir::ir::EffectOp::GenericCall { path, method } => {
+                        (path.clone(), method.clone())
+                    }
                 };
+                let full_name = if path.is_empty() {
+                    method.clone()
+                } else {
+                    format!("{}.{}", path.join("."), method)
+                };
+                // v0.45 T1 (L18 fix) — native `std.fs.*` dispatch.
+                // Mirrors the cranelift path: every fs method routes
+                // through its dedicated runtime symbol so JIT/AOT
+                // outputs touch disk without an interpreter fallback.
+                if is_native_fs_method_llvm(&full_name) {
+                    return self.emit_fs_call_llvm(&full_name, args, out.as_ref());
+                }
                 let nptr = self.pl.intern_string(&method);
                 let nlen = self.pl.i64_ty().const_int(method.len() as u64, false);
                 let zero = self.pl.i64_ty().const_zero();
@@ -1362,6 +1426,158 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
             }
             _ => Err(LlvmError::Unsupported("non-literal string in log".into())),
         }
+    }
+
+    /// v0.45 T1 (L18 fix) — lower a `std.fs.*` call to its native
+    /// runtime ABI symbol on the LLVM backend.
+    ///
+    /// Mirrors the cranelift `emit_fs_call` ABI:
+    ///   - read* / read_dir : write (ptr, len, ok) into a 24-byte
+    ///     `alloca`'d slot; emit the slot address into the out place.
+    ///   - write* / append  : (path, len, data, len) -> i32, stored
+    ///     into the out place.
+    ///   - exists / mkdir / rm: (path, len) -> i32.
+    ///   - metadata         : 24-byte slot {size, mtime_ms, is_file,
+    ///     is_dir} + i32 success return; slot address into the out
+    ///     place.
+    ///
+    /// LLVM backend caveat: `string_pair` only supports literal Str
+    /// operands (same limitation as the typed-log path). Dynamic-Str
+    /// paths surface as `LlvmError::Unsupported`; the cranelift
+    /// backend (used by `mty build` by default on the IDE's
+    /// development triples) handles both shapes.
+    fn emit_fs_call_llvm(
+        &mut self,
+        full_name: &str,
+        args: &[Operand],
+        out: Option<&Place>,
+    ) -> CompileResult<()> {
+        let Some(path_op) = args.first() else {
+            return Err(LlvmError::Unsupported(format!(
+                "{full_name}: missing path arg"
+            )));
+        };
+        let (path_ptr, path_len) = self.string_pair(path_op)?;
+        // Convert pointers to i64 for the runtime call (the runtime
+        // ABI is uniformly i64-shaped).
+        let path_ptr_i64 = self
+            .pl
+            .builder
+            .build_ptr_to_int(path_ptr, self.pl.i64_ty(), "fs_path_ptr_i64")
+            .unwrap();
+
+        let kind = LlvmFsAbiKind::for_method(full_name);
+        let i64_ty = self.pl.i64_ty();
+        let i32_ty = self.pl.i32_ty();
+
+        // Helper: alloca a 24-byte struct slot, returning its i64-ified
+        // address so the runtime can write fields by raw offset.
+        let alloc_slot24 = |this: &mut Self, name: &str| -> (PointerValue<'ctx>, IntValue<'ctx>) {
+            let arr_ty = this.pl.ctx.i8_type().array_type(24);
+            let slot = this.pl.builder.build_alloca(arr_ty, name).unwrap();
+            let slot_i64 = this
+                .pl
+                .builder
+                .build_ptr_to_int(slot, this.pl.i64_ty(), &format!("{name}_i64"))
+                .unwrap();
+            (slot, slot_i64)
+        };
+
+        let ret_kind: LlvmFsRet<'ctx> = match kind {
+            LlvmFsAbiKind::ReadStrSlot { symbol } => {
+                let (slot, slot_i64) = alloc_slot24(self, "fs_read_slot");
+                let f = self.pl.runtime_fns[symbol];
+                let _ = self.pl.builder.build_call(
+                    f,
+                    &[path_ptr_i64.into(), path_len.into(), slot_i64.into()],
+                    "fs_call",
+                );
+                LlvmFsRet::Slot(slot)
+            }
+            LlvmFsAbiKind::WriteI32 { symbol } => {
+                let Some(data_op) = args.get(1) else {
+                    return Err(LlvmError::Unsupported(format!(
+                        "{full_name}: missing data arg"
+                    )));
+                };
+                let (data_ptr, data_len) = self.string_pair(data_op)?;
+                let data_ptr_i64 = self
+                    .pl
+                    .builder
+                    .build_ptr_to_int(data_ptr, i64_ty, "fs_data_ptr_i64")
+                    .unwrap();
+                let f = self.pl.runtime_fns[symbol];
+                let call = self
+                    .pl
+                    .builder
+                    .build_call(
+                        f,
+                        &[
+                            path_ptr_i64.into(),
+                            path_len.into(),
+                            data_ptr_i64.into(),
+                            data_len.into(),
+                        ],
+                        "fs_call",
+                    )
+                    .unwrap();
+                let raw = call
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap_or_else(|| i32_ty.const_zero().into());
+                LlvmFsRet::I32(raw)
+            }
+            LlvmFsAbiKind::PathI32 { symbol } => {
+                let f = self.pl.runtime_fns[symbol];
+                let call = self
+                    .pl
+                    .builder
+                    .build_call(f, &[path_ptr_i64.into(), path_len.into()], "fs_call")
+                    .unwrap();
+                let raw = call
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap_or_else(|| i32_ty.const_zero().into());
+                LlvmFsRet::I32(raw)
+            }
+            LlvmFsAbiKind::MetadataSlot { symbol } => {
+                let (slot, slot_i64) = alloc_slot24(self, "fs_md_slot");
+                let f = self.pl.runtime_fns[symbol];
+                let _ = self.pl.builder.build_call(
+                    f,
+                    &[path_ptr_i64.into(), path_len.into(), slot_i64.into()],
+                    "fs_call",
+                );
+                LlvmFsRet::Slot(slot)
+            }
+        };
+
+        if let Some(p) = out {
+            if p.proj.is_empty() {
+                let slot = self.ensure_local(p.local);
+                let want = self.pl.llvm_ty(&self.f.locals[p.local.0 as usize].ty);
+                match ret_kind {
+                    LlvmFsRet::Slot(slot_ptr) => {
+                        // Out type is an aggregate (Str-shaped or
+                        // record-shaped). Mighty stores aggregate locals
+                        // as pointers; write the alloca's address into
+                        // the local's slot.
+                        let p_i64 = self
+                            .pl
+                            .builder
+                            .build_ptr_to_int(slot_ptr, self.pl.i64_ty(), "fs_ret_i64")
+                            .unwrap();
+                        let coerced = self.coerce(p_i64.into(), want);
+                        let _ = self.pl.builder.build_store(slot, coerced);
+                    }
+                    LlvmFsRet::I32(raw) => {
+                        let coerced = self.coerce(raw, want);
+                        let _ = self.pl.builder.build_store(slot, coerced);
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// SIR → LLVM type for an [`Operand`]. Returns `None` when the
@@ -2394,4 +2610,91 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
         self.pl.builder.build_store(p, zero).unwrap();
         Ok(hdr.into())
     }
+}
+
+// =============================================================================
+// v0.45 T1 — native std.fs.* support on the LLVM backend (L18 fix)
+// =============================================================================
+
+/// Recognise the `std.fs.*` methods that the LLVM backend now lowers
+/// natively. Kept in sync with the cranelift `is_native_fs_method` so
+/// both backends ship identical source coverage. Accepts both
+/// `std.fs.*` and bare `fs.*` shapes (the latter from a `use std.fs`
+/// import).
+fn is_native_fs_method_llvm(full_name: &str) -> bool {
+    let bare = full_name.strip_prefix("std.").unwrap_or(full_name);
+    matches!(
+        bare,
+        "fs.read"
+            | "fs.read_file"
+            | "fs.read_to_string"
+            | "fs.read_dir"
+            | "fs.list_dir"
+            | "fs.write"
+            | "fs.write_file"
+            | "fs.write_string"
+            | "fs.append"
+            | "fs.exists"
+            | "fs.metadata"
+            | "fs.stat"
+            | "fs.create_dir_all"
+            | "fs.remove_file"
+            | "fs.remove_dir_all"
+    )
+}
+
+#[derive(Debug, Clone, Copy)]
+enum LlvmFsAbiKind {
+    ReadStrSlot { symbol: &'static str },
+    WriteI32 { symbol: &'static str },
+    PathI32 { symbol: &'static str },
+    MetadataSlot { symbol: &'static str },
+}
+
+impl LlvmFsAbiKind {
+    fn for_method(full_name: &str) -> Self {
+        let bare = full_name.strip_prefix("std.").unwrap_or(full_name);
+        match bare {
+            "fs.read" | "fs.read_file" => LlvmFsAbiKind::ReadStrSlot {
+                symbol: "mty_runtime_fs_read",
+            },
+            "fs.read_to_string" => LlvmFsAbiKind::ReadStrSlot {
+                symbol: "mty_runtime_fs_read_to_string",
+            },
+            "fs.read_dir" | "fs.list_dir" => LlvmFsAbiKind::ReadStrSlot {
+                symbol: "mty_runtime_fs_read_dir",
+            },
+            "fs.write" | "fs.write_file" => LlvmFsAbiKind::WriteI32 {
+                symbol: "mty_runtime_fs_write",
+            },
+            "fs.write_string" => LlvmFsAbiKind::WriteI32 {
+                symbol: "mty_runtime_fs_write_string",
+            },
+            "fs.append" => LlvmFsAbiKind::WriteI32 {
+                symbol: "mty_runtime_fs_append",
+            },
+            "fs.exists" => LlvmFsAbiKind::PathI32 {
+                symbol: "mty_runtime_fs_exists",
+            },
+            "fs.create_dir_all" => LlvmFsAbiKind::PathI32 {
+                symbol: "mty_runtime_fs_create_dir_all",
+            },
+            "fs.remove_file" => LlvmFsAbiKind::PathI32 {
+                symbol: "mty_runtime_fs_remove_file",
+            },
+            "fs.remove_dir_all" => LlvmFsAbiKind::PathI32 {
+                symbol: "mty_runtime_fs_remove_dir_all",
+            },
+            "fs.metadata" | "fs.stat" => LlvmFsAbiKind::MetadataSlot {
+                symbol: "mty_runtime_fs_metadata",
+            },
+            _ => unreachable!("LlvmFsAbiKind::for_method called on non-fs method {full_name}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum LlvmFsRet<'ctx> {
+    Slot(PointerValue<'ctx>),
+    I32(BasicValueEnum<'ctx>),
 }

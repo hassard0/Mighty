@@ -921,7 +921,7 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 Ok(())
             }
             Stmt::Assign(place, rv) => self.lower_assign(place, rv),
-            Stmt::EffectInvoke { op, out, .. } => {
+            Stmt::EffectInvoke { op, args, out, .. } => {
                 // Slice-8 stub: route through extern_call with the
                 // method name. The runtime stub returns 0 — the
                 // compiled program continues with a zero-default value.
@@ -929,6 +929,16 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                     mty_ir::ir::EffectOp::GenericCall { path, method } => (path, method),
                 };
                 let full_name = effect_full_name(path, method);
+                // v0.45 T1 — native std.fs.* dispatch. Lowers each
+                // call to its dedicated runtime ABI symbol; supersedes
+                // the v0.44 interpreter-hosted fallback for these
+                // method names. See `emit_fs_call` for the per-method
+                // arg shape.
+                if is_native_fs_method(&full_name) {
+                    let args = args.clone();
+                    let out = out.clone();
+                    return self.emit_fs_call(&full_name, &args, out.as_ref());
+                }
                 if is_interpreter_hosted_stdlib(&full_name) {
                     return Err(CodegenError::Unsupported(format!(
                         "{full_name} is interpreter-hosted"
@@ -2748,6 +2758,116 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         }
     }
 
+    /// v0.45 T1 (L18 fix) — lower a `std.fs.*` call to its native
+    /// runtime ABI symbol.
+    ///
+    /// `full_name` is the fully-qualified method name (`"std.fs.read"`,
+    /// `"std.fs.write"`, ...). `args` is the lowered SIR operands —
+    /// `args[0]` is the path Str, `args[1]` (when present) is the
+    /// payload Str/Bytes for write/append. The `out` place receives:
+    /// - For read/read_to_string/read_dir: a 24-byte aggregate slot
+    ///   address holding (ptr, len, ok). Mighty reads it as a Str
+    ///   value (the codegen elsewhere already treats Str as a (ptr,
+    ///   len) aggregate — see `string_pair` — so loading at offsets
+    ///   +0/+8 just works).
+    /// - For exists/write*/append/create_dir_all/remove*: a single i32
+    ///   coerced to the out local's type.
+    /// - For metadata: a 24-byte struct slot {size, mtime_ms,
+    ///   is_file, is_dir}. The caller has typeck'd a 4-field record
+    ///   shape so field projections land at the right offsets.
+    fn emit_fs_call(
+        &mut self,
+        full_name: &str,
+        args: &[mty_ir::ir::Operand],
+        out: Option<&mty_ir::ir::Place>,
+    ) -> CompileResult<()> {
+        // Every fs call carries the path as its first operand.
+        let Some(path_op) = args.first() else {
+            return Err(CodegenError::Unsupported(format!(
+                "{full_name}: missing path arg"
+            )));
+        };
+        let (path_ptr, path_len) = self.string_pair(path_op)?;
+
+        // Bucket by ABI shape.
+        let kind = FsAbiKind::for_method(full_name);
+
+        let ret_value: Option<cranelift_codegen::ir::Value> = match kind {
+            FsAbiKind::ReadStrSlot { symbol } => {
+                // Allocate a 24-byte (ptr, len, ok) slot. The Mighty-
+                // side type is a Str aggregate; downstream consumers
+                // read offsets +0 / +8 which line up with the
+                // string_pair convention used everywhere else. The
+                // third word (ok flag at +16) is currently consumed
+                // only by the test harness; user code that wants the
+                // success bit can read the ok flag through a tuple
+                // projection in a future revision.
+                let slot = self.b.create_sized_stack_slot(StackSlotData::new(
+                    StackSlotKind::ExplicitSlot,
+                    24,
+                    3,
+                ));
+                let slot_addr = self.b.ins().stack_addr(ct::I64, slot, 0);
+                self.call_rt(symbol, &[path_ptr, path_len, slot_addr], None)?;
+                Some(slot_addr)
+            }
+            FsAbiKind::WriteI32 { symbol } => {
+                // (path_ptr, path_len, data_ptr, data_len) -> i32
+                let Some(data_op) = args.get(1) else {
+                    return Err(CodegenError::Unsupported(format!(
+                        "{full_name}: missing data arg"
+                    )));
+                };
+                let (data_ptr, data_len) = self.string_pair(data_op)?;
+                self.call_rt(
+                    symbol,
+                    &[path_ptr, path_len, data_ptr, data_len],
+                    Some(ct::I32),
+                )?
+            }
+            FsAbiKind::PathI32 { symbol } => {
+                self.call_rt(symbol, &[path_ptr, path_len], Some(ct::I32))?
+            }
+            FsAbiKind::MetadataSlot { symbol } => {
+                // 24-byte struct slot — {size:u64@+0, mtime_ms:i64@+8,
+                // is_file:i8@+16, is_dir:i8@+17, 6B pad}. The runtime
+                // writes the fields directly via raw ptr writes; the
+                // i32 return is the success flag (1=ok, -errno=err),
+                // which the codegen currently swallows. Future versions
+                // can surface this through a Result-shaped out.
+                let slot = self.b.create_sized_stack_slot(StackSlotData::new(
+                    StackSlotKind::ExplicitSlot,
+                    24,
+                    3,
+                ));
+                let slot_addr = self.b.ins().stack_addr(ct::I64, slot, 0);
+                self.call_rt(symbol, &[path_ptr, path_len, slot_addr], Some(ct::I32))?;
+                Some(slot_addr)
+            }
+        };
+
+        // Write the result into the `out` place, if any.
+        if let Some(p) = out {
+            if let Some(r) = ret_value {
+                if !p.proj.is_empty() {
+                    let (addr, ty) = self.place_addr(p)?;
+                    self.store_scalar(addr, r, &ty)?;
+                } else {
+                    let local_ty = self.f.locals[p.local.0 as usize].ty.clone();
+                    let var = self.ensure_var(p.local);
+                    let want = if is_aggregate(&local_ty) {
+                        ct::I64
+                    } else {
+                        cl_ty_for(&local_ty)
+                    };
+                    let v = self.coerce_to(r, want);
+                    self.b.def_var(var, v);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// v0.42 T4 (L23 fix) — `String + String` concat.
     ///
     /// Builds a 16-byte stack slot for the result aggregate
@@ -3750,18 +3870,105 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
 }
 
 fn is_interpreter_hosted_stdlib(name: &str) -> bool {
+    // v0.45 T1 — `std.fs.*` no longer falls back to interpreter-hosted.
+    // The codegen routes those calls through `emit_fs_call` to the
+    // native ABI symbols. Any non-fs interpreter-hosted callsites
+    // continue to fail with the descriptive error (none today).
+    let _ = name;
+    false
+}
+
+/// v0.45 T1 — recognise the `std.fs.*` methods that the codegen
+/// lowers natively. Keep this table in sync with `FsAbiKind::for_method`
+/// and `runtime_imports::RUNTIME_IMPORTS`. Accept both the fully-
+/// qualified `std.fs.*` form and the bare `fs.*` form a `use std.fs`
+/// import produces (the wasm emitter accepts the same pair — see
+/// `crates/mty-codegen-wasm/src/emit.rs`).
+fn is_native_fs_method(full_name: &str) -> bool {
+    fn strip(s: &str) -> &str {
+        s.strip_prefix("std.").unwrap_or(s)
+    }
     matches!(
-        name,
-        "std.fs.read"
-            | "std.fs.read_file"
-            | "std.fs.read_to_string"
-            | "std.fs.write"
-            | "std.fs.write_file"
-            | "std.fs.write_string"
-            | "std.fs.exists"
-            | "std.fs.list_dir"
-            | "std.fs.read_dir"
+        strip(full_name),
+        "fs.read"
+            | "fs.read_file"
+            | "fs.read_to_string"
+            | "fs.read_dir"
+            | "fs.list_dir"
+            | "fs.write"
+            | "fs.write_file"
+            | "fs.write_string"
+            | "fs.append"
+            | "fs.exists"
+            | "fs.metadata"
+            | "fs.stat"
+            | "fs.create_dir_all"
+            | "fs.remove_file"
+            | "fs.remove_dir_all"
     )
+}
+
+/// v0.45 T1 — ABI shape selector for `std.fs.*` calls. Buckets each
+/// method into one of four runtime-symbol families so `emit_fs_call`
+/// can choose the right param/return convention.
+#[derive(Debug, Clone, Copy)]
+enum FsAbiKind {
+    /// (path_ptr, path_len, dst_slot) — runtime writes (ptr, len, ok)
+    /// triple into the 24-byte slot; codegen returns the slot address.
+    ReadStrSlot { symbol: &'static str },
+    /// (path_ptr, path_len, data_ptr, data_len) -> i32 (1=ok, -errno).
+    WriteI32 { symbol: &'static str },
+    /// (path_ptr, path_len) -> i32 (1/0 for exists; 1=ok or -errno
+    /// for the side-effecting verbs).
+    PathI32 { symbol: &'static str },
+    /// (path_ptr, path_len, dst_slot) -> i32; runtime writes the
+    /// {size:u64, mtime_ms:i64, is_file:i8, is_dir:i8} record into a
+    /// 24-byte slot. Codegen returns the slot address.
+    MetadataSlot { symbol: &'static str },
+}
+
+impl FsAbiKind {
+    fn for_method(full_name: &str) -> Self {
+        // Accept both `std.fs.*` and `fs.*` shapes — see
+        // `is_native_fs_method` for the rationale.
+        let bare = full_name.strip_prefix("std.").unwrap_or(full_name);
+        match bare {
+            "fs.read" | "fs.read_file" => FsAbiKind::ReadStrSlot {
+                symbol: "mty_runtime_fs_read",
+            },
+            "fs.read_to_string" => FsAbiKind::ReadStrSlot {
+                symbol: "mty_runtime_fs_read_to_string",
+            },
+            "fs.read_dir" | "fs.list_dir" => FsAbiKind::ReadStrSlot {
+                symbol: "mty_runtime_fs_read_dir",
+            },
+            "fs.write" | "fs.write_file" => FsAbiKind::WriteI32 {
+                symbol: "mty_runtime_fs_write",
+            },
+            "fs.write_string" => FsAbiKind::WriteI32 {
+                symbol: "mty_runtime_fs_write_string",
+            },
+            "fs.append" => FsAbiKind::WriteI32 {
+                symbol: "mty_runtime_fs_append",
+            },
+            "fs.exists" => FsAbiKind::PathI32 {
+                symbol: "mty_runtime_fs_exists",
+            },
+            "fs.create_dir_all" => FsAbiKind::PathI32 {
+                symbol: "mty_runtime_fs_create_dir_all",
+            },
+            "fs.remove_file" => FsAbiKind::PathI32 {
+                symbol: "mty_runtime_fs_remove_file",
+            },
+            "fs.remove_dir_all" => FsAbiKind::PathI32 {
+                symbol: "mty_runtime_fs_remove_dir_all",
+            },
+            "fs.metadata" | "fs.stat" => FsAbiKind::MetadataSlot {
+                symbol: "mty_runtime_fs_metadata",
+            },
+            _ => unreachable!("FsAbiKind::for_method called on non-fs method {full_name}"),
+        }
+    }
 }
 
 fn effect_full_name(path: &[String], method: &str) -> String {

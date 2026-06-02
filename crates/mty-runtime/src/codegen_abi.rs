@@ -344,6 +344,290 @@ pub extern "C" fn mty_runtime_fmt_bool(v: i8, dst: i64) {
     unsafe { write_str_pair(dst, p, l) };
 }
 
+// ---- v0.45 T1: native std.fs surface (L18 fix) --------------------
+//
+// v0.44 fixed L18 partially: `std.fs.*` calls under `mty run` were
+// routed to the interpreter fallback so the host dispatcher could run
+// them. That left `mty build` (cranelift JIT + native AOT, LLVM)
+// useless for any program that touches disk — agents had to ship a
+// Rust shim. v0.45 T1 closes the gap: every `std.fs.*` lowers
+// directly to one of the runtime symbols below, so generated apps run
+// natively without a shim.
+//
+// Shape conventions:
+//
+// - `read` / `read_to_string` / `read_dir` write a (ptr, len, ok)
+//   triple into a caller-supplied 24-byte stack slot:
+//       slot[0] : i64 — bytes ptr (0 on err)
+//       slot[1] : i64 — bytes len (0 on err)
+//       slot[2] : i64 — ok flag (1=ok, 0=err)
+//   This matches the v0.42 T4 `fmt_*` family's (ptr,len) layout, plus
+//   a third i64 word for the success bit. We deliberately pack
+//   everything into i64 so the codegen's existing aggregate-slot
+//   helpers can write/load it without learning a new pun width.
+//
+// - `write` / `write_string` / `append` / `create_dir_all` /
+//   `remove_file` / `remove_dir_all` / `exists` return a single i32:
+//       1   — ok / true
+//       0   — false (exists predicate only; write/etc. don't fail
+//             closed here)
+//      -errno — IO error code (negated `std::io::Error::raw_os_error`
+//             when present, else `-1`)
+//
+// - `metadata` writes a 24-byte struct into a caller-supplied slot:
+//       slot+ 0 : u64 — size in bytes
+//       slot+ 8 : i64 — mtime_ms (millis since UNIX epoch, 0 if N/A)
+//       slot+16 : i8  — is_file (1/0)
+//       slot+17 : i8  — is_dir  (1/0)
+//   The remaining 6 bytes are padding so the slot is 8-byte aligned
+//   and 24 bytes total. Matches `mty_stdlib::fs::Metadata`'s layout.
+//
+// Bytes for `read*` / `read_dir` are interned into the same
+// thread-local `FMT_STRINGS` table the typed-log path uses so the
+// pointer stays valid for the lifetime of the program — caller code
+// can pipe the result straight into `log(...)` / a longer-lived let
+// binding without worrying about arena cleanup.
+
+fn intern_bytes(bytes: Vec<u8>) -> (i64, i64) {
+    // Reuse the FMT_STRINGS table; we hold them as Box<str>. Bytes
+    // that aren't valid UTF-8 go through `from_utf8_lossy` so the
+    // returned pointer/length still points at a frozen allocation
+    // and len is the lossy-decoded length. Programs that need raw
+    // bytes use `read` (which converts losslessly via the same
+    // box<str> when the file is UTF-8 — agents asking for raw bytes
+    // is the slot-pair shape that's documented in fs.docstub).
+    let s = match std::string::String::from_utf8(bytes) {
+        Ok(s) => s,
+        Err(e) => std::string::String::from_utf8_lossy(e.as_bytes()).into_owned(),
+    };
+    intern_fmt(s)
+}
+
+/// Write a (ptr, len, ok) triple to a caller-supplied 24-byte stack
+/// slot. `ok` is 1 for success, 0 for failure.
+unsafe fn write_str_triple(dst: i64, ptr: i64, len: i64, ok: i64) {
+    if dst == 0 {
+        return;
+    }
+    let p = dst as usize as *mut i64;
+    p.write(ptr);
+    p.add(1).write(len);
+    p.add(2).write(ok);
+}
+
+fn errno_of(err: std::io::Error) -> i32 {
+    let n = err.raw_os_error().unwrap_or(1);
+    -n
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fs_read(path_ptr: i64, path_len: i64, dst: i64) {
+    let path = unsafe { read_str(path_ptr, path_len) };
+    // Capability gate is compile-time (`effect fs` in typeck) — the
+    // runtime call is unconditional. v0.45 T1 deliberately keeps the
+    // `mty-runtime` crate independent of `mty-stdlib::fs::FsCap` so
+    // the JIT/AOT path doesn't drag in the stdlib's sandbox state
+    // machine. Sandbox-aware programs install the cap upstream
+    // (`mty-driver` runs the same install-default-cap dance for the
+    // interp path).
+    match std::fs::read(std::path::Path::new(path)) {
+        Ok(bytes) => {
+            let (p, l) = intern_bytes(bytes);
+            unsafe { write_str_triple(dst, p, l, 1) };
+        }
+        Err(_) => unsafe { write_str_triple(dst, 0, 0, 0) },
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fs_read_to_string(path_ptr: i64, path_len: i64, dst: i64) {
+    // Identical native semantics to `read` — both return UTF-8 bytes
+    // through the (ptr, len, ok) slot. The Mighty-side type is
+    // `Str` vs `Bytes`, which is a typeck distinction; the bytes on
+    // the wire are the same.
+    mty_runtime_fs_read(path_ptr, path_len, dst);
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fs_write(
+    path_ptr: i64,
+    path_len: i64,
+    data_ptr: i64,
+    data_len: i64,
+) -> i32 {
+    let path_str = unsafe { read_str(path_ptr, path_len) };
+    let path = std::path::Path::new(path_str);
+    let data = unsafe {
+        if data_ptr == 0 || data_len <= 0 {
+            &[][..]
+        } else {
+            std::slice::from_raw_parts(data_ptr as usize as *const u8, data_len as usize)
+        }
+    };
+    // Match `mty_stdlib::fs::write` semantics: create parent dirs as
+    // needed so a single `std.fs.write("./out/data.txt", b"hi")` call
+    // works without a separate create_dir_all.
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                return errno_of(e);
+            }
+        }
+    }
+    match std::fs::write(path, data) {
+        Ok(()) => 1,
+        Err(e) => errno_of(e),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fs_write_string(
+    path_ptr: i64,
+    path_len: i64,
+    str_ptr: i64,
+    str_len: i64,
+) -> i32 {
+    // Same write semantics; the codegen passes the (ptr, len) for the
+    // Str aggregate's backing slot.
+    mty_runtime_fs_write(path_ptr, path_len, str_ptr, str_len)
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fs_append(
+    path_ptr: i64,
+    path_len: i64,
+    data_ptr: i64,
+    data_len: i64,
+) -> i32 {
+    let path_str = unsafe { read_str(path_ptr, path_len) };
+    let path = std::path::Path::new(path_str);
+    let data = unsafe {
+        if data_ptr == 0 || data_len <= 0 {
+            &[][..]
+        } else {
+            std::slice::from_raw_parts(data_ptr as usize as *const u8, data_len as usize)
+        }
+    };
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                return errno_of(e);
+            }
+        }
+    }
+    use std::io::Write;
+    let mut f = match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        Ok(f) => f,
+        Err(e) => return errno_of(e),
+    };
+    match f.write_all(data) {
+        Ok(()) => 1,
+        Err(e) => errno_of(e),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fs_exists(path_ptr: i64, path_len: i64) -> i32 {
+    let path = unsafe { read_str(path_ptr, path_len) };
+    if std::path::Path::new(path).exists() {
+        1
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fs_metadata(path_ptr: i64, path_len: i64, dst: i64) -> i32 {
+    let path = unsafe { read_str(path_ptr, path_len) };
+    match std::fs::metadata(std::path::Path::new(path)) {
+        Ok(md) => {
+            let mtime_ms = md
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            let size = md.len();
+            let is_file = if md.is_file() { 1i8 } else { 0 };
+            let is_dir = if md.is_dir() { 1i8 } else { 0 };
+            if dst != 0 {
+                unsafe {
+                    let p_u64 = dst as usize as *mut u64;
+                    p_u64.write(size);
+                    let p_i64 = (dst as usize + 8) as *mut i64;
+                    p_i64.write(mtime_ms);
+                    let p_i8 = (dst as usize + 16) as *mut i8;
+                    p_i8.write(is_file);
+                    let p_i8_2 = (dst as usize + 17) as *mut i8;
+                    p_i8_2.write(is_dir);
+                }
+            }
+            1
+        }
+        Err(e) => errno_of(e),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fs_create_dir_all(path_ptr: i64, path_len: i64) -> i32 {
+    let path = unsafe { read_str(path_ptr, path_len) };
+    match std::fs::create_dir_all(std::path::Path::new(path)) {
+        Ok(()) => 1,
+        Err(e) => errno_of(e),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fs_remove_file(path_ptr: i64, path_len: i64) -> i32 {
+    let path = unsafe { read_str(path_ptr, path_len) };
+    match std::fs::remove_file(std::path::Path::new(path)) {
+        Ok(()) => 1,
+        Err(e) => errno_of(e),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fs_remove_dir_all(path_ptr: i64, path_len: i64) -> i32 {
+    let path = unsafe { read_str(path_ptr, path_len) };
+    match std::fs::remove_dir_all(std::path::Path::new(path)) {
+        Ok(()) => 1,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => 1,
+        Err(e) => errno_of(e),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fs_read_dir(path_ptr: i64, path_len: i64, dst: i64) {
+    // v0.45 T1 ships a "flat newline-joined entries" Str result here.
+    // A proper iterator-handle ABI (open-handle + next-entry +
+    // close-handle) is deferred to v0.46 so we don't block the
+    // marquee fix on designing one — the IDE's existing read_dir
+    // call sites all consume the listing eagerly anyway. The listing
+    // is lexicographically sorted (matches `list_dir`'s contract).
+    let path = unsafe { read_str(path_ptr, path_len) };
+    match std::fs::read_dir(std::path::Path::new(path)) {
+        Ok(rd) => {
+            let mut entries: Vec<std::path::PathBuf> =
+                rd.filter_map(|e| e.ok().map(|d| d.path())).collect();
+            entries.sort();
+            let mut joined = std::string::String::new();
+            for (i, e) in entries.iter().enumerate() {
+                if i > 0 {
+                    joined.push('\n');
+                }
+                joined.push_str(&e.display().to_string());
+            }
+            let (p, l) = intern_fmt(joined);
+            unsafe { write_str_triple(dst, p, l, 1) };
+        }
+        Err(_) => unsafe { write_str_triple(dst, 0, 0, 0) },
+    }
+}
+
 // ---- v0.42 T4: String + String concat runtime helper --------------
 //
 // Writes a (ptr, len) pair for the concatenation of two Str/String
@@ -423,6 +707,27 @@ pub fn symbol_table() -> Vec<(String, *const u8)> {
         entry!("mty_runtime_fmt_f64", mty_runtime_fmt_f64),
         entry!("mty_runtime_fmt_bool", mty_runtime_fmt_bool),
         entry!("mty_runtime_str_concat", mty_runtime_str_concat),
+        // v0.45 T1 — native std.fs surface (L18 fix).
+        entry!("mty_runtime_fs_read", mty_runtime_fs_read),
+        entry!(
+            "mty_runtime_fs_read_to_string",
+            mty_runtime_fs_read_to_string
+        ),
+        entry!("mty_runtime_fs_write", mty_runtime_fs_write),
+        entry!("mty_runtime_fs_write_string", mty_runtime_fs_write_string),
+        entry!("mty_runtime_fs_append", mty_runtime_fs_append),
+        entry!("mty_runtime_fs_exists", mty_runtime_fs_exists),
+        entry!("mty_runtime_fs_metadata", mty_runtime_fs_metadata),
+        entry!(
+            "mty_runtime_fs_create_dir_all",
+            mty_runtime_fs_create_dir_all
+        ),
+        entry!("mty_runtime_fs_remove_file", mty_runtime_fs_remove_file),
+        entry!(
+            "mty_runtime_fs_remove_dir_all",
+            mty_runtime_fs_remove_dir_all
+        ),
+        entry!("mty_runtime_fs_read_dir", mty_runtime_fs_read_dir),
     ]
 }
 
