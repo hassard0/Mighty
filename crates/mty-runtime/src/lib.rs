@@ -18,6 +18,11 @@ pub mod env_compat;
 // distribution via the `ClusterRouter` trait. See
 // `docs/internals/cluster.md` for the architecture.
 pub mod cluster;
+// v0.46 T1 — runtime ABI introspection surface backed by build.rs.
+// Re-exports the generated symbol table + pinned header bytes for
+// `mty abi list / version / header` and the in-repo drift gates. See
+// `abi_export.rs` and `build.rs` for the full pipeline.
+pub mod abi_export;
 pub mod codegen_abi;
 pub mod control_socket;
 pub mod delay_timers;

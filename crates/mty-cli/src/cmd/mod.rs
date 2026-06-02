@@ -1,6 +1,12 @@
 // v0.33 T5 — `mty agent`: structured JSON-over-stdio protocol for
 // LLM-agent consumption of every other mty subcommand. See
 // `docs/internals/agent-mode-protocol.md`.
+// v0.46 T1 — `mty abi {list,version,header}`: inspect the runtime ABI
+// surface (the `mty_runtime_*` C symbols emitted by JIT/AOT codegen).
+// Backed by the generated table in
+// `crates/mty-runtime/src/abi_export.rs`. See
+// `docs/internals/runtime-abi.md`.
+pub mod abi;
 pub mod agent;
 pub mod build;
 pub mod check;

@@ -9,6 +9,28 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
+### Added
+- **v0.46 T1 — official runtime ABI artifact (L51 fix).** The Mighty
+  compiler emits calls into a fixed family of `mty_runtime_*` C-ABI
+  symbols (~50 of them by v0.45). v0.46 T1 publishes the surface as
+  an official artifact pipeline:
+  - A generated C header at
+    `crates/mty-runtime/include/mty_runtime_abi.h` checked into the
+    repo, regenerated on every build by `crates/mty-runtime/build.rs`
+    parsing `src/codegen_abi.rs`.
+  - `mty-runtime` now ships as `staticlib + rlib` so
+    `libmty_runtime.a` / `mty_runtime.lib` lands in the cargo target
+    dir alongside the rlib.
+  - `release.yml` packages
+    `mty-runtime-abi-<version>-<triple>.tar.gz` per platform (Linux
+    x86_64 / aarch64, macOS x86_64 / aarch64, Windows x86_64).
+  - `mty abi list / version / header` subcommand for tooling / CI /
+    IDE shims to verify against the ground truth.
+  - Drift gate in `crates/mty-runtime/tests/runtime_abi_header.rs`
+    fails if the in-tree header drifts from the build output or a
+    `#[no_mangle]` fn slips past the parser.
+  - See `docs/internals/runtime-abi.md` for the consumer-side story.
+
 ## [0.45.0] - 2026-06-02
 
 v0.45 ships shim-less file I/O for agent-built apps, broadens the
