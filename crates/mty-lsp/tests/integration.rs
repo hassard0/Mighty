@@ -29,6 +29,27 @@ fn uri() -> Url {
     Url::parse("test://main.mty").unwrap()
 }
 
+/// v0.46 T5 — collapse a structured `HoverContents` into one string so
+/// existing content-shape assertions (mention `fn greet`, mention
+/// `Example:`, etc.) still apply against the array shape.
+fn hover_text(contents: &HoverContents) -> String {
+    match contents {
+        HoverContents::Scalar(s) => match s {
+            tower_lsp::lsp_types::MarkedString::String(t) => t.clone(),
+            tower_lsp::lsp_types::MarkedString::LanguageString(ls) => ls.value.clone(),
+        },
+        HoverContents::Array(arr) => arr
+            .iter()
+            .map(|m| match m {
+                tower_lsp::lsp_types::MarkedString::String(t) => t.clone(),
+                tower_lsp::lsp_types::MarkedString::LanguageString(ls) => ls.value.clone(),
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n"),
+        HoverContents::Markup(m) => m.value.clone(),
+    }
+}
+
 // ---------------------------------------------------------------------
 // diagnostics
 // ---------------------------------------------------------------------
@@ -84,13 +105,39 @@ fn hover_on_fn_name_shows_signature() {
     // Hover over `greet` in the call (line 1, col ~12).
     let call_pos = locate(src, "greet(\"hi\")").unwrap();
     let h = hover(&doc, call_pos).expect("hover returns Some");
-    let HoverContents::Markup(m) = h.contents else {
-        panic!("expected markup hover")
-    };
+    // v0.46 T5 — hover is now `HoverContents::Array`.
+    let body = hover_text(&h.contents);
     assert!(
-        m.value.contains("fn greet"),
+        body.contains("fn greet"),
         "hover body should mention `fn greet`, got: {}",
-        m.value
+        body
+    );
+}
+
+#[test]
+fn hover_on_fn_name_emits_structured_sections() {
+    // v0.46 T5: the first section is a language-tagged code block
+    // ({language: "mty", value: "<sig>"}) so editors render the
+    // signature with syntax highlighting independently of any
+    // markdown body that follows.
+    let src = "fn greet(name: String) -> Unit { }\nfn main() { greet(\"hi\") }\n";
+    let doc = analyze(src);
+    let call_pos = locate(src, "greet(\"hi\")").unwrap();
+    let h = hover(&doc, call_pos).expect("hover returns Some");
+    let HoverContents::Array(arr) = h.contents else {
+        panic!("expected HoverContents::Array")
+    };
+    // At least one element must be a LanguageString { language: "mty" }.
+    let has_mty_code = arr.iter().any(|m| {
+        matches!(
+            m,
+            tower_lsp::lsp_types::MarkedString::LanguageString(ls) if ls.language == "mty"
+        )
+    });
+    assert!(
+        has_mty_code,
+        "expected a `mty` language-tagged code section: {:?}",
+        arr
     );
 }
 
@@ -100,13 +147,11 @@ fn hover_on_unknown_identifier_still_returns_something() {
     let doc = analyze(src);
     let pos = locate(src, "x =").unwrap();
     let h = hover(&doc, pos).expect("hover returns Some for any token");
-    let HoverContents::Markup(m) = h.contents else {
-        panic!("expected markup hover")
-    };
+    let body = hover_text(&h.contents);
     assert!(
-        m.value.contains("token") || m.value.contains("`x`") || m.value.contains("x"),
+        body.contains("token") || body.contains("`x`") || body.contains("x"),
         "hover body should mention the token, got: {}",
-        m.value
+        body
     );
 }
 
@@ -121,23 +166,21 @@ fn hover_on_log_shows_example_and_see_also() {
     let doc = analyze(src);
     let pos = locate(src, "log(").unwrap();
     let h = hover(&doc, pos).expect("hover returns Some");
-    let HoverContents::Markup(m) = h.contents else {
-        panic!("expected markup hover")
-    };
+    let body = hover_text(&h.contents);
     assert!(
-        m.value.contains("Example:"),
+        body.contains("Example:"),
         "expected Example section, got:\n{}",
-        m.value
+        body
     );
     assert!(
-        m.value.contains("See also:"),
+        body.contains("See also:"),
         "expected See also section, got:\n{}",
-        m.value
+        body
     );
     assert!(
-        !m.value.contains("Required capability"),
+        !body.contains("Required capability"),
         "log has no required capability; got:\n{}",
-        m.value
+        body
     );
 }
 
@@ -156,28 +199,26 @@ fn hover_on_member_ask_returns_stdlib_payload() {
         })
         .unwrap();
     let h = hover(&doc, pos).expect("hover returns Some");
-    let HoverContents::Markup(m) = h.contents else {
-        panic!("expected markup hover")
-    };
+    let body = hover_text(&h.contents);
     assert!(
-        m.value.contains("fn Member.ask") || m.value.contains("Member.ask"),
+        body.contains("fn Member.ask") || body.contains("Member.ask"),
         "expected Member.ask signature, got:\n{}",
-        m.value
+        body
     );
     assert!(
-        m.value.contains("Example:"),
+        body.contains("Example:"),
         "expected Example section, got:\n{}",
-        m.value
+        body
     );
     assert!(
-        m.value.contains("See also:"),
+        body.contains("See also:"),
         "expected See also section, got:\n{}",
-        m.value
+        body
     );
     assert!(
-        m.value.contains("Required capability"),
+        body.contains("Required capability"),
         "Member.ask should declare a capability, got:\n{}",
-        m.value
+        body
     );
 }
 
@@ -189,20 +230,18 @@ fn hover_on_member_anthropic_path_returns_stdlib_payload() {
     let doc = analyze(src);
     let pos = locate(src, "anthropic").unwrap();
     let h = hover(&doc, pos).expect("hover returns Some");
-    let HoverContents::Markup(m) = h.contents else {
-        panic!("expected markup hover")
-    };
+    let body = hover_text(&h.contents);
     assert!(
-        m.value.contains("Member.anthropic"),
+        body.contains("Member.anthropic"),
         "expected Member.anthropic to surface, got:\n{}",
-        m.value
+        body
     );
     assert!(
-        m.value.contains("ANTHROPIC") || m.value.contains("Anthropic"),
+        body.contains("ANTHROPIC") || body.contains("Anthropic"),
         "expected description to mention Anthropic, got:\n{}",
-        m.value
+        body
     );
-    assert!(m.value.contains("See also:"));
+    assert!(body.contains("See also:"));
 }
 
 /// Hover on the bare `swarm` builtin should include the consensus
@@ -213,18 +252,16 @@ fn hover_on_swarm_includes_consensus_example() {
     let doc = analyze(src);
     let pos = locate(src, "swarm(").unwrap();
     let h = hover(&doc, pos).expect("hover returns Some");
-    let HoverContents::Markup(m) = h.contents else {
-        panic!("expected markup hover")
-    };
+    let body = hover_text(&h.contents);
     assert!(
-        m.value.contains("Example:"),
+        body.contains("Example:"),
         "expected Example section, got:\n{}",
-        m.value
+        body
     );
     assert!(
-        m.value.contains("ConsensusStrategy") || m.value.contains("DollarBudget"),
+        body.contains("ConsensusStrategy") || body.contains("DollarBudget"),
         "expected related symbols to surface, got:\n{}",
-        m.value
+        body
     );
 }
 
@@ -238,12 +275,26 @@ fn definition_jumps_from_call_site_to_decl() {
     let doc = analyze(src);
     let call_pos = locate(src, "greet()").unwrap();
     let resp = definition(uri(), &doc, call_pos).expect("definition returns Some");
-    let GotoDefinitionResponse::Scalar(loc) = resp else {
-        panic!("expected scalar definition response")
+    // v0.46 T5 — response is now `Link(Vec<LocationLink>)`.
+    let GotoDefinitionResponse::Link(links) = resp else {
+        panic!("expected Link definition response")
     };
+    assert_eq!(links.len(), 1);
+    let link = &links[0];
     // Decl span starts at byte 0 → line 0, char 0.
-    assert_eq!(loc.range.start.line, 0);
-    assert_eq!(loc.range.start.character, 0);
+    assert_eq!(link.target_range.start.line, 0);
+    assert_eq!(link.target_range.start.character, 0);
+    // v0.46 T5 — `originSelectionRange` is the call-site identifier.
+    assert!(
+        link.origin_selection_range.is_some(),
+        "originSelectionRange must be populated"
+    );
+    // v0.46 T5 — `targetSelectionRange` lands on the name itself.
+    assert!(
+        link.target_selection_range.start.character >= "fn ".len() as u32,
+        "targetSelectionRange should skip the `fn ` keyword; got {:?}",
+        link.target_selection_range
+    );
 }
 
 #[test]
@@ -254,11 +305,16 @@ fn definition_on_struct_name_returns_decl_span() {
     // Find the second occurrence of `Point` (the type annotation).
     let pos = locate_nth(src, "Point", 1).unwrap();
     let resp = definition(uri(), &doc, pos).expect("definition resolves struct name");
-    let GotoDefinitionResponse::Scalar(loc) = resp else {
-        panic!("scalar")
+    let GotoDefinitionResponse::Link(links) = resp else {
+        panic!("Link")
     };
-    assert_eq!(loc.range.start.line, 0);
-    assert_eq!(loc.range.start.character, 0);
+    assert_eq!(links.len(), 1);
+    let link = &links[0];
+    assert_eq!(link.target_range.start.line, 0);
+    assert_eq!(link.target_range.start.character, 0);
+    // `targetSelectionRange` should land on `Point` after the `struct `
+    // keyword.
+    assert!(link.target_selection_range.start.character >= "struct ".len() as u32);
 }
 
 // ---------------------------------------------------------------------

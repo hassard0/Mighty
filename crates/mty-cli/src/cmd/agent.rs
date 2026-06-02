@@ -327,6 +327,10 @@ impl Session {
             "explain" => self.op_explain(req, out),
             "fmt" => self.op_fmt(req, out),
             "fix" => self.op_fix(req, out),
+            // v0.46 T5 — `lsp` op: in-process language-server request
+            // dispatch. Accepts a textDocument/* method and returns the
+            // structured response without spawning `mty lsp`.
+            "lsp" => self.op_lsp(req, out),
             "halt" => {
                 emit(
                     out,
@@ -929,6 +933,176 @@ impl Session {
             out,
             &Response::Result(ResultMsg {
                 op: "fix".into(),
+                ok: true,
+                extra,
+            }),
+        );
+        0
+    }
+
+    // -----------------------------------------------------------------
+    // op: lsp (v0.46 T5)
+    //
+    // Run a single LSP `textDocument/*` request in-process and emit the
+    // structured response under `result.response`. Lets CI assert the
+    // hover / definition / completion / signature-help shape without
+    // spawning a real `mty lsp` subprocess.
+    //
+    // Request shape:
+    //   { "op": "lsp",
+    //     "method": "textDocument/hover" | "textDocument/definition" |
+    //               "textDocument/completion" | "textDocument/signatureHelp",
+    //     "path": "<file>" | "source": "<inline mty>",
+    //     "position": {"line": L, "character": C} }
+    //
+    // When `path` is supplied we read the file; when `source` is
+    // supplied we analyze the inline text. The synthesised URI is
+    // either `file://<path>` or `test://snippet.mty`.
+    // -----------------------------------------------------------------
+    fn op_lsp<W: Write>(&mut self, req: &Request, out: &mut W) -> i32 {
+        #[cfg(feature = "host-toolchain")]
+        {
+            self.op_lsp_inner(req, out)
+        }
+        #[cfg(not(feature = "host-toolchain"))]
+        {
+            let _ = req;
+            emit(
+                out,
+                &Response::Error {
+                    message: "lsp op requires the `host-toolchain` feature".into(),
+                },
+            );
+            emit(
+                out,
+                &Response::Result(ResultMsg {
+                    op: "lsp".into(),
+                    ok: false,
+                    extra: serde_json::Map::new(),
+                }),
+            );
+            1
+        }
+    }
+
+    #[cfg(feature = "host-toolchain")]
+    fn op_lsp_inner<W: Write>(&mut self, req: &Request, out: &mut W) -> i32 {
+        let Some(method) = req.str("method") else {
+            emit(
+                out,
+                &Response::Error {
+                    message: "lsp: missing required `method` (e.g. textDocument/hover)".into(),
+                },
+            );
+            return 2;
+        };
+        // Source resolution: inline `source` takes precedence over a
+        // `path` lookup. `uri` is synthesised so the LSP analysis layer
+        // has a stable source id.
+        let inline_source = req.str("source").map(|s| s.to_string());
+        let path_str = req.str("path").map(|s| s.to_string());
+        let (uri_str, source) = if let Some(text) = inline_source.clone() {
+            ("test://snippet.mty".to_string(), text)
+        } else if let Some(path) = path_str.clone() {
+            let path_buf = std::path::PathBuf::from(&path);
+            let text = match std::fs::read_to_string(&path_buf) {
+                Ok(s) => s,
+                Err(e) => {
+                    emit(
+                        out,
+                        &Response::Error {
+                            message: format!("lsp: read {}: {}", path_buf.display(), e),
+                        },
+                    );
+                    return 1;
+                }
+            };
+            // file:// URIs work with tower_lsp::Url on every host.
+            let uri = format!(
+                "file:///{}",
+                path_buf.display().to_string().replace('\\', "/")
+            );
+            (uri, text)
+        } else {
+            emit(
+                out,
+                &Response::Error {
+                    message: "lsp: pass `source` (inline mty) or `path` (mty file)".into(),
+                },
+            );
+            return 2;
+        };
+
+        // Position parameter (LSP 0-indexed line/character).
+        let pos_obj = req.fields.get("position").cloned().unwrap_or_default();
+        let line = pos_obj.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let character = pos_obj
+            .get("character")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        let position = mty_lsp::lsp_types::Position { line, character };
+
+        let doc = mty_lsp::docs::DocAnalysis::analyze(source, uri_str.clone(), 1);
+        let uri = match mty_lsp::lsp_types::Url::parse(&uri_str) {
+            Ok(u) => u,
+            Err(e) => {
+                emit(
+                    out,
+                    &Response::Error {
+                        message: format!("lsp: bad uri {}: {}", uri_str, e),
+                    },
+                );
+                return 1;
+            }
+        };
+
+        let result: serde_json::Value = match method {
+            "textDocument/hover" => match mty_lsp::hover::hover(&doc, position) {
+                Some(h) => serde_json::to_value(&h).unwrap_or(JsonValue::Null),
+                None => JsonValue::Null,
+            },
+            "textDocument/definition" => {
+                match mty_lsp::definition::definition(uri, &doc, position) {
+                    Some(d) => serde_json::to_value(&d).unwrap_or(JsonValue::Null),
+                    None => JsonValue::Null,
+                }
+            }
+            "textDocument/completion" => match mty_lsp::completion::complete(&doc, position) {
+                Some(c) => serde_json::to_value(&c).unwrap_or(JsonValue::Null),
+                None => JsonValue::Null,
+            },
+            "textDocument/signatureHelp" => {
+                match mty_lsp::signature_help::signature_help(&doc, position) {
+                    Some(s) => serde_json::to_value(&s).unwrap_or(JsonValue::Null),
+                    None => JsonValue::Null,
+                }
+            }
+            other => {
+                emit(
+                    out,
+                    &Response::Error {
+                        message: format!("lsp: unknown method `{}`", other),
+                    },
+                );
+                emit(
+                    out,
+                    &Response::Result(ResultMsg {
+                        op: "lsp".into(),
+                        ok: false,
+                        extra: serde_json::Map::new(),
+                    }),
+                );
+                return 2;
+            }
+        };
+
+        let mut extra = serde_json::Map::new();
+        extra.insert("method".into(), JsonValue::from(method));
+        extra.insert("response".into(), result);
+        emit(
+            out,
+            &Response::Result(ResultMsg {
+                op: "lsp".into(),
                 ok: true,
                 extra,
             }),
@@ -2296,5 +2470,118 @@ mod tests {
         std::fs::write(&path, "not json\n").unwrap();
         let code = run_replay(&path);
         assert_eq!(code, 2);
+    }
+
+    // ----- v0.46 T5: in-process LSP op ---------------------------------
+
+    #[cfg(feature = "host-toolchain")]
+    #[test]
+    fn session_lsp_hover_returns_structured_response() {
+        let mut s = Session::new();
+        let req = Request {
+            op: "lsp".into(),
+            fields: serde_json::from_str(
+                r#"{
+                    "method": "textDocument/hover",
+                    "source": "fn greet(name: Str) -> Unit { }\nfn main() { greet(\"hi\") }\n",
+                    "position": {"line": 1, "character": 12}
+                }"#,
+            )
+            .unwrap(),
+        };
+        let mut buf: Vec<u8> = Vec::new();
+        let code = s.handle(&req, &mut buf);
+        assert_eq!(code, 0);
+        let body = String::from_utf8(buf).unwrap();
+        // The result line is a JSON object; parse it.
+        let result_line = body
+            .lines()
+            .find(|l| l.contains("\"op\":\"lsp\""))
+            .expect("lsp result line");
+        let v: serde_json::Value = serde_json::from_str(result_line).unwrap();
+        assert_eq!(v["op"], "lsp");
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["method"], "textDocument/hover");
+        let response = &v["response"];
+        assert!(
+            response.is_object(),
+            "expected structured hover, got: {}",
+            response
+        );
+        // Hover response should carry `contents` per LSP 3.17.
+        assert!(response.get("contents").is_some(), "missing contents key");
+    }
+
+    #[cfg(feature = "host-toolchain")]
+    #[test]
+    fn session_lsp_signature_help_returns_real_param_labels() {
+        let mut s = Session::new();
+        // Position cursor right after the `(` in the call.
+        let req = Request {
+            op: "lsp".into(),
+            fields: serde_json::from_str(
+                r#"{
+                    "method": "textDocument/signatureHelp",
+                    "source": "fn add(a: I32, b: I32) -> I32 { a + b }\nfn main() { add(1, 2) }\n",
+                    "position": {"line": 1, "character": 16}
+                }"#,
+            )
+            .unwrap(),
+        };
+        let mut buf: Vec<u8> = Vec::new();
+        let code = s.handle(&req, &mut buf);
+        assert_eq!(code, 0);
+        let body = String::from_utf8(buf).unwrap();
+        // The signatureHelp result must mention `a: I32` somewhere (the
+        // signature label) and must NOT emit the legacy `p0`/`p1`
+        // placeholders.
+        assert!(body.contains("a: I32"), "real param name missing: {body}");
+        assert!(
+            !body.contains("\"p0\"") && !body.contains("\"p1\""),
+            "stale placeholders survived: {body}"
+        );
+    }
+
+    #[cfg(feature = "host-toolchain")]
+    #[test]
+    fn session_lsp_unknown_method_errors() {
+        let mut s = Session::new();
+        let req = Request {
+            op: "lsp".into(),
+            fields: serde_json::from_str(
+                r#"{
+                    "method": "textDocument/madeUp",
+                    "source": "fn main() { }\n",
+                    "position": {"line": 0, "character": 0}
+                }"#,
+            )
+            .unwrap(),
+        };
+        let mut buf: Vec<u8> = Vec::new();
+        let code = s.handle(&req, &mut buf);
+        assert_eq!(code, 2);
+        let body = String::from_utf8(buf).unwrap();
+        assert!(body.contains("unknown method"));
+    }
+
+    #[cfg(feature = "host-toolchain")]
+    #[test]
+    fn session_lsp_missing_source_and_path_errors() {
+        let mut s = Session::new();
+        let req = Request {
+            op: "lsp".into(),
+            fields: serde_json::from_str(
+                r#"{
+                    "method": "textDocument/hover",
+                    "position": {"line": 0, "character": 0}
+                }"#,
+            )
+            .unwrap(),
+        };
+        let mut buf: Vec<u8> = Vec::new();
+        let code = s.handle(&req, &mut buf);
+        assert_eq!(code, 2);
+        let body = String::from_utf8(buf).unwrap();
+        assert!(body.contains("source") || body.contains("path"));
     }
 }

@@ -60,7 +60,8 @@ fn signature_for_call(
             ))
         }
         DefRef::Variant(adt_id, vidx) => {
-            // Enum constructor call: render the variant payload types.
+            // Enum constructor call: render the variant payload types,
+            // emitting real per-parameter labels rather than placeholders.
             let a = doc.typed.def_map.adt(*adt_id)?;
             let v = a.variants.get(*vidx)?;
             let parts: Vec<String> = v
@@ -73,9 +74,10 @@ fn signature_for_call(
                     format!("{}: {}", nm, ty)
                 })
                 .collect();
-            let label = format!("{}.{}({})", a.name, v.name, parts.join(", "));
+            let prefix = format!("{}.{}(", a.name, v.name);
+            let label = format!("{}{})", prefix, parts.join(", "));
             Some(SignatureHelp {
-                signatures: vec![sig_info(label, parts.len(), active_param)],
+                signatures: vec![sig_info(label, &prefix, &parts, active_param)],
                 active_signature: Some(0),
                 active_parameter: Some(active_param),
             })
@@ -94,10 +96,16 @@ fn signature_for_method_call(
     // documented arity. Real trait-resolution is deferred.
     if let Some(m) = doc.typed.def_map.builtin_methods.get(&method) {
         let arity = m.arity.unwrap_or(0);
+        // v0.46 T5: built-in methods still lack per-parameter names in
+        // `BuiltinMethod` (they're shape-only); use `arg0/arg1/…` as
+        // documented per-param labels rather than the old anonymous
+        // `p0/p1/…` placeholders so the IDE's substring-locate finds
+        // them inside the signature label.
         let params: Vec<String> = (0..arity).map(|i| format!("arg{}", i)).collect();
-        let label = format!(".{}({})", method, params.join(", "));
+        let prefix = format!(".{}(", method);
+        let label = format!("{}{})", prefix, params.join(", "));
         return Some(SignatureHelp {
-            signatures: vec![sig_info(label, arity, active_param)],
+            signatures: vec![sig_info(label, &prefix, &params, active_param)],
             active_signature: Some(0),
             active_parameter: Some(active_param),
         });
@@ -133,34 +141,56 @@ fn render_fn_signature(
     defs: &mty_types::DefMap,
     active_param: u32,
 ) -> SignatureHelp {
+    // v0.46 T5: build the per-parameter labels straight from the typed
+    // `FnDef.params` (Vec<(name, TyId)>) so each entry is a real
+    // `name: Type` substring rather than the legacy `p0/p1/…`
+    // placeholders. The IDE L31 path stops needing its substring-locate
+    // workaround on `a: I32`; the LSP spec also lets the editor render
+    // each parameter independently.
     let parts: Vec<String> = f
         .params
         .iter()
         .map(|(n, t)| format!("{}: {}", n, pretty_ty(*t, arena, None, Some(defs))))
         .collect();
     let ret = pretty_ty(f.ret, arena, None, Some(defs));
-    let label = format!("fn {}({}) -> {}", f.name, parts.join(", "), ret);
+    let prefix = format!("fn {}(", f.name);
+    let label = format!("{}{}) -> {}", prefix, parts.join(", "), ret);
     SignatureHelp {
-        signatures: vec![sig_info(label, parts.len(), active_param)],
+        signatures: vec![sig_info(label, &prefix, &parts, active_param)],
         active_signature: Some(0),
         active_parameter: Some(active_param),
     }
 }
 
-fn sig_info(label: String, arity: usize, _active: u32) -> SignatureInformation {
-    // Build per-parameter labels using offsets into `label`. We just
-    // use simple string params here for portability.
-    let mut params: Vec<ParameterInformation> = Vec::new();
-    for i in 0..arity {
-        params.push(ParameterInformation {
-            label: ParameterLabel::Simple(format!("p{}", i)),
+/// Build a `SignatureInformation` from a fully-rendered `label`, a
+/// shared `prefix` (the source-text up to the opening `(`), and the
+/// list of real `name: Type` parameter labels.
+///
+/// v0.46 T5: per-parameter labels carry `LabelOffsets` pointing at the
+/// matching substring inside `label`. Editors that highlight the
+/// currently-active argument (every modern LSP client) can now hilight
+/// the exact `a: I32` slice rather than the previous placeholder.
+fn sig_info(label: String, prefix: &str, params: &[String], _active: u32) -> SignatureInformation {
+    let mut params_info: Vec<ParameterInformation> = Vec::with_capacity(params.len());
+    let mut cursor: u32 = prefix.chars().count() as u32;
+    for (i, part) in params.iter().enumerate() {
+        let len = part.chars().count() as u32;
+        let start = cursor;
+        let end = start + len;
+        params_info.push(ParameterInformation {
+            label: ParameterLabel::LabelOffsets([start, end]),
             documentation: None,
         });
+        cursor = end;
+        if i + 1 != params.len() {
+            // `, ` separator between parameters in the rendered label.
+            cursor += 2;
+        }
     }
     SignatureInformation {
         label,
         documentation: None,
-        parameters: Some(params),
+        parameters: Some(params_info),
         active_parameter: None,
     }
 }

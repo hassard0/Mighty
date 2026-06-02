@@ -23,11 +23,12 @@
 
 use crate::docs::DocAnalysis;
 use mty_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
-use mty_types::DefRef;
+use mty_types::{pretty_ty, DefRef};
 use rowan::TextSize;
 use std::collections::HashSet;
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionResponse, InsertTextFormat, Position,
+    CompletionItem, CompletionItemKind, CompletionResponse, Documentation, InsertTextFormat,
+    MarkupContent, MarkupKind, Position,
 };
 
 const KEYWORDS: &[&str] = &[
@@ -47,19 +48,37 @@ pub fn complete(doc: &DocAnalysis, position: Position) -> Option<CompletionRespo
     let mut items: Vec<CompletionItem> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
 
+    // v0.46 T5: split the previous single `detail` string into
+    // separately-populated `detail` (one-line signature) and
+    // `documentation` (free-form markdown body) fields, plus a
+    // `deprecated` boolean. Editors render these in distinct UI
+    // affordances — VS Code shows `detail` next to the label and
+    // expands `documentation` into the popup body — so keeping them
+    // separated produces a much richer completion popup than the
+    // legacy "everything stuffed into detail" path.
     let add = |label: String,
                kind: CompletionItemKind,
-               detail: &str,
+               detail: Option<String>,
+               documentation: Option<String>,
+               deprecated: bool,
                items: &mut Vec<CompletionItem>,
                seen: &mut HashSet<String>| {
         let key = format!("{:?}{}", kind, label);
         if !seen.insert(key) {
             return;
         }
+        let documentation = documentation.map(|md| {
+            Documentation::MarkupContent(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: md,
+            })
+        });
         items.push(CompletionItem {
             label,
             kind: Some(kind),
-            detail: Some(detail.into()),
+            detail,
+            documentation,
+            deprecated: if deprecated { Some(true) } else { None },
             insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
             ..Default::default()
         });
@@ -69,7 +88,9 @@ pub fn complete(doc: &DocAnalysis, position: Position) -> Option<CompletionRespo
         add(
             (*kw).to_string(),
             CompletionItemKind::KEYWORD,
-            "keyword",
+            Some("keyword".to_string()),
+            None,
+            false,
             &mut items,
             &mut seen,
         );
@@ -87,7 +108,9 @@ pub fn complete(doc: &DocAnalysis, position: Position) -> Option<CompletionRespo
                     add(
                         name,
                         CompletionItemKind::METHOD,
-                        &detail,
+                        Some(detail),
+                        None,
+                        false,
                         &mut items,
                         &mut seen,
                     );
@@ -101,7 +124,9 @@ pub fn complete(doc: &DocAnalysis, position: Position) -> Option<CompletionRespo
             add(
                 name.clone(),
                 CompletionItemKind::METHOD,
-                "built-in method",
+                Some("built-in method".to_string()),
+                None,
+                false,
                 &mut items,
                 &mut seen,
             );
@@ -122,7 +147,20 @@ pub fn complete(doc: &DocAnalysis, position: Position) -> Option<CompletionRespo
             // CONSTANT in completion.
             DefRef::Const(_) => CompletionItemKind::CONSTANT,
         };
-        add(name.clone(), kind, "def", &mut items, &mut seen);
+        // v0.46 T5 — build a one-line signature for the `detail` slot
+        // when we can resolve the def. The previous code crammed every
+        // def into the literal string "def"; now Fn defs show their
+        // arrow-signature, Adt/Variant defs show the kw + name.
+        let (detail, documentation) = describe_def(doc, def, name);
+        add(
+            name.clone(),
+            kind,
+            detail,
+            documentation,
+            false,
+            &mut items,
+            &mut seen,
+        );
     }
 
     // Locals in scope.
@@ -130,13 +168,81 @@ pub fn complete(doc: &DocAnalysis, position: Position) -> Option<CompletionRespo
         add(
             local,
             CompletionItemKind::VARIABLE,
-            "local",
+            Some("local".to_string()),
+            None,
+            false,
             &mut items,
             &mut seen,
         );
     }
 
     Some(CompletionResponse::Array(items))
+}
+
+/// v0.46 T5: build `(detail, documentation)` for a top-level def so the
+/// completion item can render its signature in the popup's secondary
+/// slot. `detail` is the one-line signature; `documentation` is the
+/// (currently empty) markdown body slot reserved for a future
+/// doc-comment-walking pass.
+fn describe_def(
+    doc: &DocAnalysis,
+    def: &DefRef,
+    fallback_name: &str,
+) -> (Option<String>, Option<String>) {
+    match def {
+        DefRef::Fn(id) => {
+            if let Some(f) = doc.typed.def_map.fn_def(*id) {
+                let parts: Vec<String> = f
+                    .params
+                    .iter()
+                    .map(|(n, t)| {
+                        format!(
+                            "{}: {}",
+                            n,
+                            pretty_ty(*t, &doc.typed.ty_arena, None, Some(&doc.typed.def_map))
+                        )
+                    })
+                    .collect();
+                let ret = pretty_ty(f.ret, &doc.typed.ty_arena, None, Some(&doc.typed.def_map));
+                let vis = if f.is_pub { "pub " } else { "" };
+                let detail = format!("{vis}fn {}({}) -> {}", f.name, parts.join(", "), ret);
+                (Some(detail), None)
+            } else {
+                (Some(format!("fn {}", fallback_name)), None)
+            }
+        }
+        DefRef::Adt(id) => {
+            if let Some(a) = doc.typed.def_map.adt(*id) {
+                let kw = match a.kind {
+                    mty_types::AdtKind::Struct => "struct",
+                    mty_types::AdtKind::Enum => "enum",
+                    mty_types::AdtKind::Opaque => "type",
+                };
+                (Some(format!("{kw} {}", a.name)), None)
+            } else {
+                (Some(fallback_name.to_string()), None)
+            }
+        }
+        DefRef::Variant(id, idx) => {
+            if let Some(a) = doc.typed.def_map.adt(*id) {
+                if let Some(v) = a.variants.get(*idx) {
+                    return (Some(format!("{}.{}", a.name, v.name)), None);
+                }
+            }
+            (Some(fallback_name.to_string()), None)
+        }
+        DefRef::Module(_) => (Some(format!("mod {}", fallback_name)), None),
+        DefRef::Param(_) => (Some(format!("type param {}", fallback_name)), None),
+        DefRef::Const(id) => {
+            if let Some(c) = doc.typed.def_map.const_def(*id) {
+                let vis = if c.is_pub { "pub " } else { "" };
+                let ty = pretty_ty(c.ty, &doc.typed.ty_arena, None, Some(&doc.typed.def_map));
+                (Some(format!("{vis}const {}: {}", c.name, ty)), None)
+            } else {
+                (Some(format!("const {}", fallback_name)), None)
+            }
+        }
+    }
 }
 
 fn preceding_char(source: &str, offset: u32) -> Option<char> {
