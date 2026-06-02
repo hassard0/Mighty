@@ -304,6 +304,112 @@ pub fn list_dir(cap: &FsCap, path: &Path) -> Result<Vec<PathBuf>, IoErr> {
     Ok(entries)
 }
 
+// ----- v0.45 T1 — broader fs surface (native ABI parity) ---------------
+//
+// Mighty `std.fs.*` calls now lower through the native runtime ABI on
+// every backend (cranelift JIT, AOT, LLVM). v0.44 only got the
+// host-dispatcher aliases working under interpreter fallback; this
+// extends the actual stdlib surface with the few methods agents
+// regularly ask for when generating real CLIs:
+//
+//   append              — `std.fs.append(path, bytes)` open-or-create + append
+//   metadata            — `std.fs.metadata(path) -> Metadata`
+//                         (size + mtime_ms + is_file/is_dir flags)
+//   create_dir_all      — `std.fs.create_dir_all(path)` mkdir -p
+//   remove_file         — `std.fs.remove_file(path)` rm
+//   remove_dir_all      — `std.fs.remove_dir_all(path)` rm -rf
+//
+// All five fail closed against the capability allow-list, mirroring
+// the rest of the surface.
+
+/// Append `data` to `path`. Creates the file (and parent dirs) if it
+/// doesn't exist. Matches the agent-friendly `std.fs.append` surface.
+pub fn append(cap: &FsCap, path: &Path, data: &[u8]) -> Result<(), IoErr> {
+    cap.check(path)?;
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    f.write_all(data)?;
+    Ok(())
+}
+
+/// Richer metadata returned by [`metadata`]. v0.45 T1 extends the v0.36
+/// [`StatResult`] (which only carried size + a 3-state file-type tag)
+/// with the mtime + is_file/is_dir booleans agents asked for via the
+/// IDE. The layout (size@+0:u64, mtime_ms@+8:i64, is_file@+16:i8,
+/// is_dir@+17:i8) is what the runtime ABI writes into the codegen's
+/// 24-byte caller-supplied stack slot — keep this struct's repr() and
+/// the runtime writer in sync.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct Metadata {
+    /// Total size in bytes for regular files; `0` for directories
+    /// and other types.
+    pub size: u64,
+    /// Modification time in milliseconds since the UNIX epoch.
+    /// `0` when the platform doesn't expose mtime.
+    pub mtime_ms: i64,
+    /// `1` iff the path is a regular file.
+    pub is_file: i8,
+    /// `1` iff the path is a directory.
+    pub is_dir: i8,
+}
+
+/// Return full metadata for `path`. Like [`stat`] but with the extra
+/// fields agents want (mtime, is_file/is_dir flags) baked in. On error
+/// the capability denial returns [`IoErr::Forbidden`]; missing files
+/// and other IO failures bubble up as [`IoErr::Io`].
+pub fn metadata(cap: &FsCap, path: &Path) -> Result<Metadata, IoErr> {
+    cap.check(path)?;
+    let md = std::fs::metadata(path)?;
+    let mtime_ms = md
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    Ok(Metadata {
+        size: md.len(),
+        mtime_ms,
+        is_file: md.is_file() as i8,
+        is_dir: md.is_dir() as i8,
+    })
+}
+
+/// Create `path` and every missing parent directory. Maps to `mkdir -p`
+/// semantics. No-op if the directory already exists.
+pub fn create_dir_all(cap: &FsCap, path: &Path) -> Result<(), IoErr> {
+    cap.check(path)?;
+    std::fs::create_dir_all(path)?;
+    Ok(())
+}
+
+/// Remove a single file at `path`. Errors if the path doesn't exist or
+/// is a directory.
+pub fn remove_file(cap: &FsCap, path: &Path) -> Result<(), IoErr> {
+    cap.check(path)?;
+    std::fs::remove_file(path)?;
+    Ok(())
+}
+
+/// Recursively remove a directory at `path`. Maps to `rm -rf`. No-op
+/// if the path doesn't exist (returns `Ok(())`).
+pub fn remove_dir_all(cap: &FsCap, path: &Path) -> Result<(), IoErr> {
+    cap.check(path)?;
+    match std::fs::remove_dir_all(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(IoErr::Io(e)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

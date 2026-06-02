@@ -38,7 +38,12 @@ pub fn dispatch(path: &[String], method: &str, args: &[Value]) -> Value {
         // -------- fs --------
         ("std.fs", "read" | "read_file" | "read_to_string") => fs_read(args),
         ("std.fs", "write" | "write_file" | "write_string") => fs_write(args),
+        ("std.fs", "append") => fs_append(args),
         ("std.fs", "exists") => fs_exists(args),
+        ("std.fs", "metadata" | "stat") => fs_metadata(args),
+        ("std.fs", "create_dir_all") => fs_create_dir_all(args),
+        ("std.fs", "remove_file") => fs_remove_file(args),
+        ("std.fs", "remove_dir_all") => fs_remove_dir_all(args),
         ("std.fs", "list_dir" | "read_dir") => fs_list_dir(args),
         // -------- http (sync wrapper around tokio runtime) --------
         ("std.http", "get") => http_get(args),
@@ -180,6 +185,121 @@ fn fs_exists(args: &[Value]) -> Value {
     Value::Bool(crate::fs::exists(&cap, std::path::Path::new(&path)))
 }
 
+/// v0.45 T1 — `std.fs.append(path, bytes)` dispatcher. Same arg
+/// extraction pattern as [`fs_write`] (with or without leading cap).
+/// Returns `Value::Unit` on success, an `Err(Str)` enum on capability
+/// denial (mirrors the rest of the surface).
+fn fs_append(args: &[Value]) -> Value {
+    let (path, data) = match (args.get(1), args.get(2)) {
+        (Some(Value::Str(p)), Some(Value::Str(d))) => (p.clone(), d.clone()),
+        _ => match (args.first(), args.get(1)) {
+            (Some(Value::Str(p)), Some(Value::Str(d))) => (p.clone(), d.clone()),
+            _ => return Value::Unit,
+        },
+    };
+    let cap = crate::fs::current_default_write_cap();
+    match crate::fs::append(&cap, std::path::Path::new(&path), data.as_bytes()) {
+        Ok(_) => Value::Unit,
+        Err(crate::fs::IoErr::Forbidden(_) | crate::fs::IoErr::Denied(_)) => Value::Enum {
+            adt: mty_types::AdtId(0),
+            variant: 1,
+            payload: vec![Value::Str(format!("forbidden: {}", path))],
+        },
+        Err(_) => Value::Unit,
+    }
+}
+
+/// v0.45 T1 — `std.fs.metadata(path)` (also aliased to legacy
+/// `std.fs.stat`). Returns a 4-field record-shaped Mighty value so
+/// generated apps can pattern-match on `size`/`mtime_ms`/`is_file`/
+/// `is_dir`. Under the interpreter we encode it as a tuple-ish
+/// `Value::Array([size, mtime_ms, is_file, is_dir])` so the existing
+/// place-projection lowering can index into it without a new ADT.
+fn fs_metadata(args: &[Value]) -> Value {
+    let path = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => match args.first() {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Value::Unit,
+        },
+    };
+    let cap = crate::fs::current_default_read_cap();
+    match crate::fs::metadata(&cap, std::path::Path::new(&path)) {
+        Ok(md) => Value::Array(vec![
+            Value::Int(md.size as i128, mty_types::IntKind::U64),
+            Value::Int(md.mtime_ms as i128, mty_types::IntKind::I64),
+            Value::Bool(md.is_file != 0),
+            Value::Bool(md.is_dir != 0),
+        ]),
+        Err(_) => Value::Unit,
+    }
+}
+
+/// v0.45 T1 — `std.fs.create_dir_all(path)`. Returns Unit on success
+/// and a forbidden `Err(Str)` enum on cap denial; other IO errors
+/// surface as Unit (matches the rest of the surface).
+fn fs_create_dir_all(args: &[Value]) -> Value {
+    let path = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => match args.first() {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Value::Unit,
+        },
+    };
+    let cap = crate::fs::current_default_write_cap();
+    match crate::fs::create_dir_all(&cap, std::path::Path::new(&path)) {
+        Ok(_) => Value::Unit,
+        Err(crate::fs::IoErr::Forbidden(_) | crate::fs::IoErr::Denied(_)) => Value::Enum {
+            adt: mty_types::AdtId(0),
+            variant: 1,
+            payload: vec![Value::Str(format!("forbidden: {}", path))],
+        },
+        Err(_) => Value::Unit,
+    }
+}
+
+/// v0.45 T1 — `std.fs.remove_file(path)`.
+fn fs_remove_file(args: &[Value]) -> Value {
+    let path = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => match args.first() {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Value::Unit,
+        },
+    };
+    let cap = crate::fs::current_default_write_cap();
+    match crate::fs::remove_file(&cap, std::path::Path::new(&path)) {
+        Ok(_) => Value::Unit,
+        Err(crate::fs::IoErr::Forbidden(_) | crate::fs::IoErr::Denied(_)) => Value::Enum {
+            adt: mty_types::AdtId(0),
+            variant: 1,
+            payload: vec![Value::Str(format!("forbidden: {}", path))],
+        },
+        Err(_) => Value::Unit,
+    }
+}
+
+/// v0.45 T1 — `std.fs.remove_dir_all(path)`.
+fn fs_remove_dir_all(args: &[Value]) -> Value {
+    let path = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => match args.first() {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Value::Unit,
+        },
+    };
+    let cap = crate::fs::current_default_write_cap();
+    match crate::fs::remove_dir_all(&cap, std::path::Path::new(&path)) {
+        Ok(_) => Value::Unit,
+        Err(crate::fs::IoErr::Forbidden(_) | crate::fs::IoErr::Denied(_)) => Value::Enum {
+            adt: mty_types::AdtId(0),
+            variant: 1,
+            payload: vec![Value::Str(format!("forbidden: {}", path))],
+        },
+        Err(_) => Value::Unit,
+    }
+}
+
 fn fs_list_dir(args: &[Value]) -> Value {
     let path = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -308,5 +428,101 @@ mod tests {
             &[Value::Str(dir.path().join("notes").display().to_string())],
         );
         assert!(matches!(listing, Value::Array(entries) if entries.len() == 1));
+    }
+
+    /// v0.45 T1 — broader fs surface (append / metadata /
+    /// create_dir_all / remove_file / remove_dir_all). Verifies the
+    /// interpreter dispatcher accepts each method and the underlying
+    /// stdlib impl actually mutates the filesystem. The cranelift
+    /// JIT and AOT paths share the same `mty_stdlib::fs::*` helpers,
+    /// so cross-backend behavior stays aligned.
+    #[test]
+    fn fs_host_dispatch_v045_t1_extended_surface() {
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        // create_dir_all → mkdir -p
+        let nested = dir.path().join("a/b/c");
+        let r = dispatch(
+            &["std".into(), "fs".into()],
+            "create_dir_all",
+            &[Value::Str(nested.display().to_string())],
+        );
+        assert!(matches!(r, Value::Unit));
+        assert!(nested.exists());
+
+        // append: creates and extends
+        let log = dir.path().join("log.txt");
+        let r = dispatch(
+            &["std".into(), "fs".into()],
+            "append",
+            &[
+                Value::Str(log.display().to_string()),
+                Value::Str("one\n".into()),
+            ],
+        );
+        assert!(matches!(r, Value::Unit));
+        let r = dispatch(
+            &["std".into(), "fs".into()],
+            "append",
+            &[
+                Value::Str(log.display().to_string()),
+                Value::Str("two\n".into()),
+            ],
+        );
+        assert!(matches!(r, Value::Unit));
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), "one\ntwo\n");
+
+        // metadata: 4-field array
+        let md = dispatch(
+            &["std".into(), "fs".into()],
+            "metadata",
+            &[Value::Str(log.display().to_string())],
+        );
+        match md {
+            Value::Array(fields) => {
+                assert_eq!(fields.len(), 4, "metadata returns 4 fields");
+                // size is field 0; bytes wrote 8.
+                if let Some(Value::Int(size, _)) = fields.first() {
+                    assert_eq!(*size, 8);
+                } else {
+                    panic!("size field wrong shape: {:?}", fields.first());
+                }
+                // is_file is field 2.
+                if let Some(Value::Bool(is_file)) = fields.get(2) {
+                    assert!(*is_file);
+                } else {
+                    panic!("is_file field wrong shape");
+                }
+            }
+            other => panic!("metadata should be Array, got {:?}", other),
+        }
+
+        // remove_file
+        let r = dispatch(
+            &["std".into(), "fs".into()],
+            "remove_file",
+            &[Value::Str(log.display().to_string())],
+        );
+        assert!(matches!(r, Value::Unit));
+        assert!(!log.exists());
+
+        // remove_dir_all (recursive)
+        let r = dispatch(
+            &["std".into(), "fs".into()],
+            "remove_dir_all",
+            &[Value::Str(dir.path().join("a").display().to_string())],
+        );
+        assert!(matches!(r, Value::Unit));
+        assert!(!dir.path().join("a").exists());
+
+        // stat is aliased to metadata.
+        let nested = dir.path().join("present.txt");
+        std::fs::write(&nested, b"xy").unwrap();
+        let st = dispatch(
+            &["std".into(), "fs".into()],
+            "stat",
+            &[Value::Str(nested.display().to_string())],
+        );
+        assert!(matches!(st, Value::Array(_)));
     }
 }

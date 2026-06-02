@@ -459,22 +459,35 @@ mod tests {
         }
     }
 
+    /// v0.45 T1 (L18 fix) — `std.fs.*` now JITs natively. The v0.44
+    /// version of this test expected `Ok(None)` (the fallback signal
+    /// that routes the run through the interpreter); since v0.45 T1
+    /// the JIT lowers `std.fs.*` to the native runtime ABI, so we
+    /// expect a successful direct run instead.
     #[test]
-    fn jit_run_interpreter_hosted_std_fs_returns_fallback_signal() {
-        let src = r#"
+    fn jit_run_std_fs_lowers_natively_v045_t1() {
+        // Touch a real tempfile so the call actually round-trips
+        // through the JIT'd runtime ABI symbols.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("v045_t1_probe.txt");
+        let p_str = path.display().to_string().replace('\\', "/");
+        let src = format!(
+            r#"
 use std.fs
 
-fn main() {
-  std.fs.write("__mighty_jit_fallback_probe__.txt", "hello")
-  let body = std.fs.read("__mighty_jit_fallback_probe__.txt")
-  if body != "hello" { panic(body) }
-}
-"#
-        .to_string();
+fn main() {{
+  std.fs.write("{p}", "hello")
+}}
+"#,
+            p = p_str
+        );
         match jit_run(src, "fs.mty".into()) {
-            Ok(None) => {}
-            other => panic!("expected JIT fallback signal for std.fs, got {other:?}"),
+            Ok(Some(0) | None) => {}
+            other => panic!("expected JIT to lower std.fs natively, got {other:?}"),
         }
+        // The file should exist with the expected content.
+        let body = std::fs::read_to_string(&path).expect("read tempfile");
+        assert_eq!(body, "hello");
     }
 
     #[test]

@@ -201,6 +201,23 @@ void mty_runtime_fmt_bool(int8_t v, int64_t d) { (void)v; (void)d; }
 void mty_runtime_str_concat(int64_t a, int64_t al, int64_t b, int64_t bl, int64_t d) {
     (void)a; (void)al; (void)b; (void)bl; (void)d;
 }
+/* v0.45 T1 — native std.fs runtime surface. Same rationale as above:
+ * every entry in RUNTIME_IMPORTS lands in the .o symbol table even
+ * for matrix tests whose Mighty source never touches std.fs. The
+ * Windows MSVC linker (clang+lld-link) is strict about unresolved
+ * imports, so the stub MUST cover every fs symbol or the link step
+ * fails with exit 1120. */
+void mty_runtime_fs_read(int64_t p, int64_t pl, int64_t d) { (void)p; (void)pl; (void)d; }
+void mty_runtime_fs_read_to_string(int64_t p, int64_t pl, int64_t d) { (void)p; (void)pl; (void)d; }
+void mty_runtime_fs_read_dir(int64_t p, int64_t pl, int64_t d) { (void)p; (void)pl; (void)d; }
+int32_t mty_runtime_fs_write(int64_t p, int64_t pl, int64_t d, int64_t dl) { (void)p; (void)pl; (void)d; (void)dl; return 1; }
+int32_t mty_runtime_fs_write_string(int64_t p, int64_t pl, int64_t s, int64_t sl) { (void)p; (void)pl; (void)s; (void)sl; return 1; }
+int32_t mty_runtime_fs_append(int64_t p, int64_t pl, int64_t d, int64_t dl) { (void)p; (void)pl; (void)d; (void)dl; return 1; }
+int32_t mty_runtime_fs_exists(int64_t p, int64_t pl) { (void)p; (void)pl; return 0; }
+int32_t mty_runtime_fs_metadata(int64_t p, int64_t pl, int64_t d) { (void)p; (void)pl; (void)d; return 1; }
+int32_t mty_runtime_fs_create_dir_all(int64_t p, int64_t pl) { (void)p; (void)pl; return 1; }
+int32_t mty_runtime_fs_remove_file(int64_t p, int64_t pl) { (void)p; (void)pl; return 1; }
+int32_t mty_runtime_fs_remove_dir_all(int64_t p, int64_t pl) { (void)p; (void)pl; return 1; }
 "#,
     )
     .unwrap();

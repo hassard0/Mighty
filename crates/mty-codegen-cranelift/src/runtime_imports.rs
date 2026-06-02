@@ -204,6 +204,73 @@ pub const RUNTIME_IMPORTS: &[RuntimeImport] = &[
         params: &[ct::I64, ct::I64, ct::I64, ct::I64, ct::I64],
         ret: None,
     },
+    // v0.45 T1 — native std.fs surface (L18 fix).
+    // read / read_to_string / read_dir: (path_ptr, path_len, dst_slot)
+    // write the (ptr, len, ok) triple into a caller-supplied 24-byte
+    // stack slot.
+    RuntimeImport {
+        name: "mty_runtime_fs_read",
+        params: &[ct::I64, ct::I64, ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_fs_read_to_string",
+        params: &[ct::I64, ct::I64, ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_fs_read_dir",
+        params: &[ct::I64, ct::I64, ct::I64],
+        ret: None,
+    },
+    // write / write_string / append: (path_ptr, path_len, data_ptr,
+    // data_len) -> i32 (1=ok, -errno on err).
+    RuntimeImport {
+        name: "mty_runtime_fs_write",
+        params: &[ct::I64, ct::I64, ct::I64, ct::I64],
+        ret: Some(ct::I32),
+    },
+    RuntimeImport {
+        name: "mty_runtime_fs_write_string",
+        params: &[ct::I64, ct::I64, ct::I64, ct::I64],
+        ret: Some(ct::I32),
+    },
+    RuntimeImport {
+        name: "mty_runtime_fs_append",
+        params: &[ct::I64, ct::I64, ct::I64, ct::I64],
+        ret: Some(ct::I32),
+    },
+    // exists: (path_ptr, path_len) -> i32 (1/0).
+    RuntimeImport {
+        name: "mty_runtime_fs_exists",
+        params: &[ct::I64, ct::I64],
+        ret: Some(ct::I32),
+    },
+    // metadata: (path_ptr, path_len, dst_slot) -> i32 (1=ok, -errno).
+    // The 24-byte slot at `dst` receives {size:u64, mtime_ms:i64,
+    // is_file:i8, is_dir:i8}.
+    RuntimeImport {
+        name: "mty_runtime_fs_metadata",
+        params: &[ct::I64, ct::I64, ct::I64],
+        ret: Some(ct::I32),
+    },
+    // create_dir_all / remove_file / remove_dir_all: (path_ptr,
+    // path_len) -> i32 (1=ok, -errno).
+    RuntimeImport {
+        name: "mty_runtime_fs_create_dir_all",
+        params: &[ct::I64, ct::I64],
+        ret: Some(ct::I32),
+    },
+    RuntimeImport {
+        name: "mty_runtime_fs_remove_file",
+        params: &[ct::I64, ct::I64],
+        ret: Some(ct::I32),
+    },
+    RuntimeImport {
+        name: "mty_runtime_fs_remove_dir_all",
+        params: &[ct::I64, ct::I64],
+        ret: Some(ct::I32),
+    },
 ];
 
 #[derive(Debug, Clone, Copy)]
