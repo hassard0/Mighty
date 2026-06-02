@@ -372,18 +372,30 @@ impl<'ctx, 'a, 'b> ProgramLowerer<'ctx, 'a, 'b> {
     }
 
     fn fn_type_of(&self, f: &Function) -> inkwell::types::FunctionType<'ctx> {
-        let param_tys: Vec<BasicMetadataTypeEnum<'ctx>> = f
-            .params
-            .iter()
-            .filter_map(|p| {
-                let t = &f.locals[p.0 as usize].ty;
-                if matches!(t, IrTy::Unit | IrTy::Never) {
-                    None
-                } else {
-                    Some(self.llvm_ty(t).into())
-                }
-            })
-            .collect();
+        // v0.46 T3 — extern-c fns expand Str/String params into
+        // (ptr, len) i64 pairs at the ABI boundary. See
+        // `docs/internals/extern-c-matrix.md` "Str slice (ptr, len)
+        // FFI" section.
+        let is_extern_c = self
+            .prog
+            .extern_bindings
+            .get(&f.id)
+            .map(|b| b.abi == "c")
+            .unwrap_or(false);
+        let mut param_tys: Vec<BasicMetadataTypeEnum<'ctx>> = Vec::with_capacity(f.params.len());
+        for p in &f.params {
+            let t = &f.locals[p.0 as usize].ty;
+            if matches!(t, IrTy::Unit | IrTy::Never) {
+                continue;
+            }
+            if is_extern_c && matches!(t, IrTy::Str | IrTy::String) {
+                let i64ty: BasicMetadataTypeEnum<'ctx> = self.i64_ty().into();
+                param_tys.push(i64ty); // ptr
+                param_tys.push(i64ty); // len
+                continue;
+            }
+            param_tys.push(self.llvm_ty(t).into());
+        }
         if matches!(f.ret_ty, IrTy::Unit | IrTy::Never) {
             self.ctx.void_type().fn_type(&param_tys, false)
         } else {
@@ -1215,6 +1227,15 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                     LlvmError::Module(format!("call to undeclared {:?}", callee_id))
                 })?;
                 let callee_fn = self.pl.prog.fn_by_id(*callee_id);
+                // v0.46 T3 — extern-c fns expand Str/String to (ptr, len).
+                // Detect here so the arg-pushing loop knows to split.
+                let is_extern_c = self
+                    .pl
+                    .prog
+                    .extern_bindings
+                    .get(callee_id)
+                    .map(|b| b.abi == "c")
+                    .unwrap_or(false);
                 let mut arg_vals: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = Vec::new();
                 let mut callee_param_tys: Vec<IrTy> = callee_fn
                     .params
@@ -1223,8 +1244,9 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                     .filter(|t| !matches!(t, IrTy::Unit | IrTy::Never))
                     .collect();
                 let expected = callee_param_tys.len();
+                let mut consumed_param_slots = 0;
                 for a in args {
-                    if arg_vals.len() >= expected {
+                    if consumed_param_slots >= expected {
                         break;
                     }
                     if matches!(a, Operand::Const(Const::Unit)) {
@@ -1240,6 +1262,21 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                     } else {
                         None
                     };
+                    consumed_param_slots += 1;
+                    // v0.46 T3 — Str/String at an extern-c param slot
+                    // expands to (ptr, len). Pull both halves and
+                    // push them in this order; matches `fn_type_of`'s
+                    // signature expansion.
+                    if is_extern_c
+                        && want_ty
+                            .as_ref()
+                            .is_some_and(|t| matches!(t, IrTy::Str | IrTy::String))
+                    {
+                        let (ptr, len) = self.string_pair(a)?;
+                        arg_vals.push(ptr.into());
+                        arg_vals.push(len.into());
+                        continue;
+                    }
                     let coerced = if let Some(t) = &want_ty {
                         let lt = self.pl.llvm_ty(t);
                         self.coerce_with_src(v, lt, src_ty.as_ref())
@@ -1251,6 +1288,13 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                 // Pad missing args with zero defaults.
                 while !callee_param_tys.is_empty() {
                     let t = callee_param_tys.remove(0);
+                    if is_extern_c && matches!(t, IrTy::Str | IrTy::String) {
+                        let z1: BasicValueEnum<'ctx> = self.pl.i64_ty().const_zero().into();
+                        let z2: BasicValueEnum<'ctx> = self.pl.i64_ty().const_zero().into();
+                        arg_vals.push(z1.into());
+                        arg_vals.push(z2.into());
+                        continue;
+                    }
                     let lt = self.pl.llvm_ty(&t);
                     let v: BasicValueEnum<'ctx> = match lt {
                         BasicTypeEnum::IntType(it) => it.const_zero().into(),

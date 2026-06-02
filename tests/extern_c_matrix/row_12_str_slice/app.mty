@@ -1,0 +1,26 @@
+// Row 12: Mighty Str -> C (ptr, len) FFI.
+//
+// v0.46 T3 (L52 fix). The codegen expands each Str / String param at
+// an extern-c call site into two ABI args: a ptr (i64, const char*)
+// and a len (i64, size_t). The Mighty source spells the call exactly
+// like a single-arg call; the codegen handles the split.
+//
+// Replaces the L52 char-by-char `mui_path_push` staging loop pattern.
+
+extern c {
+  fn mty_row12_echo(s: Str) -> I32
+  fn mty_row12_accept_empty(s: Str) -> I32
+  fn mty_row12_utf8(s: Str) -> I32
+}
+
+fn main() {
+  // ASCII round trip.
+  let n1 = mty_row12_echo("hello-from-mighty")
+  let _ = n1
+  // Empty string.
+  let n2 = mty_row12_accept_empty("")
+  let _ = n2
+  // UTF-8: "héllo" is 6 bytes (é = 0xc3 0xa9).
+  let n3 = mty_row12_utf8("héllo")
+  let _ = n3
+}

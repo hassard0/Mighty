@@ -1,0 +1,84 @@
+// v0.46 T3 — (ptr, len) FFI for Mighty `Str` / `String`.
+//
+// L52 fix. Before v0.46 T3, passing a string across an `extern c`
+// boundary required either (a) the v0.37 `Str → *U8` coercion (loses
+// the byte length; C must call strlen / rely on nul-termination) or
+// (b) a char-by-char staging loop into a shim-side buffer (the IDE's
+// L52 pattern: `mui_path_clear` + `for i in 0..n { mui_path_push }`
+// then call the real op). v0.46 T3 closes both gaps with a transparent
+// compiler transform: write the Mighty signature with a `Str` param,
+// write the C signature with `(const char* ptr, size_t len)`, and
+// every call expands the one Mighty arg into two ABI slots at the
+// call site.
+//
+// Run as a typeck / lowering smoke (no native build needed):
+//
+//   $ mty check examples/45_ffi_str_slice.mty
+//
+// The `_ffi_str_slice_*` symbols are declared but never linked — this
+// example pins the call-site shapes the type checker accepts. The
+// full link + run is exercised by `tests/extern_c_matrix/row_12_*`
+// and `crates/mty-codegen-cranelift/tests/ffi_str_slice_v046_t3.rs`.
+extern c {
+  // Shape 1 — single Str arg. The C declaration is:
+  //   int32_t _ffi_str_slice_echo(const char* ptr, size_t len);
+  // The Mighty caller spells one arg; the codegen emits two.
+  fn _ffi_str_slice_echo(s: Str) -> I32
+
+  // Shape 2 — scalar prefix + Str. The IDE's prompted-command pattern.
+  //   void _ffi_str_slice_rename(int64_t handle,
+  //                              const char* path_ptr, size_t path_len);
+  fn _ffi_str_slice_rename(handle: I64, path: Str) -> Unit
+
+  // Shape 3 — two Strs interleaved with a scalar. Pins that the
+  // (ptr, len) expansion is per-param, not per-call.
+  //   void _ffi_str_slice_blend(const char* a_ptr, size_t a_len,
+  //                             int32_t flags,
+  //                             const char* b_ptr, size_t b_len);
+  fn _ffi_str_slice_blend(a: Str, flags: I32, b: Str) -> Unit
+
+  // Shape 4 — Str alongside the v0.37 *U8 coercion. The two surfaces
+  // compose: Str -> (ptr, len) AND Str literal -> *U8 (nul-terminated)
+  // can land in the same call.
+  //   int32_t _ffi_str_slice_mixed(const char* slice_ptr, size_t slice_len,
+  //                                const char* cstr);
+  fn _ffi_str_slice_mixed(slice: Str, cstr: *U8) -> I32
+}
+
+fn main() {
+  // Direct literal.
+  let n1 = _ffi_str_slice_echo("hello-from-mighty")
+  let _ = n1
+
+  // Empty string — len=0 is legal; C side must not deref.
+  let n2 = _ffi_str_slice_echo("")
+  let _ = n2
+
+  // Multi-byte UTF-8 — `len` is the BYTE count (6 for "héllo"), not
+  // the codepoint count (5).
+  let n3 = _ffi_str_slice_echo("héllo")
+  let _ = n3
+
+  // IDE-shaped prompted command — the v0.46 T3 replacement for the
+  // L52 char-by-char staging loop. Pre-v0.46 this required:
+  //
+  //     mui_path_clear(handle)
+  //     let mut i: USize = 0
+  //     while i < mui_prompt_len(handle) {
+  //       mui_path_push(handle, mui_prompt_char(handle, i))
+  //       i = i + 1
+  //     }
+  //     mui_file_rename_active(handle)
+  //
+  // Post-v0.46 T3 it's one line. The C shim drops its scratch buffer.
+  let handle: I64 = 1
+  _ffi_str_slice_rename(handle, "newname.txt")
+
+  // Two Str slots interleaved with a scalar — each Str gets its own
+  // (ptr, len) pair; the I32 stays a single i32 slot.
+  _ffi_str_slice_blend("first", 7, "second")
+
+  // Composition with v0.37 *U8: a Str-slice arg AND a Str -> *U8
+  // coerced arg in the same call.
+  let _ = _ffi_str_slice_mixed("payload-bytes", "c-style-cstring")
+}
