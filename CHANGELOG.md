@@ -9,9 +9,56 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
-v0.45 development focuses on making agent-authored apps easier to
-ship: native capability ABI coverage, broader formatter rollout, and
-structured command/result surfaces that reduce shim code.
+## [0.45.0] - 2026-06-02
+
+v0.45 ships shim-less file I/O for agent-built apps, broadens the
+formatter rollout to function and type declarations, lands the
+`mty check --json` structured result, and corrects the v0.42/v0.44
+attribution for the L28 Vec liveness bug.
+
+### Fixed
+- **L28 (actually):** the v0.42 T1 / v0.44 L28 attribution was
+  incorrect. `Vec[T]` is an opaque prelude ADT modelled as
+  `Layout::scalar(PTR_BYTES)`, but `aggregate::is_aggregate` returned
+  `true` for any `IrTy::Adt`, so `let mut v = v0` / `let mut v = arg`
+  ran through the aggregate-Copy memcpy path. That copied 8 bytes of
+  the 32-byte `Vec` runtime header into an 8-byte slot and re-bound
+  the dest Variable to the truncated slot, dangling the `cap` /
+  `data` / `elem_size` fields when the helper returned. Default
+  `[profile.dev]` debug=2 metadata masked the OOB stores; PR #22's
+  `CARGO_PROFILE_DEV_DEBUG=0` mirrors GHA and exposed the SEGV. Fix
+  in `lower_assign`'s aggregate-Copy/Move branch: short-circuit
+  opaque ADTs by `def_var`ing the pointer through, matching the LLVM
+  backend. Unignores the previously-ignored Linux/macOS L28 branches;
+  adds two pinpoint regressions on the rebind path.
+- **L18 (P1):** `std.fs.*` calls under `mty run` (Cranelift JIT) and
+  `mty build` (AOT) no longer force the interpreter fallback. The
+  runtime exposes 11 new ABI symbols
+  (`mty_runtime_fs_{read,read_to_string,read_dir,write,write_string,append,exists,metadata,create_dir_all,remove_file,remove_dir_all}`)
+  recognised by both Cranelift and LLVM backends; the capability
+  gate (`MT4001`) stays in place at typeck.
+
+### Added
+- **`mty check --json` structured result.** Stable JSON envelope for
+  the check command, replacing stringly-formatted output for agent
+  callers. The envelope is pinned by 43 tests in
+  `crates/mty-cli/tests/check_json`.
+- **Formatter rollout to `fn` / `struct` / `enum` / `type` decls.**
+  The syntax-aware item formatter (v0.43 L26 const baseline) now
+  rewrites function, struct, enum, and type-alias declarations.
+  Emit-identical against the 67-file `.mty` corpus.
+- **`scripts/test-like-gha.sh` + pre-push opt-in.** Local mimic of
+  the GHA `CARGO_PROFILE_DEV_DEBUG=0 / CARGO_PROFILE_TEST_DEBUG=0`
+  environment so codegen bugs surfaced by stripped-debug profiles
+  (the class PR #27 fixes) are catchable before push.
+
+### Infrastructure
+- CI test runs strip debug info from test binaries
+  (`CARGO_PROFILE_DEV_DEBUG=0`, `CARGO_PROFILE_TEST_DEBUG=0`) and
+  serialise the Windows lane with `--test-threads=1` to keep the
+  runner's `C:` partition under the runner-image disk budget.
+
+[Release notes](dev/history/releases/RELEASE-v0.45.md).
 
 ## [0.44.0] - 2026-06-01
 

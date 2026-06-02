@@ -14,19 +14,12 @@
 
 Compiler, runtime, formatter, package manager, doc generator, LSP,
 and stdlib all live in one Rust workspace and one `mty` binary.
-v0.44 is the current release: the Mighty IDE is itself written in
-Mighty, and every bug it surfaces lands as a release-gate fix in the
-next cycle. v0.44 makes dev builds identify as the public Mighty
-milestone, parses long agent-generated `else if` command routers
-iteratively, and makes default `mty run` fall back to the interpreter
-for host-backed `std.fs` calls instead of routing them through the
-native extern stub.
-
-`main` is now the v0.45 development line; dev builds report
-`mty 0.45.0-dev`. The v0.45 focus is turning more interpreter-hosted
-stdlib behavior into native capability ABI coverage, broadening the
-safe formatter rollout, and replacing shim-heavy scalar command
-surfaces with structured result shapes agents can generate directly.
+v0.45 is the current release: native `std.fs` JIT/AOT paths
+(shim-less file I/O for agent-built apps), formatter rollout to
+`fn`/`struct`/`enum`/`type` declarations, the `mty check --json`
+structured result, and the real L28 fix (opaque-ADT Use-Copy must
+not memcpy — the v0.42 attribution was masked by `[profile.dev]`
+debug=2 metadata).
 
 ## Why Mighty
 
@@ -292,7 +285,7 @@ current state of the language, not its history.
 
 ## Status
 
-Mighty is **pre-alpha**. Internal milestones tagged through v0.43.
+Mighty is **pre-alpha**. Internal milestones tagged through v0.45.
 The toolchain is exercised by **~3555 Rust tests** across 20 crates
 plus **490 Python 2nd-impl tests** plus **159 normative conformance
 cases** plus **23 self-host driver codegen tests** — combined **~4227
