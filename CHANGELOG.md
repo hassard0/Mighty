@@ -9,8 +9,18 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-06-02
+
+v0.46 ships the official runtime ABI artifact pipeline (downstream
+`extern c` linkers stop hand-mirroring the symbol list), expands
+the extern c boundary to `(ptr, len)` Mighty strings, migrates five
+LSP surfaces from text snippets to LSP structured-result types,
+hardens `mty build` exit codes + `MTY_LINKER` path handling, and
+trims `std.fs` ergonomic edges with a `read_dir` iterator handle
+plus Metadata field projection.
+
 ### Added
-- **v0.46 T1 — official runtime ABI artifact (L51 fix).** The Mighty
+- **T1 — official runtime ABI artifact (L51 fix).** The Mighty
   compiler emits calls into a fixed family of `mty_runtime_*` C-ABI
   symbols (~50 of them by v0.45). v0.46 T1 publishes the surface as
   an official artifact pipeline:
@@ -30,6 +40,42 @@ For the full per-release notes, see
     fails if the in-tree header drifts from the build output or a
     `#[no_mangle]` fn slips past the parser.
   - See `docs/internals/runtime-abi.md` for the consumer-side story.
+  - 13 new tests.
+- **T3 — `(ptr, len)` FFI for Mighty strings (L52).** `extern c fn
+  f(s: Str)` now lowers as the (ptr, len) pair the receiving C ABI
+  expects, transparently expanded at every call site. Removes the
+  staging-buffer + `to_c_str` boilerplate that L52 surfaced in
+  agent-built bindings, while preserving the dynamic-Str fallback
+  path the v0.42 T4 LLVM limitation needs. 17 new tests.
+- **T4 — `std.fs.read_dir` iterator + Metadata field projection.**
+  `read_dir` now returns an iterator handle so consumers stream
+  entries instead of materialising a whole-Vec snapshot (covers the
+  v0.45 T1 deferral). `Metadata` exposes field-projection access for
+  `size`, `mtime`, `kind`, `permissions` etc. so callers stop
+  decomposing the whole struct just to inspect one field. The
+  v0.45-era `read_dir_lines` shape is deprecated (still works,
+  warns). 12 new tests.
+- **T5 — LSP structured-result surfaces (5).** `signatureHelp` ships
+  real parameter names (no more positional `arg0/arg1` placeholders);
+  `definition` returns `LocationLink` for cross-file origin context;
+  `completion` splits `detail`/`documentation` into their first-class
+  fields instead of cramming both into one Markdown string; `hover`
+  returns `MarkedString[]` so each section (signature, doc,
+  capability, taint) can be styled independently; `mty agent lsp` now
+  reports each of these in its structured JSON envelope. 71/71
+  mty-lsp tests + 45/45 mty-cli agent tests.
+
+### Fixed
+- **T2 — `mty build` exit code + `MTY_LINKER` Windows path support
+  (L50).** `mty build` now exits non-zero on diagnostic-fail (parity
+  with `mty check`), and the `MTY_LINKER` env override accepts
+  Windows-style absolute paths (`C:\...` and quoted paths with
+  spaces) without misparsing them as args. 5 new tests.
+
+### Deprecated
+- `std.fs.read_dir_lines` (use the T4 iterator form).
+
+[Release notes](dev/history/releases/RELEASE-v0.46.md).
 
 ## [0.45.0] - 2026-06-02
 
