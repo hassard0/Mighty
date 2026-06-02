@@ -14,7 +14,7 @@
 use mty_lsp::docs::DocAnalysis;
 use mty_lsp::hover::hover;
 use mty_lsp::line_index::LineIndex;
-use tower_lsp::lsp_types::{HoverContents, Position};
+use tower_lsp::lsp_types::{HoverContents, MarkedString, Position};
 
 fn analyze(src: &str) -> DocAnalysis {
     DocAnalysis::analyze(src.to_string(), "test://hover.mty".to_string(), 1)
@@ -27,12 +27,26 @@ fn locate(src: &str, needle: &str) -> Option<Position> {
     Some(Position { line, character })
 }
 
+// v0.46 T5 — hover responses are now structured arrays of
+// `MarkedString`s; flatten to one string for content checks.
 fn hover_md(doc: &DocAnalysis, pos: Position) -> String {
     let h = hover(doc, pos).expect("hover returns Some");
-    let HoverContents::Markup(m) = h.contents else {
-        panic!("expected markup hover")
-    };
-    m.value
+    match h.contents {
+        HoverContents::Scalar(s) => marked_to_string(&s),
+        HoverContents::Array(arr) => arr
+            .iter()
+            .map(marked_to_string)
+            .collect::<Vec<_>>()
+            .join("\n\n"),
+        HoverContents::Markup(m) => m.value,
+    }
+}
+
+fn marked_to_string(m: &MarkedString) -> String {
+    match m {
+        MarkedString::String(s) => s.clone(),
+        MarkedString::LanguageString(ls) => ls.value.clone(),
+    }
 }
 
 // ----------------------------------------------------------------------

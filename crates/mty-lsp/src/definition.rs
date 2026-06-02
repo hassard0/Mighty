@@ -8,12 +8,21 @@
 //! Locals, fields, methods, and trait impls require deeper resolution
 //! tables (HIR resolve maps) that the v0.2 LSP doesn't surface — a
 //! follow-up amendment will wire those up.
+//!
+//! v0.46 T5: the response shape now uses `GotoDefinitionResponse::Link`
+//! (`LocationLink`) so the IDE receives BOTH the `originSelectionRange`
+//! (the clicked-on identifier under the cursor) AND the
+//! `targetSelectionRange` (the name slice inside the definition,
+//! distinct from the full `targetRange` that spans the whole item).
+//! Editors that don't grok `LocationLink` still see the legacy
+//! `Location` data via the structured envelope, so this is fully
+//! back-compat with v0.2-vintage clients.
 
 use crate::docs::DocAnalysis;
 use mty_hir::{Item, SourceSpan};
 use mty_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 use rowan::TextSize;
-use tower_lsp::lsp_types::{GotoDefinitionResponse, Location, Position, Url};
+use tower_lsp::lsp_types::{GotoDefinitionResponse, LocationLink, Position, Url};
 
 pub fn definition(
     uri: Url,
@@ -30,8 +39,35 @@ pub fn definition(
     }
     let name = token.text().to_string();
     let span = find_item_span(&doc.package, &name)?;
-    let range = crate::conv::span_to_range(&doc.line_index, &doc.source, span.start, span.end);
-    Some(GotoDefinitionResponse::Scalar(Location { uri, range }))
+    let target_range =
+        crate::conv::span_to_range(&doc.line_index, &doc.source, span.start, span.end);
+
+    // The clicked-on identifier's range — given to the editor as the
+    // `originSelectionRange` so the source highlight shrinks to exactly
+    // the identifier rather than the entire word boundary the editor
+    // guesses on its own.
+    let tok_r = token.text_range();
+    let origin_selection_range = Some(crate::conv::span_to_range(
+        &doc.line_index,
+        &doc.source,
+        tok_r.start().into(),
+        tok_r.end().into(),
+    ));
+
+    // The name-only slice inside the definition span — given to the
+    // editor as the `targetSelectionRange` so the destination cursor
+    // lands on the symbol's identifier rather than the `fn`/`struct`
+    // keyword that prefixes the item.
+    let target_selection_range = name_range_in_span(&doc.source, &span, &name)
+        .map(|(start, end)| crate::conv::span_to_range(&doc.line_index, &doc.source, start, end))
+        .unwrap_or(target_range);
+
+    Some(GotoDefinitionResponse::Link(vec![LocationLink {
+        origin_selection_range,
+        target_uri: uri,
+        target_range,
+        target_selection_range,
+    }]))
 }
 
 fn token_at(root: &SyntaxNode, offset: u32) -> Option<SyntaxToken> {
@@ -120,4 +156,44 @@ pub(crate) fn find_item_span(pkg: &mty_hir::Package, name: &str) -> Option<Sourc
         }
     }
     None
+}
+
+/// v0.46 T5: best-effort locate the identifier `name` inside the
+/// definition `span` so the editor can navigate to the name itself
+/// rather than the leading `fn`/`struct`/`enum` keyword.
+///
+/// Returns the byte offsets of the first identifier match found.
+/// We scan from the start of the span and stop at the first occurrence
+/// whose character boundaries make sense (alpha-numeric on neither
+/// side). Falls back to the full span when no isolated match is found
+/// (so the caller still has a valid range).
+fn name_range_in_span(source: &str, span: &SourceSpan, name: &str) -> Option<(u32, u32)> {
+    let start = span.start as usize;
+    let end = (span.end as usize).min(source.len());
+    if start >= end || name.is_empty() {
+        return None;
+    }
+    let region = &source[start..end];
+    let mut search_from = 0usize;
+    while let Some(rel) = region[search_from..].find(name) {
+        let abs = search_from + rel;
+        let before = abs.checked_sub(1).and_then(|i| region.as_bytes().get(i));
+        let after = region.as_bytes().get(abs + name.len());
+        let isolated =
+            before.is_none_or(|b| !is_ident_byte(*b)) && after.is_none_or(|a| !is_ident_byte(*a));
+        if isolated {
+            let s = start + abs;
+            let e = s + name.len();
+            return Some((s as u32, e as u32));
+        }
+        search_from = abs + 1;
+        if search_from >= region.len() {
+            break;
+        }
+    }
+    None
+}
+
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
 }

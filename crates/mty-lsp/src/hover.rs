@@ -43,12 +43,44 @@ use mty_doc::examples::{
 use mty_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 use mty_types::{pretty_ty, DefRef};
 use rowan::TextSize;
-use tower_lsp::lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position, Range};
+use tower_lsp::lsp_types::{Hover, HoverContents, LanguageString, MarkedString, Position, Range};
+
+/// v0.46 T5 — one structured hover section. Either a code-fenced
+/// signature (`Code { language: "mty", value: ... }`) or a markdown
+/// body block. The list is rendered as an `HoverContents::Array`, which
+/// the IDE's L31 parser and other LSP clients consume as a sequence of
+/// individually-rendered cards (signature with syntax highlighting,
+/// docs without — no shared `wrap_hover` fence-stripping needed).
+enum HoverSection {
+    Code { language: String, value: String },
+    Markdown(String),
+}
+
+impl HoverSection {
+    fn into_marked_string(self) -> MarkedString {
+        match self {
+            HoverSection::Code { language, value } => {
+                MarkedString::LanguageString(LanguageString { language, value })
+            }
+            HoverSection::Markdown(text) => MarkedString::String(text),
+        }
+    }
+}
 
 /// Top-level hover entry.
 ///
 /// Returns `None` if no useful hover information is available at this
 /// position (so the client shows nothing rather than an empty box).
+///
+/// v0.46 T5: the response carries a structured `HoverContents::Array`
+/// of [`MarkedString`] sections. The first section (when present) is a
+/// language-tagged code block (`{ language: "mty", value: "<sig>" }`)
+/// so editors render the signature with syntax highlighting; the
+/// remaining sections are markdown bodies (description, capability,
+/// example, see-also, debug tags). Clients that only understood the
+/// previous single-string markdown blob still receive the same content
+/// — `HoverContents::Array` predates the `MarkupContent` shape and
+/// every modern LSP client renders both interchangeably.
 pub fn hover(doc: &DocAnalysis, position: Position) -> Option<Hover> {
     let offset = doc
         .line_index
@@ -58,52 +90,61 @@ pub fn hover(doc: &DocAnalysis, position: Position) -> Option<Hover> {
     let token_text = token.text().to_string();
     let token_kind = token.kind();
 
-    let mut sections: Vec<String> = Vec::new();
+    let mut sections: Vec<HoverSection> = Vec::new();
 
-    // Identifier-style hover: try to look the name up in the DefMap,
-    // and *also* try the stdlib examples index. We render both — the
-    // DefMap path supplies the user-defined signature when present, and
-    // the stdlib index supplies the description/example/see-also for
-    // stdlib symbols regardless of whether the user shadowed them.
     if matches!(token_kind, SyntaxKind::IDENT) {
         let mut rendered_any = false;
-        if let Some(rendered) = render_named_def(doc, &token_text) {
-            sections.push(rendered);
+        if let Some(sig) = render_named_def_signature(doc, &token_text) {
+            sections.push(HoverSection::Code {
+                language: "mty".to_string(),
+                value: sig,
+            });
             rendered_any = true;
         }
         // Try qualified lookup (`Member.anthropic`) by walking up the
         // PATH ancestor and joining segments, then method-call
         // (`r.ask`) by walking up to METHOD_CALL_EXPR.
-        if let Some(stdlib_md) = stdlib_hover_for_token(&token, &token_text) {
-            sections.push(stdlib_md);
+        if let Some(entry) = stdlib_entry_for_token(&token, &token_text) {
+            append_stdlib_sections(&mut sections, entry);
             rendered_any = true;
         }
         if !rendered_any {
-            sections.push(format!("```\n{}\n```", token_text));
+            sections.push(HoverSection::Code {
+                language: String::new(),
+                value: token_text.clone(),
+            });
         }
     } else {
-        // Show the literal token text in a code fence so syntax tokens
-        // (keywords, literals) still get a friendly box.
-        sections.push(format!("```\n{}\n```", token_text));
+        sections.push(HoverSection::Code {
+            language: String::new(),
+            value: token_text.clone(),
+        });
     }
 
     // Always tag with the surrounding node kind for debuggability.
+    let mut debug_lines: Vec<String> = Vec::new();
     if let Some(parent) = token.parent() {
-        sections.push(format!("_node_: `{:?}`", parent.kind()));
+        debug_lines.push(format!("_node_: `{:?}`", parent.kind()));
     }
-    sections.push(format!("_token_: `{:?}`", token_kind));
+    debug_lines.push(format!("_token_: `{:?}`", token_kind));
+    sections.push(HoverSection::Markdown(debug_lines.join("\n\n")));
 
     let range = token_range(&token, &doc.line_index, &doc.source);
+    let array: Vec<MarkedString> = sections
+        .into_iter()
+        .map(HoverSection::into_marked_string)
+        .collect();
     Some(Hover {
-        contents: HoverContents::Markup(MarkupContent {
-            kind: MarkupKind::Markdown,
-            value: sections.join("\n\n"),
-        }),
+        contents: HoverContents::Array(array),
         range: Some(range),
     })
 }
 
-fn render_named_def(doc: &DocAnalysis, name: &str) -> Option<String> {
+/// v0.46 T5: return the user-defined-symbol's signature as plain text
+/// (no code fence). The caller wraps it in a [`MarkedString::LanguageString`]
+/// so the editor renders it with `mty` syntax highlighting independently
+/// from any markdown body following it.
+fn render_named_def_signature(doc: &DocAnalysis, name: &str) -> Option<String> {
     let def = doc.typed.def_map.by_name.get(name)?;
     match def {
         DefRef::Fn(id) => {
@@ -127,7 +168,7 @@ fn render_named_def(doc: &DocAnalysis, name: &str) -> Option<String> {
                 " effect <...>".to_string()
             };
             Some(format!(
-                "```mty\n{vis}fn {}({}) -> {}{}\n```",
+                "{vis}fn {}({}) -> {}{}",
                 f.name,
                 params.join(", "),
                 ret,
@@ -141,28 +182,27 @@ fn render_named_def(doc: &DocAnalysis, name: &str) -> Option<String> {
                 mty_types::AdtKind::Enum => "enum",
                 mty_types::AdtKind::Opaque => "type",
             };
-            Some(format!("```mty\n{kw} {}\n```", a.name))
+            Some(format!("{kw} {}", a.name))
         }
         DefRef::Variant(id, idx) => {
             let a = doc.typed.def_map.adt(*id)?;
             let v = a.variants.get(*idx)?;
-            Some(format!("```mty\n{}.{}\n```", a.name, v.name))
+            Some(format!("{}.{}", a.name, v.name))
         }
-        DefRef::Module(_) => Some(format!("```mty\nmod {}\n```", name)),
-        DefRef::Param(_) => Some(format!("```mty\ntype param {}\n```", name)),
+        DefRef::Module(_) => Some(format!("mod {}", name)),
+        DefRef::Param(_) => Some(format!("type param {}", name)),
         DefRef::Const(id) => {
             // v0.41 T6 (L16): hover for a top-level `const NAME: T = ...;`.
             let c = doc.typed.def_map.const_def(*id)?;
             let vis = if c.is_pub { "pub " } else { "" };
             let ty = pretty_ty(c.ty, &doc.typed.ty_arena, None, Some(&doc.typed.def_map));
-            Some(format!("```mty\n{vis}const {}: {}\n```", c.name, ty))
+            Some(format!("{vis}const {}: {}", c.name, ty))
         }
     }
 }
 
 /// Try to find a stdlib examples-index entry for the token under the
-/// cursor and render it as the rich-markdown payload (signature,
-/// description, capability, example, see-also).
+/// cursor.
 ///
 /// Resolution order:
 ///
@@ -173,12 +213,14 @@ fn render_named_def(doc: &DocAnalysis, name: &str) -> Option<String> {
 ///    `<receiver>.<token>`. Otherwise fall back to bare-method lookup.
 /// 3. Bare-name lookup on `token` (e.g. hover on `log`).
 ///
-/// Returns markdown ready to drop into the hover sections list.
-fn stdlib_hover_for_token(token: &SyntaxToken, token_text: &str) -> Option<String> {
+/// v0.46 T5: returns the resolved [`StdlibExample`] reference rather
+/// than pre-rendered markdown — the caller splits the entry into
+/// structured `MarkedString` sections.
+fn stdlib_entry_for_token(token: &SyntaxToken, token_text: &str) -> Option<&'static StdlibExample> {
     // Path-form lookup (`Member.anthropic`, `std.http.get`).
     if let Some(path_text) = enclosing_path_text(token) {
         if let Some(entry) = lookup_stdlib(&path_text) {
-            return Some(render_stdlib_entry(entry));
+            return Some(entry);
         }
     }
     // Method-call lookup (`receiver.method(...)`).
@@ -192,18 +234,81 @@ fn stdlib_hover_for_token(token: &SyntaxToken, token_text: &str) -> Option<Strin
         // used by `mty_types::taint`'s receiver-type dispatch.
         if let Some(bound_ty) = resolve_local_bound_type(token, &receiver) {
             if let Some(entry) = lookup_stdlib_method(&bound_ty, &method) {
-                return Some(render_stdlib_entry(entry));
+                return Some(entry);
             }
         }
         if let Some(entry) = lookup_stdlib_method(&receiver, &method) {
-            return Some(render_stdlib_entry(entry));
+            return Some(entry);
         }
     }
     // Bare-name lookup as a last resort.
-    if let Some(entry) = lookup_stdlib(token_text) {
-        return Some(render_stdlib_entry(entry));
+    lookup_stdlib(token_text)
+}
+
+/// v0.46 T5: split a stdlib entry into the structured sections the
+/// LSP hover surface exposes — signature in an `mty` code block,
+/// description / capability / example / see-also as independent
+/// markdown bodies. The IDE's L31 parser was previously forced to
+/// `wrap_hover`-strip a single combined markdown blob; the structured
+/// shape lets it render each section verbatim.
+fn append_stdlib_sections(sections: &mut Vec<HoverSection>, entry: &'static StdlibExample) {
+    let sig = entry.signature.trim().to_string();
+    if !sig.is_empty() {
+        sections.push(HoverSection::Code {
+            language: "mty".to_string(),
+            value: sig,
+        });
     }
-    None
+    let mut body = String::new();
+    if !entry.description.is_empty() {
+        body.push_str(entry.description.trim());
+        body.push_str("\n\n");
+    }
+    if !entry.capability.is_empty() {
+        body.push_str("**Required capability:** `");
+        body.push_str(entry.capability.trim());
+        body.push_str("`\n\n");
+    }
+    if !body.is_empty() {
+        // Trim the trailing blank we appended for separator hygiene.
+        sections.push(HoverSection::Markdown(body.trim_end().to_string()));
+    }
+    if !entry.example.is_empty() {
+        sections.push(HoverSection::Markdown("**Example:**".to_string()));
+        sections.push(HoverSection::Code {
+            language: "mty".to_string(),
+            value: entry.example.trim_end().to_string(),
+        });
+    }
+
+    // Merge curated + inferred see-also, deduped, capped at 5.
+    let mut see: Vec<String> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for s in entry.see_also_iter() {
+        if see.len() >= 5 {
+            break;
+        }
+        if seen.insert(s.to_string()) {
+            see.push(s.to_string());
+        }
+    }
+    if see.len() < 5 {
+        for sym in infer_stdlib_see_also(entry, 5 - see.len()) {
+            if see.len() >= 5 {
+                break;
+            }
+            if seen.insert(sym.to_string()) {
+                see.push(sym.to_string());
+            }
+        }
+    }
+    if !see.is_empty() {
+        let formatted: Vec<String> = see.iter().map(|s| format!("`{}`", s)).collect();
+        sections.push(HoverSection::Markdown(format!(
+            "**See also:** {}",
+            formatted.join(", ")
+        )));
+    }
 }
 
 /// v0.34 T4 — resolve a local binding's "stdlib type" by syntactic
@@ -354,10 +459,12 @@ fn enclosing_method_call(token: &SyntaxToken, token_text: &str) -> Option<(Strin
     Some((receiver_head, token_text.to_string()))
 }
 
-/// Render a stdlib examples entry as the markdown payload spliced into
-/// the hover output. The curated `see_also` field is rendered verbatim;
-/// inferred siblings (same family / same module / same capability) are
-/// appended after the curated list, up to five total.
+/// Legacy single-markdown-blob rendering of a stdlib entry. v0.46 T5
+/// moved the live hover surface to structured `HoverSection`s; this
+/// remains under `cfg(test)` to keep the v0.33 T6 section regressions
+/// (still-useful as content checks) in place without re-deriving them
+/// from the structured form.
+#[cfg(test)]
 fn render_stdlib_entry(entry: &'static StdlibExample) -> String {
     let mut md = String::new();
     md.push_str("```mty\n");

@@ -42,6 +42,14 @@ pub struct Backend {
     /// v0.34 T2: per-session CodeAction tunables. Updated from the
     /// client's `initializationOptions` JSON in `initialize`.
     pub code_action_config: Arc<std::sync::RwLock<code_actions::CodeActionConfig>>,
+    /// v0.46 T5: whether the client advertised
+    /// `textDocument.definition.linkSupport = true`. When `true`, the
+    /// `goto_definition` handler emits the structured
+    /// `LocationLink[]` (carrying `originSelectionRange` +
+    /// `targetSelectionRange`); when `false`, it downgrades to the
+    /// legacy `Location` scalar so v0.2-vintage clients still parse the
+    /// payload.
+    pub link_support: Arc<std::sync::RwLock<bool>>,
 }
 
 impl Backend {
@@ -53,6 +61,10 @@ impl Backend {
             code_action_config: Arc::new(std::sync::RwLock::new(
                 code_actions::CodeActionConfig::default(),
             )),
+            // Default to `true` so clients that don't advertise
+            // capabilities at all (and modern editors that handle both
+            // shapes) get the richer Link form.
+            link_support: Arc::new(std::sync::RwLock::new(true)),
         }
     }
 
@@ -87,6 +99,19 @@ impl LanguageServer for Backend {
             let cfg = code_actions::CodeActionConfig::from_initialization_options(opts);
             if let Ok(mut g) = self.code_action_config.write() {
                 *g = cfg;
+            }
+        }
+        // v0.46 T5: capability negotiation for `textDocument.definition.linkSupport`.
+        // Defaults to `true` so capability-omitting clients still see
+        // the richer Link shape; a client that explicitly advertises
+        // `linkSupport = false` falls back to the legacy `Location`
+        // scalar form.
+        if let Some(client_caps) = params.capabilities.text_document.as_ref() {
+            if let Some(def_cap) = client_caps.definition.as_ref() {
+                let advertised = def_cap.link_support.unwrap_or(true);
+                if let Ok(mut g) = self.link_support.write() {
+                    *g = advertised;
+                }
             }
         }
         Ok(InitializeResult {
@@ -237,7 +262,30 @@ impl LanguageServer for Backend {
         let Some(doc) = self.docs.get(&uri) else {
             return Ok(None);
         };
-        Ok(definition::definition(uri, &doc, pos))
+        let resp = definition::definition(uri, &doc, pos);
+        // v0.46 T5 — back-compat downgrade for clients that don't
+        // advertise `textDocument.definition.linkSupport`.
+        let link_support = self.link_support.read().map(|g| *g).unwrap_or(true);
+        let resp = match resp {
+            Some(GotoDefinitionResponse::Link(links)) if !link_support => {
+                let locations: Vec<_> = links
+                    .into_iter()
+                    .map(|l| tower_lsp::lsp_types::Location {
+                        uri: l.target_uri,
+                        range: l.target_range,
+                    })
+                    .collect();
+                if locations.len() == 1 {
+                    Some(GotoDefinitionResponse::Scalar(
+                        locations.into_iter().next().unwrap(),
+                    ))
+                } else {
+                    Some(GotoDefinitionResponse::Array(locations))
+                }
+            }
+            other => other,
+        };
+        Ok(resp)
     }
 
     async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {
