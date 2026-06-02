@@ -226,6 +226,72 @@ pub fn link_executable(
     link_executable_with_libs(obj, out_exe, mode, &[])
 }
 
+/// What a single linker-discovery probe found.
+///
+/// `LinkerProbe::Found(path)` means the candidate resolves to a real
+/// executable; `LinkerProbe::NotFound(reason)` means we couldn't use
+/// it. Both shapes are surfaced verbatim in [`LinkerDiscoveryError`]
+/// so the user can see exactly which candidates were tried and what
+/// each said.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LinkerProbe {
+    /// The candidate resolved to this absolute executable path.
+    Found(String),
+    /// The candidate did not resolve. The string explains why
+    /// (e.g. "unset", "not on PATH", "file does not exist").
+    NotFound(String),
+}
+
+/// A single env-var or PATH-candidate attempt during linker discovery.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkerAttempt {
+    /// What we tried — for env vars, the var name (`"$MTY_LINKER"`);
+    /// for PATH candidates, the bare program name (`"clang"`,
+    /// `"cc"`, `"lld-link"`).
+    pub source: String,
+    /// The raw value we attempted (the env var's value, or the
+    /// PATH-candidate name itself if there was no env value).
+    pub value: Option<String>,
+    /// Outcome of the probe.
+    pub outcome: LinkerProbe,
+}
+
+/// Aggregated linker-discovery report: every candidate the discovery
+/// walk attempted and what each one said.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkerDiscovery {
+    pub attempts: Vec<LinkerAttempt>,
+}
+
+impl LinkerDiscovery {
+    /// Human-readable multi-line summary, suitable for an error log.
+    pub fn summary(&self) -> String {
+        let mut out = String::from("no linker found; tried:\n");
+        for a in &self.attempts {
+            out.push_str("  - ");
+            out.push_str(&a.source);
+            if let Some(v) = &a.value {
+                out.push_str(" = ");
+                out.push_str(v);
+            }
+            out.push_str(" -> ");
+            match &a.outcome {
+                LinkerProbe::Found(p) => {
+                    out.push_str("found ");
+                    out.push_str(p);
+                }
+                LinkerProbe::NotFound(reason) => out.push_str(reason),
+            }
+            out.push('\n');
+        }
+        out.push_str(
+            "  hint: set MTY_LINKER to the absolute path of clang/gcc/lld-link, \
+             or install one of the above on PATH",
+        );
+        out
+    }
+}
+
 /// Like [`link_executable`] but appends `extra_args` after the object
 /// file and libc. v0.36 Track T2 uses this to forward every
 /// `[[extern_lib]]` entry from `mighty.toml` into the linker invocation:
@@ -243,8 +309,15 @@ pub fn link_executable_with_libs(
     mode: BuildMode,
     extra_args: &[String],
 ) -> CompileResult<NativeArtifact> {
-    let linker = find_linker()
-        .ok_or_else(|| CodegenError::Linker("no linker found (set MTY_LINKER)".into()))?;
+    let linker = match discover_linker() {
+        Ok(p) => p,
+        Err(discovery) => return Err(CodegenError::Linker(discovery.summary())),
+    };
+    // v0.46 T2 — `Command::new` takes a single executable path,
+    // never a command line. Honour the discovered path verbatim
+    // (already de-quoted by `discover_linker`); arguments below
+    // are passed individually so spaces in the linker path never
+    // get re-split on whitespace.
     let mut cmd = Command::new(&linker);
     cmd.arg(&obj.object_path);
     cmd.arg("-o").arg(out_exe);
@@ -263,15 +336,54 @@ pub fn link_executable_with_libs(
     for a in extra_args {
         cmd.arg(a);
     }
-    let output = cmd
-        .output()
-        .map_err(|e| CodegenError::Linker(format!("invoke {linker}: {e}")))?;
+    let output = cmd.output().map_err(|e| {
+        CodegenError::Linker(format!(
+            "failed to invoke linker `{linker}`: {e}\n  \
+             hint: check that the path exists and is executable; \
+             on Windows ensure MTY_LINKER points at clang.exe / lld-link.exe (not a directory)"
+        ))
+    })?;
     if !output.status.success() {
-        return Err(CodegenError::Linker(format!(
-            "linker exited {:?}: {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        )));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let exit = output
+            .status
+            .code()
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "signal".into());
+        let mut msg = format!("linker `{linker}` exited {exit}");
+        let trimmed_err = stderr.trim();
+        if !trimmed_err.is_empty() {
+            msg.push_str("\nstderr:\n");
+            msg.push_str(trimmed_err);
+        }
+        let trimmed_out = stdout.trim();
+        if !trimmed_out.is_empty() {
+            msg.push_str("\nstdout:\n");
+            msg.push_str(trimmed_out);
+        }
+        return Err(CodegenError::Linker(msg));
+    }
+    // v0.46 T2 — even when the linker reports success, double-check
+    // that the executable actually landed on disk and is non-empty.
+    // Some linkers (notably lld-link with certain flag mixes) can
+    // exit 0 after rejecting individual inputs without producing
+    // output; without this guard `mty build` would still claim
+    // success and CI scripts would silently ship nothing.
+    match std::fs::metadata(out_exe) {
+        Ok(meta) if meta.len() == 0 => {
+            return Err(CodegenError::Linker(format!(
+                "linker `{linker}` exited 0 but produced an empty {out}",
+                out = out_exe.display()
+            )));
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(CodegenError::Linker(format!(
+                "linker `{linker}` exited 0 but {out} was not produced",
+                out = out_exe.display()
+            )));
+        }
+        _ => {}
     }
     Ok(NativeArtifact {
         binary_path: out_exe.to_path_buf(),
@@ -291,27 +403,137 @@ pub fn link_executable_with_libs(
 /// We also reject MSYS/Git-Bash's `/usr/bin/link.exe` (the coreutils
 /// shim) when found at that exact path, since it speaks GNU
 /// arg-syntax, not MSVC's.
+///
+/// Returns the resolved name/path on success. For full attempt
+/// telemetry on failure (every env var and PATH candidate that was
+/// tried + what each said), use [`discover_linker`].
 pub fn find_linker() -> Option<String> {
-    // v0.36 T4: prefer MTY_LINKER, fall back to STARDUST_LINKER with
-    // a one-shot deprecation warning. This module is `no_std`-friendly
-    // enough that we can't depend on `mty-runtime`'s env helper, so
-    // we open-code the same precedence locally.
-    if let Ok(env) = std::env::var("MTY_LINKER") {
-        if !env.trim().is_empty() {
-            return Some(env);
+    discover_linker().ok()
+}
+
+/// v0.46 T2 — strip wrapping ASCII quotes around an env-var value so
+/// `MTY_LINKER="C:\Program Files\LLVM\bin\clang.exe"` works even on
+/// shells that leak the quotes into the var. Trims surrounding
+/// whitespace too.
+fn unquote(raw: &str) -> String {
+    let s = raw.trim();
+    let bytes = s.as_bytes();
+    if bytes.len() >= 2 {
+        let first = bytes[0];
+        let last = bytes[bytes.len() - 1];
+        if first == last && (first == b'"' || first == b'\'') {
+            return s[1..s.len() - 1].to_string();
         }
     }
-    if let Ok(env) = std::env::var("STARDUST_LINKER") {
-        if !env.trim().is_empty() {
+    s.to_string()
+}
+
+/// v0.46 T2 — return `true` when `s` looks like a path (contains a
+/// directory separator) rather than a bare program name. Used to
+/// decide whether to PATH-walk a user-supplied env override.
+fn looks_like_path(s: &str) -> bool {
+    s.contains('/') || s.contains('\\')
+}
+
+/// v0.46 T2 — resolve `value` (an `MTY_LINKER` / `STARDUST_LINKER`
+/// payload) to an executable. Quoted paths are honoured. Bare names
+/// (`"clang"`, `"clang.exe"`) get a PATH walk. Paths are checked for
+/// existence so a typo surfaces as "file does not exist" instead of
+/// "failed to invoke".
+fn resolve_env_linker(value: &str) -> LinkerProbe {
+    let unquoted = unquote(value);
+    if unquoted.is_empty() {
+        return LinkerProbe::NotFound("empty after trimming quotes".into());
+    }
+    if looks_like_path(&unquoted) {
+        let p = std::path::Path::new(&unquoted);
+        if p.is_file() {
+            return LinkerProbe::Found(unquoted);
+        }
+        return LinkerProbe::NotFound(format!("file does not exist: {unquoted}"));
+    }
+    match which::which(&unquoted) {
+        Ok(path) => LinkerProbe::Found(path.to_string_lossy().into_owned()),
+        Err(()) => LinkerProbe::NotFound(format!("`{unquoted}` not found on PATH")),
+    }
+}
+
+/// v0.46 T2 — like [`find_linker`] but always returns the full
+/// discovery trace on failure so callers can surface an actionable
+/// diagnostic. Discovery order (unchanged):
+///
+/// 1. `MTY_LINKER` env override (quote-tolerant; bare names get a
+///    PATH walk).
+/// 2. `STARDUST_LINKER` legacy env override (same shape; one-shot
+///    deprecation warning).
+/// 3. Platform-conventional PATH candidates in priority order.
+pub fn discover_linker() -> Result<String, LinkerDiscovery> {
+    let mut attempts: Vec<LinkerAttempt> = Vec::new();
+
+    // 1. MTY_LINKER
+    match std::env::var("MTY_LINKER") {
+        Ok(raw) if !raw.trim().is_empty() => {
+            let probe = resolve_env_linker(&raw);
+            let resolved = matches!(probe, LinkerProbe::Found(_));
+            attempts.push(LinkerAttempt {
+                source: "$MTY_LINKER".into(),
+                value: Some(raw),
+                outcome: probe.clone(),
+            });
+            if let LinkerProbe::Found(p) = probe {
+                if !is_msys_coreutils_link(&p) {
+                    return Ok(p);
+                }
+                // The override resolved to MSYS' coreutils `link` —
+                // skip it but keep the attempt visible.
+                let _ = resolved;
+            }
+        }
+        Ok(_) => attempts.push(LinkerAttempt {
+            source: "$MTY_LINKER".into(),
+            value: None,
+            outcome: LinkerProbe::NotFound("set but empty/whitespace".into()),
+        }),
+        Err(_) => attempts.push(LinkerAttempt {
+            source: "$MTY_LINKER".into(),
+            value: None,
+            outcome: LinkerProbe::NotFound("unset".into()),
+        }),
+    }
+
+    // 2. STARDUST_LINKER legacy fallback
+    match std::env::var("STARDUST_LINKER") {
+        Ok(raw) if !raw.trim().is_empty() => {
             use std::sync::atomic::{AtomicBool, Ordering};
             static WARNED: AtomicBool = AtomicBool::new(false);
             if !WARNED.swap(true, Ordering::Relaxed) {
                 eprintln!("mighty: warning: STARDUST_LINKER is deprecated; use MTY_LINKER instead");
             }
-            return Some(env);
+            let probe = resolve_env_linker(&raw);
+            attempts.push(LinkerAttempt {
+                source: "$STARDUST_LINKER".into(),
+                value: Some(raw),
+                outcome: probe.clone(),
+            });
+            if let LinkerProbe::Found(p) = probe {
+                if !is_msys_coreutils_link(&p) {
+                    return Ok(p);
+                }
+            }
         }
+        Ok(_) => attempts.push(LinkerAttempt {
+            source: "$STARDUST_LINKER".into(),
+            value: None,
+            outcome: LinkerProbe::NotFound("set but empty/whitespace".into()),
+        }),
+        Err(_) => attempts.push(LinkerAttempt {
+            source: "$STARDUST_LINKER".into(),
+            value: None,
+            outcome: LinkerProbe::NotFound("unset".into()),
+        }),
     }
-    // v0.2 search order: clang first (works everywhere; drives lld),
+
+    // 3. PATH candidates. clang first (works everywhere; drives lld),
     // then platform-conventional Cs, then lld variants by themselves.
     let candidates: &[&str] = if cfg!(windows) {
         &[
@@ -327,18 +549,42 @@ pub fn find_linker() -> Option<String> {
         &["cc", "gcc", "clang", "ld.lld", "lld"]
     };
     for cand in candidates {
-        if let Ok(path) = which::which(cand) {
-            let s = path.to_string_lossy();
-            // Skip the coreutils `link.exe` shim that ships with
-            // MSYS/Git-Bash on Windows — it's a hardlink helper, not
-            // a linker.
-            if s.contains("/usr/bin/link") || s.contains("\\usr\\bin\\link") {
-                continue;
+        match which::which(cand) {
+            Ok(path) => {
+                let s = path.to_string_lossy().into_owned();
+                if is_msys_coreutils_link(&s) {
+                    attempts.push(LinkerAttempt {
+                        source: format!("PATH:{cand}"),
+                        value: Some(s),
+                        outcome: LinkerProbe::NotFound(
+                            "skipped (coreutils `link` shim, not a real linker)".into(),
+                        ),
+                    });
+                    continue;
+                }
+                attempts.push(LinkerAttempt {
+                    source: format!("PATH:{cand}"),
+                    value: None,
+                    outcome: LinkerProbe::Found(s),
+                });
+                return Ok((*cand).to_string());
             }
-            return Some(cand.to_string());
+            Err(()) => attempts.push(LinkerAttempt {
+                source: format!("PATH:{cand}"),
+                value: None,
+                outcome: LinkerProbe::NotFound("not on PATH".into()),
+            }),
         }
     }
-    None
+
+    Err(LinkerDiscovery { attempts })
+}
+
+/// MSYS / Git-Bash ship a coreutils `link.exe` (a hardlink helper)
+/// at `/usr/bin/link.exe`. It is not a real linker — skip it so we
+/// don't end up invoking it.
+fn is_msys_coreutils_link(s: &str) -> bool {
+    s.contains("/usr/bin/link") || s.contains("\\usr\\bin\\link")
 }
 
 // We don't depend on `which` in workspace deps — vendor a minimal
@@ -408,25 +654,33 @@ mod tests {
     #[test]
     fn find_linker_prefers_mty_over_stardust() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        // Set both; MTY_ should win and STARDUST_ shouldn't even be
-        // observed (no deprecation warning fires).
-        std::env::set_var("MTY_LINKER", "/path/to/new-linker");
-        std::env::set_var("STARDUST_LINKER", "/path/to/old-linker");
+        // v0.46 T2 — find_linker now validates that the env-supplied
+        // path exists, so we need a real file on disk. Use a tempdir
+        // sentinel.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let new_linker = dir.path().join("new-linker");
+        let old_linker = dir.path().join("old-linker");
+        std::fs::write(&new_linker, b"#fake").unwrap();
+        std::fs::write(&old_linker, b"#fake").unwrap();
+        std::env::set_var("MTY_LINKER", &new_linker);
+        std::env::set_var("STARDUST_LINKER", &old_linker);
         let got = find_linker();
         std::env::remove_var("MTY_LINKER");
         std::env::remove_var("STARDUST_LINKER");
-        assert_eq!(got.as_deref(), Some("/path/to/new-linker"));
+        assert_eq!(got.as_deref(), Some(new_linker.to_string_lossy().as_ref()));
     }
 
     #[test]
     fn find_linker_falls_back_to_stardust() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        // MTY_ unset, STARDUST_ set → fallback path is honoured.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let legacy = dir.path().join("legacy-linker");
+        std::fs::write(&legacy, b"#fake").unwrap();
         std::env::remove_var("MTY_LINKER");
-        std::env::set_var("STARDUST_LINKER", "/path/to/legacy-linker");
+        std::env::set_var("STARDUST_LINKER", &legacy);
         let got = find_linker();
         std::env::remove_var("STARDUST_LINKER");
-        assert_eq!(got.as_deref(), Some("/path/to/legacy-linker"));
+        assert_eq!(got.as_deref(), Some(legacy.to_string_lossy().as_ref()));
     }
 
     #[test]
@@ -450,15 +704,17 @@ mod tests {
         // remove_var, producing the `Some("clang.exe")` PATH-walk
         // fallthrough we saw on the integrator commit.
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        // Use a synthetic placeholder so the test doesn't depend on
-        // any tool actually being installed. The override path is
-        // returned verbatim — `find_linker` doesn't validate it.
+        // v0.46 T2 — use a real file on disk; the discovery layer now
+        // validates that the env-supplied path actually exists.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let synthetic = dir.path().join("synthetic-linker-for-test");
+        std::fs::write(&synthetic, b"#fake").unwrap();
         let prev_mty = std::env::var("MTY_LINKER").ok();
         let prev = std::env::var("STARDUST_LINKER").ok();
         // MTY_LINKER must be unset, else it takes precedence and
         // shadows the STARDUST_LINKER path we're trying to exercise.
         std::env::remove_var("MTY_LINKER");
-        std::env::set_var("STARDUST_LINKER", "synthetic-linker-for-test");
+        std::env::set_var("STARDUST_LINKER", &synthetic);
         let got = find_linker();
         // Restore env first so a panic below doesn't leak state.
         match prev {
@@ -468,7 +724,7 @@ mod tests {
         if let Some(v) = prev_mty {
             std::env::set_var("MTY_LINKER", v);
         }
-        assert_eq!(got.as_deref(), Some("synthetic-linker-for-test"));
+        assert_eq!(got.as_deref(), Some(synthetic.to_string_lossy().as_ref()));
     }
 
     /// v0.36 Track T2 — when `STARDUST_LINKER` is whitespace, the
@@ -492,6 +748,153 @@ mod tests {
         // We can't assert the PATH-walked result (CI varies), but it
         // must NOT be the whitespace value we passed.
         assert_ne!(got.as_deref(), Some("   "));
+    }
+
+    /// v0.46 T2 — `unquote` strips wrapping ASCII quotes so that
+    /// `MTY_LINKER='"C:\Program Files\LLVM\bin\clang.exe"'` works on
+    /// shells that leak the quotes into the env var.
+    #[test]
+    fn unquote_strips_double_and_single_wrap() {
+        assert_eq!(
+            unquote("\"C:\\Program Files\\LLVM\\bin\\clang.exe\""),
+            "C:\\Program Files\\LLVM\\bin\\clang.exe"
+        );
+        assert_eq!(unquote("'/usr/local/bin/clang'"), "/usr/local/bin/clang");
+        // Unwrapped path passes through.
+        assert_eq!(unquote("/usr/local/bin/clang"), "/usr/local/bin/clang");
+        // Mixed quotes — only an outer matched pair counts.
+        assert_eq!(unquote("\"mixed'"), "\"mixed'");
+        // Whitespace trimming.
+        assert_eq!(unquote("  /bin/cc  "), "/bin/cc");
+        // Quoted whitespace path.
+        assert_eq!(unquote("\"  /bin/cc  \""), "  /bin/cc  ");
+    }
+
+    /// v0.46 T2 — `looks_like_path` distinguishes a bare program
+    /// name (which we PATH-walk) from a real path (which we just
+    /// stat).
+    #[test]
+    fn looks_like_path_distinguishes_path_from_name() {
+        assert!(looks_like_path("/usr/bin/clang"));
+        assert!(looks_like_path("C:\\LLVM\\clang.exe"));
+        assert!(looks_like_path("./clang"));
+        assert!(!looks_like_path("clang"));
+        assert!(!looks_like_path("clang.exe"));
+        assert!(!looks_like_path("lld-link"));
+    }
+
+    /// v0.46 T2 — when `MTY_LINKER` is a bare program name we must
+    /// PATH-walk it instead of treating it as a relative file. With
+    /// a synthetic name nothing on PATH matches; the probe reports
+    /// `not found on PATH` (not "file does not exist").
+    #[test]
+    fn resolve_env_linker_path_walks_bare_names() {
+        let probe = resolve_env_linker("definitely-not-a-real-tool-xyz");
+        match probe {
+            LinkerProbe::NotFound(reason) => {
+                assert!(
+                    reason.contains("not found on PATH"),
+                    "expected PATH walk failure, got {reason}"
+                );
+            }
+            LinkerProbe::Found(p) => panic!("unexpected hit: {p}"),
+        }
+    }
+
+    /// v0.46 T2 — a quoted path that points at an existing file
+    /// resolves cleanly even when the path contains spaces.
+    #[test]
+    fn resolve_env_linker_honours_quoted_path_with_spaces() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Force a sub-dir with a space in the name; this is the
+        // failure mode reported by L50 (`C:\Program Files\...`).
+        let nested = dir.path().join("Program Files");
+        std::fs::create_dir(&nested).unwrap();
+        let exe = nested.join("clang.exe");
+        std::fs::write(&exe, b"#fake").unwrap();
+        let quoted = format!("\"{}\"", exe.display());
+        let probe = resolve_env_linker(&quoted);
+        match probe {
+            LinkerProbe::Found(p) => assert_eq!(
+                std::path::Path::new(&p),
+                exe.as_path(),
+                "unexpected resolved path"
+            ),
+            LinkerProbe::NotFound(reason) => {
+                panic!("expected quoted path with spaces to resolve, got NotFound({reason})")
+            }
+        }
+    }
+
+    /// v0.46 T2 — a path that doesn't exist surfaces an actionable
+    /// "file does not exist" error rather than getting passed
+    /// through to `Command::new` (which would fail later with a less
+    /// helpful "the system cannot find the file specified").
+    #[test]
+    fn resolve_env_linker_rejects_missing_path() {
+        let probe = resolve_env_linker("/definitely/not/a/real/path/clang");
+        match probe {
+            LinkerProbe::NotFound(reason) => {
+                assert!(
+                    reason.contains("file does not exist"),
+                    "unexpected reason: {reason}"
+                );
+            }
+            LinkerProbe::Found(p) => panic!("expected NotFound, got Found({p})"),
+        }
+    }
+
+    /// v0.46 T2 — `LinkerDiscovery::summary` mentions every attempted
+    /// candidate name plus the explicit hint about `MTY_LINKER`. This
+    /// is the diagnostic surface CI users see when discovery fails.
+    #[test]
+    fn discovery_summary_lists_every_attempt() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev_mty = std::env::var("MTY_LINKER").ok();
+        let prev_sd = std::env::var("STARDUST_LINKER").ok();
+        let prev_path = std::env::var("PATH").ok();
+        std::env::remove_var("MTY_LINKER");
+        std::env::remove_var("STARDUST_LINKER");
+        // Make PATH point somewhere empty so every candidate misses.
+        let empty = tempfile::tempdir().expect("tempdir");
+        std::env::set_var("PATH", empty.path());
+        let result = discover_linker();
+        // Restore env before any assertion.
+        if let Some(v) = prev_path {
+            std::env::set_var("PATH", v);
+        } else {
+            std::env::remove_var("PATH");
+        }
+        if let Some(v) = prev_mty {
+            std::env::set_var("MTY_LINKER", v);
+        }
+        if let Some(v) = prev_sd {
+            std::env::set_var("STARDUST_LINKER", v);
+        }
+        let discovery = result.expect_err("PATH is empty, discovery must fail");
+        let summary = discovery.summary();
+        assert!(summary.contains("$MTY_LINKER"), "missing $MTY_LINKER probe");
+        assert!(
+            summary.contains("$STARDUST_LINKER"),
+            "missing $STARDUST_LINKER probe"
+        );
+        // Every platform-conventional candidate must appear by name.
+        if cfg!(windows) {
+            for cand in &["clang.exe", "gcc.exe", "cc.exe", "lld-link.exe"] {
+                assert!(summary.contains(cand), "missing PATH candidate {cand}");
+            }
+        } else {
+            for cand in &["cc", "gcc", "clang", "ld.lld", "lld"] {
+                assert!(
+                    summary.contains(&format!("PATH:{cand}")),
+                    "missing PATH candidate {cand}"
+                );
+            }
+        }
+        assert!(
+            summary.contains("MTY_LINKER"),
+            "missing actionable hint about MTY_LINKER"
+        );
     }
 
     /// v0.36 Track T2 — `link_executable_with_libs` appends every

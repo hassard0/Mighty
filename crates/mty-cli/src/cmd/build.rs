@@ -16,6 +16,7 @@ pub fn run(
     no_component: bool,
     wasi: Option<String>,
     world: Option<String>,
+    emit: Option<String>,
 ) -> i32 {
     let src = match fs::read_to_string(path) {
         Ok(s) => s,
@@ -116,17 +117,48 @@ pub fn run(
         BuildTarget::Wasm(t) => build_wasm(src, source_id, &opts, t),
     };
 
+    // v0.46 T2 — `--emit obj` lets CI flows opt into object-only output
+    // (the historic "no linker" success path). Any other value is
+    // rejected up-front so a typo doesn't silently fall through.
+    let emit_obj_only = match emit.as_deref() {
+        None | Some("exe" | "executable") => false,
+        Some("obj" | "object") => true,
+        Some(other) => {
+            eprintln!("unknown --emit value: {other} (expected `exe` or `obj`)");
+            return 2;
+        }
+    };
+
     match outcome {
         BuildOutcome::NativeOk(p) => {
             println!("wrote {}", p.display());
             0
         }
-        BuildOutcome::NativeOkNoLinker(p) => {
-            println!(
-                "wrote object {} (no linker found; set $MTY_LINKER)",
-                p.display()
-            );
-            0
+        BuildOutcome::NativeOkNoLinker {
+            object_path,
+            discovery,
+        } => {
+            // v0.46 T2 — only treat object-only output as success when
+            // the caller explicitly asked for `--emit obj`. The default
+            // (and historic) behaviour is to build a native executable,
+            // so a missing linker must fail loudly: CI scripts and
+            // `set -e` shells used to greenlight builds that produced
+            // nothing runnable.
+            if emit_obj_only {
+                println!(
+                    "wrote object {} (no linker found; --emit obj keeps this as success)",
+                    object_path.display()
+                );
+                0
+            } else {
+                eprintln!(
+                    "wrote object {} but no linker is available to produce a native executable.",
+                    object_path.display()
+                );
+                eprintln!("{}", discovery.summary());
+                eprintln!("(pass `--emit obj` if you only need the object file)");
+                2
+            }
         }
         BuildOutcome::NativeLinkError { object_path, error } => {
             eprintln!(

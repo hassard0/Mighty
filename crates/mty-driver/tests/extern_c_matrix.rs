@@ -329,7 +329,7 @@ fn run_row(row_dir: &Path, marker: Option<&str>) {
     let outcome = build_native(app_src, row_dir.display().to_string(), &opts);
     let bin = match outcome {
         BuildOutcome::NativeOk(p) => p,
-        BuildOutcome::NativeOkNoLinker(p) => {
+        BuildOutcome::NativeOkNoLinker { object_path: p, .. } => {
             // No linker was discovered during the driver build. The
             // matrix needs a runnable binary, so try the link step
             // directly and surface its exact error instead of silently

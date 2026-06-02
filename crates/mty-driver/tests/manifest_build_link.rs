@@ -253,8 +253,15 @@ fn build_native_with_build_block_threads_native_libs() {
     // success, no-linker, and a real linker rejection are all
     // acceptable as long as codegen produced the object.
     match outcome {
-        BuildOutcome::NativeOk(p) | BuildOutcome::NativeOkNoLinker(p) => {
+        BuildOutcome::NativeOk(p) => {
             assert!(p.exists(), "expected artifact at {}", p.display());
+        }
+        BuildOutcome::NativeOkNoLinker { object_path, .. } => {
+            assert!(
+                object_path.exists(),
+                "expected artifact at {}",
+                object_path.display()
+            );
         }
         BuildOutcome::NativeLinkError { object_path, .. } => {
             assert!(
@@ -292,7 +299,7 @@ fn build_native_with_default_build_block_is_no_op() {
     };
     let outcome = build_native("fn main() {}\n".into(), "noop.mty".into(), &opts);
     match outcome {
-        BuildOutcome::NativeOk(_) | BuildOutcome::NativeOkNoLinker(_) => {}
+        BuildOutcome::NativeOk(_) | BuildOutcome::NativeOkNoLinker { .. } => {}
         BuildOutcome::NativeLinkError { object_path, .. } => {
             assert!(object_path.exists(), "expected emitted object")
         }

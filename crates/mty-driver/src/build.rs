@@ -12,7 +12,10 @@ use mty_codegen_cranelift::{
     artifact::BuildMode,
     error::CodegenError,
     jit::{build_jit, symbols_from},
-    object::{compile_object, compile_object_with_debug, find_linker, link_executable_with_libs},
+    object::{
+        compile_object, compile_object_with_debug, discover_linker, link_executable_with_libs,
+        LinkerDiscovery,
+    },
     Monomorphizer,
 };
 use mty_codegen_wasm::{
@@ -199,8 +202,20 @@ pub fn build_linker_args(libs: &[ExternLib], manifest_dir: Option<&Path>) -> Vec
 #[derive(Debug)]
 pub enum BuildOutcome {
     NativeOk(PathBuf),
-    NativeOkNoLinker(PathBuf), // emitted .o but no linker available
-    NativeLinkError { object_path: PathBuf, error: String },
+    /// v0.46 T2 — discovery failed for every candidate. The `.o` was
+    /// still emitted (`object_path`); `discovery` carries the per-
+    /// candidate trace for actionable diagnostics. CLI callers
+    /// building for the native executable target MUST treat this as
+    /// a failure (`mty build` returns non-zero) — only object-only
+    /// emit modes (`--emit obj`) may keep it as success.
+    NativeOkNoLinker {
+        object_path: PathBuf,
+        discovery: LinkerDiscovery,
+    },
+    NativeLinkError {
+        object_path: PathBuf,
+        error: String,
+    },
     WasmOk(PathBuf),
     FrontendError, // diagnostics already rendered
     BackendError(String),
@@ -232,8 +247,14 @@ pub fn build_native(src: String, source_id: String, opts: &BuildOptions) -> Buil
         Ok(a) => a,
         Err(e) => return BuildOutcome::BackendError(format!("codegen: {e}")),
     };
-    let Some(linker_path) = find_linker() else {
-        return BuildOutcome::NativeOkNoLinker(obj.object_path);
+    let linker_path = match discover_linker() {
+        Ok(p) => p,
+        Err(discovery) => {
+            return BuildOutcome::NativeOkNoLinker {
+                object_path: obj.object_path,
+                discovery,
+            };
+        }
     };
     let exe_path = exe_path_for(&opts.out_dir, &opts.binary_name);
     // v0.36 T2: translate the manifest's [[extern_lib]] set into raw
@@ -499,7 +520,7 @@ fn main() {{
         // Either we got a native binary or just the .o (no linker).
         match outcome {
             BuildOutcome::NativeOk(p) => assert!(p.exists()),
-            BuildOutcome::NativeOkNoLinker(p) => assert!(p.exists()),
+            BuildOutcome::NativeOkNoLinker { object_path, .. } => assert!(object_path.exists()),
             BuildOutcome::NativeLinkError { object_path, .. } => {
                 assert!(object_path.exists(), "expected emitted object")
             }

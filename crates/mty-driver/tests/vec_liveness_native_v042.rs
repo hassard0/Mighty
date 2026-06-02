@@ -311,7 +311,7 @@ fn build_and_run(name: &str, src: &str) -> Option<(i32, String)> {
     let outcome = build_native(src.to_string(), format!("{name}.mty"), &opts);
     let exe_path = match outcome {
         BuildOutcome::NativeOk(p) => p,
-        BuildOutcome::NativeOkNoLinker(p) => {
+        BuildOutcome::NativeOkNoLinker { object_path: p, .. } => {
             eprintln!(
                 "[vec_liveness_native_v042] {name}: only emitted .o ({}); skipping execute step",
                 p.display()

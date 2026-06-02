@@ -38,7 +38,7 @@ fn must_native_object(name: &str, src: &str) {
     let dir = tempfile::tempdir().expect("tempdir");
     let outcome = build_native(src.to_string(), format!("{name}.mty"), &opts(&dir, name));
     match outcome {
-        BuildOutcome::NativeOk(p) | BuildOutcome::NativeOkNoLinker(p) => {
+        BuildOutcome::NativeOk(p) | BuildOutcome::NativeOkNoLinker { object_path: p, .. } => {
             assert!(p.exists(), "expected built artifact at {}", p.display());
             let bytes = std::fs::read(&p).expect("read artifact");
             assert!(!bytes.is_empty(), "artifact is empty");
