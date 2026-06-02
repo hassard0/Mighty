@@ -9,6 +9,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
+  # Keep Linux runners below their disk ceiling while compiling many
+  # test binaries. Full debuginfo is not needed for CI gates.
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
 
 jobs:
   # ----------------------------------------------------------------
@@ -55,7 +59,12 @@ jobs:
         run: cargo build --workspace
 
       - name: cargo test
+        if: matrix.os != 'windows-latest'
         run: cargo test --workspace
+
+      - name: cargo test (Windows serial)
+        if: matrix.os == 'windows-latest'
+        run: cargo test --workspace -- --test-threads=1 --nocapture
 
       - name: stdlib hover-catalog drift + surface audit (Linux only)
         if: matrix.os == 'ubuntu-latest'
