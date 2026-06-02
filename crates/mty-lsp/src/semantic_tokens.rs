@@ -33,9 +33,11 @@ use crate::docs::DocAnalysis;
 use crate::line_index::LineIndex;
 use mty_syntax::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 use mty_types::DefRef;
+use std::collections::{HashMap, VecDeque};
 use tower_lsp::lsp_types::{
     Range, SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
-    SemanticTokensLegend, SemanticTokensRangeResult, SemanticTokensResult,
+    SemanticTokensDelta, SemanticTokensEdit, SemanticTokensFullDeltaResult, SemanticTokensLegend,
+    SemanticTokensRangeResult, SemanticTokensResult, Url,
 };
 
 /// LSP semantic token *type* legend. Indexes correspond to the `type`
@@ -93,11 +95,36 @@ pub fn legend() -> SemanticTokensLegend {
 }
 
 /// `textDocument/semanticTokens/full` handler body.
+///
+/// v0.47 T5: the returned [`SemanticTokens`] never carries a
+/// `result_id` on its own — callers that want delta support should
+/// use [`full_with_cache`] instead, which stores the snapshot so a
+/// follow-up `textDocument/semanticTokens/full/delta` can compute the
+/// diff against it.
 pub fn full(doc: &DocAnalysis) -> SemanticTokensResult {
     let tokens = collect(doc, None);
     SemanticTokensResult::Tokens(SemanticTokens {
         result_id: None,
         data: encode(&tokens),
+    })
+}
+
+/// v0.47 T5: full-request variant that records the encoded token array
+/// into `cache` keyed by `uri`, so a subsequent
+/// `textDocument/semanticTokens/full/delta` request can emit
+/// [`SemanticTokensEdit`]s relative to this snapshot. The returned
+/// `result_id` matches the one stored in the cache.
+pub fn full_with_cache(
+    uri: &Url,
+    doc: &DocAnalysis,
+    cache: &mut DeltaCache,
+) -> SemanticTokensResult {
+    let tokens = collect(doc, None);
+    let data = encode(&tokens);
+    let result_id = cache.store(uri.clone(), doc.version, data.clone());
+    SemanticTokensResult::Tokens(SemanticTokens {
+        result_id: Some(result_id),
+        data,
     })
 }
 
@@ -481,6 +508,181 @@ fn encode(tokens: &[AbsToken]) -> Vec<SemanticToken> {
     out
 }
 
+// ---------------------------------------------------------------------
+// v0.47 T5 — semanticTokens delta
+// ---------------------------------------------------------------------
+
+/// One cached semantic-tokens snapshot — the encoded token array we
+/// previously sent the client, plus the buffer version it corresponds
+/// to. Keyed inside [`DeltaCache`] by `(uri, result_id)`.
+#[derive(Debug, Clone)]
+pub struct CachedSnapshot {
+    pub version: i32,
+    pub data: Vec<SemanticToken>,
+}
+
+/// LRU-bounded per-URI cache of recently emitted semanticTokens
+/// snapshots. The server stores one snapshot per `(uri, result_id)`
+/// pair; on a delta request we look up the entry whose `result_id`
+/// matches the client's `previous_result_id` and diff the new tokens
+/// against it.
+///
+/// Eviction policy: simple FIFO bounded at `capacity`. When the map
+/// reaches the cap the oldest entry is dropped to make room. This is
+/// pessimistic — a typing-burst across many open buffers will
+/// invalidate the head — but keeps memory bounded under adversarial
+/// clients. See the trailing "Unresolved" note in the v0.47 T5 PR for
+/// the planned per-URI windowed cache.
+#[derive(Debug)]
+pub struct DeltaCache {
+    snapshots: HashMap<(Url, String), CachedSnapshot>,
+    order: VecDeque<(Url, String)>,
+    capacity: usize,
+    counter: u64,
+}
+
+impl Default for DeltaCache {
+    fn default() -> Self {
+        Self::with_capacity(256)
+    }
+}
+
+impl DeltaCache {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            snapshots: HashMap::new(),
+            order: VecDeque::new(),
+            capacity: capacity.max(1),
+            counter: 0,
+        }
+    }
+
+    /// Insert (or replace) a snapshot for `uri` and return the fresh
+    /// `result_id` the client should echo on its next delta request.
+    pub fn store(&mut self, uri: Url, version: i32, data: Vec<SemanticToken>) -> String {
+        self.counter += 1;
+        let result_id = format!("mty-st-{}", self.counter);
+        let key = (uri.clone(), result_id.clone());
+        self.snapshots
+            .insert(key.clone(), CachedSnapshot { version, data });
+        self.order.push_back(key);
+        while self.snapshots.len() > self.capacity {
+            if let Some(oldest) = self.order.pop_front() {
+                self.snapshots.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+        result_id
+    }
+
+    /// Look up the snapshot matching `(uri, result_id)`. Returns
+    /// `None` when the client's `previous_result_id` is stale (e.g. it
+    /// was evicted, or the server restarted).
+    pub fn get(&self, uri: &Url, result_id: &str) -> Option<&CachedSnapshot> {
+        self.snapshots.get(&(uri.clone(), result_id.to_string()))
+    }
+
+    /// Drop every snapshot for `uri` — useful when a file is closed.
+    pub fn drop_uri(&mut self, uri: &Url) {
+        self.snapshots.retain(|(u, _), _| u != uri);
+        self.order.retain(|(u, _)| u != uri);
+    }
+
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.snapshots.len()
+    }
+}
+
+/// `textDocument/semanticTokens/full/delta` handler body.
+///
+/// Strategy:
+///   - Encode the current tokens fresh (same path as `full`).
+///   - Look up the cached snapshot for `previous_result_id`.
+///   - Cache miss → fall back to a full response, stamping the new
+///     `result_id` so the next delta request can succeed.
+///   - Cache hit → compute a [`SemanticTokensDelta`] with the smallest
+///     prefix-and-suffix-aligned diff between the old and new token
+///     arrays, returning that under the new `result_id`. The old
+///     entry stays in the cache for the duration of the LRU window.
+///
+/// The diff algorithm: trim the common prefix + suffix, then emit a
+/// single `SemanticTokensEdit { start, deleteCount, data }` covering
+/// the changed middle. This is the simplest correct shape per LSP —
+/// editors that want finer-grained edits can ignore it and request a
+/// full refresh, but VS Code and Neovim handle the single-edit form
+/// cleanly. (Real-world diffs from incremental edits are dominated by
+/// a single contiguous run, so the single-edit form costs almost
+/// nothing vs. a true LCS-based diff.)
+pub fn full_delta(
+    uri: &Url,
+    doc: &DocAnalysis,
+    previous_result_id: &str,
+    cache: &mut DeltaCache,
+) -> SemanticTokensFullDeltaResult {
+    let tokens = collect(doc, None);
+    let new_data = encode(&tokens);
+
+    let prev = cache
+        .get(uri, previous_result_id)
+        .map(|s| s.data.clone());
+
+    match prev {
+        None => {
+            // Stale `previous_result_id` — return a full response with
+            // a fresh result_id so the client can resync.
+            let result_id = cache.store(uri.clone(), doc.version, new_data.clone());
+            SemanticTokensFullDeltaResult::Tokens(SemanticTokens {
+                result_id: Some(result_id),
+                data: new_data,
+            })
+        }
+        Some(old_data) => {
+            let edits = diff_tokens(&old_data, &new_data);
+            let result_id = cache.store(uri.clone(), doc.version, new_data);
+            SemanticTokensFullDeltaResult::TokensDelta(SemanticTokensDelta {
+                result_id: Some(result_id),
+                edits,
+            })
+        }
+    }
+}
+
+/// Compute a single-edit delta between two token streams.
+///
+/// The delta encodes the smallest contiguous slice in the new array
+/// that, when spliced over the matching slice in the old array,
+/// reproduces it: common prefix + (start..start+deleteCount) replaced
+/// with `data` + common suffix.
+///
+/// Returns an empty vec when the streams are identical (the client
+/// keeps its current view, no work).
+fn diff_tokens(old: &[SemanticToken], new: &[SemanticToken]) -> Vec<SemanticTokensEdit> {
+    if old == new {
+        return vec![];
+    }
+    let max_prefix = old.len().min(new.len());
+    let mut prefix = 0usize;
+    while prefix < max_prefix && old[prefix] == new[prefix] {
+        prefix += 1;
+    }
+    let mut suffix = 0usize;
+    while suffix < (old.len() - prefix)
+        && suffix < (new.len() - prefix)
+        && old[old.len() - 1 - suffix] == new[new.len() - 1 - suffix]
+    {
+        suffix += 1;
+    }
+    let delete_count = old.len() - prefix - suffix;
+    let inserted = new[prefix..new.len() - suffix].to_vec();
+    vec![SemanticTokensEdit {
+        start: prefix as u32,
+        delete_count: delete_count as u32,
+        data: Some(inserted),
+    }]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -534,5 +736,106 @@ mod tests {
         let enc = encode(&toks);
         assert_eq!(enc[1].delta_line, 2);
         assert_eq!(enc[1].delta_start, 4); // absolute, not relative
+    }
+
+    fn st(delta_line: u32, delta_start: u32, token_type: u32) -> SemanticToken {
+        SemanticToken {
+            delta_line,
+            delta_start,
+            length: 1,
+            token_type,
+            token_modifiers_bitset: 0,
+        }
+    }
+
+    #[test]
+    fn diff_identical_streams_returns_no_edits() {
+        let a = vec![st(0, 0, T_KEYWORD), st(0, 3, T_FUNCTION)];
+        let b = a.clone();
+        let edits = diff_tokens(&a, &b);
+        assert!(edits.is_empty(), "identical streams should produce no edits");
+    }
+
+    #[test]
+    fn diff_appended_token_emits_tail_insert() {
+        let a = vec![st(0, 0, T_KEYWORD)];
+        let b = vec![st(0, 0, T_KEYWORD), st(0, 3, T_FUNCTION)];
+        let edits = diff_tokens(&a, &b);
+        assert_eq!(edits.len(), 1);
+        let e = &edits[0];
+        assert_eq!(e.start, 1);
+        assert_eq!(e.delete_count, 0);
+        assert_eq!(e.data.as_ref().map(|d| d.len()), Some(1));
+    }
+
+    #[test]
+    fn diff_changed_middle_emits_replace_edit() {
+        let a = vec![
+            st(0, 0, T_KEYWORD),
+            st(0, 3, T_FUNCTION),
+            st(0, 8, T_VARIABLE),
+        ];
+        let b = vec![
+            st(0, 0, T_KEYWORD),
+            st(0, 3, T_NUMBER),
+            st(0, 8, T_VARIABLE),
+        ];
+        let edits = diff_tokens(&a, &b);
+        assert_eq!(edits.len(), 1);
+        let e = &edits[0];
+        assert_eq!(e.start, 1, "should skip the common prefix [keyword]");
+        assert_eq!(e.delete_count, 1, "should replace the changed middle token");
+        let data = e.data.as_ref().expect("data");
+        assert_eq!(data.len(), 1);
+        assert_eq!(data[0].token_type, T_NUMBER);
+    }
+
+    #[test]
+    fn diff_deletion_at_head_emits_prefix_delete() {
+        let a = vec![st(0, 0, T_KEYWORD), st(0, 3, T_FUNCTION)];
+        let b = vec![st(0, 3, T_FUNCTION)];
+        let edits = diff_tokens(&a, &b);
+        assert_eq!(edits.len(), 1);
+        let e = &edits[0];
+        assert_eq!(e.start, 0);
+        assert_eq!(e.delete_count, 1);
+        assert_eq!(e.data.as_ref().map(|d| d.len()).unwrap_or(0), 0);
+    }
+
+    #[test]
+    fn delta_cache_round_trips_a_stored_snapshot() {
+        let mut cache = DeltaCache::with_capacity(4);
+        let uri = Url::parse("file:///x.mty").unwrap();
+        let data = vec![st(0, 0, T_KEYWORD)];
+        let rid = cache.store(uri.clone(), 1, data.clone());
+        let snap = cache.get(&uri, &rid).expect("hit");
+        assert_eq!(snap.version, 1);
+        assert_eq!(snap.data, data);
+    }
+
+    #[test]
+    fn delta_cache_evicts_oldest_when_over_capacity() {
+        let mut cache = DeltaCache::with_capacity(2);
+        let u1 = Url::parse("file:///1.mty").unwrap();
+        let u2 = Url::parse("file:///2.mty").unwrap();
+        let u3 = Url::parse("file:///3.mty").unwrap();
+        let r1 = cache.store(u1.clone(), 1, vec![st(0, 0, T_KEYWORD)]);
+        let _r2 = cache.store(u2.clone(), 1, vec![st(0, 0, T_KEYWORD)]);
+        let _r3 = cache.store(u3.clone(), 1, vec![st(0, 0, T_KEYWORD)]);
+        assert_eq!(cache.len(), 2);
+        // Oldest (u1) was evicted.
+        assert!(cache.get(&u1, &r1).is_none(), "u1 should have been evicted");
+    }
+
+    #[test]
+    fn delta_cache_drop_uri_removes_only_that_uri() {
+        let mut cache = DeltaCache::with_capacity(4);
+        let u1 = Url::parse("file:///1.mty").unwrap();
+        let u2 = Url::parse("file:///2.mty").unwrap();
+        let r1 = cache.store(u1.clone(), 1, vec![st(0, 0, T_KEYWORD)]);
+        let r2 = cache.store(u2.clone(), 1, vec![st(0, 0, T_KEYWORD)]);
+        cache.drop_uri(&u1);
+        assert!(cache.get(&u1, &r1).is_none());
+        assert!(cache.get(&u2, &r2).is_some());
     }
 }

@@ -29,7 +29,10 @@ use mty_syntax::{SyntaxKind, SyntaxNode};
 use mty_types::DefRef;
 use std::collections::HashMap;
 use tower_lsp::jsonrpc::Error as JsonRpcError;
-use tower_lsp::lsp_types::{Position, PrepareRenameResponse, Range, TextEdit, Url, WorkspaceEdit};
+use tower_lsp::lsp_types::{
+    DocumentChanges, OneOf, OptionalVersionedTextDocumentIdentifier, Position,
+    PrepareRenameResponse, Range, TextDocumentEdit, TextEdit, Url, WorkspaceEdit,
+};
 
 /// `textDocument/prepareRename` handler body.
 pub fn prepare(doc: &DocAnalysis, pos: Position) -> Option<PrepareRenameResponse> {
@@ -70,12 +73,43 @@ pub fn rename(
 /// symbol is top-level + public, the edit includes references from
 /// every file in the same workspace folder. Falls back to single-file
 /// behaviour otherwise.
+///
+/// This is the legacy `changes`-shaped entrypoint preserved for
+/// back-compat — v0.46 T5 and earlier IDE/L31 clients call this.
+/// New callers should use [`rename_with_caps`] which honours the
+/// client's `workspace.workspaceEdit.documentChanges` capability.
 pub fn rename_with_workspace(
     uri: Url,
     doc: &DocAnalysis,
     pos: Position,
     new_name: &str,
     workspace: Option<&WorkspaceRegistry>,
+) -> Result<WorkspaceEdit, JsonRpcError> {
+    // Preserve legacy `changes` shape — the IDE L31 path predates the
+    // v0.47 T5 documentChanges migration and parses `changes`.
+    rename_with_caps(uri, doc, pos, new_name, workspace, false)
+}
+
+/// v0.47 T5 cross-file rename with capability negotiation. When
+/// `document_changes_support` is `true`, the returned [`WorkspaceEdit`]
+/// uses the LSP-3.16+ `documentChanges` shape — a
+/// `Vec<TextDocumentEdit>` with each entry carrying an
+/// [`OptionalVersionedTextDocumentIdentifier`] so the editor can
+/// version-check the buffer before applying. When `false`, falls back
+/// to the legacy `changes: HashMap<Url, Vec<TextEdit>>` shape that
+/// v0.2-vintage clients understand.
+///
+/// The buffer version threaded into the per-file
+/// `OptionalVersionedTextDocumentIdentifier` is read off the open
+/// document's [`DocAnalysis::version`] field (set on every
+/// `didOpen` / `didChange`).
+pub fn rename_with_caps(
+    uri: Url,
+    doc: &DocAnalysis,
+    pos: Position,
+    new_name: &str,
+    workspace: Option<&WorkspaceRegistry>,
+    document_changes_support: bool,
 ) -> Result<WorkspaceEdit, JsonRpcError> {
     if !is_valid_ident(new_name) {
         return Err(invalid_rename(format!(
@@ -127,8 +161,16 @@ pub fn rename_with_workspace(
         })
         .collect();
 
-    let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
-    changes.insert(uri.clone(), edits);
+    // Collect per-file (uri, version, edits) so we can emit either
+    // shape — `changes` (legacy) or `documentChanges` (versioned) —
+    // depending on the client capability.
+    //
+    // The current file's version is the open buffer's version; for
+    // cross-file edits the workspace index tracks the per-file analysis
+    // version (default `0` for on-disk files that haven't been opened
+    // for editing yet).
+    let mut per_file: Vec<(Url, Option<i32>, Vec<TextEdit>)> = Vec::new();
+    per_file.push((uri.clone(), Some(doc.version), edits));
 
     // v0.8: if the symbol is top-level + the caller supplied a
     // workspace registry, harvest references from every other file in
@@ -165,18 +207,51 @@ pub fn rename_with_workspace(
                         })
                         .collect();
                     if !edits.is_empty() {
-                        changes.insert(file.uri.clone(), edits);
+                        // For workspace files that have an open buffer
+                        // we have a real version; for the on-disk
+                        // `analyze_path` shape we have `0` — pass it
+                        // through verbatim. `OptionalVersionedTextDocumentIdentifier`
+                        // permits `null` so we hand the editor a
+                        // version of `None` when the file was never
+                        // opened, signalling "no version check".
+                        let v = other_doc.version;
+                        let version_field = if v <= 0 { None } else { Some(v) };
+                        per_file.push((file.uri.clone(), version_field, edits));
                     }
                 }
             }
         }
     }
 
-    Ok(WorkspaceEdit {
-        changes: Some(changes),
-        document_changes: None,
-        change_annotations: None,
-    })
+    if document_changes_support {
+        let document_changes: Vec<TextDocumentEdit> = per_file
+            .into_iter()
+            .map(|(uri, version, edits)| TextDocumentEdit {
+                text_document: OptionalVersionedTextDocumentIdentifier {
+                    uri,
+                    version,
+                },
+                edits: edits.into_iter().map(OneOf::Left).collect(),
+            })
+            .collect();
+        Ok(WorkspaceEdit {
+            changes: None,
+            document_changes: Some(DocumentChanges::Edits(document_changes)),
+            change_annotations: None,
+        })
+    } else {
+        let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+        for (uri, _, edits) in per_file {
+            // Merge in case the same URI appears twice (defensive — the
+            // current logic always uses one entry per URI).
+            changes.entry(uri).or_default().extend(edits);
+        }
+        Ok(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        })
+    }
 }
 
 fn invalid_rename(message: String) -> JsonRpcError {

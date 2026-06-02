@@ -23,9 +23,10 @@ use tower_lsp::lsp_types::{
     GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability, InitializeParams,
     InitializeResult, InitializedParams, InlayHint, InlayHintParams, InlayHintServerCapabilities,
     MessageType, OneOf, Position, PrepareRenameResponse, PublishDiagnosticsParams, Range,
-    RenameOptions, RenameParams, SemanticTokensFullOptions, SemanticTokensOptions,
-    SemanticTokensParams, SemanticTokensRangeParams, SemanticTokensRangeResult,
-    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo,
+    RenameOptions, RenameParams, SemanticTokensDeltaParams, SemanticTokensFullDeltaResult,
+    SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
+    SemanticTokensRangeParams, SemanticTokensRangeResult, SemanticTokensResult,
+    SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo,
     SignatureHelp, SignatureHelpOptions, SignatureHelpParams, TextDocumentPositionParams,
     TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, WorkDoneProgressOptions,
     WorkspaceEdit, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
@@ -50,7 +51,31 @@ pub struct Backend {
     /// legacy `Location` scalar so v0.2-vintage clients still parse the
     /// payload.
     pub link_support: Arc<std::sync::RwLock<bool>>,
+    /// v0.47 T5: whether the client advertised
+    /// `workspace.workspaceEdit.documentChanges = true`. When `true`,
+    /// rename + codeAction emit the versioned
+    /// `documentChanges: Vec<TextDocumentEdit>` shape (so the editor
+    /// can refuse stale edits); when `false`, both surfaces fall back
+    /// to the legacy `changes: HashMap<Url, Vec<TextEdit>>` shape that
+    /// v0.46-vintage IDE L31 clients consume.
+    pub document_changes_support: Arc<std::sync::RwLock<bool>>,
+    /// v0.47 T5: per-buffer semanticTokens delta cache. Maps
+    /// `(uri, version)` → `(result_id, encoded tokens)`. On a delta
+    /// request the server diffs the new tokens against the entry whose
+    /// `result_id` matches `previous_result_id`; on a miss it returns
+    /// the full token array with a fresh `result_id` and stores that
+    /// snapshot for the next call.
+    ///
+    /// Bounded so misbehaving clients can't grow the cache without
+    /// limit — see [`SEMANTIC_TOKENS_CACHE_LIMIT`].
+    pub semantic_tokens_cache: Arc<std::sync::RwLock<semantic_tokens::DeltaCache>>,
 }
+
+/// Server-wide cap on the semanticTokens delta cache. Older snapshots
+/// are evicted FIFO when the map exceeds this size. Sized to comfortably
+/// hold a few hundred open files without unbounded growth on a long-
+/// running session.
+pub const SEMANTIC_TOKENS_CACHE_LIMIT: usize = 512;
 
 impl Backend {
     pub fn new(client: Client) -> Self {
@@ -65,6 +90,13 @@ impl Backend {
             // capabilities at all (and modern editors that handle both
             // shapes) get the richer Link form.
             link_support: Arc::new(std::sync::RwLock::new(true)),
+            // Default to `true`: modern editors (3.16+) all support
+            // documentChanges. v0.46-vintage clients that don't will
+            // advertise the absence explicitly during `initialize`.
+            document_changes_support: Arc::new(std::sync::RwLock::new(true)),
+            semantic_tokens_cache: Arc::new(std::sync::RwLock::new(
+                semantic_tokens::DeltaCache::with_capacity(SEMANTIC_TOKENS_CACHE_LIMIT),
+            )),
         }
     }
 
@@ -114,6 +146,20 @@ impl LanguageServer for Backend {
                 }
             }
         }
+        // v0.47 T5: capability negotiation for
+        // `workspace.workspaceEdit.documentChanges`. Defaults to `true`
+        // so 3.16+ clients (the modern majority) see the versioned
+        // shape automatically; v0.46-vintage IDE L31 will keep working
+        // because it explicitly advertises `documentChanges: false`
+        // and the server downgrades to the legacy `changes` map.
+        if let Some(ws_caps) = params.capabilities.workspace.as_ref() {
+            if let Some(we_caps) = ws_caps.workspace_edit.as_ref() {
+                let advertised = we_caps.document_changes.unwrap_or(true);
+                if let Ok(mut g) = self.document_changes_support.write() {
+                    *g = advertised;
+                }
+            }
+        }
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -153,7 +199,11 @@ impl LanguageServer for Backend {
                             work_done_progress_options: WorkDoneProgressOptions::default(),
                             legend: semantic_tokens::legend(),
                             range: Some(true),
-                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                            // v0.47 T5: advertise `full = { delta: true }`
+                            // so clients know to send
+                            // `textDocument/semanticTokens/full/delta`
+                            // requests with a `previous_result_id`.
+                            full: Some(SemanticTokensFullOptions::Delta { delta: Some(true) }),
                         },
                     ),
                 ),
@@ -232,6 +282,13 @@ impl LanguageServer for Backend {
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
         self.docs.close(&uri);
+        // v0.47 T5: drop the semanticTokens delta cache entries for
+        // this URI — the client won't be sending a /delta against
+        // them again, and keeping them only delays eviction of newer
+        // entries.
+        if let Ok(mut cache) = self.semantic_tokens_cache.write() {
+            cache.drop_uri(&uri);
+        }
         let publish = PublishDiagnosticsParams {
             uri,
             diagnostics: vec![],
@@ -336,10 +393,16 @@ impl LanguageServer for Backend {
         &self,
         params: SemanticTokensParams,
     ) -> LspResult<Option<SemanticTokensResult>> {
-        let Some(doc) = self.docs.get(&params.text_document.uri) else {
+        let uri = params.text_document.uri.clone();
+        let Some(doc) = self.docs.get(&uri) else {
             return Ok(None);
         };
-        Ok(Some(semantic_tokens::full(&doc)))
+        // v0.47 T5: store the snapshot in the delta cache so a
+        // subsequent /full/delta request can diff against it.
+        let Ok(mut cache) = self.semantic_tokens_cache.write() else {
+            return Ok(Some(semantic_tokens::full(&doc)));
+        };
+        Ok(Some(semantic_tokens::full_with_cache(&uri, &doc, &mut cache)))
     }
 
     async fn semantic_tokens_range(
@@ -352,14 +415,53 @@ impl LanguageServer for Backend {
         Ok(Some(semantic_tokens::range(&doc, params.range)))
     }
 
+    async fn semantic_tokens_full_delta(
+        &self,
+        params: SemanticTokensDeltaParams,
+    ) -> LspResult<Option<SemanticTokensFullDeltaResult>> {
+        let uri = params.text_document.uri.clone();
+        let Some(doc) = self.docs.get(&uri) else {
+            return Ok(None);
+        };
+        let Ok(mut cache) = self.semantic_tokens_cache.write() else {
+            // Cache poisoned — fall back to a full response so the
+            // client can resync.
+            let result = match semantic_tokens::full(&doc) {
+                SemanticTokensResult::Tokens(t) => SemanticTokensFullDeltaResult::Tokens(t),
+                SemanticTokensResult::Partial(_) => {
+                    return Ok(None);
+                }
+            };
+            return Ok(Some(result));
+        };
+        Ok(Some(semantic_tokens::full_delta(
+            &uri,
+            &doc,
+            &params.previous_result_id,
+            &mut cache,
+        )))
+    }
+
     async fn rename(&self, params: RenameParams) -> LspResult<Option<WorkspaceEdit>> {
         let uri = params.text_document_position.text_document.uri.clone();
         let pos = params.text_document_position.position;
         let Some(doc) = self.docs.get(&uri) else {
             return Ok(None);
         };
-        rename_mod::rename_with_workspace(uri, &doc, pos, &params.new_name, Some(&self.workspaces))
-            .map(Some)
+        let dc_support = self
+            .document_changes_support
+            .read()
+            .map(|g| *g)
+            .unwrap_or(true);
+        rename_mod::rename_with_caps(
+            uri,
+            &doc,
+            pos,
+            &params.new_name,
+            Some(&self.workspaces),
+            dc_support,
+        )
+        .map(Some)
     }
 
     async fn prepare_rename(
@@ -389,15 +491,27 @@ impl LanguageServer for Backend {
             .read()
             .map(|g| *g)
             .unwrap_or_default();
+        let dc_support = self
+            .document_changes_support
+            .read()
+            .map(|g| *g)
+            .unwrap_or(true);
+        let caps = code_actions::WorkspaceEditCaps {
+            document_changes: dc_support,
+        };
         // v0.35 T3 — honor `context.only` so editors that send a
         // `source.fixAll.mighty` filter get the bulk-apply action.
-        Ok(Some(code_actions::code_actions_with_filter(
+        // v0.47 T5 — pass `WorkspaceEditCaps` so the returned
+        // `WorkspaceEdit`s use the versioned `documentChanges` shape
+        // when the client advertises support.
+        Ok(Some(code_actions::code_actions_with_filter_caps(
             &uri,
             &doc,
             params.range,
             &params.context.diagnostics,
             params.context.only.as_deref(),
             cfg,
+            caps,
         )))
     }
 
