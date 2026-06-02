@@ -14,12 +14,14 @@
 
 Compiler, runtime, formatter, package manager, doc generator, LSP,
 and stdlib all live in one Rust workspace and one `mty` binary.
-v0.45 is the current release: native `std.fs` JIT/AOT paths
-(shim-less file I/O for agent-built apps), formatter rollout to
-`fn`/`struct`/`enum`/`type` declarations, the `mty check --json`
-structured result, and the real L28 fix (opaque-ADT Use-Copy must
-not memcpy — the v0.42 attribution was masked by `[profile.dev]`
-debug=2 metadata).
+v0.46 is the current release: the official runtime ABI artifact
+pipeline (generated `mty_runtime_abi.h` + per-platform staticlib
+tarballs + `mty abi`), `(ptr, len)` FFI for Mighty strings,
+five LSP surfaces migrated to structured results (signatureHelp
+params, definition LocationLink, completion split fields, hover
+MarkedString, `mty agent lsp`), `mty build` exit-code parity +
+`MTY_LINKER` Windows path support, and `std.fs.read_dir`
+iterator + Metadata field projection.
 
 ## Why Mighty
 
@@ -285,7 +287,7 @@ current state of the language, not its history.
 
 ## Status
 
-Mighty is **pre-alpha**. Internal milestones tagged through v0.45.
+Mighty is **pre-alpha**. Internal milestones tagged through v0.46.
 The toolchain is exercised by **~3555 Rust tests** across 20 crates
 plus **490 Python 2nd-impl tests** plus **159 normative conformance
 cases** plus **23 self-host driver codegen tests** — combined **~4227
