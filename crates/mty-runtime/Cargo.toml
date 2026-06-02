@@ -5,6 +5,19 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+# v0.46 T1 — build.rs generates the runtime ABI header
+# (`include/mty_runtime_abi.h`) + the symbol-table side file consumed
+# by `crate::abi_export`. See build.rs for the parsing strategy.
+build = "build.rs"
+
+[lib]
+# v0.46 T1 — `staticlib` adds `libmty_runtime.a` /
+# `mty_runtime.lib` to the build output so downstream `extern c`
+# consumers can link the runtime symbols directly instead of mirroring
+# them by hand. The `rlib` keeps the Rust-internal callers (mty-cli,
+# mty-driver, …) on the same code path; `lib` is the in-source path
+# of the runtime crate.
+crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 mty-ir = { path = "../mty-ir" }

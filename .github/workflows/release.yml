@@ -645,6 +645,103 @@ jobs:
             ${{ matrix.asset }}
             ${{ matrix.asset }}.sha256
 
+      # v0.46 T1 — runtime ABI artifact (L51 fix).
+      #
+      # Build the `mty-runtime` crate as a `staticlib` for the matrix
+      # triple, then package the resulting `libmty_runtime.a` /
+      # `mty_runtime.lib` alongside the generated C header into
+      # `mty-runtime-abi-<version>-<triple>.tar.gz`. Downstream
+      # consumers (the IDE shim's vendored `mty_rt_abi.lib`, agent-
+      # emitted native programs) grab the matching archive per
+      # release tag instead of mirroring `mty_runtime_*` symbols by
+      # hand. Crate-level `[lib] crate-type = ["staticlib", "rlib"]`
+      # produces the staticlib in the normal cargo target dir
+      # alongside the rlib — see `crates/mty-runtime/Cargo.toml`.
+      #
+      # `--release` here uses the plain release profile (no PGO/BOLT
+      # ride — the ABI surface is straight FFI shims, no hot path the
+      # training corpus would exercise). Cross-compile (aarch64) and
+      # native legs both work; the cross leg invokes `cross` so the
+      # arm64 archive is built without needing an arm64 runner.
+      - name: Build runtime ABI staticlib (no cross)
+        if: matrix.use_cross == false
+        shell: bash
+        env:
+          # Pin the ABI version to the release tag (drop the leading
+          # `v`) so the header reads `MTY_RUNTIME_ABI_VERSION "0.46.0"`
+          # not the workspace `0.1.0` pin.
+          TAG_RAW: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          export MTY_ABI_VERSION="${TAG_RAW#v}"
+          cargo build --release -p mty-runtime --lib --target ${{ matrix.target }}
+
+      - name: Build runtime ABI staticlib (cross)
+        if: matrix.use_cross == true
+        shell: bash
+        env:
+          TAG_RAW: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          export MTY_ABI_VERSION="${TAG_RAW#v}"
+          # `cross` is already installed by the earlier step on cross
+          # legs (linux-aarch64). Same cargo invocation, just routed
+          # through `cross`.
+          cross build --release -p mty-runtime --lib --target ${{ matrix.target }}
+
+      - name: Stage runtime ABI artifact (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          TAG_RAW: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG_RAW#v}"
+          STAGE="dist/mty-runtime-abi-${VERSION}-${{ matrix.target }}"
+          mkdir -p "$STAGE/include" "$STAGE/lib"
+          cp "crates/mty-runtime/include/mty_runtime_abi.h" "$STAGE/include/"
+          # The staticlib filename is `libmty_runtime.a` on Unix
+          # (cargo prefixes `lib`, takes the crate name with dashes
+          # normalized to underscores).
+          cp "target/${{ matrix.target }}/release/libmty_runtime.a" "$STAGE/lib/"
+          cp LICENSE README.md "$STAGE/"
+          ASSET="mty-runtime-abi-${VERSION}-${{ matrix.target }}.tar.gz"
+          tar -C dist -czf "$ASSET" "mty-runtime-abi-${VERSION}-${{ matrix.target }}"
+          shasum -a 256 "$ASSET" > "$ASSET.sha256"
+          echo "ABI_ASSET=$ASSET" >> "$GITHUB_ENV"
+
+      - name: Stage runtime ABI artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TAG_RAW: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          $version = $env:TAG_RAW.TrimStart('v')
+          $stage = "dist/mty-runtime-abi-$version-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path "$stage/include" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage/lib" | Out-Null
+          Copy-Item "crates/mty-runtime/include/mty_runtime_abi.h" "$stage/include/"
+          # MSVC staticlib filename is `mty_runtime.lib` (no `lib`
+          # prefix; dashes normalized to underscores).
+          Copy-Item "target/${{ matrix.target }}/release/mty_runtime.lib" "$stage/lib/"
+          Copy-Item LICENSE,README.md "$stage/"
+          $asset = "mty-runtime-abi-$version-${{ matrix.target }}.tar.gz"
+          # tar is available on windows-2022 / windows-latest by
+          # default (bsdtar). Use the same .tar.gz shape as Unix so
+          # downstream tooling doesn't need to branch on platform.
+          tar -C dist -czf "$asset" "mty-runtime-abi-$version-${{ matrix.target }}"
+          $hash = (Get-FileHash -Algorithm SHA256 $asset).Hash.ToLower()
+          "$hash  $asset" | Out-File -Encoding ascii "$asset.sha256"
+          "ABI_ASSET=$asset" | Out-File -Encoding ascii -Append $env:GITHUB_ENV
+
+      - name: Upload runtime ABI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-abi-${{ matrix.target }}
+          path: |
+            mty-runtime-abi-*.tar.gz
+            mty-runtime-abi-*.tar.gz.sha256
+
   conformance-kit:
     # v0.20: every tagged release ships a conformance kit alongside
     # the binaries so independent implementations can verify against
@@ -776,7 +873,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          find dist -type f \( -name "mty-*.tar.gz" -o -name "mty-*.zip" -o -name "*.sha256" -o -name "mty-conformance-kit-*.tar.gz" \) -exec cp {} out/ \;
+          # v0.46 T1: `mty-runtime-abi-*.tar.gz` is added to the
+          # accept-list so the per-platform ABI artifact ships
+          # alongside the binaries and conformance kit.
+          find dist -type f \( \
+              -name "mty-*.tar.gz" \
+              -o -name "mty-*.zip" \
+              -o -name "*.sha256" \
+              -o -name "mty-conformance-kit-*.tar.gz" \
+              -o -name "mty-runtime-abi-*.tar.gz" \
+            \) -exec cp {} out/ \;
           ls -la out/
 
       - name: Create or update release
@@ -790,3 +896,4 @@ jobs:
             out/mty-*.tar.gz
             out/mty-*.zip
             out/*.sha256
+            out/mty-runtime-abi-*.tar.gz

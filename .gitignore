@@ -1,5 +1,9 @@
 # Rust
 /target
+# v0.46 T1: parallel-worktree builds set CARGO_TARGET_DIR=target-<track>
+# (see feedback_mighty_target_dir_isolation). Match every such per-worktree
+# target dir so a misconfigured editor doesn't accidentally try to stage it.
+/target-*
 **/*.rs.bk
 Cargo.lock.bak
 

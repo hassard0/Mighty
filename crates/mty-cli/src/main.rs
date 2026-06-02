@@ -29,6 +29,30 @@ struct ServeArgs {
     manifest_dir: Option<std::path::PathBuf>,
 }
 
+/// v0.46 T1 — `mty abi <list|version|header>`.
+///
+/// Inspect the runtime ABI surface (the `mty_runtime_*` C-ABI symbols
+/// the compiler emits calls to). Used by the IDE shim, agent tooling,
+/// and the in-tree drift gate to verify against the ground truth in
+/// `crates/mty-runtime/src/codegen_abi.rs`.
+#[derive(Subcommand, Debug, Clone)]
+enum AbiCmd {
+    /// Dump every `mty_runtime_*` symbol + its signature.
+    List {
+        /// Output format: `plain` (default) or `json`.
+        #[arg(long, default_value = "plain")]
+        format: String,
+    },
+    /// Print just the ABI version (matches the `MTY_RUNTIME_ABI_VERSION`
+    /// `#define` in the generated C header).
+    Version,
+    /// Print the canonical C header (`mty_runtime_abi.h`) to stdout.
+    /// Equivalent to `cat crates/mty-runtime/include/mty_runtime_abi.h`
+    /// but reads the build-pinned bytes so an out-of-date check-in
+    /// doesn't fool the consumer.
+    Header,
+}
+
 /// v0.34 T4 — `mty hooks <install|uninstall|status>`.
 #[derive(Subcommand, Debug, Clone)]
 enum HooksCmd {
@@ -491,6 +515,23 @@ enum Cmd {
         #[command(subcommand)]
         cmd: HooksCmd,
     },
+    /// v0.46 T1 — Inspect the runtime ABI surface.
+    ///
+    /// The Mighty compiler emits calls into a stable family of
+    /// `mty_runtime_*` C-ABI symbols. Use this command to verify
+    /// against the ground truth at runtime (no need to re-parse
+    /// `crates/mty-runtime/src/codegen_abi.rs`). Subcommands:
+    ///
+    ///   mty abi list             # plain text symbol list
+    ///   mty abi list --format json
+    ///   mty abi version
+    ///   mty abi header           # canonical C header to stdout
+    ///
+    /// See `docs/internals/runtime-abi.md` for the consumer-side story.
+    Abi {
+        #[command(subcommand)]
+        cmd: AbiCmd,
+    },
     /// Render package documentation extracted from `///` doc comments.
     ///
     /// With no flags, prints a Go-style summary of the package's public
@@ -845,6 +886,22 @@ fn run_cli(cli: Cli) -> i32 {
                 HooksCmd::Status => cmd::hooks::HooksAction::Status,
             };
             cmd::hooks::run(action)
+        }
+        Cmd::Abi { cmd: abi_cmd } => {
+            let action = match abi_cmd {
+                AbiCmd::List { format } => {
+                    let Some(fmt) = cmd::abi::ListFormat::parse(&format) else {
+                        eprintln!(
+                            "mty abi list: unknown --format `{format}` (expected `plain` or `json`)"
+                        );
+                        return 2;
+                    };
+                    cmd::abi::AbiCmd::List { format: fmt }
+                }
+                AbiCmd::Version => cmd::abi::AbiCmd::Version,
+                AbiCmd::Header => cmd::abi::AbiCmd::Header,
+            };
+            cmd::abi::run(action)
         }
     };
     code
