@@ -200,6 +200,13 @@ enum Cmd {
         /// `<pkg>-world` if none is declared.
         #[arg(long)]
         world: Option<String>,
+        /// v0.46 T2 — what to emit. `exe` (default) builds a native
+        /// executable and fails non-zero when no linker is available;
+        /// `obj` stops after the object file so CI scripts that only
+        /// need `.o` won't fail when no linker is installed.
+        /// Wasm targets ignore this flag.
+        #[arg(long)]
+        emit: Option<String>,
     },
     /// Print a human-readable explanation of a diagnostic code.
     Explain {
@@ -644,6 +651,7 @@ fn run_cli(cli: Cli) -> i32 {
             no_component,
             wasi,
             world,
+            emit,
         } => cmd::build::run(
             &path,
             debug,
@@ -653,6 +661,7 @@ fn run_cli(cli: Cli) -> i32 {
             no_component,
             wasi,
             world,
+            emit,
         ),
         Cmd::Inspect {
             sock,

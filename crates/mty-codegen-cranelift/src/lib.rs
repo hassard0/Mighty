@@ -36,4 +36,7 @@ pub use artifact::NativeArtifact;
 pub use error::{CodegenError, CompileResult};
 pub use jit::{JitCompiled, JitMain};
 pub use mono::Monomorphizer;
-pub use object::{compile_object, compile_object_with_debug, ObjectArtifact};
+pub use object::{
+    compile_object, compile_object_with_debug, discover_linker, LinkerAttempt, LinkerDiscovery,
+    LinkerProbe, ObjectArtifact,
+};

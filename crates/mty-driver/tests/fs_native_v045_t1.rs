@@ -408,7 +408,7 @@ fn build_and_run(name: &str, src: String) -> Option<i32> {
     let outcome = build_native(src, format!("{name}.mty"), &opts);
     let exe = match outcome {
         BuildOutcome::NativeOk(p) => p,
-        BuildOutcome::NativeOkNoLinker(_) => {
+        BuildOutcome::NativeOkNoLinker { .. } => {
             eprintln!("[fs_native_v045_t1] no linker after probe; skipping");
             return None;
         }

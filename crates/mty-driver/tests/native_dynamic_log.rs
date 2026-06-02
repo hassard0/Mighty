@@ -45,7 +45,7 @@ fn native_build_with_dynamic_log_succeeds() {
         &opts(&dir, "dyn_log"),
     );
     match outcome {
-        BuildOutcome::NativeOk(p) | BuildOutcome::NativeOkNoLinker(p) => {
+        BuildOutcome::NativeOk(p) | BuildOutcome::NativeOkNoLinker { object_path: p, .. } => {
             assert!(p.exists(), "expected built artifact at {}", p.display());
             let bytes = std::fs::read(&p).expect("read artifact");
             assert!(!bytes.is_empty(), "artifact is empty");
@@ -87,7 +87,7 @@ fn native_build_with_u8_widening_succeeds() {
         &opts(&dir, "widen_main"),
     );
     match outcome {
-        BuildOutcome::NativeOk(p) | BuildOutcome::NativeOkNoLinker(p) => {
+        BuildOutcome::NativeOk(p) | BuildOutcome::NativeOkNoLinker { object_path: p, .. } => {
             assert!(p.exists());
         }
         BuildOutcome::NativeLinkError { object_path, .. } => {
@@ -117,7 +117,7 @@ fn native_build_with_hex_suffix_literals() {
         &opts(&dir, "hex_literals"),
     );
     match outcome {
-        BuildOutcome::NativeOk(p) | BuildOutcome::NativeOkNoLinker(p) => {
+        BuildOutcome::NativeOk(p) | BuildOutcome::NativeOkNoLinker { object_path: p, .. } => {
             assert!(p.exists());
         }
         BuildOutcome::NativeLinkError { object_path, .. } => {
