@@ -28,19 +28,28 @@ fn write_tempfile(name: &str, src: &str) -> PathBuf {
     p
 }
 
-/// Minimal PATH the child needs to load Windows system DLLs even when
-/// the test wants to "empty out" PATH for linker discovery. Without
-/// this, spawning the child hangs/loads forever waiting on DLLs that
-/// live under `system32` on Windows. On non-Windows we accept that an
-/// empty PATH genuinely is empty.
-#[cfg(windows)]
-fn minimal_path() -> String {
-    let sysroot = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
-    format!("{sysroot}\\System32;{sysroot}")
-}
-#[cfg(not(windows))]
-fn minimal_path() -> String {
-    "/usr/bin:/bin".to_string()
+/// PATH the child needs to start up but that contains no linker.
+/// - Windows: `%SystemRoot%\System32` is the minimum the loader needs
+///   for KERNEL32.DLL etc. Without it, the spawned `mty.exe` hangs.
+///   No linker lives there, so PATH-fallback discovery still fails.
+/// - Linux/macOS: a fresh empty tempdir works as $PATH — no system
+///   directories are needed for the binary to start, and an empty
+///   tempdir keeps the PATH walk from discovering `cc`/`gcc` (which
+///   are universally present in `/usr/bin`).
+///
+/// Returns `(path_string, optional_tempdir_to_hold_lifetime)`.
+fn linkerless_path() -> (String, Option<tempfile::TempDir>) {
+    #[cfg(windows)]
+    {
+        let sysroot = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+        (format!("{sysroot}\\System32;{sysroot}"), None)
+    }
+    #[cfg(not(windows))]
+    {
+        let td = tempfile::tempdir().expect("tempdir for empty PATH");
+        let path = td.path().display().to_string();
+        (path, Some(td))
+    }
 }
 
 fn run_build(args: &[&str], env: &[(&str, &str)], env_remove: &[&str]) -> (i32, String, String) {
@@ -74,7 +83,7 @@ fn build_native_without_linker_exits_nonzero() {
     let out_dir = tempfile::tempdir().expect("tempdir");
     let src = write_tempfile("noexe", "fn main() {}\n");
     let out_arg = out_dir.path().display().to_string();
-    let path = minimal_path();
+    let (path, _path_keepalive) = linkerless_path();
     let (code, _stdout, stderr) = run_build(
         &[src.to_str().unwrap(), "--out-dir", &out_arg],
         &[
@@ -110,7 +119,7 @@ fn build_native_with_emit_obj_succeeds_without_linker() {
     let out_dir = tempfile::tempdir().expect("tempdir");
     let src = write_tempfile("emitobj", "fn main() {}\n");
     let out_arg = out_dir.path().display().to_string();
-    let path = minimal_path();
+    let (path, _path_keepalive) = linkerless_path();
     let (code, stdout, stderr) = run_build(
         &[
             src.to_str().unwrap(),
