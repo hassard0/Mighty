@@ -151,10 +151,6 @@ fn main() -> I64 {
 /// inside, and returns the grown Vec. The helper's body has the same
 /// rebind-across-back-edge pattern; the bug should surface here too.
 #[test]
-#[cfg_attr(
-    any(target_os = "linux", target_os = "macos"),
-    ignore = "Unix JIT currently crashes in this stress shape; native Vec-liveness coverage remains active"
-)]
 fn l28_helper_param_grow_returns_grown_vec() {
     let src = r#"
 fn grow(v0: Vec[I32], n: USize) -> Vec[I32] {
@@ -190,10 +186,6 @@ fn main() -> I64 {
 /// liveness paths must survive — outer back-edge keeps `v` alive across
 /// inner's pushes; inner back-edge keeps `v` alive across its own.
 #[test]
-#[cfg_attr(
-    any(target_os = "linux", target_os = "macos"),
-    ignore = "Unix JIT currently crashes in this stress shape; native Vec-liveness coverage remains active"
-)]
 fn l28_push_in_nested_loop() {
     let src = r#"
 fn main() -> I64 {
@@ -349,5 +341,95 @@ fn main() -> I64 {
         must_run(src),
         12,
         "L21: two back-to-back nested loops both reach the Vec param"
+    );
+}
+
+// =====================================================================
+// v0.45 T5 (L28 debug=0 regression) — opaque-ADT Use-Copy must not
+// memcpy. Vec is an opaque prelude ADT modelled at runtime as an i64
+// pointer to a 32-byte header. `let mut v = v0` inside a helper would
+// previously memcpy 8 bytes (the layout system's reported pointer-
+// width "size") of the 32-byte header into a fresh stack slot, and
+// then return the slot address — silently truncating `cap`, `data`,
+// `elem_size` and handing back a dangling stack pointer once the
+// helper returned. The bug "worked" only under the host Rust build's
+// `[profile.dev] opt-level=0 + debug=2` accident: the unoptimised
+// register allocator kept the slot's bytes intact across the
+// load/store dance long enough for `g.len()` to read the right
+// value. Under `CARGO_PROFILE_DEV_DEBUG=0` (the GHA-mimic profile)
+// or any opt-level≥1 the stack was overwritten and the JIT SEGV'd.
+//
+// These tests pin the *shape* — they're stronger than the
+// `l28_helper_param_grow_returns_grown_vec` shape because they
+// isolate the param-rebind from `v.push()`'s realloc, so a future
+// refactor of `emit_vec_push` can't accidentally hide the bug.
+// =====================================================================
+
+/// Param-rebind-without-mutation floor: `let mut v = v0; v.len()` must
+/// return the same length as `v0.len()`. Pre-fix this returned 0 (the
+/// truncated-slot's `len` happened to be 0 because nothing wrote it).
+#[test]
+fn l28_helper_param_rebind_preserves_len() {
+    let src = r#"
+fn identity_len(v0: Vec[I32]) -> I64 {
+  let mut v = v0
+  let mut n: I64 = 0
+  let mut i: USize = 0
+  while i < v.len() {
+    n = n + 1
+    i = i + 1
+  }
+  n
+}
+
+fn main() -> I64 {
+  let mut v: Vec[I32] = Vec.new()
+  let mut k: USize = 0
+  while k < 7 {
+    v = v.push(1)
+    k = k + 1
+  }
+  identity_len(v)
+}
+"#;
+    assert_eq!(
+        must_run(src),
+        7,
+        "v0.45 T5: param `let mut v = v0` must preserve the Vec header pointer"
+    );
+}
+
+/// Param-rebind-then-return: the helper rebinds, does nothing else,
+/// and returns the Vec. Caller must observe the same length. Pre-fix
+/// the return value was a dangling stack-slot pointer.
+#[test]
+fn l28_helper_param_rebind_returns_same_vec() {
+    let src = r#"
+fn pass_through(v0: Vec[I32]) -> Vec[I32] {
+  let mut v = v0
+  v
+}
+
+fn main() -> I64 {
+  let mut v: Vec[I32] = Vec.new()
+  let mut k: USize = 0
+  while k < 5 {
+    v = v.push(1)
+    k = k + 1
+  }
+  let g = pass_through(v)
+  let mut n: I64 = 0
+  let mut j: USize = 0
+  while j < g.len() {
+    n = n + 1
+    j = j + 1
+  }
+  n
+}
+"#;
+    assert_eq!(
+        must_run(src),
+        5,
+        "v0.45 T5: param-rebind-then-return must not truncate or dangle"
     );
 }

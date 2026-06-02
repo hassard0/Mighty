@@ -27,8 +27,8 @@
 
 use crate::abi::{build_signature, cl_ty_for, cl_ty_for_variadic, host_call_conv};
 use crate::aggregate::{
-    field_load_ty, is_aggregate, slot_size, struct_field_offset, tuple_offset, type_align,
-    type_size, variant_field_offset, TAG_OFFSET, TAG_SIZE,
+    field_load_ty, is_aggregate, is_opaque_adt, slot_size, struct_field_offset, tuple_offset,
+    type_align, type_size, variant_field_offset, TAG_OFFSET, TAG_SIZE,
 };
 use crate::error::{CodegenError, CompileResult};
 use crate::runtime_imports;
@@ -1229,6 +1229,37 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
             if let Rvalue::Use(Operand::Copy(src) | Operand::Move(src)) = rv {
                 let src_ty = self.place_type(src);
                 if is_aggregate(&src_ty) && src.proj.is_empty() {
+                    // v0.45 T5 (L28 debug=0 fix): opaque ADTs (Vec /
+                    // Page / IoErr / … — registered by the prelude with
+                    // no constructable variants) are passed around as
+                    // i64 pointers to a runtime-allocated header. The
+                    // layout system reports them as `Layout::scalar(8)`
+                    // because the body is invisible to the front-end;
+                    // memcpy-ing 8 bytes from `src` into a fresh slot
+                    // would truncate the actual 32-byte Vec header
+                    // (dropping `cap`, `data`, `elem_size`) and then
+                    // hand back a dangling stack pointer once the
+                    // local escapes the frame. Re-bind the Variable to
+                    // the source pointer value instead — that mirrors
+                    // what the LLVM backend already does (Adt → ptr →
+                    // load/store the pointer word) and what the
+                    // direct-`Vec.new()` floor case relies on. Pre-fix
+                    // this corruption "worked" under `[profile.dev]
+                    // opt-level=0 + debug=2` because Cranelift's
+                    // unoptimised register allocator parked the slot
+                    // address in a frame slot the OOB stores happened
+                    // to leave intact long enough for `g.len()` to
+                    // read it back; any other profile (debug=0,
+                    // opt-level≥1) lost the bytes and SEGV'd.
+                    if is_opaque_adt(&local_ty, &self.prog.adts)
+                        || is_opaque_adt(&src_ty, &self.prog.adts)
+                    {
+                        let var = self.ensure_var(place.local);
+                        let src_val = self.eval_operand(&Operand::Copy(src.clone()))?;
+                        let val = self.coerce_to(src_val, ct::I64);
+                        self.b.def_var(var, val);
+                        return Ok(());
+                    }
                     let (src_addr, _src_ty2) = self.place_addr(src)?;
                     let _ = self.ensure_var(place.local);
                     let dst_addr = self.agg_slot_addr(place.local)?;

@@ -53,6 +53,33 @@ pub fn is_aggregate(t: &IrTy) -> bool {
     )
 }
 
+/// v0.45 T5 (L28 debug=0 fix): an "opaque" ADT (no constructable
+/// variants, registered by the prelude — `Vec`, `Page`, `IoErr`, …) is
+/// modelled at runtime as an i64 *pointer* to a runtime-allocated
+/// header (the Vec header is 32 bytes; the layout system reports it
+/// as `Layout::scalar(PTR_BYTES)` because the body is invisible to
+/// the front-end). The catch: [`is_aggregate`] still returns `true`
+/// for opaque ADTs so that `place_addr` / `agg_addr` route reads
+/// through the i64 Variable that holds the header pointer. The
+/// memcpy-into-a-fresh-slot path in `lower_assign`'s
+/// `Rvalue::Use(Copy/Move)` branch, however, would copy only 8 bytes
+/// of the actual 32-byte header into an 8-byte stack slot — silently
+/// truncating `cap`, `data`, and `elem_size` — and then return a
+/// dangling stack pointer when the local escapes the frame (see
+/// `tests/vec_liveness_v042.rs::l28_helper_param_grow_returns_grown_vec`).
+///
+/// This helper lets the lowerer detect that case and rebind the
+/// destination Variable to the *value* the source Variable holds (the
+/// header pointer) instead of memcpy-ing the truncated header.
+pub fn is_opaque_adt(t: &IrTy, adts: &[AdtRef]) -> bool {
+    if let IrTy::Adt(id, _) = t {
+        if let Some(adt) = adts.iter().find(|a| a.adt == *id) {
+            return adt.variants.is_empty();
+        }
+    }
+    false
+}
+
 /// Compute layout for a SIR type (delegates to `layout_with_adts` for
 /// aggregates; calls into primitive_layout for scalars).
 pub fn type_layout(t: &IrTy, adts: &[AdtRef]) -> Layout {
