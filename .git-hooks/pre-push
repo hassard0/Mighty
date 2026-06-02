@@ -30,6 +30,13 @@
 # --check` on Linux catches — the cargo-fmt + clippy gate didn't see it.
 # This step bakes that check into the local push.
 #
+# v0.45 T4: optional `MTY_PRE_PUSH_GHA=1` env runs
+# `scripts/test-like-gha.sh` (cargo test --workspace under the same
+# disk profile GHA uses) at the end of the hook. Off by default so
+# the normal push stays fast; on for codegen-heavy / test-heavy work
+# where the v0.42 T1 "passed locally, SIGSEGV on GHA Ubuntu" trap is a
+# real risk.
+#
 
 set -euo pipefail
 
@@ -104,6 +111,26 @@ if [ ${#MTY_FILES[@]} -gt 0 ]; then
   echo "[mty pre-push] mty fmt OK (${#MTY_FILES[@]} files)"
 else
   echo "[mty pre-push] mty fmt OK (no .mty files in known paths)"
+fi
+
+# v0.45 T4: opt-in `cargo test --workspace` under the GHA disk profile.
+# Off by default so the normal push (fmt + clippy + mty fmt) stays at
+# the 60-second-budget the v0.34 T4 hook aimed for. Codegen / test
+# tracks that want to dogfood the runner's exact configuration enable
+# it with `MTY_PRE_PUSH_GHA=1 git push`. Honors `$CARGO_TARGET_DIR`
+# via the underlying script.
+if [ "${MTY_PRE_PUSH_GHA:-0}" = "1" ]; then
+  if [ -x "scripts/test-like-gha.sh" ]; then
+    echo "[mty pre-push] MTY_PRE_PUSH_GHA=1 — scripts/test-like-gha.sh"
+    if ! MTY_TEST_LIKE_GHA_QUIET=1 bash scripts/test-like-gha.sh; then
+      echo "[mty pre-push] test-like-gha failed. Fix or unset MTY_PRE_PUSH_GHA." >&2
+      exit 1
+    fi
+    echo "[mty pre-push] test-like-gha OK"
+  else
+    echo "[mty pre-push] MTY_PRE_PUSH_GHA=1 but scripts/test-like-gha.sh missing/not executable" >&2
+    exit 1
+  fi
 fi
 
 echo "[mty pre-push] OK"

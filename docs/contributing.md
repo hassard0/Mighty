@@ -89,6 +89,41 @@ MTY_PRE_PUSH_SKIP=1 git push
 
 Uninstall: `mty hooks uninstall`.
 
+### `scripts/test-like-gha.sh` (v0.45 T4)
+
+`scripts/test-like-gha.sh` (and the equivalent `.ps1` for Windows
+PowerShell) runs `cargo test --workspace` under the exact same
+configuration the GitHub Actions runners use: `RUSTFLAGS=-D warnings`,
+`CARGO_PROFILE_DEV_DEBUG=0` + `CARGO_PROFILE_TEST_DEBUG=0` (drops
+debuginfo to keep Linux runners under their disk ceiling), and the
+Windows leg routes to `cargo test --workspace -- --test-threads=1
+--nocapture` so behaviour matches the Windows runner's serial-test
+mode. `$CARGO_TARGET_DIR` is honored so a per-worktree target dir is
+respected.
+
+Use this script before pushing whenever your change touches codegen,
+the test harness, or anything else that could expose a disk-pressure
+or threading regression. The cautionary example is the **v0.42 T1
+incident** (recapped in `RELEASE-v0.44.md`): the L28/L21 Vec fix was
+"verified-fixed-and-locked" on Vulcan Linux and on local Windows, but
+GHA Ubuntu SIGSEGV'd the regression tests because debuginfo-heavy
+test binaries blew past the small ephemeral disk and produced
+truncated artifacts the test harness then crashed on. v0.44 main CI
+had to rerun two infra-failed jobs to clear the same trap. The CI-side
+fix (drop debuginfo + Windows serial) ships from
+`codex/ci-disk-headroom`; `scripts/test-like-gha.sh` is the local
+mirror so swarm agents stop discovering that class of regression *on
+the runner*.
+
+Optional pre-push integration: set `MTY_PRE_PUSH_GHA=1` and the
+pre-push hook will, after fmt + clippy + mty-fmt-check, invoke
+`scripts/test-like-gha.sh`. Off by default to keep the normal push
+fast; flip it on for the duration of a codegen-heavy track:
+
+```bash
+MTY_PRE_PUSH_GHA=1 git push
+```
+
 **REQUIRED for swarm agents.** The v0.27 / v0.30 / v0.32 / v0.33
 retros all surfaced the same failure mode: a swarm agent pushed a
 branch that passed local Windows checks but failed Linux-side
