@@ -45,6 +45,13 @@ pub fn dispatch(path: &[String], method: &str, args: &[Value]) -> Value {
         ("std.fs", "remove_file") => fs_remove_file(args),
         ("std.fs", "remove_dir_all") => fs_remove_dir_all(args),
         ("std.fs", "list_dir" | "read_dir") => fs_list_dir(args),
+        // v0.46 T4 — `read_dir_lines` is the deprecated alias for the
+        // v0.45 newline-joined `read_dir` Str shape; native callers
+        // get the iterator handle through the runtime ABI but the
+        // interpreter dispatcher just returns the same Array shape
+        // `list_dir` already does (the front-end has no streaming
+        // model on the interp path — it eagerly consumes).
+        ("std.fs", "read_dir_lines") => fs_list_dir(args),
         // -------- http (sync wrapper around tokio runtime) --------
         ("std.http", "get") => http_get(args),
         ("std.http", "post") => http_post(args),

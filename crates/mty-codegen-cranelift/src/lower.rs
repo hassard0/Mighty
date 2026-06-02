@@ -1899,6 +1899,28 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                         return Ok(addr);
                     }
                 }
+                // v0.46 T4 — DirIter iterator methods. The receiver is
+                // the i64 handle returned by `mty_runtime_fs_dir_open`
+                // (see `FsAbiKind::DirOpenHandle`). `.next()` writes a
+                // (ptr,len,ok) Str triple into a 24-byte slot and
+                // wraps it as `Option<String>` (None on EOF). `.close()`
+                // releases the handle — Drop on the Mighty side calls
+                // this. Both are dispatched here, before the generic
+                // `next` -> defensive-None fallback below, so the real
+                // iterator advance lands on the runtime symbol instead
+                // of getting stubbed to None forever (which would loop
+                // any `while let Some(_) = it.next()` consumer).
+                let recv_is_dir_iter = matches!(
+                    self.operand_ir_ty(receiver),
+                    Some(IrTy::Adt(id, _)) if self.prog.adt_by_id(id).map(|a| a.name.as_str()) == Some("DirIter")
+                );
+                if recv_is_dir_iter {
+                    match method.as_str() {
+                        "next" => return self.emit_dir_iter_next(receiver),
+                        "close" => return self.emit_dir_iter_close(receiver),
+                        _ => {}
+                    }
+                }
                 // v0.41 T3 (L1 fix): when the destination type is an
                 // `Option[T]` aggregate (e.g. `Stream.next()`, opaque
                 // methods returning `Option`), synthesise a defensive
@@ -2796,16 +2818,25 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
     /// `"std.fs.write"`, ...). `args` is the lowered SIR operands —
     /// `args[0]` is the path Str, `args[1]` (when present) is the
     /// payload Str/Bytes for write/append. The `out` place receives:
-    /// - For read/read_to_string/read_dir: a 24-byte aggregate slot
-    ///   address holding (ptr, len, ok). Mighty reads it as a Str
-    ///   value (the codegen elsewhere already treats Str as a (ptr,
-    ///   len) aggregate — see `string_pair` — so loading at offsets
-    ///   +0/+8 just works).
-    /// - For exists/write*/append/create_dir_all/remove*: a single i32
-    ///   coerced to the out local's type.
+    /// - For read/read_to_string/read_dir_lines: a 24-byte aggregate
+    ///   slot address holding (ptr, len, ok). Mighty reads it as a
+    ///   Str value (the codegen elsewhere already treats Str as a
+    ///   (ptr, len) aggregate — see `string_pair` — so loading at
+    ///   offsets +0/+8 just works).
+    /// - For read_dir / list_dir (v0.46 T4 iterator surface): an i64
+    ///   handle written into the result local as a scalar value. The
+    ///   `DirIter` ADT is registered opaque (Layout::scalar(8)) so the
+    ///   place type carries the handle correctly.
+    /// - For exists/write*/append/create_dir_all/remove*: a single
+    ///   i32 coerced to the out local's type.
     /// - For metadata: a 24-byte struct slot {size, mtime_ms,
-    ///   is_file, is_dir}. The caller has typeck'd a 4-field record
-    ///   shape so field projections land at the right offsets.
+    ///   is_file, is_dir}. v0.46 T4 wires this through the result
+    ///   local's own aggregate stack slot when the typed temp resolves
+    ///   to the prelude `Metadata` ADT — so subsequent field
+    ///   projections (`md.size`) read straight from the slot the
+    ///   runtime just wrote into. Falls back to a freshly-allocated
+    ///   24-byte slot when the result temp is untyped (pre-L18 shape
+    ///   that just consumed the call as a side effect).
     fn emit_fs_call(
         &mut self,
         full_name: &str,
@@ -2822,6 +2853,33 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
 
         // Bucket by ABI shape.
         let kind = FsAbiKind::for_method(full_name);
+
+        // For Metadata, prefer writing directly into the out local's
+        // aggregate slot — `place_addr` will then walk the struct
+        // field offsets when user code does `md.size` etc. Detect the
+        // case by inspecting the out local's SIR type.
+        let metadata_dst_slot_addr = if matches!(kind, FsAbiKind::MetadataSlot { .. }) {
+            out.filter(|p| p.proj.is_empty()).and_then(|p| {
+                let lty = self.f.locals[p.local.0 as usize].ty.clone();
+                match &lty {
+                    IrTy::Adt(id, _)
+                        if self.prog.adt_by_id(*id).map(|a| a.name.as_str())
+                            == Some("Metadata") =>
+                    {
+                        // Materialise the local's stack slot up
+                        // front so the runtime writes directly
+                        // into it. The post-call store path
+                        // (def_var of the slot address) then
+                        // becomes a no-op rebind to the same
+                        // address.
+                        self.agg_slot_addr(p.local).ok()
+                    }
+                    _ => None,
+                }
+            })
+        } else {
+            None
+        };
 
         let ret_value: Option<cranelift_codegen::ir::Value> = match kind {
             FsAbiKind::ReadStrSlot { symbol } => {
@@ -2866,14 +2924,34 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 // i32 return is the success flag (1=ok, -errno=err),
                 // which the codegen currently swallows. Future versions
                 // can surface this through a Result-shaped out.
-                let slot = self.b.create_sized_stack_slot(StackSlotData::new(
-                    StackSlotKind::ExplicitSlot,
-                    24,
-                    3,
-                ));
-                let slot_addr = self.b.ins().stack_addr(ct::I64, slot, 0);
+                //
+                // v0.46 T4 — when the result local is typed as the
+                // prelude `Metadata` ADT, use its own backing stack
+                // slot as the runtime's destination so `md.size` /
+                // `md.is_file` reads land on the bytes the runtime
+                // just wrote.
+                let slot_addr = match metadata_dst_slot_addr {
+                    Some(addr) => addr,
+                    None => {
+                        let slot = self.b.create_sized_stack_slot(StackSlotData::new(
+                            StackSlotKind::ExplicitSlot,
+                            24,
+                            3,
+                        ));
+                        self.b.ins().stack_addr(ct::I64, slot, 0)
+                    }
+                };
                 self.call_rt(symbol, &[path_ptr, path_len, slot_addr], Some(ct::I32))?;
                 Some(slot_addr)
+            }
+            FsAbiKind::DirOpenHandle { symbol } => {
+                // (path_ptr, path_len) -> i64 handle. Returned by the
+                // runtime as an opaque pointer to a DirIterState. We
+                // hand the i64 straight to the out local — the
+                // `DirIter` ADT is registered opaque so its codegen
+                // layout is `Layout::scalar(8)`, the same shape the
+                // `def_var` path on the result local already expects.
+                self.call_rt(symbol, &[path_ptr, path_len], Some(ct::I64))?
             }
         };
 
@@ -3827,6 +3905,102 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         Ok(hdr)
     }
 
+    /// v0.46 T4 — `dir_iter.next() -> Option<String>`. Receiver
+    /// evaluates to the i64 handle from `mty_runtime_fs_dir_open`.
+    /// Allocates a 24-byte (ptr,len,ok) Str slot, calls
+    /// `mty_runtime_fs_dir_next(handle, slot)`, and wraps the result
+    /// into an Option aggregate whose payload is a Str (the entry
+    /// name). Returns the Option slot address — same shape any other
+    /// `Option<String>`-returning method uses.
+    ///
+    /// Layout: the runtime ABI's (ptr,len,ok) triple already fits the
+    /// Mighty `String` aggregate convention (ptr@+0, len@+8). The
+    /// `ok` flag at +16 doubles as the runtime's "have an entry" bit
+    /// and is what the codegen branches on to decide Some vs None —
+    /// no separate return-value check needed.
+    fn emit_dir_iter_next(
+        &mut self,
+        receiver: &Operand,
+    ) -> CompileResult<cranelift_codegen::ir::Value> {
+        let mf = MemFlags::trusted();
+        // Receiver is the opaque-ADT handle: a scalar i64.
+        let handle = self.eval_operand(receiver)?;
+        let handle = self.coerce_to(handle, ct::I64);
+
+        // Slot for the runtime's (ptr,len,ok) write — same 24-byte
+        // shape as `read_dir_lines`/`read`/etc.
+        let str_slot =
+            self.b
+                .create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 24, 3));
+        let str_slot_addr = self.b.ins().stack_addr(ct::I64, str_slot, 0);
+
+        // The dir_next runtime call's i32 return mirrors the slot's
+        // ok flag; we keep it for diagnostic plumbing but branch on
+        // the slot bit (which the codegen reads with a wider type so
+        // sign-extension isn't a concern).
+        let _ret = self
+            .call_rt(
+                "mty_runtime_fs_dir_next",
+                &[handle, str_slot_addr],
+                Some(ct::I32),
+            )?
+            .unwrap_or_else(|| self.b.ins().iconst(ct::I32, 0));
+
+        // Option<String> aggregate slot — same allocator the rest of
+        // the Option-returning method paths use.
+        let str_ty = IrTy::String;
+        let (opt_slot_addr, payload_off) = self.alloc_option_slot_for(Some(&str_ty))?;
+
+        let ok = self.b.ins().load(ct::I32, mf, str_slot_addr, 16);
+        let some_block = self.b.create_block();
+        let none_block = self.b.create_block();
+        let join_block = self.b.create_block();
+        self.b.ins().brif(ok, some_block, &[], none_block, &[]);
+
+        // --- some_block: copy (ptr,len) into the Option payload, tag=0 ---
+        self.b.switch_to_block(some_block);
+        self.b.seal_block(some_block);
+        let ptr_word = self.b.ins().load(ct::I64, mf, str_slot_addr, 0);
+        let len_word = self.b.ins().load(ct::I64, mf, str_slot_addr, 8);
+        let payload_addr = self.b.ins().iadd_imm(opt_slot_addr, payload_off as i64);
+        self.b.ins().store(mf, ptr_word, payload_addr, 0);
+        self.b.ins().store(mf, len_word, payload_addr, 8);
+        let tag_some = self.b.ins().iconst(ct::I32, 0);
+        self.b
+            .ins()
+            .store(mf, tag_some, opt_slot_addr, TAG_OFFSET as i32);
+        self.b.ins().jump(join_block, &[]);
+
+        // --- none_block: tag=1, payload untouched ---
+        self.b.switch_to_block(none_block);
+        self.b.seal_block(none_block);
+        let tag_none = self.b.ins().iconst(ct::I32, 1);
+        self.b
+            .ins()
+            .store(mf, tag_none, opt_slot_addr, TAG_OFFSET as i32);
+        self.b.ins().jump(join_block, &[]);
+
+        // --- join ---
+        self.b.switch_to_block(join_block);
+        self.b.seal_block(join_block);
+        Ok(opt_slot_addr)
+    }
+
+    /// v0.46 T4 — `dir_iter.close()`. Maps to
+    /// `mty_runtime_fs_dir_close(handle)` which frees the boxed
+    /// DirIterState. The runtime accepts handle==0 as a no-op so
+    /// double-close / never-opened iterators don't trap. Returns 0 as
+    /// the caller's value — the source-side method is `-> Unit`.
+    fn emit_dir_iter_close(
+        &mut self,
+        receiver: &Operand,
+    ) -> CompileResult<cranelift_codegen::ir::Value> {
+        let handle = self.eval_operand(receiver)?;
+        let handle = self.coerce_to(handle, ct::I64);
+        self.call_rt("mty_runtime_fs_dir_close", &[handle], None)?;
+        Ok(self.b.ins().iconst(ct::I64, 0))
+    }
+
     /// v0.39 T3: byte-granular dynamic memcpy. Used by Vec growth so
     /// non-multiple-of-8 sizes (e.g. Vec[U8] with 5 elements) don't
     /// overshoot the source/dest buffers. Loops one byte at a time —
@@ -3915,6 +4089,11 @@ fn is_interpreter_hosted_stdlib(name: &str) -> bool {
 /// qualified `std.fs.*` form and the bare `fs.*` form a `use std.fs`
 /// import produces (the wasm emitter accepts the same pair — see
 /// `crates/mty-codegen-wasm/src/emit.rs`).
+///
+/// v0.46 T4: `read_dir` now ships as the iterator-handle shape
+/// (`std.fs.DirIter`); `read_dir_lines` is the deprecated alias for
+/// the v0.45 newline-joined Str behaviour, kept live until v0.47 so
+/// already-written agent code still resolves.
 fn is_native_fs_method(full_name: &str) -> bool {
     fn strip(s: &str) -> &str {
         s.strip_prefix("std.").unwrap_or(s)
@@ -3926,6 +4105,7 @@ fn is_native_fs_method(full_name: &str) -> bool {
             | "fs.read_to_string"
             | "fs.read_dir"
             | "fs.list_dir"
+            | "fs.read_dir_lines"
             | "fs.write"
             | "fs.write_file"
             | "fs.write_string"
@@ -3942,6 +4122,14 @@ fn is_native_fs_method(full_name: &str) -> bool {
 /// v0.45 T1 — ABI shape selector for `std.fs.*` calls. Buckets each
 /// method into one of four runtime-symbol families so `emit_fs_call`
 /// can choose the right param/return convention.
+///
+/// v0.46 T4 adds two shapes:
+///   - `DirOpenHandle` for the new iterator surface — `read_dir(p)`
+///     lowers to `mty_runtime_fs_dir_open(path) -> i64 handle`, no
+///     dst slot.
+///   - The pre-existing newline-joined `read_dir_lines` keeps using
+///     `ReadStrSlot` so the (ptr,len,ok) triple flows through the
+///     same path as `read`/`read_to_string`.
 #[derive(Debug, Clone, Copy)]
 enum FsAbiKind {
     /// (path_ptr, path_len, dst_slot) — runtime writes (ptr, len, ok)
@@ -3956,6 +4144,10 @@ enum FsAbiKind {
     /// {size:u64, mtime_ms:i64, is_file:i8, is_dir:i8} record into a
     /// 24-byte slot. Codegen returns the slot address.
     MetadataSlot { symbol: &'static str },
+    /// (path_ptr, path_len) -> i64; runtime returns an opaque
+    /// `DirIter` handle (0 on open failure). Codegen routes the
+    /// handle directly into the result place — no dst slot.
+    DirOpenHandle { symbol: &'static str },
 }
 
 impl FsAbiKind {
@@ -3970,7 +4162,14 @@ impl FsAbiKind {
             "fs.read_to_string" => FsAbiKind::ReadStrSlot {
                 symbol: "mty_runtime_fs_read_to_string",
             },
-            "fs.read_dir" | "fs.list_dir" => FsAbiKind::ReadStrSlot {
+            // v0.46 T4 — `read_dir` / `list_dir` open an iterator
+            // handle; the old newline-joined behaviour lives on as
+            // `read_dir_lines` (deprecated alias, slated for removal
+            // in v0.47).
+            "fs.read_dir" | "fs.list_dir" => FsAbiKind::DirOpenHandle {
+                symbol: "mty_runtime_fs_dir_open",
+            },
+            "fs.read_dir_lines" => FsAbiKind::ReadStrSlot {
                 symbol: "mty_runtime_fs_read_dir",
             },
             "fs.write" | "fs.write_file" => FsAbiKind::WriteI32 {

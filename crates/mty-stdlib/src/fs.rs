@@ -410,6 +410,96 @@ pub fn remove_dir_all(cap: &FsCap, path: &Path) -> Result<(), IoErr> {
     }
 }
 
+// ----- v0.46 T4 — read_dir iterator surface ----------------------------
+//
+// v0.45 T1 shipped a `list_dir` / `read_dir` pair that pre-collected
+// every entry into a `Vec<PathBuf>` and returned it eagerly. v0.46
+// promotes the canonical surface to a streaming `DirIter` so source
+// code can `.next()` through a directory without materialising the
+// whole listing up front.
+//
+// The native runtime ABI (see
+// `mty_runtime::codegen_abi::mty_runtime_fs_dir_{open,next,close}`)
+// is the real load-bearing path; this Rust-side wrapper exists for
+// host-dispatcher / interpreter callers (`mty_stdlib::host::fs_*`
+// keeps targeting `list_dir` for those — see the dispatcher table).
+// The new iterator surface is exposed here so downstream Rust code
+// that wants to drive the iterator (tests, future driver work) has
+// a typed handle to grab.
+
+/// Opaque iterator over a directory's entries. Yielded entries are
+/// lexicographically sorted (matches [`list_dir`]'s contract).
+///
+/// On native the iterator wraps a pre-collected `Vec<PathBuf>` +
+/// cursor — same shape the runtime ABI uses — so the eager-collect
+/// keeps cap-denial / open-failure errors localised to construction
+/// time. `next()` returns the next entry's path, or `None` on EOF.
+pub struct DirIter {
+    entries: Vec<PathBuf>,
+    cursor: usize,
+}
+
+impl DirIter {
+    // clippy::should_implement_trait — we intentionally don't impl
+    // `std::iter::Iterator`. Doing so would import the full trait
+    // surface (`.map`, `.collect`, ...) which conflicts with the
+    // Mighty-side `DirIter` ADT method dispatch the codegen routes
+    // through `emit_dir_iter_next`. Keeping `next` as an inherent
+    // method mirrors the runtime ABI's one-shot iterator contract.
+    #[allow(clippy::should_implement_trait)]
+    pub fn next(&mut self) -> Option<PathBuf> {
+        if self.cursor >= self.entries.len() {
+            return None;
+        }
+        let p = self.entries[self.cursor].clone();
+        self.cursor += 1;
+        Some(p)
+    }
+
+    /// Snapshot the remaining-entry count without advancing. Useful
+    /// for the wasm32-wasi shim (which has to size a result buffer
+    /// up front) and for tests.
+    pub fn remaining(&self) -> usize {
+        self.entries.len().saturating_sub(self.cursor)
+    }
+}
+
+/// Open a `DirIter` over `path`. v0.46 T4 — the canonical streaming
+/// surface; eager-Vec callers can keep using [`list_dir`].
+pub fn read_dir(cap: &FsCap, path: &Path) -> Result<DirIter, IoErr> {
+    cap.check(path)?;
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(path)?
+        .filter_map(|e| e.ok().map(|d| d.path()))
+        .collect();
+    entries.sort();
+    Ok(DirIter { entries, cursor: 0 })
+}
+
+/// v0.46 T4 — deprecated alias for the v0.45 newline-joined listing
+/// shape. Already-built CLIs that consumed `read_dir`'s string
+/// continue to resolve through this name; new code should use
+/// [`read_dir`] (`DirIter`) instead. Scheduled for removal in v0.47.
+#[deprecated(
+    since = "0.46.0",
+    note = "use std.fs.read_dir(p) for the iterator handle; this alias \
+            keeps the v0.45 newline-joined Str shape for migration."
+)]
+pub fn read_dir_lines(cap: &FsCap, path: &Path) -> Result<String, IoErr> {
+    cap.check(path)?;
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(path)?
+        .filter_map(|e| e.ok().map(|d| d.path()))
+        .collect();
+    entries.sort();
+    let mut s = String::new();
+    for (i, e) in entries.iter().enumerate() {
+        if i > 0 {
+            s.push('\n');
+        }
+        s.push_str(&e.display().to_string());
+    }
+    Ok(s)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

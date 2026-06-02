@@ -602,11 +602,13 @@ pub extern "C" fn mty_runtime_fs_remove_dir_all(path_ptr: i64, path_len: i64) ->
 
 #[no_mangle]
 pub extern "C" fn mty_runtime_fs_read_dir(path_ptr: i64, path_len: i64, dst: i64) {
-    // v0.45 T1 ships a "flat newline-joined entries" Str result here.
-    // A proper iterator-handle ABI (open-handle + next-entry +
-    // close-handle) is deferred to v0.46 so we don't block the
-    // marquee fix on designing one — the IDE's existing read_dir
-    // call sites all consume the listing eagerly anyway. The listing
+    // v0.45 T1 shape — newline-joined entries Str result. The proper
+    // iterator-handle ABI (v0.46 T4 — `mty_runtime_fs_dir_open` /
+    // `_next` / `_close` below) is the canonical surface from v0.46
+    // forward, but this symbol stays live so already-built CLIs that
+    // linked against the v0.45 ABI still resolve. Mighty source code
+    // that wants the joined string now spells it `std.fs.read_dir_lines(p)`;
+    // `std.fs.read_dir(p)` lowers to the iterator handle. The listing
     // is lexicographically sorted (matches `list_dir`'s contract).
     let path = unsafe { read_str(path_ptr, path_len) };
     match std::fs::read_dir(std::path::Path::new(path)) {
@@ -626,6 +628,94 @@ pub extern "C" fn mty_runtime_fs_read_dir(path_ptr: i64, path_len: i64, dst: i64
         }
         Err(_) => unsafe { write_str_triple(dst, 0, 0, 0) },
     }
+}
+
+// ---- v0.46 T4: read_dir iterator handle ABI -----------------------
+//
+// Three-call shape, modelled on POSIX `opendir` / `readdir` /
+// `closedir` so the Mighty-side `DirIter` ADT can drop-close cleanly
+// and the iterator state stays out of process-wide memory.
+//
+//   mty_runtime_fs_dir_open(path_ptr, path_len) -> i64
+//       Returns an opaque handle (non-zero on success, 0 on open
+//       failure). The handle is the Box<DirIterState> raw pointer
+//       reinterpreted as i64 — the codegen treats it as opaque, so
+//       no provenance is exposed to Mighty source.
+//
+//   mty_runtime_fs_dir_next(handle, dst_slot) -> i32
+//       Writes the next entry's name as a (ptr, len, ok) triple into
+//       a caller-supplied 24-byte slot. Returns 1 if a name was
+//       written (more entries follow), 0 on EOF (slot's ok flag is
+//       also 0), or a negative errno on I/O error during iteration.
+//       The slot string lives in the FMT_STRINGS interner — same
+//       lifetime contract as the rest of the fs surface.
+//
+//   mty_runtime_fs_dir_close(handle)
+//       Frees the handle's state. Safe to call with `0` (no-op) so
+//       Drop on a never-opened DirIter doesn't trap. Subsequent
+//       calls with the same handle are UB at the C-ABI level, but
+//       the Mighty `Drop` for `DirIter` sets the handle to 0 after
+//       the close so source code can't observe it.
+//
+// Lifetime contract: the handle's state owns a pre-collected
+// `Vec<PathBuf>` (lex-sorted, same shape as `list_dir`), a cursor,
+// and is released when `mty_runtime_fs_dir_close` runs. Source code
+// MUST eventually close — Drop on `DirIter` handles that — or the
+// process leaks one heap allocation per opened handle. The entries
+// are collected eagerly at open-time so subsequent
+// `mty_runtime_fs_dir_next` calls can't surface mid-iteration
+// `std::io::Error`s, which keeps the next() ABI a simple
+// (1=more, 0=eof) instead of (1, 0, -errno).
+
+#[repr(C)]
+struct DirIterState {
+    entries: Vec<std::path::PathBuf>,
+    cursor: usize,
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fs_dir_open(path_ptr: i64, path_len: i64) -> i64 {
+    let path = unsafe { read_str(path_ptr, path_len) };
+    let entries = match std::fs::read_dir(std::path::Path::new(path)) {
+        Ok(rd) => {
+            let mut v: Vec<std::path::PathBuf> =
+                rd.filter_map(|e| e.ok().map(|d| d.path())).collect();
+            v.sort();
+            v
+        }
+        Err(_) => return 0,
+    };
+    let boxed = std::boxed::Box::new(DirIterState { entries, cursor: 0 });
+    std::boxed::Box::into_raw(boxed) as usize as i64
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fs_dir_next(handle: i64, dst: i64) -> i32 {
+    if handle == 0 {
+        // No state -> behave as EOF. Slot stays clean (ok=0).
+        unsafe { write_str_triple(dst, 0, 0, 0) };
+        return 0;
+    }
+    let state: &mut DirIterState = unsafe { &mut *(handle as usize as *mut DirIterState) };
+    if state.cursor >= state.entries.len() {
+        unsafe { write_str_triple(dst, 0, 0, 0) };
+        return 0;
+    }
+    let entry = &state.entries[state.cursor];
+    state.cursor += 1;
+    let s = entry.display().to_string();
+    let (p, l) = intern_fmt(s);
+    unsafe { write_str_triple(dst, p, l, 1) };
+    1
+}
+
+#[no_mangle]
+pub extern "C" fn mty_runtime_fs_dir_close(handle: i64) {
+    if handle == 0 {
+        return;
+    }
+    // Reconstitute and drop the Box.
+    let _ = unsafe { std::boxed::Box::from_raw(handle as usize as *mut DirIterState) };
 }
 
 // ---- v0.42 T4: String + String concat runtime helper --------------
@@ -728,6 +818,10 @@ pub fn symbol_table() -> Vec<(String, *const u8)> {
             mty_runtime_fs_remove_dir_all
         ),
         entry!("mty_runtime_fs_read_dir", mty_runtime_fs_read_dir),
+        // v0.46 T4 — read_dir iterator handle ABI.
+        entry!("mty_runtime_fs_dir_open", mty_runtime_fs_dir_open),
+        entry!("mty_runtime_fs_dir_next", mty_runtime_fs_dir_next),
+        entry!("mty_runtime_fs_dir_close", mty_runtime_fs_dir_close),
     ]
 }
 
