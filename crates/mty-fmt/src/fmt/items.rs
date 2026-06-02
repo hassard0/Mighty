@@ -14,11 +14,13 @@
 //!   item.
 //! * Exactly one trailing `\n` at EOF.
 //!
-//! Per-item canonical printers (struct field rewrap, fn param
-//! alignment, etc.) are deferred. Stripping each item's trailing
-//! whitespace plus controlling the inter-item separator together
-//! make the slice-2 formatter idempotent and round-trip-stable on
-//! all 20 example programs.
+//! v0.43 added canonical printing for top-level `const` declarations.
+//! v0.45 T2 extends the rollout to `fn` signatures, `struct`, `enum`,
+//! and `type` aliases. The body of fn / struct / enum items is emitted
+//! verbatim from source so we don't disturb statement-level formatting
+//! or comments inside the block; only the *signature head* is rewritten.
+//! Items whose signature carries comments or attribute prefixes still
+//! fall back to verbatim, preserving the v0.43 safety pattern.
 
 use crate::doc::Doc;
 use mty_syntax::{SyntaxKind, SyntaxNode};
@@ -93,6 +95,10 @@ fn item_body_and_trailing_blank(item: &SyntaxNode) -> (Doc, bool) {
     let blank_after = tail.matches('\n').count() >= 2;
     let body = match item.kind() {
         SyntaxKind::CONST_DECL if can_canonicalize_const(item, stripped) => const_decl(item),
+        SyntaxKind::FN_DECL => fn_decl_or_verbatim(item, stripped),
+        SyntaxKind::STRUCT_DECL => struct_decl_or_verbatim(item, stripped),
+        SyntaxKind::ENUM_DECL => enum_decl_or_verbatim(item, stripped),
+        SyntaxKind::TYPE_ALIAS => type_alias_or_verbatim(item, stripped),
         _ => Doc::text(stripped.to_string()),
     };
     (body, blank_after)
@@ -141,6 +147,424 @@ fn const_decl(item: &SyntaxNode) -> Doc {
         out = Doc::concat(out, Doc::text(";"));
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// v0.45 T2 — fn / struct / enum / type-alias canonical printers.
+//
+// Each printer follows the same recipe:
+//   1. If the signature region (everything from the leading keyword up to
+//      the first body delimiter) contains comments, or the item carries
+//      attribute prefixes, fall back to verbatim. The v0.43 const pattern.
+//   2. Otherwise build the canonical signature head as a `Doc` and append
+//      the body text verbatim from source so statement-level layout +
+//      embedded comments inside the body are preserved exactly.
+// ---------------------------------------------------------------------------
+
+fn fn_decl_or_verbatim(item: &SyntaxNode, stripped: &str) -> Doc {
+    if has_attr_child(item) {
+        return Doc::text(stripped.to_string());
+    }
+    // `requires <expr>` clauses sit at FN_DECL scope between the
+    // signature head and the body. Until v0.45 T2's printer can handle
+    // them canonically, keep such fns verbatim.
+    if item
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .any(|t| t.kind() == SyntaxKind::REQUIRES_KW)
+    {
+        return Doc::text(stripped.to_string());
+    }
+    // Find the body split point. We look at FN_DECL's direct children +
+    // direct tokens only — the BLOCK node for `fn f() { ... }`, the
+    // direct `=` token for `fn f() = expr;`, or the direct `;` for an
+    // extern-/trait-method signature. Crucially, we do NOT match braces
+    // inside nested nodes like EFFECT_CLAUSE (`!{| E}`).
+    let split = fn_body_split(item);
+    let head_text = match split {
+        Some(off) => &stripped[..off.min(stripped.len())],
+        None => stripped,
+    };
+    if head_has_comment(head_text) {
+        return Doc::text(stripped.to_string());
+    }
+    let Some(sig) = fn_signature_doc(item) else {
+        return Doc::text(stripped.to_string());
+    };
+    match split {
+        Some(off) if off <= stripped.len() => {
+            let tail = &stripped[off..];
+            // The split sits at the body delimiter. The canonical form
+            // joins signature and body with a single space, e.g.
+            // `fn f() -> I32 { ... }`. The tail itself starts with the
+            // delimiter character (`{`/`=`/`;`), so prepend a space.
+            let glue = if tail.starts_with(';') { "" } else { " " };
+            Doc::concat(sig, Doc::text(format!("{glue}{tail}")))
+        }
+        _ => sig,
+    }
+}
+
+/// Locate the byte offset (relative to the FN_DECL's text) where the
+/// body region begins: either the start of a direct BLOCK child, or the
+/// position of a direct `=` token (for `fn f() = expr;`), or the direct
+/// `;` token (signature-only fn).
+fn fn_body_split(item: &SyntaxNode) -> Option<usize> {
+    let base = u32::from(item.text_range().start());
+    let body_block = item
+        .children()
+        .find(|c| c.kind() == SyntaxKind::BLOCK)
+        .map(|c| u32::from(c.text_range().start()));
+    let direct_eq_or_semi = item
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .find(|t| matches!(t.kind(), SyntaxKind::EQ | SyntaxKind::SEMI))
+        .map(|t| u32::from(t.text_range().start()));
+    let best = match (body_block, direct_eq_or_semi) {
+        (Some(b), Some(e)) => Some(b.min(e)),
+        (Some(b), None) => Some(b),
+        (None, Some(e)) => Some(e),
+        (None, None) => None,
+    };
+    best.map(|abs| (abs - base) as usize)
+}
+
+fn struct_decl_or_verbatim(item: &SyntaxNode, stripped: &str) -> Doc {
+    if has_attr_child(item) {
+        return Doc::text(stripped.to_string());
+    }
+    let split = direct_token_offset(item, SyntaxKind::L_BRACE);
+    let head_text = match split {
+        Some(off) => &stripped[..off.min(stripped.len())],
+        None => stripped,
+    };
+    if head_has_comment(head_text) {
+        return Doc::text(stripped.to_string());
+    }
+    let Some(sig) = record_signature_doc(item, "struct") else {
+        return Doc::text(stripped.to_string());
+    };
+    match split {
+        Some(off) if off <= stripped.len() => {
+            let tail = &stripped[off..];
+            Doc::concat(sig, Doc::text(format!(" {tail}")))
+        }
+        // Structs with no body (`struct Foo`) — rare; emit signature only.
+        _ => sig,
+    }
+}
+
+fn enum_decl_or_verbatim(item: &SyntaxNode, stripped: &str) -> Doc {
+    if has_attr_child(item) {
+        return Doc::text(stripped.to_string());
+    }
+    let split = direct_token_offset(item, SyntaxKind::L_BRACE);
+    let head_text = match split {
+        Some(off) => &stripped[..off.min(stripped.len())],
+        None => stripped,
+    };
+    if head_has_comment(head_text) {
+        return Doc::text(stripped.to_string());
+    }
+    let Some(sig) = record_signature_doc(item, "enum") else {
+        return Doc::text(stripped.to_string());
+    };
+    match split {
+        Some(off) if off <= stripped.len() => {
+            let tail = &stripped[off..];
+            Doc::concat(sig, Doc::text(format!(" {tail}")))
+        }
+        _ => sig,
+    }
+}
+
+fn type_alias_or_verbatim(item: &SyntaxNode, stripped: &str) -> Doc {
+    if has_attr_child(item) {
+        return Doc::text(stripped.to_string());
+    }
+    if head_has_comment(stripped) {
+        return Doc::text(stripped.to_string());
+    }
+    type_alias_doc(item).unwrap_or_else(|| Doc::text(stripped.to_string()))
+}
+
+// --- Per-kind signature builders -------------------------------------------
+
+fn fn_signature_doc(item: &SyntaxNode) -> Option<Doc> {
+    let is_pub = item.children().any(|c| c.kind() == SyntaxKind::VISIBILITY);
+    let is_unsafe = item
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .any(|t| t.kind() == SyntaxKind::UNSAFE_KW);
+    let name = item
+        .children()
+        .find(|c| c.kind() == SyntaxKind::NAME)
+        .map(|n| Doc::text(n.text().to_string()))?;
+    let generics = item
+        .children()
+        .find(|c| c.kind() == SyntaxKind::GENERIC_PARAM_LIST)
+        .map(generic_params_doc)
+        .unwrap_or(Doc::nil());
+    let params = item
+        .children()
+        .find(|c| c.kind() == SyntaxKind::FN_PARAM_LIST)
+        .map(fn_param_list_doc)
+        .unwrap_or(Doc::text("()"));
+    let ret = item
+        .children()
+        .find(|c| c.kind() == SyntaxKind::RET_TYPE)
+        .map(|n| {
+            let ty = n
+                .children()
+                .next()
+                .map(|t| super::types::type_expr(&t))
+                .unwrap_or(Doc::nil());
+            Doc::concat(Doc::text(" -> "), ty)
+        })
+        .unwrap_or(Doc::nil());
+    // EFFECT_CLAUSE source text often absorbs trailing trivia (the
+    // parser bumps R_BRACE then `finish_node`, but the next token's
+    // trivia is attached as a child WHITESPACE token of the same
+    // node). Trim it so the canonical glue (` { body }`) doesn't
+    // double-space.
+    let effect = item
+        .children()
+        .find(|c| c.kind() == SyntaxKind::EFFECT_CLAUSE)
+        .map(|n| {
+            let raw = n.text().to_string();
+            Doc::concat(Doc::text(" "), Doc::text(raw.trim().to_string()))
+        })
+        .unwrap_or(Doc::nil());
+
+    let mut head = String::new();
+    if is_pub {
+        head.push_str("pub ");
+    }
+    if is_unsafe {
+        head.push_str("unsafe ");
+    }
+    head.push_str("fn ");
+    Some(Doc::concat_all([
+        Doc::text(head),
+        name,
+        generics,
+        params,
+        ret,
+        effect,
+    ]))
+}
+
+fn record_signature_doc(item: &SyntaxNode, keyword: &str) -> Option<Doc> {
+    let is_pub = item.children().any(|c| c.kind() == SyntaxKind::VISIBILITY);
+    let name = item
+        .children()
+        .find(|c| c.kind() == SyntaxKind::NAME)
+        .map(|n| Doc::text(n.text().to_string()))?;
+    let generics = item
+        .children()
+        .find(|c| c.kind() == SyntaxKind::GENERIC_PARAM_LIST)
+        .map(generic_params_doc)
+        .unwrap_or(Doc::nil());
+    let mut head = String::new();
+    if is_pub {
+        head.push_str("pub ");
+    }
+    head.push_str(keyword);
+    head.push(' ');
+    Some(Doc::concat_all([Doc::text(head), name, generics]))
+}
+
+fn type_alias_doc(item: &SyntaxNode) -> Option<Doc> {
+    let is_pub = item.children().any(|c| c.kind() == SyntaxKind::VISIBILITY);
+    let name = item
+        .children()
+        .find(|c| c.kind() == SyntaxKind::NAME)
+        .map(|n| Doc::text(n.text().to_string()))?;
+    let generics = item
+        .children()
+        .find(|c| c.kind() == SyntaxKind::GENERIC_PARAM_LIST)
+        .map(generic_params_doc)
+        .unwrap_or(Doc::nil());
+    let ty = item
+        .children()
+        .find(|c| is_type_node(c.kind()))
+        .map(|n| super::types::type_expr(&n))?;
+    let has_semi = item
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .any(|t| t.kind() == SyntaxKind::SEMI);
+    let head = if is_pub { "pub type " } else { "type " };
+    let mut out = Doc::concat_all([Doc::text(head), name, generics, Doc::text(" = "), ty]);
+    if has_semi {
+        out = Doc::concat(out, Doc::text(";"));
+    }
+    Some(out)
+}
+
+fn generic_params_doc(list: SyntaxNode) -> Doc {
+    let parts: Vec<Doc> = list
+        .children()
+        .filter(|c| c.kind() == SyntaxKind::GENERIC_PARAM)
+        .map(generic_param_doc)
+        .collect();
+    Doc::concat(
+        Doc::text("["),
+        Doc::concat(Doc::join(Doc::text(", "), parts), Doc::text("]")),
+    )
+}
+
+fn generic_param_doc(param: SyntaxNode) -> Doc {
+    // GENERIC_PARAM: NAME ( ':' type ( '+' type )* )?
+    let name = param
+        .children()
+        .find(|c| c.kind() == SyntaxKind::NAME)
+        .map(|n| Doc::text(n.text().to_string()))
+        .unwrap_or(Doc::nil());
+    let bounds: Vec<Doc> = param
+        .children()
+        .filter(|c| is_type_node(c.kind()))
+        .map(|t| super::types::type_expr(&t))
+        .collect();
+    if bounds.is_empty() {
+        name
+    } else {
+        Doc::concat(
+            name,
+            Doc::concat(Doc::text(": "), Doc::join(Doc::text(" + "), bounds)),
+        )
+    }
+}
+
+fn fn_param_list_doc(list: SyntaxNode) -> Doc {
+    // Preserve multi-line param lists verbatim — corpus files often
+    // wrap many-arg fns one-param-per-line for diff hygiene, and the
+    // single-line canonical form loses that intent. We detect the
+    // multi-line shape by looking for a newline anywhere inside the
+    // list and, when present, emit the source text unchanged.
+    if list.text().to_string().contains('\n') {
+        // Same trailing-trivia caveat as EFFECT_CLAUSE: the parser
+        // attaches the following whitespace token as a child of the
+        // FN_PARAM_LIST node. Trim so the canonical glue around it
+        // ("  ->" / "  {") doesn't double-space.
+        let raw = list.text().to_string();
+        return Doc::text(raw.trim_end().to_string());
+    }
+    let parts: Vec<Doc> = list
+        .children()
+        .filter_map(|c| match c.kind() {
+            SyntaxKind::FN_PARAM => Some(fn_param_doc(&c)),
+            SyntaxKind::VARIADIC_MARKER => Some(Doc::text("...")),
+            _ => None,
+        })
+        .collect();
+    // Preserve a trailing comma if the source had one — keeps the
+    // non-trivia token stream byte-identical for corpus files that
+    // wrote a trailing comma to allow per-line diffs.
+    let has_trailing_comma = source_has_trailing_comma(&list, SyntaxKind::FN_PARAM_LIST);
+    let inner = if parts.is_empty() {
+        Doc::nil()
+    } else {
+        let joined = Doc::join(Doc::text(", "), parts);
+        if has_trailing_comma {
+            Doc::concat(joined, Doc::text(","))
+        } else {
+            joined
+        }
+    };
+    Doc::concat(Doc::text("("), Doc::concat(inner, Doc::text(")")))
+}
+
+/// True if the source had a trailing comma after the last item in the
+/// list — i.e. between the final element node and the closing
+/// delimiter. Walks the list's `children_with_tokens` in reverse,
+/// skipping the trailing delimiter + trivia, and checks whether the
+/// next non-trivia element is a COMMA token rather than a child node.
+fn source_has_trailing_comma(list: &SyntaxNode, _kind: SyntaxKind) -> bool {
+    let mut saw_close = false;
+    for el in list
+        .children_with_tokens()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+    {
+        match el {
+            rowan::NodeOrToken::Token(t) => {
+                if t.kind().is_trivia() {
+                    continue;
+                }
+                if !saw_close {
+                    // Expect a closing delimiter as the first non-trivia
+                    // token from the right.
+                    saw_close = true;
+                    continue;
+                }
+                return t.kind() == SyntaxKind::COMMA;
+            }
+            rowan::NodeOrToken::Node(_) => {
+                // Hit an element node before any comma → no trailing
+                // comma in the source.
+                return false;
+            }
+        }
+    }
+    false
+}
+
+fn fn_param_doc(param: &SyntaxNode) -> Doc {
+    // FN_PARAM: ( SELF_KW | NAME ) ( ':' type )?
+    // (Attributes inside FN_PARAM keep the param verbatim — same safety
+    // rule as the FN_DECL outer guard.)
+    let raw = param.text().to_string();
+    if raw.trim_start().starts_with('#') || raw.contains("//") || raw.contains("/*") {
+        return Doc::text(raw.trim().to_string());
+    }
+    let is_self = param
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .any(|t| t.kind() == SyntaxKind::SELF_KW);
+    let name = if is_self {
+        Doc::text("self")
+    } else {
+        param
+            .children()
+            .find(|c| c.kind() == SyntaxKind::NAME)
+            .map(|n| Doc::text(n.text().to_string()))
+            .unwrap_or(Doc::nil())
+    };
+    let ty = param
+        .children()
+        .find(|c| is_type_node(c.kind()))
+        .map(|n| super::types::type_expr(&n));
+    match ty {
+        Some(t) => Doc::concat(name, Doc::concat(Doc::text(": "), t)),
+        None => name,
+    }
+}
+
+// --- Helpers ---------------------------------------------------------------
+
+fn has_attr_child(item: &SyntaxNode) -> bool {
+    item.children()
+        .any(|c| matches!(c.kind(), SyntaxKind::ATTR | SyntaxKind::TOOL_ATTR))
+}
+
+fn head_has_comment(s: &str) -> bool {
+    s.contains("//") || s.contains("/*")
+}
+
+/// Return the byte offset, relative to the item's text, of the first
+/// *direct-child* token whose kind matches `kind`. Direct children only —
+/// tokens inside nested nodes are skipped. Used to find body delimiters
+/// like the `{` that follows a struct/enum signature, without matching
+/// a `{` that's nested inside an effect clause's `!{...}` body.
+fn direct_token_offset(item: &SyntaxNode, kind: SyntaxKind) -> Option<usize> {
+    let base = u32::from(item.text_range().start());
+    let tok = item
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .find(|t| t.kind() == kind)?;
+    let abs = u32::from(tok.text_range().start());
+    Some((abs - base) as usize)
 }
 
 fn is_type_node(k: SyntaxKind) -> bool {

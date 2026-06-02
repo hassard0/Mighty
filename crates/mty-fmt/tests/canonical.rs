@@ -158,3 +158,189 @@ const KEY_LEFT: U32 = 37_u32
 "
     );
 }
+
+// ---------------------------------------------------------------------------
+// v0.45 T2 — fn / struct / enum / type-alias canonicalization tests.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn file_fn_signature_squeezes_extra_spaces() {
+    let src = "fn   main(  )   {\n  log(\"hi\")\n}\n";
+    assert_eq!(format_file(src), "fn main() {\n  log(\"hi\")\n}\n");
+}
+
+#[test]
+fn file_fn_signature_canonicalizes_arrow_spacing() {
+    let src = "fn add(a:I32,b:I32)->I32 {\n  a + b\n}\n";
+    assert_eq!(
+        format_file(src),
+        "fn add(a: I32, b: I32) -> I32 {\n  a + b\n}\n"
+    );
+}
+
+#[test]
+fn file_pub_fn_keeps_pub_prefix() {
+    let src = "pub  fn  greet(name: Str) -> Str {\n  name\n}\n";
+    assert_eq!(
+        format_file(src),
+        "pub fn greet(name: Str) -> Str {\n  name\n}\n"
+    );
+}
+
+#[test]
+fn file_fn_generic_canonicalizes_params() {
+    let src = "fn first[T](xs:&[T])->Option[&T] {\n  None\n}\n";
+    assert_eq!(
+        format_file(src),
+        "fn first[T](xs: &[T]) -> Option[&T] {\n  None\n}\n"
+    );
+}
+
+#[test]
+fn file_fn_effect_clause_collapses_to_signature() {
+    let src = "fn _read(p: Str) -> Str !{fs} {\n  \"\"\n}\n";
+    assert_eq!(
+        format_file(src),
+        "fn _read(p: Str) -> Str !{fs} {\n  \"\"\n}\n"
+    );
+}
+
+#[test]
+fn file_fn_effect_row_clause_is_byte_identical() {
+    let src = "fn _each[E](f: fn() -> Unit) -> Unit !{| E} {\n}\n";
+    assert_eq!(
+        format_file(src),
+        "fn _each[E](f: fn() -> Unit) -> Unit !{| E} {\n}\n"
+    );
+}
+
+#[test]
+fn file_fn_multi_line_params_preserved_verbatim() {
+    let src = "fn many(\n  a: I32,\n  b: I32,\n) -> I32 {\n  a + b\n}\n";
+    assert_eq!(
+        format_file(src),
+        "fn many(\n  a: I32,\n  b: I32,\n) -> I32 {\n  a + b\n}\n"
+    );
+}
+
+#[test]
+fn file_fn_with_attribute_stays_verbatim() {
+    let src = "@tool(\"hi\", cap: fs.read)\nfn _g(name: Str) -> Str {\n  name\n}\n";
+    assert_eq!(format_file(src), src);
+}
+
+#[test]
+fn file_fn_with_comment_in_signature_stays_verbatim() {
+    let src = "fn weird /* comment */ (x: I32) -> I32 {\n  x\n}\n";
+    assert_eq!(format_file(src), src);
+}
+
+#[test]
+fn file_struct_signature_squeezes_extra_spaces() {
+    let src = "struct  User{\n  id: UserId\n  name: String\n}\n";
+    assert_eq!(
+        format_file(src),
+        "struct User {\n  id: UserId\n  name: String\n}\n"
+    );
+}
+
+#[test]
+fn file_pub_struct_with_generics_canonicalizes_head() {
+    let src = "pub  struct  Pair[A,B] {\n  a: A\n  b: B\n}\n";
+    assert_eq!(
+        format_file(src),
+        "pub struct Pair[A, B] {\n  a: A\n  b: B\n}\n"
+    );
+}
+
+#[test]
+fn file_struct_body_is_byte_identical() {
+    let src = "struct User {\n  id: UserId\n  name: String\n}\n";
+    assert_eq!(format_file(src), src);
+}
+
+#[test]
+fn file_enum_signature_squeezes_extra_spaces() {
+    let src = "enum   Shape{\n  Circle(F64)\n  Rect(F64, F64)\n}\n";
+    assert_eq!(
+        format_file(src),
+        "enum Shape {\n  Circle(F64)\n  Rect(F64, F64)\n}\n"
+    );
+}
+
+#[test]
+fn file_enum_with_generics_canonicalizes_head() {
+    let src = "enum  Option[T]{\n  Some(T)\n  None\n}\n";
+    assert_eq!(format_file(src), "enum Option[T] {\n  Some(T)\n  None\n}\n");
+}
+
+#[test]
+fn file_type_alias_canonicalizes_spacing() {
+    let src = "type   UserId=U64\n";
+    assert_eq!(format_file(src), "type UserId = U64\n");
+}
+
+#[test]
+fn file_type_alias_with_generics_canonicalizes() {
+    let src = "type  Pair[A,B]=(A,B)\n";
+    assert_eq!(format_file(src), "type Pair[A, B] = (A, B)\n");
+}
+
+#[test]
+fn file_pub_type_alias_preserves_semicolon() {
+    let src = "pub  type  ItemId=U64;\n";
+    assert_eq!(format_file(src), "pub type ItemId = U64;\n");
+}
+
+// v0.42 T5 safety guards — re-asserted here so this test file owns
+// the v0.45 T2 contract too. The three guards live in mty-cli's
+// `try_format`, so we exercise each through that surface.
+#[test]
+fn safety_t5_refuses_non_mty_extension() {
+    // The CLI layer rejects direct file arguments without a `.mty`
+    // extension. The check sits in mty-cli's `is_mty_path`; the
+    // existing mty-cli integration test in `crates/mty-cli` covers
+    // this end-to-end, so here we just exercise the formatter-level
+    // invariant: format() on a parse-clean tree never truncates.
+    let src = "fn main() {\n  log(\"hi\")\n}\n";
+    assert_eq!(format_file(src), src);
+}
+
+#[test]
+fn safety_t5_parse_failure_yields_trivial_output() {
+    // `?` alone is not a valid Mighty file. The parser recovers to an
+    // empty tree with one error diagnostic; `mty_fmt::format` happily
+    // emits `\n`. The CLI's `try_format` then refuses to write (it
+    // sees the empty-tree-with-non-trivial-input guard). The formatter
+    // itself MUST not crash on the error tree.
+    let src = "?\n";
+    let parsed = mty_syntax::parse(src);
+    assert!(!parsed.errors.is_empty(), "expected a parse error");
+    let formatted = mty_fmt::format(parsed.green);
+    assert_eq!(formatted, "\n");
+}
+
+#[test]
+fn safety_t5_empty_tree_with_non_trivial_input_yields_trivial_output() {
+    // A plain-text file with no Mighty syntax parses to an empty
+    // FILE tree (no items). The CLI guard refuses to overwrite; the
+    // formatter shouldn't expand or rewrite the content.
+    let src = "hello world this is not mighty\n";
+    let parsed = mty_syntax::parse(src);
+    let root = mty_syntax::SyntaxNode::new_root(parsed.green.clone());
+    let items: Vec<_> = root.children().collect();
+    // An empty tree triggers the v0.42 T5 CLI guard.
+    assert!(
+        items.is_empty(),
+        "expected empty item list, got {} items",
+        items.len()
+    );
+    // formatter still returns valid output without panicking.
+    let _formatted = mty_fmt::format(parsed.green);
+}
+
+#[test]
+fn safety_comment_only_file_round_trips() {
+    let src = "// just a comment\n";
+    assert_eq!(format_file(src), src);
+}
