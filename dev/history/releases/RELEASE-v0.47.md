@@ -95,6 +95,20 @@ integration validation pass caught and fixed (both folded into PR #38):
   non-literal Str args on `--features llvm`).
 - Cranelift/LLVM array-index projection stores (`Projection::Index`
   still `Unsupported` on both backends).
+- **Cranelift struct field-assignment codegen bugs** (pre-existing,
+  surfaced by T2's new Cranelift parity suite). Two distinct defects,
+  both `#[ignore]`d in `projection_store_v047` with a v0.48 fix task:
+  (a) **sibling corruption** — construction and projection disagree on
+  the layout/boxing of a sub-8-byte-offset field (`y: I32` at offset 4),
+  so `p.x = 5` then reading `p.y` yields garbage (offset-0 and 8-aligned
+  fields are fine, which is why single-field writes like the T2 L15
+  motivator `md.is_file = true` work); (b) **nested-aggregate stores**
+  (`o.inner.x = 7`) — the child aggregate is boxed and the read path
+  dereferences it, but `place_addr` (write path) projects inline,
+  corrupting the child pointer. These are in the Cranelift backend
+  (T2's actual deliverable is the LLVM `lower_assign` projection-store,
+  validated by the LLVM IR-text suite); the Cranelift struct-codegen
+  realignment is tracked separately.
 - DirIter auto-Drop on the panic-unwind path (Mighty aborts on panic
   today, so a panicking scope does not run Drop — revisit when
   unwinding lands).
