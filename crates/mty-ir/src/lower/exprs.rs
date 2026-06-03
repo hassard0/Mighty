@@ -142,7 +142,17 @@ pub fn lower_expr(ctx: &mut LowerCtx, fb: &mut FnBuilder, eid: ExprId) -> Operan
             let field_idx = resolve_field_index(ctx, receiver, &name)
                 .or_else(|| stdlib_field_index(&name))
                 .unwrap_or(0);
-            let temp = fb.fresh_temp(IrTy::Error);
+            // v0.48 T1 — type the field-read result temp with the
+            // field's actual type. Was `IrTy::Error`, which forced
+            // cranelift's `place_addr` into its i64-per-field fallback
+            // when the temp was projected further (`o.inner.x` reads
+            // `o.inner` into this temp, then `.x` off it — the poisoned
+            // temp made `.x` load 8 bytes / wrong offset). Synthetic
+            // swarm-dispatcher structs still carry `IrTy::Error` in the
+            // typed arena, so `lower_ty` keeps them `Error` (the
+            // field-index fallback above is preserved for them).
+            let field_ty = crate::lower::ty::lower_ty(ctx.expr_ty(eid), &ctx.typed.ty_arena);
+            let temp = fb.fresh_temp(field_ty);
             let recv_place = operand_to_place(fb, recv);
             fb.push_stmt(Stmt::Assign(
                 Place::local(temp),

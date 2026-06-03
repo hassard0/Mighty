@@ -130,7 +130,6 @@ fn main() -> I64 {
 // This is pre-existing cranelift codegen (T2 only added these parity
 // tests); the fix is tracked as a v0.48 task. See RELEASE-v0.47.md.
 #[test]
-#[ignore = "cranelift struct field-assignment sibling corruption — pre-existing, v0.48 task"]
 fn writing_x_does_not_corrupt_y() {
     let src = r#"
 struct Point { x: I32, y: I32 }
@@ -156,10 +155,16 @@ fn main() -> I64 {
 // overwrites the `inner` pointer instead of the child's `x`, and the
 // readback then dereferences the corrupted pointer (SIGSEGV). Single-
 // level projection stores (the L15 `md.is_file = true` motivator) work;
-// the nested case needs the construct/read/write paths realigned. See
-// `dev/history/releases/RELEASE-v0.47.md` carry-forward.
+// v0.48 T1 update: the nested-WRITE now works (the field-assignment +
+// single-level sibling corruption are fixed by typing let-bindings and
+// field-read temps with their real ADT type). The remaining failure is
+// narrower — the nested READBACK `let v = o.inner.x` loads i64: the
+// type-checker leaves the intermediate `o.inner` access at `Error`, so
+// `place_addr` still falls back on the final `.x` projection. Fixing it
+// needs the type-checker to type intermediate field accesses (or
+// `place_addr` to carry field-type through poisoned projections).
 #[test]
-#[ignore = "nested-aggregate projection store — known cranelift limitation, v0.47 carry-forward"]
+#[ignore = "nested field READBACK loads i64 — type-checker leaves intermediate o.inner at Error; v0.48 follow-up"]
 fn nested_struct_field_write_threads_two_projections() {
     let src = r#"
 struct Inner { x: I32, y: I32 }
@@ -175,7 +180,6 @@ fn main() -> I64 {
 }
 
 #[test]
-#[ignore = "nested-aggregate projection store — known cranelift limitation, v0.47 carry-forward"]
 fn nested_field_write_preserves_sibling_in_outer() {
     let src = r#"
 struct Inner { x: I32, y: I32 }
