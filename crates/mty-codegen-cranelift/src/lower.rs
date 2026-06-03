@@ -2569,12 +2569,7 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                     {
                         let hdr = self.vec_header(va.op)?;
                         let mf = cranelift_codegen::ir::MemFlags::trusted();
-                        let data_ptr = self.b.ins().load(
-                            ct::I64,
-                            mf,
-                            hdr,
-                            Self::VEC_DATA_OFF,
-                        );
+                        let data_ptr = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_DATA_OFF);
                         let cap = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_CAP_OFF);
                         // header_ptr+0 is the len field (VEC_LEN_OFF
                         // == 0), so we hand the header pointer
@@ -2727,14 +2722,11 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                         sig.returns.push(AbiParam::new(cl_ty_for(&callee_ret_ty)));
                     }
                     for (i, t) in callee_param_tys.iter().enumerate() {
-                        let is_mut_slot =
-                            callee_mut_params.get(i).copied().unwrap_or(false);
+                        let is_mut_slot = callee_mut_params.get(i).copied().unwrap_or(false);
                         // v0.47 T1 — `mut Vec[U8]` expands to three
                         // i64 slots (ptr, cap, len_ptr). Mirror
                         // `build_extern_signature_with_mut` here.
-                        if is_mut_slot
-                            && crate::abi::is_mut_vec_u8_param(t, &self.prog.adts)
-                        {
+                        if is_mut_slot && crate::abi::is_mut_vec_u8_param(t, &self.prog.adts) {
                             sig.params.push(AbiParam::new(ct::I64)); // ptr
                             sig.params.push(AbiParam::new(ct::I64)); // cap
                             sig.params.push(AbiParam::new(ct::I64)); // len_ptr

@@ -314,8 +314,7 @@ pub fn is_mut_vec_u8_param(p: &IrTy, adts: &[AdtRef]) -> bool {
     if !matches!(&args[0], IrTy::Int(mty_types::IntKind::U8)) {
         return false;
     }
-    adts.iter()
-        .any(|a| a.adt == *id && a.name == "Vec")
+    adts.iter().any(|a| a.adt == *id && a.name == "Vec")
 }
 
 #[cfg(test)]

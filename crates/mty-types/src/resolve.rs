@@ -653,8 +653,7 @@ fn declare_item(
                 // Only meaningful for extern-c; for non-extern fns
                 // the parser still accepts the prefix but the type
                 // checker rejects it via MT2031.
-                let mut_params: Vec<bool> =
-                    hf.params.iter().map(|p| p.is_mut).collect();
+                let mut_params: Vec<bool> = hf.params.iter().map(|p| p.is_mut).collect();
                 let fdef_id = defs.alloc_fn(FnDef {
                     name: hf.name.clone(),
                     generics: vec![],

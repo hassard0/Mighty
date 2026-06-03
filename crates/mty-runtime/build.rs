@@ -178,10 +178,7 @@ fn split_version(v: &str) -> (u32, u32, u32) {
     let minor = parts.next().unwrap_or("0");
     let patch = parts.next().unwrap_or("0");
     // Strip suffixes like `-rc1` / `+build` off the patch.
-    let patch_clean: String = patch
-        .chars()
-        .take_while(|c| c.is_ascii_digit())
-        .collect();
+    let patch_clean: String = patch.chars().take_while(|c| c.is_ascii_digit()).collect();
     (
         major.parse().unwrap_or(0),
         minor.parse().unwrap_or(0),
@@ -463,18 +460,10 @@ fn render_header(fns: &[AbiFn], version: &str) -> String {
     s.push_str("#ifndef MTY_RUNTIME_ABI_H\n");
     s.push_str("#define MTY_RUNTIME_ABI_H\n\n");
     s.push_str("#include <stdint.h>\n\n");
-    s.push_str(&format!(
-        "#define MTY_RUNTIME_ABI_VERSION \"{version}\"\n"
-    ));
-    s.push_str(&format!(
-        "#define MTY_RUNTIME_ABI_VERSION_MAJOR {major}\n"
-    ));
-    s.push_str(&format!(
-        "#define MTY_RUNTIME_ABI_VERSION_MINOR {minor}\n"
-    ));
-    s.push_str(&format!(
-        "#define MTY_RUNTIME_ABI_VERSION_PATCH {patch}\n"
-    ));
+    s.push_str(&format!("#define MTY_RUNTIME_ABI_VERSION \"{version}\"\n"));
+    s.push_str(&format!("#define MTY_RUNTIME_ABI_VERSION_MAJOR {major}\n"));
+    s.push_str(&format!("#define MTY_RUNTIME_ABI_VERSION_MINOR {minor}\n"));
+    s.push_str(&format!("#define MTY_RUNTIME_ABI_VERSION_PATCH {patch}\n"));
     // v0.47 T3 — a single encoded integer so consumers can do
     // `#if MTY_RUNTIME_ABI_VERSION_NUMBER >= 4700` style compile-time
     // comparisons against one value instead of three separate macros.

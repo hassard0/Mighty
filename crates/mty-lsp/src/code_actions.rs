@@ -137,7 +137,14 @@ pub fn code_actions_with_config(
     diagnostics: &[tower_lsp::lsp_types::Diagnostic],
     cfg: CodeActionConfig,
 ) -> CodeActionResponse {
-    code_actions_with_caps(uri, doc, cursor_range, diagnostics, cfg, WorkspaceEditCaps::default())
+    code_actions_with_caps(
+        uri,
+        doc,
+        cursor_range,
+        diagnostics,
+        cfg,
+        WorkspaceEditCaps::default(),
+    )
 }
 
 /// Like [`code_actions_with_config`] but also honours the v0.47 T5

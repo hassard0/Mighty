@@ -227,10 +227,7 @@ pub fn rename_with_caps(
         let document_changes: Vec<TextDocumentEdit> = per_file
             .into_iter()
             .map(|(uri, version, edits)| TextDocumentEdit {
-                text_document: OptionalVersionedTextDocumentIdentifier {
-                    uri,
-                    version,
-                },
+                text_document: OptionalVersionedTextDocumentIdentifier { uri, version },
                 edits: edits.into_iter().map(OneOf::Left).collect(),
             })
             .collect();

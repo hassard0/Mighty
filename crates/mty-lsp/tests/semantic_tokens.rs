@@ -10,8 +10,8 @@ use mty_lsp::semantic_tokens::{
     full, full_delta, full_with_cache, legend, range, DeltaCache, LEGEND_TYPES,
 };
 use tower_lsp::lsp_types::{
-    Position, Range, SemanticTokensFullDeltaResult, SemanticTokensRangeResult, SemanticTokensResult,
-    Url,
+    Position, Range, SemanticTokensFullDeltaResult, SemanticTokensRangeResult,
+    SemanticTokensResult, Url,
 };
 
 fn analyze(src: &str) -> DocAnalysis {

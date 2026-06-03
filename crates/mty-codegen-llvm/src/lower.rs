@@ -19,8 +19,8 @@ use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum};
 use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, IntPredicate, OptimizationLevel};
 use mty_ir::ir::{
-    AdtRef, BinOp, BlockId, BuiltinId, Const, FnRef, Function, IrFnId, IrTy, Local, Operand,
-    Place, Program, Projection, Rvalue, Stmt, Term, UnOp,
+    AdtRef, BinOp, BlockId, BuiltinId, Const, FnRef, Function, IrFnId, IrTy, Local, Operand, Place,
+    Program, Projection, Rvalue, Stmt, Term, UnOp,
 };
 use mty_types::AdtId;
 use mty_types::{FloatKind, IntKind};
@@ -1033,16 +1033,11 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                             .pl
                             .prog
                             .adt_by_id(*id)
-                            .ok_or_else(|| {
-                                LlvmError::Module(format!("missing adt {:?}", id))
-                            })?
+                            .ok_or_else(|| LlvmError::Module(format!("missing adt {:?}", id)))?
                             .clone();
                         let (off, fld_ty) = Self::struct_field_offset(self.pl.prog, &adt, *idx)
                             .ok_or_else(|| {
-                                LlvmError::Module(format!(
-                                    "bad field {} in {}",
-                                    idx, adt.name
-                                ))
+                                LlvmError::Module(format!("bad field {} in {}", idx, adt.name))
                             })?;
                         cur_addr = self.byte_gep(cur_addr, off);
                         cur_ty = fld_ty;
@@ -1058,9 +1053,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                     let elems = match &cur_ty {
                         IrTy::Tuple(elems) => elems.clone(),
                         _ => {
-                            return Err(LlvmError::Unsupported(
-                                "tuple proj on non-tuple".into(),
-                            ));
+                            return Err(LlvmError::Unsupported("tuple proj on non-tuple".into()));
                         }
                     };
                     let (off, fld_ty) = Self::tuple_offset(self.pl.prog, &elems, *idx)
@@ -1074,9 +1067,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                             .pl
                             .prog
                             .adt_by_id(*id)
-                            .ok_or_else(|| {
-                                LlvmError::Module(format!("missing adt {:?}", id))
-                            })?
+                            .ok_or_else(|| LlvmError::Module(format!("missing adt {:?}", id)))?
                             .clone();
                         let (off, fld_ty) =
                             Self::variant_field_offset(self.pl.prog, &adt, *variant, *field)
@@ -1120,9 +1111,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                     };
                 }
                 Projection::Index(_) => {
-                    return Err(LlvmError::Unsupported(
-                        "llvm array index projection".into(),
-                    ));
+                    return Err(LlvmError::Unsupported("llvm array index projection".into()));
                 }
             }
         }
@@ -1339,10 +1328,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
         for (i, op) in fields.iter().enumerate() {
             let (off, f_ty) = Self::variant_field_offset(self.pl.prog, &adt, variant, i)
                 .ok_or_else(|| {
-                    LlvmError::Module(format!(
-                        "bad init field {}.{} in {}",
-                        variant, i, adt.name
-                    ))
+                    LlvmError::Module(format!("bad init field {}.{} in {}", variant, i, adt.name))
                 })?;
             let field_addr = self.byte_gep(addr, off);
             let v = self.eval_operand(op)?;
@@ -1444,8 +1430,8 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
         // AdtInit / TupleInit fast-path so subsequent field reads /
         // writes have actual bytes to address.
         let local_ty = self.f.locals[place.local.0 as usize].ty.clone();
-        let agg_target = Self::is_aggregate_ty(&local_ty)
-            && !Self::is_opaque_adt_ty(self.pl.prog, &local_ty);
+        let agg_target =
+            Self::is_aggregate_ty(&local_ty) && !Self::is_opaque_adt_ty(self.pl.prog, &local_ty);
         match rv {
             Rvalue::AdtInit {
                 adt,
@@ -1565,11 +1551,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                     // path the codegen used pre-fix).
                     let (addr, ty) = self.place_addr(p)?;
                     if let Some(want) = self.field_load_ty(&ty) {
-                        return Ok(self
-                            .pl
-                            .builder
-                            .build_load(want, addr, "fld_load")
-                            .unwrap());
+                        return Ok(self.pl.builder.build_load(want, addr, "fld_load").unwrap());
                     }
                     // Aggregate / Str field: hand back the
                     // (computed) pointer so callers that need a
@@ -1956,9 +1938,8 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                 // single-slot path.
                 let binding = self.pl.prog.extern_bindings.get(callee_id);
                 let is_extern_c = binding.map(|b| b.abi == "c").unwrap_or(false);
-                let callee_mut_params: Vec<bool> = binding
-                    .map(|b| b.mut_params.clone())
-                    .unwrap_or_default();
+                let callee_mut_params: Vec<bool> =
+                    binding.map(|b| b.mut_params.clone()).unwrap_or_default();
                 let mut arg_vals: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = Vec::new();
                 let mut callee_param_tys: Vec<IrTy> = callee_fn
                     .params
@@ -2011,16 +1992,16 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                         let cap = self.vec_load_cap(hdr);
                         // header_ptr+0 is the len field; the C callee
                         // writes `*out_len = N` straight into it.
-                        let hdr_int = self.pl.builder.build_ptr_to_int(
-                            hdr,
-                            self.pl.i64_ty(),
-                            "vhdr_i",
-                        ).unwrap();
-                        let data_int = self.pl.builder.build_ptr_to_int(
-                            data,
-                            self.pl.i64_ty(),
-                            "vdata_i",
-                        ).unwrap();
+                        let hdr_int = self
+                            .pl
+                            .builder
+                            .build_ptr_to_int(hdr, self.pl.i64_ty(), "vhdr_i")
+                            .unwrap();
+                        let data_int = self
+                            .pl
+                            .builder
+                            .build_ptr_to_int(data, self.pl.i64_ty(), "vdata_i")
+                            .unwrap();
                         let data_bv: BasicValueEnum<'ctx> = data_int.into();
                         let cap_bv: BasicValueEnum<'ctx> = cap.into();
                         let hdr_bv: BasicValueEnum<'ctx> = hdr_int.into();
@@ -2059,10 +2040,7 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                         .copied()
                         .unwrap_or(false);
                     callee_param_idx += 1;
-                    if is_extern_c
-                        && is_mut_slot
-                        && is_mut_vec_u8_ty(&t, &self.pl.prog.adts)
-                    {
+                    if is_extern_c && is_mut_slot && is_mut_vec_u8_ty(&t, &self.pl.prog.adts) {
                         let z1: BasicValueEnum<'ctx> = self.pl.i64_ty().const_zero().into();
                         let z2: BasicValueEnum<'ctx> = self.pl.i64_ty().const_zero().into();
                         let z3: BasicValueEnum<'ctx> = self.pl.i64_ty().const_zero().into();

@@ -251,10 +251,7 @@ fn header_minor_macro_accepts_minimum_compat_check() {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
-    let tmpdir = std::env::temp_dir().join(format!(
-        "mty-abi-compat-{}",
-        std::process::id()
-    ));
+    let tmpdir = std::env::temp_dir().join(format!("mty-abi-compat-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&tmpdir);
     let header_path = tmpdir.join("mty_runtime_abi.h");
     std::fs::write(&header_path, RUNTIME_ABI_HEADER).expect("write tmp header");

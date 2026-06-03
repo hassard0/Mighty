@@ -26,8 +26,8 @@ use tower_lsp::lsp_types::{
     RenameOptions, RenameParams, SemanticTokensDeltaParams, SemanticTokensFullDeltaResult,
     SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
     SemanticTokensRangeParams, SemanticTokensRangeResult, SemanticTokensResult,
-    SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo,
-    SignatureHelp, SignatureHelpOptions, SignatureHelpParams, TextDocumentPositionParams,
+    SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, SignatureHelp,
+    SignatureHelpOptions, SignatureHelpParams, TextDocumentPositionParams,
     TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, WorkDoneProgressOptions,
     WorkspaceEdit, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
 };
@@ -402,7 +402,9 @@ impl LanguageServer for Backend {
         let Ok(mut cache) = self.semantic_tokens_cache.write() else {
             return Ok(Some(semantic_tokens::full(&doc)));
         };
-        Ok(Some(semantic_tokens::full_with_cache(&uri, &doc, &mut cache)))
+        Ok(Some(semantic_tokens::full_with_cache(
+            &uri, &doc, &mut cache,
+        )))
     }
 
     async fn semantic_tokens_range(

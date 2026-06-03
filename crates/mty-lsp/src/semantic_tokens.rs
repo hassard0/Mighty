@@ -624,9 +624,7 @@ pub fn full_delta(
     let tokens = collect(doc, None);
     let new_data = encode(&tokens);
 
-    let prev = cache
-        .get(uri, previous_result_id)
-        .map(|s| s.data.clone());
+    let prev = cache.get(uri, previous_result_id).map(|s| s.data.clone());
 
     match prev {
         None => {
@@ -753,7 +751,10 @@ mod tests {
         let a = vec![st(0, 0, T_KEYWORD), st(0, 3, T_FUNCTION)];
         let b = a.clone();
         let edits = diff_tokens(&a, &b);
-        assert!(edits.is_empty(), "identical streams should produce no edits");
+        assert!(
+            edits.is_empty(),
+            "identical streams should produce no edits"
+        );
     }
 
     #[test]

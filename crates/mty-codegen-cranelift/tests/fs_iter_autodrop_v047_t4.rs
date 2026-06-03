@@ -117,11 +117,7 @@ fn main() {
     // `Stmt::Drop(local)` whose local's declared type is the DirIter
     // ADT (the post-pass should have inserted it before the
     // `Term::Return`).
-    let main_fn = prog
-        .fns
-        .iter()
-        .find(|f| f.name == "main")
-        .expect("main fn");
+    let main_fn = prog.fns.iter().find(|f| f.name == "main").expect("main fn");
     let dir_iter_adt = match typed.def_map.lookup("DirIter") {
         Some(mty_types::DefRef::Adt(a)) => a,
         _ => panic!("DirIter ADT must be registered in the prelude"),

@@ -179,10 +179,7 @@ fn main() -> I64 {
         ll.contains("getelementptr inbounds i8") && ll.contains("i64 4"),
         "expected byte-offset GEP with i64 4 for p.y:\n{ll}"
     );
-    assert!(
-        ll.contains("store i32 9"),
-        "expected `store i32 9`:\n{ll}"
-    );
+    assert!(ll.contains("store i32 9"), "expected `store i32 9`:\n{ll}");
 }
 
 // ============================================================================
