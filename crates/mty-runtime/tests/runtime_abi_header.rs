@@ -157,7 +157,7 @@ fn numeric_version_macros_match_string() {
     // The version string may have a pre-release suffix on dev
     // builds (e.g. `"0.47.0-rc1"`); strip that for the equality.
     let canonical = RUNTIME_ABI_VERSION
-        .split(|c: char| c == '-' || c == '+')
+        .split(['-', '+'])
         .next()
         .unwrap_or(RUNTIME_ABI_VERSION);
     assert_eq!(

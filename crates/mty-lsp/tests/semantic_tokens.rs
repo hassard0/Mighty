@@ -209,9 +209,8 @@ fn full_delta_returns_no_edits_when_source_unchanged() {
 
     let doc2 = analyze_with_version(src, 2);
     let result = full_delta(&uri(), &doc2, &rid, &mut cache);
-    let delta = match result {
-        SemanticTokensFullDeltaResult::TokensDelta(d) => d,
-        _ => panic!("expected TokensDelta"),
+    let SemanticTokensFullDeltaResult::TokensDelta(delta) = result else {
+        panic!("expected TokensDelta")
     };
     assert!(
         delta.edits.is_empty(),

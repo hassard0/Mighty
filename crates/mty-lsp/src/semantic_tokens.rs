@@ -593,6 +593,11 @@ impl DeltaCache {
     pub fn len(&self) -> usize {
         self.snapshots.len()
     }
+
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.snapshots.is_empty()
+    }
 }
 
 /// `textDocument/semanticTokens/full/delta` handler body.

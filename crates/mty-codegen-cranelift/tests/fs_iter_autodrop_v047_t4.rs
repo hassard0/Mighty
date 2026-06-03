@@ -118,9 +118,8 @@ fn main() {
     // ADT (the post-pass should have inserted it before the
     // `Term::Return`).
     let main_fn = prog.fns.iter().find(|f| f.name == "main").expect("main fn");
-    let dir_iter_adt = match typed.def_map.lookup("DirIter") {
-        Some(mty_types::DefRef::Adt(a)) => a,
-        _ => panic!("DirIter ADT must be registered in the prelude"),
+    let Some(mty_types::DefRef::Adt(dir_iter_adt)) = typed.def_map.lookup("DirIter") else {
+        panic!("DirIter ADT must be registered in the prelude");
     };
     let mut saw_drop_of_dir_iter = false;
     for blk in &main_fn.blocks {
@@ -293,9 +292,8 @@ fn open_and_maybe_bail(p: Str) -> Unit {
     let typed = mty_types::check_package_typed(&pkg);
     let prog = lower_package(&pkg, &typed);
 
-    let dir_iter_adt = match typed.def_map.lookup("DirIter") {
-        Some(mty_types::DefRef::Adt(a)) => a,
-        _ => panic!("DirIter ADT must be registered in the prelude"),
+    let Some(mty_types::DefRef::Adt(dir_iter_adt)) = typed.def_map.lookup("DirIter") else {
+        panic!("DirIter ADT must be registered in the prelude");
     };
 
     let func = prog
