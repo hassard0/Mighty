@@ -62,9 +62,25 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: cargo test --workspace
 
-      - name: cargo test (Windows serial)
+      # Windows uses cargo-nextest instead of serial `cargo test`: it
+      # runs each test in its own process and TERMINATES a hung test
+      # (per-test timeout in .config/nextest.toml `profile.ci`) so a
+      # flaky deadlock surfaces by name instead of stalling the job for
+      # ~6h. It also parallelises — the v0.42 T1 disk reason for
+      # `--test-threads=1` is already handled by CARGO_PROFILE_TEST_DEBUG=0.
+      - name: Install cargo-nextest (Windows)
         if: matrix.os == 'windows-latest'
-        run: cargo test --workspace -- --test-threads=1 --nocapture
+        uses: taiki-e/install-action@nextest
+
+      - name: cargo nextest (Windows, per-test timeout)
+        if: matrix.os == 'windows-latest'
+        timeout-minutes: 60
+        run: cargo nextest run --workspace --profile ci
+
+      - name: cargo test --doc (Windows)
+        if: matrix.os == 'windows-latest'
+        timeout-minutes: 20
+        run: cargo test --workspace --doc
 
       - name: stdlib hover-catalog drift + surface audit (Linux only)
         if: matrix.os == 'ubuntu-latest'

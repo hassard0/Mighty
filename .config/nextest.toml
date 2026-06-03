@@ -1,0 +1,25 @@
+# v0.47 — Windows CI hang guard + speedup.
+#
+# The serial libtest windows job (`cargo test -- --test-threads=1`)
+# could stall for ~6h when a flaky test deadlocked: libtest has no
+# per-test timeout, so one hung test blocks the whole job until the
+# GitHub 6h ceiling cancels it (see the cancelled main-branch runs on
+# 2026-06-02). cargo-nextest runs each test in its own process and
+# TERMINATES any test still running after `terminate-after × period`,
+# so a hung test surfaces by name as a timed-out failure instead of
+# stalling the job.
+#
+# It also parallelises the run. The v0.42 T1 reason for forcing
+# `--test-threads=1` on Windows was build-time disk pressure from
+# debuginfo-heavy test binaries; that is already mitigated globally via
+# `CARGO_PROFILE_TEST_DEBUG: 0` in `.github/workflows/ci.yml`, so the
+# serial constraint is now pure slowness (a clean windows job took
+# ~3h12m). nextest parallelism cuts it to minutes.
+[profile.ci]
+# Warn at 60s, then kill any test still running after 3×60s = 180s and
+# mark it failed (timed out). No real test should run anywhere near
+# this long; a 180s test IS the hang.
+slow-timeout = { period = "60s", terminate-after = 3 }
+# Run the whole suite so every slow/hung test is reported, not just the
+# first.
+fail-fast = false
