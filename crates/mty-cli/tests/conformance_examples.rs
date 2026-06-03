@@ -214,18 +214,58 @@ fn is_known_failing(name: &str) -> Option<KnownReason> {
 /// for the interp lane and `[]` for the JIT/native lane. We do NOT
 /// forward stdin/stderr; the test only cares about stdout + exit code.
 fn run_mty(extra_args: &[&str], example: &Path) -> (i32, String) {
+    // v0.48 — run each example in its OWN tempdir (cwd + TMP/TMPDIR) so
+    // the sweep can run examples concurrently without fs collisions: a
+    // few examples write relative/temp files, and serial-only execution
+    // is what made the Windows sweep run for >30 min (hundreds of
+    // subprocess spawns). The example is passed by absolute path, so the
+    // cwd swap doesn't affect resolving it.
+    let work = tempfile::tempdir().expect("per-run tempdir");
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_mty"));
     cmd.arg("run");
     for a in extra_args {
         cmd.arg(a);
     }
-    cmd.arg(example);
+    cmd.arg(example)
+        .current_dir(work.path())
+        .env("TMPDIR", work.path())
+        .env("TMP", work.path())
+        .env("TEMP", work.path());
     let out = cmd
         .output()
         .unwrap_or_else(|e| panic!("spawn mty for {}: {e}", example.display()));
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     let code = out.status.code().unwrap_or(-1);
     (code, stdout)
+}
+
+/// Run `diff_one` over every example, in parallel across worker threads
+/// (each example is independent — its own subprocesses + per-run
+/// tempdir). Returns `(name, result)` pairs in arbitrary order. This is
+/// what lets the sweep finish in minutes on the slow Windows runner.
+fn diff_all(examples: &[PathBuf]) -> Vec<(String, Result<(), String>)> {
+    let n = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .clamp(1, examples.len().max(1));
+    let chunk_sz = examples.len().div_ceil(n);
+    std::thread::scope(|s| {
+        let handles: Vec<_> = examples
+            .chunks(chunk_sz.max(1))
+            .map(|chunk| {
+                s.spawn(move || {
+                    chunk
+                        .iter()
+                        .map(|p| (name_of(p), diff_one(p)))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().expect("conformance worker thread panicked"))
+            .collect()
+    })
 }
 
 /// Compare interp vs JIT for `path`. Returns Ok(()) when they match,
@@ -265,10 +305,9 @@ fn examples_conformance_sweep() {
     let mut unexpected_failures: Vec<(String, String)> = Vec::new();
     let mut unexpected_passes: Vec<String> = Vec::new();
 
-    for path in &examples {
-        let name = name_of(path);
+    for (name, result) in diff_all(&examples) {
         let expected = is_known_failing(&name);
-        match diff_one(path) {
+        match result {
             Ok(()) => {
                 if expected.is_some() {
                     unexpected_passes.push(name);
@@ -319,12 +358,10 @@ fn examples_conformance_sweep() {
 #[test]
 fn examples_passing_floor_holds() {
     let examples = enumerate_examples();
-    let mut passing = 0usize;
-    for path in &examples {
-        if diff_one(path).is_ok() {
-            passing += 1;
-        }
-    }
+    let passing = diff_all(&examples)
+        .into_iter()
+        .filter(|(_, r)| r.is_ok())
+        .count();
     // v0.42 T1 bumped the floor to 28 with the L28/L21 regression
     // example (`examples/44_vec_growth_in_loop.mty`) joining the
     // clean-passing set. v0.45 T1 native std.fs reclaims one slot
