@@ -376,25 +376,47 @@ fn runtime_abi_metadata_slot_layout_pins_offsets() {
     assert_eq!(is_dir, 0, "is_dir should be 0 for a regular file");
 }
 
-/// v0.45 T1 carryover: `read_dir_lines` is the deprecated alias for
-/// the old newline-joined `read_dir` shape — already-built CLIs that
-/// linked against v0.45 still resolve through this name. Pins the
-/// alias keeps the v0.45 Str behaviour intact.
+/// v0.47 T4 — `std.fs.read_dir_lines` is GONE from the stdlib +
+/// dispatcher. v0.45 source code that still calls it now fails the
+/// typecheck with the "name not found" diagnostic — this regression
+/// test pins that. The runtime symbol `mty_runtime_fs_read_dir`
+/// stays exported (v0.45-built binaries link against it), but the
+/// Mighty-side surface is gone.
+///
+/// This replaces the v0.46 T4 deprecated-alias keep-alive test, which
+/// pinned the opposite invariant.
 #[test]
-fn read_dir_lines_deprecated_alias_keeps_v045_str_shape() {
+fn read_dir_lines_removed_in_v047_fails_typecheck() {
+    use mty_ast::AstNode;
     let dir = tempdir();
-    std::fs::write(dir.path().join("one"), b"1").unwrap();
-    std::fs::write(dir.path().join("two"), b"2").unwrap();
     let src = format!(
         r#"
 use std.fs
 
 fn main() {{
   let _s = std.fs.read_dir_lines("{p}")
-  log("alias-ok")
 }}
 "#,
         p = path_str(dir.path())
     );
-    jit_run(&src);
+    let parsed = mty_syntax::parse(&src);
+    let file =
+        mty_ast::File::cast(mty_syntax::SyntaxNode::new_root(parsed.green)).expect("FILE root");
+    let (pkg, _) = mty_hir::lower::LoweringCtx::new().lower_file(file);
+    let typed = mty_types::check_package_typed(&pkg);
+    // The frontend should reject `read_dir_lines` cleanly. We don't
+    // pin a specific MT code (the resolver may classify the missing
+    // name as path-lookup vs method-lookup depending on `use` shape),
+    // but at least one Error-severity diagnostic MUST fire — otherwise
+    // the call silently resolves to Unit and a Mighty programmer would
+    // get the deprecated v0.45 shape without warning.
+    let any_err = typed
+        .diagnostics
+        .iter()
+        .any(|d| matches!(d.severity, mty_diagnostics::Severity::Error));
+    assert!(
+        any_err,
+        "expected typeck error for removed std.fs.read_dir_lines, got: {:?}",
+        typed.diagnostics
+    );
 }

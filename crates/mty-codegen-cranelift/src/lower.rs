@@ -910,7 +910,47 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
 
     fn lower_stmt(&mut self, stmt: &Stmt) -> CompileResult<()> {
         match stmt {
-            Stmt::Nop | Stmt::StorageLive(_) | Stmt::StorageDead(_) | Stmt::Drop(_) => Ok(()),
+            Stmt::Nop | Stmt::StorageLive(_) | Stmt::StorageDead(_) => Ok(()),
+            // v0.47 T4 — `Stmt::Drop(local)` for a local whose type is
+            // an ADT registered in `Program::adt_drop_fns` lowers to a
+            // call to the registered runtime symbol with the local's
+            // scalar value (the resource handle) as the sole arg. The
+            // runtime contract per `DefMap::mty_drop_fns` REQUIRES the
+            // symbol to no-op on handle=0, which is how explicit
+            // `.close()` + auto-Drop idempotence works (the explicit
+            // close zeroes the receiver Variable; the auto-Drop loads
+            // 0 and the runtime symbol does nothing). Locals that
+            // aren't in the table fall through to the v0.46 no-op
+            // shape — same MIR-conceptual-drop semantics as the
+            // backends had since slice 6.
+            Stmt::Drop(local) => {
+                let lty = self.f.locals[local.0 as usize].ty.clone();
+                if let IrTy::Adt(adt_id, _) = &lty {
+                    if let Some(sym) = self.prog.adt_drop_fns.get(adt_id).cloned() {
+                        // Resolve the runtime symbol to a static
+                        // `&'static str` matching the FuncId table key.
+                        // `runtime_ids` is keyed by &'static str, so we
+                        // match against the canonical names.
+                        let static_name: Option<&'static str> = match sym.as_str() {
+                            "mty_runtime_fs_dir_close" => Some("mty_runtime_fs_dir_close"),
+                            _ => None,
+                        };
+                        if let Some(name) = static_name {
+                            let var = self.ensure_var(*local);
+                            let handle = self.b.use_var(var);
+                            let handle = self.coerce_to(handle, ct::I64);
+                            self.call_rt(name, &[handle], None)?;
+                            // Zero the Variable so a second Drop on
+                            // the same local (defensive, e.g. multiple
+                            // exit terminators in a single fn) stays a
+                            // no-op too. Cheap and pins idempotence.
+                            let zero = self.b.ins().iconst(ct::I64, 0);
+                            self.b.def_var(var, zero);
+                        }
+                    }
+                }
+                Ok(())
+            }
             Stmt::ArenaPush(_) => {
                 self.call_rt_no_args("mty_runtime_arena_push", Some(ct::I64))?;
                 Ok(())
@@ -4034,6 +4074,14 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
     /// DirIterState. The runtime accepts handle==0 as a no-op so
     /// double-close / never-opened iterators don't trap. Returns 0 as
     /// the caller's value — the source-side method is `-> Unit`.
+    ///
+    /// v0.47 T4 — when the receiver is a bare local (`it.close()` with
+    /// no projection), zero the local's i64 Variable after the runtime
+    /// call. The auto-Drop pass injects a `Stmt::Drop(it)` at every
+    /// fn-exit terminator; the trailing drop will reload the Variable
+    /// and dispatch the runtime symbol with handle=0 — a no-op per the
+    /// ABI contract. That's how explicit `.close()` + auto-Drop stays
+    /// idempotent (no double-free of the `Box<DirIterState>`).
     fn emit_dir_iter_close(
         &mut self,
         receiver: &Operand,
@@ -4041,6 +4089,17 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         let handle = self.eval_operand(receiver)?;
         let handle = self.coerce_to(handle, ct::I64);
         self.call_rt("mty_runtime_fs_dir_close", &[handle], None)?;
+        // v0.47 T4 — zero the receiver local so the auto-Drop at fn
+        // exit dispatches with handle=0 (runtime no-op). Only safe for
+        // bare-local receivers; deeper projections / temps don't
+        // participate in the auto-Drop pass.
+        if let Operand::Copy(p) | Operand::Move(p) = receiver {
+            if p.proj.is_empty() {
+                let var = self.ensure_var(p.local);
+                let zero = self.b.ins().iconst(ct::I64, 0);
+                self.b.def_var(var, zero);
+            }
+        }
         Ok(self.b.ins().iconst(ct::I64, 0))
     }
 
@@ -4134,9 +4193,13 @@ fn is_interpreter_hosted_stdlib(name: &str) -> bool {
 /// `crates/mty-codegen-wasm/src/emit.rs`).
 ///
 /// v0.46 T4: `read_dir` now ships as the iterator-handle shape
-/// (`std.fs.DirIter`); `read_dir_lines` is the deprecated alias for
-/// the v0.45 newline-joined Str behaviour, kept live until v0.47 so
-/// already-written agent code still resolves.
+/// (`std.fs.DirIter`).
+///
+/// v0.47 T4: `read_dir_lines` is gone — the deprecated alias for the
+/// v0.45 newline-joined Str behaviour has been removed from the
+/// frontend dispatch table. The runtime symbol `mty_runtime_fs_read_dir`
+/// stays live so v0.45-built binaries still link; the codegen just no
+/// longer routes anything to it.
 fn is_native_fs_method(full_name: &str) -> bool {
     fn strip(s: &str) -> &str {
         s.strip_prefix("std.").unwrap_or(s)
@@ -4148,7 +4211,6 @@ fn is_native_fs_method(full_name: &str) -> bool {
             | "fs.read_to_string"
             | "fs.read_dir"
             | "fs.list_dir"
-            | "fs.read_dir_lines"
             | "fs.write"
             | "fs.write_file"
             | "fs.write_string"
@@ -4166,13 +4228,14 @@ fn is_native_fs_method(full_name: &str) -> bool {
 /// method into one of four runtime-symbol families so `emit_fs_call`
 /// can choose the right param/return convention.
 ///
-/// v0.46 T4 adds two shapes:
-///   - `DirOpenHandle` for the new iterator surface — `read_dir(p)`
-///     lowers to `mty_runtime_fs_dir_open(path) -> i64 handle`, no
-///     dst slot.
-///   - The pre-existing newline-joined `read_dir_lines` keeps using
-///     `ReadStrSlot` so the (ptr,len,ok) triple flows through the
-///     same path as `read`/`read_to_string`.
+/// v0.46 T4 added the `DirOpenHandle` shape for the new iterator
+/// surface — `read_dir(p)` lowers to `mty_runtime_fs_dir_open(path)
+/// -> i64 handle`, no dst slot.
+///
+/// v0.47 T4 drops the deprecated `read_dir_lines` arm — the v0.45
+/// newline-joined Str shape is no longer exposed. The runtime symbol
+/// `mty_runtime_fs_read_dir` stays live for v0.45-built-binary link
+/// compatibility but the codegen no longer routes anything to it.
 #[derive(Debug, Clone, Copy)]
 enum FsAbiKind {
     /// (path_ptr, path_len, dst_slot) — runtime writes (ptr, len, ok)
@@ -4206,14 +4269,10 @@ impl FsAbiKind {
                 symbol: "mty_runtime_fs_read_to_string",
             },
             // v0.46 T4 — `read_dir` / `list_dir` open an iterator
-            // handle; the old newline-joined behaviour lives on as
-            // `read_dir_lines` (deprecated alias, slated for removal
-            // in v0.47).
+            // handle. v0.47 T4: the old newline-joined behaviour
+            // (`read_dir_lines`) is gone from this dispatch table.
             "fs.read_dir" | "fs.list_dir" => FsAbiKind::DirOpenHandle {
                 symbol: "mty_runtime_fs_dir_open",
-            },
-            "fs.read_dir_lines" => FsAbiKind::ReadStrSlot {
-                symbol: "mty_runtime_fs_read_dir",
             },
             "fs.write" | "fs.write_file" => FsAbiKind::WriteI32 {
                 symbol: "mty_runtime_fs_write",

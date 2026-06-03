@@ -385,6 +385,16 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
     defs.by_name
         .insert("DirIter".into(), DefRef::Adt(dir_iter_id));
     defs.handler_safe_adts.insert(dir_iter_id);
+    // v0.47 T4 — mark DirIter as auto-Drop-needing. The IR post-pass
+    // injects `Stmt::Drop(local)` in front of every fn-exit terminator
+    // for locals typed as `IrTy::Adt(dir_iter_id, _)`; codegen lowers
+    // that drop to the runtime symbol below. The runtime's
+    // `mty_runtime_fs_dir_close(handle)` is a no-op on handle=0, so
+    // explicit `.close()` followed by auto-drop stays idempotent (the
+    // explicit close zeroes the receiver local — see
+    // `emit_dir_iter_close` in the cranelift / llvm lowerers).
+    defs.mty_drop_fns
+        .insert(dir_iter_id, "mty_runtime_fs_dir_close".into());
 
     // ---- opaque types referenced by examples ----
     let opaque_names = [

@@ -594,3 +594,142 @@ impl ItemIdDefault for mty_hir::ItemId {
         mty_hir::ItemId::from_raw(RawIdx::from(0))
     }
 }
+
+/// v0.47 T4 — auto-Drop post-pass.
+///
+/// For every function in `prog`, find the `UserLet` bindings whose
+/// `IrTy::Adt(adt, _)` has an entry in `prog.adt_drop_fns` — these are
+/// the source-level owners of a drop-needing resource handle. Then
+/// walk every block and inject `Stmt::Drop(local)` in front of each
+/// fn-exit terminator (`Return`, `TryReturnErr`, `Panic`) so the value
+/// gets closed even on early return / panic-unwind / `?` short-circuit.
+///
+/// Only `UserLet` locals are dropped — NOT compiler `Temp`s. A handle
+/// is aliased by several locals (the call-result temp, method
+/// receiver-copies, and the binding); dropping every alias would close
+/// the one underlying allocation more than once (double-free / heap
+/// corruption). Restricting to the owning binding closes each handle
+/// exactly once. See the in-body comment for the full aliasing story.
+///
+/// Locals that are moved out — either by a direct rebind
+/// (`b := Use(Move(a))`) or as the operand of a `Term::Return` — are
+/// skipped: ownership transferred, so the destination (or the caller)
+/// is responsible for the close, not this frame.
+///
+/// The pass runs AFTER fn-body lowering finished, so every block's
+/// terminator is already populated; we never invent new blocks, only
+/// prepend `Stmt::Drop` statements onto existing ones.
+///
+/// Idempotence vs explicit `.close()`: the codegen's `emit_*_close`
+/// helper zeroes the receiver local after dispatching the runtime
+/// drop, so the auto-Drop loads handle=0 and the runtime no-ops. The
+/// runtime symbol contract (per `DefMap::mty_drop_fns`) MUST tolerate
+/// handle=0.
+pub fn inject_auto_drop_stmts(prog: &mut Program) {
+    if prog.adt_drop_fns.is_empty() {
+        return;
+    }
+    // Snapshot the drop-fn table by AdtId so the per-fn loops don't
+    // re-borrow `prog`.
+    let drop_adts: std::collections::HashSet<mty_types::AdtId> =
+        prog.adt_drop_fns.keys().copied().collect();
+
+    for f in prog.fns.iter_mut() {
+        // v0.47 T4 fix — a resource handle (e.g. the i64 behind a
+        // `DirIter`) is aliased by several IR locals: the `read_dir`
+        // result `Temp`, the `it.next()` / `it.close()` receiver-copy
+        // `Temp`s, AND the source-level `let` binding. They all carry
+        // the SAME handle value, so closing every one of them would
+        // free the single `Box<DirIterState>` more than once → a
+        // double-free / heap corruption. Ownership lives in exactly
+        // one place: the source-level binding. So auto-Drop only
+        // `UserLet` locals (skipping `Temp`/`Param`/`Return`), giving
+        // each handle exactly one owner that closes it once.
+        //
+        // The one remaining alias between two `UserLet`s is a direct
+        // rebind `let b = a` (`b := Use(Move(a))`): ownership transfers
+        // to `b`, so `a` must NOT also be dropped. Pre-scan for that
+        // empty-proj `Use(Move)` shape and exclude the moved-from
+        // local. (Method receivers use `Copy`, not `Move`, so the loop
+        // variable `it` is never excluded by this; pass-by-move into a
+        // callee is already safe because the callee skips `Param`
+        // drops, leaving the caller's single drop as the only free.)
+        let mut moved_out: std::collections::HashSet<Local> = std::collections::HashSet::new();
+        for blk in f.blocks.iter() {
+            for s in &blk.stmts {
+                if let Stmt::Assign(_, Rvalue::Use(Operand::Move(p))) = s {
+                    if p.proj.is_empty() {
+                        moved_out.insert(p.local);
+                    }
+                }
+            }
+        }
+
+        let mut drop_locals: Vec<Local> = Vec::new();
+        for (idx, decl) in f.locals.iter().enumerate() {
+            let local_id = Local(idx as u32);
+            // Only source-level `let` bindings own a resource handle;
+            // temporaries / params / the return slot alias it.
+            if !matches!(decl.source, LocalSource::UserLet) {
+                continue;
+            }
+            // Ownership moved to another binding — that binding drops it.
+            if moved_out.contains(&local_id) {
+                continue;
+            }
+            if let IrTy::Adt(adt, _) = &decl.ty {
+                if drop_adts.contains(adt) {
+                    drop_locals.push(local_id);
+                }
+            }
+        }
+        if drop_locals.is_empty() {
+            continue;
+        }
+
+        // Walk every block; for each fn-exit terminator, inject
+        // `Stmt::Drop(local)` for every drop-needing local (skipping
+        // the local that is itself the Return operand, if any).
+        for blk in f.blocks.iter_mut() {
+            // Determine whether this block's terminator exits the fn.
+            let (is_exit, returned_local) = match &blk.terminator {
+                Term::Return(op) => {
+                    let returned = match op {
+                        Operand::Move(p) | Operand::Copy(p) if p.proj.is_empty() => Some(p.local),
+                        _ => None,
+                    };
+                    (true, returned)
+                }
+                Term::TryReturnErr(_) | Term::Panic { .. } => (true, None),
+                // `Unreachable` after a Panic / call to `never` fn —
+                // dropping is moot (we're trapping), but keeping the
+                // pass uniform avoids divergence between codegen and
+                // interp. We do NOT drop here because Unreachable is
+                // also used by partly-lowered shapes that the lowerer
+                // never completed (the slice-6 lowerer is total but
+                // optimistic). Safer to skip.
+                _ => (false, None),
+            };
+            if !is_exit {
+                continue;
+            }
+            // Build the drop block (prepended to existing stmts).
+            let mut drops: Vec<Stmt> = Vec::with_capacity(drop_locals.len());
+            for l in &drop_locals {
+                if returned_local == Some(*l) {
+                    continue;
+                }
+                drops.push(Stmt::Drop(*l));
+            }
+            if drops.is_empty() {
+                continue;
+            }
+            // Append the drops at the END of the block's stmt list,
+            // immediately before the terminator. Drops must run AFTER
+            // any other stmts in the block (e.g. the let that computes
+            // the return value) so the auto-Drop loads the correct
+            // handle.
+            blk.stmts.extend(drops);
+        }
+    }
+}
