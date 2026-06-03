@@ -73,12 +73,35 @@ enum KnownReason {
     /// stubs or make codegen refuse the call cleanly.
     MainTakesCapabilities,
     /// `Vec[T]` where `T` is an aggregate (`String`, `struct`, …).
-    /// The SIR lowerer types the temp holding `Vec.new()` as
-    /// `IrTy::Error` so the element width is the i64 fallback (8)
-    /// instead of the real `T` size; the memcpy stride mismatch
-    /// corrupts memory. Documented in v0.41 T3 RELEASE notes as a
-    /// v0.42 typeck-side follow-up (the codegen side is correct;
-    /// the SIR loses the type info before lowering sees it).
+    ///
+    /// This is a LAYERED defect. v0.48 (#297) fixed three of the four
+    /// layers (all regression-free, verified by CLIF + this sweep):
+    ///   1. Push-only element inference — a Vec whose `T` was pinned
+    ///      only by `.push(x)` (no annotation / annotated return) left
+    ///      `T` an unresolved var. Fixed in mty-types: `Vec.new()` /
+    ///      `with_capacity()` now synth `Vec[?E]` and `push(x)` unifies
+    ///      `x` with `E`.
+    ///   2. `Vec.new()` result-temp typing — the temp holding the
+    ///      constructor was `IrTy::Error`, so `emit_vec_new` read the
+    ///      element size off an Error `current_dest_ty` and stored the
+    ///      8-byte fallback in the header. Fixed in mty-ir
+    ///      (`vec_call_result_ty`): the temp now carries the real
+    ///      `Vec[T]`, so the header records the true element size (16
+    ///      for `String`), and the element store memcpys the right width.
+    ///   3. (Consequence of 1+2) the grow-buffer allocation + element
+    ///      store now use a consistent, correct element size.
+    ///
+    /// REMAINING (layer 4, still KNOWN_FAILING): pushing an *aggregate*
+    /// element (e.g. a `String` from `String.from_str(...)`) still
+    /// segfaults. `emit_vec_push` memcpys `elem_size` bytes treating the
+    /// pushed operand as the source aggregate's ADDRESS, but
+    /// `eval_operand` on the bare call-result temp returns the call's
+    /// returned VALUE (the i64 `from_str` produced), not a stable
+    /// 16-byte `{ptr,len}` slot address. The fix needs the String-value
+    /// ABI threaded so an aggregate push sources from a real slot
+    /// address (and transfers ownership so drop doesn't double-free).
+    /// Minimal repro: `let mut v: Vec[String] = Vec.new();
+    /// v.push(String.from_str("a"))` — interp ok, JIT SIGSEGV.
     VecOfAggregate,
     /// v0.45 T1 native `std.fs` now actually touches disk under the
     /// JIT path. Examples that write to absolute hard-coded paths
