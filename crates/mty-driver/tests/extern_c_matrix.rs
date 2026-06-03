@@ -218,6 +218,14 @@ int32_t mty_runtime_fs_metadata(int64_t p, int64_t pl, int64_t d) { (void)p; (vo
 int32_t mty_runtime_fs_create_dir_all(int64_t p, int64_t pl) { (void)p; (void)pl; return 1; }
 int32_t mty_runtime_fs_remove_file(int64_t p, int64_t pl) { (void)p; (void)pl; return 1; }
 int32_t mty_runtime_fs_remove_dir_all(int64_t p, int64_t pl) { (void)p; (void)pl; return 1; }
+/* v0.46 T4 — DirIter iterator surface (open/next/close). v0.47 T4's
+ * auto-Drop makes the codegen reference `mty_runtime_fs_dir_close`
+ * (and the open/next family) in EVERY program, so the Windows MSVC
+ * linker now needs these stub definitions even though no matrix row
+ * calls them. Linux/macOS GC the unused refs; MSVC errors (LNK2001). */
+int64_t mty_runtime_fs_dir_open(int64_t p, int64_t pl) { (void)p; (void)pl; return 0; }
+int32_t mty_runtime_fs_dir_next(int64_t h, int64_t d) { (void)h; (void)d; return 0; }
+void mty_runtime_fs_dir_close(int64_t h) { (void)h; }
 "#,
     )
     .unwrap();

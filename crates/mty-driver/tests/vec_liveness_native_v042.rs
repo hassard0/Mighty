@@ -237,6 +237,12 @@ void repro_print_i64(int64_t tag, int64_t value) {
     printf("L%lld=%lld\n", (long long)tag, (long long)value);
     fflush(stdout);
 }
+/* v0.46 T4 DirIter surface; v0.47 T4 auto-Drop makes the codegen
+ * reference these in every program, so the Windows MSVC linker needs
+ * them even though this Vec-liveness program never opens a dir. */
+int64_t mty_runtime_fs_dir_open(int64_t p, int64_t pl) { (void)p; (void)pl; return 0; }
+int32_t mty_runtime_fs_dir_next(int64_t h, int64_t d) { (void)h; (void)d; return 0; }
+void mty_runtime_fs_dir_close(int64_t h) { (void)h; }
 "#,
     )
     .unwrap();
