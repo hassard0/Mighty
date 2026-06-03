@@ -164,6 +164,36 @@ fn numeric_version_macros_match_string() {
         s, canonical,
         "numeric MAJOR.MINOR.PATCH macros disagree with RUNTIME_ABI_VERSION"
     );
+
+    // The combined NUMBER macro packs the components as
+    // MAJOR*10000 + MINOR*100 + PATCH (so e.g. 0.47.0 -> 4700), the
+    // form the header documents for `#if ... >= 4700` compat checks.
+    let expected_number = RUNTIME_ABI_VERSION_MAJOR * 10000
+        + RUNTIME_ABI_VERSION_MINOR * 100
+        + RUNTIME_ABI_VERSION_PATCH;
+    assert_eq!(
+        RUNTIME_ABI_VERSION_NUMBER, expected_number,
+        "RUNTIME_ABI_VERSION_NUMBER must equal MAJOR*10000 + MINOR*100 + PATCH"
+    );
+    assert!(
+        RUNTIME_ABI_HEADER.contains(&format!(
+            "#define MTY_RUNTIME_ABI_VERSION_NUMBER {expected_number}"
+        )),
+        "header must emit the MTY_RUNTIME_ABI_VERSION_NUMBER macro matching the Rust const"
+    );
+
+    // Pre-1.0 the whole ABI surface is experimental; the Rust const and
+    // the C macro must advertise the same tier.
+    assert_eq!(
+        RUNTIME_ABI_STABILITY, "experimental",
+        "pre-1.0 runtime ABI must advertise the `experimental` stability tier"
+    );
+    assert!(
+        RUNTIME_ABI_HEADER.contains(&format!(
+            "#define MTY_RUNTIME_ABI_STABILITY \"{RUNTIME_ABI_STABILITY}\""
+        )),
+        "header must emit the MTY_RUNTIME_ABI_STABILITY macro matching the Rust const"
+    );
 }
 
 #[test]
