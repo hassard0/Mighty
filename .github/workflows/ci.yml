@@ -74,18 +74,31 @@ jobs:
 
       # Parallel nextest, process-isolated per test, with the per-test
       # timeout in .config/nextest.toml bounding any real hang and
-      # retries absorbing the flaky dev-server tests. The conformance
-      # "sweep" meta-tests (`examples_conformance_sweep`,
-      # `examples_passing_floor_holds`) used to be excluded here because
-      # they ran the whole example corpus SERIALLY inside one test body
-      # (>30 min on the slow Windows process spawner). They now run their
-      # examples concurrently with per-example tempdir isolation
-      # (conformance_examples.rs `diff_all`), finishing in seconds, so
-      # Windows validates the example corpus again.
+      # retries absorbing the flaky dev-server tests.
+      #
+      # The two conformance "sweep" meta-tests
+      # (`examples_conformance_sweep`, `examples_passing_floor_holds`)
+      # AOT-compile + LINK the entire example corpus. Even after the
+      # v0.48 parallelisation (conformance_examples.rs `diff_all` runs
+      # the examples concurrently with per-example tempdir isolation —
+      # which makes the Linux/macOS `cargo test` legs much faster), on
+      # the Windows runner the per-example link.exe + process-spawn cost
+      # still dominates and the full corpus compile pushes the workspace
+      # run past the 45-min job budget (measured: ~42 min, timed out).
+      # So they stay excluded HERE. They run in full on every PR on the
+      # Linux + macOS `cargo test --workspace` legs above, which is where
+      # their parse/typeck/fmt validation has real value; the
+      # Windows-specific compile+LINK path is already covered by the
+      # dedicated `conformance_native` / `conformance_codegen` tests
+      # (which DO run under this nextest job). Re-including the corpus
+      # sweep on Windows would add ~30 min of largely redundant coverage
+      # to every PR.
       - name: cargo nextest (Windows)
         if: matrix.os == 'windows-latest'
         timeout-minutes: 45
-        run: cargo nextest run --workspace --profile ci
+        run: >-
+          cargo nextest run --workspace --profile ci
+          -E 'not (test(/examples_conformance_sweep/) | test(/examples_passing_floor_holds/))'
 
       - name: cargo test --doc (Windows)
         if: matrix.os == 'windows-latest'
