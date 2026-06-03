@@ -142,7 +142,17 @@ pub fn lower_expr(ctx: &mut LowerCtx, fb: &mut FnBuilder, eid: ExprId) -> Operan
             let field_idx = resolve_field_index(ctx, receiver, &name)
                 .or_else(|| stdlib_field_index(&name))
                 .unwrap_or(0);
-            let temp = fb.fresh_temp(IrTy::Error);
+            // v0.48 T1 — type the field-read result temp with the
+            // field's actual type. Was `IrTy::Error`, which forced
+            // cranelift's `place_addr` into its i64-per-field fallback
+            // when the temp was projected further (`o.inner.x` reads
+            // `o.inner` into this temp, then `.x` off it — the poisoned
+            // temp made `.x` load 8 bytes / wrong offset). Synthetic
+            // swarm-dispatcher structs still carry `IrTy::Error` in the
+            // typed arena, so `lower_ty` keeps them `Error` (the
+            // field-index fallback above is preserved for them).
+            let field_ty = crate::lower::ty::lower_ty(ctx.expr_ty(eid), &ctx.typed.ty_arena);
+            let temp = fb.fresh_temp(field_ty);
             let recv_place = operand_to_place(fb, recv);
             fb.push_stmt(Stmt::Assign(
                 Place::local(temp),
@@ -546,7 +556,6 @@ fn resolve_path(ctx: &mut LowerCtx, fb: &mut FnBuilder, segments: &[String]) -> 
     // — same behaviour as the bare `HirExpr::Field` lowering).
     if segments.len() >= 2 {
         if let Some(local) = fb.locals_by_name.get(&segments[0]).copied() {
-            let mut cur = Operand::Copy(Place::local(local));
             // v0.41 T1 — Resolve each segment's field index against the
             // receiver's HIR-resolved type when one was recorded
             // (`fb.local_ty(local)` populated by `bind_pat_assign` /
@@ -556,28 +565,49 @@ fn resolve_path(ctx: &mut LowerCtx, fb: &mut FnBuilder, segments: &[String]) -> 
             // the receiver type is unknown (was the pre-v0.41 behaviour
             // for every multi-segment path on a local; that's what
             // caused L15 — every user-struct field collapsed to 0).
+            // v0.48 T1 — build a SINGLE projection-chain place
+            // (`{local, [Field(inner), Field(x)]}`) and read it with one
+            // FieldRead, instead of materialising an intermediate temp
+            // per segment. A nested aggregate intermediate (`o.inner`)
+            // assigned into its own temp would get a FRESH stack slot
+            // from `agg_addr` and lose the alias to the parent's field,
+            // so `o.inner.x` read from an empty slot. Walking the full
+            // chain on `local` (now carrying its real ADT type) lets
+            // `place_addr` use each struct's real field layout. Mirrors
+            // the assignment-LHS path (`lower_expr_to_place`).
             let mut cur_ty: Option<mty_types::TyId> = fb.local_ty(local);
+            let mut place = Place::local(local);
             for seg in &segments[1..] {
                 let field_idx = cur_ty
                     .and_then(|t| field_index_for_ty(ctx, t, seg))
                     .or_else(|| stdlib_field_index(seg))
                     .unwrap_or(0);
-                // Step type forward for the next iteration: lift the
-                // ADT field's declared ty so a chain like
-                // `outer.inner.x` walks through each typed slot.
                 cur_ty = cur_ty.and_then(|t| field_ty_for_ty(ctx, t, seg));
-                let projected = fb.fresh_temp(IrTy::Error);
-                let recv_place = operand_to_place(fb, cur);
-                fb.push_stmt(Stmt::Assign(
-                    Place::local(projected),
-                    Rvalue::FieldRead {
-                        receiver: recv_place,
-                        field: field_idx,
-                    },
-                ));
-                cur = Operand::Move(Place::local(projected));
+                place.proj.push(Projection::Field(field_idx));
             }
-            return cur;
+            // Split off the last field so the codegen reads through the
+            // full chain via FieldRead's `place_addr`. The result temp
+            // is sized by the final field's type (`cur_ty`).
+            let final_ty = cur_ty
+                .map(|t| crate::lower::ty::lower_ty(t, &ctx.typed.ty_arena))
+                .unwrap_or(IrTy::Error);
+            let last_field = match place.proj.pop() {
+                Some(Projection::Field(idx)) => idx,
+                Some(other) => {
+                    place.proj.push(other);
+                    return Operand::Copy(place);
+                }
+                None => return Operand::Copy(place),
+            };
+            let projected = fb.fresh_temp(final_ty);
+            fb.push_stmt(Stmt::Assign(
+                Place::local(projected),
+                Rvalue::FieldRead {
+                    receiver: place,
+                    field: last_field,
+                },
+            ));
+            return Operand::Move(Place::local(projected));
         }
     }
     // 2. Single segment matching a value defref.
