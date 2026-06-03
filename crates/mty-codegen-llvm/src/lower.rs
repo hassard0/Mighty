@@ -84,6 +84,22 @@ fn run_optimizer(module: &Module<'_>, opt: LlvmOptLevel) -> CompileResult<()> {
     Ok(())
 }
 
+/// v0.47 T1 — true iff `t` is a `Vec[U8]` ADT. Used by the LLVM
+/// backend to recognise a `mut Vec[U8]` extern-c param and expand
+/// it into a (ptr, capacity, len_ptr) i64 triple — same shape the
+/// cranelift backend emits (see
+/// `mty_codegen_cranelift::abi::is_mut_vec_u8_param`).
+fn is_mut_vec_u8_ty(t: &IrTy, adts: &[mty_ir::ir::AdtRef]) -> bool {
+    let IrTy::Adt(id, args) = t else { return false };
+    if args.len() != 1 {
+        return false;
+    }
+    if !matches!(&args[0], IrTy::Int(mty_types::IntKind::U8)) {
+        return false;
+    }
+    adts.iter().any(|a| a.adt == *id && a.name == "Vec")
+}
+
 /// Emit a host-format object file (`.o`) for `module`.
 pub fn write_object(module: &Module<'_>, out: &std::path::Path) -> CompileResult<()> {
     Target::initialize_native(&InitializationConfig::default()).map_err(LlvmError::Module)?;
@@ -405,16 +421,28 @@ impl<'ctx, 'a, 'b> ProgramLowerer<'ctx, 'a, 'b> {
         // (ptr, len) i64 pairs at the ABI boundary. See
         // `docs/internals/extern-c-matrix.md` "Str slice (ptr, len)
         // FFI" section.
-        let is_extern_c = self
-            .prog
-            .extern_bindings
-            .get(&f.id)
-            .map(|b| b.abi == "c")
-            .unwrap_or(false);
+        //
+        // v0.47 T1 — extern-c fns also expand `mut Vec[U8]` params
+        // into a (ptr, cap, len_ptr) i64 triple at the ABI
+        // boundary. See `docs/internals/extern-c-matrix.md`
+        // §"v0.47 T1 — mut Vec[U8] OUT params".
+        let binding = self.prog.extern_bindings.get(&f.id);
+        let is_extern_c = binding.map(|b| b.abi == "c").unwrap_or(false);
+        let mut_params: &[bool] = binding.map(|b| b.mut_params.as_slice()).unwrap_or(&[]);
         let mut param_tys: Vec<BasicMetadataTypeEnum<'ctx>> = Vec::with_capacity(f.params.len());
-        for p in &f.params {
+        for (i, p) in f.params.iter().enumerate() {
             let t = &f.locals[p.0 as usize].ty;
             if matches!(t, IrTy::Unit | IrTy::Never) {
+                continue;
+            }
+            let is_mut = mut_params.get(i).copied().unwrap_or(false);
+            // v0.47 T1 — `mut Vec[U8]` → three i64s (out_ptr,
+            // out_capacity, out_len). Matches the cranelift mirror.
+            if is_extern_c && is_mut && is_mut_vec_u8_ty(t, &self.prog.adts) {
+                let i64ty: BasicMetadataTypeEnum<'ctx> = self.i64_ty().into();
+                param_tys.push(i64ty); // out_ptr (u8*)
+                param_tys.push(i64ty); // out_capacity (size_t)
+                param_tys.push(i64ty); // out_len (size_t*)
                 continue;
             }
             if is_extern_c && matches!(t, IrTy::Str | IrTy::String) {
@@ -1886,13 +1914,16 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                 let callee_fn = self.pl.prog.fn_by_id(*callee_id);
                 // v0.46 T3 — extern-c fns expand Str/String to (ptr, len).
                 // Detect here so the arg-pushing loop knows to split.
-                let is_extern_c = self
-                    .pl
-                    .prog
-                    .extern_bindings
-                    .get(callee_id)
-                    .map(|b| b.abi == "c")
-                    .unwrap_or(false);
+                // v0.47 T1 — also pull the callee's per-param mut
+                // flags so a `mut Vec[U8]` slot can be expanded
+                // into the (ptr, cap, len_ptr) triple. The empty
+                // default keeps non-extern callees on the legacy
+                // single-slot path.
+                let binding = self.pl.prog.extern_bindings.get(callee_id);
+                let is_extern_c = binding.map(|b| b.abi == "c").unwrap_or(false);
+                let callee_mut_params: Vec<bool> = binding
+                    .map(|b| b.mut_params.clone())
+                    .unwrap_or_default();
                 let mut arg_vals: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = Vec::new();
                 let mut callee_param_tys: Vec<IrTy> = callee_fn
                     .params
@@ -1902,6 +1933,9 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                     .collect();
                 let expected = callee_param_tys.len();
                 let mut consumed_param_slots = 0;
+                // v0.47 T1 — track the callee's original param index
+                // (matches `callee_mut_params`).
+                let mut callee_param_idx: usize = 0;
                 for a in args {
                     if consumed_param_slots >= expected {
                         break;
@@ -1919,7 +1953,47 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                     } else {
                         None
                     };
+                    let is_mut_slot = callee_mut_params
+                        .get(callee_param_idx)
+                        .copied()
+                        .unwrap_or(false);
+                    callee_param_idx += 1;
                     consumed_param_slots += 1;
+                    // v0.47 T1 — `mut Vec[U8]` expands to a 3-i64
+                    // triple at the ABI boundary: (out_ptr,
+                    // out_capacity, out_len_ptr). Mirrors the
+                    // cranelift path; see
+                    // `mty_codegen_cranelift::lower::lower_call` for
+                    // the canonical comment.
+                    if is_extern_c
+                        && is_mut_slot
+                        && want_ty
+                            .as_ref()
+                            .is_some_and(|t| is_mut_vec_u8_ty(t, &self.pl.prog.adts))
+                    {
+                        let hdr = self.vec_header(a)?;
+                        let data = self.vec_load_data(hdr);
+                        let cap = self.vec_load_cap(hdr);
+                        // header_ptr+0 is the len field; the C callee
+                        // writes `*out_len = N` straight into it.
+                        let hdr_int = self.pl.builder.build_ptr_to_int(
+                            hdr,
+                            self.pl.i64_ty(),
+                            "vhdr_i",
+                        ).unwrap();
+                        let data_int = self.pl.builder.build_ptr_to_int(
+                            data,
+                            self.pl.i64_ty(),
+                            "vdata_i",
+                        ).unwrap();
+                        let data_bv: BasicValueEnum<'ctx> = data_int.into();
+                        let cap_bv: BasicValueEnum<'ctx> = cap.into();
+                        let hdr_bv: BasicValueEnum<'ctx> = hdr_int.into();
+                        arg_vals.push(data_bv.into());
+                        arg_vals.push(cap_bv.into());
+                        arg_vals.push(hdr_bv.into());
+                        continue;
+                    }
                     // v0.46 T3 — Str/String at an extern-c param slot
                     // expands to (ptr, len). Pull both halves and
                     // push them in this order; matches `fn_type_of`'s
@@ -1945,6 +2019,23 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
                 // Pad missing args with zero defaults.
                 while !callee_param_tys.is_empty() {
                     let t = callee_param_tys.remove(0);
+                    let is_mut_slot = callee_mut_params
+                        .get(callee_param_idx)
+                        .copied()
+                        .unwrap_or(false);
+                    callee_param_idx += 1;
+                    if is_extern_c
+                        && is_mut_slot
+                        && is_mut_vec_u8_ty(&t, &self.pl.prog.adts)
+                    {
+                        let z1: BasicValueEnum<'ctx> = self.pl.i64_ty().const_zero().into();
+                        let z2: BasicValueEnum<'ctx> = self.pl.i64_ty().const_zero().into();
+                        let z3: BasicValueEnum<'ctx> = self.pl.i64_ty().const_zero().into();
+                        arg_vals.push(z1.into());
+                        arg_vals.push(z2.into());
+                        arg_vals.push(z3.into());
+                        continue;
+                    }
                     if is_extern_c && matches!(t, IrTy::Str | IrTy::String) {
                         let z1: BasicValueEnum<'ctx> = self.pl.i64_ty().const_zero().into();
                         let z2: BasicValueEnum<'ctx> = self.pl.i64_ty().const_zero().into();

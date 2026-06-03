@@ -204,10 +204,21 @@ impl<'m, M: Module> LowerCtx<'m, M> {
             // sret). Non-extern fns keep the slice-8 Mighty-internal
             // shape where aggregate returns ride a single i64 (matches
             // the caller's aggregate-local stack-slot shape).
+            //
+            // v0.47 T1 — also propagate per-param `mut` flags so
+            // `mut Vec[U8]` slots expand into the (ptr, cap, len_ptr)
+            // triple. Empty slice for non-extern callees (mut on
+            // those is rejected at the type checker).
+            let extern_mut_params: &[bool] = prog
+                .extern_bindings
+                .get(&f.id)
+                .map(|b| b.mut_params.as_slice())
+                .unwrap_or(&[]);
             let (sig, agg_kind) = if is_extern {
-                let (s, k) = crate::abi::build_extern_signature(
+                let (s, k) = crate::abi::build_extern_signature_with_mut(
                     &self.triple,
                     &param_tys,
+                    extern_mut_params,
                     &f.ret_ty,
                     &prog.adts,
                 );
@@ -2384,6 +2395,17 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                     .get(callee_id)
                     .map(|b| b.abi == "c")
                     .unwrap_or(false);
+                // v0.47 T1 — per-param `mut` flags for the callee.
+                // A `mut Vec[U8]` slot expands into a (ptr, cap,
+                // len_ptr) triple at the call site (three i64 ABI
+                // slots). Empty list = no mut anywhere, which is the
+                // legacy v0.46-and-earlier shape.
+                let callee_mut_params: Vec<bool> = self
+                    .prog
+                    .extern_bindings
+                    .get(callee_id)
+                    .map(|b| b.mut_params.clone())
+                    .unwrap_or_default();
                 // v0.38 Track T3 — returned-struct classification for the
                 // call site. Drives slot allocation, sret arg insertion,
                 // and per-register result store. Non-aggregate callees
@@ -2478,8 +2500,52 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 } else {
                     None
                 };
+                // v0.47 T1 — track the callee's *original* param index
+                // (matches `callee_mut_params`) as we walk
+                // `callee_param_tys_mut`. We pop from the front of the
+                // Vec, so the index is just the running count.
+                let mut callee_param_idx: usize = 0;
                 for va in &visible[..fixed_count] {
                     let want_ty = callee_param_tys_mut.remove(0);
+                    let is_mut_slot = callee_mut_params
+                        .get(callee_param_idx)
+                        .copied()
+                        .unwrap_or(false);
+                    callee_param_idx += 1;
+                    // v0.47 T1 — `mut Vec[U8]` expands to a 3-i64
+                    // triple at the ABI boundary: (out_ptr,
+                    // out_capacity, out_len_ptr). The Mighty Vec
+                    // header lives at offset 0 of the operand's i64
+                    // value; the runtime layout (see
+                    // `VEC_LEN_OFF`/`_CAP_OFF`/`_DATA_OFF` in
+                    // `lower.rs`) makes the per-field loads cheap.
+                    // The `out_len_ptr` slot is just `header_ptr`
+                    // itself because `VEC_LEN_OFF == 0` — the C
+                    // callee writes the byte count straight into the
+                    // first 8 bytes of the header.
+                    if is_extern_c_callee
+                        && is_mut_slot
+                        && crate::abi::is_mut_vec_u8_param(&want_ty, &self.prog.adts)
+                    {
+                        let hdr = self.vec_header(va.op)?;
+                        let mf = cranelift_codegen::ir::MemFlags::trusted();
+                        let data_ptr = self.b.ins().load(
+                            ct::I64,
+                            mf,
+                            hdr,
+                            Self::VEC_DATA_OFF,
+                        );
+                        let cap = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_CAP_OFF);
+                        // header_ptr+0 is the len field (VEC_LEN_OFF
+                        // == 0), so we hand the header pointer
+                        // verbatim as the `out_len` slot. C side
+                        // writes `*out_len = N`; Mighty reads
+                        // `Vec.len()` and sees N.
+                        arg_vals.push(data_ptr);
+                        arg_vals.push(cap);
+                        arg_vals.push(hdr);
+                        continue;
+                    }
                     // v0.46 T3 — Str/String at an extern-c param slot
                     // expands to (ptr, len). Pull both halves from the
                     // Str aggregate via `string_pair` and push them in
@@ -2503,6 +2569,28 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 }
                 while !callee_param_tys_mut.is_empty() {
                     let t = callee_param_tys_mut.remove(0);
+                    let is_mut_slot = callee_mut_params
+                        .get(callee_param_idx)
+                        .copied()
+                        .unwrap_or(false);
+                    callee_param_idx += 1;
+                    // v0.47 T1 — pad an unfilled mut Vec[U8] slot
+                    // with three zero i64s (ptr=NULL, cap=0,
+                    // len_ptr=NULL). Matches the three-slot
+                    // expansion so cranelift doesn't see an arity
+                    // mismatch.
+                    if is_extern_c_callee
+                        && is_mut_slot
+                        && crate::abi::is_mut_vec_u8_param(&t, &self.prog.adts)
+                    {
+                        let z = self.b.ins().iconst(ct::I64, 0);
+                        arg_vals.push(z);
+                        let z2 = self.b.ins().iconst(ct::I64, 0);
+                        arg_vals.push(z2);
+                        let z3 = self.b.ins().iconst(ct::I64, 0);
+                        arg_vals.push(z3);
+                        continue;
+                    }
                     // v0.46 T3 — pad an unfilled Str/String slot at an
                     // extern-c callee with two zero i64s (ptr=NULL,
                     // len=0). Matches the signature's two-slot
@@ -2598,7 +2686,20 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                     if !matches!(callee_ret_ty, IrTy::Unit | IrTy::Never) {
                         sig.returns.push(AbiParam::new(cl_ty_for(&callee_ret_ty)));
                     }
-                    for t in &callee_param_tys {
+                    for (i, t) in callee_param_tys.iter().enumerate() {
+                        let is_mut_slot =
+                            callee_mut_params.get(i).copied().unwrap_or(false);
+                        // v0.47 T1 — `mut Vec[U8]` expands to three
+                        // i64 slots (ptr, cap, len_ptr). Mirror
+                        // `build_extern_signature_with_mut` here.
+                        if is_mut_slot
+                            && crate::abi::is_mut_vec_u8_param(t, &self.prog.adts)
+                        {
+                            sig.params.push(AbiParam::new(ct::I64)); // ptr
+                            sig.params.push(AbiParam::new(ct::I64)); // cap
+                            sig.params.push(AbiParam::new(ct::I64)); // len_ptr
+                            continue;
+                        }
                         // v0.46 T3 — Str/String at an extern-c fixed
                         // param slot expands to (ptr, len). Mirror
                         // `build_extern_signature` here so the per-call

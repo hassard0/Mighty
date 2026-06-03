@@ -75,6 +75,17 @@ pub struct FnDef {
     /// typechecked independently as a fresh inference var) instead of
     /// emitting MT2005 (WRONG_ARG_COUNT).
     pub is_variadic: bool,
+    /// v0.47 T1 — per-param `mut` flag, parallel to `params`. `true`
+    /// at index `i` iff the i-th param was declared `mut <name>: ...`
+    /// in source. Today this only matters for `extern c` fns where a
+    /// `mut Vec[U8]` param marks a caller-allocated OUT buffer (the
+    /// codegen expands it to `(ptr, capacity, len_ptr)` triple at the
+    /// ABI boundary). The type checker rejects `mut` on any other
+    /// param shape via MT2031. Empty `Vec` is treated as "no mut on
+    /// any param" — populated lazily by `items::collect_fns` so
+    /// pre-existing test fixtures that build `FnDef` by hand don't
+    /// need to opt in.
+    pub mut_params: Vec<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

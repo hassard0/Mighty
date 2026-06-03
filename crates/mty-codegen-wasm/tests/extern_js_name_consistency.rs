@@ -106,6 +106,7 @@ fn program_with_extern_js(
             abi: "js".into(),
             name: fn_name.into(),
             is_variadic: false,
+            mut_params: vec![],
         },
     );
 
@@ -388,6 +389,7 @@ fn extern_js_multiple_fns_all_kebab_consistent() {
                 abi: "js".into(),
                 name: (*name).into(),
                 is_variadic: false,
+                mut_params: vec![],
             },
         );
     }

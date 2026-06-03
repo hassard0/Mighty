@@ -552,6 +552,7 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         hir_fn: None,
         extern_abi: None,
         is_variadic: false,
+        mut_params: vec![],
     });
     defs.by_name.insert("log".into(), DefRef::Fn(log_id));
 
@@ -568,6 +569,7 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         hir_fn: None,
         extern_abi: None,
         is_variadic: false,
+        mut_params: vec![],
     });
     defs.by_name.insert("panic".into(), DefRef::Fn(panic_id));
 
@@ -593,6 +595,7 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         hir_fn: None,
         extern_abi: None,
         is_variadic: false,
+        mut_params: vec![],
     });
     defs.by_name.insert("spawn".into(), DefRef::Fn(spawn_id));
 
@@ -617,6 +620,7 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         hir_fn: None,
         extern_abi: None,
         is_variadic: false,
+        mut_params: vec![],
     });
     defs.by_name.insert("move".into(), DefRef::Fn(move_id));
 
@@ -634,6 +638,7 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         hir_fn: None,
         extern_abi: None,
         is_variadic: false,
+        mut_params: vec![],
     });
     defs.by_name
         .insert("raw_ptr".into(), DefRef::Fn(raw_ptr_id));
@@ -651,6 +656,7 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         hir_fn: None,
         extern_abi: None,
         is_variadic: false,
+        mut_params: vec![],
     });
     defs.by_name.insert("valid".into(), DefRef::Fn(valid_id));
 
@@ -667,6 +673,7 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         hir_fn: None,
         extern_abi: None,
         is_variadic: false,
+        mut_params: vec![],
     });
     defs.by_name.insert("null".into(), DefRef::Fn(null_id));
 
@@ -696,6 +703,7 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         hir_fn: None,
         extern_abi: None,
         is_variadic: false,
+        mut_params: vec![],
     });
     defs.by_name
         .insert("Char.from_u32".into(), DefRef::Fn(char_from_u32_id));
@@ -721,6 +729,7 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
                 hir_fn: None,
                 extern_abi: None,
                 is_variadic: false,
+                mut_params: vec![],
             });
             // Use weak-shadow: only if not user-defined.
             defs.by_name

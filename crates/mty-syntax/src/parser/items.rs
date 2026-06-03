@@ -498,6 +498,14 @@ pub(crate) fn param(p: &mut Parser) {
         attribute(p);
         p.skip_trivia();
     }
+    // v0.47 T1 — optional `mut` prefix on the param name marks a
+    // caller-allocated OUT buffer at extern-c sites. The token is
+    // preserved as a direct MUT_KW child of FN_PARAM so the AST
+    // accessor (`FnParam::is_mut`) and the HIR lowerer pick it up
+    // without touching the rest of the param shape. For non-extern-c
+    // fns the type checker emits a diagnostic — `mut` is FFI-only.
+    p.eat(MUT_KW);
+    p.skip_trivia();
     if p.at(SELF_KW) {
         // `self` parameter in trait/impl methods; no type annotation required.
         p.bump(SELF_KW);

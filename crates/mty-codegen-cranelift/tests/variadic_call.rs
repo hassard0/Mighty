@@ -99,6 +99,7 @@ fn variadic_printf_program(extras: Vec<(Const, IrTy)>, fmt_ptr_value: i128) -> P
             abi: "c".into(),
             name: "printf".into(),
             is_variadic: true,
+            mut_params: vec![],
         },
     );
 

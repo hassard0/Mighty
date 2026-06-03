@@ -140,9 +140,14 @@ fn register_fn_shells(ctx: &mut LowerCtx) {
 }
 
 fn record_extern_bindings(ctx: &mut LowerCtx) {
-    // Collect (hir_fn_id, abi, name, is_variadic) tuples first so we
-    // don't hold a borrow on `ctx.pkg` while mutating `ctx.prog`.
-    let mut bindings: Vec<(mty_hir::FnId, String, String, bool)> = Vec::new();
+    // Collect (hir_fn_id, abi, name, is_variadic, mut_params) tuples
+    // first so we don't hold a borrow on `ctx.pkg` while mutating
+    // `ctx.prog`. v0.47 T1 — `mut_params` is the per-param mut flag
+    // copied from the HirParam list; the cranelift / LLVM backends
+    // consult it to expand `mut Vec[U8]` into a (ptr, cap, len_ptr)
+    // triple at the ABI boundary. See
+    // `docs/internals/extern-c-matrix.md` §"v0.47 T1 — mut Vec[U8]".
+    let mut bindings: Vec<(mty_hir::FnId, String, String, bool, Vec<bool>)> = Vec::new();
     for (_, item) in ctx.pkg.items.iter() {
         if let Item::ExternBlock(eb) = item {
             // Default ABI is "c" when the user wrote a bare `extern { }`;
@@ -151,11 +156,18 @@ fn record_extern_bindings(ctx: &mut LowerCtx) {
             let abi = eb.abi.clone().unwrap_or_else(|| "c".to_string());
             for fid in &eb.fns {
                 let hf = &ctx.pkg.fns[*fid];
-                bindings.push((*fid, abi.clone(), hf.name.clone(), hf.is_variadic));
+                let mut_params: Vec<bool> = hf.params.iter().map(|p| p.is_mut).collect();
+                bindings.push((
+                    *fid,
+                    abi.clone(),
+                    hf.name.clone(),
+                    hf.is_variadic,
+                    mut_params,
+                ));
             }
         }
     }
-    for (hir_id, abi, name, is_variadic) in bindings {
+    for (hir_id, abi, name, is_variadic, mut_params) in bindings {
         if let Some(sirid) = ctx.fn_map.get(&hir_id).copied() {
             ctx.prog.extern_bindings.insert(
                 sirid,
@@ -163,6 +175,7 @@ fn record_extern_bindings(ctx: &mut LowerCtx) {
                     abi,
                     name,
                     is_variadic,
+                    mut_params,
                 },
             );
         }
