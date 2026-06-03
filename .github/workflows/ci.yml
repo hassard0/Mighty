@@ -72,10 +72,18 @@ jobs:
         if: matrix.os == 'windows-latest'
         uses: taiki-e/install-action@nextest
 
-      - name: cargo nextest (Windows, per-test timeout)
+      # Serial (`--test-threads=1`): the AOT / extern-c codegen tests
+      # build + link native binaries against the runtime and race on
+      # Windows file locking when run concurrently (spurious
+      # "unresolved external symbol" link errors); serial is the proven
+      # config (the known-good main run passed them serially). nextest
+      # still runs each test in its OWN process (so the serial-libtest
+      # deadlock that caused the ~6h hang can't recur) and terminates any
+      # test exceeding the per-test timeout in .config/nextest.toml.
+      - name: cargo nextest (Windows, serial + per-test timeout)
         if: matrix.os == 'windows-latest'
         timeout-minutes: 60
-        run: cargo nextest run --workspace --profile ci
+        run: cargo nextest run --workspace --profile ci --test-threads=1
 
       - name: cargo test --doc (Windows)
         if: matrix.os == 'windows-latest'
