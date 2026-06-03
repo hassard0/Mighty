@@ -89,17 +89,22 @@ pub(crate) fn bind_pat_assign(
                 Some(tyid) => {
                     let lowered = crate::lower::ty::lower_ty(tyid, &ctx.typed.ty_arena);
                     match &lowered {
-                        IrTy::Adt(id, _) => {
-                            let is_vec = matches!(
-                                ctx.typed.def_map.lookup("Vec"),
-                                Some(mty_types::DefRef::Adt(a)) if a == *id
-                            );
-                            if is_vec {
-                                lowered
-                            } else {
-                                IrTy::Error
-                            }
-                        }
+                        // v0.48 T1 — keep the real ADT type on the
+                        // binding slot. Previously only `Vec` was kept
+                        // and every other ADT (user structs/enums,
+                        // opaque handles) was poisoned to `IrTy::Error`,
+                        // which forced cranelift's `place_addr` into its
+                        // i64-per-field fallback: `let mut p = Point{..};
+                        // p.x = 5` then stored 8 bytes (clobbering the
+                        // sibling field) and `p.y` read at idx*8 instead
+                        // of the struct's real offset. Carrying the ADT
+                        // type makes field assignment + readback use the
+                        // actual layout. Str/String/Bytes are NOT `Adt`
+                        // (separate `IrTy` variants handled by the `_`
+                        // arm below), so the string-rebind agg-slot path
+                        // is untouched. Generalises the v0.46 T4
+                        // Metadata/DirIter carve-out below.
+                        IrTy::Adt(_, _) => lowered,
                         // Scalars + Size/Duration: keep the real
                         // shape on the slot so codegen typed dispatch
                         // (v0.42 T4 log/print, future to_str on

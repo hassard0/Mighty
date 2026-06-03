@@ -122,15 +122,10 @@ fn main() -> I64 {
 //    the others.
 // ============================================================================
 
-// KNOWN LIMITATION (v0.47 carry-forward): cranelift struct codegen
-// lays out / boxes a sub-8-byte-offset field (`y: I32` at offset 4)
-// inconsistently between construction and projection, so writing a
-// sibling (`p.x = 5`) then reading `p.y` yields garbage. Offset-0 and
-// 8-aligned fields are unaffected, which is why the other cases pass.
-// This is pre-existing cranelift codegen (T2 only added these parity
-// tests); the fix is tracked as a v0.48 task. See RELEASE-v0.47.md.
+// v0.48 T1 regression: writing one field must not corrupt a sibling.
+// Pre-fix, `let`-bindings of non-Vec ADTs were typed IrTy::Error, so
+// `p.x = 5` stored 8 bytes (i64) and clobbered `p.y`.
 #[test]
-#[ignore = "cranelift struct field-assignment sibling corruption — pre-existing, v0.48 task"]
 fn writing_x_does_not_corrupt_y() {
     let src = r#"
 struct Point { x: I32, y: I32 }
@@ -148,18 +143,12 @@ fn main() -> I64 {
 // 3. Nested struct field write — `outer.inner.x = 7`.
 // ============================================================================
 
-// KNOWN LIMITATION (v0.47 carry-forward): nested-aggregate projection
-// stores. A struct-typed field (`Outer.inner: Inner`) is constructed
-// *boxed* (the parent slot holds a pointer to the child aggregate), and
-// the field-READ path dereferences that pointer — but `place_addr` (the
-// field-WRITE path) treats the projection inline, so `o.inner.x = 7`
-// overwrites the `inner` pointer instead of the child's `x`, and the
-// readback then dereferences the corrupted pointer (SIGSEGV). Single-
-// level projection stores (the L15 `md.is_file = true` motivator) work;
-// the nested case needs the construct/read/write paths realigned. See
-// `dev/history/releases/RELEASE-v0.47.md` carry-forward.
+// v0.48 T1: nested struct field assignment + readback
+// (`o.inner.x = 7; let v = o.inner.x`). Fixed by typing let-bindings and
+// field-read temps with their real ADT type, and by reading
+// multi-segment paths through a single projection chain (so the
+// intermediate `o.inner` no longer materialises a mis-aliased slot).
 #[test]
-#[ignore = "nested-aggregate projection store — known cranelift limitation, v0.47 carry-forward"]
 fn nested_struct_field_write_threads_two_projections() {
     let src = r#"
 struct Inner { x: I32, y: I32 }
@@ -175,7 +164,6 @@ fn main() -> I64 {
 }
 
 #[test]
-#[ignore = "nested-aggregate projection store — known cranelift limitation, v0.47 carry-forward"]
 fn nested_field_write_preserves_sibling_in_outer() {
     let src = r#"
 struct Inner { x: I32, y: I32 }
