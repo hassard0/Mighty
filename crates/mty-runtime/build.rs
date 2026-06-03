@@ -1,4 +1,5 @@
 // v0.46 T1 — Runtime ABI artifact pipeline.
+// v0.47 T3 — stability markers + numeric version macros.
 //
 // The Mighty compiler emits calls into a fixed family of
 // `mty_runtime_*` C-ABI symbols (declared in
@@ -25,6 +26,24 @@
 //      `mty abi header` and packaged from `target-t1/<profile>/build/
 //      mty-runtime-*/out/runtime_abi.h` into the release tarball.
 //
+// v0.47 T3 extends the pipeline with two consumer-side affordances:
+//
+//   5. The parser now picks up `// @since X.Y.Z` and
+//      `// @deprecated X.Y.Z[ — note]` doc comments that precede each
+//      `#[no_mangle]` attribute. These are emitted as
+//      `/* @since X.Y.Z */` comments above the C declaration so
+//      downstream consumers reading the header can see the API age
+//      and any planned removal at a glance. They also flow through
+//      into `RUNTIME_ABI_SIGNATURES.since` / `.deprecated`, so
+//      `mty abi list` and the JSON output expose them too.
+//   6. The header now defines three numeric version macros
+//      (`MTY_RUNTIME_ABI_VERSION_MAJOR/MINOR/PATCH`) alongside the
+//      existing string macro, so downstream consumers can write
+//      `#if MTY_RUNTIME_ABI_VERSION_MINOR >= 46` compat checks. The
+//      values come from the same version string the rest of the
+//      pipeline pins; the build.rs splits it on '.' and emits each
+//      component as an unsuffixed integer literal.
+//
 // The check-in copy under `crates/mty-runtime/include/` is the
 // source-of-truth artifact (so users can `git diff` it across
 // releases). The build script re-emits it on every build; if a track
@@ -34,9 +53,20 @@
 // `tests/runtime_abi_header.rs`) then fails because the checked-in
 // copy on `git` lags the generator output. This makes drift visible
 // without breaking incremental dev.
+//
+// v0.47 T3 also adds a stricter drift gate that fails the build if a
+// new `#[no_mangle]` fn lacks a `@since` doc comment — see
+// `tests/runtime_abi_header.rs::every_no_mangle_fn_has_since_tag`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+
+/// Header-level stability marker for the whole runtime ABI. Pre-1.0:
+/// the symbol surface may grow / deprecate / reshape between minor
+/// releases, so we advertise `"experimental"` until a v1.0 freeze.
+/// Emitted both as the C `MTY_RUNTIME_ABI_STABILITY` macro and the
+/// Rust `RUNTIME_ABI_STABILITY` constant so both consumer sides agree.
+const ABI_STABILITY: &str = "experimental";
 
 fn main() {
     let manifest_dir = PathBuf::from(env_or_panic("CARGO_MANIFEST_DIR"));
@@ -73,6 +103,25 @@ fn main() {
         "build.rs: no `mty_runtime_*` extern \"C\" fns found in {}",
         abi_src.display()
     );
+
+    // v0.47 T3 — drift gate: every fn must carry a `@since` doc
+    // comment. The integration test surfaces this with a clearer
+    // diagnostic, but we also surface it as a build warning here so
+    // an agent running `cargo build -p mty-runtime` sees it
+    // immediately. We don't fail the build (incremental dev with a
+    // half-written fn shouldn't break) — the test is the gate.
+    let missing_since: Vec<&str> = fns
+        .iter()
+        .filter(|f| f.since.is_none())
+        .map(|f| f.name.as_str())
+        .collect();
+    if !missing_since.is_empty() {
+        println!(
+            "cargo:warning=mty-runtime ABI: {} fn(s) missing `// @since` doc comment: {:?}",
+            missing_since.len(),
+            missing_since
+        );
+    }
 
     // --- Emit the header file (in-tree, checked-in, plus OUT_DIR copy).
     let header = render_header(&fns, &version);
@@ -118,6 +167,28 @@ fn resolve_mighty_version(manifest_dir: &Path) -> String {
     "0.0.0-dev".to_string()
 }
 
+/// Split a version string like `"0.47.0"` into `(major, minor,
+/// patch)`. Non-numeric components fall back to `0`. Pre-release
+/// suffixes (`"0.47.0-rc1"`) are stripped from the patch component
+/// before parsing so the resulting macros are valid C integer
+/// literals.
+fn split_version(v: &str) -> (u32, u32, u32) {
+    let mut parts = v.split('.');
+    let major = parts.next().unwrap_or("0");
+    let minor = parts.next().unwrap_or("0");
+    let patch = parts.next().unwrap_or("0");
+    // Strip suffixes like `-rc1` / `+build` off the patch.
+    let patch_clean: String = patch
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    (
+        major.parse().unwrap_or(0),
+        minor.parse().unwrap_or(0),
+        patch_clean.parse().unwrap_or(0),
+    )
+}
+
 fn env_or_panic(key: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| panic!("missing env var {key}"))
 }
@@ -136,6 +207,13 @@ struct AbiFn {
     name: String,
     params: Vec<(String, String)>, // (param_name, rust_type)
     ret: Option<String>,           // None == void
+    /// `@since X.Y.Z` doc comment above the attribute, or `None` if
+    /// the fn was added without one. The drift gate fails when this
+    /// is `None`.
+    since: Option<String>,
+    /// `@deprecated X.Y.Z[ — note]` doc comment above the attribute.
+    /// `(version, optional_note)`.
+    deprecated: Option<(String, Option<String>)>,
 }
 
 /// Walk `codegen_abi.rs` and pull out every `#[no_mangle] pub extern
@@ -145,6 +223,13 @@ struct AbiFn {
 /// keep up with. If the convention ever changes (e.g. someone wraps a
 /// no_mangle fn in cfg-gate macros), the `runtime_abi_header_in_sync`
 /// test will fail because the symbol_table() vs parser disagree.
+///
+/// v0.47 T3: the parser also walks BACKWARDS from `#[no_mangle]` to
+/// pick up `// @since X.Y.Z` and `// @deprecated X.Y.Z[ — note]`
+/// markers in the contiguous block of `//`-line-comments immediately
+/// preceding the attribute. Blank lines / non-comment lines break
+/// the block so a comment from an unrelated earlier fn doesn't bleed
+/// down.
 fn parse_abi(src: &str) -> Vec<AbiFn> {
     let mut out = Vec::new();
     let lines: Vec<&str> = src.lines().collect();
@@ -152,6 +237,10 @@ fn parse_abi(src: &str) -> Vec<AbiFn> {
     while i < lines.len() {
         let line = lines[i].trim_start();
         if line == "#[no_mangle]" {
+            // Walk backwards from i-1 to collect the contiguous
+            // `//`-comment block immediately above the attribute.
+            let (since, deprecated) = collect_markers(&lines, i);
+
             // Collect lines until we see `{` (body start). Strip
             // trailing comments by collapsing whitespace and stopping
             // at `{`.
@@ -165,8 +254,10 @@ fn parse_abi(src: &str) -> Vec<AbiFn> {
                 }
                 j += 1;
             }
-            if let Some(parsed) = parse_extern_c_fn(&sig) {
+            if let Some(mut parsed) = parse_extern_c_fn(&sig) {
                 if parsed.name.starts_with("mty_runtime_") {
+                    parsed.since = since;
+                    parsed.deprecated = deprecated;
                     out.push(parsed);
                 }
             }
@@ -176,6 +267,65 @@ fn parse_abi(src: &str) -> Vec<AbiFn> {
         }
     }
     out
+}
+
+/// Walk backwards from the `#[no_mangle]` line at index `attr_idx`
+/// over the contiguous block of `//`-line comments and pick up the
+/// last `@since` / `@deprecated` marker. The block stops at the
+/// first non-comment, non-blank-line-attached-comment row — blank
+/// lines also break it. We deliberately only honor `//` comments
+/// (not `///` doc comments or `/* */` block comments) so the
+/// markers stay obviously distinct from real doc attributes.
+fn collect_markers(
+    lines: &[&str],
+    attr_idx: usize,
+) -> (Option<String>, Option<(String, Option<String>)>) {
+    let mut since: Option<String> = None;
+    let mut deprecated: Option<(String, Option<String>)> = None;
+    if attr_idx == 0 {
+        return (since, deprecated);
+    }
+    let mut k = attr_idx;
+    while k > 0 {
+        k -= 1;
+        let trimmed = lines[k].trim_start();
+        // Stop at the first non-comment line. Doc comments (`///`)
+        // and block comments are NOT honored here — only plain `//`.
+        if !trimmed.starts_with("//") || trimmed.starts_with("///") {
+            break;
+        }
+        // Strip leading `//` and any leading whitespace inside.
+        let payload = trimmed.trim_start_matches("//").trim();
+        if let Some(rest) = payload.strip_prefix("@since ") {
+            if since.is_none() {
+                since = Some(rest.trim().to_string());
+            }
+        } else if let Some(rest) = payload.strip_prefix("@deprecated ") {
+            if deprecated.is_none() {
+                // Either `0.47.0` or `0.47.0 — use X` / `0.47.0 - use X`.
+                let rest = rest.trim();
+                let (ver, note) = split_deprecated_payload(rest);
+                deprecated = Some((ver, note));
+            }
+        }
+    }
+    (since, deprecated)
+}
+
+/// Split `"0.47.0 — use mty_runtime_fs_dir_open"` into
+/// `("0.47.0", Some("use mty_runtime_fs_dir_open"))`. The separator
+/// can be a literal em-dash, an ASCII `-`, or `--`. If there is no
+/// separator, the whole string is treated as the version.
+fn split_deprecated_payload(s: &str) -> (String, Option<String>) {
+    // Look for em-dash first, then ` -- `, then ` - `.
+    for sep in ["—", " -- ", " - "] {
+        if let Some(idx) = s.find(sep) {
+            let ver = s[..idx].trim().to_string();
+            let note = s[idx + sep.len()..].trim().to_string();
+            return (ver, if note.is_empty() { None } else { Some(note) });
+        }
+    }
+    (s.trim().to_string(), None)
 }
 
 fn parse_extern_c_fn(raw: &str) -> Option<AbiFn> {
@@ -216,7 +366,13 @@ fn parse_extern_c_fn(raw: &str) -> Option<AbiFn> {
         .map(|arrow_rest| arrow_rest.trim().trim_end_matches(',').trim().to_string());
 
     let params = split_params(params_src);
-    Some(AbiFn { name, params, ret })
+    Some(AbiFn {
+        name,
+        params,
+        ret,
+        since: None,
+        deprecated: None,
+    })
 }
 
 fn split_params(s: &str) -> Vec<(String, String)> {
@@ -281,6 +437,7 @@ fn rust_to_c(ty: &str) -> &'static str {
 }
 
 fn render_header(fns: &[AbiFn], version: &str) -> String {
+    let (major, minor, patch) = split_version(version);
     let mut s = String::new();
     s.push_str("/* GENERATED by mty-runtime/build.rs — DO NOT EDIT BY HAND.\n");
     s.push_str(" *\n");
@@ -292,6 +449,13 @@ fn render_header(fns: &[AbiFn], version: &str) -> String {
     s.push_str(" * the stability story and `mty abi list` for the symbol\n");
     s.push_str(" * table at runtime.\n");
     s.push_str(" *\n");
+    s.push_str(" * v0.47 T3: numeric version macros\n");
+    s.push_str(" * (MTY_RUNTIME_ABI_VERSION_MAJOR/MINOR/PATCH) plus per-fn\n");
+    s.push_str(" * `@since X.Y.Z` (and where applicable `@deprecated X.Y.Z`)\n");
+    s.push_str(" * markers so downstream consumers can soft-pin with\n");
+    s.push_str(" *   `#if MTY_RUNTIME_ABI_VERSION_MINOR >= 47`\n");
+    s.push_str(" * and see API age at a glance.\n");
+    s.push_str(" *\n");
     s.push_str(" * Consumers link against `libmty_runtime_abi.a`\n");
     s.push_str(" * (Linux/macOS) or `mty_runtime_abi.lib` (MSVC). See the\n");
     s.push_str(" * docs for the exact tarball name per platform.\n");
@@ -300,12 +464,59 @@ fn render_header(fns: &[AbiFn], version: &str) -> String {
     s.push_str("#define MTY_RUNTIME_ABI_H\n\n");
     s.push_str("#include <stdint.h>\n\n");
     s.push_str(&format!(
-        "#define MTY_RUNTIME_ABI_VERSION \"{version}\"\n\n"
+        "#define MTY_RUNTIME_ABI_VERSION \"{version}\"\n"
+    ));
+    s.push_str(&format!(
+        "#define MTY_RUNTIME_ABI_VERSION_MAJOR {major}\n"
+    ));
+    s.push_str(&format!(
+        "#define MTY_RUNTIME_ABI_VERSION_MINOR {minor}\n"
+    ));
+    s.push_str(&format!(
+        "#define MTY_RUNTIME_ABI_VERSION_PATCH {patch}\n"
+    ));
+    // v0.47 T3 — a single encoded integer so consumers can do
+    // `#if MTY_RUNTIME_ABI_VERSION_NUMBER >= 4700` style compile-time
+    // comparisons against one value instead of three separate macros.
+    // Encoding: MAJOR*10000 + MINOR*100 + PATCH (room for 99 minor /
+    // 99 patch per major, matching the project's 0.x cadence).
+    let number = major * 10000 + minor * 100 + patch;
+    s.push_str(&format!(
+        "#define MTY_RUNTIME_ABI_VERSION_NUMBER {number} \
+         /* MAJOR*10000 + MINOR*100 + PATCH */\n"
+    ));
+    // v0.47 T3 — header-level stability marker. The whole runtime ABI
+    // is pre-1.0 / experimental: symbols may be added, deprecated, or
+    // reshaped between minor releases. Downstream consumers can branch
+    // on this string (or just surface it in diagnostics) to make the
+    // pre-1.0 contract explicit.
+    s.push_str(&format!(
+        "#define MTY_RUNTIME_ABI_STABILITY \"{ABI_STABILITY}\"\n\n"
     ));
     s.push_str("#ifdef __cplusplus\n");
     s.push_str("extern \"C\" {\n");
     s.push_str("#endif\n\n");
     for f in fns {
+        // v0.47 T3 — render `/* @since … */` / `/* @deprecated … */`
+        // comment above each declaration if we picked one up from
+        // codegen_abi.rs. We combine both onto one line when both
+        // are present to keep the header skimmable.
+        if f.since.is_some() || f.deprecated.is_some() {
+            let mut markers = String::new();
+            if let Some(s) = &f.since {
+                markers.push_str(&format!("@since {s}"));
+            }
+            if let Some((ver, note)) = &f.deprecated {
+                if !markers.is_empty() {
+                    markers.push(' ');
+                }
+                match note {
+                    Some(n) => markers.push_str(&format!("@deprecated {ver} — {n}")),
+                    None => markers.push_str(&format!("@deprecated {ver}")),
+                }
+            }
+            s.push_str(&format!("/* {markers} */\n"));
+        }
         let ret = match &f.ret {
             None => "void".to_string(),
             Some(rty) => rust_to_c(rty).to_string(),
@@ -329,11 +540,32 @@ fn render_header(fns: &[AbiFn], version: &str) -> String {
 }
 
 fn render_symbol_table(fns: &[AbiFn], version: &str) -> String {
+    let (major, minor, patch) = split_version(version);
     let mut s = String::new();
     s.push_str("// GENERATED by mty-runtime/build.rs — DO NOT EDIT BY HAND.\n");
     s.push_str("// Consumed by `crate::abi_export`. See build.rs for shape.\n\n");
     s.push_str(&format!(
-        "pub const RUNTIME_ABI_VERSION: &str = \"{version}\";\n\n"
+        "pub const RUNTIME_ABI_VERSION: &str = \"{version}\";\n"
+    ));
+    s.push_str(&format!(
+        "pub const RUNTIME_ABI_VERSION_MAJOR: u32 = {major};\n"
+    ));
+    s.push_str(&format!(
+        "pub const RUNTIME_ABI_VERSION_MINOR: u32 = {minor};\n"
+    ));
+    s.push_str(&format!(
+        "pub const RUNTIME_ABI_VERSION_PATCH: u32 = {patch};\n"
+    ));
+    // v0.47 T3 — encoded combined value mirroring the C
+    // `MTY_RUNTIME_ABI_VERSION_NUMBER` macro.
+    let number = major * 10000 + minor * 100 + patch;
+    s.push_str(&format!(
+        "pub const RUNTIME_ABI_VERSION_NUMBER: u32 = {number};\n"
+    ));
+    // v0.47 T3 — header-level stability marker, mirrors the C
+    // `MTY_RUNTIME_ABI_STABILITY` macro.
+    s.push_str(&format!(
+        "pub const RUNTIME_ABI_STABILITY: &str = \"{ABI_STABILITY}\";\n\n"
     ));
     s.push_str("pub static RUNTIME_ABI_SIGNATURES: &[AbiSignature] = &[\n");
     for f in fns {
@@ -343,13 +575,45 @@ fn render_symbol_table(fns: &[AbiFn], version: &str) -> String {
             .iter()
             .map(|(n, t)| format!("(\"{n}\", \"{t}\")"))
             .collect();
+        let since = match &f.since {
+            Some(v) => format!("Some(\"{v}\")"),
+            None => "None".to_string(),
+        };
+        let deprecated = match &f.deprecated {
+            Some((v, Some(n))) => format!(
+                "Some(AbiDeprecation {{ since: \"{v}\", note: Some(\"{}\") }})",
+                escape_rust_str_literal(n)
+            ),
+            Some((v, None)) => {
+                format!("Some(AbiDeprecation {{ since: \"{v}\", note: None }})")
+            }
+            None => "None".to_string(),
+        };
         s.push_str(&format!(
-            "    AbiSignature {{ name: \"{}\", params: &[{}], ret: \"{}\" }},\n",
+            "    AbiSignature {{ name: \"{}\", params: &[{}], ret: \"{}\", since: {}, deprecated: {} }},\n",
             f.name,
             params.join(", "),
-            ret
+            ret,
+            since,
+            deprecated
         ));
     }
     s.push_str("];\n");
     s
+}
+
+/// Escape a string for embedding into a Rust string literal in the
+/// generated symbol-table side file. We only need to handle `"` and
+/// `\\` — none of the existing notes contain any other troublesome
+/// chars, but we escape them anyway so future additions don't bite.
+fn escape_rust_str_literal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            other => out.push(other),
+        }
+    }
+    out
 }

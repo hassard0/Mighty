@@ -44,35 +44,55 @@ fn registry() -> &'static Mutex<ExternRegistry> {
 }
 
 // ---- The actual C-ABI fns ------------------------------------------
+//
+// Every `#[no_mangle]` fn below carries a `// @since X.Y.Z` doc
+// comment immediately above its attribute. The v0.47 T3 header
+// generator parses these into `/* @since X.Y.Z */` C comments so
+// downstream consumers can see API age at a glance. A handful of
+// fns also carry `// @deprecated X.Y.Z — <replacement note>` for
+// surfaces we plan to retire in a future minor.
+//
+// Drift rule (enforced in `tests/runtime_abi_header.rs`): every new
+// `#[no_mangle] pub extern "C" fn mty_runtime_*` MUST carry a
+// `@since` tag or CI fails. The bulk-assigned tags here match the
+// release each family shipped in (pre-v0.46 fns are tagged with the
+// earliest traceable release, falling back to `0.30.0` for the
+// original slice-8 surface).
 
+// @since 0.30.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_log(ptr: i64, len: i64) {
     let s = unsafe { read_str(ptr, len) };
     println!("{s}");
 }
 
+// @since 0.30.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_print(ptr: i64, len: i64) {
     let s = unsafe { read_str(ptr, len) };
     print!("{s}");
 }
 
+// @since 0.30.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_panic(ptr: i64, len: i64) {
     let s = unsafe { read_str(ptr, len) };
     eprintln!("mighty panic: {s}");
 }
 
+// @since 0.30.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_arena_push() -> i64 {
     ARENA_STACK.with(|s| s.borrow_mut().push() as i64)
 }
 
+// @since 0.30.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_arena_pop(_handle: i64) {
     ARENA_STACK.with(|s| s.borrow_mut().pop());
 }
 
+// @since 0.30.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_alloc(size: i64, align: i64, _zero: i64) -> i64 {
     BYTES_CHARGED.with(|b| {
@@ -85,6 +105,7 @@ pub extern "C" fn mty_runtime_alloc(size: i64, align: i64, _zero: i64) -> i64 {
         .unwrap_or(0)
 }
 
+// @since 0.30.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_budget_charge(bytes: i64) -> i8 {
     BYTES_CHARGED.with(|b| {
@@ -94,6 +115,7 @@ pub extern "C" fn mty_runtime_budget_charge(bytes: i64) -> i8 {
     1 // 1 = ok; 0 would mean budget exceeded (slice-8 simplification)
 }
 
+// @since 0.30.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_send(_target: i64, _msg: i64, _payload: i64) {
     // Slice-8 stub — full implementation lives in the interp-driven
@@ -101,6 +123,7 @@ pub extern "C" fn mty_runtime_send(_target: i64, _msg: i64, _payload: i64) {
     // slice 8 doesn't fully cover.
 }
 
+// @since 0.30.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_ask(
     _target: i64,
@@ -111,11 +134,13 @@ pub extern "C" fn mty_runtime_ask(
     0
 }
 
+// @since 0.30.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_spawn(_agent_id: i64) -> i64 {
     0
 }
 
+// @since 0.30.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_extern_call(name_ptr: i64, name_len: i64, _args: i64) -> i64 {
     let name = unsafe { read_str(name_ptr, name_len).to_string() };
@@ -123,6 +148,7 @@ pub extern "C" fn mty_runtime_extern_call(name_ptr: i64, name_len: i64, _args: i
     reg.call_i64(&name).unwrap_or_default()
 }
 
+// @since 0.30.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_log_i64(v: i64) {
     println!("{v}");
@@ -195,21 +221,25 @@ unsafe fn write_str_pair(dst: i64, ptr: i64, len: i64) {
 
 // ---- log_* family (println) ----
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_log_i32(v: i32) {
     println!("{v}");
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_log_u32(v: u32) {
     println!("{v}");
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_log_u64(v: u64) {
     println!("{v}");
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_log_usize(v: i64) {
     // The codegen passes `USize` as i64 (matches the platform pointer
@@ -217,16 +247,19 @@ pub extern "C" fn mty_runtime_log_usize(v: i64) {
     println!("{}", v as u64);
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_log_f32(v: f32) {
     println!("{v}");
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_log_f64(v: f64) {
     println!("{v}");
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_log_bool(v: i8) {
     println!("{}", v != 0);
@@ -234,51 +267,61 @@ pub extern "C" fn mty_runtime_log_bool(v: i8) {
 
 // ---- print_* family (no newline) ----
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_print_i32(v: i32) {
     print!("{v}");
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_print_i64(v: i64) {
     print!("{v}");
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_print_u32(v: u32) {
     print!("{v}");
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_print_u64(v: u64) {
     print!("{v}");
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_print_usize(v: i64) {
     print!("{}", v as u64);
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_print_f32(v: f32) {
     print!("{v}");
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_print_f64(v: f64) {
     print!("{v}");
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_print_bool(v: i8) {
     print!("{}", v != 0);
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_print_sep() {
     print!(" ");
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_print_newline() {
     println!();
@@ -286,6 +329,7 @@ pub extern "C" fn mty_runtime_print_newline() {
 
 // ---- fmt_* family (to_str on scalars) ----
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fmt_i32(v: i32, dst: i64) {
     let s = v.to_string();
@@ -293,6 +337,7 @@ pub extern "C" fn mty_runtime_fmt_i32(v: i32, dst: i64) {
     unsafe { write_str_pair(dst, p, l) };
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fmt_i64_to_slot(v: i64, dst: i64) {
     let s = v.to_string();
@@ -300,6 +345,7 @@ pub extern "C" fn mty_runtime_fmt_i64_to_slot(v: i64, dst: i64) {
     unsafe { write_str_pair(dst, p, l) };
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fmt_u32(v: u32, dst: i64) {
     let s = v.to_string();
@@ -307,6 +353,7 @@ pub extern "C" fn mty_runtime_fmt_u32(v: u32, dst: i64) {
     unsafe { write_str_pair(dst, p, l) };
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fmt_u64(v: u64, dst: i64) {
     let s = v.to_string();
@@ -314,6 +361,7 @@ pub extern "C" fn mty_runtime_fmt_u64(v: u64, dst: i64) {
     unsafe { write_str_pair(dst, p, l) };
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fmt_usize(v: i64, dst: i64) {
     // Same convention as log_usize: i64 carries the platform-width
@@ -323,6 +371,7 @@ pub extern "C" fn mty_runtime_fmt_usize(v: i64, dst: i64) {
     unsafe { write_str_pair(dst, p, l) };
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fmt_f32(v: f32, dst: i64) {
     let s = v.to_string();
@@ -330,6 +379,7 @@ pub extern "C" fn mty_runtime_fmt_f32(v: f32, dst: i64) {
     unsafe { write_str_pair(dst, p, l) };
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fmt_f64(v: f64, dst: i64) {
     let s = v.to_string();
@@ -337,6 +387,7 @@ pub extern "C" fn mty_runtime_fmt_f64(v: f64, dst: i64) {
     unsafe { write_str_pair(dst, p, l) };
 }
 
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fmt_bool(v: i8, dst: i64) {
     let s = (v != 0).to_string();
@@ -420,6 +471,7 @@ fn errno_of(err: std::io::Error) -> i32 {
     -n
 }
 
+// @since 0.45.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fs_read(path_ptr: i64, path_len: i64, dst: i64) {
     let path = unsafe { read_str(path_ptr, path_len) };
@@ -439,6 +491,7 @@ pub extern "C" fn mty_runtime_fs_read(path_ptr: i64, path_len: i64, dst: i64) {
     }
 }
 
+// @since 0.45.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fs_read_to_string(path_ptr: i64, path_len: i64, dst: i64) {
     // Identical native semantics to `read` — both return UTF-8 bytes
@@ -448,6 +501,7 @@ pub extern "C" fn mty_runtime_fs_read_to_string(path_ptr: i64, path_len: i64, ds
     mty_runtime_fs_read(path_ptr, path_len, dst);
 }
 
+// @since 0.45.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fs_write(
     path_ptr: i64,
@@ -480,6 +534,7 @@ pub extern "C" fn mty_runtime_fs_write(
     }
 }
 
+// @since 0.45.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fs_write_string(
     path_ptr: i64,
@@ -492,6 +547,7 @@ pub extern "C" fn mty_runtime_fs_write_string(
     mty_runtime_fs_write(path_ptr, path_len, str_ptr, str_len)
 }
 
+// @since 0.45.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fs_append(
     path_ptr: i64,
@@ -530,6 +586,7 @@ pub extern "C" fn mty_runtime_fs_append(
     }
 }
 
+// @since 0.45.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fs_exists(path_ptr: i64, path_len: i64) -> i32 {
     let path = unsafe { read_str(path_ptr, path_len) };
@@ -540,6 +597,7 @@ pub extern "C" fn mty_runtime_fs_exists(path_ptr: i64, path_len: i64) -> i32 {
     }
 }
 
+// @since 0.45.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fs_metadata(path_ptr: i64, path_len: i64, dst: i64) -> i32 {
     let path = unsafe { read_str(path_ptr, path_len) };
@@ -572,6 +630,7 @@ pub extern "C" fn mty_runtime_fs_metadata(path_ptr: i64, path_len: i64, dst: i64
     }
 }
 
+// @since 0.45.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fs_create_dir_all(path_ptr: i64, path_len: i64) -> i32 {
     let path = unsafe { read_str(path_ptr, path_len) };
@@ -581,6 +640,7 @@ pub extern "C" fn mty_runtime_fs_create_dir_all(path_ptr: i64, path_len: i64) ->
     }
 }
 
+// @since 0.45.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fs_remove_file(path_ptr: i64, path_len: i64) -> i32 {
     let path = unsafe { read_str(path_ptr, path_len) };
@@ -590,6 +650,7 @@ pub extern "C" fn mty_runtime_fs_remove_file(path_ptr: i64, path_len: i64) -> i3
     }
 }
 
+// @since 0.45.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fs_remove_dir_all(path_ptr: i64, path_len: i64) -> i32 {
     let path = unsafe { read_str(path_ptr, path_len) };
@@ -600,6 +661,8 @@ pub extern "C" fn mty_runtime_fs_remove_dir_all(path_ptr: i64, path_len: i64) ->
     }
 }
 
+// @since 0.45.0
+// @deprecated 0.47.0 — use mty_runtime_fs_dir_open
 #[no_mangle]
 pub extern "C" fn mty_runtime_fs_read_dir(path_ptr: i64, path_len: i64, dst: i64) {
     // v0.45 T1 shape — newline-joined entries Str result. The proper
@@ -673,6 +736,7 @@ struct DirIterState {
     cursor: usize,
 }
 
+// @since 0.46.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fs_dir_open(path_ptr: i64, path_len: i64) -> i64 {
     let path = unsafe { read_str(path_ptr, path_len) };
@@ -689,6 +753,7 @@ pub extern "C" fn mty_runtime_fs_dir_open(path_ptr: i64, path_len: i64) -> i64 {
     std::boxed::Box::into_raw(boxed) as usize as i64
 }
 
+// @since 0.46.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fs_dir_next(handle: i64, dst: i64) -> i32 {
     if handle == 0 {
@@ -709,6 +774,7 @@ pub extern "C" fn mty_runtime_fs_dir_next(handle: i64, dst: i64) -> i32 {
     1
 }
 
+// @since 0.46.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_fs_dir_close(handle: i64) {
     if handle == 0 {
@@ -725,6 +791,7 @@ pub extern "C" fn mty_runtime_fs_dir_close(handle: i64) {
 // into the same `FMT_STRINGS` interner so the slot stays valid for
 // the lifetime of the program. Codegen uses this to lower the `+`
 // operator when both operands are Str/String.
+// @since 0.42.0
 #[no_mangle]
 pub extern "C" fn mty_runtime_str_concat(aptr: i64, alen: i64, bptr: i64, blen: i64, dst: i64) {
     let a = unsafe { read_str(aptr, alen) };
