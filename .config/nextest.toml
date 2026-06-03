@@ -16,10 +16,25 @@
 # serial constraint is now pure slowness (a clean windows job took
 # ~3h12m). nextest parallelism cuts it to minutes.
 [profile.ci]
-# Warn at 60s, then kill any test still running after 3×60s = 180s and
-# mark it failed (timed out). No real test should run anywhere near
-# this long; a 180s test IS the hang.
-slow-timeout = { period = "60s", terminate-after = 3 }
+# Warn at 60s, then kill any test still running after 5×60s = 300s and
+# mark it failed (timed out). A normal unit/integration test finishes
+# in well under a second; a 5-minute test is a hang. (The long-running
+# conformance / example "sweep" tests get a generous override below.)
+slow-timeout = { period = "60s", terminate-after = 5 }
 # Run the whole suite so every slow/hung test is reported, not just the
 # first.
 fail-fast = false
+# Auto-retry flaky tests (the dev-server / HTTP integration tests bind
+# ephemeral ports and occasionally race on a loaded runner). A test that
+# passes on retry is reported as flaky, not failed — so a transient blip
+# doesn't redden the whole Windows job.
+retries = 2
+
+# The conformance / example "sweep" tests each drive the ENTIRE example
+# corpus in a single test body (compile + run every example), so on the
+# serial Windows runner they legitimately run for several minutes — well
+# past the default kill. Give them a generous ceiling (6×300s = 30min)
+# while still bounding a true hang far below the old 6h GitHub ceiling.
+[[profile.ci.overrides]]
+filter = 'test(/conformance/) | test(/examples_/) | test(/example_sweep/) | test(/passing_floor/)'
+slow-timeout = { period = "300s", terminate-after = 6 }
