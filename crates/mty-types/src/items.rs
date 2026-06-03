@@ -8,11 +8,35 @@ use crate::infer::Substitution;
 use crate::resolve::{build_def_map, ParamScope};
 use crate::ty::*;
 use crate::FnDefId;
+use crate::IntKind;
 use crate::ParamId;
 use crate::TypedPackage;
 use mty_diagnostics::Diagnostic;
 use mty_hir::*;
 use std::collections::{HashMap, HashSet};
+
+/// v0.47 T1 — true iff `ty` resolves to the prelude-registered
+/// `std.Vec[U8]`. The byte-buffer shape is the only `mut` extern-c
+/// param type with a defined OUT ABI (the codegen expands it to a
+/// `(ptr, capacity, len_ptr)` triple). All other types are rejected
+/// with MT2031. Resolves through the ADT catalog by NAME so a
+/// hand-rolled `Vec` opaque ADT in a test fixture still matches.
+fn is_vec_u8(ty: TyId, arena: &TyArena, defs: &DefMap) -> bool {
+    let TyData::Adt(adt_id, args) = arena.get(ty) else {
+        return false;
+    };
+    // Vec is registered with one type argument.
+    if args.len() != 1 {
+        return false;
+    }
+    let Some(adt) = defs.adt(*adt_id) else {
+        return false;
+    };
+    if adt.name != "Vec" {
+        return false;
+    }
+    matches!(arena.get(args[0]), TyData::Int(IntKind::U8))
+}
 
 /// v0.42 T6 (L22 fix 3) — knobs that tune what `check_typed` surfaces.
 /// Defaults reproduce the historic permissive behavior (slice-3 A21 fresh
@@ -66,6 +90,82 @@ pub fn check_typed_with_opts(pkg: &Package, opts: CheckOpts) -> TypedPackage {
                     }
                 }
             }
+        }
+    }
+
+    // v0.47 T1 — `mut` parameter validation.
+    //
+    // The `mut <name>: T` syntax is now accepted by the parser on any
+    // fn param. We only honour it inside `extern c { ... }` blocks
+    // with `T = Vec[U8]` — that's the one shape with a defined
+    // caller-allocated OUT ABI (the codegen expands it into a
+    // `(ptr, capacity, len_ptr)` i64 triple). Other uses are rejected
+    // with MT2031.
+    //
+    // Non-extern fns: emit MT2031 for every mut param — Mighty's
+    // regular call convention is by-value; `mut` has no meaning there
+    // and `&mut T` is the established way to take a mutable reference
+    // into a body. (The borrow checker continues to handle the latter.)
+    //
+    // Extern c fns: only `mut Vec[U8]` survives. Other shapes
+    // (`mut Str`, `mut String`, `mut Vec[T]` for T != U8, scalars,
+    // structs) get MT2031 with a type-specific message.
+    for item_id in &pkg.top_level {
+        let item = &pkg.items[*item_id];
+        match item {
+            Item::Fn(fid) => {
+                let hf = &pkg.fns[*fid];
+                for p in &hf.params {
+                    if p.is_mut {
+                        diagnostics.push(diag::mut_param_only_on_extern_c(&p.name, &p.span));
+                    }
+                }
+            }
+            Item::ExternBlock(eb) => {
+                for efid in &eb.fns {
+                    let hf = &pkg.fns[*efid];
+                    // The resolver already populated FnDef.params with
+                    // resolved TyIds; line them up by index with the
+                    // HirParam list to recover (name, ty, is_mut, span).
+                    let fdef_id = defs.hir_fn_to_def.get(efid).copied();
+                    let resolved_params = fdef_id
+                        .and_then(|id| defs.fn_def(id))
+                        .map(|f| f.params.clone())
+                        .unwrap_or_default();
+                    for (i, p) in hf.params.iter().enumerate() {
+                        if !p.is_mut {
+                            continue;
+                        }
+                        let pty = resolved_params.get(i).map(|(_, t)| *t);
+                        let Some(ty) = pty else {
+                            // Couldn't resolve param type — fall back to
+                            // the generic "must be Vec[U8]" message,
+                            // referencing the type-erased ParamId via the
+                            // ty arena's error sentinel.
+                            diagnostics.push(diag::mut_param_must_be_vec_u8(
+                                &p.name,
+                                arena.error,
+                                &p.span,
+                                &arena,
+                                &Substitution::default(),
+                                &defs,
+                            ));
+                            continue;
+                        };
+                        if !is_vec_u8(ty, &arena, &defs) {
+                            diagnostics.push(diag::mut_param_must_be_vec_u8(
+                                &p.name,
+                                ty,
+                                &p.span,
+                                &arena,
+                                &Substitution::default(),
+                                &defs,
+                            ));
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
     }
 

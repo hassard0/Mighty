@@ -8,6 +8,13 @@
  * the stability story and `mty abi list` for the symbol
  * table at runtime.
  *
+ * v0.47 T3: numeric version macros
+ * (MTY_RUNTIME_ABI_VERSION_MAJOR/MINOR/PATCH) plus per-fn
+ * `@since X.Y.Z` (and where applicable `@deprecated X.Y.Z`)
+ * markers so downstream consumers can soft-pin with
+ *   `#if MTY_RUNTIME_ABI_VERSION_MINOR >= 47`
+ * and see API age at a glance.
+ *
  * Consumers link against `libmty_runtime_abi.a`
  * (Linux/macOS) or `mty_runtime_abi.lib` (MSVC). See the
  * docs for the exact tarball name per platform.
@@ -17,63 +24,120 @@
 
 #include <stdint.h>
 
-#define MTY_RUNTIME_ABI_VERSION "0.46.0"
+#define MTY_RUNTIME_ABI_VERSION "0.47.0"
+#define MTY_RUNTIME_ABI_VERSION_MAJOR 0
+#define MTY_RUNTIME_ABI_VERSION_MINOR 47
+#define MTY_RUNTIME_ABI_VERSION_PATCH 0
+#define MTY_RUNTIME_ABI_VERSION_NUMBER 4700 /* MAJOR*10000 + MINOR*100 + PATCH */
+#define MTY_RUNTIME_ABI_STABILITY "experimental"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+/* @since 0.30.0 */
 void mty_runtime_log(int64_t ptr, int64_t len);
+/* @since 0.30.0 */
 void mty_runtime_print(int64_t ptr, int64_t len);
+/* @since 0.30.0 */
 void mty_runtime_panic(int64_t ptr, int64_t len);
+/* @since 0.30.0 */
 int64_t mty_runtime_arena_push(void);
+/* @since 0.30.0 */
 void mty_runtime_arena_pop(int64_t handle);
+/* @since 0.30.0 */
 int64_t mty_runtime_alloc(int64_t size, int64_t align, int64_t zero);
+/* @since 0.30.0 */
 int8_t mty_runtime_budget_charge(int64_t bytes);
+/* @since 0.30.0 */
 void mty_runtime_send(int64_t target, int64_t msg, int64_t payload);
+/* @since 0.30.0 */
 int64_t mty_runtime_ask(int64_t target, int64_t msg, int64_t payload, int64_t deadline_ms);
+/* @since 0.30.0 */
 int64_t mty_runtime_spawn(int64_t agent_id);
+/* @since 0.30.0 */
 int64_t mty_runtime_extern_call(int64_t name_ptr, int64_t name_len, int64_t args);
+/* @since 0.30.0 */
 void mty_runtime_log_i64(int64_t v);
+/* @since 0.42.0 */
 void mty_runtime_log_i32(int32_t v);
+/* @since 0.42.0 */
 void mty_runtime_log_u32(uint32_t v);
+/* @since 0.42.0 */
 void mty_runtime_log_u64(uint64_t v);
+/* @since 0.42.0 */
 void mty_runtime_log_usize(int64_t v);
+/* @since 0.42.0 */
 void mty_runtime_log_f32(float v);
+/* @since 0.42.0 */
 void mty_runtime_log_f64(double v);
+/* @since 0.42.0 */
 void mty_runtime_log_bool(int8_t v);
+/* @since 0.42.0 */
 void mty_runtime_print_i32(int32_t v);
+/* @since 0.42.0 */
 void mty_runtime_print_i64(int64_t v);
+/* @since 0.42.0 */
 void mty_runtime_print_u32(uint32_t v);
+/* @since 0.42.0 */
 void mty_runtime_print_u64(uint64_t v);
+/* @since 0.42.0 */
 void mty_runtime_print_usize(int64_t v);
+/* @since 0.42.0 */
 void mty_runtime_print_f32(float v);
+/* @since 0.42.0 */
 void mty_runtime_print_f64(double v);
+/* @since 0.42.0 */
 void mty_runtime_print_bool(int8_t v);
+/* @since 0.42.0 */
 void mty_runtime_print_sep(void);
+/* @since 0.42.0 */
 void mty_runtime_print_newline(void);
+/* @since 0.42.0 */
 void mty_runtime_fmt_i32(int32_t v, int64_t dst);
+/* @since 0.42.0 */
 void mty_runtime_fmt_i64_to_slot(int64_t v, int64_t dst);
+/* @since 0.42.0 */
 void mty_runtime_fmt_u32(uint32_t v, int64_t dst);
+/* @since 0.42.0 */
 void mty_runtime_fmt_u64(uint64_t v, int64_t dst);
+/* @since 0.42.0 */
 void mty_runtime_fmt_usize(int64_t v, int64_t dst);
+/* @since 0.42.0 */
 void mty_runtime_fmt_f32(float v, int64_t dst);
+/* @since 0.42.0 */
 void mty_runtime_fmt_f64(double v, int64_t dst);
+/* @since 0.42.0 */
 void mty_runtime_fmt_bool(int8_t v, int64_t dst);
+/* @since 0.45.0 */
 void mty_runtime_fs_read(int64_t path_ptr, int64_t path_len, int64_t dst);
+/* @since 0.45.0 */
 void mty_runtime_fs_read_to_string(int64_t path_ptr, int64_t path_len, int64_t dst);
+/* @since 0.45.0 */
 int32_t mty_runtime_fs_write(int64_t path_ptr, int64_t path_len, int64_t data_ptr, int64_t data_len);
+/* @since 0.45.0 */
 int32_t mty_runtime_fs_write_string(int64_t path_ptr, int64_t path_len, int64_t str_ptr, int64_t str_len);
+/* @since 0.45.0 */
 int32_t mty_runtime_fs_append(int64_t path_ptr, int64_t path_len, int64_t data_ptr, int64_t data_len);
+/* @since 0.45.0 */
 int32_t mty_runtime_fs_exists(int64_t path_ptr, int64_t path_len);
+/* @since 0.45.0 */
 int32_t mty_runtime_fs_metadata(int64_t path_ptr, int64_t path_len, int64_t dst);
+/* @since 0.45.0 */
 int32_t mty_runtime_fs_create_dir_all(int64_t path_ptr, int64_t path_len);
+/* @since 0.45.0 */
 int32_t mty_runtime_fs_remove_file(int64_t path_ptr, int64_t path_len);
+/* @since 0.45.0 */
 int32_t mty_runtime_fs_remove_dir_all(int64_t path_ptr, int64_t path_len);
+/* @since 0.45.0 @deprecated 0.47.0 — use mty_runtime_fs_dir_open */
 void mty_runtime_fs_read_dir(int64_t path_ptr, int64_t path_len, int64_t dst);
+/* @since 0.46.0 */
 int64_t mty_runtime_fs_dir_open(int64_t path_ptr, int64_t path_len);
+/* @since 0.46.0 */
 int32_t mty_runtime_fs_dir_next(int64_t handle, int64_t dst);
+/* @since 0.46.0 */
 void mty_runtime_fs_dir_close(int64_t handle);
+/* @since 0.42.0 */
 void mty_runtime_str_concat(int64_t aptr, int64_t alen, int64_t bptr, int64_t blen, int64_t dst);
 
 #ifdef __cplusplus

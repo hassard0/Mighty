@@ -475,30 +475,17 @@ pub fn read_dir(cap: &FsCap, path: &Path) -> Result<DirIter, IoErr> {
     Ok(DirIter { entries, cursor: 0 })
 }
 
-/// v0.46 T4 — deprecated alias for the v0.45 newline-joined listing
-/// shape. Already-built CLIs that consumed `read_dir`'s string
-/// continue to resolve through this name; new code should use
-/// [`read_dir`] (`DirIter`) instead. Scheduled for removal in v0.47.
-#[deprecated(
-    since = "0.46.0",
-    note = "use std.fs.read_dir(p) for the iterator handle; this alias \
-            keeps the v0.45 newline-joined Str shape for migration."
-)]
-pub fn read_dir_lines(cap: &FsCap, path: &Path) -> Result<String, IoErr> {
-    cap.check(path)?;
-    let mut entries: Vec<PathBuf> = std::fs::read_dir(path)?
-        .filter_map(|e| e.ok().map(|d| d.path()))
-        .collect();
-    entries.sort();
-    let mut s = String::new();
-    for (i, e) in entries.iter().enumerate() {
-        if i > 0 {
-            s.push('\n');
-        }
-        s.push_str(&e.display().to_string());
-    }
-    Ok(s)
-}
+// v0.47 T4 — `read_dir_lines` removed. The v0.45 newline-joined Str
+// shape was a transitional alias that lived behind a `#[deprecated]`
+// in v0.46 (PR #33) so already-written agent code could migrate to
+// the iterator-handle `std.fs.read_dir(p) -> DirIter` surface.
+//
+// The runtime symbol `mty_runtime_fs_read_dir` stays live so v0.45-
+// built binaries still link (see
+// `crates/mty-runtime/src/codegen_abi.rs`); v0.47 just removes the
+// Rust + dispatcher + frontend surface. Source code calling
+// `std.fs.read_dir_lines(...)` now fails typeck with the standard
+// "name not found" diagnostic.
 
 #[cfg(test)]
 mod tests {

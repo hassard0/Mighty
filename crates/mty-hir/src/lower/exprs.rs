@@ -628,6 +628,7 @@ pub fn lower_expr(ctx: &mut LoweringCtx, n: SyntaxNode) -> ExprId {
                                 ty,
                                 span: SourceSpan { start, end },
                                 attrs: vec![],
+                                is_mut: false,
                             }
                         })
                         .collect()

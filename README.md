@@ -14,14 +14,14 @@
 
 Compiler, runtime, formatter, package manager, doc generator, LSP,
 and stdlib all live in one Rust workspace and one `mty` binary.
-v0.46 is the current release: the official runtime ABI artifact
-pipeline (generated `mty_runtime_abi.h` + per-platform staticlib
-tarballs + `mty abi`), `(ptr, len)` FFI for Mighty strings,
-five LSP surfaces migrated to structured results (signatureHelp
-params, definition LocationLink, completion split fields, hover
-MarkedString, `mty agent lsp`), `mty build` exit-code parity +
-`MTY_LINKER` Windows path support, and `std.fs.read_dir`
-iterator + Metadata field projection.
+v0.47 is the current release: mutable OUT params for FFI
+(`mut Vec[U8]` caller-allocated buffers lowered to a
+`(ptr, capacity, *len)` triple), LLVM `lower_assign` projection-into-
+aggregate stores, runtime ABI header numeric version macros
+(`MTY_RUNTIME_ABI_VERSION_MAJOR/MINOR/PATCH`) + `@since`/`@deprecated`
+markers + a stability tier, `std.fs` DirIter scope-end auto-Drop
+(`read_dir_lines` retired), and the LSP `WorkspaceEdit`
+`documentChanges` migration for rename + codeAction.
 
 ## Why Mighty
 
@@ -287,7 +287,7 @@ current state of the language, not its history.
 
 ## Status
 
-Mighty is **pre-alpha**. Internal milestones tagged through v0.46.
+Mighty is **pre-alpha**. Internal milestones tagged through v0.47.
 The toolchain is exercised by **~3555 Rust tests** across 20 crates
 plus **490 Python 2nd-impl tests** plus **159 normative conformance
 cases** plus **23 self-host driver codegen tests** — combined **~4227

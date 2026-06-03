@@ -75,6 +75,17 @@ pub struct FnDef {
     /// typechecked independently as a fresh inference var) instead of
     /// emitting MT2005 (WRONG_ARG_COUNT).
     pub is_variadic: bool,
+    /// v0.47 T1 — per-param `mut` flag, parallel to `params`. `true`
+    /// at index `i` iff the i-th param was declared `mut <name>: ...`
+    /// in source. Today this only matters for `extern c` fns where a
+    /// `mut Vec[U8]` param marks a caller-allocated OUT buffer (the
+    /// codegen expands it to `(ptr, capacity, len_ptr)` triple at the
+    /// ABI boundary). The type checker rejects `mut` on any other
+    /// param shape via MT2031. Empty `Vec` is treated as "no mut on
+    /// any param" — populated lazily by `items::collect_fns` so
+    /// pre-existing test fixtures that build `FnDef` by hand don't
+    /// need to opt in.
+    pub mut_params: Vec<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,6 +214,22 @@ pub struct DefMap {
     /// safe and avoids the v0.26 demo 07 ctor-in-main workaround. See
     /// `dev/history/notes/OPAQUE_ADT_WASM_V0_27_NOTES.md`.
     pub handler_safe_adts: HashSet<AdtId>,
+    /// v0.47 T4 — ADTs whose owned values are auto-closed at scope-end
+    /// via a runtime drop fn. Mapping is `AdtId -> runtime-symbol-name`.
+    /// The IR lowerer mirrors this table onto `Program::adt_drop_fns`
+    /// and walks every fn's locals; when a `let` binding's type is in
+    /// this table, the post-lowering pass injects `Stmt::Drop(local)`
+    /// in front of every fn-exit terminator. Codegen + interp then
+    /// route the marked `Stmt::Drop` to the registered runtime symbol
+    /// (typically a `mty_runtime_*_close(handle)` no-op-on-zero
+    /// contract — so an explicit `.close()` followed by the auto-drop
+    /// is safe: the explicit close zeroes the receiver local so the
+    /// trailing auto-drop dispatches with handle=0).
+    ///
+    /// v0.47 surfaces one entry: `DirIter -> "mty_runtime_fs_dir_close"`.
+    /// Future resources (file handles, sockets, mutexes) extend the same
+    /// machinery by adding entries here in `build_prelude`.
+    pub mty_drop_fns: HashMap<AdtId, String>,
     /// Slice-5 trait coherence + dispatch table.
     pub traits: TraitTable,
 }

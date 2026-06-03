@@ -41,8 +41,9 @@ use mty_diagnostics::{Diagnostic, ToEnvelope};
 use mty_types::DefRef;
 use std::collections::HashMap;
 use tower_lsp::lsp_types::{
-    CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionResponse, NumberOrString, Position,
-    Range, TextEdit, Url, WorkspaceEdit,
+    CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionResponse, DocumentChanges,
+    NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier, Position, Range,
+    TextDocumentEdit, TextEdit, Url, WorkspaceEdit,
 };
 
 /// Maximum edit distance for "did you mean" suggestions.
@@ -98,6 +99,16 @@ impl CodeActionConfig {
     }
 }
 
+/// v0.47 T5 — capability-negotiated `documentChanges` flag. Set when
+/// the client advertises
+/// `capabilities.workspace.workspaceEdit.documentChanges = true`; the
+/// returned [`WorkspaceEdit`]s use the versioned `documentChanges`
+/// shape instead of the legacy `changes` map.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WorkspaceEditCaps {
+    pub document_changes: bool,
+}
+
 /// Top-level handler entry. `cursor_range` is the editor's current
 /// selection (so we can scope the suggestions); `diagnostics` is the
 /// list the client thinks applies at that range.
@@ -120,6 +131,105 @@ pub fn code_actions(
 /// thresholds. The server holds one `CodeActionConfig` per session,
 /// updated from `initializationOptions`.
 pub fn code_actions_with_config(
+    uri: &Url,
+    doc: &DocAnalysis,
+    cursor_range: Range,
+    diagnostics: &[tower_lsp::lsp_types::Diagnostic],
+    cfg: CodeActionConfig,
+) -> CodeActionResponse {
+    code_actions_with_caps(
+        uri,
+        doc,
+        cursor_range,
+        diagnostics,
+        cfg,
+        WorkspaceEditCaps::default(),
+    )
+}
+
+/// Like [`code_actions_with_config`] but also honours the v0.47 T5
+/// `documentChanges` capability flag.
+///
+/// Internally builds with the legacy `changes` shape and post-processes
+/// the result so existing helpers (`quickfix_with_edit`, etc.) stay
+/// version-agnostic. When `caps.document_changes` is `false` this is
+/// a no-op pass-through.
+pub fn code_actions_with_caps(
+    uri: &Url,
+    doc: &DocAnalysis,
+    cursor_range: Range,
+    diagnostics: &[tower_lsp::lsp_types::Diagnostic],
+    cfg: CodeActionConfig,
+    caps: WorkspaceEditCaps,
+) -> CodeActionResponse {
+    let resp = code_actions_inner(uri, doc, cursor_range, diagnostics, cfg);
+    if caps.document_changes {
+        upgrade_response_to_document_changes(resp, doc.version)
+    } else {
+        resp
+    }
+}
+
+/// Convert every `WorkspaceEdit.changes` carried inside a
+/// [`CodeActionResponse`] to the `documentChanges` shape, stamping each
+/// entry with the supplied buffer `version`.
+fn upgrade_response_to_document_changes(
+    resp: CodeActionResponse,
+    version: i32,
+) -> CodeActionResponse {
+    resp.into_iter()
+        .map(|item| match item {
+            CodeActionOrCommand::CodeAction(mut ca) => {
+                if let Some(edit) = ca.edit.take() {
+                    ca.edit = Some(upgrade_workspace_edit(edit, version));
+                }
+                CodeActionOrCommand::CodeAction(ca)
+            }
+            other => other,
+        })
+        .collect()
+}
+
+fn upgrade_workspace_edit(edit: WorkspaceEdit, version: i32) -> WorkspaceEdit {
+    let WorkspaceEdit {
+        changes,
+        document_changes,
+        change_annotations,
+    } = edit;
+    if document_changes.is_some() {
+        // Already documentChanges-shaped — pass through.
+        return WorkspaceEdit {
+            changes,
+            document_changes,
+            change_annotations,
+        };
+    }
+    let Some(changes) = changes else {
+        return WorkspaceEdit {
+            changes: None,
+            document_changes: None,
+            change_annotations,
+        };
+    };
+    let version_field = if version <= 0 { None } else { Some(version) };
+    let edits: Vec<TextDocumentEdit> = changes
+        .into_iter()
+        .map(|(uri, te)| TextDocumentEdit {
+            text_document: OptionalVersionedTextDocumentIdentifier {
+                uri,
+                version: version_field,
+            },
+            edits: te.into_iter().map(OneOf::Left).collect(),
+        })
+        .collect();
+    WorkspaceEdit {
+        changes: None,
+        document_changes: Some(DocumentChanges::Edits(edits)),
+        change_annotations,
+    }
+}
+
+fn code_actions_inner(
     uri: &Url,
     doc: &DocAnalysis,
     cursor_range: Range,
@@ -429,17 +539,46 @@ pub fn code_actions_with_filter(
     only: Option<&[CodeActionKind]>,
     cfg: CodeActionConfig,
 ) -> CodeActionResponse {
+    code_actions_with_filter_caps(
+        uri,
+        doc,
+        cursor_range,
+        diagnostics,
+        only,
+        cfg,
+        WorkspaceEditCaps::default(),
+    )
+}
+
+/// v0.47 T5 — `code_actions_with_filter` honouring the `documentChanges`
+/// capability. The server passes the negotiated caps in.
+pub fn code_actions_with_filter_caps(
+    uri: &Url,
+    doc: &DocAnalysis,
+    cursor_range: Range,
+    diagnostics: &[tower_lsp::lsp_types::Diagnostic],
+    only: Option<&[CodeActionKind]>,
+    cfg: CodeActionConfig,
+    caps: WorkspaceEditCaps,
+) -> CodeActionResponse {
     // If the client explicitly asked for `source.fixAll.mighty`, emit
     // only that action (per LSP semantics: `only` is a strict filter).
     if let Some(kinds) = only {
         if kinds.iter().any(|k| k.as_str() == SOURCE_FIX_ALL_MIGHTY) {
             return match fix_all_mighty_action(uri, doc, cfg) {
-                Some(ca) => vec![CodeActionOrCommand::CodeAction(ca)],
+                Some(ca) => {
+                    let resp: CodeActionResponse = vec![CodeActionOrCommand::CodeAction(ca)];
+                    if caps.document_changes {
+                        upgrade_response_to_document_changes(resp, doc.version)
+                    } else {
+                        resp
+                    }
+                }
                 None => vec![],
             };
         }
     }
-    code_actions_with_config(uri, doc, cursor_range, diagnostics, cfg)
+    code_actions_with_caps(uri, doc, cursor_range, diagnostics, cfg, caps)
 }
 
 fn actions_for_unknown_macro(

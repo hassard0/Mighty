@@ -385,6 +385,16 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
     defs.by_name
         .insert("DirIter".into(), DefRef::Adt(dir_iter_id));
     defs.handler_safe_adts.insert(dir_iter_id);
+    // v0.47 T4 — mark DirIter as auto-Drop-needing. The IR post-pass
+    // injects `Stmt::Drop(local)` in front of every fn-exit terminator
+    // for locals typed as `IrTy::Adt(dir_iter_id, _)`; codegen lowers
+    // that drop to the runtime symbol below. The runtime's
+    // `mty_runtime_fs_dir_close(handle)` is a no-op on handle=0, so
+    // explicit `.close()` followed by auto-drop stays idempotent (the
+    // explicit close zeroes the receiver local — see
+    // `emit_dir_iter_close` in the cranelift / llvm lowerers).
+    defs.mty_drop_fns
+        .insert(dir_iter_id, "mty_runtime_fs_dir_close".into());
 
     // ---- opaque types referenced by examples ----
     let opaque_names = [
@@ -552,6 +562,7 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         hir_fn: None,
         extern_abi: None,
         is_variadic: false,
+        mut_params: vec![],
     });
     defs.by_name.insert("log".into(), DefRef::Fn(log_id));
 
@@ -568,6 +579,7 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         hir_fn: None,
         extern_abi: None,
         is_variadic: false,
+        mut_params: vec![],
     });
     defs.by_name.insert("panic".into(), DefRef::Fn(panic_id));
 
@@ -593,6 +605,7 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         hir_fn: None,
         extern_abi: None,
         is_variadic: false,
+        mut_params: vec![],
     });
     defs.by_name.insert("spawn".into(), DefRef::Fn(spawn_id));
 
@@ -617,6 +630,7 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         hir_fn: None,
         extern_abi: None,
         is_variadic: false,
+        mut_params: vec![],
     });
     defs.by_name.insert("move".into(), DefRef::Fn(move_id));
 
@@ -634,6 +648,7 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         hir_fn: None,
         extern_abi: None,
         is_variadic: false,
+        mut_params: vec![],
     });
     defs.by_name
         .insert("raw_ptr".into(), DefRef::Fn(raw_ptr_id));
@@ -651,6 +666,7 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         hir_fn: None,
         extern_abi: None,
         is_variadic: false,
+        mut_params: vec![],
     });
     defs.by_name.insert("valid".into(), DefRef::Fn(valid_id));
 
@@ -667,6 +683,7 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         hir_fn: None,
         extern_abi: None,
         is_variadic: false,
+        mut_params: vec![],
     });
     defs.by_name.insert("null".into(), DefRef::Fn(null_id));
 
@@ -696,6 +713,7 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
         hir_fn: None,
         extern_abi: None,
         is_variadic: false,
+        mut_params: vec![],
     });
     defs.by_name
         .insert("Char.from_u32".into(), DefRef::Fn(char_from_u32_id));
@@ -721,6 +739,7 @@ pub fn build_prelude(arena: &mut TyArena, defs: &mut DefMap) -> PreludeIds {
                 hir_fn: None,
                 extern_abi: None,
                 is_variadic: false,
+                mut_params: vec![],
             });
             // Use weak-shadow: only if not user-defined.
             defs.by_name

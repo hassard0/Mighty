@@ -354,6 +354,16 @@ void mty_runtime_fs_read_dir(int64_t path_ptr, int64_t path_len, int64_t dst) {
     (void)path_ptr; (void)path_len;
     write_str_triple(dst, 0, 0, 1);
 }
+/* v0.46 T4 DirIter surface; v0.47 T4 auto-Drop makes the codegen
+ * reference these in every program, so the Windows MSVC linker needs
+ * them even though the AOT-fs tests never open a directory iterator. */
+int64_t mty_runtime_fs_dir_open(int64_t path_ptr, int64_t path_len) {
+    (void)path_ptr; (void)path_len; return 0;
+}
+int32_t mty_runtime_fs_dir_next(int64_t handle, int64_t dst) {
+    (void)handle; (void)dst; return 0;
+}
+void mty_runtime_fs_dir_close(int64_t handle) { (void)handle; }
 "#;
 
 fn build_runtime_archive(work_dir: &Path, cc: &str, ar: &str) -> PathBuf {

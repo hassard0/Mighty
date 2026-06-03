@@ -1,0 +1,40 @@
+# v0.47 — Windows CI hang guard + speedup.
+#
+# The serial libtest windows job (`cargo test -- --test-threads=1`)
+# could stall for ~6h when a flaky test deadlocked: libtest has no
+# per-test timeout, so one hung test blocks the whole job until the
+# GitHub 6h ceiling cancels it (see the cancelled main-branch runs on
+# 2026-06-02). cargo-nextest runs each test in its own process and
+# TERMINATES any test still running after `terminate-after × period`,
+# so a hung test surfaces by name as a timed-out failure instead of
+# stalling the job.
+#
+# It also parallelises the run. The v0.42 T1 reason for forcing
+# `--test-threads=1` on Windows was build-time disk pressure from
+# debuginfo-heavy test binaries; that is already mitigated globally via
+# `CARGO_PROFILE_TEST_DEBUG: 0` in `.github/workflows/ci.yml`, so the
+# serial constraint is now pure slowness (a clean windows job took
+# ~3h12m). nextest parallelism cuts it to minutes.
+[profile.ci]
+# Warn at 60s, then kill any test still running after 5×60s = 300s and
+# mark it failed (timed out). A normal unit/integration test finishes
+# in well under a second; a 5-minute test is a hang. (The long-running
+# conformance / example "sweep" tests get a generous override below.)
+slow-timeout = { period = "60s", terminate-after = 5 }
+# Run the whole suite so every slow/hung test is reported, not just the
+# first.
+fail-fast = false
+# Auto-retry flaky tests (the dev-server / HTTP integration tests bind
+# ephemeral ports and occasionally race on a loaded runner). A test that
+# passes on retry is reported as flaky, not failed — so a transient blip
+# doesn't redden the whole Windows job.
+retries = 2
+
+# The conformance / example "sweep" tests each drive the ENTIRE example
+# corpus in a single test body (compile + run every example), so on the
+# serial Windows runner they legitimately run for several minutes — well
+# past the default kill. Give them a generous ceiling (6×300s = 30min)
+# while still bounding a true hang far below the old 6h GitHub ceiling.
+[[profile.ci.overrides]]
+filter = 'test(/conformance/) | test(/examples_/) | test(/example_sweep/) | test(/passing_floor/)'
+slow-timeout = { period = "300s", terminate-after = 6 }

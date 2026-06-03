@@ -115,6 +115,13 @@ pub struct HirParam {
     /// attributes can land without touching the data model. Empty for
     /// the vast majority of params (no attribute syntax used).
     pub attrs: Vec<String>,
+    /// v0.47 T1 — true iff the param was declared `mut <name>: ...`.
+    /// Only meaningful for `extern c { fn ... }` params, where it
+    /// marks the param as a caller-allocated OUT buffer (`Vec[U8]`).
+    /// The codegen expands such a param into a `(ptr, cap, len_ptr)`
+    /// triple at the ABI boundary. The type checker rejects `mut` on
+    /// non-extern-c fns and on non-`Vec[U8]` types.
+    pub is_mut: bool,
 }
 
 #[derive(Debug, Clone)]

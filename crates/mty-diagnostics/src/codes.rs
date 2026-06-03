@@ -105,6 +105,28 @@ pub const UNRESOLVED_MODULE: DiagCode = DiagCode::new(2029);
 /// inlined test impls before v0.41 T2).
 pub const SYMBOL_NOT_IN_MODULE: DiagCode = DiagCode::new(2030);
 
+/// MT2031 (v0.47 T1): `mut <name>: T` in a fn parameter slot is only
+/// supported on `extern c { ... }` fns and only for `T = Vec[U8]`.
+/// Fires when the user writes `mut` on any other param shape. The
+/// codegen at an extern-c call site expands `mut Vec[U8]` into a
+/// `(ptr, capacity, len_ptr)` i64 triple so the C callee can write
+/// back into a Mighty-owned buffer; no such expansion exists for
+/// other types. Specifically:
+///
+/// * `mut Str` / `mut String` are rejected — the UTF-8 invariant
+///   would be lost if C wrote arbitrary bytes back into a Mighty
+///   string aggregate.
+/// * `mut T` on a non-extern fn is rejected — Mighty's regular call
+///   convention is by-value; the `mut` prefix has no meaning there.
+///   (Use `&mut` to take a mutable reference into a function body.)
+/// * `mut <scalar>` / `mut <struct>` etc. are rejected with the
+///   same surface — only `Vec[U8]` has a defined OUT-buffer ABI
+///   shape.
+///
+/// See `docs/internals/extern-c-matrix.md` §"v0.47 T1 — mut Vec[U8]"
+/// for the full ABI contract.
+pub const MUT_PARAM_INVALID: DiagCode = DiagCode::new(2031);
+
 // Effects + capabilities + traits + protocol strict: MT4001..MT4099
 pub const EFFECT_UNDECLARED: DiagCode = DiagCode::new(4001);
 pub const ALLOC_IN_CORE: DiagCode = DiagCode::new(4002);
@@ -643,6 +665,31 @@ pub fn explain(code: DiagCode) -> Option<&'static str> {
              by its bare name, so the check is the union over all package \
              modules' top-level names.\n\
              Spec:    docs/internals/package-resolution.md (v0.41 T2)."
+        }
+        2031 => {
+            "MT2031: `mut` parameter is only supported on `extern c` fns \
+             with `Vec[U8]` shape.\n\
+             \n\
+             Cause:   A function parameter was declared `mut <name>: T`. \
+             That prefix marks the slot as a caller-allocated OUT buffer \
+             at FFI sites — the codegen expands it into a (ptr, capacity, \
+             len_ptr) i64 triple so the C callee can write back into a \
+             Mighty-owned buffer. The expansion is only defined for two \
+             specific shapes: (1) `extern c { fn ... }` declarations, and \
+             (2) `mut Vec[U8]` (byte buffer). Any other use is rejected.\n\
+             Example: extern c { fn read_file(h: I64, out: mut Vec[U8]) }\n\
+                                                  // OK\n\
+                      extern c { fn read_path(out: mut Str) }       // NO\n\
+                      fn helper(buf: mut Vec[U8]) { ... }           // NO\n\
+             Fix:     For an FFI OUT buffer, declare the extern c fn with \
+             `out: mut Vec[U8]` and pre-allocate the Vec with \
+             `Vec.with_capacity(n)` before the call. For a Mighty-side \
+             mutable parameter, use `&mut T` (mutable reference) instead. \
+             For a string OUT buffer, accept `mut Vec[U8]` on the C side \
+             and convert to `String` after the call with \
+             `String.from_utf8(buf)?`.\n\
+             Spec:    docs/internals/extern-c-matrix.md \
+             §\"v0.47 T1 — mut Vec[U8] OUT params\"."
         }
         2028 => {
             "MT2028: Invalid Unicode codepoint in `as Char` cast.\n\

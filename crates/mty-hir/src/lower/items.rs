@@ -66,11 +66,13 @@ fn lower_fn(ctx: &mut LoweringCtx, f: FnDecl) -> FnId {
                             .find(|c| is_type_node(c.kind()))
                             .map(|n| super::types::lower_type(ctx, n));
                     let attrs = lower_param_attrs(&p.0);
+                    let is_mut = p.is_mut();
                     HirParam {
                         name: pname,
                         ty,
                         span: span_of(&p.0),
                         attrs,
+                        is_mut,
                     }
                 })
                 .collect()
@@ -505,11 +507,13 @@ fn lower_extern_block(ctx: &mut LoweringCtx, node: SyntaxNode) -> HirExternBlock
                                 .find(|c| is_type_node(c.kind()))
                                 .map(|n| super::types::lower_type(ctx, n));
                         let attrs = lower_param_attrs(&p.0);
+                        let is_mut = p.is_mut();
                         HirParam {
                             name: pname,
                             ty,
                             span: span_of(&p.0),
                             attrs,
+                            is_mut,
                         }
                     })
                     .collect()

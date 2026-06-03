@@ -59,19 +59,28 @@ gets stale.
 The header looks like:
 
 ```c
-#define MTY_RUNTIME_ABI_VERSION "0.46.0"
+#define MTY_RUNTIME_ABI_VERSION       "0.47.0"
+#define MTY_RUNTIME_ABI_VERSION_MAJOR 0
+#define MTY_RUNTIME_ABI_VERSION_MINOR 47
+#define MTY_RUNTIME_ABI_VERSION_PATCH 0
 
+/* @since 0.42.0 */
 void mty_runtime_log_i32(int32_t v);
+
+/* @since 0.45.0 */
 int32_t mty_runtime_fs_write(int64_t path_ptr, int64_t path_len,
                              int64_t data_ptr, int64_t data_len);
+
+/* @since 0.45.0 @deprecated 0.47.0 — use mty_runtime_fs_dir_open */
+void mty_runtime_fs_read_dir(int64_t path_ptr, int64_t path_len, int64_t dst);
 /* … one declaration per symbol … */
 ```
 
 Verify the same surface programmatically:
 
 ```sh
-mty abi list                 # plain text, one fn per line
-mty abi list --format json   # JSON, machine-parseable
+mty abi list                 # plain text, one fn per line (with @since / @deprecated tail)
+mty abi list --format json   # JSON, machine-parseable (with `since` and `deprecated` fields)
 mty abi version              # the version macro, on its own line
 mty abi header               # dump the generated header to stdout
 ```
@@ -85,12 +94,84 @@ We make the following guarantees within a major release line
   takes `(int32_t)` today, it takes `(int32_t)` in every later patch /
   minor release until the next major bump.
 - **New symbols may be added.** Each release that grows the surface
-  bumps the `MTY_RUNTIME_ABI_VERSION` macro to match the toolchain
-  version. Consumers can soft-pin with `#if MTY_RUNTIME_ABI_VERSION …`.
-- **Symbols may be marked deprecated** by adding a doc comment in the
-  header (the build.rs preserves them); they will keep working for at
-  least one minor release after the deprecation lands before being
-  considered for removal.
+  bumps the `MTY_RUNTIME_ABI_VERSION` macro (and the numeric
+  `_MAJOR/_MINOR/_PATCH` macros below) to match the toolchain version.
+  Consumers can soft-pin with the numeric macros — see the next
+  section.
+- **Symbols may be marked deprecated** by adding a `// @deprecated
+  X.Y.Z` doc comment above the `#[no_mangle]` in `codegen_abi.rs`.
+  The build.rs preserves the marker in the generated header
+  (`/* @deprecated X.Y.Z — use foo */`) and in
+  `RUNTIME_ABI_SIGNATURES[i].deprecated`. Deprecated symbols keep
+  working for at least one minor release after the deprecation lands
+  before being considered for removal.
+
+## Stability tiers + version probing
+
+Every declaration in the header carries a `/* @since X.Y.Z */`
+comment showing the release the symbol shipped in. Symbols on the
+way out additionally carry `/* … @deprecated X.Y.Z — use foo */`.
+Both come from `// @since` / `// @deprecated` markers above the
+`#[no_mangle]` attribute in
+`crates/mty-runtime/src/codegen_abi.rs`; the build.rs parser pulls
+them through.
+
+The drift gate `every_no_mangle_fn_has_since_tag` (see
+`crates/mty-runtime/tests/runtime_abi_header.rs`) fails CI if a new
+`#[no_mangle] pub extern "C" fn mty_runtime_*` is added without a
+`@since`. This keeps the header self-documenting as the surface
+grows.
+
+Downstream consumers who vendor the header can soft-pin to a minimum
+ABI minor with the numeric macros:
+
+```c
+#include "mty_runtime_abi.h"
+
+#if !(MTY_RUNTIME_ABI_VERSION_MAJOR == 0 \
+      && MTY_RUNTIME_ABI_VERSION_MINOR >= 46)
+#  error "this consumer needs mty-runtime 0.46+"
+#endif
+
+/* …safe to call symbols marked `@since 0.46.0` or earlier… */
+```
+
+…or branch within a single source tree to call a newer symbol when
+available and fall back otherwise:
+
+```c
+#if MTY_RUNTIME_ABI_VERSION_MINOR >= 46
+    int64_t h = mty_runtime_fs_dir_open(p, l);
+    /* ... */
+    mty_runtime_fs_dir_close(h);
+#else
+    /* fall back to the v0.45 read_dir Str ABI */
+    int64_t slot[3] = {0};
+    mty_runtime_fs_read_dir(p, l, (int64_t)slot);
+#endif
+```
+
+The same fields are available programmatically:
+
+```sh
+mty abi list --format json | jq '.symbols[] | {name, since, deprecated}'
+```
+
+When a symbol carries `deprecated.since == "X.Y.Z"`, treat it as a
+last-call notice — the symbol is still live for at least one more
+minor, but the next major bump may remove it. The replacement
+symbol (if any) lives in `deprecated.note`.
+
+### Deprecated symbols
+
+The following symbols are still exported (so binaries built against a
+prior runtime ABI still link) but the Mighty-side codegen no longer
+emits any call to them. They are slated for removal in the next
+breaking-runtime-ABI release:
+
+| Symbol | Deprecated since | Replacement |
+|---|---|---|
+| `mty_runtime_fs_read_dir(path_ptr, path_len, dst)` | `@deprecated 0.47.0` | `mty_runtime_fs_dir_open` / `_next` / `_close` (the v0.46 T4 iterator-handle ABI) |
 
 We do **not** guarantee:
 

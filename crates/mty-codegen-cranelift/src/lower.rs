@@ -204,10 +204,21 @@ impl<'m, M: Module> LowerCtx<'m, M> {
             // sret). Non-extern fns keep the slice-8 Mighty-internal
             // shape where aggregate returns ride a single i64 (matches
             // the caller's aggregate-local stack-slot shape).
+            //
+            // v0.47 T1 — also propagate per-param `mut` flags so
+            // `mut Vec[U8]` slots expand into the (ptr, cap, len_ptr)
+            // triple. Empty slice for non-extern callees (mut on
+            // those is rejected at the type checker).
+            let extern_mut_params: &[bool] = prog
+                .extern_bindings
+                .get(&f.id)
+                .map(|b| b.mut_params.as_slice())
+                .unwrap_or(&[]);
             let (sig, agg_kind) = if is_extern {
-                let (s, k) = crate::abi::build_extern_signature(
+                let (s, k) = crate::abi::build_extern_signature_with_mut(
                     &self.triple,
                     &param_tys,
+                    extern_mut_params,
                     &f.ret_ty,
                     &prog.adts,
                 );
@@ -910,7 +921,47 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
 
     fn lower_stmt(&mut self, stmt: &Stmt) -> CompileResult<()> {
         match stmt {
-            Stmt::Nop | Stmt::StorageLive(_) | Stmt::StorageDead(_) | Stmt::Drop(_) => Ok(()),
+            Stmt::Nop | Stmt::StorageLive(_) | Stmt::StorageDead(_) => Ok(()),
+            // v0.47 T4 — `Stmt::Drop(local)` for a local whose type is
+            // an ADT registered in `Program::adt_drop_fns` lowers to a
+            // call to the registered runtime symbol with the local's
+            // scalar value (the resource handle) as the sole arg. The
+            // runtime contract per `DefMap::mty_drop_fns` REQUIRES the
+            // symbol to no-op on handle=0, which is how explicit
+            // `.close()` + auto-Drop idempotence works (the explicit
+            // close zeroes the receiver Variable; the auto-Drop loads
+            // 0 and the runtime symbol does nothing). Locals that
+            // aren't in the table fall through to the v0.46 no-op
+            // shape — same MIR-conceptual-drop semantics as the
+            // backends had since slice 6.
+            Stmt::Drop(local) => {
+                let lty = self.f.locals[local.0 as usize].ty.clone();
+                if let IrTy::Adt(adt_id, _) = &lty {
+                    if let Some(sym) = self.prog.adt_drop_fns.get(adt_id).cloned() {
+                        // Resolve the runtime symbol to a static
+                        // `&'static str` matching the FuncId table key.
+                        // `runtime_ids` is keyed by &'static str, so we
+                        // match against the canonical names.
+                        let static_name: Option<&'static str> = match sym.as_str() {
+                            "mty_runtime_fs_dir_close" => Some("mty_runtime_fs_dir_close"),
+                            _ => None,
+                        };
+                        if let Some(name) = static_name {
+                            let var = self.ensure_var(*local);
+                            let handle = self.b.use_var(var);
+                            let handle = self.coerce_to(handle, ct::I64);
+                            self.call_rt(name, &[handle], None)?;
+                            // Zero the Variable so a second Drop on
+                            // the same local (defensive, e.g. multiple
+                            // exit terminators in a single fn) stays a
+                            // no-op too. Cheap and pins idempotence.
+                            let zero = self.b.ins().iconst(ct::I64, 0);
+                            self.b.def_var(var, zero);
+                        }
+                    }
+                }
+                Ok(())
+            }
             Stmt::ArenaPush(_) => {
                 self.call_rt_no_args("mty_runtime_arena_push", Some(ct::I64))?;
                 Ok(())
@@ -2384,6 +2435,17 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                     .get(callee_id)
                     .map(|b| b.abi == "c")
                     .unwrap_or(false);
+                // v0.47 T1 — per-param `mut` flags for the callee.
+                // A `mut Vec[U8]` slot expands into a (ptr, cap,
+                // len_ptr) triple at the call site (three i64 ABI
+                // slots). Empty list = no mut anywhere, which is the
+                // legacy v0.46-and-earlier shape.
+                let callee_mut_params: Vec<bool> = self
+                    .prog
+                    .extern_bindings
+                    .get(callee_id)
+                    .map(|b| b.mut_params.clone())
+                    .unwrap_or_default();
                 // v0.38 Track T3 — returned-struct classification for the
                 // call site. Drives slot allocation, sret arg insertion,
                 // and per-register result store. Non-aggregate callees
@@ -2478,8 +2540,47 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 } else {
                     None
                 };
+                // v0.47 T1 — track the callee's *original* param index
+                // (matches `callee_mut_params`) as we walk
+                // `callee_param_tys_mut`. We pop from the front of the
+                // Vec, so the index is just the running count.
+                let mut callee_param_idx: usize = 0;
                 for va in &visible[..fixed_count] {
                     let want_ty = callee_param_tys_mut.remove(0);
+                    let is_mut_slot = callee_mut_params
+                        .get(callee_param_idx)
+                        .copied()
+                        .unwrap_or(false);
+                    callee_param_idx += 1;
+                    // v0.47 T1 — `mut Vec[U8]` expands to a 3-i64
+                    // triple at the ABI boundary: (out_ptr,
+                    // out_capacity, out_len_ptr). The Mighty Vec
+                    // header lives at offset 0 of the operand's i64
+                    // value; the runtime layout (see
+                    // `VEC_LEN_OFF`/`_CAP_OFF`/`_DATA_OFF` in
+                    // `lower.rs`) makes the per-field loads cheap.
+                    // The `out_len_ptr` slot is just `header_ptr`
+                    // itself because `VEC_LEN_OFF == 0` — the C
+                    // callee writes the byte count straight into the
+                    // first 8 bytes of the header.
+                    if is_extern_c_callee
+                        && is_mut_slot
+                        && crate::abi::is_mut_vec_u8_param(&want_ty, &self.prog.adts)
+                    {
+                        let hdr = self.vec_header(va.op)?;
+                        let mf = cranelift_codegen::ir::MemFlags::trusted();
+                        let data_ptr = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_DATA_OFF);
+                        let cap = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_CAP_OFF);
+                        // header_ptr+0 is the len field (VEC_LEN_OFF
+                        // == 0), so we hand the header pointer
+                        // verbatim as the `out_len` slot. C side
+                        // writes `*out_len = N`; Mighty reads
+                        // `Vec.len()` and sees N.
+                        arg_vals.push(data_ptr);
+                        arg_vals.push(cap);
+                        arg_vals.push(hdr);
+                        continue;
+                    }
                     // v0.46 T3 — Str/String at an extern-c param slot
                     // expands to (ptr, len). Pull both halves from the
                     // Str aggregate via `string_pair` and push them in
@@ -2503,6 +2604,28 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 }
                 while !callee_param_tys_mut.is_empty() {
                     let t = callee_param_tys_mut.remove(0);
+                    let is_mut_slot = callee_mut_params
+                        .get(callee_param_idx)
+                        .copied()
+                        .unwrap_or(false);
+                    callee_param_idx += 1;
+                    // v0.47 T1 — pad an unfilled mut Vec[U8] slot
+                    // with three zero i64s (ptr=NULL, cap=0,
+                    // len_ptr=NULL). Matches the three-slot
+                    // expansion so cranelift doesn't see an arity
+                    // mismatch.
+                    if is_extern_c_callee
+                        && is_mut_slot
+                        && crate::abi::is_mut_vec_u8_param(&t, &self.prog.adts)
+                    {
+                        let z = self.b.ins().iconst(ct::I64, 0);
+                        arg_vals.push(z);
+                        let z2 = self.b.ins().iconst(ct::I64, 0);
+                        arg_vals.push(z2);
+                        let z3 = self.b.ins().iconst(ct::I64, 0);
+                        arg_vals.push(z3);
+                        continue;
+                    }
                     // v0.46 T3 — pad an unfilled Str/String slot at an
                     // extern-c callee with two zero i64s (ptr=NULL,
                     // len=0). Matches the signature's two-slot
@@ -2598,7 +2721,17 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                     if !matches!(callee_ret_ty, IrTy::Unit | IrTy::Never) {
                         sig.returns.push(AbiParam::new(cl_ty_for(&callee_ret_ty)));
                     }
-                    for t in &callee_param_tys {
+                    for (i, t) in callee_param_tys.iter().enumerate() {
+                        let is_mut_slot = callee_mut_params.get(i).copied().unwrap_or(false);
+                        // v0.47 T1 — `mut Vec[U8]` expands to three
+                        // i64 slots (ptr, cap, len_ptr). Mirror
+                        // `build_extern_signature_with_mut` here.
+                        if is_mut_slot && crate::abi::is_mut_vec_u8_param(t, &self.prog.adts) {
+                            sig.params.push(AbiParam::new(ct::I64)); // ptr
+                            sig.params.push(AbiParam::new(ct::I64)); // cap
+                            sig.params.push(AbiParam::new(ct::I64)); // len_ptr
+                            continue;
+                        }
                         // v0.46 T3 — Str/String at an extern-c fixed
                         // param slot expands to (ptr, len). Mirror
                         // `build_extern_signature` here so the per-call
@@ -4034,6 +4167,14 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
     /// DirIterState. The runtime accepts handle==0 as a no-op so
     /// double-close / never-opened iterators don't trap. Returns 0 as
     /// the caller's value — the source-side method is `-> Unit`.
+    ///
+    /// v0.47 T4 — when the receiver is a bare local (`it.close()` with
+    /// no projection), zero the local's i64 Variable after the runtime
+    /// call. The auto-Drop pass injects a `Stmt::Drop(it)` at every
+    /// fn-exit terminator; the trailing drop will reload the Variable
+    /// and dispatch the runtime symbol with handle=0 — a no-op per the
+    /// ABI contract. That's how explicit `.close()` + auto-Drop stays
+    /// idempotent (no double-free of the `Box<DirIterState>`).
     fn emit_dir_iter_close(
         &mut self,
         receiver: &Operand,
@@ -4041,6 +4182,17 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         let handle = self.eval_operand(receiver)?;
         let handle = self.coerce_to(handle, ct::I64);
         self.call_rt("mty_runtime_fs_dir_close", &[handle], None)?;
+        // v0.47 T4 — zero the receiver local so the auto-Drop at fn
+        // exit dispatches with handle=0 (runtime no-op). Only safe for
+        // bare-local receivers; deeper projections / temps don't
+        // participate in the auto-Drop pass.
+        if let Operand::Copy(p) | Operand::Move(p) = receiver {
+            if p.proj.is_empty() {
+                let var = self.ensure_var(p.local);
+                let zero = self.b.ins().iconst(ct::I64, 0);
+                self.b.def_var(var, zero);
+            }
+        }
         Ok(self.b.ins().iconst(ct::I64, 0))
     }
 
@@ -4134,9 +4286,13 @@ fn is_interpreter_hosted_stdlib(name: &str) -> bool {
 /// `crates/mty-codegen-wasm/src/emit.rs`).
 ///
 /// v0.46 T4: `read_dir` now ships as the iterator-handle shape
-/// (`std.fs.DirIter`); `read_dir_lines` is the deprecated alias for
-/// the v0.45 newline-joined Str behaviour, kept live until v0.47 so
-/// already-written agent code still resolves.
+/// (`std.fs.DirIter`).
+///
+/// v0.47 T4: `read_dir_lines` is gone — the deprecated alias for the
+/// v0.45 newline-joined Str behaviour has been removed from the
+/// frontend dispatch table. The runtime symbol `mty_runtime_fs_read_dir`
+/// stays live so v0.45-built binaries still link; the codegen just no
+/// longer routes anything to it.
 fn is_native_fs_method(full_name: &str) -> bool {
     fn strip(s: &str) -> &str {
         s.strip_prefix("std.").unwrap_or(s)
@@ -4148,7 +4304,6 @@ fn is_native_fs_method(full_name: &str) -> bool {
             | "fs.read_to_string"
             | "fs.read_dir"
             | "fs.list_dir"
-            | "fs.read_dir_lines"
             | "fs.write"
             | "fs.write_file"
             | "fs.write_string"
@@ -4166,13 +4321,14 @@ fn is_native_fs_method(full_name: &str) -> bool {
 /// method into one of four runtime-symbol families so `emit_fs_call`
 /// can choose the right param/return convention.
 ///
-/// v0.46 T4 adds two shapes:
-///   - `DirOpenHandle` for the new iterator surface — `read_dir(p)`
-///     lowers to `mty_runtime_fs_dir_open(path) -> i64 handle`, no
-///     dst slot.
-///   - The pre-existing newline-joined `read_dir_lines` keeps using
-///     `ReadStrSlot` so the (ptr,len,ok) triple flows through the
-///     same path as `read`/`read_to_string`.
+/// v0.46 T4 added the `DirOpenHandle` shape for the new iterator
+/// surface — `read_dir(p)` lowers to `mty_runtime_fs_dir_open(path)
+/// -> i64 handle`, no dst slot.
+///
+/// v0.47 T4 drops the deprecated `read_dir_lines` arm — the v0.45
+/// newline-joined Str shape is no longer exposed. The runtime symbol
+/// `mty_runtime_fs_read_dir` stays live for v0.45-built-binary link
+/// compatibility but the codegen no longer routes anything to it.
 #[derive(Debug, Clone, Copy)]
 enum FsAbiKind {
     /// (path_ptr, path_len, dst_slot) — runtime writes (ptr, len, ok)
@@ -4206,14 +4362,10 @@ impl FsAbiKind {
                 symbol: "mty_runtime_fs_read_to_string",
             },
             // v0.46 T4 — `read_dir` / `list_dir` open an iterator
-            // handle; the old newline-joined behaviour lives on as
-            // `read_dir_lines` (deprecated alias, slated for removal
-            // in v0.47).
+            // handle. v0.47 T4: the old newline-joined behaviour
+            // (`read_dir_lines`) is gone from this dispatch table.
             "fs.read_dir" | "fs.list_dir" => FsAbiKind::DirOpenHandle {
                 symbol: "mty_runtime_fs_dir_open",
-            },
-            "fs.read_dir_lines" => FsAbiKind::ReadStrSlot {
-                symbol: "mty_runtime_fs_read_dir",
             },
             "fs.write" | "fs.write_file" => FsAbiKind::WriteI32 {
                 symbol: "mty_runtime_fs_write",
