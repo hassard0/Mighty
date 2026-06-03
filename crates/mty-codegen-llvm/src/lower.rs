@@ -653,7 +653,42 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
 
     fn lower_stmt(&mut self, s: &Stmt) -> CompileResult<()> {
         match s {
-            Stmt::Nop | Stmt::StorageLive(_) | Stmt::StorageDead(_) | Stmt::Drop(_) => Ok(()),
+            Stmt::Nop | Stmt::StorageLive(_) | Stmt::StorageDead(_) => Ok(()),
+            // v0.47 T4 — auto-Drop lowering. Mirrors the cranelift
+            // backend (`mty-codegen-cranelift::lower::lower_stmt::Drop`)
+            // — locals whose IrTy::Adt is registered in
+            // `Program::adt_drop_fns` dispatch the named runtime
+            // symbol with the local's i64 handle, and zero the slot
+            // so a defensive second Drop stays a no-op. Locals that
+            // aren't in the table fall through to the v0.46 no-op
+            // shape.
+            Stmt::Drop(local) => {
+                let lty = self.f.locals[local.0 as usize].ty.clone();
+                if let IrTy::Adt(adt_id, _) = &lty {
+                    if let Some(sym) = self.pl.prog.adt_drop_fns.get(adt_id).cloned() {
+                        if let Some(fn_val) = self.pl.runtime_fns.get(sym.as_str()).copied() {
+                            let slot = self.ensure_local(*local);
+                            let i64_ty = self.pl.i64_ty();
+                            let handle = self
+                                .pl
+                                .builder
+                                .build_load(i64_ty, slot, "auto_drop_handle")
+                                .expect("load handle")
+                                .into_int_value();
+                            let _ = self.pl.builder.build_call(
+                                fn_val,
+                                &[handle.into()],
+                                "auto_drop_call",
+                            );
+                            // Zero the slot for idempotence (defensive
+                            // — same rationale as the cranelift path).
+                            let zero = i64_ty.const_zero();
+                            let _ = self.pl.builder.build_store(slot, zero);
+                        }
+                    }
+                }
+                Ok(())
+            }
             Stmt::ArenaPush(_) => {
                 let f = self.pl.runtime_fns["mty_runtime_arena_push"];
                 let _ = self.pl.builder.build_call(f, &[], "arena_push");
@@ -3434,6 +3469,10 @@ impl<'p, 'ctx, 'a, 'b> FnLowerer<'p, 'ctx, 'a, 'b> {
 /// `std.fs.*` and bare `fs.*` shapes (the latter from a `use std.fs`
 /// import).
 fn is_native_fs_method_llvm(full_name: &str) -> bool {
+    // v0.47 T4 — `read_dir_lines` removed from the dispatch table.
+    // The runtime symbol `mty_runtime_fs_read_dir` stays live for
+    // v0.45-built-binary link compatibility but the LLVM codegen no
+    // longer routes anything to it.
     let bare = full_name.strip_prefix("std.").unwrap_or(full_name);
     matches!(
         bare,
@@ -3442,7 +3481,6 @@ fn is_native_fs_method_llvm(full_name: &str) -> bool {
             | "fs.read_to_string"
             | "fs.read_dir"
             | "fs.list_dir"
-            | "fs.read_dir_lines"
             | "fs.write"
             | "fs.write_file"
             | "fs.write_string"
@@ -3491,11 +3529,9 @@ impl LlvmFsAbiKind {
             "fs.read_to_string" => LlvmFsAbiKind::ReadStrSlot {
                 symbol: "mty_runtime_fs_read_to_string",
             },
+            // v0.47 T4 — `read_dir_lines` removed from this dispatch.
             "fs.read_dir" | "fs.list_dir" => LlvmFsAbiKind::DirOpenHandle {
                 symbol: "mty_runtime_fs_dir_open",
-            },
-            "fs.read_dir_lines" => LlvmFsAbiKind::ReadStrSlot {
-                symbol: "mty_runtime_fs_read_dir",
             },
             "fs.write" | "fs.write_file" => LlvmFsAbiKind::WriteI32 {
                 symbol: "mty_runtime_fs_write",

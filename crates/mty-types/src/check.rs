@@ -1265,6 +1265,25 @@ fn callee_param_has_nul_ok(cx: &Cx, callee: ExprId, idx: usize) -> bool {
 }
 
 fn synth_call(cx: &mut Cx, callee: ExprId, args: &[HirArg], expr_id: ExprId) -> TyId {
+    // v0.47 T4 — removed-stdlib deny check for qualified path calls.
+    // `std.fs.read_dir_lines(p)` is a `Call` whose callee is the path
+    // `std.fs.read_dir_lines`; that callee otherwise resolves
+    // permissively (`std` is a Module → fresh inference var in
+    // `synth_path`), so the removal would be silent. Catch it here
+    // before synthesising the callee, emit one diagnostic, still synth
+    // the args (taint/type-flow), and return the error type.
+    let removed_diag = if let mty_hir::HirExpr::Path(segs) = &cx.pkg.exprs[callee] {
+        removed_std_path_diag(cx, segs, expr_id)
+    } else {
+        None
+    };
+    if let Some(d) = removed_diag {
+        for arg in args {
+            let _ = synth_expr(cx, arg.value);
+        }
+        cx.diag.push(d);
+        return cx.arena.error;
+    }
     // v0.37 T6 — variadic extern fns (`extern c fn printf(fmt, ...) -> I32;`)
     // need to accept any number of args beyond the declared prefix. The
     // checker only knows about variadicness via `FnDef.is_variadic`, so
@@ -1425,6 +1444,25 @@ fn synth_method_call(
     args: &[HirArg],
     expr_id: ExprId,
 ) -> TyId {
+    // v0.47 T4 — explicit deny list for std.* surfaces that have been
+    // removed. The receiver-typeck for `std.fs.read_dir_lines(...)` is
+    // permissive (modules resolve to a fresh inference var; methods
+    // on Var receivers fall through to "any method any arity"); so
+    // without this targeted check, removed names would silently
+    // typecheck and produce Unit at runtime — surprising regression
+    // for any v0.46 agent code that still calls them. The check fires
+    // when the receiver expression is the bare module path matching
+    // the removal entry (`["std", "fs"]` or `["fs"]` after `use`).
+    if let Some(diag) = removed_std_method_diag(cx, receiver, method, expr_id) {
+        // Still walk args so their sub-expressions get type-checked
+        // (matches the unknown-method fallback's behaviour below).
+        for arg in args {
+            let _ = synth_expr(cx, arg.value);
+        }
+        cx.diag.push(diag);
+        return cx.arena.error;
+    }
+
     let recv_ty = synth_expr(cx, receiver);
     let resolved = cx.subst.resolve(recv_ty, cx.arena);
     let data = cx.arena.get(resolved).clone();
@@ -1594,6 +1632,104 @@ fn synth_method_call(
         let _ = synth_expr(cx, arg.value);
     }
     cx.arena.error
+}
+
+/// v0.47 T4 — registry of `(module_tail, name, replacement_hint)`
+/// triples for stdlib surfaces removed from the language. Shared by the
+/// method-call deny check (`removed_std_method_diag`) and the path-call
+/// deny check (`removed_std_path_diag`). A qualified `std.fs.foo(...)`
+/// lowers to a *path call* (its callee resolves permissively because
+/// `std` is a Module → fresh var), so both entry points must consult
+/// this table or a removed name silently typechecks to a fresh var and
+/// produces Unit at runtime — a surprising regression for v0.46 code.
+const REMOVED_STD: &[(&str, &str, &str)] = &[
+    // v0.47 T4 — `std.fs.read_dir_lines` removed. Replacement: the
+    // v0.46 iterator-handle shape.
+    (
+        "fs",
+        "read_dir_lines",
+        "use `std.fs.read_dir(p)` for the iterator handle and \
+         call `.next()` in a `while let Some(_) = ...` loop \
+         (removed in v0.47)",
+    ),
+];
+
+/// Build the standard "X has been removed" error + replacement note.
+fn removed_std_build_diag(
+    cx: &Cx,
+    m: &str,
+    name: &str,
+    hint: &str,
+    expr_id: ExprId,
+) -> mty_diagnostics::Diagnostic {
+    let span = cx.span_of_expr(expr_id);
+    let mut d = mty_diagnostics::Diagnostic::error(
+        mty_diagnostics::codes::UNRESOLVED_VALUE,
+        mty_diagnostics::Label {
+            start: span.start as usize,
+            end: span.end as usize,
+            message: format!("`std.{}.{}` has been removed", m, name),
+        },
+    );
+    d.notes.push(hint.to_string());
+    d
+}
+
+/// Path-call form: `std.fs.read_dir_lines(p)` lowers to a `Call` whose
+/// callee is the multi-segment path `["std","fs","read_dir_lines"]`
+/// (or `["fs","read_dir_lines"]` after `use std.fs`). Trim the optional
+/// leading `std.` and match the `[module, name]` tail against the
+/// removed table. Returns `Some(diag)` for a removed entry.
+fn removed_std_path_diag(
+    cx: &Cx,
+    segments: &[String],
+    expr_id: ExprId,
+) -> Option<mty_diagnostics::Diagnostic> {
+    let tail: Vec<&str> = if segments.first().map(|s| s.as_str()) == Some("std") {
+        segments.iter().skip(1).map(|s| s.as_str()).collect()
+    } else {
+        segments.iter().map(|s| s.as_str()).collect()
+    };
+    if tail.len() != 2 {
+        return None;
+    }
+    for (m, name, hint) in REMOVED_STD {
+        if *m == tail[0] && *name == tail[1] {
+            return Some(removed_std_build_diag(cx, m, name, hint, expr_id));
+        }
+    }
+    None
+}
+
+/// Method-call form: receiver is the bare module path `std.fs` (or
+/// `fs` after `use std.fs`) and `method` is the removed name. Returns
+/// `Some(diag)` for a removed entry. (Most qualified spellings lower to
+/// the path-call form above; this covers the method-call shape too.)
+fn removed_std_method_diag(
+    cx: &Cx,
+    receiver: ExprId,
+    method: &str,
+    expr_id: ExprId,
+) -> Option<mty_diagnostics::Diagnostic> {
+    let segments = match &cx.pkg.exprs[receiver] {
+        mty_hir::HirExpr::Path(segs) => segs.clone(),
+        _ => return None,
+    };
+    let tail: Vec<&str> = if segments.first().map(|s| s.as_str()) == Some("std") {
+        segments.iter().skip(1).map(|s| s.as_str()).collect()
+    } else {
+        segments.iter().map(|s| s.as_str()).collect()
+    };
+    if tail.len() != 1 {
+        return None;
+    }
+    let mod_tail = tail[0];
+    for (m, name, hint) in REMOVED_STD {
+        if *m == mod_tail && *name == method {
+            return Some(removed_std_build_diag(cx, m, name, hint, expr_id));
+        }
+    }
+    None
 }
 
 /// v0.3 (A65): enforce the Sendable trait at `!Msg(args)` / `?Msg(args)`

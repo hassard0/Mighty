@@ -16,7 +16,6 @@ fn remove_dir_all(fs: Fs, path: Path) -> Unit!IoErr
 fn list_dir(fs: Fs, path: Path) -> Vec[Path]!IoErr
 fn metadata(fs: Fs, path: Path) -> Metadata!IoErr   # v0.46 T4
 fn read_dir(fs: Fs, path: Path) -> DirIter!IoErr    # v0.46 T4
-fn read_dir_lines(fs: Fs, path: Path) -> Str!IoErr  # v0.46 T4 — deprecated
 ```
 
 The interpreter-backed host dispatcher also accepts the agent-friendly
@@ -41,7 +40,6 @@ pub fn remove_dir_all(cap: &FsCap, path: &Path) -> Result<(), IoErr>;
 pub fn list_dir(cap: &FsCap, path: &Path) -> Result<Vec<PathBuf>, IoErr>;
 pub fn metadata(cap: &FsCap, path: &Path) -> Result<Metadata, IoErr>;
 pub fn read_dir(cap: &FsCap, path: &Path) -> Result<DirIter, IoErr>;
-#[deprecated] pub fn read_dir_lines(cap: &FsCap, path: &Path) -> Result<String, IoErr>;
 ```
 
 ## `Metadata` (v0.46 T4)
@@ -84,28 +82,42 @@ impl DirIter {
 
 Streaming iterator returned by `read_dir`. Entries are
 lexicographically sorted (same contract as `list_dir`). Drop on a
-`DirIter` calls `close` so source code doesn't need to explicitly
-close after exhausting; explicit `close` is supported for early
-abort. Calling `next` on an exhausted (or never-opened) iterator
-returns `None` without trapping.
+`DirIter` calls `close` automatically (v0.47 T4) — source code does
+not need to call `close` explicitly. Explicit `close` is still
+supported (and idempotent) for early abort. Calling `next` on an
+exhausted (or never-opened) iterator returns `None` without trapping.
 
 ```mty
+# v0.47 — Drop auto-closes; explicit close is OPTIONAL:
 let mut it = std.fs.read_dir("./inputs")
 while let Some(entry) = it.next() {
   log(entry)
 }
-it.close()
+# `it` goes out of scope here — runtime drop-close fires automatically.
 ```
 
-### Migration
+Auto-Drop is driven by the prelude's `#[mty_drop = "..."]` registration
+(see `crates/mty-types/src/prelude.rs` —
+`mty_drop_fns.insert(DirIter, "mty_runtime_fs_dir_close")`). The IR
+lowerer injects a `Stmt::Drop(local)` in front of every fn-exit
+terminator for locals typed `DirIter`; the cranelift / llvm backends
+lower the drop to a call to `mty_runtime_fs_dir_close(handle)`, which
+no-ops on `handle == 0`. Source-level `it.close()` zeroes the
+receiver local, so an explicit close followed by the auto-Drop is
+safe — the auto-Drop dispatches with handle=0 and the runtime does
+nothing.
+
+### Migration from v0.45 / v0.46
 
 `read_dir` returned a newline-joined `Str` in v0.45 T1. v0.46 T4
-promotes the iterator handle to the canonical shape and renames the
-old shape to `read_dir_lines`. The alias keeps already-built agent
-code resolving:
+promoted the iterator handle to the canonical shape and renamed the
+old shape to `read_dir_lines` (behind a `#[deprecated(since = "0.46.0")]`
+attribute). **v0.47 T4 removed `read_dir_lines` entirely** — agent code
+still calling it now fails type-check with MT2021 ("name not found").
+Migrate to the iterator handle:
 
 ```mty
-# v0.45 — still works through v0.46 (deprecated):
+# v0.45 (REMOVED in v0.47):
 let s = std.fs.read_dir_lines("./inputs")
 
 # v0.46+ canonical:
@@ -113,7 +125,9 @@ let mut it = std.fs.read_dir("./inputs")
 while let Some(_) = it.next() { ... }
 ```
 
-`read_dir_lines` will be removed in v0.47.
+The runtime ABI symbol `mty_runtime_fs_read_dir` stays exported so
+v0.45-built native binaries still link at load time — only the
+Mighty-side surface is gone.
 
 ## Native runtime ABI
 
@@ -144,7 +158,9 @@ void  mty_runtime_fs_dir_close      (i64 handle);
 `dst_slot` is a caller-supplied stack slot the runtime writes into:
 
 - 24-byte `(ptr@+0, len@+8, ok@+16)` triple for the `read*` /
-  `read_dir_lines` / `dir_next` family — the Mighty Str layout reads
+  `read_dir` (legacy v0.45 ABI symbol, kept exported for linkage but
+  no longer reached by Mighty-side codegen) / `dir_next` family —
+  the Mighty Str layout reads
   offsets +0 / +8 transparently.
 - 24-byte `Metadata` record `{ size: u64@+0, mtime_ms: i64@+8,
   is_file: i8@+16, is_dir: i8@+17 }` for `metadata`. The field

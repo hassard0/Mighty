@@ -162,6 +162,17 @@ last-call notice — the symbol is still live for at least one more
 minor, but the next major bump may remove it. The replacement
 symbol (if any) lives in `deprecated.note`.
 
+### Deprecated symbols
+
+The following symbols are still exported (so binaries built against a
+prior runtime ABI still link) but the Mighty-side codegen no longer
+emits any call to them. They are slated for removal in the next
+breaking-runtime-ABI release:
+
+| Symbol | Deprecated since | Replacement |
+|---|---|---|
+| `mty_runtime_fs_read_dir(path_ptr, path_len, dst)` | `@deprecated 0.47.0` | `mty_runtime_fs_dir_open` / `_next` / `_close` (the v0.46 T4 iterator-handle ABI) |
+
 We do **not** guarantee:
 
 - ABI parity across major bumps. v1.0 is allowed to rename or remove

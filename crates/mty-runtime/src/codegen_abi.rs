@@ -663,16 +663,23 @@ pub extern "C" fn mty_runtime_fs_remove_dir_all(path_ptr: i64, path_len: i64) ->
 
 // @since 0.45.0
 // @deprecated 0.47.0 — use mty_runtime_fs_dir_open
+// v0.47 T4 — the v0.45 newline-joined-Str shape has no remaining
+// Mighty-side caller as of v0.47 (`read_dir_lines` is gone from
+// `crates/mty-stdlib/src/fs.rs` and from both the cranelift + llvm
+// dispatch tables). The symbol stays exported so v0.45-built binaries
+// that linked against the v0.45 runtime ABI still resolve at load
+// time. Slated for removal in a future breaking-runtime-ABI release.
 #[no_mangle]
 pub extern "C" fn mty_runtime_fs_read_dir(path_ptr: i64, path_len: i64, dst: i64) {
     // v0.45 T1 shape — newline-joined entries Str result. The proper
     // iterator-handle ABI (v0.46 T4 — `mty_runtime_fs_dir_open` /
     // `_next` / `_close` below) is the canonical surface from v0.46
     // forward, but this symbol stays live so already-built CLIs that
-    // linked against the v0.45 ABI still resolve. Mighty source code
-    // that wants the joined string now spells it `std.fs.read_dir_lines(p)`;
-    // `std.fs.read_dir(p)` lowers to the iterator handle. The listing
-    // is lexicographically sorted (matches `list_dir`'s contract).
+    // linked against the v0.45 ABI still resolve. v0.47 T4 dropped
+    // the Mighty-side `read_dir_lines` alias that targeted this
+    // symbol; `std.fs.read_dir(p)` is the only iterator surface now.
+    // The listing is lexicographically sorted (matches `list_dir`'s
+    // contract).
     let path = unsafe { read_str(path_ptr, path_len) };
     match std::fs::read_dir(std::path::Path::new(path)) {
         Ok(rd) => {

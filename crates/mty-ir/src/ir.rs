@@ -685,6 +685,19 @@ pub struct Program {
     /// entry. Manually-constructed test fixtures leave their slot
     /// empty and the emitter falls back to the legacy user-fn path.
     pub extern_bindings: HashMap<IrFnId, ExternBinding>,
+    /// v0.47 T4 — ADTs whose owned values must be auto-dropped at
+    /// scope-end. Mirrors `mty_types::DefMap::mty_drop_fns`; the
+    /// IR lowerer copies the table here so codegen + interp don't need
+    /// to reach back into the type-checker's def-map.
+    ///
+    /// Backends read this side-table at `Stmt::Drop(local)` lowering
+    /// time: if the local's `IrTy::Adt(adt, _)` has an entry, emit a
+    /// call to the runtime symbol named in the value with the local's
+    /// scalar value (the handle) as the sole arg. The runtime symbol
+    /// MUST tolerate handle=0 as a no-op so the explicit-close +
+    /// auto-drop idempotence pattern stays safe (see
+    /// `DefMap::mty_drop_fns` doc comment).
+    pub adt_drop_fns: HashMap<AdtId, String>,
 }
 
 /// v0.25 Track B — declarative shape of an `extern <abi> { fn ... }`
