@@ -204,6 +204,43 @@ pub const RUNTIME_IMPORTS: &[RuntimeImport] = &[
         params: &[ct::I64, ct::I64, ct::I64, ct::I64, ct::I64],
         ret: None,
     },
+    // v0.49 — native std.crypto / std.encoding. Digests + encoders take
+    // their `(ptr,len)` input(s) plus a result-slot pointer.
+    RuntimeImport {
+        name: "mty_runtime_crypto_sha256",
+        params: &[ct::I64, ct::I64, ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_crypto_sha512",
+        params: &[ct::I64, ct::I64, ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_crypto_blake3",
+        params: &[ct::I64, ct::I64, ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_crypto_hmac_sha256",
+        params: &[ct::I64, ct::I64, ct::I64, ct::I64, ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_encoding_hex_encode",
+        params: &[ct::I64, ct::I64, ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_encoding_base64_encode",
+        params: &[ct::I64, ct::I64, ct::I64],
+        ret: None,
+    },
+    RuntimeImport {
+        name: "mty_runtime_encoding_base64_encode_url_no_pad",
+        params: &[ct::I64, ct::I64, ct::I64],
+        ret: None,
+    },
     // v0.45 T1 — native std.fs surface (L18 fix).
     // read / read_to_string / read_dir: (path_ptr, path_len, dst_slot)
     // write the (ptr, len, ok) triple into a caller-supplied 24-byte

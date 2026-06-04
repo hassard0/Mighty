@@ -28,6 +28,14 @@ tokio.workspace = true
 tokio-util = { workspace = true, features = ["time", "rt"] }
 parking_lot.workspace = true
 dashmap.workspace = true
+# v0.49 — native std.crypto / std.encoding codegen ABI. Same crates
+# mty-stdlib uses for the interpreter path; depending on them directly
+# (not on mty-stdlib) keeps the runtime free of a dependency cycle.
+sha2.workspace = true
+hex.workspace = true
+hmac = "0.12"
+base64 = "0.22"
+blake3 = { version = "1", default-features = false, features = ["std"] }
 thiserror.workspace = true
 bumpalo.workspace = true
 libloading.workspace = true
