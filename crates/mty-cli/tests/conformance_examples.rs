@@ -91,17 +91,24 @@ enum KnownReason {
     ///   3. (Consequence of 1+2) the grow-buffer allocation + element
     ///      store now use a consistent, correct element size.
     ///
-    /// REMAINING (layer 4, still KNOWN_FAILING): pushing an *aggregate*
-    /// element (e.g. a `String` from `String.from_str(...)`) still
-    /// segfaults. `emit_vec_push` memcpys `elem_size` bytes treating the
-    /// pushed operand as the source aggregate's ADDRESS, but
-    /// `eval_operand` on the bare call-result temp returns the call's
-    /// returned VALUE (the i64 `from_str` produced), not a stable
-    /// 16-byte `{ptr,len}` slot address. The fix needs the String-value
-    /// ABI threaded so an aggregate push sources from a real slot
-    /// address (and transfers ownership so drop doesn't double-free).
-    /// Minimal repro: `let mut v: Vec[String] = Vec.new();
-    /// v.push(String.from_str("a"))` — interp ok, JIT SIGSEGV.
+    ///   4. (v0.48 #297) Vec[String] element PUSH no longer SIGSEGVs for
+    ///      a valid String operand: `emit_vec_push` routes String/Str/
+    ///      Bytes elements through `string_pair` (correct for both the
+    ///      literal fast-path and the slot-backed case) instead of
+    ///      memcpy-from-operand-address. Validated: `Vec[String]` with
+    ///      literal pushes (`v.push("alpha")`) + `len()` now JIT-matches
+    ///      the interpreter. Lock-in tests in
+    ///      `crates/mty-codegen-cranelift/tests/vec_string_push_v048.rs`.
+    ///
+    /// REMAINING (still KNOWN_FAILING): native String codegen. The
+    /// examples build their strings via `String.from_str(...)` /
+    /// `with_capacity` / `new` and read them via `String.len()` /
+    /// `push_str` / `format!` — NONE of which have native cranelift
+    /// implementations (interp-only; `String.from_str` lowers to an
+    /// unhandled `BuiltinId::Extern` that yields garbage in JIT, so
+    /// `let s = String.from_str("a"); s.len()` gives interp 5 / JIT 0).
+    /// Flipping 26/42/43 needs the whole native-String surface, a
+    /// separate feature; this entry's fixes land the Vec-storage half.
     VecOfAggregate,
     /// v0.45 T1 native `std.fs` now actually touches disk under the
     /// JIT path. Examples that write to absolute hard-coded paths
