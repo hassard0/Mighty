@@ -179,10 +179,9 @@ const KNOWN_FAILING: &[KnownFailing] = &[
         name: "19_backend_service",
         reason: KnownReason::MainTakesCapabilities,
     },
-    KnownFailing {
-        name: "26_string_vec",
-        reason: KnownReason::VecOfAggregate,
-    },
+    // 26_string_vec FIXED in v0.48 (#297): Vec-of-aggregate sizing/push
+    // + native String constructors (new/with_capacity/from_str) make it
+    // JIT-match the interpreter.
     KnownFailing {
         name: "42_crypto_url",
         reason: KnownReason::VecOfAggregate,
