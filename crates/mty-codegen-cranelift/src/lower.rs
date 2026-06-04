@@ -3782,17 +3782,38 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         self.b.seal_block(cont_block);
         // Reload data (it may have changed in grow_block); len unchanged.
         let data = self.b.ins().load(ct::I64, mf, hdr, Self::VEC_DATA_OFF);
-        // The element source value: for scalars, the raw i64 value.
-        // For aggregates, the address (eval_operand returns the slot
-        // address when the type is_aggregate).
-        let raw = if let Some(a) = args.first() {
-            self.eval_operand(a)?
-        } else {
-            self.b.ins().iconst(ct::I64, 0)
-        };
         let byte_off = self.b.ins().imul_imm(len, elem_size);
         let slot = self.b.ins().iadd(data, byte_off);
-        self.vec_store_elem(slot, raw, elem_size, lds, elem_ty.as_ref());
+        // #297 layer 4 — String/Str/Bytes elements are a 16-byte
+        // (ptr@+0, len@+8) pair, but their operand is NOT a uniform
+        // slot address: a string literal materialises as an inline
+        // (ptr,len) pair (no slot) and `eval_operand` on a bare
+        // call-result temp returns the produced VALUE, not a 16-byte
+        // slot address. memcpy-from-operand-address therefore reads past
+        // a literal's bytes and corrupts the heap (segfault). Route
+        // these through `string_pair`, which yields the correct (ptr,len)
+        // for both the literal fast-path and the slot-backed dynamic
+        // case, and store both halves explicitly.
+        if matches!(
+            elem_ty.as_ref(),
+            Some(IrTy::String | IrTy::Str | IrTy::Bytes)
+        ) {
+            if let Some(a) = args.first() {
+                let (ptr, slen) = self.string_pair(a)?;
+                self.b.ins().store(mf, ptr, slot, 0);
+                self.b.ins().store(mf, slen, slot, 8);
+            }
+        } else {
+            // Scalars: the raw i64 value. Other aggregates: the slot
+            // address (eval_operand returns the address when the type
+            // is_aggregate), memcpy'd by `vec_store_elem`.
+            let raw = if let Some(a) = args.first() {
+                self.eval_operand(a)?
+            } else {
+                self.b.ins().iconst(ct::I64, 0)
+            };
+            self.vec_store_elem(slot, raw, elem_size, lds, elem_ty.as_ref());
+        }
         let new_len = self.b.ins().iadd_imm(len, 1);
         self.b.ins().store(mf, new_len, hdr, Self::VEC_LEN_OFF);
         Ok(hdr)
