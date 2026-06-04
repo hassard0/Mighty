@@ -14,14 +14,13 @@
 
 Compiler, runtime, formatter, package manager, doc generator, LSP,
 and stdlib all live in one Rust workspace and one `mty` binary.
-v0.47 is the current release: mutable OUT params for FFI
-(`mut Vec[U8]` caller-allocated buffers lowered to a
-`(ptr, capacity, *len)` triple), LLVM `lower_assign` projection-into-
-aggregate stores, runtime ABI header numeric version macros
-(`MTY_RUNTIME_ABI_VERSION_MAJOR/MINOR/PATCH`) + `@since`/`@deprecated`
-markers + a stability tier, `std.fs` DirIter scope-end auto-Drop
-(`read_dir_lines` retired), and the LSP `WorkspaceEdit`
-`documentChanges` migration for rename + codeAction.
+v0.48 is the current release: a Cranelift aggregate-codegen pass —
+struct field-assignment (sibling-safe writes + nested
+`o.inner.x = 7`), `Vec`-of-aggregate element sizing (`Vec[String]` no
+longer corrupts the heap), and native `String` constructors
+(`new`/`with_capacity`/`from_str`) that make the `26_string_vec`
+example run native at interpreter parity. Plus a permanent Windows-CI
+fix (a 6-hour serial-libtest hang → ~9 min via `cargo-nextest`).
 
 ## Why Mighty
 
