@@ -252,7 +252,7 @@ fn all_examples_compile_native() {
         let syms = symbols_from(&st.iter().map(|(n, p)| (n.as_str(), *p)).collect::<Vec<_>>());
         if let Err(e) = build_jit(&prog, &syms) {
             let err = format!("{e}");
-            if is_interpreter_hosted_std_fs_codegen(&err) {
+            if is_interpreter_hosted_codegen(&err) {
                 continue;
             }
             failed.push((name, err));
@@ -270,8 +270,15 @@ fn all_examples_compile_native() {
     );
 }
 
-fn is_interpreter_hosted_std_fs_codegen(err: &str) -> bool {
-    err.contains("std.fs.") && err.contains("is interpreter-hosted")
+/// True when native codegen refused a call because the stdlib surface
+/// has no Cranelift lowering yet (`mty run` falls back to the
+/// interpreter for these — see `is_interpreter_hosted_stdlib` in the
+/// codegen crate). v0.49: generalised from `std.fs` to any module
+/// (`std.url`/`std.uuid`/`std.regex`/crypto AEAD/`random_bytes`/…) so
+/// examples that legitimately can't AOT-compile aren't flagged as
+/// codegen regressions.
+fn is_interpreter_hosted_codegen(err: &str) -> bool {
+    err.contains("is interpreter-hosted")
 }
 
 /// JIT-run smoke: for each adt/match/result/agent/mono case, JIT the

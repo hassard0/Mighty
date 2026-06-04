@@ -14,13 +14,15 @@
 
 Compiler, runtime, formatter, package manager, doc generator, LSP,
 and stdlib all live in one Rust workspace and one `mty` binary.
-v0.48 is the current release: a Cranelift aggregate-codegen pass —
-struct field-assignment (sibling-safe writes + nested
-`o.inner.x = 7`), `Vec`-of-aggregate element sizing (`Vec[String]` no
-longer corrupts the heap), and native `String` constructors
-(`new`/`with_capacity`/`from_str`) that make the `26_string_vec`
-example run native at interpreter parity. Plus a permanent Windows-CI
-fix (a 6-hour serial-libtest hang → ~9 min via `cargo-nextest`).
+v0.49 is the current release: native `std.crypto` (SHA-256/512,
+BLAKE3, HMAC) + `std.encoding` (hex, base64) on the Cranelift path,
+plus a transparent interpreter fall-back for any stdlib without native
+codegen yet (`std.url`/`std.uuid`/`std.regex`/crypto-AEAD) — so
+`mty run` runs the program instead of crashing on an unimplemented
+surface. Closes the last `VecOfAggregate` examples (`42_crypto_url`,
+`43_secure_session`). Builds on the v0.48 aggregate-codegen pass
+(struct field-assignment, `Vec`-of-aggregate sizing, native `String`
+constructors) and the permanent Windows-CI fix.
 
 ## Why Mighty
 
