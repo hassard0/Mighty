@@ -4406,12 +4406,28 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
 }
 
 fn is_interpreter_hosted_stdlib(name: &str) -> bool {
-    // v0.45 T1 — `std.fs.*` no longer falls back to interpreter-hosted.
-    // The codegen routes those calls through `emit_fs_call` to the
-    // native ABI symbols. Any non-fs interpreter-hosted callsites
-    // continue to fail with the descriptive error (none today).
-    let _ = name;
-    false
+    // v0.49 — stdlib modules that have NO native Cranelift codegen yet.
+    // Returning `true` makes the EffectInvoke lowering report
+    // `CodegenError::Unsupported`, which `mty run` turns into a
+    // transparent fall-back to the interpreter (see `cmd::run::run`).
+    //
+    // Before this, an unimplemented stdlib call fell through to the
+    // silent `mty_runtime_extern_call` stub, which returns 0 — and the
+    // moment that 0 is dereferenced as an aggregate (a `Str`/`Bytes`/
+    // struct result) the program SIGSEGV'd with no diagnostic
+    // (`42_crypto_url` / `43_secure_session`). Routing to the
+    // interpreter runs the program correctly instead of crashing.
+    //
+    // The natively-lowered surfaces are dispatched BEFORE this check
+    // (`is_native_fs_method` → `emit_fs_call`; `is_native_crypto_encoding`
+    // → `emit_crypto_encoding_call`), so naming a whole module here only
+    // catches its NOT-yet-native methods: e.g. `crypto.sha256` is handled
+    // natively and never reaches us, while `crypto.aes_gcm.encrypt`
+    // falls back. As more methods go native, they simply stop reaching
+    // this function — no edit needed here.
+    let bare = name.strip_prefix("std.").unwrap_or(name);
+    let module = bare.split('.').next().unwrap_or("");
+    matches!(module, "url" | "uuid" | "regex" | "crypto" | "encoding")
 }
 
 /// v0.45 T1 — recognise the `std.fs.*` methods that the codegen

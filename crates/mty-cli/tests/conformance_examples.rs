@@ -72,44 +72,11 @@ enum KnownReason {
     /// JIT segfaults. v0.42 work to either accept capability
     /// stubs or make codegen refuse the call cleanly.
     MainTakesCapabilities,
-    /// `Vec[T]` where `T` is an aggregate (`String`, `struct`, …).
-    ///
-    /// This is a LAYERED defect. v0.48 (#297) fixed three of the four
-    /// layers (all regression-free, verified by CLIF + this sweep):
-    ///   1. Push-only element inference — a Vec whose `T` was pinned
-    ///      only by `.push(x)` (no annotation / annotated return) left
-    ///      `T` an unresolved var. Fixed in mty-types: `Vec.new()` /
-    ///      `with_capacity()` now synth `Vec[?E]` and `push(x)` unifies
-    ///      `x` with `E`.
-    ///   2. `Vec.new()` result-temp typing — the temp holding the
-    ///      constructor was `IrTy::Error`, so `emit_vec_new` read the
-    ///      element size off an Error `current_dest_ty` and stored the
-    ///      8-byte fallback in the header. Fixed in mty-ir
-    ///      (`vec_call_result_ty`): the temp now carries the real
-    ///      `Vec[T]`, so the header records the true element size (16
-    ///      for `String`), and the element store memcpys the right width.
-    ///   3. (Consequence of 1+2) the grow-buffer allocation + element
-    ///      store now use a consistent, correct element size.
-    ///
-    ///   4. (v0.48 #297) Vec[String] element PUSH no longer SIGSEGVs for
-    ///      a valid String operand: `emit_vec_push` routes String/Str/
-    ///      Bytes elements through `string_pair` (correct for both the
-    ///      literal fast-path and the slot-backed case) instead of
-    ///      memcpy-from-operand-address. Validated: `Vec[String]` with
-    ///      literal pushes (`v.push("alpha")`) + `len()` now JIT-matches
-    ///      the interpreter. Lock-in tests in
-    ///      `crates/mty-codegen-cranelift/tests/vec_string_push_v048.rs`.
-    ///
-    /// REMAINING (still KNOWN_FAILING): native String codegen. The
-    /// examples build their strings via `String.from_str(...)` /
-    /// `with_capacity` / `new` and read them via `String.len()` /
-    /// `push_str` / `format!` — NONE of which have native cranelift
-    /// implementations (interp-only; `String.from_str` lowers to an
-    /// unhandled `BuiltinId::Extern` that yields garbage in JIT, so
-    /// `let s = String.from_str("a"); s.len()` gives interp 5 / JIT 0).
-    /// Flipping 26/42/43 needs the whole native-String surface, a
-    /// separate feature; this entry's fixes land the Vec-storage half.
-    VecOfAggregate,
+    // NOTE: the `VecOfAggregate` reason was retired in v0.49 — all three
+    // examples (26/42/43) now pass. 26 via the Vec-of-aggregate codegen
+    // fixes + native String constructors (v0.48); 42/43 via the
+    // interpreter fall-back for not-yet-native stdlib (v0.49). See the
+    // RELEASE notes + task #297 for the full history.
     /// v0.45 T1 native `std.fs` now actually touches disk under the
     /// JIT path. Examples that write to absolute hard-coded paths
     /// (`/tmp/...`) succeed under the interpreter's hosted dispatcher
@@ -182,14 +149,11 @@ const KNOWN_FAILING: &[KnownFailing] = &[
     // 26_string_vec FIXED in v0.48 (#297): Vec-of-aggregate sizing/push
     // + native String constructors (new/with_capacity/from_str) make it
     // JIT-match the interpreter.
-    KnownFailing {
-        name: "42_crypto_url",
-        reason: KnownReason::VecOfAggregate,
-    },
-    KnownFailing {
-        name: "43_secure_session",
-        reason: KnownReason::VecOfAggregate,
-    },
+    // 42_crypto_url + 43_secure_session FIXED in v0.49 (#297): they use
+    // stdlib with no native codegen yet (std.url/uuid/regex, crypto AEAD,
+    // random_bytes). `is_interpreter_hosted_stdlib` now routes those to a
+    // transparent interpreter fall-back instead of the silent stub that
+    // SIGSEGV'd, so `mty run` matches `mty run --legacy-interp`.
     // v0.45 T1 native std.fs exposes hard-coded absolute-path writes
     // that previously no-op'd under the interpreter's hosted dispatcher.
     // v0.46 follow-up rewrites these examples to use a per-run tempdir.

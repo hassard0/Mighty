@@ -107,12 +107,28 @@ hi
 
 ## Effect handling
 
-Effect calls (`std.fs.read`, `std.fs.write`, `std.fs.exists`,
-`std.fs.list_dir`, and their documented aliases) are routed through
-the runtime's host dispatcher. If the native Cranelift path reaches a
-host-backed filesystem call, `mty run` falls back to the interpreter
-so the operation uses the same capability checks and real file I/O as
-`--legacy-interp`.
+`mty run` JIT-compiles with Cranelift and falls back to the interpreter
+per-program for any stdlib surface that does not yet have native
+codegen. The fall-back is transparent: the program runs and produces
+the same result as `--legacy-interp` — you never see a crash for an
+unimplemented surface.
+
+**Lowered natively** (run on the Cranelift path):
+
+- `std.fs.*` — `read`, `read_to_string`, `read_dir` / `list_dir`,
+  `write`, `exists`, `metadata`, the `read_dir` iterator, and their
+  documented aliases, via the runtime's native ABI symbols.
+- `std.crypto` digests — `sha256`, `sha512`, `blake3`, `hmac_sha256`.
+- `std.encoding` encoders — `hex.encode`, `base64.encode`,
+  `base64.encode_url_no_pad`.
+
+**Interpreter-hosted** (the whole program transparently falls back to
+the interpreter when one of these is called): `std.url`, `std.uuid`,
+`std.regex`, `std.crypto` AEAD (`aes_gcm`, `chacha20_poly1305`) and
+`random_bytes`, the `std.encoding` decoders, and other not-yet-native
+stdlib modules. These run with the same capability checks and behaviour
+as `--legacy-interp`; native codegen for them is incremental
+(see `dev/history/releases/`).
 
 ## Related commands
 
