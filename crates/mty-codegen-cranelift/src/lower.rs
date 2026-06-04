@@ -2406,6 +2406,30 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                 }
                 self.emit_str_concat(&args[0], &args[1])
             }
+            // #297 — native String constructors. `String` is a 16-byte
+            // (ptr@+0, len@+8) aggregate shared with `Str`, so:
+            //   * `String.from_str(s)` is identity — materialise the
+            //     argument's (ptr,len) into a fresh String slot.
+            //   * `String.new()` / `String.with_capacity(n)` produce an
+            //     empty String (ptr=0, len=0); the capacity hint is a
+            //     no-op in the JIT (growth reallocates on demand).
+            // Without these, the path-call resolved to an unhandled
+            // `Extern("String.…")` symbol and yielded garbage (a
+            // `Vec[String]` built from `from_str` then SIGSEGV'd, and
+            // `String.from_str(x).len()` read 0).
+            FnRef::Builtin(BuiltinId::Extern(name)) if name == "String.from_str" => {
+                let arg = args
+                    .first()
+                    .ok_or_else(|| CodegenError::Unsupported("String.from_str arity 0".into()))?;
+                let (ptr, len) = self.string_pair(arg)?;
+                Ok(self.emit_string_slot(ptr, len))
+            }
+            FnRef::Builtin(BuiltinId::Extern(name))
+                if name == "String.new" || name == "String.with_capacity" =>
+            {
+                let zero = self.b.ins().iconst(ct::I64, 0);
+                Ok(self.emit_string_slot(zero, zero))
+            }
             FnRef::User(callee_id) => {
                 let func_id = *self.mod_ctx.fn_ids.get(callee_id).ok_or_else(|| {
                     CodegenError::Module(format!("call to undeclared fn {:?}", callee_id))
@@ -3178,6 +3202,28 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
             None,
         )?;
         Ok(slot_addr)
+    }
+
+    /// #297 — materialise a `String` aggregate: a fresh 16-byte stack
+    /// slot holding `(ptr@+0, len@+8)`. Returns the slot address (the
+    /// String value's by-address representation). Used by the native
+    /// String constructors (`String.new`, `String.with_capacity`,
+    /// `String.from_str`).
+    fn emit_string_slot(
+        &mut self,
+        ptr: cranelift_codegen::ir::Value,
+        len: cranelift_codegen::ir::Value,
+    ) -> cranelift_codegen::ir::Value {
+        let slot = self.b.create_sized_stack_slot(StackSlotData::new(
+            StackSlotKind::ExplicitSlot,
+            16,
+            3, // log2(8)
+        ));
+        let slot_addr = self.b.ins().stack_addr(ct::I64, slot, 0);
+        let mf = MemFlags::trusted();
+        self.b.ins().store(mf, ptr, slot_addr, 0);
+        self.b.ins().store(mf, len, slot_addr, 8);
+        slot_addr
     }
 
     /// v0.42 T4 (L23 fix) — `n.to_str()` on a scalar receiver.

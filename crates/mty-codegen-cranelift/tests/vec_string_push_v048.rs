@@ -149,3 +149,39 @@ fn main() -> I64 {
 "#;
     assert_eq!(must_run(src), 3);
 }
+
+/// #297 — native `String.from_str` is identity on the `(ptr,len)` pair.
+/// Building a `Vec[String]` from `from_str(...)` results (no annotation,
+/// element inferred from the pushed Strings) must not crash and must
+/// count correctly — this is the exact `_make_name_list` shape from
+/// example 26 that previously SIGSEGV'd (from_str yielded garbage that
+/// the element push then dereferenced).
+#[test]
+fn vec_of_string_from_str_builds_and_counts() {
+    let src = r#"
+fn main() -> I64 {
+  let mut v = Vec.new()
+  v.push(String.from_str("alpha"))
+  v.push(String.from_str("beta"))
+  v.push(String.from_str("gamma"))
+  v.len() as I64
+}
+"#;
+    assert_eq!(must_run(src), 3);
+}
+
+/// `String.new()` / `String.with_capacity(n)` produce an empty String
+/// (ptr=0, len=0) without crashing; pushing them into a Vec and counting
+/// exercises the empty-String materialisation + 16-byte element store.
+#[test]
+fn vec_of_empty_strings_counts() {
+    let src = r#"
+fn main() -> I64 {
+  let mut v: Vec[String] = Vec.new()
+  v.push(String.new())
+  v.push(String.with_capacity(16))
+  v.len() as I64
+}
+"#;
+    assert_eq!(must_run(src), 2);
+}
