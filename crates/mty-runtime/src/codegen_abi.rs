@@ -188,6 +188,12 @@ thread_local! {
     /// underlying allocation — no reallocation can move the bytes out
     /// from under the caller's pointer.
     static FMT_STRINGS: RefCell<Vec<Box<str>>> = const { RefCell::new(Vec::new()) };
+
+    /// v0.49 — owned raw-byte buffers produced by the native
+    /// `std.crypto.*` digests. Same lifetime contract as `FMT_STRINGS`:
+    /// the `Box<[u8]>` freezes the allocation so the `(ptr, len)` we
+    /// hand back stays valid for the program's lifetime.
+    static FMT_BYTES: RefCell<Vec<Box<[u8]>>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Intern an owned string into the per-thread `FMT_STRINGS` table and
@@ -810,6 +816,110 @@ pub extern "C" fn mty_runtime_str_concat(aptr: i64, alen: i64, bptr: i64, blen: 
     unsafe { write_str_pair(dst, p, l) };
 }
 
+// ---- v0.49 native std.crypto / std.encoding -------------------------
+//
+// Each fn reads its `(ptr, len)` input(s), computes the result with the
+// same RustCrypto crate the interpreter (`mty-stdlib`) uses, interns the
+// result so the returned pointer outlives the call, and writes a
+// `(ptr, len)` pair into the caller's 16-byte slot. Digest results are
+// `Bytes` (raw bytes); encoders return a `String`. Both share the
+// `(ptr, len)` aggregate the codegen already understands, so a
+// `hex.encode(sha256(x))` chain pipes straight through.
+
+/// Intern raw bytes into a per-thread frozen table; returns `(ptr, len)`.
+/// Unlike `intern_bytes`, this does NOT go through a lossy UTF-8
+/// round-trip — digest output must survive byte-for-byte.
+fn intern_raw_bytes(bytes: Vec<u8>) -> (i64, i64) {
+    FMT_BYTES.with(|t| {
+        let boxed: Box<[u8]> = bytes.into_boxed_slice();
+        let ptr = boxed.as_ptr() as i64;
+        let len = boxed.len() as i64;
+        t.borrow_mut().push(boxed);
+        (ptr, len)
+    })
+}
+
+// @since 0.49.0
+#[no_mangle]
+pub extern "C" fn mty_runtime_crypto_sha256(data_ptr: i64, data_len: i64, dst: i64) {
+    use sha2::Digest;
+    let data = unsafe { read_bytes(data_ptr, data_len) };
+    let digest = sha2::Sha256::digest(data);
+    let (p, l) = intern_raw_bytes(digest.to_vec());
+    unsafe { write_str_pair(dst, p, l) };
+}
+
+// @since 0.49.0
+#[no_mangle]
+pub extern "C" fn mty_runtime_crypto_sha512(data_ptr: i64, data_len: i64, dst: i64) {
+    use sha2::Digest;
+    let data = unsafe { read_bytes(data_ptr, data_len) };
+    let digest = sha2::Sha512::digest(data);
+    let (p, l) = intern_raw_bytes(digest.to_vec());
+    unsafe { write_str_pair(dst, p, l) };
+}
+
+// @since 0.49.0
+#[no_mangle]
+pub extern "C" fn mty_runtime_crypto_blake3(data_ptr: i64, data_len: i64, dst: i64) {
+    let data = unsafe { read_bytes(data_ptr, data_len) };
+    let hash = blake3::hash(data);
+    let (p, l) = intern_raw_bytes(hash.as_bytes().to_vec());
+    unsafe { write_str_pair(dst, p, l) };
+}
+
+// @since 0.49.0
+#[no_mangle]
+pub extern "C" fn mty_runtime_crypto_hmac_sha256(
+    key_ptr: i64,
+    key_len: i64,
+    msg_ptr: i64,
+    msg_len: i64,
+    dst: i64,
+) {
+    use hmac::Mac;
+    let key = unsafe { read_bytes(key_ptr, key_len) };
+    let msg = unsafe { read_bytes(msg_ptr, msg_len) };
+    let mut mac =
+        <hmac::Hmac<sha2::Sha256> as hmac::Mac>::new_from_slice(key).expect("hmac key any size");
+    mac.update(msg);
+    let tag = mac.finalize().into_bytes();
+    let (p, l) = intern_raw_bytes(tag.to_vec());
+    unsafe { write_str_pair(dst, p, l) };
+}
+
+// @since 0.49.0
+#[no_mangle]
+pub extern "C" fn mty_runtime_encoding_hex_encode(data_ptr: i64, data_len: i64, dst: i64) {
+    let data = unsafe { read_bytes(data_ptr, data_len) };
+    let (p, l) = intern_fmt(hex::encode(data));
+    unsafe { write_str_pair(dst, p, l) };
+}
+
+// @since 0.49.0
+#[no_mangle]
+pub extern "C" fn mty_runtime_encoding_base64_encode(data_ptr: i64, data_len: i64, dst: i64) {
+    use base64::Engine;
+    let data = unsafe { read_bytes(data_ptr, data_len) };
+    let s = base64::engine::general_purpose::STANDARD.encode(data);
+    let (p, l) = intern_fmt(s);
+    unsafe { write_str_pair(dst, p, l) };
+}
+
+// @since 0.49.0
+#[no_mangle]
+pub extern "C" fn mty_runtime_encoding_base64_encode_url_no_pad(
+    data_ptr: i64,
+    data_len: i64,
+    dst: i64,
+) {
+    use base64::Engine;
+    let data = unsafe { read_bytes(data_ptr, data_len) };
+    let s = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(data);
+    let (p, l) = intern_fmt(s);
+    unsafe { write_str_pair(dst, p, l) };
+}
+
 // ---- helpers --------------------------------------------------------
 
 /// SAFETY: `ptr` must point to `len` valid utf-8 bytes that outlive
@@ -822,6 +932,16 @@ unsafe fn read_str<'a>(ptr: i64, len: i64) -> &'a str {
     let p = ptr as usize as *const u8;
     let slice = std::slice::from_raw_parts(p, len as usize);
     std::str::from_utf8_unchecked(slice)
+}
+
+/// SAFETY: `ptr` must point to `len` valid bytes that outlive this call
+/// (a `.rodata` literal or an interned aggregate). Returns an empty
+/// slice for a null/empty input.
+unsafe fn read_bytes<'a>(ptr: i64, len: i64) -> &'a [u8] {
+    if ptr == 0 || len <= 0 {
+        return &[];
+    }
+    std::slice::from_raw_parts(ptr as usize as *const u8, len as usize)
 }
 
 /// Build the (name, address) symbol table for the JIT linker.
@@ -871,6 +991,26 @@ pub fn symbol_table() -> Vec<(String, *const u8)> {
         entry!("mty_runtime_fmt_f64", mty_runtime_fmt_f64),
         entry!("mty_runtime_fmt_bool", mty_runtime_fmt_bool),
         entry!("mty_runtime_str_concat", mty_runtime_str_concat),
+        // v0.49 — native std.crypto / std.encoding
+        entry!("mty_runtime_crypto_sha256", mty_runtime_crypto_sha256),
+        entry!("mty_runtime_crypto_sha512", mty_runtime_crypto_sha512),
+        entry!("mty_runtime_crypto_blake3", mty_runtime_crypto_blake3),
+        entry!(
+            "mty_runtime_crypto_hmac_sha256",
+            mty_runtime_crypto_hmac_sha256
+        ),
+        entry!(
+            "mty_runtime_encoding_hex_encode",
+            mty_runtime_encoding_hex_encode
+        ),
+        entry!(
+            "mty_runtime_encoding_base64_encode",
+            mty_runtime_encoding_base64_encode
+        ),
+        entry!(
+            "mty_runtime_encoding_base64_encode_url_no_pad",
+            mty_runtime_encoding_base64_encode_url_no_pad
+        ),
         // v0.45 T1 — native std.fs surface (L18 fix).
         entry!("mty_runtime_fs_read", mty_runtime_fs_read),
         entry!(
@@ -932,6 +1072,94 @@ mod tests {
     fn read_str_handles_null() {
         let s = unsafe { read_str(0, 0) };
         assert!(s.is_empty());
+    }
+
+    // ---- v0.49 — native std.crypto / std.encoding ABI tests --------
+
+    /// Read a `(ptr, len)` slot back into an owned byte vec.
+    fn slot_bytes(slot: &[i64; 2]) -> Vec<u8> {
+        let (ptr, len) = (slot[0], slot[1]);
+        unsafe { read_bytes(ptr, len).to_vec() }
+    }
+
+    #[test]
+    fn crypto_sha256_then_hex_encode_matches_known_vector() {
+        let data = b"hello";
+        // sha256("hello") -> 32 raw bytes
+        let mut digest_slot = [0i64; 2];
+        mty_runtime_crypto_sha256(
+            data.as_ptr() as i64,
+            data.len() as i64,
+            digest_slot.as_mut_ptr() as i64,
+        );
+        assert_eq!(digest_slot[1], 32, "sha256 digest is 32 bytes");
+        // hex.encode(digest) -> 64-char String
+        let mut hex_slot = [0i64; 2];
+        mty_runtime_encoding_hex_encode(
+            digest_slot[0],
+            digest_slot[1],
+            hex_slot.as_mut_ptr() as i64,
+        );
+        let hex = String::from_utf8(slot_bytes(&hex_slot)).unwrap();
+        assert_eq!(
+            hex,
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
+    }
+
+    #[test]
+    fn crypto_hmac_sha256_matches_known_vector() {
+        // RFC 4231 test case 2: key="Jefe", data="what do ya want for nothing?"
+        let key = b"Jefe";
+        let msg = b"what do ya want for nothing?";
+        let mut tag_slot = [0i64; 2];
+        mty_runtime_crypto_hmac_sha256(
+            key.as_ptr() as i64,
+            key.len() as i64,
+            msg.as_ptr() as i64,
+            msg.len() as i64,
+            tag_slot.as_mut_ptr() as i64,
+        );
+        let mut hex_slot = [0i64; 2];
+        mty_runtime_encoding_hex_encode(tag_slot[0], tag_slot[1], hex_slot.as_mut_ptr() as i64);
+        let hex = String::from_utf8(slot_bytes(&hex_slot)).unwrap();
+        assert_eq!(
+            hex,
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+        );
+    }
+
+    #[test]
+    fn encoding_base64_url_no_pad_roundtrips_known_vector() {
+        let data = [0xfbu8, 0xff, 0xbf];
+        let mut slot = [0i64; 2];
+        mty_runtime_encoding_base64_encode_url_no_pad(
+            data.as_ptr() as i64,
+            data.len() as i64,
+            slot.as_mut_ptr() as i64,
+        );
+        let s = String::from_utf8(slot_bytes(&slot)).unwrap();
+        // standard b64 "+/+/" -> url-safe no-pad "-_-_"
+        assert_eq!(s, "-_-_");
+    }
+
+    #[test]
+    fn crypto_symbols_registered_in_table() {
+        let st = symbol_table();
+        for name in [
+            "mty_runtime_crypto_sha256",
+            "mty_runtime_crypto_sha512",
+            "mty_runtime_crypto_blake3",
+            "mty_runtime_crypto_hmac_sha256",
+            "mty_runtime_encoding_hex_encode",
+            "mty_runtime_encoding_base64_encode",
+            "mty_runtime_encoding_base64_encode_url_no_pad",
+        ] {
+            assert!(
+                st.iter().any(|(n, _)| n == name),
+                "{name} missing from symbol_table"
+            );
+        }
     }
 
     // ---- v0.42 T4 — typed log/print/format surface tests -----------

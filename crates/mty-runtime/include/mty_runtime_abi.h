@@ -139,6 +139,20 @@ int32_t mty_runtime_fs_dir_next(int64_t handle, int64_t dst);
 void mty_runtime_fs_dir_close(int64_t handle);
 /* @since 0.42.0 */
 void mty_runtime_str_concat(int64_t aptr, int64_t alen, int64_t bptr, int64_t blen, int64_t dst);
+/* @since 0.49.0 */
+void mty_runtime_crypto_sha256(int64_t data_ptr, int64_t data_len, int64_t dst);
+/* @since 0.49.0 */
+void mty_runtime_crypto_sha512(int64_t data_ptr, int64_t data_len, int64_t dst);
+/* @since 0.49.0 */
+void mty_runtime_crypto_blake3(int64_t data_ptr, int64_t data_len, int64_t dst);
+/* @since 0.49.0 */
+void mty_runtime_crypto_hmac_sha256(int64_t key_ptr, int64_t key_len, int64_t msg_ptr, int64_t msg_len, int64_t dst);
+/* @since 0.49.0 */
+void mty_runtime_encoding_hex_encode(int64_t data_ptr, int64_t data_len, int64_t dst);
+/* @since 0.49.0 */
+void mty_runtime_encoding_base64_encode(int64_t data_ptr, int64_t data_len, int64_t dst);
+/* @since 0.49.0 */
+void mty_runtime_encoding_base64_encode_url_no_pad(int64_t data_ptr, int64_t data_len, int64_t dst);
 
 #ifdef __cplusplus
 } /* extern "C" */

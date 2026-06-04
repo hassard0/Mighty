@@ -364,6 +364,15 @@ int32_t mty_runtime_fs_dir_next(int64_t handle, int64_t dst) {
     (void)handle; (void)dst; return 0;
 }
 void mty_runtime_fs_dir_close(int64_t handle) { (void)handle; }
+/* v0.49 — native std.crypto / std.encoding imports. Same MSVC rule:
+ * the codegen references every runtime import, so each needs a stub. */
+void mty_runtime_crypto_sha256(int64_t d, int64_t dl, int64_t dst) { (void)d; (void)dl; (void)dst; }
+void mty_runtime_crypto_sha512(int64_t d, int64_t dl, int64_t dst) { (void)d; (void)dl; (void)dst; }
+void mty_runtime_crypto_blake3(int64_t d, int64_t dl, int64_t dst) { (void)d; (void)dl; (void)dst; }
+void mty_runtime_crypto_hmac_sha256(int64_t k, int64_t kl, int64_t m, int64_t ml, int64_t dst) { (void)k; (void)kl; (void)m; (void)ml; (void)dst; }
+void mty_runtime_encoding_hex_encode(int64_t d, int64_t dl, int64_t dst) { (void)d; (void)dl; (void)dst; }
+void mty_runtime_encoding_base64_encode(int64_t d, int64_t dl, int64_t dst) { (void)d; (void)dl; (void)dst; }
+void mty_runtime_encoding_base64_encode_url_no_pad(int64_t d, int64_t dl, int64_t dst) { (void)d; (void)dl; (void)dst; }
 "#;
 
 fn build_runtime_archive(work_dir: &Path, cc: &str, ar: &str) -> PathBuf {

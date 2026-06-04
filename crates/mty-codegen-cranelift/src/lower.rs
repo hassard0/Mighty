@@ -990,6 +990,28 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
                     let out = out.clone();
                     return self.emit_fs_call(&full_name, &args, out.as_ref());
                 }
+                // v0.49 — native std.crypto / std.encoding. Each call
+                // takes `(ptr,len)` input(s) and writes a `(ptr,len)`
+                // result aggregate (Bytes for digests, String for
+                // encoders) into a fresh 16-byte slot. Without this the
+                // call hit the `mty_runtime_extern_call` stub that
+                // returns 0, and a downstream `hex.encode(0)` dereffed
+                // null → SIGSEGV (examples 42/43).
+                if is_native_crypto_encoding(&full_name) {
+                    let args = args.clone();
+                    let out = out.clone();
+                    let result = self.emit_crypto_encoding_call(&full_name, &args)?;
+                    if let Some(p) = out {
+                        if !p.proj.is_empty() {
+                            let (addr, ty) = self.place_addr(&p)?;
+                            self.store_scalar(addr, result, &ty)?;
+                        } else {
+                            let var = self.ensure_var(p.local);
+                            self.b.def_var(var, result);
+                        }
+                    }
+                    return Ok(());
+                }
                 if is_interpreter_hosted_stdlib(&full_name) {
                     return Err(CodegenError::Unsupported(format!(
                         "{full_name} is interpreter-hosted"
@@ -3011,6 +3033,53 @@ impl<'short, 'long, 'a, 'm, 'p, 'd, M: Module> FnLower<'short, 'long, 'a, 'm, 'p
         }
     }
 
+    /// v0.49 — lower a native `std.crypto` / `std.encoding` call. Each
+    /// maps to a runtime ABI symbol that takes its `(ptr,len)` input(s)
+    /// and writes a `(ptr,len)` result aggregate into a fresh 16-byte
+    /// slot. Returns the slot address (a Bytes/String value).
+    fn emit_crypto_encoding_call(
+        &mut self,
+        full_name: &str,
+        args: &[Operand],
+    ) -> CompileResult<cranelift_codegen::ir::Value> {
+        let bare = full_name.strip_prefix("std.").unwrap_or(full_name);
+        // (runtime symbol, number of `(ptr,len)` data inputs)
+        let (symbol, n_inputs): (&str, usize) = match bare {
+            "crypto.sha256" => ("mty_runtime_crypto_sha256", 1),
+            "crypto.sha512" => ("mty_runtime_crypto_sha512", 1),
+            "crypto.blake3" => ("mty_runtime_crypto_blake3", 1),
+            "crypto.hmac_sha256" => ("mty_runtime_crypto_hmac_sha256", 2),
+            "encoding.hex.encode" => ("mty_runtime_encoding_hex_encode", 1),
+            "encoding.base64.encode" => ("mty_runtime_encoding_base64_encode", 1),
+            "encoding.base64.encode_url_no_pad" => {
+                ("mty_runtime_encoding_base64_encode_url_no_pad", 1)
+            }
+            other => {
+                return Err(CodegenError::Unsupported(format!(
+                    "native crypto/encoding dispatch missing for {other}"
+                )))
+            }
+        };
+        // Each input operand (a Str/Bytes aggregate) expands to a
+        // `(ptr, len)` pair via `string_pair` (handles literals + slots).
+        let mut call_args = Vec::with_capacity(n_inputs * 2 + 1);
+        for a in args.iter().take(n_inputs) {
+            let (ptr, len) = self.string_pair(a)?;
+            call_args.push(ptr);
+            call_args.push(len);
+        }
+        // Fresh 16-byte (ptr@+0, len@+8) result slot.
+        let slot = self.b.create_sized_stack_slot(StackSlotData::new(
+            StackSlotKind::ExplicitSlot,
+            16,
+            3, // log2(8)
+        ));
+        let slot_addr = self.b.ins().stack_addr(ct::I64, slot, 0);
+        call_args.push(slot_addr);
+        self.call_rt(symbol, &call_args, None)?;
+        Ok(slot_addr)
+    }
+
     /// v0.45 T1 (L18 fix) — lower a `std.fs.*` call to its native
     /// runtime ABI symbol.
     ///
@@ -4360,6 +4429,23 @@ fn is_interpreter_hosted_stdlib(name: &str) -> bool {
 /// frontend dispatch table. The runtime symbol `mty_runtime_fs_read_dir`
 /// stays live so v0.45-built binaries still link; the codegen just no
 /// longer routes anything to it.
+/// v0.49 — true for the `std.crypto.*` / `std.encoding.*` calls that
+/// have a native Cranelift lowering (`emit_crypto_encoding_call`). Kept
+/// in sync with that match.
+fn is_native_crypto_encoding(full_name: &str) -> bool {
+    let bare = full_name.strip_prefix("std.").unwrap_or(full_name);
+    matches!(
+        bare,
+        "crypto.sha256"
+            | "crypto.sha512"
+            | "crypto.blake3"
+            | "crypto.hmac_sha256"
+            | "encoding.hex.encode"
+            | "encoding.base64.encode"
+            | "encoding.base64.encode_url_no_pad"
+    )
+}
+
 fn is_native_fs_method(full_name: &str) -> bool {
     fn strip(s: &str) -> &str {
         s.strip_prefix("std.").unwrap_or(s)
