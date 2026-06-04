@@ -903,6 +903,29 @@ fn synth_path(cx: &mut Cx, segments: &[String], expr_id: ExprId) -> TyId {
                     ));
                     return cx.arena.error;
                 }
+                // #297: static constructors on a generic opaque container
+                // (`Vec.new()`, `Vec.with_capacity(n)`) must synthesise
+                // `Vec[?E]` — an Adt with a fresh element var — NOT a bare
+                // fresh inference var. Otherwise the binding `let mut v =
+                // Vec.new()` has a `TyData::Var` receiver, so a later
+                // `v.push(x)` can't attach its element-coupling unification
+                // (which keys off an `Adt`-shaped receiver) and the element
+                // type is never inferred — lowering to `IrTy::Error` and the
+                // 8-byte cranelift element-slot fallback that corrupts the
+                // heap for aggregate elements. Scalar-aliased prelude types
+                // like `String` are NOT `DefRef::Adt`, so they never reach
+                // here and keep their primitive typing.
+                if adt.kind == AdtKind::Opaque
+                    && !adt.param_ids.is_empty()
+                    && matches!(vname.as_str(), "new" | "with_capacity")
+                {
+                    // Capture the arity first so the `adt` borrow of
+                    // `cx.defs` is released before we mutably borrow `cx`
+                    // via `cx.fresh()` / `cx.arena`.
+                    let nparams = adt.param_ids.len();
+                    let fresh_args: Vec<TyId> = (0..nparams).map(|_| cx.fresh()).collect();
+                    return cx.arena.adt(aid, fresh_args);
+                }
             }
         }
         // Opaque or arity-unmatched ADT chain: treat as opaque.
@@ -1264,7 +1287,55 @@ fn callee_param_has_nul_ok(cx: &Cx, callee: ExprId, idx: usize) -> bool {
     p.attrs.iter().any(|a| a == "ffi_nul_ok")
 }
 
+/// #297 — element-coupled `push`: unify the pushed value against the
+/// receiver's `Vec[E]` element type so a Vec whose element is never
+/// pinned by an annotation/return/param still infers its `T` from the
+/// pushed values. `recv_data` is the *resolved* receiver `TyData`.
+///
+/// Returns `Some(result_ty)` when it handled the call (receiver is a
+/// generic container with at least one type arg and exactly one value
+/// was pushed); `None` otherwise so the caller keeps its default path.
+///
+/// Without this, a push-only Vec keeps its element as an unresolved
+/// inference var → `IrTy::Error` → cranelift's 8-byte element-slot
+/// fallback → heap corruption (segfault) for aggregate elements
+/// (`String`, structs). `String.push(ch)` etc. are unaffected: `String`
+/// is a primitive alias, not a `TyData::Adt`, so it never matches here.
+fn try_push_elem_unify(cx: &mut Cx, recv_data: &TyData, args: &[HirArg]) -> Option<TyId> {
+    if args.len() != 1 {
+        return None;
+    }
+    if let TyData::Adt(_, adt_args) = recv_data {
+        if let Some(elem) = adt_args.first().copied() {
+            check_expr(cx, args[0].value, elem);
+            return Some(cx.fresh());
+        }
+    }
+    None
+}
+
 fn synth_call(cx: &mut Cx, callee: ExprId, args: &[HirArg], expr_id: ExprId) -> TyId {
+    // #297 — `v.push(x)` lowers to `Call { callee: Field{v,"push"}, args }`
+    // (NOT `MethodCall`), so it would otherwise land in the permissive
+    // Var-callee arm below where the arg is synthesised then discarded —
+    // the value type never unifies with the receiver's `Vec[E]` element.
+    // Intercept the element-coupled `push` here so a push-only Vec infers
+    // its element type. See `try_push_elem_unify` for why this matters
+    // (8-byte element-slot fallback → heap corruption otherwise).
+    if let HirExpr::Field { receiver, name } = &cx.pkg.exprs[callee] {
+        if name == "push" && args.len() == 1 {
+            let receiver = *receiver;
+            // Synthesise the callee too, so `expr_ty(callee)` is still
+            // recorded for downstream lowering (matches the normal path).
+            let _ = synth_expr(cx, callee);
+            let recv_ty = synth_expr(cx, receiver);
+            let resolved = cx.subst.resolve(recv_ty, cx.arena);
+            let recv_data = cx.arena.get(resolved).clone();
+            if let Some(ret) = try_push_elem_unify(cx, &recv_data, args) {
+                return ret;
+            }
+        }
+    }
     // v0.47 T4 — removed-stdlib deny check for qualified path calls.
     // `std.fs.read_dir_lines(p)` is a `Call` whose callee is the path
     // `std.fs.read_dir_lines`; that callee otherwise resolves
@@ -1587,8 +1658,30 @@ fn synth_method_call(
         // Opaque ADT: fall through to permissive paths below.
     }
 
-    // 2. Built-in method table: permissive — accept any arity, return fresh.
+    // 2. Built-in method table: permissive on arity / return type, but a
+    //    few methods are *element-coupled* and must thread the receiver's
+    //    generic element type or inference silently drops it.
+    //
+    //    `vec.push(x)` is the load-bearing case (#297). The permissive
+    //    table otherwise just `synth`s + discards each arg, so the value
+    //    type never unifies with the receiver's element parameter. A Vec
+    //    whose element is never pinned by an annotation, an annotated
+    //    return, or an annotated param (e.g. a push-only local that the
+    //    fn returns as a non-Vec) then keeps its element as an unresolved
+    //    inference var. That lowers to `IrTy::Error`, and cranelift's
+    //    Vec storage falls back to an 8-byte element slot regardless of
+    //    the real `T` size — so pushing/reading an aggregate element
+    //    (`String`, a struct) memcpys the wrong stride and corrupts the
+    //    heap (segfault). Unifying the pushed value against the element
+    //    var here is the missing constraint; everything downstream (the
+    //    v0.39 T3 / v0.48 T1 binding-slot carve-out, the typed-slot
+    //    codegen) already does the right thing once `T` is known.
     if cx.defs.builtin_methods.contains_key(method) {
+        if method == "push" {
+            if let Some(ret) = try_push_elem_unify(cx, &data, args) {
+                return ret;
+            }
+        }
         for arg in args {
             let _ = synth_expr(cx, arg.value);
         }

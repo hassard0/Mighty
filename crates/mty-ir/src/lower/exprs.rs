@@ -30,7 +30,7 @@ pub fn lower_expr(ctx: &mut LowerCtx, fb: &mut FnBuilder, eid: ExprId) -> Operan
     match e {
         HirExpr::Literal(lit) => Operand::Const(lit_const(&lit)),
         HirExpr::Path(segments) => resolve_path(ctx, fb, &segments),
-        HirExpr::Call { callee, args } => lower_call(ctx, fb, callee, &args),
+        HirExpr::Call { callee, args } => lower_call(ctx, fb, eid, callee, &args),
         HirExpr::MethodCall {
             receiver,
             method,
@@ -736,7 +736,13 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
     })
 }
 
-fn lower_call(ctx: &mut LowerCtx, fb: &mut FnBuilder, callee: ExprId, args: &[HirArg]) -> Operand {
+fn lower_call(
+    ctx: &mut LowerCtx,
+    fb: &mut FnBuilder,
+    call_eid: ExprId,
+    callee: ExprId,
+    args: &[HirArg],
+) -> Operand {
     // v0.15 — variant-constructor call detection. `Some(42)`, `Ok(v)`,
     // `Result.Err(e)`, `Maybe.Just(x)`, etc. parse as a Call whose callee
     // resolves (via the type checker's def-map) to a variant constructor
@@ -931,9 +937,22 @@ fn lower_call(ctx: &mut LowerCtx, fb: &mut FnBuilder, callee: ExprId, args: &[Hi
     // package's per-expr type map when the result is a scalar. This
     // unblocks codegen typed dispatch (`log(double(21))` now knows
     // `double` returns I32 and routes to `mty_runtime_log_i32`).
-    // Aggregates still fall back to `IrTy::Error` — the existing
+    // Most aggregates still fall back to `IrTy::Error` — the existing
     // aggregate-slot path expects untyped temps.
-    let result_ty = scalar_call_result_ty(ctx, callee).unwrap_or(IrTy::Error);
+    //
+    // #297 — EXCEPT `Vec[T]` results (`Vec.new()`, `Vec.with_capacity()`).
+    // A Vec is a single header pointer (not a (ptr,len)-style slot
+    // aggregate), so typing its temp is safe, and it is REQUIRED:
+    // `let mut v = Vec.new()` lowers to `temp = Vec.new(); v = move temp`,
+    // and `emit_vec_new` reads the element size off `current_dest_ty` —
+    // i.e. the *temp's* type. If that's `Error`, the element slot falls
+    // back to 8 bytes, which silently corrupts the heap for aggregate
+    // elements (`Vec[String]`: 16-byte elements memcpy'd into 8-byte
+    // slots → segfault). Carrying the real `Vec[T]` onto the temp sizes
+    // the header correctly before `v` is ever bound.
+    let result_ty = scalar_call_result_ty(ctx, callee)
+        .or_else(|| vec_call_result_ty(ctx, call_eid))
+        .unwrap_or(IrTy::Error);
     let temp = fb.fresh_temp(result_ty);
     fb.push_stmt(Stmt::Assign(
         Place::local(temp),
@@ -992,6 +1011,26 @@ fn scalar_call_result_ty(ctx: &LowerCtx, callee: ExprId) -> Option<IrTy> {
         }
         _ => None,
     }
+}
+
+/// #297 — type a call-result temp with the call expression's own
+/// inferred `Vec[T]` type when it is one. Only `Vec` qualifies (a single
+/// header pointer, safe to type without disturbing the (ptr,len)
+/// aggregate-slot lazy-init path that other aggregate temps rely on).
+/// See the call site in `lower_call` for why this is load-bearing for
+/// `Vec`-of-aggregate element sizing.
+fn vec_call_result_ty(ctx: &LowerCtx, call_eid: ExprId) -> Option<IrTy> {
+    let tyid = ctx.typed.expr_ty.get(&call_eid).copied()?;
+    let lowered = super::ty::lower_ty(tyid, &ctx.typed.ty_arena);
+    if let IrTy::Adt(id, _) = &lowered {
+        if matches!(
+            ctx.typed.def_map.lookup("Vec"),
+            Some(DefRef::Adt(v)) if v == *id
+        ) {
+            return Some(lowered);
+        }
+    }
+    None
 }
 
 /// v0.15 — resolve a call's callee path to a variant constructor if
