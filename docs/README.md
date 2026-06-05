@@ -2,7 +2,7 @@
 
 Mighty is a statically typed, ownership-based, agent-first systems
 language that compiles to native code and to WebAssembly components.
-These docs cover the language at toolchain **v0.42** tracking
+These docs cover the language at toolchain **v0.49** tracking
 spec **v1.0-RC5**.
 
 > **Pre-1.0 warning.** The language surface is frozen for v1.0 but
@@ -84,18 +84,18 @@ spec **v1.0-RC5**.
 - [Upstream issues](upstream-issues/) — bugs filed against
   Cranelift / wasmtime / etc. that affect Mighty.
 
-## Status snapshot (v0.42, v0.43 in progress)
+## Status snapshot (v0.49)
 
 | Component                            | State                                            |
 |--------------------------------------|--------------------------------------------------|
 | Lexer, parser, CST                   | shipped                                          |
 | Typed AST + HIR + lowering           | shipped                                          |
 | Diagnostics engine                   | shipped                                          |
-| Formatter (per-node)                 | shipped; v0.43 starts syntax-aware top-level `const` formatting |
+| Formatter (per-node + decls)         | shipped (v0.45 fn/struct/enum/type decls)        |
 | Type checker                         | shipped                                          |
 | Borrow / move / affine checker       | shipped                                          |
 | Effect / capability checker          | shipped                                          |
-| Codegen (Cranelift) native           | shipped; v0.42 fixed typed log + Vec liveness, v0.43 adds truthful link diagnostics |
+| Codegen (Cranelift) native           | shipped; v0.48 struct field-assignment + `Vec`-of-aggregate; v0.49 native `std.crypto`/`std.encoding` + interp fall-back for not-yet-native stdlib |
 | Codegen (Wasm) P2 + cabi_realloc     | shipped (v0.18)                                  |
 | Codegen (LLVM)                       | opt-in backend                                   |
 | Runtime (scheduler, mailboxes)       | shipped                                          |
@@ -107,18 +107,20 @@ spec **v1.0-RC5**.
 | Replay (`mty replay --byte-identical`)| shipped (v0.17/18)                              |
 | Cluster (distributed agents)         | shipped (v0.18 Tier 4.1)                         |
 | LLM-agent stack (std.llm/mcp/memory/swarm) | shipped (v0.26–v0.30)                      |
-| Extern C + `[[extern_lib]]`          | shipped (v0.36 T2); v0.43 reports real linker failures distinctly from missing linkers |
+| Extern C + `[[extern_lib]]`          | shipped (v0.36 T2; v0.46 truthful linker-failure vs missing-linker diagnostics) |
 | String position/range ops + MT5080   | shipped (v0.36 T3)                               |
 | Stardust→Mighty rebrand compat       | shipped (v0.36 T4 — STARDUST_* env legacy)       |
 | PGO release binaries                 | shipped (v0.36 T5 — Linux + macOS-x86_64 + Win)  |
 | `mty find` / `mty fix` / `mty hooks` | shipped (v0.33/v0.34/v0.35)                      |
 | Self-host (lexer..min-typeck)        | 40/40 tests passing                              |
 
-Current v0.43 candidates are driven by the Mighty IDE lessons log:
-short-circuit logical lowering, interpreter writeback for
-statement-form `Vec`/`String` mutators, top-level `const` formatting,
-prefix-call parsing, and native link diagnostics.
+Current work (post-v0.49) extends the native Cranelift backend:
+native codegen for `std.url` / `std.uuid` / `std.regex` / crypto AEAD
+(today they transparently fall back to the interpreter), and native
+`String` methods.
 
 See
 [`CHANGELOG.md`](https://github.com/hassard0/Mighty/blob/main/CHANGELOG.md)
-at the repo root for the full release history.
+at the repo root (and the per-release notes under
+[`dev/history/releases/`](https://github.com/hassard0/Mighty/tree/main/dev/history/releases))
+for the full release history.

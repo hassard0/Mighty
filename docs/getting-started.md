@@ -4,7 +4,7 @@ This page walks through installing the Mighty compiler, scaffolding
 a package, running your first program, writing your first agent,
 running your first test, and pointing you at the next read.
 
-> **Pre-alpha status.** Mighty is at **v0.42.0** (toolchain)
+> **Pre-alpha status.** Mighty is at **v0.49.0** (toolchain)
 > tracking spec **v1.0-RC5**. The language surface is feature-
 > complete for v1.0 and frozen pending the eight open RFC comment
 > windows. Pre-built binaries ship on every release; treat the
@@ -20,7 +20,7 @@ The fastest path. Releases page:
 x86_64, macOS arm64, and Windows x86_64.
 
 ```bash
-# Linux / macOS — replace <v> with the latest tag (e.g. v0.42.0).
+# Linux / macOS — replace <v> with the latest tag (e.g. v0.49.0).
 curl -L https://github.com/hassard0/Mighty/releases/download/<v>/mty-<v>-linux-x86_64.tar.gz | tar xz
 sudo mv mty /usr/local/bin/
 mty --version

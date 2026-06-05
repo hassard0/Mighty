@@ -334,7 +334,7 @@ is the canonical list of what's enforced.
 
 ### Is Mighty production ready?
 
-**No.** The spec is RC5 and the toolchain is v0.30 (pre-1.0). It
+**No.** The spec is RC5 and the toolchain is v0.49 (pre-1.0). It
 is stable enough for hobby projects, learning, and demos. It is
 not yet stable enough to bet a paycheque on. Open issues for
 rough edges; they will be triaged for v1.0.
