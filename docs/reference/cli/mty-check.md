@@ -93,7 +93,7 @@ protocol. See
 [`docs/internals/diagnostic-envelopes.md`](../../internals/diagnostic-envelopes.md)
 for the envelope schema. The simpler structured-result shape above is
 documented in
-[`crates/mty-diagnostics/src/fix.rs`](../../../crates/mty-diagnostics/src/fix.rs)
+[`crates/mty-diagnostics/src/fix.rs`](https://github.com/hassard0/Mighty/blob/main/crates/mty-diagnostics/src/fix.rs)
 (`CheckResult` / `CheckDiagnostic`).
 
 ## Examples

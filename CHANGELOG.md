@@ -9,6 +9,37 @@ For the full per-release notes, see
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-06-04
+
+Native `std.crypto` (SHA-256/512, BLAKE3, HMAC-SHA-256) and
+`std.encoding` (hex, base64, base64url) codegen on the Cranelift path,
+plus a transparent interpreter fall-back for stdlib without native
+codegen yet (`std.url`/`std.uuid`/`std.regex`, crypto AEAD,
+`random_bytes`): `mty run` runs the program instead of silently
+SIGSEGV'ing on an unimplemented surface, and `mty build` reports a clean
+compile error rather than a runtime crash. Closes the last
+`VecOfAggregate` conformance examples (`42_crypto_url`,
+`43_secure_session`). Refreshed the `mty run` native-coverage docs.
+
+## [0.48.0] - 2026-06-03
+
+A Cranelift aggregate-codegen pass: struct field-assignment
+(sibling-safe writes + nested `o.inner.x = 7`), `Vec`-of-aggregate
+element sizing (`Vec[String]` no longer corrupts the heap), and native
+`String` constructors (`new`/`with_capacity`/`from_str`) that make the
+`26_string_vec` example run native at interpreter parity. Plus a
+permanent Windows-CI fix (a ~6-hour serial-libtest hang → ~9 min via
+`cargo-nextest`).
+
+## [0.47.0] - 2026-06-03
+
+Caller-allocated FFI OUT buffers (`extern c fn f(out: mut Vec[U8])`
+lowered to a `(ptr, capacity, *len)` triple), LLVM `lower_assign`
+projection-into-aggregate stores at parity with Cranelift, runtime ABI
+header numeric version macros + `@since`/`@deprecated` markers, `std.fs`
+DirIter scope-end auto-Drop (`read_dir_lines` retired), and the LSP
+`WorkspaceEdit` `documentChanges` migration for rename + codeAction.
+
 ## [0.46.0] - 2026-06-02
 
 v0.46 ships the official runtime ABI artifact pipeline (downstream
